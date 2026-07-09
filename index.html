@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coin Collection App - Connection Test</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; color: #222; }
+  button { font-size: 16px; padding: 12px 20px; border-radius: 8px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; width: 100%; margin-top: 12px; }
+  button:active { background: #e5e5e5; }
+  #status { margin-top: 20px; padding: 12px; border-radius: 8px; background: #f0f0f0; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .ok { background: #e6f7e6 !important; }
+  .err { background: #fce8e8 !important; }
+</style>
+</head>
+<body>
+
+<h2>Coin Collection - Connection Test</h2>
+<p>This page tests whether we can sign in with your Microsoft account and read basic info about your OneDrive. It doesn't touch any files yet.</p>
+
+<button id="loginBtn">Sign in with Microsoft</button>
+<button id="testBtn" disabled>Test OneDrive connection</button>
+
+<div id="status">Not signed in yet.</div>
+
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<script>
+  // ---- Fill in / verify these two lines ----
+  const CLIENT_ID = "bf9aaf28-a5e1-4eed-a006-15f03146693b";
+  const REDIRECT_URI = window.location.href.split(/[?#]/)[0]; // uses this page's own address automatically
+  // -------------------------------------------
+
+  const msalConfig = {
+    auth: {
+      clientId: CLIENT_ID,
+      authority: "https://login.microsoftonline.com/consumers",
+      redirectUri: REDIRECT_URI
+    },
+    cache: {
+      cacheLocation: "sessionStorage"
+    }
+  };
+
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+  const scopes = ["Files.ReadWrite", "User.Read"];
+
+  const statusEl = document.getElementById("status");
+  const loginBtn = document.getElementById("loginBtn");
+  const testBtn = document.getElementById("testBtn");
+
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg;
+    statusEl.className = cls || "";
+  }
+
+  async function init() {
+    await msalInstance.handleRedirectPromise().catch(e => setStatus("Redirect error: " + e.message, "err"));
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      msalInstance.setActiveAccount(accounts[0]);
+      setStatus("Signed in as " + accounts[0].username, "ok");
+      testBtn.disabled = false;
+    }
+  }
+
+  loginBtn.addEventListener("click", async () => {
+    try {
+      setStatus("Opening sign-in window...");
+      const result = await msalInstance.loginPopup({ scopes });
+      msalInstance.setActiveAccount(result.account);
+      setStatus("Signed in as " + result.account.username, "ok");
+      testBtn.disabled = false;
+    } catch (e) {
+      setStatus("Sign-in failed: " + e.message, "err");
+    }
+  });
+
+  testBtn.addEventListener("click", async () => {
+    try {
+      setStatus("Requesting access token...");
+      const account = msalInstance.getActiveAccount();
+      const tokenResponse = await msalInstance.acquireTokenSilent({ scopes, account }).catch(async () => {
+        return await msalInstance.acquireTokenPopup({ scopes });
+      });
+
+      setStatus("Calling Microsoft Graph...");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive", {
+        headers: { Authorization: "Bearer " + tokenResponse.accessToken }
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        setStatus("Graph API error (" + res.status + "): " + errText, "err");
+        return;
+      }
+
+      const data = await res.json();
+      setStatus(
+        "Connected!\n\nOneDrive owner: " + (data.owner && data.owner.user ? data.owner.user.displayName : "unknown") +
+        "\nDrive type: " + data.driveType +
+        "\nTotal space: " + (data.quota ? Math.round(data.quota.total / 1e9) + " GB" : "unknown") +
+        "\nUsed space: " + (data.quota ? Math.round(data.quota.used / 1e9) + " GB" : "unknown"),
+        "ok"
+      );
+    } catch (e) {
+      setStatus("Test failed: " + e.message, "err");
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>
