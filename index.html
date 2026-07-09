@@ -54,25 +54,27 @@
   }
 
   async function init() {
-    await msalInstance.handleRedirectPromise().catch(e => setStatus("Redirect error: " + e.message, "err"));
+    setStatus("Checking sign-in status...");
+    const response = await msalInstance.handleRedirectPromise().catch(e => {
+      setStatus("Redirect error: " + e.message, "err");
+      return null;
+    });
+    if (response && response.account) {
+      msalInstance.setActiveAccount(response.account);
+    }
     const accounts = msalInstance.getAllAccounts();
     if (accounts.length > 0) {
       msalInstance.setActiveAccount(accounts[0]);
       setStatus("Signed in as " + accounts[0].username, "ok");
       testBtn.disabled = false;
+    } else {
+      setStatus("Not signed in yet.");
     }
   }
 
   loginBtn.addEventListener("click", async () => {
-    try {
-      setStatus("Opening sign-in window...");
-      const result = await msalInstance.loginPopup({ scopes });
-      msalInstance.setActiveAccount(result.account);
-      setStatus("Signed in as " + result.account.username, "ok");
-      testBtn.disabled = false;
-    } catch (e) {
-      setStatus("Sign-in failed: " + e.message, "err");
-    }
+    setStatus("Redirecting to Microsoft sign-in...");
+    await msalInstance.loginRedirect({ scopes });
   });
 
   testBtn.addEventListener("click", async () => {
@@ -80,8 +82,10 @@
       setStatus("Requesting access token...");
       const account = msalInstance.getActiveAccount();
       const tokenResponse = await msalInstance.acquireTokenSilent({ scopes, account }).catch(async () => {
-        return await msalInstance.acquireTokenPopup({ scopes });
+        setStatus("Redirecting to refresh permissions...");
+        await msalInstance.acquireTokenRedirect({ scopes });
       });
+      if (!tokenResponse) return;
 
       setStatus("Calling Microsoft Graph...");
       const res = await fetch("https://graph.microsoft.com/v1.0/me/drive", {
