@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Add New Coin — Coin Collection App</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 16px; line-height: 1.5; color: #222; }
+  h2 { margin-top: 0; }
+  label { display: block; font-weight: 600; margin-top: 14px; margin-bottom: 4px; font-size: 14px; }
+  input[type=text], input[type=number], input[type=date], textarea, select {
+    width: 100%; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  .photo-row { display: flex; gap: 10px; margin-top: 8px; }
+  .photo-box { flex: 1; text-align: center; }
+  .photo-box img { width: 100%; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #ccc; display: none; background: #f3f3f3; }
+  .photo-box label.tap {
+    display: block; border: 2px dashed #aaa; border-radius: 8px; padding: 30px 8px; font-size: 13px; color: #666; cursor: pointer; margin-top: 0;
+  }
+  .photo-box input[type=file] { display: none; }
+  button#saveBtn {
+    width: 100%; padding: 16px; margin-top: 24px; font-size: 17px; font-weight: 600;
+    background: #0078d4; color: white; border: none; border-radius: 8px; cursor: pointer;
+  }
+  button#saveBtn:disabled { background: #ccc; }
+  #statusLine { margin-top: 14px; font-weight: 600; text-align: center; }
+  .ok { color: #107c10; }
+  .err { color: #d83b01; }
+  .signedout { text-align: center; padding: 40px 0; }
+  #signInBtn { background: #0078d4; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  .section-label { margin-top: 20px; font-weight: 700; font-size: 13px; text-transform: uppercase; color: #888; border-top: 1px solid #eee; padding-top: 14px; }
+</style>
+</head>
+<body>
+
+<div id="signedOutView" class="signedout">
+  <h2>Add New Coin</h2>
+  <p>Sign in to your OneDrive to continue.</p>
+  <button id="signInBtn">Sign In</button>
+</div>
+
+<div id="formView" style="display:none;">
+  <h2>Add New Coin</h2>
+
+  <div class="photo-row">
+    <div class="photo-box">
+      <img id="obversePreview">
+      <label class="tap" id="obverseLabel">📷 Obverse (front)</label>
+      <input type="file" id="obverseInput" accept="image/*" capture="environment">
+    </div>
+    <div class="photo-box">
+      <img id="reversePreview">
+      <label class="tap" id="reverseLabel">📷 Reverse (back)</label>
+      <input type="file" id="reverseInput" accept="image/*" capture="environment">
+    </div>
+  </div>
+
+  <label>Denomination</label>
+  <input type="text" id="denomination" placeholder="e.g. Lincoln Cent, Morgan Dollar">
+
+  <label>Year</label>
+  <input type="text" id="year" placeholder="e.g. 1943">
+
+  <label>Mint Mark</label>
+  <input type="text" id="mintMark" placeholder="e.g. D, S, or blank for Philadelphia">
+
+  <label>Variety / Type</label>
+  <input type="text" id="variety" placeholder="e.g. Wheat, Doubled Die">
+
+  <label>Grade (if graded)</label>
+  <input type="text" id="grade" placeholder="e.g. MS65, or leave blank">
+
+  <div class="section-label">Purchase Info</div>
+
+  <label>Purchase Price</label>
+  <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
+
+  <label>Purchase Date</label>
+  <input type="date" id="purchaseDate">
+
+  <label>Vendor / Source</label>
+  <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name">
+
+  <div class="photo-box" style="margin-top:10px;">
+    <img id="receiptPreview">
+    <label class="tap" id="receiptLabel">🧾 Receipt Photo (optional)</label>
+    <input type="file" id="receiptInput" accept="image/*" capture="environment">
+  </div>
+
+  <div class="section-label">Other</div>
+
+  <label>Storage Location</label>
+  <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A">
+
+  <label>Notes</label>
+  <textarea id="notes" placeholder="Anything else worth remembering"></textarea>
+
+  <button id="saveBtn">Save to Staging</button>
+  <div id="statusLine"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<script>
+  const msalConfig = {
+    auth: {
+      clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
+      authority: "https://login.microsoftonline.com/consumers",
+      redirectUri: "https://salty224.github.io/coin-collection-app/stage.html"
+    },
+    cache: { cacheLocation: "localStorage" }
+  };
+  const msalInstance = new msal.PublicClientApplication(msalConfig);
+  const scopes = ["Files.ReadWrite"];
+
+  const signedOutView = document.getElementById("signedOutView");
+  const formView = document.getElementById("formView");
+  const statusLine = document.getElementById("statusLine");
+  const saveBtn = document.getElementById("saveBtn");
+
+  function setStatus(msg, isError) {
+    statusLine.textContent = msg;
+    statusLine.className = isError ? "err" : "ok";
+  }
+
+  async function getToken() {
+    const account = msalInstance.getAllAccounts()[0];
+    try {
+      const result = await msalInstance.acquireTokenSilent({ scopes, account });
+      return result.accessToken;
+    } catch (e) {
+      msalInstance.acquireTokenRedirect({ scopes });
+    }
+  }
+
+  msalInstance.handleRedirectPromise().then(() => {
+    const account = msalInstance.getAllAccounts()[0];
+    if (account) {
+      signedOutView.style.display = "none";
+      formView.style.display = "block";
+    }
+  });
+
+  document.getElementById("signInBtn").addEventListener("click", () => {
+    msalInstance.loginRedirect({ scopes });
+  });
+
+  // Photo capture wiring: tapping the dashed box triggers the hidden file input,
+  // and a chosen photo shows a preview + swaps the label to "Retake".
+  function wirePhoto(inputId, labelId, previewId, defaultText) {
+    const input = document.getElementById(inputId);
+    const label = document.getElementById(labelId);
+    const preview = document.getElementById(previewId);
+    label.addEventListener("click", (e) => {
+      e.preventDefault();
+      input.click();
+    });
+    input.addEventListener("change", () => {
+      if (input.files && input.files[0]) {
+        preview.src = URL.createObjectURL(input.files[0]);
+        preview.style.display = "block";
+        label.textContent = "✅ Retake";
+      }
+    });
+  }
+  wirePhoto("obverseInput", "obverseLabel", "obversePreview");
+  wirePhoto("reverseInput", "reverseLabel", "reversePreview");
+  wirePhoto("receiptInput", "receiptLabel", "receiptPreview");
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+
+  async function uploadFile(token, path, file) {
+    const res = await fetch(
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" + path.split("/").map(encodeURIComponent).join("/") + ":/content",
+      {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + token, "Content-Type": file.type || "application/octet-stream" },
+        body: file
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  }
+
+  async function uploadJson(token, path, obj) {
+    const res = await fetch(
+      "https://graph.microsoft.com/v1.0/me/drive/root:/" + path.split("/").map(encodeURIComponent).join("/") + ":/content",
+      {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify(obj, null, 2)
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    return data;
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    const obverseFile = document.getElementById("obverseInput").files[0];
+    const reverseFile = document.getElementById("reverseInput").files[0];
+    const receiptFile = document.getElementById("receiptInput").files[0];
+
+    if (!obverseFile || !reverseFile) {
+      setStatus("Obverse and reverse photos are both required.", true);
+      return;
+    }
+
+    saveBtn.disabled = true;
+    setStatus("Saving...", false);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in.");
+
+      const now = new Date();
+      const stampDate = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate());
+      // Find next sequence number for today by trying 001, 002... a simple timestamp suffix
+      // avoids needing to list the folder first.
+      const seq = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+      const stagingId = stampDate + "-" + seq;
+      const folder = "CoinCollection/Staging/" + stagingId;
+
+      setStatus("Uploading obverse photo...", false);
+      await uploadFile(token, folder + "/obverse.jpg", obverseFile);
+
+      setStatus("Uploading reverse photo...", false);
+      await uploadFile(token, folder + "/reverse.jpg", reverseFile);
+
+      let receiptFileName = "";
+      if (receiptFile) {
+        receiptFileName = stagingId + "_receipt.jpg";
+        setStatus("Uploading receipt photo...", false);
+        await uploadFile(token, "CoinCollection/CoinReceipts/" + receiptFileName, receiptFile);
+      }
+
+      const record = {
+        stagedDate: now.toISOString(),
+        collectionID: "",
+        denomination: document.getElementById("denomination").value,
+        year: document.getElementById("year").value,
+        mintMark: document.getElementById("mintMark").value,
+        variety: document.getElementById("variety").value,
+        grade: document.getElementById("grade").value,
+        purchasePrice: document.getElementById("purchasePrice").value,
+        purchaseDate: document.getElementById("purchaseDate").value,
+        vendor: document.getElementById("vendor").value,
+        storageLocation: document.getElementById("storageLocation").value,
+        notes: document.getElementById("notes").value,
+        photos: ["obverse.jpg", "reverse.jpg"],
+        receiptPhoto: receiptFileName,
+        status: "pending_review"
+      };
+
+      setStatus("Saving record...", false);
+      await uploadJson(token, folder + "/data.json", record);
+
+      setStatus("✅ Saved to Staging/" + stagingId, false);
+      saveBtn.textContent = "Saved ✓";
+      setTimeout(() => { window.location.reload(); }, 2000);
+
+    } catch (e) {
+      setStatus("Error: " + e.message, true);
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
