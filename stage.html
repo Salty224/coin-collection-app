@@ -30,6 +30,15 @@
   .signedout { text-align: center; padding: 40px 0; }
   #signInBtn { background: #0078d4; color: white; border: none; padding: 14px 24px; border-radius: 8px; font-size: 16px; cursor: pointer; }
   .section-label { margin-top: 20px; font-weight: 700; font-size: 13px; text-transform: uppercase; color: #888; border-top: 1px solid #eee; padding-top: 14px; }
+  .additional-item { display: flex; gap: 10px; align-items: center; margin-top: 10px; border: 1px solid #eee; border-radius: 8px; padding: 8px; }
+  .additional-item img { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; background: #f3f3f3; }
+  .additional-item .fields { flex: 1; }
+  .additional-item input[type=text] { margin: 0; }
+  .additional-item .removeBtn { background: #d83b01; color: white; border: none; border-radius: 6px; padding: 8px 10px; cursor: pointer; font-size: 13px; }
+  #addImageBtn {
+    width: 100%; margin-top: 10px; padding: 10px; border: 2px dashed #aaa; border-radius: 8px;
+    background: none; color: #666; font-size: 14px; cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -47,14 +56,20 @@
     <div class="photo-box">
       <img id="obversePreview">
       <label class="tap" id="obverseLabel">📷 Obverse (front)</label>
-      <input type="file" id="obverseInput" accept="image/*" capture="environment">
+      <input type="file" id="obverseInput" accept="image/*">
     </div>
     <div class="photo-box">
       <img id="reversePreview">
       <label class="tap" id="reverseLabel">📷 Reverse (back)</label>
-      <input type="file" id="reverseInput" accept="image/*" capture="environment">
+      <input type="file" id="reverseInput" accept="image/*">
     </div>
   </div>
+  <p style="font-size:12px; color:#888; margin-top:6px;">Tap either box to take a new photo or choose an existing one from your library.</p>
+
+  <div class="section-label">Additional Images (optional)</div>
+  <p style="font-size:12px; color:#888; margin-top:0;">Seller/auction photos, combined obverse+reverse shots, or anything else worth keeping.</p>
+  <div id="additionalList"></div>
+  <button id="addImageBtn" type="button">+ Add Another Image</button>
 
   <label>Denomination</label>
   <input type="text" id="denomination" placeholder="e.g. Lincoln Cent, Morgan Dollar">
@@ -85,7 +100,7 @@
   <div class="photo-box" style="margin-top:10px;">
     <img id="receiptPreview">
     <label class="tap" id="receiptLabel">🧾 Receipt Photo (optional)</label>
-    <input type="file" id="receiptInput" accept="image/*" capture="environment">
+    <input type="file" id="receiptInput" accept="image/*">
   </div>
 
   <div class="section-label">Other</div>
@@ -146,8 +161,8 @@
   });
 
   // Photo capture wiring: tapping the dashed box triggers the hidden file input,
-  // and a chosen photo shows a preview + swaps the label to "Retake".
-  function wirePhoto(inputId, labelId, previewId, defaultText) {
+  // which (with no "capture" attribute) lets the phone offer both Camera and Photo Library.
+  function wirePhoto(inputId, labelId, previewId) {
     const input = document.getElementById(inputId);
     const label = document.getElementById(labelId);
     const preview = document.getElementById(previewId);
@@ -159,13 +174,49 @@
       if (input.files && input.files[0]) {
         preview.src = URL.createObjectURL(input.files[0]);
         preview.style.display = "block";
-        label.textContent = "✅ Retake";
+        label.textContent = "✅ Retake / Reselect";
       }
     });
   }
   wirePhoto("obverseInput", "obverseLabel", "obversePreview");
   wirePhoto("reverseInput", "reverseLabel", "reversePreview");
   wirePhoto("receiptInput", "receiptLabel", "receiptPreview");
+
+  // Additional images: dynamic list, each with a file + optional label.
+  const additionalList = document.getElementById("additionalList");
+  let additionalCount = 0;
+  const additionalItems = []; // { id, fileInput, labelInput }
+
+  document.getElementById("addImageBtn").addEventListener("click", () => {
+    additionalCount++;
+    const id = "additional_" + additionalCount;
+    const row = document.createElement("div");
+    row.className = "additional-item";
+    row.innerHTML = `
+      <img id="${id}_preview">
+      <div class="fields">
+        <input type="file" accept="image/*" id="${id}_file" style="display:block; margin-bottom:6px;">
+        <input type="text" id="${id}_label" placeholder="Label (e.g. eBay listing photo)">
+      </div>
+      <button type="button" class="removeBtn">Remove</button>
+    `;
+    additionalList.appendChild(row);
+
+    const fileInput = row.querySelector(`#${id}_file`);
+    const preview = row.querySelector(`#${id}_preview`);
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files && fileInput.files[0]) {
+        preview.src = URL.createObjectURL(fileInput.files[0]);
+      }
+    });
+    row.querySelector(".removeBtn").addEventListener("click", () => {
+      row.remove();
+      const idx = additionalItems.findIndex(item => item.id === id);
+      if (idx > -1) additionalItems.splice(idx, 1);
+    });
+
+    additionalItems.push({ id, fileInput, labelInput: row.querySelector(`#${id}_label`) });
+  });
 
   function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -216,8 +267,6 @@
 
       const now = new Date();
       const stampDate = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate());
-      // Find next sequence number for today by trying 001, 002... a simple timestamp suffix
-      // avoids needing to list the folder first.
       const seq = pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
       const stagingId = stampDate + "-" + seq;
       const folder = "CoinCollection/Staging/" + stagingId;
@@ -235,6 +284,17 @@
         await uploadFile(token, "CoinCollection/CoinReceipts/" + receiptFileName, receiptFile);
       }
 
+      const additionalImages = [];
+      for (let i = 0; i < additionalItems.length; i++) {
+        const item = additionalItems[i];
+        const file = item.fileInput.files[0];
+        if (!file) continue;
+        const fileName = "additional_" + (i + 1) + ".jpg";
+        setStatus("Uploading additional image " + (i + 1) + "...", false);
+        await uploadFile(token, folder + "/" + fileName, file);
+        additionalImages.push({ file: fileName, label: item.labelInput.value || "" });
+      }
+
       const record = {
         stagedDate: now.toISOString(),
         collectionID: "",
@@ -248,7 +308,8 @@
         vendor: document.getElementById("vendor").value,
         storageLocation: document.getElementById("storageLocation").value,
         notes: document.getElementById("notes").value,
-        photos: ["obverse.jpg", "reverse.jpg"],
+        photos: { obverse: "obverse.jpg", reverse: "reverse.jpg" },
+        additionalImages: additionalImages,
         receiptPhoto: receiptFileName,
         status: "pending_review"
       };
