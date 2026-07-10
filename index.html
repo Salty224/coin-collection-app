@@ -3,115 +3,140 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Coin Collection App - Connection Test</title>
+<title>Coin Collection App — OneDrive Connection Test</title>
 <style>
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 480px; margin: 40px auto; padding: 0 16px; color: #222; }
-  button { font-size: 16px; padding: 12px 20px; border-radius: 8px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; width: 100%; margin-top: 12px; }
-  button:active { background: #e5e5e5; }
-  #status { margin-top: 20px; padding: 12px; border-radius: 8px; background: #f0f0f0; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-  .ok { background: #e6f7e6 !important; }
-  .err { background: #fce8e8 !important; }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; line-height: 1.5; }
+  button { display: block; width: 100%; padding: 14px; margin: 10px 0; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; }
+  #signInBtn { background: #0078d4; color: white; }
+  #readBtn { background: #107c10; color: white; }
+  #writeBtn { background: #d83b01; color: white; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  pre { background: #f3f3f3; padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+  .status { font-weight: bold; margin-top: 8px; }
+  .ok { color: #107c10; }
+  .err { color: #d83b01; }
 </style>
 </head>
 <body>
 
-<h2>Coin Collection - Connection Test</h2>
-<p>This page tests whether we can sign in with your Microsoft account and read basic info about your OneDrive. It doesn't touch any files yet.</p>
+<h2>Coin Collection App — OneDrive Connection Test</h2>
+<p>This page proves out sign-in, read, and <strong>write</strong> access to your personal OneDrive via Microsoft Graph. Once write is confirmed here, this logic moves into the real app.</p>
 
-<button id="loginBtn">Sign in with Microsoft</button>
-<button id="testBtn" disabled>Test OneDrive connection</button>
+<button id="signInBtn">1. Sign In</button>
+<button id="readBtn" disabled>2. Read Drive Info</button>
+<button id="writeBtn" disabled>3. Write Test File to OneDrive</button>
 
-<div id="status">Not signed in yet.</div>
+<div id="statusLine" class="status"></div>
+<pre id="output">Not signed in yet.</pre>
 
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <script>
-  // ---- Fill in / verify these two lines ----
-  const CLIENT_ID = "bf9aaf28-a5e1-4eed-a006-15f03146693b";
-  const REDIRECT_URI = window.location.href.split(/[?#]/)[0]; // uses this page's own address automatically
-  // -------------------------------------------
-
   const msalConfig = {
     auth: {
-      clientId: CLIENT_ID,
+      clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
       authority: "https://login.microsoftonline.com/consumers",
-      redirectUri: REDIRECT_URI
+      redirectUri: "https://salty224.github.io/coin-collection-app/"
     },
     cache: {
-      cacheLocation: "sessionStorage"
+      cacheLocation: "localStorage"
     }
   };
 
   const msalInstance = new msal.PublicClientApplication(msalConfig);
-  const scopes = ["Files.ReadWrite", "User.Read"];
+  const scopes = ["Files.ReadWrite"];
 
-  const statusEl = document.getElementById("status");
-  const loginBtn = document.getElementById("loginBtn");
-  const testBtn = document.getElementById("testBtn");
+  const output = document.getElementById("output");
+  const statusLine = document.getElementById("statusLine");
+  const signInBtn = document.getElementById("signInBtn");
+  const readBtn = document.getElementById("readBtn");
+  const writeBtn = document.getElementById("writeBtn");
 
-  function setStatus(msg, cls) {
-    statusEl.textContent = msg;
-    statusEl.className = cls || "";
+  function log(obj) {
+    output.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
   }
 
-  async function init() {
-    setStatus("Checking sign-in status...");
-    const response = await msalInstance.handleRedirectPromise().catch(e => {
-      setStatus("Redirect error: " + e.message, "err");
-      return null;
-    });
-    if (response && response.account) {
-      msalInstance.setActiveAccount(response.account);
-    }
-    const accounts = msalInstance.getAllAccounts();
-    if (accounts.length > 0) {
-      msalInstance.setActiveAccount(accounts[0]);
-      setStatus("Signed in as " + accounts[0].username, "ok");
-      testBtn.disabled = false;
-    } else {
-      setStatus("Not signed in yet.");
-    }
+  function setStatus(msg, isError) {
+    statusLine.textContent = msg;
+    statusLine.className = "status " + (isError ? "err" : "ok");
   }
 
-  loginBtn.addEventListener("click", async () => {
-    setStatus("Redirecting to Microsoft sign-in...");
-    await msalInstance.loginRedirect({ scopes });
-  });
-
-  testBtn.addEventListener("click", async () => {
+  async function getToken() {
+    const account = msalInstance.getAllAccounts()[0];
     try {
-      setStatus("Requesting access token...");
-      const account = msalInstance.getActiveAccount();
-      const tokenResponse = await msalInstance.acquireTokenSilent({ scopes, account }).catch(async () => {
-        setStatus("Redirecting to refresh permissions...");
-        await msalInstance.acquireTokenRedirect({ scopes });
-      });
-      if (!tokenResponse) return;
-
-      setStatus("Calling Microsoft Graph...");
-      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive", {
-        headers: { Authorization: "Bearer " + tokenResponse.accessToken }
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        setStatus("Graph API error (" + res.status + "): " + errText, "err");
-        return;
-      }
-
-      const data = await res.json();
-      setStatus(
-        "Connected!\n\nOneDrive owner: " + (data.owner && data.owner.user ? data.owner.user.displayName : "unknown") +
-        "\nDrive type: " + data.driveType +
-        "\nTotal space: " + (data.quota ? Math.round(data.quota.total / 1e9) + " GB" : "unknown") +
-        "\nUsed space: " + (data.quota ? Math.round(data.quota.used / 1e9) + " GB" : "unknown"),
-        "ok"
-      );
+      const result = await msalInstance.acquireTokenSilent({ scopes, account });
+      return result.accessToken;
     } catch (e) {
-      setStatus("Test failed: " + e.message, "err");
+      // fall back to redirect if silent fails
+      msalInstance.acquireTokenRedirect({ scopes });
+    }
+  }
+
+  // Handle the redirect return (sign-in or token acquisition)
+  msalInstance.handleRedirectPromise().then((response) => {
+    const account = msalInstance.getAllAccounts()[0];
+    if (account) {
+      setStatus("Signed in as " + account.username, false);
+      readBtn.disabled = false;
+      writeBtn.disabled = false;
+      signInBtn.textContent = "Signed In ✓";
+      signInBtn.disabled = true;
+    }
+  }).catch((err) => {
+    setStatus("Redirect error: " + err.message, true);
+  });
+
+  signInBtn.addEventListener("click", () => {
+    msalInstance.loginRedirect({ scopes });
+  });
+
+  readBtn.addEventListener("click", async () => {
+    setStatus("Reading drive info...", false);
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive", {
+        headers: { Authorization: "Bearer " + token }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data));
+      log(data);
+      setStatus("Read succeeded.", false);
+    } catch (e) {
+      log(e.message);
+      setStatus("Read failed.", true);
     }
   });
 
-  init();
+  writeBtn.addEventListener("click", async () => {
+    setStatus("Writing test file to OneDrive...", false);
+    const token = await getToken();
+    if (!token) return;
+    try {
+      const fileName = "CoinApp-WriteTest-" + Date.now() + ".txt";
+      const content = "Coin Collection App write test.\nCreated: " + new Date().toString();
+
+      // PUT to /me/drive/root:/{filename}:/content creates the file at the OneDrive root
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" + encodeURIComponent(fileName) + ":/content",
+        {
+          method: "PUT",
+          headers: {
+            Authorization: "Bearer " + token,
+            "Content-Type": "text/plain"
+          },
+          body: content
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(data));
+      log(data);
+      setStatus("Write succeeded — check your OneDrive root for " + fileName, false);
+    } catch (e) {
+      log(e.message);
+      setStatus("Write failed.", true);
+    }
+  });
 </script>
+
 </body>
 </html>
