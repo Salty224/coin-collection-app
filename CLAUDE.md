@@ -100,6 +100,22 @@ CoinCollection/
    that stays a Claude-chat + Copilot-paste workflow. The app's only role there is
    the "Batch receipt" capture action below.
 
+### Add Coin field layout (locked in)
+Top level is only what's needed to identify the coin and describe the specific
+slab — everything else is one level down. Partial purchase data (e.g. a price with
+no seller/shipping context) isn't useful on its own, so those fields stay bundled
+together rather than mixed in at the top level.
+- **Top level**: Obverse/Reverse photos (optional to fill, but the slots are always
+  shown), Denomination (coded dropdown — see naming conventions), Year, Mint Mark,
+  Variety/Type, Grade, Grader, Cert/Type Number (SerNo), Designation, Notes.
+- **Grader** is a fixed dropdown: `PCGS`, `NGC`, `ANACS`, `Seller` (taking the
+  seller's word for it), `Me` (own best estimate). No separate "raw/ungraded"
+  value — leave Grade blank for that.
+- **Secondary, collapsed by default — Purchase Info**: Purchase Price, Shipping
+  Cost, Purchase Date, Vendor/Seller, Receipt photo.
+- **Secondary, collapsed by default — Storage & Album**: Storage Location, Assign
+  to Album (which album + which open slot), Additional photo.
+
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
 and can attach additional photos/receipts to an existing coin at any time. App CANNOT
@@ -137,17 +153,26 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
-Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet."
+Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch Receipt is a
+dashboard-only quick action, not a sixth persistent nav item.
+
+Dashboard has no summary stat cards (Total Coins / Est. Value were tried and
+dropped — not useful up front). Current composition: pending-coin banner (only
+when one exists), Spotlight, "Go To" nav tiles for the other four sections, and
+the Batch Receipt quick action.
 
 Device-tiered layout, especially for Albums: phone = simple scrollable list;
 tablet = full circular slot grid; desktop = grid with real photos inline.
 
-Albums render like a physical album page: circular slots, date/mintmark, mintage
-number (once populated) even on open holes. No per-album settings needed — each
-slot's appearance is automatic per-coin: photo if one exists, generic icon if owned
-but unphotographed, dashed outline if an open want-list hole. Tapping an open hole
-offers a "found it, pending" state, which triggers a ParkingLot note and later
-confirmation once physically placed, then flips to Filled.
+Albums is a picker first: a list of albums (name + fill-progress bar), tap one to
+open its slot detail. Albums render like a physical album page: circular slots,
+date/mintmark, mintage number (once populated) even on open holes. No per-album
+settings needed — each slot's appearance is automatic per-coin: photo if one
+exists, generic icon if owned but unphotographed, dashed outline if an open
+want-list hole. **Tapping an open/want slot jumps straight into Add Coin**, with
+the album + slot pre-filled (shown via a context banner, and pre-selected in the
+Add Coin "Assign to Album" field) — this supersedes the earlier "found it,
+pending" toggle idea.
 
 Deferred, not needed for initial build: animated page-flip / two-page desktop
 spread (simple instant toggle is enough for now), album cover + historical-info
