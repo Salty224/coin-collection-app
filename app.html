@@ -474,32 +474,43 @@
   }
   textarea { resize: vertical; min-height: 60px; }
 
-  .detail-section {
-    margin-top: 18px;
-    border: 1px solid var(--case-border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .detail-section summary {
-    padding: 13px 14px;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 13px;
-    color: var(--gold-bright);
-    list-style: none;
+  /* Drill-down rows on the Add Coin main view (Purchase Info / Storage & Album) */
+  .form-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    background: rgba(201,162,39,0.05);
+    gap: 12px;
+    padding: 14px 16px;
+    margin-top: 16px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
   }
-  .detail-section summary::-webkit-details-marker { display: none; }
-  .detail-section summary::after {
-    content: "▸";
-    color: var(--text-muted);
-    transition: transform 0.15s ease;
+  .form-row:hover { border-color: var(--case-border-bright); }
+  .form-row .fr-icon { font-size: 20px; flex-shrink: 0; }
+  .form-row .fr-info { flex: 1; min-width: 0; }
+  .form-row .fr-title { font-size: 14px; font-weight: 700; }
+  .form-row .fr-summary {
+    font-size: 12px; color: var(--text-muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .detail-section[open] summary::after { transform: rotate(90deg); }
-  .detail-section .detail-body { padding: 4px 14px 16px; }
+  .form-row .chevron { color: var(--text-muted); font-size: 18px; flex-shrink: 0; }
+
+  /* Circular presentation for coin photos (obverse/reverse/additional) — crops
+     whatever rectangular photo was taken into a coin-like disc for preview. */
+  .coin-photo-frame {
+    width: 100px; height: 100px; margin: 0 auto 12px;
+    border-radius: 50%;
+    border: 2px dashed rgba(201,162,39,0.4);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+    background: rgba(255,255,255,0.02);
+    transition: border-color 0.15s ease;
+  }
+  .coin-photo-frame.has-photo { border-style: solid; border-color: var(--case-border-bright); }
+  .coin-photo-frame .placeholder-icon { font-size: 26px; opacity: 0.45; margin: 0; }
+  .coin-photo-frame img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
+    display: none; margin: 0; border: none; background: none;
+  }
 
   .save-btn {
     width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
@@ -702,14 +713,16 @@
           <button id="albumContextClearBtn">Clear</button>
         </div>
 
-        <div class="case form-card">
+        <div class="case form-card" id="addCoinMainView">
 
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos (optional)</div>
           <div class="photo-row">
             <div class="photo-box">
               <div class="name">Obverse (front)</div>
-              <div class="placeholder-icon" id="obversePlaceholder">📷</div>
-              <img id="obversePreview">
+              <div class="coin-photo-frame" id="obverseFrame">
+                <span class="placeholder-icon" id="obversePlaceholder">📷</span>
+                <img id="obversePreview">
+              </div>
               <div class="photo-btns">
                 <button type="button" id="obverseCameraBtn">📷 Camera</button>
                 <button type="button" id="obverseLibraryBtn">🖼️ Library</button>
@@ -719,8 +732,10 @@
             </div>
             <div class="photo-box">
               <div class="name">Reverse (back)</div>
-              <div class="placeholder-icon" id="reversePlaceholder">📷</div>
-              <img id="reversePreview">
+              <div class="coin-photo-frame" id="reverseFrame">
+                <span class="placeholder-icon" id="reversePlaceholder">📷</span>
+                <img id="reversePreview">
+              </div>
               <div class="photo-btns">
                 <button type="button" id="reverseCameraBtn">📷 Camera</button>
                 <button type="button" id="reverseLibraryBtn">🖼️ Library</button>
@@ -772,62 +787,86 @@
           <label>Notes</label>
           <textarea placeholder="Anything else worth remembering"></textarea>
 
-          <details class="detail-section">
-            <summary>Purchase Info</summary>
-            <div class="detail-body">
-              <label>Purchase Price</label>
-              <input type="number" step="0.01" placeholder="e.g. 45.00">
-
-              <label>Shipping Cost</label>
-              <input type="number" step="0.01" placeholder="e.g. 6.50">
-
-              <label>Purchase Date</label>
-              <input type="date">
-
-              <label>Vendor / Seller</label>
-              <input type="text" placeholder="e.g. eBay seller, local shop name">
-
-              <div class="photo-box" style="margin-top:10px;">
-                <div class="name">🧾 Receipt Photo</div>
-                <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
-                <img id="receiptPreview">
-                <div class="photo-btns">
-                  <button type="button" id="receiptCameraBtn">📷 Camera</button>
-                  <button type="button" id="receiptLibraryBtn">🖼️ Library</button>
-                </div>
-                <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="receiptLibraryInput" accept="image/*">
-              </div>
+          <div class="case form-row" id="purchaseInfoRow">
+            <span class="fr-icon">💵</span>
+            <div class="fr-info">
+              <div class="fr-title">Purchase Info</div>
+              <div class="fr-summary" id="purchaseInfoSummary">Tap to add price, seller, shipping</div>
             </div>
-          </details>
+            <span class="chevron">›</span>
+          </div>
 
-          <details class="detail-section">
-            <summary>Storage &amp; Album</summary>
-            <div class="detail-body">
-              <label>Storage Location</label>
-              <input type="text" placeholder="e.g. Safe, Box 2, Album A">
-
-              <label>Assign to Album</label>
-              <select id="assignAlbum">
-                <option value="">— not part of an album —</option>
-              </select>
-
-              <div class="photo-box" style="margin-top:10px;">
-                <div class="name">🖼️ Additional Photo</div>
-                <div class="placeholder-icon" id="additionalPlaceholder">🖼️</div>
-                <img id="additionalPreview">
-                <div class="photo-btns">
-                  <button type="button" id="additionalCameraBtn">📷 Camera</button>
-                  <button type="button" id="additionalLibraryBtn">🖼️ Library</button>
-                </div>
-                <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="additionalLibraryInput" accept="image/*">
-              </div>
+          <div class="case form-row" id="storageAlbumRow">
+            <span class="fr-icon">📦</span>
+            <div class="fr-info">
+              <div class="fr-title">Storage &amp; Album</div>
+              <div class="fr-summary" id="storageAlbumSummary">Tap to add storage location or assign an album</div>
             </div>
-          </details>
+            <span class="chevron">›</span>
+          </div>
 
           <button class="save-btn" id="mockSaveBtn">Save to Staging</button>
           <div class="placeholder-note">Layout preview only — no OneDrive write happens yet.</div>
+        </div>
+
+        <div class="case form-card" id="addCoinPurchaseView" style="display:none;">
+          <button class="back-link" id="purchaseBackBtn" style="padding-top:0;">← Coin Details</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
+
+          <label>Shipping Cost</label>
+          <input type="number" step="0.01" id="shippingCost" placeholder="e.g. 6.50">
+
+          <label>Purchase Date</label>
+          <input type="date" id="purchaseDate">
+
+          <label>Vendor / Seller</label>
+          <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name">
+
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <div class="name">🧾 Receipt Photo</div>
+            <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
+            <img id="receiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="receiptCameraBtn">📷 Camera</button>
+              <button type="button" id="receiptLibraryBtn">🖼️ Library</button>
+            </div>
+            <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="receiptLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="purchaseDoneBtn">Done</button>
+        </div>
+
+        <div class="case form-card" id="addCoinStorageView" style="display:none;">
+          <button class="back-link" id="storageBackBtn" style="padding-top:0;">← Coin Details</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage &amp; Album</div>
+
+          <label>Storage Location</label>
+          <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A">
+
+          <label>Assign to Album</label>
+          <select id="assignAlbum">
+            <option value="">— not part of an album —</option>
+          </select>
+
+          <div class="photo-box" style="margin-top:14px;">
+            <div class="name">🖼️ Additional Photo</div>
+            <div class="coin-photo-frame" id="additionalFrame">
+              <span class="placeholder-icon" id="additionalPlaceholder">🖼️</span>
+              <img id="additionalPreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="additionalCameraBtn">📷 Camera</button>
+              <button type="button" id="additionalLibraryBtn">🖼️ Library</button>
+            </div>
+            <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="additionalLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="storageDoneBtn">Done</button>
         </div>
       </section>
 
@@ -966,6 +1005,9 @@
 
     if (viewId === "albums") {
       showAlbumsList();
+    }
+    if (viewId === "addcoin") {
+      showAddCoinMain();
     }
 
     previousViewId = viewId;
@@ -1200,12 +1242,14 @@
     for (const opt of assignSelect.options) {
       if (opt.value === matchValue) { assignSelect.value = matchValue; break; }
     }
+    updateFormRowSummaries();
   }
 
   function clearAlbumContext() {
     albumContext = null;
     document.getElementById("albumContextBanner").classList.add("hidden");
     document.getElementById("assignAlbum").value = "";
+    updateFormRowSummaries();
   }
 
   // ==================================================================
@@ -1233,13 +1277,14 @@
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
-  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId) {
     const preview = document.getElementById(previewId);
     const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
     const libraryBtn = document.getElementById(libraryBtnId);
     const cameraInput = document.getElementById(cameraInputId);
     const libraryInput = document.getElementById(libraryInputId);
+    const frame = frameId ? document.getElementById(frameId) : null;
 
     cameraBtn.addEventListener("click", () => cameraInput.click());
     libraryBtn.addEventListener("click", () => libraryInput.click());
@@ -1248,6 +1293,7 @@
       preview.src = URL.createObjectURL(file);
       preview.style.display = "block";
       if (placeholder) placeholder.style.display = "none";
+      if (frame) frame.classList.add("has-photo");
     }
     cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
@@ -1257,11 +1303,57 @@
     });
   }
 
+  // ==================================================================
+  // ADD COIN — main view + two drill-down subviews (Purchase Info, Storage & Album)
+  // ==================================================================
+
+  function showAddCoinMain() {
+    document.getElementById("addCoinMainView").style.display = "block";
+    document.getElementById("addCoinPurchaseView").style.display = "none";
+    document.getElementById("addCoinStorageView").style.display = "none";
+    updateFormRowSummaries();
+  }
+
+  function showAddCoinSubview(which) {
+    document.getElementById("addCoinMainView").style.display = "none";
+    document.getElementById("addCoinPurchaseView").style.display = which === "purchase" ? "block" : "none";
+    document.getElementById("addCoinStorageView").style.display = which === "storage" ? "block" : "none";
+    window.scrollTo({ top: 0 });
+  }
+
+  function updateFormRowSummaries() {
+    const price = document.getElementById("purchasePrice").value;
+    const shipping = document.getElementById("shippingCost").value;
+    const vendor = document.getElementById("vendor").value;
+    const purchaseParts = [];
+    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (vendor) purchaseParts.push(vendor);
+    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
+    document.getElementById("purchaseInfoSummary").textContent =
+      purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
+
+    const storageLocation = document.getElementById("storageLocation").value;
+    const assignSelect = document.getElementById("assignAlbum");
+    const assignText = assignSelect.selectedIndex > 0 ? assignSelect.options[assignSelect.selectedIndex].textContent : "";
+    const storageParts = [];
+    if (storageLocation) storageParts.push(storageLocation);
+    if (assignText) storageParts.push(assignText);
+    document.getElementById("storageAlbumSummary").textContent =
+      storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or assign an album";
+  }
+
   function initAddCoin() {
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput");
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput");
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame");
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame");
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
-    wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput");
+    wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput", "additionalFrame");
+
+    document.getElementById("purchaseInfoRow").addEventListener("click", () => showAddCoinSubview("purchase"));
+    document.getElementById("storageAlbumRow").addEventListener("click", () => showAddCoinSubview("storage"));
+    document.getElementById("purchaseBackBtn").addEventListener("click", showAddCoinMain);
+    document.getElementById("storageBackBtn").addEventListener("click", showAddCoinMain);
+    document.getElementById("purchaseDoneBtn").addEventListener("click", showAddCoinMain);
+    document.getElementById("storageDoneBtn").addEventListener("click", showAddCoinMain);
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
 
