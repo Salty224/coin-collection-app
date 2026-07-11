@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salty's Cabinet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0b0c0e;
@@ -32,7 +35,7 @@
   }
 
   h1, h2, h3, .display {
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: "Cormorant Garamond", Georgia, "Times New Roman", serif;
     letter-spacing: 0.02em;
   }
 
@@ -44,31 +47,41 @@
     position: relative;
   }
 
-  /* ---------- Header ---------- */
+  /* ---------- Header / brand ---------- */
   .topbar {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 22px 16px 14px;
+    padding: 26px 16px 20px;
     border-bottom: 1px solid var(--case-border);
-    background: linear-gradient(180deg, rgba(201,162,39,0.06), transparent);
+    background: linear-gradient(180deg, rgba(201,162,39,0.08), transparent);
   }
-  .topbar .crest { font-size: 26px; }
-  .topbar h1 {
-    font-size: 22px;
+  .brand-mark { display: flex; align-items: center; gap: 14px; }
+  .crest-badge {
+    width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+    border: 1px solid var(--case-border-bright);
+    background: radial-gradient(circle at 35% 30%, rgba(232,199,102,0.28), rgba(0,0,0,0) 72%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  .brand-text h1 {
+    font-size: 32px;
     margin: 0;
-    color: var(--gold-bright);
+    line-height: 1;
     font-weight: 700;
+    letter-spacing: 0.03em;
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 22px rgba(201,162,39,0.25);
   }
-  .topbar .tagline {
+  .brand-text .tagline {
     font-size: 12px;
     color: var(--text-muted);
-    margin-left: auto;
     font-style: italic;
+    margin-top: 4px;
     display: none;
   }
-  @media (min-width: 600px) {
-    .topbar .tagline { display: block; }
+  @media (min-width: 460px) {
+    .brand-text .tagline { display: block; }
   }
 
   /* ---------- Views ---------- */
@@ -86,6 +99,19 @@
   }
   .section-title:first-child { margin-top: 0; }
 
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--gold-bright);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 0 14px;
+    font-family: inherit;
+  }
+
   /* ---------- Museum-case card ---------- */
   .case {
     background: var(--bg-case);
@@ -94,20 +120,24 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
   }
 
-  /* ---------- Pending banner ---------- */
-  .pending-banner {
+  /* ---------- Banners (pending / context) ---------- */
+  .banner {
     display: flex;
     align-items: center;
     gap: 10px;
-    background: var(--danger-bg);
-    border: 1px solid rgba(181,72,60,0.4);
     border-radius: 10px;
     padding: 12px 14px;
     margin-bottom: 18px;
     font-size: 14px;
   }
-  .pending-banner .icon { font-size: 18px; }
-  .pending-banner .msg { flex: 1; }
+  .banner .icon { font-size: 18px; }
+  .banner .msg { flex: 1; }
+  .banner.hidden { display: none; }
+
+  .pending-banner {
+    background: var(--danger-bg);
+    border: 1px solid rgba(181,72,60,0.4);
+  }
   .pending-banner .msg strong { color: #e07a6c; }
   .pending-banner button {
     background: transparent;
@@ -118,30 +148,20 @@
     font-size: 12px;
     cursor: pointer;
   }
-  .pending-banner.hidden { display: none; }
 
-  /* ---------- Stat cards ---------- */
-  .stat-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+  .context-banner {
+    background: rgba(201,162,39,0.08);
+    border: 1px solid var(--case-border-bright);
   }
-  .stat-card {
-    padding: 16px;
-    text-align: center;
-  }
-  .stat-card .value {
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--gold-bright);
-    font-family: Georgia, serif;
-  }
-  .stat-card .label {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+  .context-banner .msg strong { color: var(--gold-bright); }
+  .context-banner button {
+    background: transparent;
+    border: 1px solid var(--case-border-bright);
     color: var(--text-muted);
-    margin-top: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
   }
 
   /* ---------- Coin disc (placeholder artwork) ---------- */
@@ -154,7 +174,7 @@
     align-items: center;
     justify-content: center;
     color: #3a2c08;
-    font-family: Georgia, serif;
+    font-family: "Cormorant Garamond", Georgia, serif;
     font-weight: 700;
     flex-shrink: 0;
     overflow: hidden;
@@ -195,9 +215,10 @@
     transition: opacity 0.3s ease;
   }
   .spotlight .coin-caption .name {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 700;
     color: var(--text);
+    font-family: "Cormorant Garamond", Georgia, serif;
   }
   .spotlight .coin-caption .meta {
     font-size: 13px;
@@ -234,6 +255,19 @@
   .nav-tile:hover { border-color: var(--case-border-bright); }
   .nav-tile .tile-icon { font-size: 26px; display: block; margin-bottom: 8px; }
   .nav-tile .tile-label { font-size: 14px; font-weight: 600; }
+
+  .quick-action {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .quick-action:hover { border-color: var(--case-border-bright); }
+  .quick-action .qa-icon { font-size: 22px; flex-shrink: 0; }
+  .quick-action .qa-title { font-size: 14px; font-weight: 700; }
+  .quick-action .qa-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   /* ---------- Browse ---------- */
   .coin-grid {
@@ -285,7 +319,35 @@
   }
   .filter-chip.active { color: var(--gold-bright); border-color: var(--gold); }
 
-  /* ---------- Albums ---------- */
+  /* ---------- Albums: picker list ---------- */
+  .album-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .album-card:hover { border-color: var(--case-border-bright); }
+  .album-card .album-card-icon {
+    width: 52px; height: 52px; border-radius: 8px; flex-shrink: 0;
+    background: linear-gradient(160deg, rgba(201,162,39,0.22), rgba(201,162,39,0.06));
+    border: 1px solid var(--case-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .album-card .album-card-info { flex: 1; min-width: 0; }
+  .album-card .album-card-name { font-size: 15px; font-weight: 700; }
+  .album-card .album-card-progress { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .album-card .progress-track {
+    height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06);
+    margin-top: 6px; overflow: hidden;
+  }
+  .album-card .progress-fill { height: 100%; background: var(--gold); }
+  .album-card .chevron { color: var(--text-muted); font-size: 18px; }
+
+  /* ---------- Albums: detail ---------- */
   .album-block { margin-bottom: 26px; }
   .album-header {
     display: flex;
@@ -293,20 +355,21 @@
     align-items: baseline;
     margin-bottom: 10px;
   }
-  .album-header h3 { margin: 0; font-size: 16px; color: var(--text); }
+  .album-header h3 { margin: 0; font-size: 20px; color: var(--text); }
   .album-header .progress { font-size: 12px; color: var(--text-muted); }
 
   .album-slots { padding: 16px; }
 
-  /* Mobile default: simple scrollable list */
   .album-slots .slot-row {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 8px 4px;
     border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: default;
   }
   .album-slots .slot-row:last-child { border-bottom: none; }
+  .album-slots .slot-row.want { cursor: pointer; }
   .slot-row .coin-disc { width: 40px; height: 40px; font-size: 8px; padding: 0 2px; }
   .slot-row .slot-info { flex: 1; }
   .slot-row .slot-label { font-size: 13px; font-weight: 600; }
@@ -318,12 +381,11 @@
     color: var(--text-muted);
   }
   .slot-row.want .slot-status { color: var(--danger); }
-  .slot-row.want .slot-status::before { content: "want"; }
+  .slot-row.want .slot-status::before { content: "tap to add"; }
   .slot-row.filled .slot-status::before { content: "filled"; }
 
   .album-slots .slot-grid { display: none; }
 
-  /* Tablet / desktop: circular slot grid */
   @media (min-width: 700px) {
     .album-slots .slot-list { display: none; }
     .album-slots .slot-grid {
@@ -339,6 +401,7 @@
       gap: 6px;
       width: 100px;
     }
+    .slot-cell.want { cursor: pointer; }
     .slot-cell .coin-disc { width: 84px; height: 84px; font-size: 13px; }
     .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
     .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
@@ -358,27 +421,44 @@
   .wish-item .wish-date { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
   .wish-item .wish-price { font-size: 14px; color: var(--gold-bright); font-weight: 700; white-space: nowrap; }
 
-  /* ---------- Add Coin (placeholder form) ---------- */
+  /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
   .photo-row { display: flex; gap: 10px; margin-bottom: 6px; }
   .photo-box {
     flex: 1;
     text-align: center;
     border: 1px dashed var(--case-border);
-    border-radius: 10px;
-    padding: 10px;
+    border-radius: 12px;
+    padding: 14px 10px;
+    background: rgba(255,255,255,0.015);
+    transition: border-color 0.15s ease;
   }
-  .photo-box .name { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted); }
+  .photo-box:hover { border-color: var(--case-border-bright); }
+  .photo-box .name { font-size: 12px; font-weight: 600; margin-bottom: 10px; color: var(--text-muted); }
+  .photo-box .placeholder-icon {
+    font-size: 30px;
+    opacity: 0.45;
+    margin-bottom: 10px;
+  }
   .photo-box img {
-    width: 100%; height: 90px; object-fit: cover; border-radius: 8px;
-    border: 1px solid var(--case-border); display: none; margin-bottom: 8px; background: var(--bg-elevated);
+    width: 100%; height: 96px; object-fit: cover; border-radius: 8px;
+    border: 1px solid var(--case-border); display: none; margin-bottom: 10px; background: var(--bg-elevated);
   }
-  .photo-btns { display: flex; gap: 6px; }
+  .photo-btns { display: flex; flex-direction: column; gap: 6px; }
   .photo-btns button {
-    flex: 1; font-size: 11px; padding: 8px 4px; border: 1px solid var(--gold-dim);
-    border-radius: 6px; background: transparent; color: var(--gold-bright); cursor: pointer;
+    font-size: 12px; padding: 9px 6px; border: 1px solid var(--gold-dim);
+    border-radius: 20px; background: transparent; color: var(--gold-bright); cursor: pointer;
+    transition: background 0.15s ease;
   }
+  .photo-btns button:hover { background: rgba(201,162,39,0.1); }
   .photo-box input[type=file] { display: none; }
+
+  .section-label {
+    margin-top: 20px; font-weight: 700; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--gold); border-top: 1px solid var(--case-border);
+    padding-top: 16px;
+  }
+  .section-label:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 
   label {
     display: block; font-weight: 600; margin-top: 14px; margin-bottom: 5px; font-size: 13px; color: var(--text-muted);
@@ -386,8 +466,40 @@
   input[type=text], input[type=number], input[type=date], textarea, select {
     width: 100%; padding: 10px; font-size: 15px; border-radius: 6px; box-sizing: border-box;
     background: var(--bg-elevated); border: 1px solid var(--case-border); color: var(--text);
+    font-family: inherit;
+  }
+  select { appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23c9a227'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; padding-right: 30px;
   }
   textarea { resize: vertical; min-height: 60px; }
+
+  .detail-section {
+    margin-top: 18px;
+    border: 1px solid var(--case-border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .detail-section summary {
+    padding: 13px 14px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--gold-bright);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(201,162,39,0.05);
+  }
+  .detail-section summary::-webkit-details-marker { display: none; }
+  .detail-section summary::after {
+    content: "▸";
+    color: var(--text-muted);
+    transition: transform 0.15s ease;
+  }
+  .detail-section[open] summary::after { transform: rotate(90deg); }
+  .detail-section .detail-body { padding: 4px 14px 16px; }
 
   .save-btn {
     width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
@@ -457,23 +569,24 @@
     .topbar { display: none; }
     .side-nav {
       display: block;
-      width: 210px;
+      width: 220px;
       flex-shrink: 0;
       min-height: 100vh;
       background: var(--bg-elevated);
       border-right: 1px solid var(--case-border);
-      padding: 20px 0;
+      padding: 22px 0;
       position: sticky;
       top: 0;
       align-self: flex-start;
     }
-    .side-nav .brand {
+    .side-nav .brand-mark {
       padding: 0 20px 20px;
       border-bottom: 1px solid var(--case-border);
       margin-bottom: 12px;
     }
-    .side-nav .brand h1 { font-size: 18px; color: var(--gold-bright); margin: 0 0 4px; }
-    .side-nav .brand .tagline { font-size: 11px; color: var(--text-muted); font-style: italic; }
+    .side-nav .brand-text h1 { font-size: 22px; }
+    .side-nav .brand-text .tagline { display: block; font-size: 11px; }
+    .side-nav .crest-badge { width: 40px; height: 40px; font-size: 20px; }
     .bottom-nav { display: none; }
     .side-nav .nav-btn {
       flex-direction: row;
@@ -494,16 +607,23 @@
 
   <!-- Mobile header -->
   <div class="topbar">
-    <span class="crest">🏛️</span>
-    <h1>Salty's Cabinet</h1>
-    <span class="tagline">A lifetime of coins, in one place</span>
+    <div class="brand-mark">
+      <span class="crest-badge">🏛️</span>
+      <div class="brand-text">
+        <h1>Salty's Cabinet</h1>
+        <div class="tagline">A lifetime of coins, in one place</div>
+      </div>
+    </div>
   </div>
 
   <!-- Desktop / tablet side nav -->
   <nav class="side-nav" id="sideNav">
-    <div class="brand">
-      <h1>Salty's Cabinet</h1>
-      <div class="tagline">A lifetime of coins, in one place</div>
+    <div class="brand-mark">
+      <span class="crest-badge">🏛️</span>
+      <div class="brand-text">
+        <h1>Salty's Cabinet</h1>
+        <div class="tagline">A lifetime of coins, in one place</div>
+      </div>
     </div>
     <!-- nav buttons injected by JS (shared with bottom nav) -->
   </nav>
@@ -514,22 +634,10 @@
       <!-- ============ DASHBOARD ============ -->
       <section class="view active" id="view-dashboard">
 
-        <div class="pending-banner hidden" id="pendingBanner">
+        <div class="banner pending-banner hidden" id="pendingBanner">
           <span class="icon">⏳</span>
           <span class="msg"><strong>1 coin pending review</strong> — saved to Staging, waiting to be reconciled.</span>
           <button id="pendingReviewBtn">Review</button>
-        </div>
-
-        <div class="section-title">Collection at a Glance</div>
-        <div class="stat-row">
-          <div class="case stat-card">
-            <div class="value" id="statTotalCoins">—</div>
-            <div class="label">Total Coins</div>
-          </div>
-          <div class="case stat-card">
-            <div class="value" id="statTotalValue">—</div>
-            <div class="label">Est. Value</div>
-          </div>
         </div>
 
         <div class="section-title">Spotlight</div>
@@ -546,6 +654,15 @@
         <div class="section-title">Go To</div>
         <div class="tile-grid" id="navTiles"></div>
 
+        <div class="section-title">Quick Actions</div>
+        <div class="case quick-action" id="batchReceiptTile">
+          <span class="qa-icon">🧾</span>
+          <div>
+            <div class="qa-title">Batch Receipt</div>
+            <div class="qa-sub">Log a receipt covering more than one coin, to process later</div>
+          </div>
+        </div>
+
       </section>
 
       <!-- ============ BROWSE ============ -->
@@ -558,7 +675,15 @@
       <!-- ============ ALBUMS ============ -->
       <section class="view" id="view-albums">
         <h2 class="display" style="margin-top:0;">Albums</h2>
-        <div id="albumsContainer"></div>
+
+        <div id="albumsListView">
+          <div id="albumsListContainer"></div>
+        </div>
+
+        <div id="albumsDetailView" style="display:none;">
+          <button class="back-link" id="albumsBackBtn">← All Albums</button>
+          <div id="albumsDetailContainer"></div>
+        </div>
       </section>
 
       <!-- ============ WISHLIST ============ -->
@@ -570,11 +695,20 @@
       <!-- ============ ADD COIN ============ -->
       <section class="view" id="view-addcoin">
         <h2 class="display" style="margin-top:0;">Add New Coin</h2>
+
+        <div class="banner context-banner hidden" id="albumContextBanner">
+          <span class="icon">📔</span>
+          <span class="msg" id="albumContextMsg"></span>
+          <button id="albumContextClearBtn">Clear</button>
+        </div>
+
         <div class="case form-card">
 
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos (optional)</div>
           <div class="photo-row">
             <div class="photo-box">
               <div class="name">Obverse (front)</div>
+              <div class="placeholder-icon" id="obversePlaceholder">📷</div>
               <img id="obversePreview">
               <div class="photo-btns">
                 <button type="button" id="obverseCameraBtn">📷 Camera</button>
@@ -585,6 +719,7 @@
             </div>
             <div class="photo-box">
               <div class="name">Reverse (back)</div>
+              <div class="placeholder-icon" id="reversePlaceholder">📷</div>
               <img id="reversePreview">
               <div class="photo-btns">
                 <button type="button" id="reverseCameraBtn">📷 Camera</button>
@@ -596,7 +731,15 @@
           </div>
 
           <label>Denomination</label>
-          <input type="text" placeholder="e.g. Lincoln Cent, Morgan Dollar">
+          <select id="denomination">
+            <option value="">— select —</option>
+            <option value="1C">1C — Cent</option>
+            <option value="5C">5C — Nickel</option>
+            <option value="10C">10C — Dime</option>
+            <option value="25C">25C — Quarter</option>
+            <option value="50C">50C — Half Dollar</option>
+            <option value="$1">$1 — Dollar</option>
+          </select>
 
           <label>Year</label>
           <input type="text" placeholder="e.g. 1943">
@@ -604,19 +747,114 @@
           <label>Mint Mark</label>
           <input type="text" placeholder="e.g. D, S, or blank for Philadelphia">
 
-          <label>Grade (if graded)</label>
-          <input type="text" placeholder="e.g. MS65, or leave blank">
+          <label>Variety / Type</label>
+          <input type="text" placeholder="e.g. Wheat, Doubled Die">
 
-          <label>Purchase Price</label>
-          <input type="number" step="0.01" placeholder="e.g. 45.00">
+          <label>Grade</label>
+          <input type="text" placeholder="e.g. MS65, AU58, or leave blank">
 
-          <label>Storage Location</label>
-          <input type="text" placeholder="e.g. Safe, Box 2, Album A">
+          <label>Grader</label>
+          <select id="grader">
+            <option value="">— select —</option>
+            <option value="PCGS">PCGS</option>
+            <option value="NGC">NGC</option>
+            <option value="ANACS">ANACS</option>
+            <option value="Seller">Seller (taking their word for it)</option>
+            <option value="Me">Me (my best estimate)</option>
+          </select>
+
+          <label>Cert / Type Number</label>
+          <input type="text" placeholder="e.g. 12345678/6721 — combined, exactly as on the slab">
+
+          <label>Designation</label>
+          <input type="text" placeholder="e.g. FBL, DDO — optional">
 
           <label>Notes</label>
           <textarea placeholder="Anything else worth remembering"></textarea>
 
+          <details class="detail-section">
+            <summary>Purchase Info</summary>
+            <div class="detail-body">
+              <label>Purchase Price</label>
+              <input type="number" step="0.01" placeholder="e.g. 45.00">
+
+              <label>Shipping Cost</label>
+              <input type="number" step="0.01" placeholder="e.g. 6.50">
+
+              <label>Purchase Date</label>
+              <input type="date">
+
+              <label>Vendor / Seller</label>
+              <input type="text" placeholder="e.g. eBay seller, local shop name">
+
+              <div class="photo-box" style="margin-top:10px;">
+                <div class="name">🧾 Receipt Photo</div>
+                <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
+                <img id="receiptPreview">
+                <div class="photo-btns">
+                  <button type="button" id="receiptCameraBtn">📷 Camera</button>
+                  <button type="button" id="receiptLibraryBtn">🖼️ Library</button>
+                </div>
+                <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="receiptLibraryInput" accept="image/*">
+              </div>
+            </div>
+          </details>
+
+          <details class="detail-section">
+            <summary>Storage &amp; Album</summary>
+            <div class="detail-body">
+              <label>Storage Location</label>
+              <input type="text" placeholder="e.g. Safe, Box 2, Album A">
+
+              <label>Assign to Album</label>
+              <select id="assignAlbum">
+                <option value="">— not part of an album —</option>
+              </select>
+
+              <div class="photo-box" style="margin-top:10px;">
+                <div class="name">🖼️ Additional Photo</div>
+                <div class="placeholder-icon" id="additionalPlaceholder">🖼️</div>
+                <img id="additionalPreview">
+                <div class="photo-btns">
+                  <button type="button" id="additionalCameraBtn">📷 Camera</button>
+                  <button type="button" id="additionalLibraryBtn">🖼️ Library</button>
+                </div>
+                <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="additionalLibraryInput" accept="image/*">
+              </div>
+            </div>
+          </details>
+
           <button class="save-btn" id="mockSaveBtn">Save to Staging</button>
+          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet.</div>
+        </div>
+      </section>
+
+      <!-- ============ BATCH RECEIPT ============ -->
+      <section class="view" id="view-batchreceipt">
+        <button class="back-link" id="batchReceiptBackBtn">← Dashboard</button>
+        <h2 class="display" style="margin-top:0;">Batch Receipt</h2>
+        <div class="case form-card">
+          <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
+            For a receipt covering multiple coins at once. This just files the photo and
+            drops a reminder note — sorting out which coins it covers still happens in a
+            chat with Claude later.
+          </p>
+          <div class="photo-box" style="max-width:220px;">
+            <div class="name">🧾 Receipt Photo</div>
+            <div class="placeholder-icon" id="batchReceiptPlaceholder">🧾</div>
+            <img id="batchReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="batchReceiptCameraBtn">📷 Camera</button>
+              <button type="button" id="batchReceiptLibraryBtn">🖼️ Library</button>
+            </div>
+            <input type="file" id="batchReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="batchReceiptLibraryInput" accept="image/*">
+          </div>
+          <label>Notes (optional)</label>
+          <textarea placeholder="e.g. GreatCollections order, 4 coins, arriving next week"></textarea>
+          <button class="save-btn" id="batchReceiptSaveBtn">Save Receipt</button>
           <div class="placeholder-note">Layout preview only — no OneDrive write happens yet.</div>
         </div>
       </section>
@@ -652,6 +890,7 @@
   const FAKE_ALBUMS = [
     {
       name: "Lincoln Cents — Whitman Folder Vol. 1",
+      icon: "🪙",
       slots: [
         { label: "1909",     meta: "P",         filled: "AY-00004" },
         { label: "1909 VDB", meta: "P",         filled: null },
@@ -665,6 +904,7 @@
     },
     {
       name: "Morgan Dollars — Complete Date Set (P)",
+      icon: "🏛️",
       slots: [
         { label: "1878", meta: "8 Tail Feathers", filled: null },
         { label: "1879", meta: "P",  filled: null },
@@ -699,7 +939,7 @@
     { id: "addcoin",   icon: "➕", label: "Add Coin" }
   ];
 
-  function buildNavButtons(container, includeLabelInline) {
+  function buildNavButtons(container) {
     NAV_ITEMS.forEach(item => {
       const btn = document.createElement("button");
       btn.className = "nav-btn";
@@ -713,18 +953,24 @@
   buildNavButtons(document.getElementById("bottomNav"));
   buildNavButtons(document.getElementById("sideNav"));
 
+  let previousViewId = null;
+
   function navigate(viewId) {
+    if (previousViewId === "addcoin" && viewId !== "addcoin") {
+      clearAlbumContext();
+    }
+
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     document.getElementById("view-" + viewId).classList.add("active");
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === viewId));
-    window.location.hash = viewId;
-    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
-  }
 
-  window.addEventListener("hashchange", () => {
-    const id = window.location.hash.replace("#", "") || "dashboard";
-    if (NAV_ITEMS.some(n => n.id === id)) navigate(id);
-  });
+    if (viewId === "albums") {
+      showAlbumsList();
+    }
+
+    previousViewId = viewId;
+    window.scrollTo({ top: 0 });
+  }
 
   // ==================================================================
   // TOAST
@@ -744,11 +990,6 @@
   // ==================================================================
 
   function initDashboard() {
-    document.getElementById("statTotalCoins").textContent = FAKE_COINS.length;
-    const totalValue = FAKE_COINS.reduce((sum, c) => sum + c.value, 0);
-    document.getElementById("statTotalValue").textContent =
-      "$" + totalValue.toLocaleString();
-
     if (FAKE_PENDING_COIN) {
       document.getElementById("pendingBanner").classList.remove("hidden");
     }
@@ -765,11 +1006,10 @@
       tileContainer.appendChild(tile);
     });
 
-    initSpotlight();
-  }
+    document.getElementById("batchReceiptTile").addEventListener("click", () => navigate("batchreceipt"));
+    document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
 
-  function coinInitials(name) {
-    return name.split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
+    initSpotlight();
   }
 
   let spotlightIndex = 0;
@@ -852,36 +1092,76 @@
   }
 
   // ==================================================================
-  // ALBUMS
+  // ALBUMS — picker list + detail, with tap-to-add-coin on open slots
   // ==================================================================
 
+  let albumContext = null; // { albumName, slotLabel } when arriving at Add Coin via an open slot
+
   function initAlbums() {
-    const container = document.getElementById("albumsContainer");
-    FAKE_ALBUMS.forEach(album => {
+    const listContainer = document.getElementById("albumsListContainer");
+    FAKE_ALBUMS.forEach((album, index) => {
       const filledCount = album.slots.filter(s => s.filled).length;
-      const block = document.createElement("div");
-      block.className = "album-block";
-
-      const listRows = album.slots.map(slot => `
-        <div class="slot-row ${slot.filled ? "filled" : "want"}">
-          <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : ""}</div>
-          <div class="slot-info">
-            <div class="slot-label">${slot.label}</div>
-            <div class="slot-meta">${slot.meta}</div>
-          </div>
-          <div class="slot-status"></div>
+      const pct = Math.round((filledCount / album.slots.length) * 100);
+      const card = document.createElement("div");
+      card.className = "case album-card";
+      card.innerHTML = `
+        <div class="album-card-icon">${album.icon}</div>
+        <div class="album-card-info">
+          <div class="album-card-name">${album.name}</div>
+          <div class="album-card-progress">${filledCount} / ${album.slots.length} filled</div>
+          <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
         </div>
-      `).join("");
+        <div class="chevron">›</div>
+      `;
+      card.addEventListener("click", () => showAlbumDetail(index));
+      listContainer.appendChild(card);
+    });
 
-      const gridCells = album.slots.map(slot => `
-        <div class="slot-cell">
-          <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : "?"}</div>
+    document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
+
+    // Populate the "Assign to Album" select on the Add Coin form with every open slot.
+    const assignSelect = document.getElementById("assignAlbum");
+    FAKE_ALBUMS.forEach(album => {
+      album.slots.filter(s => !s.filled).forEach(slot => {
+        const opt = document.createElement("option");
+        opt.value = album.name + " :: " + slot.label;
+        opt.textContent = album.name + " — " + slot.label;
+        assignSelect.appendChild(opt);
+      });
+    });
+  }
+
+  function showAlbumsList() {
+    document.getElementById("albumsListView").style.display = "block";
+    document.getElementById("albumsDetailView").style.display = "none";
+  }
+
+  function showAlbumDetail(index) {
+    const album = FAKE_ALBUMS[index];
+    const filledCount = album.slots.filter(s => s.filled).length;
+    const container = document.getElementById("albumsDetailContainer");
+
+    const listRows = album.slots.map(slot => `
+      <div class="slot-row ${slot.filled ? "filled" : "want"}" data-slot="${slot.label}">
+        <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : ""}</div>
+        <div class="slot-info">
           <div class="slot-label">${slot.label}</div>
           <div class="slot-meta">${slot.meta}</div>
         </div>
-      `).join("");
+        <div class="slot-status"></div>
+      </div>
+    `).join("");
 
-      block.innerHTML = `
+    const gridCells = album.slots.map(slot => `
+      <div class="slot-cell ${slot.filled ? "" : "want"}" data-slot="${slot.label}">
+        <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : "?"}</div>
+        <div class="slot-label">${slot.label}</div>
+        <div class="slot-meta">${slot.meta}</div>
+      </div>
+    `).join("");
+
+    container.innerHTML = `
+      <div class="album-block">
         <div class="album-header">
           <h3>${album.name}</h3>
           <span class="progress">${filledCount} / ${album.slots.length} filled</span>
@@ -890,9 +1170,42 @@
           <div class="slot-list">${listRows}</div>
           <div class="slot-grid">${gridCells}</div>
         </div>
-      `;
-      container.appendChild(block);
+      </div>
+    `;
+
+    container.querySelectorAll(".slot-row.want, .slot-cell.want").forEach(el => {
+      el.addEventListener("click", () => {
+        albumContext = { albumName: album.name, slotLabel: el.dataset.slot };
+        navigate("addcoin");
+        applyAlbumContext();
+      });
     });
+
+    document.getElementById("albumsListView").style.display = "none";
+    document.getElementById("albumsDetailView").style.display = "block";
+  }
+
+  function applyAlbumContext() {
+    const banner = document.getElementById("albumContextBanner");
+    if (!albumContext) {
+      banner.classList.add("hidden");
+      return;
+    }
+    document.getElementById("albumContextMsg").innerHTML =
+      "Adding a coin for <strong>" + albumContext.albumName + "</strong> — slot " + albumContext.slotLabel;
+    banner.classList.remove("hidden");
+
+    const assignSelect = document.getElementById("assignAlbum");
+    const matchValue = albumContext.albumName + " :: " + albumContext.slotLabel;
+    for (const opt of assignSelect.options) {
+      if (opt.value === matchValue) { assignSelect.value = matchValue; break; }
+    }
+  }
+
+  function clearAlbumContext() {
+    albumContext = null;
+    document.getElementById("albumContextBanner").classList.add("hidden");
+    document.getElementById("assignAlbum").value = "";
   }
 
   // ==================================================================
@@ -917,11 +1230,12 @@
   }
 
   // ==================================================================
-  // ADD COIN (visual only — local preview, no upload)
+  // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
-  function wireMockPhotoSlot(previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
     const preview = document.getElementById(previewId);
+    const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
     const libraryBtn = document.getElementById(libraryBtnId);
     const cameraInput = document.getElementById(cameraInputId);
@@ -933,6 +1247,7 @@
     function handleFile(file) {
       preview.src = URL.createObjectURL(file);
       preview.style.display = "block";
+      if (placeholder) placeholder.style.display = "none";
     }
     cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
@@ -943,10 +1258,23 @@
   }
 
   function initAddCoin() {
-    wireMockPhotoSlot("obversePreview", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput");
-    wireMockPhotoSlot("reversePreview", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput");
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput");
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput");
+    wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
+    wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput");
+
+    document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
+
     document.getElementById("mockSaveBtn").addEventListener("click", () => {
       showToast("Placeholder only — nothing saved. Graph API write comes later.");
+      clearAlbumContext();
+    });
+  }
+
+  function initBatchReceipt() {
+    wireMockPhotoSlot("batchReceiptPreview", "batchReceiptPlaceholder", "batchReceiptCameraBtn", "batchReceiptLibraryBtn", "batchReceiptCameraInput", "batchReceiptLibraryInput");
+    document.getElementById("batchReceiptSaveBtn").addEventListener("click", () => {
+      showToast("Placeholder only — nothing saved. A ParkingLot note would be created here.");
     });
   }
 
@@ -959,9 +1287,8 @@
   initAlbums();
   initWishlist();
   initAddCoin();
-
-  const startView = window.location.hash.replace("#", "");
-  navigate(NAV_ITEMS.some(n => n.id === startView) ? startView : "dashboard");
+  initBatchReceipt();
+  navigate("dashboard");
 </script>
 
 </body>
