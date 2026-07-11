@@ -494,6 +494,14 @@
   }
   .form-row .chevron { color: var(--text-muted); font-size: 18px; flex-shrink: 0; }
 
+  .grade-range-toggle {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+    font-size: 12px; color: var(--text-muted); cursor: pointer; font-weight: 400;
+  }
+  .grade-range-toggle input[type=checkbox] { width: auto; margin: 0; }
+  .grade-resolved { font-size: 12px; color: var(--gold-bright); margin-top: 6px; }
+  .qa-badge { color: var(--gold-bright); font-weight: 700; }
+
   /* Circular presentation for coin photos (obverse/reverse/additional) — crops
      whatever rectangular photo was taken into a coin-like disc for preview. */
   .coin-photo-frame {
@@ -674,6 +682,14 @@
           </div>
         </div>
 
+        <div class="case quick-action" id="needsDbCoinsTile" style="margin-top:12px;">
+          <span class="qa-icon">🗂️</span>
+          <div>
+            <div class="qa-title">Needs DB_Coins Entry <span class="qa-badge" id="needsDbCoinsBadge"></span></div>
+            <div class="qa-sub">Coins added without a catalog match — waiting on research</div>
+          </div>
+        </div>
+
       </section>
 
       <!-- ============ BROWSE ============ -->
@@ -757,16 +773,35 @@
           </select>
 
           <label>Year</label>
-          <input type="text" placeholder="e.g. 1943">
+          <input type="text" id="year" placeholder="e.g. 1943">
 
           <label>Mint Mark</label>
-          <input type="text" placeholder="e.g. D, S, or blank for Philadelphia">
+          <input type="text" id="mintMark" placeholder="e.g. D, S, or blank for Philadelphia">
 
-          <label>Variety / Type</label>
-          <input type="text" placeholder="e.g. Wheat, Doubled Die">
+          <label>Description</label>
+          <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)">
+
+          <label>Variety</label>
+          <input type="text" id="variety" placeholder="e.g. Type 2, Micro S, Large Date — the distinguishing feature, not the series">
+
+          <div class="banner context-banner hidden" id="dbMatchBanner">
+            <span class="icon">✅</span>
+            <span class="msg" id="dbMatchMsg"></span>
+          </div>
+          <div class="banner pending-banner hidden" id="dbNoMatchBanner">
+            <span class="icon">⚠️</span>
+            <span class="msg"><strong>No matching DB_Coins entry</strong> — this coin will still be added, but needs a catalog entry added later.</span>
+          </div>
 
           <label>Grade</label>
-          <input type="text" placeholder="e.g. MS65, AU58, or leave blank">
+          <select id="gradeFrom"></select>
+          <label class="grade-range-toggle">
+            <input type="checkbox" id="gradeRangeToggle">
+            Combine with a second grade (range, e.g. G4-VG8)
+          </label>
+          <select id="gradeTo" style="display:none; margin-top:8px;"></select>
+          <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
+          <div class="grade-resolved" id="gradeResolvedPreview"></div>
 
           <label>Grader</label>
           <select id="grader">
@@ -898,6 +933,19 @@
         </div>
       </section>
 
+      <!-- ============ NEEDS DB_COINS ENTRY ============ -->
+      <section class="view" id="view-needsdbcoins">
+        <button class="back-link" id="needsDbCoinsBackBtn">← Dashboard</button>
+        <h2 class="display" style="margin-top:0;">Needs DB_Coins Entry</h2>
+        <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
+          Coins that got added without a matching catalog row. Resolving these is still a
+          Claude-research + Copilot-paste job — this list just keeps the backlog visible
+          instead of relying on memory or scattered ParkingLot notes.
+        </p>
+        <div id="needsDbCoinsContainer"></div>
+        <p class="placeholder-note" id="needsDbCoinsEmptyNote" style="display:none;">Nothing flagged right now.</p>
+      </section>
+
     </main>
   </div>
 
@@ -965,6 +1013,101 @@
 
   // Set to a fake object to preview the pending-coin banner; null hides it (no real pending data yet).
   const FAKE_PENDING_COIN = null;
+
+  // Representative stand-in for the workbook's Lookup_Grades tab (real content lives in
+  // OneDrive, not reachable from here yet — this is just enough to demo the picker).
+  const FAKE_GRADES = [
+    { code: "P1",  label: "Poor",                       group: "circ" },
+    { code: "FR2", label: "Fair",                       group: "circ" },
+    { code: "AG3", label: "About Good",                 group: "circ" },
+    { code: "G4",  label: "Good",                       group: "circ" },
+    { code: "G6",  label: "Good+",                      group: "circ" },
+    { code: "VG8", label: "Very Good",                  group: "circ" },
+    { code: "VG10",label: "Very Good+",                 group: "circ" },
+    { code: "F12", label: "Fine",                       group: "circ" },
+    { code: "F15", label: "Fine+",                      group: "circ" },
+    { code: "VF20",label: "Very Fine",                  group: "circ" },
+    { code: "VF25",label: "Very Fine+",                 group: "circ" },
+    { code: "VF30",label: "Very Fine+",                 group: "circ" },
+    { code: "VF35",label: "Choice Very Fine",            group: "circ" },
+    { code: "XF40",label: "Extremely Fine",             group: "circ" },
+    { code: "XF45",label: "Choice Extremely Fine",       group: "circ" },
+    { code: "AU50",label: "About Uncirculated",         group: "circ" },
+    { code: "AU53",label: "About Uncirculated+",        group: "circ" },
+    { code: "AU55",label: "Choice About Uncirculated",   group: "circ" },
+    { code: "AU58",label: "Choice About Uncirculated+",  group: "circ" },
+    { code: "MS60",label: "Uncirculated",               group: "ms" },
+    { code: "MS61",label: "Uncirculated",               group: "ms" },
+    { code: "MS62",label: "Uncirculated+",              group: "ms" },
+    { code: "MS63",label: "Choice Uncirculated",         group: "ms" },
+    { code: "MS64",label: "Choice Uncirculated+",        group: "ms" },
+    { code: "MS65",label: "Gem Uncirculated",            group: "ms" },
+    { code: "MS66",label: "Gem Uncirculated+",           group: "ms" },
+    { code: "MS67",label: "Superb Gem",                  group: "ms" },
+    { code: "MS68",label: "Superb Gem+",                 group: "ms" },
+    { code: "MS69",label: "Superb Gem++",                group: "ms" },
+    { code: "MS70",label: "Perfect",                     group: "ms" },
+    { code: "Genuine",     label: "Genuine (no numeric grade)", group: "problem" },
+    { code: "AU Details",  label: "AU Details",           group: "problem" },
+    { code: "XF Details",  label: "XF Details",           group: "problem" },
+    { code: "VF Details",  label: "VF Details",           group: "problem" },
+    { code: "F Details",   label: "F Details",            group: "problem" },
+    { code: "Cleaned",     label: "Cleaned",              group: "problem" },
+    { code: "Damaged",     label: "Damaged",              group: "problem" },
+    { code: "Env Damage",  label: "Environmental Damage", group: "problem" },
+    { code: "Corroded",    label: "Corroded",             group: "problem" },
+    { code: "Scratched",   label: "Scratched",            group: "problem" }
+  ];
+
+  // Representative stand-in for the workbook's Ref_Denominations tab (year range -> series name).
+  const FAKE_DENOMINATIONS = [
+    { denom: "1C", yearStart: 1793, yearEnd: 1857, series: "Large Cent" },
+    { denom: "1C", yearStart: 1856, yearEnd: 1858, series: "Flying Eagle" },
+    { denom: "1C", yearStart: 1859, yearEnd: 1909, series: "Indian Head" },
+    { denom: "1C", yearStart: 1909, yearEnd: 1958, series: "Lincoln Wheat" },
+    { denom: "1C", yearStart: 1959, yearEnd: 2008, series: "Lincoln Memorial" },
+    { denom: "1C", yearStart: 2009, yearEnd: 2009, series: "Lincoln Bicentennial" },
+    { denom: "1C", yearStart: 2010, yearEnd: 2026, series: "Lincoln Shield" },
+    { denom: "5C", yearStart: 1866, yearEnd: 1883, series: "Shield Nickel" },
+    { denom: "5C", yearStart: 1883, yearEnd: 1913, series: "Liberty Head (V Nickel)" },
+    { denom: "5C", yearStart: 1913, yearEnd: 1938, series: "Buffalo (Indian Head)" },
+    { denom: "5C", yearStart: 1938, yearEnd: 2026, series: "Jefferson" },
+    { denom: "10C", yearStart: 1892, yearEnd: 1916, series: "Barber" },
+    { denom: "10C", yearStart: 1916, yearEnd: 1945, series: "Mercury (Winged Liberty)" },
+    { denom: "10C", yearStart: 1946, yearEnd: 2026, series: "Roosevelt" },
+    { denom: "25C", yearStart: 1892, yearEnd: 1916, series: "Barber" },
+    { denom: "25C", yearStart: 1916, yearEnd: 1930, series: "Standing Liberty" },
+    { denom: "25C", yearStart: 1932, yearEnd: 1998, series: "Washington" },
+    { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "State Quarters" },
+    { denom: "25C", yearStart: 2009, yearEnd: 2026, series: "America the Beautiful" },
+    { denom: "50C", yearStart: 1892, yearEnd: 1915, series: "Barber" },
+    { denom: "50C", yearStart: 1916, yearEnd: 1947, series: "Walking Liberty" },
+    { denom: "50C", yearStart: 1948, yearEnd: 1963, series: "Franklin" },
+    { denom: "50C", yearStart: 1964, yearEnd: 2026, series: "Kennedy" },
+    { denom: "$1", yearStart: 1878, yearEnd: 1904, series: "Morgan" },
+    { denom: "$1", yearStart: 1921, yearEnd: 1935, series: "Peace" },
+    { denom: "$1", yearStart: 1971, yearEnd: 1978, series: "Eisenhower" },
+    { denom: "$1", yearStart: 1979, yearEnd: 2026, series: "Anthony / Sacagawea / Presidential" }
+  ];
+
+  // Representative stand-in for DB_Coins (~3,753 rows in reality) — just enough rows to
+  // demo a match and a miss. Matching is denom + year + mint (blank = P) + variety (blank ok).
+  const FAKE_DB_COINS = [
+    { denom: "10C", year: 1916, mint: "D",  variety: "",            coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000 },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",          coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000 },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "",             coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000 },
+    { denom: "$1",  year: 1889, mint: "CC", variety: "",             coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000 },
+    { denom: "25C", year: 1901, mint: "S",  variety: "",             coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664 },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",     coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000 },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "",             coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000 }
+  ];
+
+  // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
+  // list isn't empty on first load; grows when Save is used on an unmatched coin.
+  const FAKE_NEEDS_QUEUE = [
+    { denom: "25C", year: "1932", mint: "D", variety: "", desc: "Washington", dateFlagged: "2026-07-08" },
+    { denom: "1C",  year: "1943", mint: "S", variety: "Steel", desc: "Lincoln Wheat", dateFlagged: "2026-07-09" }
+  ];
 
   // ==================================================================
   // NAV
@@ -1050,6 +1193,8 @@
 
     document.getElementById("batchReceiptTile").addEventListener("click", () => navigate("batchreceipt"));
     document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("needsDbCoinsTile").addEventListener("click", () => navigate("needsdbcoins"));
+    document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
 
     initSpotlight();
   }
@@ -1274,6 +1419,38 @@
   }
 
   // ==================================================================
+  // NEEDS DB_COINS ENTRY — visible backlog of coins added without a catalog match
+  // ==================================================================
+
+  function renderNeedsQueue() {
+    const container = document.getElementById("needsDbCoinsContainer");
+    container.innerHTML = "";
+    document.getElementById("needsDbCoinsEmptyNote").style.display = FAKE_NEEDS_QUEUE.length ? "none" : "block";
+
+    FAKE_NEEDS_QUEUE.slice().reverse().forEach(item => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      const label = (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") +
+        (item.variety ? " · " + item.variety : "");
+      row.innerHTML = `
+        <div>
+          <div class="wish-desc">${label}</div>
+          <div class="wish-notes">No DB_Coins match — needs a catalog entry</div>
+          <div class="wish-date">Flagged ${item.dateFlagged}</div>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+
+    updateNeedsQueueBadge();
+  }
+
+  function updateNeedsQueueBadge() {
+    const badge = document.getElementById("needsDbCoinsBadge");
+    badge.textContent = FAKE_NEEDS_QUEUE.length ? "(" + FAKE_NEEDS_QUEUE.length + ")" : "";
+  }
+
+  // ==================================================================
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
@@ -1342,6 +1519,142 @@
       storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or assign an album";
   }
 
+  // ==================================================================
+  // GRADE PICKER — standard grade dropdown, optional range combine, "Other" free text
+  // ==================================================================
+
+  const GRADE_GROUP_LABELS = { circ: "Circulated", ms: "Mint State", problem: "Details & Problem Grades" };
+
+  function buildGradeOptions(selectEl, includeOtherAndProblem) {
+    const groups = includeOtherAndProblem ? ["circ", "ms", "problem"] : ["circ", "ms"];
+    groups.forEach(groupKey => {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = GRADE_GROUP_LABELS[groupKey];
+      FAKE_GRADES.filter(g => g.group === groupKey).forEach(g => {
+        const opt = document.createElement("option");
+        opt.value = g.code;
+        opt.textContent = g.code + " — " + g.label;
+        optgroup.appendChild(opt);
+      });
+      selectEl.appendChild(optgroup);
+    });
+    if (includeOtherAndProblem) {
+      const otherOpt = document.createElement("option");
+      otherOpt.value = "__other__";
+      otherOpt.textContent = "Other / not listed";
+      selectEl.appendChild(otherOpt);
+    }
+  }
+
+  function resolveGrade() {
+    const from = document.getElementById("gradeFrom").value;
+    if (from === "__other__") return document.getElementById("gradeOther").value.trim();
+    if (document.getElementById("gradeRangeToggle").checked) {
+      const to = document.getElementById("gradeTo").value;
+      if (to && to !== from) return from + "-" + to;
+    }
+    return from;
+  }
+
+  function updateGradePreview() {
+    const resolved = resolveGrade();
+    document.getElementById("gradeResolvedPreview").textContent = resolved ? "Grade: " + resolved : "";
+  }
+
+  function initGradePicker() {
+    buildGradeOptions(document.getElementById("gradeFrom"), true);
+    buildGradeOptions(document.getElementById("gradeTo"), false);
+    document.getElementById("gradeFrom").insertBefore(
+      new Option("— select —", ""), document.getElementById("gradeFrom").firstChild
+    );
+    document.getElementById("gradeFrom").value = "";
+
+    document.getElementById("gradeFrom").addEventListener("change", (e) => {
+      const isOther = e.target.value === "__other__";
+      document.getElementById("gradeOther").style.display = isOther ? "block" : "none";
+      document.querySelector(".grade-range-toggle").style.display = isOther ? "none" : "flex";
+      if (isOther) {
+        document.getElementById("gradeRangeToggle").checked = false;
+        document.getElementById("gradeTo").style.display = "none";
+      }
+      updateGradePreview();
+    });
+    document.getElementById("gradeRangeToggle").addEventListener("change", (e) => {
+      document.getElementById("gradeTo").style.display = e.target.checked ? "block" : "none";
+      updateGradePreview();
+    });
+    document.getElementById("gradeTo").addEventListener("change", updateGradePreview);
+    document.getElementById("gradeOther").addEventListener("input", updateGradePreview);
+  }
+
+  // ==================================================================
+  // DESCRIPTION AUTO-FILL — from Ref_Denominations (Year + Denomination -> series name)
+  // ==================================================================
+
+  let descriptionAutoFilled = true;
+
+  function lookupDescription(denomCode, year) {
+    const y = parseInt(year, 10);
+    if (!denomCode || !y) return null;
+    const match = FAKE_DENOMINATIONS.find(r => r.denom === denomCode && y >= r.yearStart && y <= r.yearEnd);
+    return match ? match.series : null;
+  }
+
+  function maybeAutoFillDescription() {
+    const descEl = document.getElementById("description");
+    if (!descriptionAutoFilled && descEl.value) return;
+    const series = lookupDescription(document.getElementById("denomination").value, document.getElementById("year").value);
+    if (series) {
+      descEl.value = series;
+      descriptionAutoFilled = true;
+    }
+  }
+
+  // ==================================================================
+  // DB_COINS SOFT MATCH — Year + MintMark + Denomination + Variety, no hard block on a miss
+  // ==================================================================
+
+  let lastDbMatch = null;
+
+  function normField(v) { return (v || "").trim().toUpperCase(); }
+
+  function checkDbCoinsMatch() {
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    const mint = document.getElementById("mintMark").value;
+    const variety = document.getElementById("variety").value;
+
+    const matchBanner = document.getElementById("dbMatchBanner");
+    const noMatchBanner = document.getElementById("dbNoMatchBanner");
+
+    if (!denom || !year) {
+      matchBanner.classList.add("hidden");
+      noMatchBanner.classList.add("hidden");
+      lastDbMatch = null;
+      return;
+    }
+
+    const found = FAKE_DB_COINS.find(c =>
+      c.denom === denom &&
+      String(c.year) === year &&
+      normField(c.mint) === normField(mint) &&
+      normField(c.variety) === normField(variety)
+    );
+
+    if (found) {
+      lastDbMatch = found;
+      document.getElementById("dbMatchMsg").innerHTML =
+        "Matched DB_Coins — <strong>" + found.coinId + "</strong> · PCGS# " + found.pcgs +
+        " · Mintage " + found.mintage.toLocaleString();
+      matchBanner.classList.remove("hidden");
+      noMatchBanner.classList.add("hidden");
+    } else {
+      lastDbMatch = null;
+      matchBanner.classList.add("hidden");
+      noMatchBanner.classList.remove("hidden");
+    }
+  }
+
   function initAddCoin() {
     wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame");
     wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame");
@@ -1357,8 +1670,33 @@
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
 
+    initGradePicker();
+
+    document.getElementById("denomination").addEventListener("change", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); });
+    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); });
+    document.getElementById("mintMark").addEventListener("input", checkDbCoinsMatch);
+    document.getElementById("variety").addEventListener("input", checkDbCoinsMatch);
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; });
+
     document.getElementById("mockSaveBtn").addEventListener("click", () => {
-      showToast("Placeholder only — nothing saved. Graph API write comes later.");
+      const denom = document.getElementById("denomination").value;
+      const year = document.getElementById("year").value.trim();
+
+      if (denom && year && !lastDbMatch) {
+        FAKE_NEEDS_QUEUE.push({
+          denom, year,
+          mint: document.getElementById("mintMark").value,
+          variety: document.getElementById("variety").value,
+          desc: document.getElementById("description").value,
+          dateFlagged: new Date().toISOString().slice(0, 10)
+        });
+        renderNeedsQueue();
+        showToast("Placeholder only — flagged for DB_Coins entry (no catalog match).");
+      } else if (lastDbMatch) {
+        showToast("Placeholder only — matched " + lastDbMatch.coinId + ". Nothing saved yet.");
+      } else {
+        showToast("Placeholder only — nothing saved. Graph API write comes later.");
+      }
       clearAlbumContext();
     });
   }
@@ -1380,6 +1718,7 @@
   initWishlist();
   initAddCoin();
   initBatchReceipt();
+  renderNeedsQueue();
   navigate("dashboard");
 </script>
 
