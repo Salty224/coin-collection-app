@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salty's Cabinet</title>
+<style>
+  :root {
+    --bg: #0b0c0e;
+    --bg-elevated: #16181c;
+    --bg-case: #1b1d22;
+    --case-border: rgba(201, 162, 39, 0.35);
+    --case-border-bright: rgba(232, 199, 102, 0.55);
+    --gold: #c9a227;
+    --gold-bright: #e8c766;
+    --gold-dim: #8a6b1c;
+    --text: #ede8df;
+    --text-muted: #9b9690;
+    --danger: #b5483c;
+    --danger-bg: rgba(181, 72, 60, 0.12);
+    --nav-height: 64px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1, h2, h3, .display {
+    font-family: Georgia, "Times New Roman", serif;
+    letter-spacing: 0.02em;
+  }
+
+  #app {
+    max-width: 1100px;
+    margin: 0 auto;
+    min-height: 100vh;
+    padding-bottom: calc(var(--nav-height) + 16px);
+    position: relative;
+  }
+
+  /* ---------- Header ---------- */
+  .topbar {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 22px 16px 14px;
+    border-bottom: 1px solid var(--case-border);
+    background: linear-gradient(180deg, rgba(201,162,39,0.06), transparent);
+  }
+  .topbar .crest { font-size: 26px; }
+  .topbar h1 {
+    font-size: 22px;
+    margin: 0;
+    color: var(--gold-bright);
+    font-weight: 700;
+  }
+  .topbar .tagline {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: auto;
+    font-style: italic;
+    display: none;
+  }
+  @media (min-width: 600px) {
+    .topbar .tagline { display: block; }
+  }
+
+  /* ---------- Views ---------- */
+  .view { display: none; padding: 16px; animation: fadeIn 0.25s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--gold);
+    margin: 22px 0 10px;
+    font-weight: 700;
+  }
+  .section-title:first-child { margin-top: 0; }
+
+  /* ---------- Museum-case card ---------- */
+  .case {
+    background: var(--bg-case);
+    border: 1px solid var(--case-border);
+    border-radius: 12px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
+  }
+
+  /* ---------- Pending banner ---------- */
+  .pending-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--danger-bg);
+    border: 1px solid rgba(181,72,60,0.4);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    font-size: 14px;
+  }
+  .pending-banner .icon { font-size: 18px; }
+  .pending-banner .msg { flex: 1; }
+  .pending-banner .msg strong { color: #e07a6c; }
+  .pending-banner button {
+    background: transparent;
+    border: 1px solid rgba(181,72,60,0.5);
+    color: #e07a6c;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .pending-banner.hidden { display: none; }
+
+  /* ---------- Stat cards ---------- */
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .stat-card {
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    font-family: Georgia, serif;
+  }
+  .stat-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* ---------- Coin disc (placeholder artwork) ---------- */
+  .coin-disc {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f3d98a, #c9a227 42%, #8a6b1c 78%, #5f4a12 100%);
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #3a2c08;
+    font-family: Georgia, serif;
+    font-weight: 700;
+    flex-shrink: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .coin-disc.empty {
+    background: none;
+    box-shadow: none;
+    border: 2px dashed rgba(201,162,39,0.4);
+    color: var(--text-muted);
+  }
+
+  /* ---------- Spotlight ---------- */
+  .spotlight {
+    padding: 22px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .spotlight-eyebrow {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+  }
+  .spotlight .coin-disc {
+    width: 120px;
+    height: 120px;
+    font-size: 20px;
+    transition: opacity 0.3s ease;
+  }
+  .spotlight .coin-caption {
+    text-align: center;
+    transition: opacity 0.3s ease;
+  }
+  .spotlight .coin-caption .name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .spotlight .coin-caption .meta {
+    font-size: 13px;
+    color: var(--gold);
+    margin-top: 2px;
+  }
+  .spotlight-dots {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .spotlight-dots .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(201,162,39,0.3);
+    cursor: pointer;
+    border: none;
+    padding: 0;
+  }
+  .spotlight-dots .dot.active { background: var(--gold-bright); }
+
+  /* ---------- Nav tiles (Dashboard) ---------- */
+  .tile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .nav-tile {
+    padding: 18px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, transform 0.1s ease;
+  }
+  .nav-tile:active { transform: scale(0.98); }
+  .nav-tile:hover { border-color: var(--case-border-bright); }
+  .nav-tile .tile-icon { font-size: 26px; display: block; margin-bottom: 8px; }
+  .nav-tile .tile-label { font-size: 14px; font-weight: 600; }
+
+  /* ---------- Browse ---------- */
+  .coin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .coin-card {
+    padding: 14px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .coin-card .coin-disc { width: 64px; height: 64px; font-size: 11px; }
+  .coin-card .name { font-size: 13px; font-weight: 700; }
+  .coin-card .meta { font-size: 11px; color: var(--text-muted); }
+  .coin-card .grade-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(201,162,39,0.15);
+    color: var(--gold-bright);
+    border: 1px solid var(--case-border);
+  }
+  .coin-card .value {
+    font-size: 12px;
+    color: var(--gold);
+    font-weight: 600;
+  }
+
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .filter-chip {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--case-border);
+    background: var(--bg-case);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .filter-chip.active { color: var(--gold-bright); border-color: var(--gold); }
+
+  /* ---------- Albums ---------- */
+  .album-block { margin-bottom: 26px; }
+  .album-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .album-header h3 { margin: 0; font-size: 16px; color: var(--text); }
+  .album-header .progress { font-size: 12px; color: var(--text-muted); }
+
+  .album-slots { padding: 16px; }
+
+  /* Mobile default: simple scrollable list */
+  .album-slots .slot-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .album-slots .slot-row:last-child { border-bottom: none; }
+  .slot-row .coin-disc { width: 40px; height: 40px; font-size: 8px; padding: 0 2px; }
+  .slot-row .slot-info { flex: 1; }
+  .slot-row .slot-label { font-size: 13px; font-weight: 600; }
+  .slot-row .slot-meta { font-size: 11px; color: var(--text-muted); }
+  .slot-row .slot-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .slot-row.want .slot-status { color: var(--danger); }
+  .slot-row.want .slot-status::before { content: "want"; }
+  .slot-row.filled .slot-status::before { content: "filled"; }
+
+  .album-slots .slot-grid { display: none; }
+
+  /* Tablet / desktop: circular slot grid */
+  @media (min-width: 700px) {
+    .album-slots .slot-list { display: none; }
+    .album-slots .slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 18px;
+      justify-items: center;
+    }
+    .slot-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      width: 100px;
+    }
+    .slot-cell .coin-disc { width: 84px; height: 84px; font-size: 13px; }
+    .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
+    .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
+  }
+
+  /* ---------- Wishlist ---------- */
+  .wish-item {
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .wish-item .wish-desc { font-size: 14px; font-weight: 700; }
+  .wish-item .wish-notes { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .wish-item .wish-date { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
+  .wish-item .wish-price { font-size: 14px; color: var(--gold-bright); font-weight: 700; white-space: nowrap; }
+
+  /* ---------- Add Coin (placeholder form) ---------- */
+  .form-card { padding: 18px 16px; }
+  .photo-row { display: flex; gap: 10px; margin-bottom: 6px; }
+  .photo-box {
+    flex: 1;
+    text-align: center;
+    border: 1px dashed var(--case-border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .photo-box .name { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: var(--text-muted); }
+  .photo-box img {
+    width: 100%; height: 90px; object-fit: cover; border-radius: 8px;
+    border: 1px solid var(--case-border); display: none; margin-bottom: 8px; background: var(--bg-elevated);
+  }
+  .photo-btns { display: flex; gap: 6px; }
+  .photo-btns button {
+    flex: 1; font-size: 11px; padding: 8px 4px; border: 1px solid var(--gold-dim);
+    border-radius: 6px; background: transparent; color: var(--gold-bright); cursor: pointer;
+  }
+  .photo-box input[type=file] { display: none; }
+
+  label {
+    display: block; font-weight: 600; margin-top: 14px; margin-bottom: 5px; font-size: 13px; color: var(--text-muted);
+  }
+  input[type=text], input[type=number], input[type=date], textarea, select {
+    width: 100%; padding: 10px; font-size: 15px; border-radius: 6px; box-sizing: border-box;
+    background: var(--bg-elevated); border: 1px solid var(--case-border); color: var(--text);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+
+  .save-btn {
+    width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    color: #241c05; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .placeholder-note {
+    text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; font-style: italic;
+  }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed;
+    bottom: calc(var(--nav-height) + 16px);
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--bg-case);
+    border: 1px solid var(--case-border-bright);
+    color: var(--text);
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 50;
+    max-width: 90%;
+    text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Side nav (hidden until desktop breakpoint) ---------- */
+  .side-nav { display: none; }
+
+  /* ---------- Bottom nav (mobile) ---------- */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: var(--nav-height);
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--case-border);
+    display: flex;
+    max-width: 1100px;
+    margin: 0 auto;
+    z-index: 40;
+  }
+  .nav-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .nav-btn .nav-icon { font-size: 19px; }
+  .nav-btn.active { color: var(--gold-bright); }
+
+  /* ---------- Desktop / tablet: side nav instead of bottom nav ---------- */
+  @media (min-width: 860px) {
+    #app { display: flex; padding-bottom: 0; }
+    .topbar { display: none; }
+    .side-nav {
+      display: block;
+      width: 210px;
+      flex-shrink: 0;
+      min-height: 100vh;
+      background: var(--bg-elevated);
+      border-right: 1px solid var(--case-border);
+      padding: 20px 0;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+    }
+    .side-nav .brand {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--case-border);
+      margin-bottom: 12px;
+    }
+    .side-nav .brand h1 { font-size: 18px; color: var(--gold-bright); margin: 0 0 4px; }
+    .side-nav .brand .tagline { font-size: 11px; color: var(--text-muted); font-style: italic; }
+    .bottom-nav { display: none; }
+    .side-nav .nav-btn {
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 12px 20px;
+      font-size: 14px;
+    }
+    .side-nav .nav-btn.active { background: rgba(201,162,39,0.08); border-right: 3px solid var(--gold); }
+    .main-col { flex: 1; min-width: 0; }
+    .toast { bottom: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Mobile header -->
+  <div class="topbar">
+    <span class="crest">🏛️</span>
+    <h1>Salty's Cabinet</h1>
+    <span class="tagline">A lifetime of coins, in one place</span>
+  </div>
+
+  <!-- Desktop / tablet side nav -->
+  <nav class="side-nav" id="sideNav">
+    <div class="brand">
+      <h1>Salty's Cabinet</h1>
+      <div class="tagline">A lifetime of coins, in one place</div>
+    </div>
+    <!-- nav buttons injected by JS (shared with bottom nav) -->
+  </nav>
+
+  <div class="main-col">
+    <main id="views">
+
+      <!-- ============ DASHBOARD ============ -->
+      <section class="view active" id="view-dashboard">
+
+        <div class="pending-banner hidden" id="pendingBanner">
+          <span class="icon">⏳</span>
+          <span class="msg"><strong>1 coin pending review</strong> — saved to Staging, waiting to be reconciled.</span>
+          <button id="pendingReviewBtn">Review</button>
+        </div>
+
+        <div class="section-title">Collection at a Glance</div>
+        <div class="stat-row">
+          <div class="case stat-card">
+            <div class="value" id="statTotalCoins">—</div>
+            <div class="label">Total Coins</div>
+          </div>
+          <div class="case stat-card">
+            <div class="value" id="statTotalValue">—</div>
+            <div class="label">Est. Value</div>
+          </div>
+        </div>
+
+        <div class="section-title">Spotlight</div>
+        <div class="case spotlight" id="spotlight">
+          <div class="spotlight-eyebrow">From the cabinet</div>
+          <div class="coin-disc" id="spotlightDisc"></div>
+          <div class="coin-caption">
+            <div class="name" id="spotlightName"></div>
+            <div class="meta" id="spotlightMeta"></div>
+          </div>
+          <div class="spotlight-dots" id="spotlightDots"></div>
+        </div>
+
+        <div class="section-title">Go To</div>
+        <div class="tile-grid" id="navTiles"></div>
+
+      </section>
+
+      <!-- ============ BROWSE ============ -->
+      <section class="view" id="view-browse">
+        <h2 class="display" style="margin-top:0;">Browse Collection</h2>
+        <div class="filter-row" id="browseFilters"></div>
+        <div class="coin-grid" id="browseGrid"></div>
+      </section>
+
+      <!-- ============ ALBUMS ============ -->
+      <section class="view" id="view-albums">
+        <h2 class="display" style="margin-top:0;">Albums</h2>
+        <div id="albumsContainer"></div>
+      </section>
+
+      <!-- ============ WISHLIST ============ -->
+      <section class="view" id="view-wishlist">
+        <h2 class="display" style="margin-top:0;">Wishlist</h2>
+        <div id="wishlistContainer"></div>
+      </section>
+
+      <!-- ============ ADD COIN ============ -->
+      <section class="view" id="view-addcoin">
+        <h2 class="display" style="margin-top:0;">Add New Coin</h2>
+        <div class="case form-card">
+
+          <div class="photo-row">
+            <div class="photo-box">
+              <div class="name">Obverse (front)</div>
+              <img id="obversePreview">
+              <div class="photo-btns">
+                <button type="button" id="obverseCameraBtn">📷 Camera</button>
+                <button type="button" id="obverseLibraryBtn">🖼️ Library</button>
+              </div>
+              <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
+              <input type="file" id="obverseLibraryInput" accept="image/*">
+            </div>
+            <div class="photo-box">
+              <div class="name">Reverse (back)</div>
+              <img id="reversePreview">
+              <div class="photo-btns">
+                <button type="button" id="reverseCameraBtn">📷 Camera</button>
+                <button type="button" id="reverseLibraryBtn">🖼️ Library</button>
+              </div>
+              <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
+              <input type="file" id="reverseLibraryInput" accept="image/*">
+            </div>
+          </div>
+
+          <label>Denomination</label>
+          <input type="text" placeholder="e.g. Lincoln Cent, Morgan Dollar">
+
+          <label>Year</label>
+          <input type="text" placeholder="e.g. 1943">
+
+          <label>Mint Mark</label>
+          <input type="text" placeholder="e.g. D, S, or blank for Philadelphia">
+
+          <label>Grade (if graded)</label>
+          <input type="text" placeholder="e.g. MS65, or leave blank">
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" placeholder="e.g. 45.00">
+
+          <label>Storage Location</label>
+          <input type="text" placeholder="e.g. Safe, Box 2, Album A">
+
+          <label>Notes</label>
+          <textarea placeholder="Anything else worth remembering"></textarea>
+
+          <button class="save-btn" id="mockSaveBtn">Save to Staging</button>
+          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet.</div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="bottom-nav" id="bottomNav"></nav>
+
+  <div class="toast" id="toast"></div>
+
+</div>
+
+<script>
+  // ==================================================================
+  // FAKE DATA — placeholder only. No OneDrive / Graph calls in this file.
+  // ==================================================================
+
+  const FAKE_COINS = [
+    { id: "AY-00001", name: "Morgan Dollar",            year: 1889, mint: "CC", grade: "MS64",  value: 850 },
+    { id: "AY-00002", name: "Walking Liberty Half",     year: 1943, mint: "",   grade: "AU58",  value: 90  },
+    { id: "AY-00003", name: "Mercury Dime",              year: 1916, mint: "D",  grade: "VG8",   value: 1400 },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",        year: 1909, mint: "S",  grade: "F12",   value: 650 },
+    { id: "AY-00005", name: "Indian Head Cent",          year: 1877, mint: "",   grade: "VF20",  value: 720 },
+    { id: "AY-00006", name: "Barber Quarter",            year: 1901, mint: "S",  grade: "G4",    value: 3200 },
+    { id: "AY-00007", name: "Peace Dollar",               year: 1928, mint: "",   grade: "XF40",  value: 480 },
+    { id: "AY-00008", name: "Buffalo Nickel",             year: 1937, mint: "D",  grade: "MS62",  value: 55  },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   year: 1918, mint: "D",  grade: "VF25",  value: 210 },
+    { id: "AY-00010", name: "Franklin Half Dollar",       year: 1955, mint: "",   grade: "MS65",  value: 130 }
+  ];
+
+  const FAKE_ALBUMS = [
+    {
+      name: "Lincoln Cents — Whitman Folder Vol. 1",
+      slots: [
+        { label: "1909",     meta: "P",         filled: "AY-00004" },
+        { label: "1909 VDB", meta: "P",         filled: null },
+        { label: "1909-S",   meta: "S",         filled: "AY-00004" },
+        { label: "1909-S VDB", meta: "rarest date", filled: null },
+        { label: "1910",     meta: "P",         filled: null },
+        { label: "1910-S",   meta: "S · 6.05M", filled: null },
+        { label: "1911",     meta: "P",         filled: null },
+        { label: "1911-D",   meta: "D · 12.7M", filled: null }
+      ]
+    },
+    {
+      name: "Morgan Dollars — Complete Date Set (P)",
+      slots: [
+        { label: "1878", meta: "8 Tail Feathers", filled: null },
+        { label: "1879", meta: "P",  filled: null },
+        { label: "1880", meta: "P",  filled: null },
+        { label: "1881", meta: "P",  filled: null },
+        { label: "1882", meta: "P",  filled: null },
+        { label: "1883", meta: "P",  filled: null },
+        { label: "1884", meta: "P",  filled: null },
+        { label: "1885", meta: "P",  filled: null }
+      ]
+    }
+  ];
+
+  const FAKE_WISHLIST = [
+    { desc: "1916-D Mercury Dime", notes: "Key date — hold out for VF or better, problem-free", price: 1800, dateAdded: "2026-04-02" },
+    { desc: "1893-S Morgan Dollar", notes: "The big one. Patience.", price: 5500, dateAdded: "2026-05-14" },
+    { desc: "1937-D 3-Legged Buffalo Nickel", notes: "Variety — watch for altered fakes", price: 950, dateAdded: "2026-06-20" }
+  ];
+
+  // Set to a fake object to preview the pending-coin banner; null hides it (no real pending data yet).
+  const FAKE_PENDING_COIN = null;
+
+  // ==================================================================
+  // NAV
+  // ==================================================================
+
+  const NAV_ITEMS = [
+    { id: "dashboard", icon: "🏛️", label: "Dashboard" },
+    { id: "browse",    icon: "🔎", label: "Browse" },
+    { id: "albums",    icon: "📔", label: "Albums" },
+    { id: "wishlist",  icon: "⭐", label: "Wishlist" },
+    { id: "addcoin",   icon: "➕", label: "Add Coin" }
+  ];
+
+  function buildNavButtons(container, includeLabelInline) {
+    NAV_ITEMS.forEach(item => {
+      const btn = document.createElement("button");
+      btn.className = "nav-btn";
+      btn.dataset.view = item.id;
+      btn.innerHTML = `<span class="nav-icon">${item.icon}</span><span>${item.label}</span>`;
+      btn.addEventListener("click", () => navigate(item.id));
+      container.appendChild(btn);
+    });
+  }
+
+  buildNavButtons(document.getElementById("bottomNav"));
+  buildNavButtons(document.getElementById("sideNav"));
+
+  function navigate(viewId) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + viewId).classList.add("active");
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === viewId));
+    window.location.hash = viewId;
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  }
+
+  window.addEventListener("hashchange", () => {
+    const id = window.location.hash.replace("#", "") || "dashboard";
+    if (NAV_ITEMS.some(n => n.id === id)) navigate(id);
+  });
+
+  // ==================================================================
+  // TOAST
+  // ==================================================================
+
+  let toastTimer;
+  function showToast(msg) {
+    const toast = document.getElementById("toast");
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+  }
+
+  // ==================================================================
+  // DASHBOARD
+  // ==================================================================
+
+  function initDashboard() {
+    document.getElementById("statTotalCoins").textContent = FAKE_COINS.length;
+    const totalValue = FAKE_COINS.reduce((sum, c) => sum + c.value, 0);
+    document.getElementById("statTotalValue").textContent =
+      "$" + totalValue.toLocaleString();
+
+    if (FAKE_PENDING_COIN) {
+      document.getElementById("pendingBanner").classList.remove("hidden");
+    }
+    document.getElementById("pendingReviewBtn").addEventListener("click", () => {
+      showToast("Pending-coin reconciliation isn't wired up yet.");
+    });
+
+    const tileContainer = document.getElementById("navTiles");
+    NAV_ITEMS.filter(n => n.id !== "dashboard").forEach(item => {
+      const tile = document.createElement("div");
+      tile.className = "case nav-tile";
+      tile.innerHTML = `<span class="tile-icon">${item.icon}</span><span class="tile-label">${item.label}</span>`;
+      tile.addEventListener("click", () => navigate(item.id));
+      tileContainer.appendChild(tile);
+    });
+
+    initSpotlight();
+  }
+
+  function coinInitials(name) {
+    return name.split(" ").map(w => w[0]).join("").slice(0, 3).toUpperCase();
+  }
+
+  let spotlightIndex = 0;
+  let spotlightTimer;
+  const spotlightCoins = FAKE_COINS.slice(0, 5);
+
+  function renderSpotlight() {
+    const coin = spotlightCoins[spotlightIndex];
+    const disc = document.getElementById("spotlightDisc");
+    disc.style.opacity = 0;
+    setTimeout(() => {
+      disc.textContent = coin.year;
+      disc.style.opacity = 1;
+    }, 150);
+    document.getElementById("spotlightName").textContent = coin.name;
+    document.getElementById("spotlightMeta").textContent =
+      coin.year + (coin.mint ? "-" + coin.mint : "") + " · " + coin.grade + " · $" + coin.value.toLocaleString();
+
+    document.querySelectorAll("#spotlightDots .dot").forEach((d, i) => {
+      d.classList.toggle("active", i === spotlightIndex);
+    });
+  }
+
+  function initSpotlight() {
+    const dotsContainer = document.getElementById("spotlightDots");
+    spotlightCoins.forEach((_, i) => {
+      const dot = document.createElement("button");
+      dot.className = "dot";
+      dot.addEventListener("click", () => {
+        spotlightIndex = i;
+        renderSpotlight();
+        resetSpotlightTimer();
+      });
+      dotsContainer.appendChild(dot);
+    });
+    renderSpotlight();
+    resetSpotlightTimer();
+  }
+
+  function resetSpotlightTimer() {
+    clearInterval(spotlightTimer);
+    spotlightTimer = setInterval(() => {
+      spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
+      renderSpotlight();
+    }, 5000);
+  }
+
+  // ==================================================================
+  // BROWSE
+  // ==================================================================
+
+  function initBrowse() {
+    const filters = ["All", "Cents", "Nickels", "Dimes", "Quarters", "Halves", "Dollars"];
+    const filterRow = document.getElementById("browseFilters");
+    filters.forEach((f, i) => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (i === 0 ? " active" : "");
+      chip.textContent = f;
+      chip.addEventListener("click", () => {
+        document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+        showToast("Filtering isn't wired up yet — showing full collection.");
+      });
+      filterRow.appendChild(chip);
+    });
+
+    const grid = document.getElementById("browseGrid");
+    FAKE_COINS.forEach(coin => {
+      const card = document.createElement("div");
+      card.className = "case coin-card";
+      card.innerHTML = `
+        <div class="coin-disc">${coin.year}</div>
+        <div class="name">${coin.name}</div>
+        <div class="meta">${coin.year}${coin.mint ? "-" + coin.mint : ""} · ${coin.id}</div>
+        <span class="grade-badge">${coin.grade}</span>
+        <div class="value">$${coin.value.toLocaleString()}</div>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
+  // ==================================================================
+  // ALBUMS
+  // ==================================================================
+
+  function initAlbums() {
+    const container = document.getElementById("albumsContainer");
+    FAKE_ALBUMS.forEach(album => {
+      const filledCount = album.slots.filter(s => s.filled).length;
+      const block = document.createElement("div");
+      block.className = "album-block";
+
+      const listRows = album.slots.map(slot => `
+        <div class="slot-row ${slot.filled ? "filled" : "want"}">
+          <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : ""}</div>
+          <div class="slot-info">
+            <div class="slot-label">${slot.label}</div>
+            <div class="slot-meta">${slot.meta}</div>
+          </div>
+          <div class="slot-status"></div>
+        </div>
+      `).join("");
+
+      const gridCells = album.slots.map(slot => `
+        <div class="slot-cell">
+          <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : "?"}</div>
+          <div class="slot-label">${slot.label}</div>
+          <div class="slot-meta">${slot.meta}</div>
+        </div>
+      `).join("");
+
+      block.innerHTML = `
+        <div class="album-header">
+          <h3>${album.name}</h3>
+          <span class="progress">${filledCount} / ${album.slots.length} filled</span>
+        </div>
+        <div class="case album-slots">
+          <div class="slot-list">${listRows}</div>
+          <div class="slot-grid">${gridCells}</div>
+        </div>
+      `;
+      container.appendChild(block);
+    });
+  }
+
+  // ==================================================================
+  // WISHLIST
+  // ==================================================================
+
+  function initWishlist() {
+    const container = document.getElementById("wishlistContainer");
+    FAKE_WISHLIST.forEach(item => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      row.innerHTML = `
+        <div>
+          <div class="wish-desc">${item.desc}</div>
+          <div class="wish-notes">${item.notes}</div>
+          <div class="wish-date">Added ${item.dateAdded}</div>
+        </div>
+        <div class="wish-price">$${item.price.toLocaleString()}</div>
+      `;
+      container.appendChild(row);
+    });
+  }
+
+  // ==================================================================
+  // ADD COIN (visual only — local preview, no upload)
+  // ==================================================================
+
+  function wireMockPhotoSlot(previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
+    const preview = document.getElementById(previewId);
+    const cameraBtn = document.getElementById(cameraBtnId);
+    const libraryBtn = document.getElementById(libraryBtnId);
+    const cameraInput = document.getElementById(cameraInputId);
+    const libraryInput = document.getElementById(libraryInputId);
+
+    cameraBtn.addEventListener("click", () => cameraInput.click());
+    libraryBtn.addEventListener("click", () => libraryInput.click());
+
+    function handleFile(file) {
+      preview.src = URL.createObjectURL(file);
+      preview.style.display = "block";
+    }
+    cameraInput.addEventListener("change", () => {
+      if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
+    });
+    libraryInput.addEventListener("change", () => {
+      if (libraryInput.files[0]) handleFile(libraryInput.files[0]);
+    });
+  }
+
+  function initAddCoin() {
+    wireMockPhotoSlot("obversePreview", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput");
+    wireMockPhotoSlot("reversePreview", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput");
+    document.getElementById("mockSaveBtn").addEventListener("click", () => {
+      showToast("Placeholder only — nothing saved. Graph API write comes later.");
+    });
+  }
+
+  // ==================================================================
+  // INIT
+  // ==================================================================
+
+  initDashboard();
+  initBrowse();
+  initAlbums();
+  initWishlist();
+  initAddCoin();
+
+  const startView = window.location.hash.replace("#", "");
+  navigate(NAV_ITEMS.some(n => n.id === startView) ? startView : "dashboard");
+</script>
+
+</body>
+</html>
