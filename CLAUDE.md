@@ -4,6 +4,11 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## Maintenance
+Whenever a schema change, architectural decision, or naming convention change is
+confirmed in a session, update this file to reflect it before ending the session or
+starting a new major task — don't wait to be asked.
+
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
 - No backend server — static HTML/JS + Microsoft Graph API only.
