@@ -5,9 +5,13 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Maintenance
-Whenever a schema change, architectural decision, or naming convention change is
-confirmed in a session, update this file to reflect it before ending the session or
-starting a new major task — don't wait to be asked.
+Update this file only when something changes that a future session would actually
+need to know to avoid re-doing work or making a wrong assumption — a new
+architectural decision, a schema/naming convention change, a scope boundary, or a
+change to how a feature is supposed to work. Don't update it for routine task
+completions (a bug fix, a component built to existing spec, a screen finished per
+existing spec) — just do the work. If unsure whether something rises to that bar,
+ask before updating rather than updating by default.
 
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
