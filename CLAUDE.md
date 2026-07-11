@@ -107,7 +107,11 @@ no seller/shipping context) isn't useful on its own, so those fields stay bundle
 together rather than mixed in at the top level.
 - **Top level**: Obverse/Reverse photos (optional to fill, but the slots are always
   shown), Denomination (coded dropdown — see naming conventions), Year, Mint Mark,
-  Variety/Type, Grade, Grader, Cert/Type Number (SerNo), Designation, Notes.
+  Description, Variety, Grade, Grader, Cert/Type Number (SerNo), Designation, Notes.
+- **Description vs. Variety are separate fields, matching the existing Excel
+  columns** (not a schema change): Description is the series/design name (e.g.
+  "Mercury (Winged Liberty)"); Variety is the true distinguishing feature (e.g.
+  "Type 2", "Micro S", "Large Date"). Don't conflate them back into one field.
 - **Grader** is a fixed dropdown: `PCGS`, `NGC`, `ANACS`, `Seller` (taking the
   seller's word for it), `Me` (own best estimate). No separate "raw/ungraded"
   value — leave Grade blank for that.
@@ -128,6 +132,45 @@ together rather than mixed in at the top level.
   crop only — it assumes the coin roughly fills the frame, not smart edge
   detection. Real auto-detection/AI cropping is out of scope (see "What NOT to
   build").
+
+### Grade picker (locked in)
+Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Details &
+Problem Grades groups), not free text. Two extra modes on top of a plain single
+pick:
+- **Range/combine**: a checkbox reveals a second "to" grade dropdown (standard
+  grades only, no Details/Problem/Other); picking two combines them into one
+  value, e.g. Good (`G4`) + Very Good (`VG8`) → `G4-VG8`.
+- **Other**: reveals free text for edge cases the standard list doesn't cover.
+
+### Description auto-fill (locked in)
+Once Year + Denomination are both entered, Description auto-fills from
+Ref_Denominations (year range → series name per denomination), e.g. 1920 + Dime
+→ "Mercury (Winged Liberty)". Stays editable — once the user types into
+Description directly, later Year/Denomination edits stop overwriting it (won't
+clobber a manual correction for transition years/edge cases).
+
+### DB_Coins soft match (locked in)
+Once Year + Denomination are filled in (Mint Mark and Variety are used in the
+match key as-is, including blank — most DB_Coins rows have no notable variety),
+soft-check against DB_Coins:
+- **Match** → auto-pull and show CoinID, PCGS#, Mintage.
+- **No match** → do NOT hard-block. Show a clear, non-blocking warning ("No
+  matching DB_Coins entry — coin will still be added, but needs a catalog entry
+  added later") and let the coin proceed to get its **CollectionID** immediately.
+  DB_Coins isn't meant to be exhaustive, so blocking would sometimes be wrong,
+  not just annoying.
+- **CoinID vs. CollectionID are different IDs and follow different rules.**
+  CollectionID (ownership tracking, `AY-#####`) is still assigned only at
+  successful Excel write, per the core workflow above — a DB_Coins miss doesn't
+  change that. CoinID (the DB_Coins reference key) is what's allowed to stay
+  blank/pending on a miss.
+
+### Needs DB_Coins Entry queue (locked in)
+Any coin saved without a DB_Coins match gets flagged and shows up in a
+dedicated in-app list (reachable via a dashboard quick action with a live
+count badge) — a visible backlog instead of relying on memory or scattered
+ParkingLot notes. Resolution process is unchanged: Claude research + Copilot
+adds the DB_Coins row; this just makes the backlog visible.
 
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
