@@ -6,7 +6,7 @@
 <title>Salty's Cabinet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0b0c0e;
@@ -520,6 +520,36 @@
     display: none; margin: 0; border: none; background: none;
   }
 
+  /* Flip-frame: the circle plus the open corner space around it, labeled like a
+     collector's handwriting on a 2x2 coin flip as the form fields get filled in. */
+  .flip-frame {
+    position: relative;
+    width: 100%;
+    height: 154px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .flip-frame .coin-photo-frame { margin: 0; }
+  .flip-label {
+    position: absolute;
+    font-family: "Caveat", cursive;
+    font-weight: 600;
+    font-size: 13px;
+    color: rgba(232, 199, 102, 0.8);
+    line-height: 1;
+    pointer-events: none;
+    max-width: 52%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flip-label.tl { top: 4px;    left: 6px;   transform: rotate(-3deg); }
+  .flip-label.tr { top: 4px;    right: 6px;  transform: rotate(3deg); text-align: right; }
+  .flip-label.bl { bottom: 4px; left: 6px;   transform: rotate(2deg); }
+  .flip-label.br { bottom: 4px; right: 6px;  transform: rotate(-2deg); text-align: right; }
+
   .save-btn {
     width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
@@ -735,9 +765,15 @@
           <div class="photo-row">
             <div class="photo-box">
               <div class="name">Obverse (front)</div>
-              <div class="coin-photo-frame" id="obverseFrame">
-                <span class="placeholder-icon" id="obversePlaceholder">📷</span>
-                <img id="obversePreview">
+              <div class="flip-frame">
+                <span class="flip-label tl" id="flipObverseTL"></span>
+                <span class="flip-label tr" id="flipObverseTR"></span>
+                <div class="coin-photo-frame" id="obverseFrame">
+                  <span class="placeholder-icon" id="obversePlaceholder">📷</span>
+                  <img id="obversePreview">
+                </div>
+                <span class="flip-label bl" id="flipObverseBL"></span>
+                <span class="flip-label br" id="flipObverseBR"></span>
               </div>
               <div class="photo-btns">
                 <button type="button" id="obverseCameraBtn">📷 Camera</button>
@@ -748,9 +784,15 @@
             </div>
             <div class="photo-box">
               <div class="name">Reverse (back)</div>
-              <div class="coin-photo-frame" id="reverseFrame">
-                <span class="placeholder-icon" id="reversePlaceholder">📷</span>
-                <img id="reversePreview">
+              <div class="flip-frame">
+                <span class="flip-label tl" id="flipReverseTL"></span>
+                <span class="flip-label tr" id="flipReverseTR"></span>
+                <div class="coin-photo-frame" id="reverseFrame">
+                  <span class="placeholder-icon" id="reversePlaceholder">📷</span>
+                  <img id="reversePreview">
+                </div>
+                <span class="flip-label bl" id="flipReverseBL"></span>
+                <span class="flip-label br" id="flipReverseBR"></span>
               </div>
               <div class="photo-btns">
                 <button type="button" id="reverseCameraBtn">📷 Camera</button>
@@ -817,7 +859,10 @@
           <input type="text" placeholder="e.g. 12345678/6721 — combined, exactly as on the slab">
 
           <label>Designation</label>
-          <input type="text" placeholder="e.g. FBL, DDO — optional">
+          <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
+
+          <label>Error</label>
+          <input type="text" id="errorDesc" placeholder="e.g. Off-center strike, broadstrike — optional, for mint errors">
 
           <label>Notes</label>
           <textarea placeholder="Anything else worth remembering"></textarea>
@@ -1573,6 +1618,7 @@
   function updateGradePreview() {
     const resolved = resolveGrade();
     document.getElementById("gradeResolvedPreview").textContent = resolved ? "Grade: " + resolved : "";
+    updateFlipLabels();
   }
 
   function initGradePicker() {
@@ -1669,6 +1715,46 @@
     }
   }
 
+  // ==================================================================
+  // FLIP LABELS — corner annotations on the obverse/reverse photo previews,
+  // styled like a collector's handwriting on a 2x2 coin flip. Live-updating,
+  // additive to (not a replacement for) the plain-text fields themselves.
+  // ==================================================================
+
+  function shortDescription(desc) {
+    if (!desc) return "";
+    const idx = desc.indexOf(" (");
+    return idx > -1 ? desc.slice(0, idx) : desc;
+  }
+
+  function updateFlipLabels() {
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    const mint = document.getElementById("mintMark").value.trim();
+    const desc = document.getElementById("description").value.trim();
+    const variety = document.getElementById("variety").value.trim();
+    const designation = document.getElementById("designation").value.trim();
+    const errorText = document.getElementById("errorDesc").value.trim();
+    const gradeSource = document.getElementById("gradeSource").value;
+    const grade = resolveGrade();
+    const price = document.getElementById("purchasePrice").value;
+
+    const yearMint = year + (mint ? "-" + mint : "");
+    const denomShort = [denom, shortDescription(desc)].filter(Boolean).join(" ");
+    const gradeParts = [];
+    if (grade) gradeParts.push(grade);
+    if (gradeSource) gradeParts.push(gradeSource);
+
+    document.getElementById("flipObverseTL").textContent = yearMint;
+    document.getElementById("flipObverseTR").textContent = denomShort;
+    document.getElementById("flipObverseBL").textContent = gradeParts.join(" ");
+    document.getElementById("flipObverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
+
+    // Reverse only carries overflow info that doesn't fit the obverse corners.
+    document.getElementById("flipReverseTL").textContent = [variety, designation].filter(Boolean).join(", ");
+    document.getElementById("flipReverseBL").textContent = errorText;
+  }
+
   function initAddCoin() {
     wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame");
     wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame");
@@ -1686,11 +1772,15 @@
 
     initGradePicker();
 
-    document.getElementById("denomination").addEventListener("change", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); });
-    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); });
-    document.getElementById("mintMark").addEventListener("input", checkDbCoinsMatch);
-    document.getElementById("variety").addEventListener("input", checkDbCoinsMatch);
-    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; });
+    document.getElementById("denomination").addEventListener("change", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("mintMark").addEventListener("input", () => { checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("variety").addEventListener("input", () => { checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; updateFlipLabels(); });
+    document.getElementById("designation").addEventListener("input", updateFlipLabels);
+    document.getElementById("errorDesc").addEventListener("input", updateFlipLabels);
+    document.getElementById("gradeSource").addEventListener("change", updateFlipLabels);
+    document.getElementById("purchasePrice").addEventListener("input", updateFlipLabels);
 
     document.getElementById("mockSaveBtn").addEventListener("click", () => {
       const denom = document.getElementById("denomination").value;
@@ -1713,6 +1803,8 @@
       }
       clearAlbumContext();
     });
+
+    updateFlipLabels();
   }
 
   function initBatchReceipt() {
