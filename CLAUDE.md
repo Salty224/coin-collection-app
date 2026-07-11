@@ -115,6 +115,19 @@ together rather than mixed in at the top level.
   Cost, Purchase Date, Vendor/Seller, Receipt photo.
 - **Secondary, collapsed by default — Storage & Album**: Storage Location, Assign
   to Album (which album + which open slot), Additional photo.
+- **Interaction pattern for the two secondary sections is drill-down, not an
+  inline accordion**: tapping "Purchase Info" or "Storage & Album" replaces the
+  top-level fields with just that section's fields (a back link returns to the
+  top level). Once filled in and closed, the row shows a one-line summary of
+  what was entered (e.g. "$45.00 · eBay seller") instead of the raw fields, so
+  the top level stays short.
+- **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
+  circular**, cropped from whatever rectangular photo was taken (CSS
+  object-fit + border-radius, same treatment as the Spotlight/Browse coin
+  discs) so they read as a coin rather than a square photo. This is a display
+  crop only — it assumes the coin roughly fills the frame, not smart edge
+  detection. Real auto-detection/AI cropping is out of scope (see "What NOT to
+  build").
 
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
