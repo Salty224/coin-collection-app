@@ -116,7 +116,10 @@ together rather than mixed in at the top level.
 - **Top level**: Obverse/Reverse photos (optional to fill, but the slots are always
   shown), Denomination (coded dropdown — see naming conventions), Year, Mint Mark,
   Description, Variety, Grade, GradeSource, Cert/Type Number (SerNo), Designation,
-  Notes.
+  Error, Notes.
+- **Error** (new field) is distinct from Variety and Designation — it's for mint
+  errors (off-center strike, broadstrike, wrong planchet, etc.), not cataloged
+  varieties or grading-service qualifiers. Optional, usually blank.
 - **Description vs. Variety are separate fields, matching the existing Excel
   columns** (not a schema change): Description is the series/design name (e.g.
   "Mercury (Winged Liberty)"); Variety is the true distinguishing feature (e.g.
@@ -143,6 +146,24 @@ together rather than mixed in at the top level.
   crop only — it assumes the coin roughly fills the frame, not smart edge
   detection. Real auto-detection/AI cropping is out of scope (see "What NOT to
   build").
+
+### Coin-flip corner labels (locked in)
+Live-updating text overlays in the open corner space around the circular
+Obverse/Reverse photo previews, styled like a collector's handwriting on a 2x2
+flip (Caveat font) — so the digital record and the physical flip carry the
+same info in the same positions, and transcribing one to the other is just
+copying what's on screen. Additive only — the underlying plain-text fields
+stay the actual source of truth and are never removed or replaced by this.
+- **Obverse** (always populated when the source field has a value):
+  top-left Year+MintMark (`1945-S`); top-right Denomination + short Description,
+  i.e. Description truncated at the first " (" (`10C Mercury`); bottom-left
+  Grade+GradeSource (`MS67 PCGS`); bottom-right Purchase Price (`$45.00`).
+- **Reverse** (only carries overflow that doesn't fit the obverse corners):
+  top-left Variety+Designation combined (`Micro S, FB`); bottom-left Error, if
+  set. Stays label-free when Variety/Designation/Error are all blank.
+- Exact corner split when both Variety/Designation *and* Error are present at
+  once isn't fully locked in beyond top-left/bottom-left — open for Ray to
+  revisit.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Details &
