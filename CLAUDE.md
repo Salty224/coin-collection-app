@@ -154,10 +154,10 @@ together rather than mixed in at the top level.
 
 ### Coin-flip corner labels (locked in)
 Text overlays in the open corner space around a coin's circular photo/disc,
-styled like a collector's handwriting on a 2x2 flip (Caveat font) — so the
-digital record and the physical flip carry the same info in the same
-positions, and transcribing one to the other is just copying what's on
-screen. This applies in two places, both using the same corner mapping:
+styled like a collector's handwriting on a 2x2 flip (Caveat font, straight
+horizontal — no rotation) — so the digital record and the physical flip carry
+the same info in the same positions. This applies in two places, both using
+the same corner mapping:
 - **Add Coin (live entry)**: labels update live as the top-level fields are
   filled in. The underlying form fields stay the actual source of truth —
   this overlay never replaces them.
@@ -168,17 +168,22 @@ screen. This applies in two places, both using the same corner mapping:
   so it isn't lost for accessibility; the visible corner spans are
   `aria-hidden`. Small grid/thumbnail views (Browse's grid) keep simple plain
   text instead — labels wouldn't be legible at that size.
-- **Obverse** (always populated when the source field has a value):
-  top-left Year+MintMark (`1945-S`); top-right Denomination/type shorthand —
-  Description truncated at the first " (" on Add Coin (`10C Mercury`), or the
-  coin's name on saved views; bottom-left Grade+GradeSource (`MS67 PCGS`);
-  bottom-right price — Purchase Price on Add Coin, current value on saved
-  views (`$45.00`).
-- **Reverse** (Add Coin only — saved coins don't yet track Variety/
-  Designation/Error separately from the obverse display): only carries
-  overflow that doesn't fit the obverse corners — top-left Variety+Designation
-  combined (`Micro S, FB`); bottom-left Error, if set. Stays label-free when
-  Variety/Designation/Error are all blank.
+- **The flip-frame is capped at a fixed max size (280px square)**, not
+  stretched to the container width, so the coin stays proportional to an
+  actual 2x2 flip (coin centered, real margin around it) instead of looking
+  tiny in an overly wide box on desktop.
+- **Obverse is identification only — standard numismatic shorthand, no
+  price**: top-left Year+MintMark (`1945-S`); top-right the coded
+  Denomination only (`10C`, not the spelled-out series name — the full name
+  stays available elsewhere: Browse detail heading, Browse grid, sr-only
+  text); bottom-left Grade+GradeSource (`MS67 PCGS`); bottom-right
+  intentionally unused — a real flip's front doesn't carry price.
+- **Reverse (Add Coin only — saved coins don't yet track Variety/
+  Designation/Error/Price separately from the obverse display)**: carries
+  whatever doesn't belong on the obverse — top-left Variety+Designation
+  combined (`Micro S, FB`); bottom-left Error, if set; bottom-right Purchase
+  Price (moved here from Obverse — not front-of-flip content). Stays
+  label-free when Variety/Designation/Error/Price are all blank.
 - Exact corner split when both Variety/Designation *and* Error are present at
   once isn't fully locked in beyond top-left/bottom-left — open for Ray to
   revisit.
