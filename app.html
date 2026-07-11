@@ -803,14 +803,14 @@
           <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
           <div class="grade-resolved" id="gradeResolvedPreview"></div>
 
-          <label>Grader</label>
-          <select id="grader">
+          <label>GradeSource</label>
+          <select id="gradeSource">
             <option value="">— select —</option>
             <option value="PCGS">PCGS</option>
             <option value="NGC">NGC</option>
-            <option value="ANACS">ANACS</option>
             <option value="Seller">Seller (taking their word for it)</option>
-            <option value="Me">Me (my best estimate)</option>
+            <option value="Owner">Owner (my own best estimate)</option>
+            <option value="AI-est">AI-est (AI-assisted estimate)</option>
           </select>
 
           <label>Cert / Type Number</label>
@@ -974,36 +974,43 @@
     { id: "AY-00010", name: "Franklin Half Dollar",       year: 1955, mint: "",   grade: "MS65",  value: 130 }
   ];
 
+  // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
+  // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
+  // implied by which FAKE_ALBUMS entry a slot lives under, so not repeated per slot.)
   const FAKE_ALBUMS = [
     {
       name: "Lincoln Cents — Whitman Folder Vol. 1",
       icon: "🪙",
       slots: [
-        { label: "1909",     meta: "P",         filled: "AY-00004" },
-        { label: "1909 VDB", meta: "P",         filled: null },
-        { label: "1909-S",   meta: "S",         filled: "AY-00004" },
-        { label: "1909-S VDB", meta: "rarest date", filled: null },
-        { label: "1910",     meta: "P",         filled: null },
-        { label: "1910-S",   meta: "S · 6.05M", filled: null },
-        { label: "1911",     meta: "P",         filled: null },
-        { label: "1911-D",   meta: "D · 12.7M", filled: null }
+        { year: 1909, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1909-M-1C-01", filledBy: "AY-00004" },
+        { year: 1909, mintMark: "",  description: "Lincoln Wheat, VDB",  coinId: "C-1909-M-1C-02", filledBy: null },
+        { year: 1909, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1909-S-1C-01", filledBy: "AY-00004" },
+        { year: 1909, mintMark: "S", description: "Lincoln Wheat, VDB",  coinId: "C-1909-S-1C-02", filledBy: null },
+        { year: 1910, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1910-M-1C-01", filledBy: null },
+        { year: 1910, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1910-S-1C-01", filledBy: null },
+        { year: 1911, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1911-M-1C-01", filledBy: null },
+        { year: 1911, mintMark: "D", description: "Lincoln Wheat",       coinId: "C-1911-D-1C-01", filledBy: null }
       ]
     },
     {
       name: "Morgan Dollars — Complete Date Set (P)",
       icon: "🏛️",
       slots: [
-        { label: "1878", meta: "8 Tail Feathers", filled: null },
-        { label: "1879", meta: "P",  filled: null },
-        { label: "1880", meta: "P",  filled: null },
-        { label: "1881", meta: "P",  filled: null },
-        { label: "1882", meta: "P",  filled: null },
-        { label: "1883", meta: "P",  filled: null },
-        { label: "1884", meta: "P",  filled: null },
-        { label: "1885", meta: "P",  filled: null }
+        { year: 1878, mintMark: "", description: "Morgan, 8 Tail Feathers", coinId: "C-1878-M-$1-01", filledBy: null },
+        { year: 1879, mintMark: "", description: "Morgan",                 coinId: "C-1879-M-$1-01", filledBy: null },
+        { year: 1880, mintMark: "", description: "Morgan",                 coinId: "C-1880-M-$1-01", filledBy: null },
+        { year: 1881, mintMark: "", description: "Morgan",                 coinId: "C-1881-M-$1-01", filledBy: null },
+        { year: 1882, mintMark: "", description: "Morgan",                 coinId: "C-1882-M-$1-01", filledBy: null },
+        { year: 1883, mintMark: "", description: "Morgan",                 coinId: "C-1883-M-$1-01", filledBy: null },
+        { year: 1884, mintMark: "", description: "Morgan",                 coinId: "C-1884-M-$1-01", filledBy: null },
+        { year: 1885, mintMark: "", description: "Morgan",                 coinId: "C-1885-M-$1-01", filledBy: null }
       ]
     }
   ];
+
+  function slotDisplayLabel(slot) {
+    return slot.year + (slot.mintMark ? "-" + slot.mintMark : "");
+  }
 
   const FAKE_WISHLIST = [
     { desc: "1916-D Mercury Dime", notes: "Key date — hold out for VF or better, problem-free", price: 1800, dateAdded: "2026-04-02" },
@@ -1287,7 +1294,7 @@
   function initAlbums() {
     const listContainer = document.getElementById("albumsListContainer");
     FAKE_ALBUMS.forEach((album, index) => {
-      const filledCount = album.slots.filter(s => s.filled).length;
+      const filledCount = album.slots.filter(s => s.filledBy).length;
       const pct = Math.round((filledCount / album.slots.length) * 100);
       const card = document.createElement("div");
       card.className = "case album-card";
@@ -1307,12 +1314,14 @@
     document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
 
     // Populate the "Assign to Album" select on the Add Coin form with every open slot.
+    // Keyed by CoinID, not year/mint — two slots can share year+mint (e.g. a plain date
+    // and its VDB variety) and only CoinID actually disambiguates them.
     const assignSelect = document.getElementById("assignAlbum");
     FAKE_ALBUMS.forEach(album => {
-      album.slots.filter(s => !s.filled).forEach(slot => {
+      album.slots.filter(s => !s.filledBy).forEach(slot => {
         const opt = document.createElement("option");
-        opt.value = album.name + " :: " + slot.label;
-        opt.textContent = album.name + " — " + slot.label;
+        opt.value = album.name + " :: " + slot.coinId;
+        opt.textContent = album.name + " — " + slotDisplayLabel(slot) + " (" + slot.description + ")";
         assignSelect.appendChild(opt);
       });
     });
@@ -1325,25 +1334,25 @@
 
   function showAlbumDetail(index) {
     const album = FAKE_ALBUMS[index];
-    const filledCount = album.slots.filter(s => s.filled).length;
+    const filledCount = album.slots.filter(s => s.filledBy).length;
     const container = document.getElementById("albumsDetailContainer");
 
     const listRows = album.slots.map(slot => `
-      <div class="slot-row ${slot.filled ? "filled" : "want"}" data-slot="${slot.label}">
-        <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : ""}</div>
+      <div class="slot-row ${slot.filledBy ? "filled" : "want"}" data-coin-id="${slot.coinId}">
+        <div class="coin-disc ${slot.filledBy ? "" : "empty"}">${slot.filledBy ? slot.year : ""}</div>
         <div class="slot-info">
-          <div class="slot-label">${slot.label}</div>
-          <div class="slot-meta">${slot.meta}</div>
+          <div class="slot-label">${slotDisplayLabel(slot)}</div>
+          <div class="slot-meta">${slot.description}</div>
         </div>
         <div class="slot-status"></div>
       </div>
     `).join("");
 
     const gridCells = album.slots.map(slot => `
-      <div class="slot-cell ${slot.filled ? "" : "want"}" data-slot="${slot.label}">
-        <div class="coin-disc ${slot.filled ? "" : "empty"}">${slot.filled ? slot.label.split(" ")[0] : "?"}</div>
-        <div class="slot-label">${slot.label}</div>
-        <div class="slot-meta">${slot.meta}</div>
+      <div class="slot-cell ${slot.filledBy ? "" : "want"}" data-coin-id="${slot.coinId}">
+        <div class="coin-disc ${slot.filledBy ? "" : "empty"}">${slot.filledBy ? slot.year : "?"}</div>
+        <div class="slot-label">${slotDisplayLabel(slot)}</div>
+        <div class="slot-meta">${slot.description}</div>
       </div>
     `).join("");
 
@@ -1362,7 +1371,12 @@
 
     container.querySelectorAll(".slot-row.want, .slot-cell.want").forEach(el => {
       el.addEventListener("click", () => {
-        albumContext = { albumName: album.name, slotLabel: el.dataset.slot };
+        const slot = album.slots.find(s => s.coinId === el.dataset.coinId);
+        albumContext = {
+          albumName: album.name,
+          coinId: slot.coinId,
+          slotLabel: slotDisplayLabel(slot) + " (" + slot.description + ")"
+        };
         navigate("addcoin");
         applyAlbumContext();
       });
@@ -1383,7 +1397,7 @@
     banner.classList.remove("hidden");
 
     const assignSelect = document.getElementById("assignAlbum");
-    const matchValue = albumContext.albumName + " :: " + albumContext.slotLabel;
+    const matchValue = albumContext.albumName + " :: " + albumContext.coinId;
     for (const opt of assignSelect.options) {
       if (opt.value === matchValue) { assignSelect.value = matchValue; break; }
     }
