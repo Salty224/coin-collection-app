@@ -513,33 +513,34 @@
   .flip-frame {
     position: relative;
     width: 100%;
-    height: 230px;
+    max-width: 280px;
+    height: 280px;
     margin: 0 auto 14px;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: opacity 0.3s ease;
   }
-  .flip-frame .coin-photo-frame { margin: 0; width: 160px; height: 160px; }
+  .flip-frame .coin-photo-frame { margin: 0; width: 150px; height: 150px; }
   .flip-frame .coin-disc { margin: 0; }
-  #browseDetailFlipFrame .coin-disc { width: 160px; height: 160px; font-size: 26px; }
+  #browseDetailFlipFrame .coin-disc { width: 150px; height: 150px; font-size: 24px; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;
     font-weight: 700;
-    font-size: 21px;
+    font-size: 20px;
     color: rgba(232, 199, 102, 0.85);
     line-height: 1.1;
     pointer-events: none;
-    max-width: 45%;
+    max-width: 42%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .flip-label.tl { top: 8px;    left: 8px;   transform: rotate(-3deg); }
-  .flip-label.tr { top: 8px;    right: 8px;  transform: rotate(3deg); text-align: right; }
-  .flip-label.bl { bottom: 8px; left: 8px;   transform: rotate(2deg); }
-  .flip-label.br { bottom: 8px; right: 8px;  transform: rotate(-2deg); text-align: right; }
+  .flip-label.tl { top: 10px;    left: 10px; }
+  .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
+  .flip-label.bl { bottom: 10px; left: 10px; }
+  .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
 
   /* Standard visually-hidden pattern: keeps the same info readable to screen
      readers without duplicating it as an on-screen text block (the corner
@@ -696,7 +697,6 @@
             <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
             <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
             <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
-            <span class="flip-label br" id="spotlightBR" aria-hidden="true"></span>
             <span class="sr-only" id="spotlightSR"></span>
           </div>
           <div class="spotlight-dots" id="spotlightDots"></div>
@@ -740,7 +740,6 @@
             <span class="flip-label tr" id="browseDetailTR" aria-hidden="true"></span>
             <div class="coin-disc" id="browseDetailDisc" aria-hidden="true"></div>
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
-            <span class="flip-label br" id="browseDetailBR" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
         </div>
@@ -790,7 +789,6 @@
                   <img id="obversePreview">
                 </div>
                 <span class="flip-label bl" id="flipObverseBL"></span>
-                <span class="flip-label br" id="flipObverseBR"></span>
               </div>
               <div class="photo-btns">
                 <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
@@ -1024,16 +1022,16 @@
   // ==================================================================
 
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",            year: 1889, mint: "CC", grade: "MS64",  value: 850 },
-    { id: "AY-00002", name: "Walking Liberty Half",     year: 1943, mint: "",   grade: "AU58",  value: 90  },
-    { id: "AY-00003", name: "Mercury Dime",              year: 1916, mint: "D",  grade: "VG8",   value: 1400 },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",        year: 1909, mint: "S",  grade: "F12",   value: 650 },
-    { id: "AY-00005", name: "Indian Head Cent",          year: 1877, mint: "",   grade: "VF20",  value: 720 },
-    { id: "AY-00006", name: "Barber Quarter",            year: 1901, mint: "S",  grade: "G4",    value: 3200 },
-    { id: "AY-00007", name: "Peace Dollar",               year: 1928, mint: "",   grade: "XF40",  value: 480 },
-    { id: "AY-00008", name: "Buffalo Nickel",             year: 1937, mint: "D",  grade: "MS62",  value: 55  },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   year: 1918, mint: "D",  grade: "VF25",  value: 210 },
-    { id: "AY-00010", name: "Franklin Half Dollar",       year: 1955, mint: "",   grade: "MS65",  value: 130 }
+    { id: "AY-00001", name: "Morgan Dollar",            denom: "$1",  year: 1889, mint: "CC", grade: "MS64",  value: 850 },
+    { id: "AY-00002", name: "Walking Liberty Half",     denom: "50C", year: 1943, mint: "",   grade: "AU58",  value: 90  },
+    { id: "AY-00003", name: "Mercury Dime",              denom: "10C", year: 1916, mint: "D",  grade: "VG8",   value: 1400 },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",        denom: "1C",  year: 1909, mint: "S",  grade: "F12",   value: 650 },
+    { id: "AY-00005", name: "Indian Head Cent",          denom: "1C",  year: 1877, mint: "",   grade: "VF20",  value: 720 },
+    { id: "AY-00006", name: "Barber Quarter",            denom: "25C", year: 1901, mint: "S",  grade: "G4",    value: 3200 },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF40",  value: 480 },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS62",  value: 55  },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF25",  value: 210 },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "MS65",  value: 130 }
   ];
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
@@ -1280,10 +1278,11 @@
   // since the overlay is the visible presentation but shouldn't be the only way
   // the info exists.
   function applyFlipCorners(prefix, coin) {
+    // Identification only, standard shorthand — same rule as Add Coin: coded
+    // denomination, not the spelled-out name, and no price/value on this face.
     document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
-    document.getElementById(prefix + "TR").textContent = coin.name;
+    document.getElementById(prefix + "TR").textContent = coin.denom || "";
     document.getElementById(prefix + "BL").textContent = coin.grade || "";
-    document.getElementById(prefix + "BR").textContent = coin.value ? "$" + coin.value.toLocaleString() : "";
 
     const srEl = document.getElementById(prefix + "SR");
     if (srEl) {
@@ -1775,17 +1774,10 @@
   // additive to (not a replacement for) the plain-text fields themselves.
   // ==================================================================
 
-  function shortDescription(desc) {
-    if (!desc) return "";
-    const idx = desc.indexOf(" (");
-    return idx > -1 ? desc.slice(0, idx) : desc;
-  }
-
   function updateFlipLabels() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
     const mint = document.getElementById("mintMark").value.trim();
-    const desc = document.getElementById("description").value.trim();
     const variety = document.getElementById("variety").value.trim();
     const designation = document.getElementById("designation").value.trim();
     const errorText = document.getElementById("errorDesc").value.trim();
@@ -1794,19 +1786,21 @@
     const price = document.getElementById("purchasePrice").value;
 
     const yearMint = year + (mint ? "-" + mint : "");
-    const denomShort = [denom, shortDescription(desc)].filter(Boolean).join(" ");
     const gradeParts = [];
     if (grade) gradeParts.push(grade);
     if (gradeSource) gradeParts.push(gradeSource);
 
+    // Obverse is identification only, standard shorthand (coded denomination,
+    // not the spelled-out series name) — no price here, that's not convention.
     document.getElementById("flipObverseTL").textContent = yearMint;
-    document.getElementById("flipObverseTR").textContent = denomShort;
+    document.getElementById("flipObverseTR").textContent = denom;
     document.getElementById("flipObverseBL").textContent = gradeParts.join(" ");
-    document.getElementById("flipObverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
 
-    // Reverse only carries overflow info that doesn't fit the obverse corners.
+    // Reverse carries overflow that doesn't fit the obverse, plus Purchase
+    // Price (moved here — the front of a flip isn't where collectors note cost).
     document.getElementById("flipReverseTL").textContent = [variety, designation].filter(Boolean).join(", ");
     document.getElementById("flipReverseBL").textContent = errorText;
+    document.getElementById("flipReverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
   }
 
   function initAddCoin() {
