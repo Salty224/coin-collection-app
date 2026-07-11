@@ -72,9 +72,13 @@ CoinCollection/
   is hit during other research — never proactively expand into an exhaustive catalog.
   Has Mintage (partially populated) and will get a new FunFact column.
 - **DB_Sets** — reference sets, including all albums (Type=AL).
-- **Albums** (formerly AlbumSlots) — restructured; core columns are now `Status`,
-  `SlotLabel`, `AlbumName`, `AlbumID`, `FilledBy` (plain CollectionID, blank = open
-  hole/want-list), `SlotCriteria`, `SlotYear`, `SlotMint`.
+- **Albums** (formerly AlbumSlots) — restructured; actual live columns are
+  `Status`, `Year`, `MintMark`, `Description`, `AlbumName`, `AlbumID`, `CoinID`,
+  `FilledBy` (plain CollectionID, blank = open hole/want-list). There is no
+  SlotLabel/SlotCriteria/SlotYear/SlotMint — Year/MintMark are used directly, and
+  **CoinID is what actually disambiguates two slots that share the same
+  Year+MintMark** (e.g. a plain date vs. its VDB-type variety) — don't assume
+  Year+MintMark alone is a unique key for a slot.
 - **Wishlist** (new) — freestanding want-list items not tied to any album:
   Description, Notes, Target Price, Date Added.
 - **DB_Rolls** (new) — separate table, not part of the main coin data. Not needed
@@ -111,14 +115,17 @@ no seller/shipping context) isn't useful on its own, so those fields stay bundle
 together rather than mixed in at the top level.
 - **Top level**: Obverse/Reverse photos (optional to fill, but the slots are always
   shown), Denomination (coded dropdown — see naming conventions), Year, Mint Mark,
-  Description, Variety, Grade, Grader, Cert/Type Number (SerNo), Designation, Notes.
+  Description, Variety, Grade, GradeSource, Cert/Type Number (SerNo), Designation,
+  Notes.
 - **Description vs. Variety are separate fields, matching the existing Excel
   columns** (not a schema change): Description is the series/design name (e.g.
   "Mercury (Winged Liberty)"); Variety is the true distinguishing feature (e.g.
   "Type 2", "Micro S", "Large Date"). Don't conflate them back into one field.
-- **Grader** is a fixed dropdown: `PCGS`, `NGC`, `ANACS`, `Seller` (taking the
-  seller's word for it), `Me` (own best estimate). No separate "raw/ungraded"
-  value — leave Grade blank for that.
+- **GradeSource** is a fixed dropdown: `PCGS`, `NGC`, `Seller` (taking the
+  seller's word for it), `Owner` (own best estimate), `AI-est` (AI-assisted
+  estimate). No separate "raw/ungraded" value — leave Grade blank for that.
+  **This is a different list from the certification-service options
+  (PCGS/NGC/ANACS/ICG/CAC) used for SerNo/CertLink — don't conflate the two.**
 - **Secondary, collapsed by default — Purchase Info**: Purchase Price, Shipping
   Cost, Purchase Date, Vendor/Seller, Receipt photo.
 - **Secondary, collapsed by default — Storage & Album**: Storage Location, Assign
