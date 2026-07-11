@@ -48,16 +48,28 @@ CoinCollection/
 - SerNo (on All sheet): PCGS type-number/cert-number combined with a slash, exactly
   as it appears on the physical slab. Keep combined — do not split.
 
+## Workbook naming conventions
+- **Column headers have no spaces**, across DB_Coins, DB_Sets, All, and Albums —
+  e.g. `MintMark`, `SerNo`, `CertLink`. Match this exactly when reading/writing via
+  the Graph Excel API; a header with a space is stale.
+- **Denomination values are short codes**, not full words: Cent → `1C`, Nickel →
+  `5C`, Dime → `10C`, Quarter → `25C`, Half Dollar → `50C`, Dollar → `$1`. Any
+  denomination dropdown/display in the app should use (or map to/from) these codes.
+
 ## Workbook sheets that matter
-- **All** — owned coin records, ~480 rows. Authoritative for what Ray owns.
+- **All** — owned coin records, ~480 rows. Authoritative for what Ray owns. Has a
+  new **SpotValue** column (not live yet — formula pending).
 - **DB_Coins** — ~3,753 reference coin types. Add rows opportunistically when a gap
   is hit during other research — never proactively expand into an exhaustive catalog.
   Has Mintage (partially populated) and will get a new FunFact column.
 - **DB_Sets** — reference sets, including all albums (Type=AL).
-- **Albums** (formerly AlbumSlots) — AlbumID, SlotLabel, SlotCriteria, FilledBy
-  (plain CollectionID, blank = open hole/want-list), Status.
+- **Albums** (formerly AlbumSlots) — restructured; core columns are now `Status`,
+  `SlotLabel`, `AlbumName`, `AlbumID`, `FilledBy` (plain CollectionID, blank = open
+  hole/want-list), `SlotCriteria`, `SlotYear`, `SlotMint`.
 - **Wishlist** (new) — freestanding want-list items not tied to any album:
   Description, Notes, Target Price, Date Added.
+- **DB_Rolls** (new) — separate table, not part of the main coin data. Not needed
+  for the app shell yet.
 - **ProjectPlan** and **ParkingLot** — the authoritative source of decisions and open
   items, date-stamped with row/column references. ParkingLot Status is now three
   states: Open / In progress / Resolved (+ Resolved Date). Default review filter
