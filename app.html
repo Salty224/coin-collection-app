@@ -210,21 +210,6 @@
     font-size: 20px;
     transition: opacity 0.3s ease;
   }
-  .spotlight .coin-caption {
-    text-align: center;
-    transition: opacity 0.3s ease;
-  }
-  .spotlight .coin-caption .name {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--text);
-    font-family: "Cormorant Garamond", Georgia, serif;
-  }
-  .spotlight .coin-caption .meta {
-    font-size: 13px;
-    color: var(--gold);
-    margin-top: 2px;
-  }
   .spotlight-dots {
     display: flex;
     gap: 6px;
@@ -423,9 +408,8 @@
 
   /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
-  .photo-row { display: flex; gap: 10px; margin-bottom: 6px; }
+  .photo-row { display: flex; flex-direction: column; gap: 16px; margin-bottom: 6px; }
   .photo-box {
-    flex: 1;
     text-align: center;
     border: 1px dashed var(--case-border);
     border-radius: 12px;
@@ -444,13 +428,16 @@
     width: 100%; height: 96px; object-fit: cover; border-radius: 8px;
     border: 1px solid var(--case-border); display: none; margin-bottom: 10px; background: var(--bg-elevated);
   }
-  .photo-btns { display: flex; flex-direction: column; gap: 6px; }
+  /* Small, quiet icon buttons — the coin is the focal point, not the controls. */
+  .photo-btns { display: flex; flex-direction: row; justify-content: center; gap: 12px; }
   .photo-btns button {
-    font-size: 12px; padding: 9px 6px; border: 1px solid var(--gold-dim);
-    border-radius: 20px; background: transparent; color: var(--gold-bright); cursor: pointer;
-    transition: background 0.15s ease;
+    width: 42px; height: 42px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; border: 1px solid rgba(201,162,39,0.25); border-radius: 50%;
+    background: transparent; color: var(--text-muted); cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
   }
-  .photo-btns button:hover { background: rgba(201,162,39,0.1); }
+  .photo-btns button:hover { border-color: var(--case-border-bright); color: var(--gold-bright); }
   .photo-box input[type=file] { display: none; }
 
   .section-label {
@@ -521,34 +508,46 @@
   }
 
   /* Flip-frame: the circle plus the open corner space around it, labeled like a
-     collector's handwriting on a 2x2 coin flip as the form fields get filled in. */
+     collector's handwriting on a 2x2 coin flip — as the form fields get filled in
+     (Add Coin), or as a saved coin's permanent display (Spotlight, Browse detail). */
   .flip-frame {
     position: relative;
     width: 100%;
-    height: 154px;
-    margin: 0 auto 12px;
+    height: 230px;
+    margin: 0 auto 14px;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: opacity 0.3s ease;
   }
-  .flip-frame .coin-photo-frame { margin: 0; }
+  .flip-frame .coin-photo-frame { margin: 0; width: 160px; height: 160px; }
+  .flip-frame .coin-disc { margin: 0; }
+  #browseDetailFlipFrame .coin-disc { width: 160px; height: 160px; font-size: 26px; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;
-    font-weight: 600;
-    font-size: 13px;
-    color: rgba(232, 199, 102, 0.8);
-    line-height: 1;
+    font-weight: 700;
+    font-size: 21px;
+    color: rgba(232, 199, 102, 0.85);
+    line-height: 1.1;
     pointer-events: none;
-    max-width: 52%;
+    max-width: 45%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .flip-label.tl { top: 4px;    left: 6px;   transform: rotate(-3deg); }
-  .flip-label.tr { top: 4px;    right: 6px;  transform: rotate(3deg); text-align: right; }
-  .flip-label.bl { bottom: 4px; left: 6px;   transform: rotate(2deg); }
-  .flip-label.br { bottom: 4px; right: 6px;  transform: rotate(-2deg); text-align: right; }
+  .flip-label.tl { top: 8px;    left: 8px;   transform: rotate(-3deg); }
+  .flip-label.tr { top: 8px;    right: 8px;  transform: rotate(3deg); text-align: right; }
+  .flip-label.bl { bottom: 8px; left: 8px;   transform: rotate(2deg); }
+  .flip-label.br { bottom: 8px; right: 8px;  transform: rotate(-2deg); text-align: right; }
+
+  /* Standard visually-hidden pattern: keeps the same info readable to screen
+     readers without duplicating it as an on-screen text block (the corner
+     labels are the visible presentation once a coin is saved). */
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
 
   .save-btn {
     width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
@@ -692,10 +691,13 @@
         <div class="section-title">Spotlight</div>
         <div class="case spotlight" id="spotlight">
           <div class="spotlight-eyebrow">From the cabinet</div>
-          <div class="coin-disc" id="spotlightDisc"></div>
-          <div class="coin-caption">
-            <div class="name" id="spotlightName"></div>
-            <div class="meta" id="spotlightMeta"></div>
+          <div class="flip-frame" id="spotlightFlipFrame">
+            <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
+            <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
+            <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
+            <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
+            <span class="flip-label br" id="spotlightBR" aria-hidden="true"></span>
+            <span class="sr-only" id="spotlightSR"></span>
           </div>
           <div class="spotlight-dots" id="spotlightDots"></div>
         </div>
@@ -724,9 +726,24 @@
 
       <!-- ============ BROWSE ============ -->
       <section class="view" id="view-browse">
-        <h2 class="display" style="margin-top:0;">Browse Collection</h2>
-        <div class="filter-row" id="browseFilters"></div>
-        <div class="coin-grid" id="browseGrid"></div>
+        <div id="browseGridView">
+          <h2 class="display" style="margin-top:0;">Browse Collection</h2>
+          <div class="filter-row" id="browseFilters"></div>
+          <div class="coin-grid" id="browseGrid"></div>
+        </div>
+
+        <div id="browseDetailView" style="display:none;">
+          <button class="back-link" id="browseDetailBackBtn">← Browse Collection</button>
+          <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
+          <div class="case flip-frame" id="browseDetailFlipFrame">
+            <span class="flip-label tl" id="browseDetailTL" aria-hidden="true"></span>
+            <span class="flip-label tr" id="browseDetailTR" aria-hidden="true"></span>
+            <div class="coin-disc" id="browseDetailDisc" aria-hidden="true"></div>
+            <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
+            <span class="flip-label br" id="browseDetailBR" aria-hidden="true"></span>
+            <span class="sr-only" id="browseDetailSR"></span>
+          </div>
+        </div>
       </section>
 
       <!-- ============ ALBUMS ============ -->
@@ -776,8 +793,8 @@
                 <span class="flip-label br" id="flipObverseBR"></span>
               </div>
               <div class="photo-btns">
-                <button type="button" id="obverseCameraBtn">📷 Camera</button>
-                <button type="button" id="obverseLibraryBtn">🖼️ Library</button>
+                <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
               </div>
               <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
               <input type="file" id="obverseLibraryInput" accept="image/*">
@@ -795,8 +812,8 @@
                 <span class="flip-label br" id="flipReverseBR"></span>
               </div>
               <div class="photo-btns">
-                <button type="button" id="reverseCameraBtn">📷 Camera</button>
-                <button type="button" id="reverseLibraryBtn">🖼️ Library</button>
+                <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
               </div>
               <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
               <input type="file" id="reverseLibraryInput" accept="image/*">
@@ -910,8 +927,8 @@
             <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
             <img id="receiptPreview">
             <div class="photo-btns">
-              <button type="button" id="receiptCameraBtn">📷 Camera</button>
-              <button type="button" id="receiptLibraryBtn">🖼️ Library</button>
+              <button type="button" id="receiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
             <input type="file" id="receiptLibraryInput" accept="image/*">
@@ -939,8 +956,8 @@
               <img id="additionalPreview">
             </div>
             <div class="photo-btns">
-              <button type="button" id="additionalCameraBtn">📷 Camera</button>
-              <button type="button" id="additionalLibraryBtn">🖼️ Library</button>
+              <button type="button" id="additionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="additionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
             <input type="file" id="additionalLibraryInput" accept="image/*">
@@ -965,8 +982,8 @@
             <div class="placeholder-icon" id="batchReceiptPlaceholder">🧾</div>
             <img id="batchReceiptPreview">
             <div class="photo-btns">
-              <button type="button" id="batchReceiptCameraBtn">📷 Camera</button>
-              <button type="button" id="batchReceiptLibraryBtn">🖼️ Library</button>
+              <button type="button" id="batchReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="batchReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="batchReceiptCameraInput" accept="image/*" capture="environment">
             <input type="file" id="batchReceiptLibraryInput" accept="image/*">
@@ -1204,6 +1221,9 @@
     if (viewId === "addcoin") {
       showAddCoinMain();
     }
+    if (viewId === "browse") {
+      showBrowseGrid();
+    }
 
     previousViewId = viewId;
     window.scrollTo({ top: 0 });
@@ -1255,17 +1275,34 @@
   let spotlightTimer;
   const spotlightCoins = FAKE_COINS.slice(0, 5);
 
+  // Shared by every place a single *saved* coin gets the flip-label treatment
+  // (Spotlight, Browse detail) — corner text plus a screen-reader-only summary,
+  // since the overlay is the visible presentation but shouldn't be the only way
+  // the info exists.
+  function applyFlipCorners(prefix, coin) {
+    document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
+    document.getElementById(prefix + "TR").textContent = coin.name;
+    document.getElementById(prefix + "BL").textContent = coin.grade || "";
+    document.getElementById(prefix + "BR").textContent = coin.value ? "$" + coin.value.toLocaleString() : "";
+
+    const srEl = document.getElementById(prefix + "SR");
+    if (srEl) {
+      srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
+        (coin.grade ? ", grade " + coin.grade : "") +
+        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        " (" + coin.id + ")";
+    }
+  }
+
   function renderSpotlight() {
     const coin = spotlightCoins[spotlightIndex];
-    const disc = document.getElementById("spotlightDisc");
-    disc.style.opacity = 0;
+    const frame = document.getElementById("spotlightFlipFrame");
+    frame.style.opacity = 0;
     setTimeout(() => {
-      disc.textContent = coin.year;
-      disc.style.opacity = 1;
+      document.getElementById("spotlightDisc").textContent = coin.year;
+      applyFlipCorners("spotlight", coin);
+      frame.style.opacity = 1;
     }, 150);
-    document.getElementById("spotlightName").textContent = coin.name;
-    document.getElementById("spotlightMeta").textContent =
-      coin.year + (coin.mint ? "-" + coin.mint : "") + " · " + coin.grade + " · $" + coin.value.toLocaleString();
 
     document.querySelectorAll("#spotlightDots .dot").forEach((d, i) => {
       d.classList.toggle("active", i === spotlightIndex);
@@ -1319,6 +1356,7 @@
     FAKE_COINS.forEach(coin => {
       const card = document.createElement("div");
       card.className = "case coin-card";
+      card.style.cursor = "pointer";
       card.innerHTML = `
         <div class="coin-disc">${coin.year}</div>
         <div class="name">${coin.name}</div>
@@ -1326,8 +1364,24 @@
         <span class="grade-badge">${coin.grade}</span>
         <div class="value">$${coin.value.toLocaleString()}</div>
       `;
+      card.addEventListener("click", () => showBrowseDetail(coin));
       grid.appendChild(card);
     });
+
+    document.getElementById("browseDetailBackBtn").addEventListener("click", showBrowseGrid);
+  }
+
+  function showBrowseGrid() {
+    document.getElementById("browseGridView").style.display = "block";
+    document.getElementById("browseDetailView").style.display = "none";
+  }
+
+  function showBrowseDetail(coin) {
+    document.getElementById("browseDetailName").textContent = coin.name;
+    document.getElementById("browseDetailDisc").textContent = coin.year;
+    applyFlipCorners("browseDetail", coin);
+    document.getElementById("browseGridView").style.display = "none";
+    document.getElementById("browseDetailView").style.display = "block";
   }
 
   // ==================================================================
