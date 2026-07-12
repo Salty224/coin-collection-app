@@ -217,6 +217,28 @@ grid card opens a full detail view for that coin with the flip-label
 treatment above, plus a back link. The grid itself is unchanged — small
 cards with plain text, no corner labels.
 
+### Browse filters (locked in)
+Denomination stays the one always-visible filter row (chips: All/Cents/Nickels/
+Dimes/Quarters/Halves/Dollars) — it's how Ray already thinks about albums, so it
+never moves. Additional filter dimensions live behind a **"More Filters" button**
+that opens a small panel below the chip row, rather than becoming more always-
+visible chip rows — this is the deliberate pattern for adding filter dimensions
+over time without the top of Browse growing unbounded.
+- **Set** (first dimension added): `Mint Set` / `Proof Set` / `Silver Proof Set` —
+  a new field on the All sheet (blank for coins not part of a packaged set).
+- **Commemoratives only**: a checkbox, backed by a new boolean-ish field on the
+  All sheet flagging commemorative issues.
+- Any future filter dimension goes in this same "More Filters" panel, not a new
+  top-level row. Two flagged-but-not-built candidates: filtering by metal/
+  composition (Silver/Copper/Nickel/Clad/Gold — not always obvious from
+  denomination alone), and covering half dimes / three-cent pieces once those
+  show up (neither maps cleanly onto an existing Denomination code — `5C` is
+  already the modern nickel, so a half dime needs its own code, not a repurposed
+  one; decide the actual code when the first one is actually catalogued).
+  Medals (non-coin numismatic items) are explicitly **not** a Browse filter —
+  if Ray wants to track medals at all, that's a separate item type from coins,
+  not a filter dimension on the coin collection (undecided, not started).
+
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &
 Specimen / Details & Problem Grades groups), not free text. Two extra modes on top
