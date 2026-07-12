@@ -218,26 +218,32 @@ treatment above, plus a back link. The grid itself is unchanged — small
 cards with plain text, no corner labels.
 
 ### Browse filters (locked in)
-Denomination stays the one always-visible filter row (chips: All/Cents/Nickels/
-Dimes/Quarters/Halves/Dollars) — it's how Ray already thinks about albums, so it
-never moves. Additional filter dimensions live behind a **"More Filters" button**
-that opens a small panel below the chip row, rather than becoming more always-
-visible chip rows — this is the deliberate pattern for adding filter dimensions
-over time without the top of Browse growing unbounded.
-- **Set** (first dimension added): `Mint Set` / `Proof Set` / `Silver Proof Set` —
-  a new field on the All sheet (blank for coins not part of a packaged set).
-- **Commemoratives only**: a checkbox, backed by a new boolean-ish field on the
-  All sheet flagging commemorative issues.
-- Any future filter dimension goes in this same "More Filters" panel, not a new
-  top-level row. Two flagged-but-not-built candidates: filtering by metal/
-  composition (Silver/Copper/Nickel/Clad/Gold — not always obvious from
-  denomination alone), and covering half dimes / three-cent pieces once those
-  show up (neither maps cleanly onto an existing Denomination code — `5C` is
-  already the modern nickel, so a half dime needs its own code, not a repurposed
-  one; decide the actual code when the first one is actually catalogued).
-  Medals (non-coin numismatic items) are explicitly **not** a Browse filter —
-  if Ray wants to track medals at all, that's a separate item type from coins,
-  not a filter dimension on the coin collection (undecided, not started).
+One filter row, single-select (only one chip active at a time, same interaction
+as before): `All / Cents / Nickels / Dimes / Quarters / Halves / Dollars` (by
+Denomination), then a thin divider, then `Sets / Medals / Commemoratives`. All
+in the top row — no hidden "More Filters" drawer; an earlier draft of this tried
+tucking Set/Commemorative into a collapsed panel and that was explicitly wrong,
+Ray wants them visible up top even though the row now needs horizontal scroll on
+phone widths.
+- **Sets**: matches any coin with a non-blank Set field (new All-sheet field:
+  blank / `Mint Set` / `Proof Set` / `Silver Proof Set`). Sub-types aren't broken
+  out into their own filters yet — this is one aggregate chip to start; unpack
+  into sub-filters later if that turns out to be needed.
+- **Medals**: a new **item type** (new All-sheet field, `coin` vs. `medal`),
+  not just a filter tag — medals aren't coins (no denomination, not necessarily
+  graded the same way) but do live in the same Browse list.
+- **Commemoratives**: matches a new boolean-ish All-sheet field.
+- **Set, Medals, and Commemoratives are not mutually exclusive with each other or
+  with Denomination in the underlying data** — a coin can be both part of a Set
+  and a Commemorative (e.g. a commemorative sold packaged in a proof set). The
+  single-select chip only picks which lens you're looking through right now; it
+  doesn't imply the categories can't overlap, and tapping between them on the
+  same coin should show it in both.
+- Flagged-but-not-built for a future filter dimension: metal/composition
+  (Silver/Copper/Nickel/Clad/Gold — not always obvious from denomination alone).
+  Also flagged: half dimes / three-cent pieces will need their own Denomination
+  code once catalogued (`5C` is already the modern nickel, so a half dime can't
+  reuse it) — not decided yet, deal with it when the first one is catalogued.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &

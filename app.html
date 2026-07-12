@@ -305,23 +305,8 @@
   }
   .filter-chip.active { color: var(--gold-bright); border-color: var(--gold); }
 
-  .browse-filter-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .browse-filter-bar .filter-row { margin-bottom: 0; flex: 1; }
-  .more-filters-btn {
-    flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 6px 14px;
-    border-radius: 16px; border: 1px solid var(--case-border); background: var(--bg-case);
-    color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit;
-  }
-  .more-filters-btn.active { color: var(--gold-bright); border-color: var(--gold); }
-  .filter-dot {
-    width: 6px; height: 6px; border-radius: 50%; background: var(--case-border); display: inline-block;
-  }
-  .filter-dot.filled { background: var(--gold-bright); }
-  .more-filters-panel { margin-bottom: 16px; padding: 14px; }
-  .more-filters-panel.hidden { display: none; }
-  .more-filters-clear {
-    margin-top: 12px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--case-border);
-    background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; font-family: inherit;
+  .filter-chip-divider {
+    flex-shrink: 0; width: 1px; align-self: stretch; background: var(--case-border); margin: 0 2px;
   }
   .browse-empty {
     text-align: center; color: var(--text-muted); font-size: 13px; font-style: italic; padding: 30px 0;
@@ -844,23 +829,9 @@
       <section class="view" id="view-browse">
         <div id="browseGridView">
           <h2 class="display" style="margin-top:0;">Browse Collection</h2>
-          <div class="browse-filter-bar">
-            <div class="filter-row" id="browseFilters"></div>
-            <button type="button" class="more-filters-btn" id="moreFiltersBtn">
-              More Filters <span class="filter-dot" id="moreFiltersDot"></span>
-            </button>
-          </div>
-          <div class="case more-filters-panel hidden" id="moreFiltersPanel">
-            <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Set</div>
-            <div class="filter-row" id="setTypeFilters"></div>
-            <label class="grade-range-toggle" style="margin-top:2px;">
-              <input type="checkbox" id="commemFilterToggle">
-              Commemoratives only
-            </label>
-            <button type="button" class="more-filters-clear" id="moreFiltersClearBtn">Clear filters</button>
-          </div>
+          <div class="filter-row" id="browseFilters"></div>
           <div class="coin-grid" id="browseGrid"></div>
-          <div class="browse-empty hidden" id="browseEmptyMsg">No coins match these filters.</div>
+          <div class="browse-empty hidden" id="browseEmptyMsg">No coins match this filter.</div>
         </div>
 
         <div id="browseDetailView" style="display:none;">
@@ -1218,22 +1189,27 @@
   // FAKE DATA — placeholder only. No OneDrive / Graph calls in this file.
   // ==================================================================
 
-  // setType (blank/"Mint Set"/"Proof Set"/"Silver Proof Set") and commemorative are
-  // stand-ins for new All-sheet fields — see CLAUDE.md Browse filters section.
+  // itemType ("coin"/"medal"), setType (blank/"Mint Set"/"Proof Set"/"Silver Proof
+  // Set"), and commemorative are stand-ins for new All-sheet fields — see CLAUDE.md
+  // Browse filters section. Set and Commemorative deliberately overlap (a coin can
+  // be both, e.g. AY-00014) rather than being mutually exclusive buckets.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",            denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  setType: "",               commemorative: false },
-    { id: "AY-00002", name: "Walking Liberty Half",     denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   setType: "",               commemorative: false },
-    { id: "AY-00003", name: "Mercury Dime",              denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, setType: "",               commemorative: false },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",        denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  setType: "",               commemorative: false },
-    { id: "AY-00005", name: "Indian Head Cent",          denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  setType: "",               commemorative: false },
-    { id: "AY-00006", name: "Barber Quarter",            denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, setType: "",               commemorative: false },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  setType: "",               commemorative: false },
-    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   setType: "",               commemorative: false },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  setType: "",               commemorative: false },
-    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  setType: "Proof Set",      commemorative: false },
-    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   setType: "",               commemorative: true  },
-    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   setType: "Silver Proof Set", commemorative: false },
-    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    setType: "Mint Set",       commemorative: false }
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  itemType: "coin",  setType: "",                 commemorative: false },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  itemType: "coin",  setType: "Proof Set",        commemorative: false },
+    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   itemType: "coin",  setType: "",                 commemorative: true  },
+    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   itemType: "coin",  setType: "Silver Proof Set", commemorative: false },
+    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    itemType: "coin",  setType: "Mint Set",         commemorative: false },
+    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   itemType: "coin",  setType: "Proof Set",        commemorative: true  },
+    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   itemType: "medal", setType: "",                 commemorative: false },
+    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   itemType: "medal", setType: "",                 commemorative: false }
   ];
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
@@ -1586,21 +1562,29 @@
   // BROWSE
   // ==================================================================
 
-  // Denomination stays the one always-visible filter row (matches how Ray already
-  // thinks about albums); Set Type + Commemorative live behind "More Filters" so
-  // the top of Browse doesn't grow every time another filter dimension is added.
-  const DENOM_FILTER_CHIPS = [
-    { label: "All",      denom: null },
-    { label: "Cents",    denom: "1C" },
-    { label: "Nickels",  denom: "5C" },
-    { label: "Dimes",    denom: "10C" },
-    { label: "Quarters", denom: "25C" },
-    { label: "Halves",   denom: "50C" },
-    { label: "Dollars",  denom: "$1" }
+  // One filter row, single-select like a set of radio buttons. Denomination chips
+  // come first (matches how Ray already thinks about albums), then a divider, then
+  // Sets/Medals/Commemoratives. These three are NOT mutually exclusive with each
+  // other in the underlying data (a coin can be both part of a Set and a
+  // Commemorative — see AY-00014) — the chip only picks which single lens you're
+  // looking through right now, it doesn't imply the categories don't overlap.
+  // Set sub-types (Mint/Proof/Silver Proof) aren't broken out yet — "Sets" is one
+  // aggregate chip for now, unpack into sub-filters later if it's actually needed.
+  const BROWSE_FILTER_CHIPS = [
+    { label: "All",            test: () => true },
+    { label: "Cents",          test: c => c.denom === "1C" },
+    { label: "Nickels",        test: c => c.denom === "5C" },
+    { label: "Dimes",          test: c => c.denom === "10C" },
+    { label: "Quarters",       test: c => c.denom === "25C" },
+    { label: "Halves",         test: c => c.denom === "50C" },
+    { label: "Dollars",        test: c => c.denom === "$1" },
+    { divider: true },
+    { label: "Sets",           test: c => !!c.setType },
+    { label: "Medals",         test: c => c.itemType === "medal" },
+    { label: "Commemoratives", test: c => c.commemorative }
   ];
-  const SET_TYPE_FILTER_CHIPS = ["Any", "Mint Set", "Proof Set", "Silver Proof Set"];
 
-  const browseFilterState = { denom: null, setType: null, commemOnly: false };
+  let browseFilterTest = BROWSE_FILTER_CHIPS[0].test;
 
   function renderBrowseGrid(coins) {
     const grid = document.getElementById("browseGrid");
@@ -1613,7 +1597,7 @@
         <div class="coin-disc">${coin.year}</div>
         <div class="name">${coin.name}</div>
         <div class="meta">${coin.year}${coin.mint ? "-" + coin.mint : ""} · ${coin.id}</div>
-        <span class="grade-badge">${coin.grade}</span>
+        ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
         <div class="value">$${coin.value.toLocaleString()}</div>
       `;
       card.addEventListener("click", () => showBrowseDetail(coin));
@@ -1624,63 +1608,30 @@
   }
 
   function applyBrowseFilters() {
-    const filtered = FAKE_COINS.filter(coin => {
-      if (browseFilterState.denom && coin.denom !== browseFilterState.denom) return false;
-      if (browseFilterState.setType && coin.setType !== browseFilterState.setType) return false;
-      if (browseFilterState.commemOnly && !coin.commemorative) return false;
-      return true;
-    });
-    renderBrowseGrid(filtered);
-
-    const moreActive = !!(browseFilterState.setType || browseFilterState.commemOnly);
-    document.getElementById("moreFiltersBtn").classList.toggle("active", moreActive);
-    document.getElementById("moreFiltersDot").classList.toggle("filled", moreActive);
+    renderBrowseGrid(FAKE_COINS.filter(browseFilterTest));
   }
 
   function initBrowse() {
     const filterRow = document.getElementById("browseFilters");
-    DENOM_FILTER_CHIPS.forEach((f, i) => {
+    let firstChip = null;
+    BROWSE_FILTER_CHIPS.forEach(f => {
+      if (f.divider) {
+        const divider = document.createElement("div");
+        divider.className = "filter-chip-divider";
+        filterRow.appendChild(divider);
+        return;
+      }
       const chip = document.createElement("button");
-      chip.className = "filter-chip" + (i === 0 ? " active" : "");
+      chip.className = "filter-chip" + (!firstChip ? " active" : "");
       chip.textContent = f.label;
       chip.addEventListener("click", () => {
         document.querySelectorAll("#browseFilters .filter-chip").forEach(c => c.classList.remove("active"));
         chip.classList.add("active");
-        browseFilterState.denom = f.denom;
+        browseFilterTest = f.test;
         applyBrowseFilters();
       });
       filterRow.appendChild(chip);
-    });
-
-    const setTypeRow = document.getElementById("setTypeFilters");
-    SET_TYPE_FILTER_CHIPS.forEach((label, i) => {
-      const chip = document.createElement("button");
-      chip.className = "filter-chip" + (i === 0 ? " active" : "");
-      chip.textContent = label;
-      chip.addEventListener("click", () => {
-        document.querySelectorAll("#setTypeFilters .filter-chip").forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
-        browseFilterState.setType = i === 0 ? null : label;
-        applyBrowseFilters();
-      });
-      setTypeRow.appendChild(chip);
-    });
-
-    document.getElementById("moreFiltersBtn").addEventListener("click", () => {
-      document.getElementById("moreFiltersPanel").classList.toggle("hidden");
-    });
-
-    document.getElementById("commemFilterToggle").addEventListener("change", (e) => {
-      browseFilterState.commemOnly = e.target.checked;
-      applyBrowseFilters();
-    });
-
-    document.getElementById("moreFiltersClearBtn").addEventListener("click", () => {
-      browseFilterState.setType = null;
-      browseFilterState.commemOnly = false;
-      document.querySelectorAll("#setTypeFilters .filter-chip").forEach((c, i) => c.classList.toggle("active", i === 0));
-      document.getElementById("commemFilterToggle").checked = false;
-      applyBrowseFilters();
+      if (!firstChip) firstChip = chip;
     });
 
     applyBrowseFilters();
