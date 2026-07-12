@@ -302,13 +302,18 @@
   }
   .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
 
-  /* List mode reuses the same .coin-card markup — CSS alone rearranges it into a row. */
+  /* List mode reuses the same .coin-card markup — CSS alone rearranges it into a row.
+     No thumbnail (reclaims width) — Year+MintMark becomes the dominant, immediately
+     scannable element instead, with the name/CollectionID secondary underneath. */
   .coin-grid.list-view { display: flex; flex-direction: column; gap: 8px; }
   .coin-grid.list-view .coin-card {
     flex-direction: row; align-items: center; text-align: left; padding: 10px 14px; gap: 12px;
   }
-  .coin-grid.list-view .coin-card .coin-disc { width: 40px; height: 40px; font-size: 10px; flex-shrink: 0; }
+  .coin-grid.list-view .coin-card .coin-disc { display: none; }
   .coin-grid.list-view .coin-card .coin-card-text { flex: 1; min-width: 0; }
+  .coin-grid.list-view .coin-card .year-mint { font-size: 19px; font-weight: 700; color: var(--text); }
+  .coin-grid.list-view .coin-card .name { font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 1px; }
+  .coin-grid.list-view .coin-card .card-id { font-size: 11px; color: var(--text-muted); }
   .coin-grid.list-view .coin-card .grade-badge { flex-shrink: 0; }
   .coin-grid.list-view .coin-card .value { flex-shrink: 0; }
 
@@ -524,11 +529,40 @@
   }
   .grade-range-toggle input[type=checkbox] { width: auto; margin: 0; }
   .grade-resolved { font-size: 12px; color: var(--gold-bright); margin-top: 6px; }
-  .cert-link-preview {
-    display: block; font-size: 12px; color: var(--gold-bright); margin: -6px 0 12px; text-decoration: none;
+
+  /* Cert number input + adjacent link-icon-button — the button only appears once
+     a cert lookup URL actually resolves for the current GradeSource/grader. */
+  .cert-input-row { display: flex; gap: 8px; align-items: center; }
+  .cert-input-row input { flex: 1; }
+  .cert-link-btn {
+    flex-shrink: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; border: 1px solid var(--case-border); background: var(--bg-elevated);
+    color: var(--gold-bright); font-size: 15px; text-decoration: none; cursor: pointer;
   }
-  .cert-link-preview:hover { text-decoration: underline; }
-  .cert-link-preview.hidden { display: none; }
+  .cert-link-btn.hidden { display: none; }
+
+  /* Compact pill-style cert entry used in Browse Edit, visually matching the
+     read-only grade/cert badge in Browse Detail so edit/view feel like the same
+     control. */
+  .cert-badge-row { display: flex; gap: 6px; align-items: center; }
+  .cert-badge-input {
+    width: auto; max-width: 160px; padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; background: rgba(201,162,39,0.1);
+  }
+  .cert-link-btn.small { width: 28px; height: 28px; border-radius: 14px; font-size: 12px; }
+
+  /* Read-only grade/cert badge — Browse Detail. A single pill combining Grade,
+     GradeSource, and cert number; the whole thing is a link when a cert lookup
+     URL resolves for that GradeSource, plain text otherwise. */
+  .grade-cert-badge { margin: 10px 0; text-align: center; }
+  .grade-cert-badge.hidden { display: none; }
+  .grade-cert-badge-inner {
+    display: inline-block; font-size: 13px; font-weight: 600; padding: 5px 14px; border-radius: 14px;
+    background: rgba(201,162,39,0.15); color: var(--gold-bright); border: 1px solid var(--case-border);
+    text-decoration: none;
+  }
+  a.grade-cert-badge-inner:hover { border-color: var(--case-border-bright); text-decoration: underline; }
+
   #pcgsLabelAmbiguousPanel.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
@@ -880,6 +914,7 @@
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
+          <div class="grade-cert-badge hidden" id="browseDetailCertBadge"></div>
         </div>
 
         <div class="case form-card" id="browseEditView" style="display:none;">
@@ -932,18 +967,13 @@
           <input type="text" id="browseEditGradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
 
           <label>GradeSource</label>
-          <select id="browseEditGradeSource">
-            <option value="">— select —</option>
-            <option value="PCGS">PCGS</option>
-            <option value="NGC">NGC</option>
-            <option value="Seller">Seller (taking their word for it)</option>
-            <option value="Owner">Owner (my own best estimate)</option>
-            <option value="AI-est">AI-est (AI-assisted estimate)</option>
-          </select>
+          <select id="browseEditGradeSource"></select>
 
           <label>Cert / Type Number</label>
-          <input type="text" id="browseEditCertTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
-          <a href="#" target="_blank" rel="noopener" class="cert-link-preview hidden" id="browseEditCertLinkPreview"></a>
+          <div class="cert-badge-row">
+            <input type="text" class="cert-badge-input" id="browseEditCertTypeNumber" placeholder="cert #">
+            <a href="#" target="_blank" rel="noopener" class="cert-link-btn small hidden" id="browseEditCertLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
+          </div>
 
           <label>Designation</label>
           <input type="text" id="browseEditDesignation" placeholder="e.g. FBL, DDO — optional">
@@ -1181,24 +1211,34 @@
             <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
-          <div class="section-label" style="margin-top:0;">PCGS Label (optional)</div>
-          <label>PCGS Label #</label>
-          <div class="year-field-row">
-            <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT">
-            <button type="button" id="pcgsLabelApplyBtn">Decode</button>
+          <div class="section-label" style="margin-top:0;">Grading Service (optional)</div>
+          <label>Grader</label>
+          <select id="addCoinGrader">
+            <option value="">— none / not slabbed —</option>
+          </select>
+
+          <div id="pcgsLabelBlock" style="display:none;">
+            <label>PCGS Label #</label>
+            <div class="year-field-row">
+              <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT">
+              <button type="button" id="pcgsLabelApplyBtn">Decode</button>
+            </div>
+            <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
+              <span class="icon">⚠️</span>
+              <span class="msg"><strong>PCGS# not found in DB_Coins</strong> — add manually, or research and add the DB_Coins row later.</span>
+            </div>
+            <div class="banner context-banner hidden" id="pcgsLabelAppliedBanner">
+              <span class="icon">✅</span>
+              <span class="msg" id="pcgsLabelAppliedMsg"></span>
+            </div>
+            <div class="case hidden" id="pcgsLabelAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+              <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this PCGS# — pick one</div>
+              <div id="pcgsLabelAmbiguousList"></div>
+            </div>
           </div>
-          <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
-            <span class="icon">⚠️</span>
-            <span class="msg"><strong>PCGS# not found in DB_Coins</strong> — add manually, or research and add the DB_Coins row later.</span>
-          </div>
-          <div class="banner context-banner hidden" id="pcgsLabelAppliedBanner">
-            <span class="icon">✅</span>
-            <span class="msg" id="pcgsLabelAppliedMsg"></span>
-          </div>
-          <div class="case hidden" id="pcgsLabelAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
-            <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this PCGS# — pick one</div>
-            <div id="pcgsLabelAmbiguousList"></div>
-          </div>
+          <p class="placeholder-note" id="nonPcgsGraderNote" style="display:none; margin:-8px 0 16px;">
+            No auto-decode for this grader yet — enter the coin's details and cert number manually below.
+          </p>
 
           <label>Denomination</label>
           <select id="denomination">
@@ -1260,18 +1300,13 @@
           <div class="grade-resolved" id="gradeResolvedPreview"></div>
 
           <label>GradeSource</label>
-          <select id="gradeSource">
-            <option value="">— select —</option>
-            <option value="PCGS">PCGS</option>
-            <option value="NGC">NGC</option>
-            <option value="Seller">Seller (taking their word for it)</option>
-            <option value="Owner">Owner (my own best estimate)</option>
-            <option value="AI-est">AI-est (AI-assisted estimate)</option>
-          </select>
+          <select id="gradeSource"></select>
 
           <label>Cert / Type Number</label>
-          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
-          <a href="#" target="_blank" rel="noopener" class="cert-link-preview hidden" id="certLinkPreview"></a>
+          <div class="cert-input-row">
+            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+            <a href="#" target="_blank" rel="noopener" class="cert-link-btn hidden" id="certLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
+          </div>
 
           <label>Designation</label>
           <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
@@ -1550,6 +1585,59 @@
 
   // Set to a fake object to preview the pending-coin banner; null hides it (no real pending data yet).
   const FAKE_PENDING_COIN = null;
+
+  // Representative stand-in for the workbook's Lookup_Graders tab. certBaseUrl is
+  // blank for graders whose label/cert-lookup format isn't confirmed yet (see
+  // ParkingLot "ANACS/ICG/CAC Slab Label Format Research") — the cert-lookup link
+  // only ever activates for a grader that actually has a base URL on file, so
+  // adding a confirmed URL later is the only change needed to light one up.
+  // GradeSource's dropdown is sourced from this same list (+ Seller/Owner/AI-est)
+  // rather than keeping a separate hardcoded PCGS/NGC pair.
+  const FAKE_LOOKUP_GRADERS = [
+    { code: "PCGS",  certBaseUrl: "https://www.pcgs.com/cert/" },
+    { code: "NGC",   certBaseUrl: "https://www.ngccoin.com/certlookup/" },
+    { code: "ANACS", certBaseUrl: "" },
+    { code: "ICG",   certBaseUrl: "" },
+    { code: "CAC",   certBaseUrl: "" }
+  ];
+  const GRADE_SOURCE_OTHER_OPTIONS = [
+    { code: "Seller", label: "Seller (taking their word for it)" },
+    { code: "Owner",  label: "Owner (my own best estimate)" },
+    { code: "AI-est", label: "AI-est (AI-assisted estimate)" }
+  ];
+
+  function getGraderBaseUrl(code) {
+    const g = FAKE_LOOKUP_GRADERS.find(x => x.code === code);
+    return g ? g.certBaseUrl : "";
+  }
+
+  // Grader-agnostic — works for whatever's in Lookup_Graders without a code change
+  // per service. Returns null if that GradeSource has no base URL on file yet, or
+  // there's no cert number to look up.
+  function buildCertLookupUrl(gradeSource, cert) {
+    const base = getGraderBaseUrl(gradeSource);
+    if (!base || !cert) return null;
+    return base + cert.trim();
+  }
+
+  function buildGradeSourceOptions(selectEl) {
+    selectEl.innerHTML = "";
+    selectEl.appendChild(new Option("— select —", ""));
+    FAKE_LOOKUP_GRADERS.forEach(g => selectEl.appendChild(new Option(g.code, g.code)));
+    GRADE_SOURCE_OTHER_OPTIONS.forEach(o => selectEl.appendChild(new Option(o.label, o.code)));
+  }
+
+  // Wires an input + adjacent link-icon-button pair so the button only shows once
+  // a cert lookup URL actually resolves (grader-agnostic, via buildCertLookupUrl).
+  function refreshCertLink(inputEl, linkEl, gradeSource) {
+    const url = buildCertLookupUrl(gradeSource, inputEl.value);
+    if (url) {
+      linkEl.href = url;
+      linkEl.classList.remove("hidden");
+    } else {
+      linkEl.classList.add("hidden");
+    }
+  }
 
   // Representative stand-in for the workbook's Lookup_Grades tab (real content lives in
   // OneDrive, not reachable from here yet — this is just enough to demo the picker).
@@ -1918,11 +2006,12 @@
       const card = document.createElement("div");
       card.className = "case coin-card";
       card.style.cursor = "pointer";
+      const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
       card.innerHTML = `
         <div class="coin-disc">${coin.year}</div>
         <div class="coin-card-text">
           <div class="name">${coin.name}</div>
-          <div class="meta">${coin.year}${coin.mint ? "-" + coin.mint : ""} · ${coin.id}</div>
+          <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
         </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
         <div class="value">$${coin.value.toLocaleString()}</div>
@@ -2055,9 +2144,34 @@
     disc.textContent = coin.year;
     sizeCoinElement(disc, coin.denom, 150, 24);
     applyFlipCorners("browseDetail", coin);
+    renderCertBadge(coin);
     document.getElementById("browseGridView").style.display = "none";
     document.getElementById("browseDetailView").style.display = "block";
     document.getElementById("browseEditView").style.display = "none";
+  }
+
+  // Read-only Grade+GradeSource+Cert badge — the whole pill is a link when a
+  // cert lookup URL resolves for this coin's GradeSource (grader-agnostic, via
+  // Lookup_Graders), otherwise plain text. No separate cert-link line.
+  function renderCertBadge(coin) {
+    const badge = document.getElementById("browseDetailCertBadge");
+    if (!coin.grade) {
+      badge.classList.add("hidden");
+      badge.innerHTML = "";
+      return;
+    }
+    const gradeParts = [coin.grade];
+    if (coin.gradeSource) gradeParts.push(coin.gradeSource);
+    const certSuffix = coin.serNo ? " · #" + coin.serNo : "";
+    const text = gradeParts.join(" ") + certSuffix;
+    const url = buildCertLookupUrl(coin.gradeSource, coin.serNo);
+
+    if (url) {
+      badge.innerHTML = `<a class="grade-cert-badge-inner" href="${url}" target="_blank" rel="noopener">${text} 🔗</a>`;
+    } else {
+      badge.innerHTML = `<span class="grade-cert-badge-inner">${text}</span>`;
+    }
+    badge.classList.remove("hidden");
   }
 
   // ==================================================================
@@ -2118,17 +2232,17 @@
       document.getElementById("browseEditGradeOther").style.display = e.target.value === "__other__" ? "block" : "none";
     });
 
-    document.getElementById("browseEditCertTypeNumber").addEventListener("input", (e) => {
-      const val = e.target.value.trim();
-      const certLink = document.getElementById("browseEditCertLinkPreview");
-      if (val) {
-        certLink.href = "https://www.pcgs.com/cert/" + val;
-        certLink.textContent = "View cert #" + val + " on PCGS →";
-        certLink.classList.remove("hidden");
-      } else {
-        certLink.classList.add("hidden");
-      }
-    });
+    buildGradeSourceOptions(document.getElementById("browseEditGradeSource"));
+
+    function refreshBrowseEditCertLink() {
+      refreshCertLink(
+        document.getElementById("browseEditCertTypeNumber"),
+        document.getElementById("browseEditCertLinkBtn"),
+        document.getElementById("browseEditGradeSource").value
+      );
+    }
+    document.getElementById("browseEditCertTypeNumber").addEventListener("input", refreshBrowseEditCertLink);
+    document.getElementById("browseEditGradeSource").addEventListener("change", refreshBrowseEditCertLink);
 
     document.getElementById("browseEditBackBtn").addEventListener("click", () => {
       document.getElementById("browseEditView").style.display = "none";
@@ -2761,6 +2875,7 @@
       new Option("— select —", ""), document.getElementById("gradeFrom").firstChild
     );
     document.getElementById("gradeFrom").value = "";
+    buildGradeSourceOptions(document.getElementById("gradeSource"));
 
     document.getElementById("gradeFrom").addEventListener("change", (e) => {
       const isOther = e.target.value === "__other__";
@@ -2903,12 +3018,11 @@
       updateGradePreview();
     }
     document.getElementById("gradeSource").value = "PCGS";
+    document.getElementById("addCoinGrader").value = "PCGS";
 
-    document.getElementById("certTypeNumber").value = parsed.cert;
-    const certLink = document.getElementById("certLinkPreview");
-    certLink.href = "https://www.pcgs.com/cert/" + parsed.cert;
-    certLink.textContent = "View cert #" + parsed.cert + " on PCGS →";
-    certLink.classList.remove("hidden");
+    const certInput = document.getElementById("certTypeNumber");
+    certInput.value = parsed.cert;
+    refreshCertLink(certInput, document.getElementById("certLinkBtn"), "PCGS");
 
     updateFlipLabels();
 
@@ -3017,19 +3131,34 @@
     document.getElementById("pcgsLabelInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); handlePcgsLabelApply(); }
     });
-    document.getElementById("certTypeNumber").addEventListener("input", (e) => {
-      const val = e.target.value.trim();
-      const certLink = document.getElementById("certLinkPreview");
-      if (val) {
-        certLink.href = "https://www.pcgs.com/cert/" + val;
-        certLink.textContent = "View cert #" + val + " on PCGS →";
-        certLink.classList.remove("hidden");
-      } else {
-        certLink.classList.add("hidden");
-      }
-    });
 
     initGradePicker();
+
+    function refreshAddCoinCertLink() {
+      refreshCertLink(
+        document.getElementById("certTypeNumber"),
+        document.getElementById("certLinkBtn"),
+        document.getElementById("gradeSource").value
+      );
+    }
+    document.getElementById("certTypeNumber").addEventListener("input", refreshAddCoinCertLink);
+    document.getElementById("gradeSource").addEventListener("change", refreshAddCoinCertLink);
+
+    // Grader is the friendlier, slab-specific entry point above the label field —
+    // picking one sets GradeSource and decides whether the PCGS decode field or
+    // the "no auto-decode, enter manually" note shows (see CLAUDE.md PCGS Label
+    // Auto-Populate / Grader dropdown section).
+    const graderSelect = document.getElementById("addCoinGrader");
+    FAKE_LOOKUP_GRADERS.forEach(g => graderSelect.appendChild(new Option(g.code, g.code)));
+    graderSelect.addEventListener("change", (e) => {
+      const grader = e.target.value;
+      document.getElementById("pcgsLabelBlock").style.display = grader === "PCGS" ? "block" : "none";
+      document.getElementById("nonPcgsGraderNote").style.display = (grader && grader !== "PCGS") ? "block" : "none";
+      if (grader) {
+        document.getElementById("gradeSource").value = grader;
+      }
+      refreshAddCoinCertLink();
+    });
 
     document.getElementById("denomination").addEventListener("change", () => {
       maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels();

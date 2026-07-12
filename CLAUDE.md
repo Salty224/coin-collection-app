@@ -136,11 +136,16 @@ together rather than mixed in at the top level.
   columns** (not a schema change): Description is the series/design name (e.g.
   "Mercury (Winged Liberty)"); Variety is the true distinguishing feature (e.g.
   "Type 2", "Micro S", "Large Date"). Don't conflate them back into one field.
-- **GradeSource** is a fixed dropdown: `PCGS`, `NGC`, `Seller` (taking the
-  seller's word for it), `Owner` (own best estimate), `AI-est` (AI-assisted
-  estimate). No separate "raw/ungraded" value — leave Grade blank for that.
-  **This is a different list from the certification-service options
-  (PCGS/NGC/ANACS/ICG/CAC) used for SerNo/CertLink — don't conflate the two.**
+- **GradeSource** is a dropdown sourced from `Lookup_Graders` (`PCGS`, `NGC`,
+  `ANACS`, `ICG`, `CAC` — whatever's in that table) plus three fixed
+  non-certified options: `Seller` (taking the seller's word for it), `Owner`
+  (own best estimate), `AI-est` (AI-assisted estimate). No separate
+  "raw/ungraded" value — leave Grade blank for that. **Superseded decision:**
+  GradeSource used to be a separately-hardcoded shorter list (PCGS/NGC only,
+  explicitly "a different list" from the certification-service options) — that
+  split was removed so picking a Grader (see PCGS Label Auto-Populate below)
+  can set GradeSource directly without the two lists disagreeing on what's
+  valid.
 - **Secondary, collapsed by default — Purchase Info**: Purchase Price, Shipping
   Cost, Purchase Date, Vendor/Seller, Receipt photo.
 - **Secondary, collapsed by default — Storage & Album**: Storage Location, Assign
@@ -225,12 +230,19 @@ the same corner mapping:
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
-a back link. An **Edit** button on the detail view opens an edit form covering
-exactly the bounded fields the app can safely write directly (see "Editing
-existing coins" below: Grade, GradeSource, Cert/Type Number, Designation, Storage
-Location) plus the ability to attach a photo to any Obverse/Reverse/Additional/
-Receipt slot that wasn't filled during Add Coin — reusing the same photo-slot/
-crop-adjuster module. Editing does **not** cover anything requiring research or
+a back link. Below the flip-frame, a **grade/cert badge** shows Grade +
+GradeSource + cert number as one pill; the whole badge is a link (opens the
+cert lookup URL via the grader-agnostic `Lookup_Graders` resolver — see PCGS
+Label Auto-Populate below) when that GradeSource has a base URL on file, plain
+text otherwise. No separate cert-link line. An **Edit** button on the detail
+view opens an edit form covering exactly the bounded fields the app can safely
+write directly (see "Editing existing coins" below: Grade, GradeSource,
+Cert/Type Number, Designation, Storage Location) plus the ability to attach a
+photo to any Obverse/Reverse/Additional/Receipt slot that wasn't filled during
+Add Coin — reusing the same photo-slot/crop-adjuster module. In Edit mode the
+same cert number is a compact pill-styled input (not a full-width labeled
+field) with a small link-icon button beside it, visually matching the
+read-only badge. Editing does **not** cover anything requiring research or
 judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
 stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
 the coin's Detail view, not the grid.
@@ -238,10 +250,12 @@ the coin's Detail view, not the grid.
 ### Browse: Grid/List toggle (locked in)
 A small icon toggle (grid icon / list icon) next to the filter row switches the
 coin listing between the existing card grid and a plain list-row layout. Both
-reuse the exact same card markup — list mode is a CSS rearrangement (smaller
-disc, single row, name+meta as one text block) rather than a separate render
-path, so the two stay in sync automatically. The chosen mode persists across
-filter changes within a Browse session.
+reuse the exact same card markup — list mode is a CSS rearrangement rather than
+a separate render path, so the two stay in sync automatically. List mode drops
+the coin thumbnail entirely (reclaims row width) and enlarges Year+MintMark so
+it reads as the dominant, immediately-scannable element per row, with the coin
+name and CollectionID secondary. The chosen mode persists across filter changes
+within a Browse session.
 
 ### Browse filters (locked in)
 One filter row, single-select (only one chip active at a time, same interaction
@@ -319,12 +333,44 @@ soft-check against DB_Coins:
   change that. CoinID (the DB_Coins reference key) is what's allowed to stay
   blank/pending on a miss.
 
+### Grader dropdown + grader-agnostic cert linking (locked in)
+A **Grader** dropdown (Add Coin, above the label-entry field; sourced from
+`Lookup_Graders` — `PCGS`/`NGC`/`ANACS`/`ICG`/`CAC`) sits above the PCGS Label
+field and drives three things when picked:
+1. Sets **GradeSource** to match (see GradeSource note above — same list now).
+2. Decides whether the label-entry field shows at all: only `PCGS` has a
+   confirmed auto-decode format, so picking `PCGS` reveals the "PCGS Label #"
+   field; picking any other grader hides it and shows a plain note instead
+   ("no auto-decode for this grader yet — enter manually below"), per the
+   ANACS/ICG/CAC research note further down.
+3. Enables the cert-lookup link once a cert number is present, using
+   `Lookup_Graders[GradeSource].Cert Lookup Base URL` — **grader-agnostic**, not
+   hardcoded per service. Adding a new confirmed grader to `Lookup_Graders`
+   (a base URL) is the only change needed to light up its lookup link; no code
+   change per grading service. The link only activates if that GradeSource
+   actually has a base URL on file (today: PCGS and NGC do, ANACS/ICG/CAC don't
+   — see the research note).
+
+This same base-URL lookup is also what powers the Cert/Type Number field's
+link everywhere else in the app (Browse detail's read-only badge, Browse
+Edit) — one resolver, not a PCGS-specific one repeated in multiple places.
+
+**Cert/Type Number display pattern**: a compact input + a small link-icon
+button beside it (button only visible when a lookup URL resolves), not a
+separate full-line hyperlink underneath — this applies in Add Coin and Browse
+Edit. Browse's read-only coin detail view goes one step further and folds
+Grade + GradeSource + cert number into a single pill-shaped badge; the whole
+badge is a link when a URL resolves, plain text otherwise. No separate cert-link
+line anywhere in the app now.
+
 ### PCGS Label Auto-Populate (locked in)
-A "PCGS Label #" field (Add Coin, above Denomination) accepts a scanned/typed PCGS
-label number in the format `SPEC.GRADE/CERT` (e.g. `4905.65/12345678`):
+A "PCGS Label #" field (Add Coin, shown only when Grader = `PCGS`, above
+Denomination) accepts a scanned/typed PCGS label number in the format
+`SPEC.GRADE/CERT` (e.g. `4905.65/12345678`):
 - **SPEC** (before the decimal) matches `DB_Coins.PCGS#`.
 - **GRADE** (2 digits after the decimal) is the numeric Sheldon grade, 1–70.
-- **CERT** (after the slash) is the cert number → becomes `SerNo`.
+- **CERT** (after the slash) is the cert number → becomes `SerNo`, and also
+  fills the Cert/Type Number field directly (not left blank for manual re-entry).
 
 Resolution against `DB_Coins.PCGS#`:
 - **Zero matches** → leave fields blank, show a non-blocking "PCGS# not found in
@@ -344,12 +390,27 @@ AU-55, AU-58`, then 60–70 prefixed by Finish: `Business Strike`→`MS-`,
 `Proof`/`Reverse Proof`→`PR-`, `SMS`/`Specimen`→`SP-`). Per the Grade picker's
 hyphen standard above, the prefix and number are always joined with a hyphen
 (`MS-65`, not `MS65`). GradeSource is set to `PCGS` automatically (it's a
-certified grade, not an estimate). SerNo is set to CERT, and a `CertLink` is
-generated as a plain hotlink (`https://www.pcgs.com/cert/{CERT}`) — same
-hotlink-only approach as the rest of PCGS integration (see External data sources
-below), not an API call. Everything else (CollectionID, Cost, PurchaseDate, Vendor,
-StorageLocation, etc.) stays manual — this only fills what the label itself
-certifies.
+certified grade, not an estimate). SerNo is set to CERT, and the cert-lookup
+link is generated via the grader-agnostic `Lookup_Graders` resolver described
+above (`https://www.pcgs.com/cert/{CERT}` today, since that's PCGS's base URL
+on file) — same hotlink-only approach as the rest of PCGS integration (see
+External data sources below), not an API call. Everything else (CollectionID,
+Cost, PurchaseDate, Vendor, StorageLocation, etc.) stays manual — this only
+fills what the label itself certifies.
+
+### ANACS/ICG/CAC label format (deferred, not started)
+PCGS's label format (`SPEC.GRADE/CERT`) is confirmed and spec'd for auto-decode
+above. NGC is confirmed to have **no equivalent decodable identity number** —
+its cert number is an invoice/sequence ID only, with grade as separate printed
+text — so NGC gets normal manual entry (Grade and Cert Number typed as separate
+fields), same as any non-decoding grader; this is closed, not worth
+re-researching. ANACS, ICG, and CAC/CACG label structures remain **unconfirmed**.
+The collection currently has 0 coins graded by any of these three, so there's no
+active functional gap — per the standing DB_Coins scope rule (don't research
+ahead of need), this waits until a coin graded by one of them is actually
+acquired. The cert-lookup link still works for any of these once
+`Lookup_Graders` gets a confirmed base URL for it, independent of whether
+auto-decode is ever built.
 
 ### Needs Attention queue (locked in, renamed from "Needs DB_Coins Entry")
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
