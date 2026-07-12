@@ -487,6 +487,12 @@
   }
   .grade-range-toggle input[type=checkbox] { width: auto; margin: 0; }
   .grade-resolved { font-size: 12px; color: var(--gold-bright); margin-top: 6px; }
+  .cert-link-preview {
+    display: block; font-size: 12px; color: var(--gold-bright); margin: -6px 0 12px; text-decoration: none;
+  }
+  .cert-link-preview:hover { text-decoration: underline; }
+  .cert-link-preview.hidden { display: none; }
+  #pcgsLabelAmbiguousPanel.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
   /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
@@ -535,6 +541,12 @@
     display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; text-align: left;
   }
   #photoAdjustZoom { width: 100%; margin-bottom: 6px; }
+  #photoAdjustRotate { width: 100%; margin-bottom: 12px; }
+  .photo-adjust-rotate-row { display: flex; gap: 10px; margin-bottom: 14px; }
+  .photo-adjust-rotate-row button {
+    flex: 1; padding: 8px; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 16px;
+    background: transparent; border: 1px solid var(--case-border); color: var(--text);
+  }
   .photo-adjust-hint { font-size: 11px; color: var(--text-muted); font-style: italic; margin-bottom: 16px; }
   .photo-adjust-btns { display: flex; gap: 10px; }
   .photo-adjust-btns button {
@@ -553,6 +565,10 @@
   .year-pick-btn {
     width: 44px; flex-shrink: 0; border-radius: 6px; border: 1px solid var(--case-border);
     background: var(--bg-elevated); color: var(--gold-bright); font-size: 17px; cursor: pointer;
+  }
+  #pcgsLabelApplyBtn {
+    flex-shrink: 0; padding: 0 14px; border-radius: 6px; border: 1px solid var(--case-border);
+    background: var(--bg-elevated); color: var(--gold-bright); font-size: 13px; cursor: pointer; font-family: inherit;
   }
   .year-picker {
     margin-top: 8px; padding: 10px; border: 1px solid var(--case-border);
@@ -900,6 +916,25 @@
             <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
+          <div class="section-label" style="margin-top:0;">PCGS Label (optional)</div>
+          <label>PCGS Label #</label>
+          <div class="year-field-row">
+            <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT">
+            <button type="button" id="pcgsLabelApplyBtn">Decode</button>
+          </div>
+          <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
+            <span class="icon">⚠️</span>
+            <span class="msg"><strong>PCGS# not found in DB_Coins</strong> — add manually, or research and add the DB_Coins row later.</span>
+          </div>
+          <div class="banner context-banner hidden" id="pcgsLabelAppliedBanner">
+            <span class="icon">✅</span>
+            <span class="msg" id="pcgsLabelAppliedMsg"></span>
+          </div>
+          <div class="case hidden" id="pcgsLabelAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+            <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this PCGS# — pick one</div>
+            <div id="pcgsLabelAmbiguousList"></div>
+          </div>
+
           <label>Denomination</label>
           <select id="denomination">
             <option value="">— select —</option>
@@ -970,7 +1005,8 @@
           </select>
 
           <label>Cert / Type Number</label>
-          <input type="text" placeholder="e.g. 12345678/6721 — combined, exactly as on the slab">
+          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+          <a href="#" target="_blank" rel="noopener" class="cert-link-preview hidden" id="certLinkPreview"></a>
 
           <label>Designation</label>
           <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
@@ -1123,7 +1159,13 @@
       </div>
       <label class="photo-adjust-zoom-label" for="photoAdjustZoom">Zoom</label>
       <input type="range" id="photoAdjustZoom" min="100" max="300" value="100">
-      <div class="photo-adjust-hint">Drag the photo to reposition</div>
+      <div class="photo-adjust-rotate-row">
+        <button type="button" id="photoAdjustRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
+        <button type="button" id="photoAdjustRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
+      </div>
+      <label class="photo-adjust-zoom-label" for="photoAdjustRotate">Straighten</label>
+      <input type="range" id="photoAdjustRotate" min="-45" max="45" value="0" step="1">
+      <div class="photo-adjust-hint">Drag to reposition, slider to zoom, straighten if it's tilted</div>
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
@@ -1201,7 +1243,7 @@
   // Representative stand-in for the workbook's Lookup_Grades tab (real content lives in
   // OneDrive, not reachable from here yet — this is just enough to demo the picker).
   const FAKE_GRADES = [
-    { code: "P1",  label: "Poor",                       group: "circ" },
+    { code: "PO1", label: "Poor",                       group: "circ" },
     { code: "FR2", label: "Fair",                       group: "circ" },
     { code: "AG3", label: "About Good",                 group: "circ" },
     { code: "G4",  label: "Good",                       group: "circ" },
@@ -1231,6 +1273,28 @@
     { code: "MS68",label: "Superb Gem+",                 group: "ms" },
     { code: "MS69",label: "Superb Gem++",                group: "ms" },
     { code: "MS70",label: "Perfect",                     group: "ms" },
+    { code: "PR60",label: "Proof",                       group: "proof" },
+    { code: "PR61",label: "Proof",                       group: "proof" },
+    { code: "PR62",label: "Proof+",                      group: "proof" },
+    { code: "PR63",label: "Choice Proof",                 group: "proof" },
+    { code: "PR64",label: "Choice Proof+",                group: "proof" },
+    { code: "PR65",label: "Gem Proof",                    group: "proof" },
+    { code: "PR66",label: "Gem Proof+",                   group: "proof" },
+    { code: "PR67",label: "Superb Gem Proof",             group: "proof" },
+    { code: "PR68",label: "Superb Gem Proof+",            group: "proof" },
+    { code: "PR69",label: "Superb Gem Proof++",           group: "proof" },
+    { code: "PR70",label: "Perfect Proof",                group: "proof" },
+    { code: "SP60",label: "Specimen",                     group: "proof" },
+    { code: "SP61",label: "Specimen",                     group: "proof" },
+    { code: "SP62",label: "Specimen+",                    group: "proof" },
+    { code: "SP63",label: "Choice Specimen",              group: "proof" },
+    { code: "SP64",label: "Choice Specimen+",             group: "proof" },
+    { code: "SP65",label: "Gem Specimen",                 group: "proof" },
+    { code: "SP66",label: "Gem Specimen+",                group: "proof" },
+    { code: "SP67",label: "Superb Gem Specimen",          group: "proof" },
+    { code: "SP68",label: "Superb Gem Specimen+",         group: "proof" },
+    { code: "SP69",label: "Superb Gem Specimen++",        group: "proof" },
+    { code: "SP70",label: "Perfect Specimen",             group: "proof" },
     { code: "Genuine",     label: "Genuine (no numeric grade)", group: "problem" },
     { code: "AU Details",  label: "AU Details",           group: "problem" },
     { code: "XF Details",  label: "XF Details",           group: "problem" },
@@ -1276,14 +1340,19 @@
 
   // Representative stand-in for DB_Coins (~3,753 rows in reality) — just enough rows to
   // demo a match and a miss. Matching is denom + year + mint (blank = P) + variety (blank ok).
+  // finish/description/gsid are here to support the PCGS Label Auto-Populate feature below;
+  // two rows deliberately share pcgs "5000" to demo the PCGS_Duplicate_Queue ambiguous-match flow.
   const FAKE_DB_COINS = [
-    { denom: "10C", year: 1916, mint: "D",  variety: "",            coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000 },
-    { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",          coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000 },
-    { denom: "1C",  year: 1909, mint: "S",  variety: "",             coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000 },
-    { denom: "$1",  year: 1889, mint: "CC", variety: "",             coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000 },
-    { denom: "25C", year: 1901, mint: "S",  variety: "",             coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664 },
-    { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",     coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000 },
-    { denom: "5C",  year: 1937, mint: "D",  variety: "",             coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000 }
+    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury (Winged Liberty)", finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000 },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat",            finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000 },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat",            finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000 },
+    { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan",                   finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000 },
+    { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber",                   finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664 },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo (Indian Head)",    finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000 },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "",        description: "Buffalo (Indian Head)",    finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000 },
+    { denom: "1C",  year: 1950, mint: "",   variety: "",        description: "Lincoln Wheat",            finish: "Proof",           gsid: "GS-2091", coinId: "C-1950-M-1C-03",  pcgs: "9430",  mintage: 51386 },
+    { denom: "25C", year: 1932, mint: "",   variety: "",        description: "Washington",                finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-01", pcgs: "5000",  mintage: 5404000 },
+    { denom: "25C", year: 1932, mint: "D",  variety: "",        description: "Washington",                finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-02", pcgs: "5000",  mintage: 436800 }
   ];
 
   // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
@@ -1704,12 +1773,12 @@
   }
 
   // ==================================================================
-  // PHOTO CROP ADJUSTER — drag to pan, slider to zoom. Shared by every
-  // circular coin photo slot (Obverse/Reverse/Additional). Receipt photos
-  // stay a plain rectangular preview, no adjuster needed there.
+  // PHOTO CROP ADJUSTER — drag to pan, slider to zoom, 90°/straighten to rotate.
+  // Shared by every circular coin photo slot (Obverse/Reverse/Additional).
+  // Receipt photos stay a plain rectangular preview, no adjuster needed there.
   // ==================================================================
 
-  let photoAdjustState = null; // { naturalWidth, naturalHeight, baseScale, zoom, offsetX, offsetY, circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId }
+  let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId }
   const slotFiles = {}; // frameId -> original File, so "reopen adjuster" can re-crop the same photo
 
   function openPhotoAdjust(file, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
@@ -1717,13 +1786,14 @@
     const img = document.getElementById("photoAdjustImg");
     const circleSize = 240;
     img.onload = () => {
-      const nw = img.naturalWidth, nh = img.naturalHeight;
-      const baseScale = Math.max(circleSize / nw, circleSize / nh);
       photoAdjustState = {
-        naturalWidth: nw, naturalHeight: nh, baseScale, zoom: 1, offsetX: 0, offsetY: 0,
+        naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
+        zoom: 1, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
         circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
       };
+      recomputePhotoAdjustBaseScale();
       document.getElementById("photoAdjustZoom").value = 100;
+      document.getElementById("photoAdjustRotate").value = 0;
       applyPhotoAdjustTransform();
     };
     img.src = URL.createObjectURL(file);
@@ -1735,24 +1805,47 @@
     photoAdjustState = null;
   }
 
+  // A 90°/270° quick-rotation swaps which of the image's own dimensions faces the
+  // circle's width vs. height, so the "cover" fit (and the pan bounds derived from
+  // it) has to be recomputed off the rotated bounding box, not the raw image size.
+  function recomputePhotoAdjustBaseScale() {
+    const s = photoAdjustState;
+    const swapped = s.rotateQuick % 180 !== 0;
+    s.effWidth = swapped ? s.naturalHeight : s.naturalWidth;
+    s.effHeight = swapped ? s.naturalWidth : s.naturalHeight;
+    s.baseScale = Math.max(s.circleSize / s.effWidth, s.circleSize / s.effHeight);
+  }
+
   function applyPhotoAdjustTransform() {
     const s = photoAdjustState;
     if (!s) return;
     const img = document.getElementById("photoAdjustImg");
     const scale = s.baseScale * s.zoom;
+    const rotation = s.rotateQuick + s.rotateFine;
     img.style.width = s.naturalWidth + "px";
     img.style.height = s.naturalHeight + "px";
-    img.style.transform = "translate(-50%, -50%) translate(" + s.offsetX + "px, " + s.offsetY + "px) scale(" + scale + ")";
+    img.style.transform = "translate(-50%, -50%) translate(" + s.offsetX + "px, " + s.offsetY + "px) rotate(" + rotation + "deg) scale(" + scale + ")";
   }
 
   function clampPhotoAdjustOffsets() {
     const s = photoAdjustState;
     const scale = s.baseScale * s.zoom;
-    const scaledW = s.naturalWidth * scale, scaledH = s.naturalHeight * scale;
+    const scaledW = s.effWidth * scale, scaledH = s.effHeight * scale;
     const maxX = Math.max(0, (scaledW - s.circleSize) / 2);
     const maxY = Math.max(0, (scaledH - s.circleSize) / 2);
     s.offsetX = Math.max(-maxX, Math.min(maxX, s.offsetX));
     s.offsetY = Math.max(-maxY, Math.min(maxY, s.offsetY));
+  }
+
+  function quickRotatePhotoAdjust(deltaDeg) {
+    const s = photoAdjustState;
+    if (!s) return;
+    s.rotateQuick = ((s.rotateQuick + deltaDeg) % 360 + 360) % 360;
+    s.offsetX = 0;
+    s.offsetY = 0;
+    recomputePhotoAdjustBaseScale();
+    clampPhotoAdjustOffsets();
+    applyPhotoAdjustTransform();
   }
 
   function initPhotoAdjuster() {
@@ -1782,23 +1875,38 @@
       applyPhotoAdjustTransform();
     });
 
+    document.getElementById("photoAdjustRotate").addEventListener("input", (e) => {
+      if (!photoAdjustState) return;
+      photoAdjustState.rotateFine = Number(e.target.value);
+      applyPhotoAdjustTransform();
+    });
+    document.getElementById("photoAdjustRotateLeftBtn").addEventListener("click", () => quickRotatePhotoAdjust(-90));
+    document.getElementById("photoAdjustRotateRightBtn").addEventListener("click", () => quickRotatePhotoAdjust(90));
+
     document.getElementById("photoAdjustCancelBtn").addEventListener("click", closePhotoAdjust);
 
     document.getElementById("photoAdjustUseBtn").addEventListener("click", () => {
       const s = photoAdjustState;
       if (!s) return;
       const scale = s.baseScale * s.zoom;
-      const sWidth = s.circleSize / scale;
-      const sHeight = sWidth;
-      const sx = s.naturalWidth / 2 - (s.circleSize / 2 + s.offsetX) / scale;
-      const sy = s.naturalHeight / 2 - (s.circleSize / 2 + s.offsetY) / scale;
+      const rotationRad = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
 
       const canvas = document.createElement("canvas");
       canvas.width = 480;
       canvas.height = 480;
+      const canvasScale = canvas.width / s.circleSize;
       const ctx = canvas.getContext("2d");
       const img = document.getElementById("photoAdjustImg");
-      ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+
+      // Mirrors the on-screen CSS transform chain (center -> pan -> rotate -> scale)
+      // at canvas resolution, so the baked crop matches what the adjuster showed.
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.translate(s.offsetX * canvasScale, s.offsetY * canvasScale);
+      ctx.rotate(rotationRad);
+      ctx.scale(scale * canvasScale, scale * canvasScale);
+      ctx.drawImage(img, -s.naturalWidth / 2, -s.naturalHeight / 2);
+      ctx.restore();
 
       canvas.toBlob((blob) => {
         const url = URL.createObjectURL(blob);
@@ -1907,10 +2015,10 @@
   // GRADE PICKER — standard grade dropdown, optional range combine, "Other" free text
   // ==================================================================
 
-  const GRADE_GROUP_LABELS = { circ: "Circulated", ms: "Mint State", problem: "Details & Problem Grades" };
+  const GRADE_GROUP_LABELS = { circ: "Circulated", ms: "Mint State", proof: "Proof & Specimen", problem: "Details & Problem Grades" };
 
   function buildGradeOptions(selectEl, includeOtherAndProblem) {
-    const groups = includeOtherAndProblem ? ["circ", "ms", "problem"] : ["circ", "ms"];
+    const groups = includeOtherAndProblem ? ["circ", "ms", "proof", "problem"] : ["circ", "ms", "proof"];
     groups.forEach(groupKey => {
       const optgroup = document.createElement("optgroup");
       optgroup.label = GRADE_GROUP_LABELS[groupKey];
@@ -2041,6 +2149,120 @@
   }
 
   // ==================================================================
+  // PCGS LABEL AUTO-POPULATE — parses a scanned/typed PCGS label number
+  // (SPEC.GRADE/CERT) and auto-fills what the certified label itself
+  // certifies: Year/MintMark/Denomination/Description/Variety/CoinID/GSID
+  // from the resolved DB_Coins row, plus Grade/GradeSource/SerNo/CertLink.
+  // Everything else (CollectionID, Cost, Vendor, etc.) stays manual.
+  // ==================================================================
+
+  // Standard ANA/Sheldon numeric-to-adjectival grade table. 60-70 are prefixed
+  // by the coin's Finish (Business Strike -> MS, Proof/Reverse Proof -> PR,
+  // SMS/Specimen -> SP) rather than having a fixed adjectival code.
+  const GRADE_NUMERIC_TO_ADJECTIVAL = {
+    1: "PO1", 2: "FR2", 3: "AG3", 4: "G4", 6: "G6", 8: "VG8", 10: "VG10",
+    12: "F12", 15: "F15", 20: "VF20", 25: "VF25", 30: "VF30", 35: "VF35",
+    40: "XF40", 45: "XF45", 50: "AU50", 53: "AU53", 55: "AU55", 58: "AU58"
+  };
+  const FINISH_GRADE_PREFIX = {
+    "Business Strike": "MS", "Proof": "PR", "Reverse Proof": "PR", "SMS": "SP", "Specimen": "SP"
+  };
+
+  function numericGradeToCode(num, finish) {
+    if (num >= 60 && num <= 70) return (FINISH_GRADE_PREFIX[finish] || "MS") + num;
+    return GRADE_NUMERIC_TO_ADJECTIVAL[num] || null;
+  }
+
+  function parsePcgsLabel(raw) {
+    const m = raw.trim().match(/^(\d+)\.(\d{1,2})\/(\d+)$/);
+    if (!m) return null;
+    return { spec: m[1], grade: parseInt(m[2], 10), cert: m[3] };
+  }
+
+  function applyDbCoinsRowToForm(row) {
+    document.getElementById("denomination").value = row.denom;
+    document.getElementById("year").value = row.year;
+    document.getElementById("mintMark").value = row.mint || "";
+    document.getElementById("description").value = row.description || "";
+    descriptionAutoFilled = false;
+    document.getElementById("variety").value = row.variety || "";
+    checkDbCoinsMatch();
+    sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 150, null);
+    sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 150, null);
+  }
+
+  function resolvePcgsLabelMatch(row, parsed) {
+    applyDbCoinsRowToForm(row);
+
+    const code = numericGradeToCode(parsed.grade, row.finish);
+    if (code) {
+      document.getElementById("gradeFrom").value = code;
+      document.getElementById("gradeRangeToggle").checked = false;
+      document.getElementById("gradeTo").style.display = "none";
+      document.getElementById("gradeOther").style.display = "none";
+      updateGradePreview();
+    }
+    document.getElementById("gradeSource").value = "PCGS";
+
+    document.getElementById("certTypeNumber").value = parsed.cert;
+    const certLink = document.getElementById("certLinkPreview");
+    certLink.href = "https://www.pcgs.com/cert/" + parsed.cert;
+    certLink.textContent = "View cert #" + parsed.cert + " on PCGS →";
+    certLink.classList.remove("hidden");
+
+    updateFlipLabels();
+
+    document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
+    document.getElementById("pcgsLabelNotFoundBanner").classList.add("hidden");
+    const appliedBanner = document.getElementById("pcgsLabelAppliedBanner");
+    document.getElementById("pcgsLabelAppliedMsg").innerHTML =
+      "Decoded PCGS label — <strong>" + row.coinId + "</strong>" + (code ? " · Grade " + code : "") + " · GradeSource PCGS";
+    appliedBanner.classList.remove("hidden");
+  }
+
+  function showPcgsLabelAmbiguous(rows, parsed) {
+    document.getElementById("pcgsLabelAppliedBanner").classList.add("hidden");
+    document.getElementById("pcgsLabelNotFoundBanner").classList.add("hidden");
+    const list = document.getElementById("pcgsLabelAmbiguousList");
+    list.innerHTML = "";
+    rows.forEach(row => {
+      const card = document.createElement("div");
+      card.className = "case form-row";
+      card.style.cursor = "pointer";
+      const yearMint = row.year + (row.mint ? "-" + row.mint : "");
+      card.innerHTML =
+        "<div class=\"fr-info\">" +
+          "<div class=\"fr-title\">" + yearMint + " " + row.denom + "</div>" +
+          "<div class=\"fr-summary\">" + [row.description, row.variety, row.finish].filter(Boolean).join(" · ") + "</div>" +
+        "</div><span class=\"chevron\">›</span>";
+      card.addEventListener("click", () => resolvePcgsLabelMatch(row, parsed));
+      list.appendChild(card);
+    });
+    document.getElementById("pcgsLabelAmbiguousPanel").classList.remove("hidden");
+  }
+
+  function handlePcgsLabelApply() {
+    const raw = document.getElementById("pcgsLabelInput").value;
+    const parsed = parsePcgsLabel(raw);
+    document.getElementById("pcgsLabelAppliedBanner").classList.add("hidden");
+    document.getElementById("pcgsLabelNotFoundBanner").classList.add("hidden");
+    document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
+
+    if (!parsed) {
+      if (raw.trim()) showToast("Couldn't parse that label — expected SPEC.GRADE/CERT, e.g. 4905.65/12345678");
+      return;
+    }
+    const matches = FAKE_DB_COINS.filter(c => c.pcgs === parsed.spec);
+    if (matches.length === 0) {
+      document.getElementById("pcgsLabelNotFoundBanner").classList.remove("hidden");
+    } else if (matches.length === 1) {
+      resolvePcgsLabelMatch(matches[0], parsed);
+    } else {
+      showPcgsLabelAmbiguous(matches, parsed);
+    }
+  }
+
+  // ==================================================================
   // FLIP LABELS — corner annotations on the obverse/reverse photo previews,
   // styled like a collector's handwriting on a 2x2 coin flip. Live-updating,
   // additive to (not a replacement for) the plain-text fields themselves.
@@ -2090,6 +2312,22 @@
     document.getElementById("storageDoneBtn").addEventListener("click", showAddCoinMain);
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
+
+    document.getElementById("pcgsLabelApplyBtn").addEventListener("click", handlePcgsLabelApply);
+    document.getElementById("pcgsLabelInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); handlePcgsLabelApply(); }
+    });
+    document.getElementById("certTypeNumber").addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      const certLink = document.getElementById("certLinkPreview");
+      if (val) {
+        certLink.href = "https://www.pcgs.com/cert/" + val;
+        certLink.textContent = "View cert #" + val + " on PCGS →";
+        certLink.classList.remove("hidden");
+      } else {
+        certLink.classList.add("hidden");
+      }
+    });
 
     initGradePicker();
 

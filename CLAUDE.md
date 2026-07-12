@@ -54,8 +54,9 @@ CoinCollection/
   acquisition/provenance lineage — never repurpose it for anything else.**
 - CoinID: custom `C-YYYY-M-DDD-##`
 - SetID: custom `S-XXYY-TT-##`
-- SerNo (on All sheet): PCGS type-number/cert-number combined with a slash, exactly
-  as it appears on the physical slab. Keep combined — do not split.
+- SerNo (on All sheet): the PCGS/NGC **cert number alone** (not combined with the
+  type/PCGS# — those are separate values; see PCGS Label Auto-Populate below for how
+  a scanned label splits into its parts).
 
 ## Workbook naming conventions
 - **Column headers have no spaces**, across DB_Coins, DB_Sets, All, and Albums —
@@ -142,18 +143,20 @@ together rather than mixed in at the top level.
 - **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
   circular**, matching the Spotlight/Browse coin discs so they read as a coin
   rather than a square photo.
-- **Manual pan/zoom crop adjuster (locked in)**: picking/taking a photo for a
-  circular slot opens an adjuster — drag to reposition, slider to zoom
-  (100–300%), bounded so the photo can't be panned past its own edges. "Use
-  Photo" bakes the result into an actual cropped image (canvas, fixed output
-  resolution) rather than keeping a live CSS crop, so it displays correctly
-  regardless of frame size (Obverse/Reverse resize with Denomination). A small
-  "adjust crop" icon button next to Camera/Library reopens the adjuster on the
-  same original photo afterward — not a one-shot, first-pick-only thing.
-  Reopening always resets to the original framing (doesn't resume the last
-  adjustment). This is still manual, user-driven placement, not smart edge
-  detection — real auto-detection/AI cropping is out of scope (see "What NOT
-  to build").
+- **Manual pan/zoom/rotate crop adjuster (locked in)**: picking/taking a photo for
+  a circular slot opens an adjuster — drag to reposition, slider to zoom
+  (100–300%), bounded so the photo can't be panned past its own edges. Two 90°
+  quick-rotate buttons handle a sideways/upside-down capture; a separate
+  "Straighten" slider (±45°) handles a fine tilt correction on top of that. "Use
+  Photo" bakes the result (pan + zoom + rotation) into an actual cropped image
+  (canvas, fixed output resolution) rather than keeping a live CSS crop, so it
+  displays correctly regardless of frame size (Obverse/Reverse resize with
+  Denomination). A small "adjust crop" icon button next to Camera/Library reopens
+  the adjuster on the same original photo afterward — not a one-shot,
+  first-pick-only thing. Reopening always resets to the original framing
+  (doesn't resume the last adjustment, including rotation). This is still manual,
+  user-driven placement, not smart edge detection — real auto-detection/AI
+  cropping is out of scope (see "What NOT to build").
 - **Obverse/Reverse show one at a time via a small toggle**, not stacked and
   not side by side — a dot on each toggle button lights up once that side has
   a photo. This keeps the bigger circle/bigger corner-label text (legible
@@ -215,13 +218,16 @@ treatment above, plus a back link. The grid itself is unchanged — small
 cards with plain text, no corner labels.
 
 ### Grade picker (locked in)
-Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Details &
-Problem Grades groups), not free text. Two extra modes on top of a plain single
-pick:
+Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &
+Specimen / Details & Problem Grades groups), not free text. Two extra modes on top
+of a plain single pick:
 - **Range/combine**: a checkbox reveals a second "to" grade dropdown (standard
   grades only, no Details/Problem/Other); picking two combines them into one
   value, e.g. Good (`G4`) + Very Good (`VG8`) → `G4-VG8`.
 - **Other**: reveals free text for edge cases the standard list doesn't cover.
+- **Grade codes are stored without hyphens** (`MS65`, `PO1`, `PR65`), not the
+  textbook hyphenated form (`MS-65`) — kept consistent so range-combine reads
+  cleanly (`G4-VG8` uses a hyphen only as the range separator, not inside a code).
 
 ### Description auto-fill (locked in)
 Once Year + Denomination are both entered, Description auto-fills from
@@ -245,6 +251,36 @@ soft-check against DB_Coins:
   successful Excel write, per the core workflow above — a DB_Coins miss doesn't
   change that. CoinID (the DB_Coins reference key) is what's allowed to stay
   blank/pending on a miss.
+
+### PCGS Label Auto-Populate (locked in)
+A "PCGS Label #" field (Add Coin, above Denomination) accepts a scanned/typed PCGS
+label number in the format `SPEC.GRADE/CERT` (e.g. `4905.65/12345678`):
+- **SPEC** (before the decimal) matches `DB_Coins.PCGS#`.
+- **GRADE** (2 digits after the decimal) is the numeric Sheldon grade, 1–70.
+- **CERT** (after the slash) is the cert number → becomes `SerNo`.
+
+Resolution against `DB_Coins.PCGS#`:
+- **Zero matches** → leave fields blank, show a non-blocking "PCGS# not found in
+  DB_Coins" warning (add manually / research later).
+- **Exactly one match** → auto-fill Year, MintMark, Denomination, Description,
+  Variety, CoinID, GSID (if populated) onto the All-sheet entry from that row.
+- **Multiple matches** (a known `PCGS_Duplicate_Queue` collision) → do NOT
+  auto-fill. Show all matching DB_Coins rows (Year/MintMark/Variety/Finish/
+  Description) and require the user to tap one before anything is filled. This is
+  expected, ordinary behavior for entries still in `PCGS_Duplicate_Queue`, not an
+  error state — the app doesn't require that queue to be clean first.
+
+Once a row is resolved: numeric GRADE + that row's `DB_Coins.Finish` convert to the
+adjectival Grade via the standard ANA/Sheldon table (`PO1, FR2, AG3, G4, G6, VG8,
+VG10, F12, F15, VF20, VF25, VF30, VF35, XF40, XF45, AU50, AU53, AU55, AU58`, then
+60–70 prefixed by Finish: `Business Strike`→`MS`, `Proof`/`Reverse Proof`→`PR`,
+`SMS`/`Specimen`→`SP`). GradeSource is set to `PCGS` automatically (it's a
+certified grade, not an estimate). SerNo is set to CERT, and a `CertLink` is
+generated as a plain hotlink (`https://www.pcgs.com/cert/{CERT}`) — same
+hotlink-only approach as the rest of PCGS integration (see External data sources
+below), not an API call. Everything else (CollectionID, Cost, PurchaseDate, Vendor,
+StorageLocation, etc.) stays manual — this only fills what the label itself
+certifies.
 
 ### Needs DB_Coins Entry queue (locked in)
 Any coin saved without a DB_Coins match gets flagged and shows up in a
