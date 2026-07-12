@@ -789,6 +789,7 @@
                   <img id="obversePreview">
                 </div>
                 <span class="flip-label bl" id="flipObverseBL"></span>
+                <span class="flip-label br" id="flipObverseBR"></span>
               </div>
               <div class="photo-btns">
                 <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
@@ -801,12 +802,10 @@
               <div class="name">Reverse (back)</div>
               <div class="flip-frame">
                 <span class="flip-label tl" id="flipReverseTL"></span>
-                <span class="flip-label tr" id="flipReverseTR"></span>
                 <div class="coin-photo-frame" id="reverseFrame">
                   <span class="placeholder-icon" id="reversePlaceholder">📷</span>
                   <img id="reversePreview">
                 </div>
-                <span class="flip-label bl" id="flipReverseBL"></span>
                 <span class="flip-label br" id="flipReverseBR"></span>
               </div>
               <div class="photo-btns">
@@ -1790,16 +1789,17 @@
     if (grade) gradeParts.push(grade);
     if (gradeSource) gradeParts.push(gradeSource);
 
-    // Obverse is identification only, standard shorthand (coded denomination,
-    // not the spelled-out series name) — no price here, that's not convention.
+    // Obverse: identification, standard shorthand (coded denomination, not the
+    // spelled-out series name), plus Variety+Designation if present.
     document.getElementById("flipObverseTL").textContent = yearMint;
     document.getElementById("flipObverseTR").textContent = denom;
     document.getElementById("flipObverseBL").textContent = gradeParts.join(" ");
+    document.getElementById("flipObverseBR").textContent = [variety, designation].filter(Boolean).join(", ");
 
-    // Reverse carries overflow that doesn't fit the obverse, plus Purchase
-    // Price (moved here — the front of a flip isn't where collectors note cost).
-    document.getElementById("flipReverseTL").textContent = [variety, designation].filter(Boolean).join(", ");
-    document.getElementById("flipReverseBL").textContent = errorText;
+    // Reverse: Error and Purchase Price only, per Ray's own convention (not an
+    // official numismatic standard) — matches the price sticker placement he
+    // sees at his local coin shop.
+    document.getElementById("flipReverseTL").textContent = errorText;
     document.getElementById("flipReverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
   }
 
