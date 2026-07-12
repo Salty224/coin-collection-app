@@ -39,7 +39,10 @@ ask before updating rather than updating by default.
 ## OneDrive folder structure
 ```
 CoinCollection/
-  CoinPhotos/            named {CollectionID}_obverse.jpg, _reverse.jpg, _extra1.jpg...
+  CoinPhotos/            named {CollectionID}_obverse.jpg, _reverse.jpg, and (only if a
+                           3rd/4th image is actually needed — slab label closeup, box,
+                           etc.) _photo3.jpg, _photo4.jpg. Flat — no subfolder by
+                           year/series/anything else.
   CoinReceipts/           named {CollectionID}_receipt.jpg, or timestamp-named for
                            batch receipts not yet tied to a coin
   Staging/{YYYYMMDD-HHMMSS}/   fallback landing zone when a direct Excel write fails
@@ -47,6 +50,16 @@ CoinCollection/
                                  blank until reconciled
   CoinCollection (AI).xlsx
 ```
+- **Combined obverse+reverse in one image** (some PCGS TrueView shots, some seller
+  photos): file it as `{CollectionID}_obverse.jpg` only — leave Reverse blank, add a
+  Notes entry like "Reverse shown combined in obverse photo." Never duplicate the
+  file into both slots (implies two separate photos exist) and never file it as a
+  3rd/4th image (it's the primary photo, not supplementary).
+- **This naming is spec'd but not yet wired up in the app** — the whole direct-write
+  path (see "Add Coin: the core workflow" below) is still mockup/local-preview only,
+  nothing has actually written a photo to OneDrive yet. When that write path gets
+  built, renaming the captured file to this convention at the moment CollectionID is
+  assigned is part of step 3/5 below, not a separate future feature.
 
 ## ID schemes (locked in)
 - CollectionID: `AY-#####` (5-digit). Parent rows get `-Set` suffix; child rows get
