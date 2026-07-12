@@ -988,7 +988,7 @@
           <select id="gradeFrom"></select>
           <label class="grade-range-toggle">
             <input type="checkbox" id="gradeRangeToggle">
-            Combine with a second grade (range, e.g. G4-VG8)
+            Combine with a second grade (range, e.g. G-4-VG-8)
           </label>
           <select id="gradeTo" style="display:none; margin-top:8px;"></select>
           <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
@@ -1181,16 +1181,16 @@
   // ==================================================================
 
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",            denom: "$1",  year: 1889, mint: "CC", grade: "MS64",  value: 850 },
-    { id: "AY-00002", name: "Walking Liberty Half",     denom: "50C", year: 1943, mint: "",   grade: "AU58",  value: 90  },
-    { id: "AY-00003", name: "Mercury Dime",              denom: "10C", year: 1916, mint: "D",  grade: "VG8",   value: 1400 },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",        denom: "1C",  year: 1909, mint: "S",  grade: "F12",   value: 650 },
-    { id: "AY-00005", name: "Indian Head Cent",          denom: "1C",  year: 1877, mint: "",   grade: "VF20",  value: 720 },
-    { id: "AY-00006", name: "Barber Quarter",            denom: "25C", year: 1901, mint: "S",  grade: "G4",    value: 3200 },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF40",  value: 480 },
-    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS62",  value: 55  },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF25",  value: 210 },
-    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "MS65",  value: 130 }
+    { id: "AY-00001", name: "Morgan Dollar",            denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850 },
+    { id: "AY-00002", name: "Walking Liberty Half",     denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90  },
+    { id: "AY-00003", name: "Mercury Dime",              denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400 },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",        denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650 },
+    { id: "AY-00005", name: "Indian Head Cent",          denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720 },
+    { id: "AY-00006", name: "Barber Quarter",            denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200 },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480 },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55  },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210 },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "MS-65",  value: 130 }
   ];
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
@@ -1243,58 +1243,58 @@
   // Representative stand-in for the workbook's Lookup_Grades tab (real content lives in
   // OneDrive, not reachable from here yet — this is just enough to demo the picker).
   const FAKE_GRADES = [
-    { code: "PO1", label: "Poor",                       group: "circ" },
-    { code: "FR2", label: "Fair",                       group: "circ" },
-    { code: "AG3", label: "About Good",                 group: "circ" },
-    { code: "G4",  label: "Good",                       group: "circ" },
-    { code: "G6",  label: "Good+",                      group: "circ" },
-    { code: "VG8", label: "Very Good",                  group: "circ" },
-    { code: "VG10",label: "Very Good+",                 group: "circ" },
-    { code: "F12", label: "Fine",                       group: "circ" },
-    { code: "F15", label: "Fine+",                      group: "circ" },
-    { code: "VF20",label: "Very Fine",                  group: "circ" },
-    { code: "VF25",label: "Very Fine+",                 group: "circ" },
-    { code: "VF30",label: "Very Fine+",                 group: "circ" },
-    { code: "VF35",label: "Choice Very Fine",            group: "circ" },
-    { code: "XF40",label: "Extremely Fine",             group: "circ" },
-    { code: "XF45",label: "Choice Extremely Fine",       group: "circ" },
-    { code: "AU50",label: "About Uncirculated",         group: "circ" },
-    { code: "AU53",label: "About Uncirculated+",        group: "circ" },
-    { code: "AU55",label: "Choice About Uncirculated",   group: "circ" },
-    { code: "AU58",label: "Choice About Uncirculated+",  group: "circ" },
-    { code: "MS60",label: "Uncirculated",               group: "ms" },
-    { code: "MS61",label: "Uncirculated",               group: "ms" },
-    { code: "MS62",label: "Uncirculated+",              group: "ms" },
-    { code: "MS63",label: "Choice Uncirculated",         group: "ms" },
-    { code: "MS64",label: "Choice Uncirculated+",        group: "ms" },
-    { code: "MS65",label: "Gem Uncirculated",            group: "ms" },
-    { code: "MS66",label: "Gem Uncirculated+",           group: "ms" },
-    { code: "MS67",label: "Superb Gem",                  group: "ms" },
-    { code: "MS68",label: "Superb Gem+",                 group: "ms" },
-    { code: "MS69",label: "Superb Gem++",                group: "ms" },
-    { code: "MS70",label: "Perfect",                     group: "ms" },
-    { code: "PR60",label: "Proof",                       group: "proof" },
-    { code: "PR61",label: "Proof",                       group: "proof" },
-    { code: "PR62",label: "Proof+",                      group: "proof" },
-    { code: "PR63",label: "Choice Proof",                 group: "proof" },
-    { code: "PR64",label: "Choice Proof+",                group: "proof" },
-    { code: "PR65",label: "Gem Proof",                    group: "proof" },
-    { code: "PR66",label: "Gem Proof+",                   group: "proof" },
-    { code: "PR67",label: "Superb Gem Proof",             group: "proof" },
-    { code: "PR68",label: "Superb Gem Proof+",            group: "proof" },
-    { code: "PR69",label: "Superb Gem Proof++",           group: "proof" },
-    { code: "PR70",label: "Perfect Proof",                group: "proof" },
-    { code: "SP60",label: "Specimen",                     group: "proof" },
-    { code: "SP61",label: "Specimen",                     group: "proof" },
-    { code: "SP62",label: "Specimen+",                    group: "proof" },
-    { code: "SP63",label: "Choice Specimen",              group: "proof" },
-    { code: "SP64",label: "Choice Specimen+",             group: "proof" },
-    { code: "SP65",label: "Gem Specimen",                 group: "proof" },
-    { code: "SP66",label: "Gem Specimen+",                group: "proof" },
-    { code: "SP67",label: "Superb Gem Specimen",          group: "proof" },
-    { code: "SP68",label: "Superb Gem Specimen+",         group: "proof" },
-    { code: "SP69",label: "Superb Gem Specimen++",        group: "proof" },
-    { code: "SP70",label: "Perfect Specimen",             group: "proof" },
+    { code: "PO-1", label: "Poor",                       group: "circ" },
+    { code: "FR-2", label: "Fair",                       group: "circ" },
+    { code: "AG-3", label: "About Good",                 group: "circ" },
+    { code: "G-4",  label: "Good",                       group: "circ" },
+    { code: "G-6",  label: "Good+",                      group: "circ" },
+    { code: "VG-8", label: "Very Good",                  group: "circ" },
+    { code: "VG-10",label: "Very Good+",                 group: "circ" },
+    { code: "F-12", label: "Fine",                       group: "circ" },
+    { code: "F-15", label: "Fine+",                      group: "circ" },
+    { code: "VF-20",label: "Very Fine",                  group: "circ" },
+    { code: "VF-25",label: "Very Fine+",                 group: "circ" },
+    { code: "VF-30",label: "Very Fine+",                 group: "circ" },
+    { code: "VF-35",label: "Choice Very Fine",            group: "circ" },
+    { code: "XF-40",label: "Extremely Fine",             group: "circ" },
+    { code: "XF-45",label: "Choice Extremely Fine",       group: "circ" },
+    { code: "AU-50",label: "About Uncirculated",         group: "circ" },
+    { code: "AU-53",label: "About Uncirculated+",        group: "circ" },
+    { code: "AU-55",label: "Choice About Uncirculated",   group: "circ" },
+    { code: "AU-58",label: "Choice About Uncirculated+",  group: "circ" },
+    { code: "MS-60",label: "Uncirculated",               group: "ms" },
+    { code: "MS-61",label: "Uncirculated",               group: "ms" },
+    { code: "MS-62",label: "Uncirculated+",              group: "ms" },
+    { code: "MS-63",label: "Choice Uncirculated",         group: "ms" },
+    { code: "MS-64",label: "Choice Uncirculated+",        group: "ms" },
+    { code: "MS-65",label: "Gem Uncirculated",            group: "ms" },
+    { code: "MS-66",label: "Gem Uncirculated+",           group: "ms" },
+    { code: "MS-67",label: "Superb Gem",                  group: "ms" },
+    { code: "MS-68",label: "Superb Gem+",                 group: "ms" },
+    { code: "MS-69",label: "Superb Gem++",                group: "ms" },
+    { code: "MS-70",label: "Perfect",                     group: "ms" },
+    { code: "PR-60",label: "Proof",                       group: "proof" },
+    { code: "PR-61",label: "Proof",                       group: "proof" },
+    { code: "PR-62",label: "Proof+",                      group: "proof" },
+    { code: "PR-63",label: "Choice Proof",                 group: "proof" },
+    { code: "PR-64",label: "Choice Proof+",                group: "proof" },
+    { code: "PR-65",label: "Gem Proof",                    group: "proof" },
+    { code: "PR-66",label: "Gem Proof+",                   group: "proof" },
+    { code: "PR-67",label: "Superb Gem Proof",             group: "proof" },
+    { code: "PR-68",label: "Superb Gem Proof+",            group: "proof" },
+    { code: "PR-69",label: "Superb Gem Proof++",           group: "proof" },
+    { code: "PR-70",label: "Perfect Proof",                group: "proof" },
+    { code: "SP-60",label: "Specimen",                     group: "proof" },
+    { code: "SP-61",label: "Specimen",                     group: "proof" },
+    { code: "SP-62",label: "Specimen+",                    group: "proof" },
+    { code: "SP-63",label: "Choice Specimen",              group: "proof" },
+    { code: "SP-64",label: "Choice Specimen+",             group: "proof" },
+    { code: "SP-65",label: "Gem Specimen",                 group: "proof" },
+    { code: "SP-66",label: "Gem Specimen+",                group: "proof" },
+    { code: "SP-67",label: "Superb Gem Specimen",          group: "proof" },
+    { code: "SP-68",label: "Superb Gem Specimen+",         group: "proof" },
+    { code: "SP-69",label: "Superb Gem Specimen++",        group: "proof" },
+    { code: "SP-70",label: "Perfect Specimen",             group: "proof" },
     { code: "Genuine",     label: "Genuine (no numeric grade)", group: "problem" },
     { code: "AU Details",  label: "AU Details",           group: "problem" },
     { code: "XF Details",  label: "XF Details",           group: "problem" },
@@ -2160,16 +2160,16 @@
   // by the coin's Finish (Business Strike -> MS, Proof/Reverse Proof -> PR,
   // SMS/Specimen -> SP) rather than having a fixed adjectival code.
   const GRADE_NUMERIC_TO_ADJECTIVAL = {
-    1: "PO1", 2: "FR2", 3: "AG3", 4: "G4", 6: "G6", 8: "VG8", 10: "VG10",
-    12: "F12", 15: "F15", 20: "VF20", 25: "VF25", 30: "VF30", 35: "VF35",
-    40: "XF40", 45: "XF45", 50: "AU50", 53: "AU53", 55: "AU55", 58: "AU58"
+    1: "PO-1", 2: "FR-2", 3: "AG-3", 4: "G-4", 6: "G-6", 8: "VG-8", 10: "VG-10",
+    12: "F-12", 15: "F-15", 20: "VF-20", 25: "VF-25", 30: "VF-30", 35: "VF-35",
+    40: "XF-40", 45: "XF-45", 50: "AU-50", 53: "AU-53", 55: "AU-55", 58: "AU-58"
   };
   const FINISH_GRADE_PREFIX = {
     "Business Strike": "MS", "Proof": "PR", "Reverse Proof": "PR", "SMS": "SP", "Specimen": "SP"
   };
 
   function numericGradeToCode(num, finish) {
-    if (num >= 60 && num <= 70) return (FINISH_GRADE_PREFIX[finish] || "MS") + num;
+    if (num >= 60 && num <= 70) return (FINISH_GRADE_PREFIX[finish] || "MS") + "-" + num;
     return GRADE_NUMERIC_TO_ADJECTIVAL[num] || null;
   }
 

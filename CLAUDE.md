@@ -201,7 +201,7 @@ the same corner mapping:
   top-left Year+MintMark (`1945-S`); top-right the coded Denomination only
   (`10C`, not the spelled-out series name — the full name stays available
   elsewhere: Browse detail heading, Browse grid, sr-only text); bottom-left
-  Grade+GradeSource (`MS67 PCGS`); bottom-right Variety+Designation combined,
+  Grade+GradeSource (`MS-67 PCGS`); bottom-right Variety+Designation combined,
   if present (`Micro S, FB`).
 - **Reverse (Add Coin only — saved coins don't yet track Error/Price
   separately from the obverse display)**: only two conditional items —
@@ -223,11 +223,13 @@ Specimen / Details & Problem Grades groups), not free text. Two extra modes on t
 of a plain single pick:
 - **Range/combine**: a checkbox reveals a second "to" grade dropdown (standard
   grades only, no Details/Problem/Other); picking two combines them into one
-  value, e.g. Good (`G4`) + Very Good (`VG8`) → `G4-VG8`.
+  value, e.g. Good (`G-4`) + Very Good (`VG-8`) → `G-4-VG-8`.
 - **Other**: reveals free text for edge cases the standard list doesn't cover.
-- **Grade codes are stored without hyphens** (`MS65`, `PO1`, `PR65`), not the
-  textbook hyphenated form (`MS-65`) — kept consistent so range-combine reads
-  cleanly (`G4-VG8` uses a hyphen only as the range separator, not inside a code).
+- **Standard: all numeric coin grades use a hyphen between the letter prefix and
+  the number** (`MS-63`, not `MS63` or `MS 63`; `VF-20`, not `VF20`) — this
+  applies to the Grade field everywhere in the app and to the PCGS Label
+  Auto-Populate parser below. Designation (FB, RD/RB/BN, CAM/DCAM) is a separate
+  field and is never appended to the Grade string.
 
 ### Description auto-fill (locked in)
 Once Year + Denomination are both entered, Description auto-fills from
@@ -271,10 +273,12 @@ Resolution against `DB_Coins.PCGS#`:
   error state — the app doesn't require that queue to be clean first.
 
 Once a row is resolved: numeric GRADE + that row's `DB_Coins.Finish` convert to the
-adjectival Grade via the standard ANA/Sheldon table (`PO1, FR2, AG3, G4, G6, VG8,
-VG10, F12, F15, VF20, VF25, VF30, VF35, XF40, XF45, AU50, AU53, AU55, AU58`, then
-60–70 prefixed by Finish: `Business Strike`→`MS`, `Proof`/`Reverse Proof`→`PR`,
-`SMS`/`Specimen`→`SP`). GradeSource is set to `PCGS` automatically (it's a
+adjectival Grade via the standard ANA/Sheldon table (`PO-1, FR-2, AG-3, G-4, G-6,
+VG-8, VG-10, F-12, F-15, VF-20, VF-25, VF-30, VF-35, XF-40, XF-45, AU-50, AU-53,
+AU-55, AU-58`, then 60–70 prefixed by Finish: `Business Strike`→`MS-`,
+`Proof`/`Reverse Proof`→`PR-`, `SMS`/`Specimen`→`SP-`). Per the Grade picker's
+hyphen standard above, the prefix and number are always joined with a hyphen
+(`MS-65`, not `MS65`). GradeSource is set to `PCGS` automatically (it's a
 certified grade, not an estimate). SerNo is set to CERT, and a `CertLink` is
 generated as a plain hotlink (`https://www.pcgs.com/cert/{CERT}`) — same
 hotlink-only approach as the rest of PCGS integration (see External data sources
