@@ -146,11 +146,25 @@ together rather than mixed in at the top level.
   crop only — it assumes the coin roughly fills the frame, not smart edge
   detection. Real auto-detection/AI cropping is out of scope (see "What NOT to
   build").
-- **Obverse/Reverse stack full-width** (not side by side) so the circle can be
-  large and the corner-label text (below) legible without glasses. Camera/
-  Library controls are small quiet icon-only circles below the photo, not
-  full-width labeled buttons — the coin is the focal point, the controls
-  aren't.
+- **Obverse/Reverse show one at a time via a small toggle**, not stacked and
+  not side by side — a dot on each toggle button lights up once that side has
+  a photo. This keeps the bigger circle/bigger corner-label text (legible
+  without glasses) without the page getting long from showing both full-size
+  cards at once. Camera/Library controls are small quiet icon-only circles
+  below the photo, not full-width labeled buttons — the coin is the focal
+  point, the controls aren't.
+- **Coin discs/photos scale by denomination** — proportional to real coin
+  diameters (a dime is genuinely smaller than a cent, which is smaller than a
+  nickel/quarter/half/dollar), floored at 70% of max size so nothing goes
+  illegibly tiny on a phone. Applies everywhere a coin renders at a readable
+  size: Browse grid, Spotlight, Browse detail, and Add Coin's obverse/reverse
+  frames (which resize live as Denomination changes).
+- **Mint Mark is a dropdown** (blank/Philadelphia, D, S, CC, O, W), not free
+  text.
+- **Year has an optional decade-drill-down picker** alongside the plain text
+  field — tap a decade (1790s-2020s), then a year within it, so picking a
+  year is never one giant scrolling list. Typing the year directly still
+  works exactly as before; the picker is additive.
 
 ### Coin-flip corner labels (locked in)
 Text overlays in the open corner space around a coin's circular photo/disc,
