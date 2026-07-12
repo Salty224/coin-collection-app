@@ -244,18 +244,23 @@
   .nav-tile .tile-icon { font-size: 26px; display: block; margin-bottom: 8px; }
   .nav-tile .tile-label { font-size: 14px; font-weight: 600; }
 
-  .quick-action {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    cursor: pointer;
-    transition: border-color 0.15s ease;
+  /* ---------- Stats & Value ---------- */
+  .stat-tile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat-tile { padding: 16px; }
+  .stat-label { font-size: 12px; color: var(--text-muted); }
+  .stat-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--gold-bright); }
+  .stat-value.negative { color: var(--danger); }
+  .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .stat-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--case-border); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row-label { width: 66px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
+  .stat-row-bar-track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .stat-row-bar-fill { height: 100%; background: var(--gold); border-radius: 2px; }
+  .stat-row-value {
+    width: 96px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
-  .quick-action:hover { border-color: var(--case-border-bright); }
-  .quick-action .qa-icon { font-size: 22px; flex-shrink: 0; }
-  .quick-action .qa-title { font-size: 14px; font-weight: 700; }
-  .quick-action .qa-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   /* ---------- Browse ---------- */
   .coin-grid {
@@ -287,6 +292,27 @@
     color: var(--gold);
     font-weight: 600;
   }
+
+  .browse-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .browse-toolbar.hidden { display: none; }
+  .view-toggle { display: flex; gap: 4px; }
+  .view-toggle-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--text-muted); font-size: 15px; cursor: pointer;
+  }
+  .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
+
+  /* List mode reuses the same .coin-card markup — CSS alone rearranges it into a row. */
+  .coin-grid.list-view { display: flex; flex-direction: column; gap: 8px; }
+  .coin-grid.list-view .coin-card {
+    flex-direction: row; align-items: center; text-align: left; padding: 10px 14px; gap: 12px;
+  }
+  .coin-grid.list-view .coin-card .coin-disc { width: 40px; height: 40px; font-size: 10px; flex-shrink: 0; }
+  .coin-grid.list-view .coin-card .coin-card-text { flex: 1; min-width: 0; }
+  .coin-grid.list-view .coin-card .grade-badge { flex-shrink: 0; }
+  .coin-grid.list-view .coin-card .value { flex-shrink: 0; }
+
+  .set-card-progress { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
 
   .filter-row {
     display: flex;
@@ -416,6 +442,7 @@
   .wish-item .wish-notes { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   .wish-item .wish-date { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
   .wish-item .wish-price { font-size: 14px; color: var(--gold-bright); font-weight: 700; white-space: nowrap; }
+  .wish-detail-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
 
   /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
@@ -579,6 +606,10 @@
   #pcgsLabelApplyBtn {
     flex-shrink: 0; padding: 0 14px; border-radius: 6px; border: 1px solid var(--case-border);
     background: var(--bg-elevated); color: var(--gold-bright); font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+  .edit-btn {
+    flex-shrink: 0; padding: 5px 12px; border-radius: 14px; border: 1px solid var(--case-border);
+    background: var(--bg-elevated); color: var(--gold-bright); font-size: 12px; cursor: pointer; font-family: inherit;
   }
   .year-picker {
     margin-top: 8px; padding: 10px; border: 1px solid var(--case-border);
@@ -808,36 +839,39 @@
         <div class="section-title">Go To</div>
         <div class="tile-grid" id="navTiles"></div>
 
-        <div class="section-title">Quick Actions</div>
-        <div class="case quick-action" id="batchReceiptTile">
-          <span class="qa-icon">🧾</span>
-          <div>
-            <div class="qa-title">Batch Receipt</div>
-            <div class="qa-sub">Log a receipt covering more than one coin, to process later</div>
-          </div>
-        </div>
-
-        <div class="case quick-action" id="needsDbCoinsTile" style="margin-top:12px;">
-          <span class="qa-icon">🗂️</span>
-          <div>
-            <div class="qa-title">Needs DB_Coins Entry <span class="qa-badge" id="needsDbCoinsBadge"></span></div>
-            <div class="qa-sub">Coins added without a catalog match — waiting on research</div>
-          </div>
-        </div>
-
       </section>
 
       <!-- ============ BROWSE ============ -->
       <section class="view" id="view-browse">
         <div id="browseGridView">
-          <h2 class="display" style="margin-top:0;">Browse Collection</h2>
-          <div class="filter-row" id="browseFilters"></div>
+          <div id="browseCoinsHeader">
+            <h2 class="display" style="margin-top:0;">Browse Collection</h2>
+            <div class="filter-row" id="browseFilters"></div>
+          </div>
+
+          <div id="browseSetDetailHeader" style="display:none;">
+            <button class="back-link" id="browseSetDetailBackBtn" style="padding-top:0;">← Sets</button>
+            <h2 class="display" style="margin-top:0;" id="browseSetDetailName"></h2>
+          </div>
+
+          <div class="browse-toolbar" id="browseViewToggleRow">
+            <div class="view-toggle" id="browseViewToggle">
+              <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
+              <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
+            </div>
+          </div>
+
+          <div id="browseSetsPicker" style="display:none;"></div>
+
           <div class="coin-grid" id="browseGrid"></div>
           <div class="browse-empty hidden" id="browseEmptyMsg">No coins match this filter.</div>
         </div>
 
         <div id="browseDetailView" style="display:none;">
-          <button class="back-link" id="browseDetailBackBtn">← Browse Collection</button>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Browse Collection</button>
+            <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
+          </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
           <div class="case flip-frame" id="browseDetailFlipFrame">
             <span class="flip-label tl" id="browseDetailTL" aria-hidden="true"></span>
@@ -846,6 +880,106 @@
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
+        </div>
+
+        <div class="case form-card" id="browseEditView" style="display:none;">
+          <button class="back-link" id="browseEditBackBtn" style="padding-top:0;">← Coin Details</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Coin</div>
+          <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
+            Only what the app can safely write directly: Grade, GradeSource, Cert/Type
+            Number, Designation, Storage Location, and any photo slot not filled during
+            Add Coin. Everything else (album/slot re-matching, cost allocation, new
+            catalog research) stays a chat + Copilot task.
+          </p>
+
+          <div class="photo-toggle" id="browseEditPhotoToggle">
+            <button type="button" class="photo-toggle-btn active" id="browseEditShowObverseBtn">
+              Obverse (front) <span class="photo-toggle-dot" id="browseEditObverseDot"></span>
+            </button>
+            <button type="button" class="photo-toggle-btn" id="browseEditShowReverseBtn">
+              Reverse (back) <span class="photo-toggle-dot" id="browseEditReverseDot"></span>
+            </button>
+          </div>
+          <div class="photo-box" id="browseEditObversePhotoBox">
+            <div class="coin-photo-frame" id="browseEditObverseFrame">
+              <span class="placeholder-icon" id="browseEditObversePlaceholder">📷</span>
+              <img id="browseEditObversePreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="browseEditObverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="browseEditObverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="browseEditObverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="browseEditObverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="browseEditObverseLibraryInput" accept="image/*">
+          </div>
+          <div class="photo-box" id="browseEditReversePhotoBox" style="display:none;">
+            <div class="coin-photo-frame" id="browseEditReverseFrame">
+              <span class="placeholder-icon" id="browseEditReversePlaceholder">📷</span>
+              <img id="browseEditReversePreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="browseEditReverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="browseEditReverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="browseEditReverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="browseEditReverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="browseEditReverseLibraryInput" accept="image/*">
+          </div>
+
+          <label>Grade</label>
+          <select id="browseEditGradeFrom"></select>
+          <input type="text" id="browseEditGradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
+
+          <label>GradeSource</label>
+          <select id="browseEditGradeSource">
+            <option value="">— select —</option>
+            <option value="PCGS">PCGS</option>
+            <option value="NGC">NGC</option>
+            <option value="Seller">Seller (taking their word for it)</option>
+            <option value="Owner">Owner (my own best estimate)</option>
+            <option value="AI-est">AI-est (AI-assisted estimate)</option>
+          </select>
+
+          <label>Cert / Type Number</label>
+          <input type="text" id="browseEditCertTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+          <a href="#" target="_blank" rel="noopener" class="cert-link-preview hidden" id="browseEditCertLinkPreview"></a>
+
+          <label>Designation</label>
+          <input type="text" id="browseEditDesignation" placeholder="e.g. FBL, DDO — optional">
+
+          <label>Storage Location</label>
+          <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
+
+          <div class="photo-box" style="margin-top:14px;">
+            <div class="name">🖼️ Additional Photo</div>
+            <div class="coin-photo-frame" id="browseEditAdditionalFrame">
+              <span class="placeholder-icon" id="browseEditAdditionalPlaceholder">🖼️</span>
+              <img id="browseEditAdditionalPreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="browseEditAdditionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="browseEditAdditionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="browseEditAdditionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="browseEditAdditionalCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="browseEditAdditionalLibraryInput" accept="image/*">
+          </div>
+
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <div class="name">🧾 Receipt Photo</div>
+            <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
+            <img id="browseEditReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="browseEditReceiptLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
+          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
         </div>
       </section>
 
@@ -865,8 +999,128 @@
 
       <!-- ============ WISHLIST ============ -->
       <section class="view" id="view-wishlist">
-        <h2 class="display" style="margin-top:0;">Wishlist</h2>
-        <div id="wishlistContainer"></div>
+        <div id="wishlistGridView">
+          <h2 class="display" style="margin-top:0;">Wishlist</h2>
+          <div id="wishlistContainer"></div>
+        </div>
+
+        <div class="case form-card" id="wishlistDetailView" style="display:none;">
+          <button class="back-link" id="wishlistDetailBackBtn" style="padding-top:0;">← Wishlist</button>
+          <h2 class="display" style="margin-top:0;" id="wishlistDetailName"></h2>
+          <div class="wish-detail-meta" id="wishlistDetailMeta"></div>
+
+          <label>Notes</label>
+          <textarea id="wishlistDetailNotes" placeholder="Anything worth remembering — grade to hold out for, where you might find one"></textarea>
+
+          <div class="case form-row" id="wishlistPurchaseRow">
+            <span class="fr-icon">💵</span>
+            <div class="fr-info">
+              <div class="fr-title">Purchase Info</div>
+              <div class="fr-summary" id="wishlistPurchaseSummary">Tap to add, once you've bought this one</div>
+            </div>
+            <span class="chevron">›</span>
+          </div>
+
+          <div class="case form-row" id="wishlistPhotosRow">
+            <span class="fr-icon">🖼️</span>
+            <div class="fr-info">
+              <div class="fr-title">Photos</div>
+              <div class="fr-summary" id="wishlistPhotosSummary">Tap to add reference photos</div>
+            </div>
+            <span class="chevron">›</span>
+          </div>
+
+          <button class="save-btn" id="wishlistDetailSaveBtn">Save Changes</button>
+          <div class="placeholder-note">Layout preview only — Purchase Info/Photos aren't saved to OneDrive yet.</div>
+        </div>
+
+        <div class="case form-card" id="wishlistPurchaseView" style="display:none;">
+          <button class="back-link" id="wishlistPurchaseBackBtn" style="padding-top:0;">← Wishlist Item</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" id="wishlistPurchasePrice" placeholder="e.g. 1800.00">
+
+          <label>Shipping Cost</label>
+          <input type="number" step="0.01" id="wishlistShippingCost" placeholder="e.g. 12.00">
+
+          <label>Purchase Date</label>
+          <input type="date" id="wishlistPurchaseDate">
+
+          <label>Vendor / Seller</label>
+          <input type="text" id="wishlistVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <div class="name">🧾 Receipt Photo</div>
+            <div class="placeholder-icon" id="wishlistReceiptPlaceholder">🧾</div>
+            <img id="wishlistReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="wishlistReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="wishlistReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="wishlistReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="wishlistReceiptLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="wishlistPurchaseDoneBtn">Done</button>
+        </div>
+
+        <div class="case form-card" id="wishlistPhotosView" style="display:none;">
+          <button class="back-link" id="wishlistPhotosBackBtn" style="padding-top:0;">← Wishlist Item</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos</div>
+
+          <div class="photo-toggle" id="wishlistPhotoToggle">
+            <button type="button" class="photo-toggle-btn active" id="wishlistShowObverseBtn">
+              Obverse (front) <span class="photo-toggle-dot" id="wishlistObverseDot"></span>
+            </button>
+            <button type="button" class="photo-toggle-btn" id="wishlistShowReverseBtn">
+              Reverse (back) <span class="photo-toggle-dot" id="wishlistReverseDot"></span>
+            </button>
+          </div>
+          <div class="photo-box" id="wishlistObversePhotoBox">
+            <div class="coin-photo-frame" id="wishlistObverseFrame">
+              <span class="placeholder-icon" id="wishlistObversePlaceholder">📷</span>
+              <img id="wishlistObversePreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="wishlistObverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="wishlistObverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="wishlistObverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="wishlistObverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="wishlistObverseLibraryInput" accept="image/*">
+          </div>
+          <div class="photo-box" id="wishlistReversePhotoBox" style="display:none;">
+            <div class="coin-photo-frame" id="wishlistReverseFrame">
+              <span class="placeholder-icon" id="wishlistReversePlaceholder">📷</span>
+              <img id="wishlistReversePreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="wishlistReverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="wishlistReverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="wishlistReverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="wishlistReverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="wishlistReverseLibraryInput" accept="image/*">
+          </div>
+
+          <div class="photo-box" style="margin-top:14px;">
+            <div class="name">🖼️ Additional Photo</div>
+            <div class="coin-photo-frame" id="wishlistAdditionalFrame">
+              <span class="placeholder-icon" id="wishlistAdditionalPlaceholder">🖼️</span>
+              <img id="wishlistAdditionalPreview">
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="wishlistAdditionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="wishlistAdditionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              <button type="button" id="wishlistAdditionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+            </div>
+            <input type="file" id="wishlistAdditionalCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="wishlistAdditionalLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="wishlistPhotosDoneBtn">Done</button>
+        </div>
       </section>
 
       <!-- ============ ADD COIN ============ -->
@@ -1143,14 +1397,46 @@
       <!-- ============ NEEDS DB_COINS ENTRY ============ -->
       <section class="view" id="view-needsdbcoins">
         <button class="back-link" id="needsDbCoinsBackBtn">← Dashboard</button>
-        <h2 class="display" style="margin-top:0;">Needs DB_Coins Entry</h2>
+        <h2 class="display" style="margin-top:0;">Needs Attention</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
-          Coins that got added without a matching catalog row. Resolving these is still a
-          Claude-research + Copilot-paste job — this list just keeps the backlog visible
+          Where any discrepancy gets identified, worked, and tracked. Right now that's
+          coins added without a matching DB_Coins catalog row — resolving those is still a
+          Claude-research + Copilot-paste job, this list just keeps the backlog visible
           instead of relying on memory or scattered ParkingLot notes.
         </p>
         <div id="needsDbCoinsContainer"></div>
         <p class="placeholder-note" id="needsDbCoinsEmptyNote" style="display:none;">Nothing flagged right now.</p>
+      </section>
+
+      <!-- ============ STATS & VALUE ============ -->
+      <section class="view" id="view-stats">
+        <button class="back-link" id="statsBackBtn">← Dashboard</button>
+        <h2 class="display" style="margin-top:0;">Stats &amp; Value</h2>
+
+        <div class="stat-tile-grid">
+          <div class="case stat-tile">
+            <div class="stat-label">Total items</div>
+            <div class="stat-value" id="statTotalItems"></div>
+            <div class="stat-sub" id="statItemsSub"></div>
+          </div>
+          <div class="case stat-tile">
+            <div class="stat-label">Total spent</div>
+            <div class="stat-value" id="statTotalSpent"></div>
+          </div>
+          <div class="case stat-tile">
+            <div class="stat-label">Est. value</div>
+            <div class="stat-value" id="statTotalValue"></div>
+          </div>
+          <div class="case stat-tile">
+            <div class="stat-label">Net gain/loss</div>
+            <div class="stat-value" id="statNetGain"></div>
+          </div>
+        </div>
+
+        <div class="section-label">By Denomination</div>
+        <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
+
+        <p class="placeholder-note">Cost and value figures are placeholder data — no live totals from the workbook yet.</p>
       </section>
 
     </main>
@@ -1195,23 +1481,27 @@
   // Set"), and commemorative are stand-ins for new All-sheet fields — see CLAUDE.md
   // Browse filters section. Set and Commemorative deliberately overlap (a coin can
   // be both, e.g. AY-00014) rather than being mutually exclusive buckets.
+  // gradeSource/serNo/designation/storageLocation are the bounded edit-in-app
+  // fields (see CLAUDE.md "Editing existing coins") — mostly blank here since
+  // most placeholder coins predate that data being captured; a couple are
+  // populated so the Browse-detail Edit form has something real to load.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  itemType: "coin",  setType: "",                 commemorative: false },
-    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  itemType: "coin",  setType: "Proof Set",        commemorative: false },
-    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   itemType: "coin",  setType: "",                 commemorative: true  },
-    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   itemType: "coin",  setType: "Silver Proof Set", commemorative: false },
-    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    itemType: "coin",  setType: "Mint Set",         commemorative: false },
-    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   itemType: "coin",  setType: "Proof Set",        commemorative: true  },
-    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   itemType: "medal", setType: "",                 commemorative: false },
-    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   itemType: "medal", setType: "",                 commemorative: false }
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "PCGS", serNo: "23456789", designation: "",    storageLocation: "Safe" },
+    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "PCGS", serNo: "34567890", designation: "",    storageLocation: "Safe" },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A" },
+    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" },
+    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "NGC",  serNo: "12309876", designation: "",    storageLocation: "Safe" },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A" },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   itemType: "coin",  setType: "Proof Set",        commemorative: false, gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2" },
+    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   itemType: "coin",  setType: "",                 commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2" },
+    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   itemType: "coin",  setType: "Silver Proof Set", commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2" },
+    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   itemType: "coin",  setType: "Mint Set",         commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2" },
+    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   itemType: "coin",  setType: "Proof Set",        commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2" },
+    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   cost: 12,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" },
+    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" }
   ];
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
@@ -1448,6 +1738,9 @@
     if (viewId === "browse") {
       showBrowseGrid();
     }
+    if (viewId === "wishlist") {
+      showWishlistGrid();
+    }
 
     previousViewId = viewId;
     window.scrollTo({ top: 0 });
@@ -1487,10 +1780,26 @@
       tileContainer.appendChild(tile);
     });
 
-    document.getElementById("batchReceiptTile").addEventListener("click", () => navigate("batchreceipt"));
+    // Batch Receipt / Needs Attention / Stats used to live in a separate "Quick
+    // Actions" section below the Go-To grid — folded into the same grid instead,
+    // as one flat set of destinations rather than two visually separate tiers.
+    const EXTRA_DASHBOARD_TILES = [
+      { id: "stats",        icon: "📊",  label: "Stats &amp; Value" },
+      { id: "batchreceipt", icon: "🧾",  label: "Batch Receipt" },
+      { id: "needsdbcoins", icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" }
+    ];
+    EXTRA_DASHBOARD_TILES.forEach(item => {
+      const tile = document.createElement("div");
+      tile.className = "case nav-tile";
+      const badge = item.badgeId ? ` <span class="qa-badge" id="${item.badgeId}"></span>` : "";
+      tile.innerHTML = `<span class="tile-icon">${item.icon}</span><span class="tile-label">${item.label}${badge}</span>`;
+      tile.addEventListener("click", () => navigate(item.id));
+      tileContainer.appendChild(tile);
+    });
+
     document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
-    document.getElementById("needsDbCoinsTile").addEventListener("click", () => navigate("needsdbcoins"));
     document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("statsBackBtn").addEventListener("click", () => navigate("dashboard"));
 
     initSpotlight();
   }
@@ -1564,14 +1873,26 @@
   // BROWSE
   // ==================================================================
 
+  // Stand-in for DB_Sets — actual named set instances (a specific year/product),
+  // not just the setType category tag on a coin. Clicking "Sets" browses these
+  // entities directly; a coin's own setType (see FAKE_COINS) only says which
+  // aggregate category it belongs to, not which specific set. Coin IDs here are
+  // deliberately a subset of the coins tagged with a matching setType above.
+  const FAKE_SETS = [
+    { name: "1955 Proof Set",                  type: "Proof Set",        year: 1955, coinIds: ["AY-00010"] },
+    { name: "1986 Statue of Liberty Proof Set", type: "Proof Set",        year: 1986, coinIds: ["AY-00014"] },
+    { name: "1999 Mint Set",                    type: "Mint Set",         year: 1999, coinIds: ["AY-00013"] },
+    { name: "2021 Silver Proof Set",            type: "Silver Proof Set", year: 2021, coinIds: ["AY-00012"] }
+  ];
+
   // One filter row, single-select like a set of radio buttons. Denomination chips
   // come first (matches how Ray already thinks about albums), then a divider, then
   // Sets/Medals/Commemoratives. These three are NOT mutually exclusive with each
   // other in the underlying data (a coin can be both part of a Set and a
   // Commemorative — see AY-00014) — the chip only picks which single lens you're
   // looking through right now, it doesn't imply the categories don't overlap.
-  // Set sub-types (Mint/Proof/Silver Proof) aren't broken out yet — "Sets" is one
-  // aggregate chip for now, unpack into sub-filters later if it's actually needed.
+  // "Sets" browses actual set entities (FAKE_SETS), not a coin filter — clicking
+  // it shows sets themselves; tap a set to see its member coins.
   const BROWSE_FILTER_CHIPS = [
     { label: "All",            test: () => true },
     { label: "Cents",          test: c => c.denom === "1C" },
@@ -1581,15 +1902,17 @@
     { label: "Halves",         test: c => c.denom === "50C" },
     { label: "Dollars",        test: c => c.denom === "$1" },
     { divider: true },
-    { label: "Sets",           test: c => !!c.setType },
+    { label: "Sets",           isSets: true },
     { label: "Medals",         test: c => c.itemType === "medal" },
     { label: "Commemoratives", test: c => c.commemorative }
   ];
 
   let browseFilterTest = BROWSE_FILTER_CHIPS[0].test;
+  let browseViewMode = "grid"; // "grid" | "list" — persists across filter changes
 
   function renderBrowseGrid(coins) {
     const grid = document.getElementById("browseGrid");
+    grid.classList.toggle("list-view", browseViewMode === "list");
     grid.innerHTML = "";
     coins.forEach(coin => {
       const card = document.createElement("div");
@@ -1597,8 +1920,10 @@
       card.style.cursor = "pointer";
       card.innerHTML = `
         <div class="coin-disc">${coin.year}</div>
-        <div class="name">${coin.name}</div>
-        <div class="meta">${coin.year}${coin.mint ? "-" + coin.mint : ""} · ${coin.id}</div>
+        <div class="coin-card-text">
+          <div class="name">${coin.name}</div>
+          <div class="meta">${coin.year}${coin.mint ? "-" + coin.mint : ""} · ${coin.id}</div>
+        </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
         <div class="value">$${coin.value.toLocaleString()}</div>
       `;
@@ -1609,8 +1934,62 @@
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
 
+  // The three browseGridView sub-modes: a plain coin listing, the Sets picker
+  // (entities, not coins), and a specific set's member coins.
+  function showBrowseCoinsMode() {
+    document.getElementById("browseCoinsHeader").style.display = "block";
+    document.getElementById("browseSetDetailHeader").style.display = "none";
+    document.getElementById("browseViewToggleRow").classList.remove("hidden");
+    document.getElementById("browseSetsPicker").style.display = "none";
+    document.getElementById("browseGrid").style.display = "";
+  }
+
   function applyBrowseFilters() {
+    showBrowseCoinsMode();
     renderBrowseGrid(FAKE_COINS.filter(browseFilterTest));
+  }
+
+  function renderSetsPicker() {
+    const container = document.getElementById("browseSetsPicker");
+    container.innerHTML = "";
+    FAKE_SETS.forEach(set => {
+      const coins = set.coinIds.map(id => FAKE_COINS.find(c => c.id === id)).filter(Boolean);
+      const totalValue = coins.reduce((sum, c) => sum + c.value, 0);
+      const card = document.createElement("div");
+      card.className = "case album-card";
+      card.style.cursor = "pointer";
+      card.innerHTML = `
+        <div class="album-card-icon">📦</div>
+        <div class="album-card-info">
+          <div class="album-card-name">${set.name}</div>
+          <div class="set-card-progress">${set.type} · ${coins.length} coin${coins.length === 1 ? "" : "s"} · $${totalValue.toLocaleString()}</div>
+        </div>
+        <span class="chevron">›</span>
+      `;
+      card.addEventListener("click", () => showSetDetail(set));
+      container.appendChild(card);
+    });
+  }
+
+  function showBrowseSetsPickerMode() {
+    document.getElementById("browseCoinsHeader").style.display = "block";
+    document.getElementById("browseSetDetailHeader").style.display = "none";
+    document.getElementById("browseViewToggleRow").classList.add("hidden");
+    document.getElementById("browseGrid").style.display = "none";
+    document.getElementById("browseEmptyMsg").classList.add("hidden");
+    renderSetsPicker();
+    document.getElementById("browseSetsPicker").style.display = "block";
+  }
+
+  function showSetDetail(set) {
+    const coins = set.coinIds.map(id => FAKE_COINS.find(c => c.id === id)).filter(Boolean);
+    document.getElementById("browseCoinsHeader").style.display = "none";
+    document.getElementById("browseSetDetailHeader").style.display = "block";
+    document.getElementById("browseSetDetailName").textContent = set.name;
+    document.getElementById("browseSetsPicker").style.display = "none";
+    document.getElementById("browseViewToggleRow").classList.remove("hidden");
+    document.getElementById("browseGrid").style.display = "";
+    renderBrowseGrid(coins);
   }
 
   function initBrowse() {
@@ -1629,24 +2008,48 @@
       chip.addEventListener("click", () => {
         document.querySelectorAll("#browseFilters .filter-chip").forEach(c => c.classList.remove("active"));
         chip.classList.add("active");
-        browseFilterTest = f.test;
-        applyBrowseFilters();
+        if (f.isSets) {
+          showBrowseSetsPickerMode();
+        } else {
+          browseFilterTest = f.test;
+          applyBrowseFilters();
+        }
       });
       filterRow.appendChild(chip);
       if (!firstChip) firstChip = chip;
     });
 
+    document.getElementById("browseSetDetailBackBtn").addEventListener("click", showBrowseSetsPickerMode);
+
+    document.getElementById("browseGridViewBtn").addEventListener("click", () => {
+      browseViewMode = "grid";
+      document.getElementById("browseGridViewBtn").classList.add("active");
+      document.getElementById("browseListViewBtn").classList.remove("active");
+      document.getElementById("browseGrid").classList.remove("list-view");
+    });
+    document.getElementById("browseListViewBtn").addEventListener("click", () => {
+      browseViewMode = "list";
+      document.getElementById("browseListViewBtn").classList.add("active");
+      document.getElementById("browseGridViewBtn").classList.remove("active");
+      document.getElementById("browseGrid").classList.add("list-view");
+    });
+
     applyBrowseFilters();
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", showBrowseGrid);
+    document.getElementById("browseDetailEditBtn").addEventListener("click", () => showBrowseEditView(currentBrowseCoin));
   }
 
   function showBrowseGrid() {
     document.getElementById("browseGridView").style.display = "block";
     document.getElementById("browseDetailView").style.display = "none";
+    document.getElementById("browseEditView").style.display = "none";
   }
 
+  let currentBrowseCoin = null;
+
   function showBrowseDetail(coin) {
+    currentBrowseCoin = coin;
     document.getElementById("browseDetailName").textContent = coin.name;
     const disc = document.getElementById("browseDetailDisc");
     disc.textContent = coin.year;
@@ -1654,6 +2057,87 @@
     applyFlipCorners("browseDetail", coin);
     document.getElementById("browseGridView").style.display = "none";
     document.getElementById("browseDetailView").style.display = "block";
+    document.getElementById("browseEditView").style.display = "none";
+  }
+
+  // ==================================================================
+  // BROWSE DETAIL — EDIT (bounded per CLAUDE.md: Grade, GradeSource, Cert/Type
+  // Number, Designation, Storage Location, plus any photo slot not filled during
+  // Add Coin). Reuses the same photo-slot/adjuster module as Add Coin.
+  // ==================================================================
+
+  function showBrowseObverseEditPhoto() {
+    document.getElementById("browseEditObversePhotoBox").style.display = "block";
+    document.getElementById("browseEditReversePhotoBox").style.display = "none";
+    document.getElementById("browseEditShowObverseBtn").classList.add("active");
+    document.getElementById("browseEditShowReverseBtn").classList.remove("active");
+  }
+
+  function showBrowseReverseEditPhoto() {
+    document.getElementById("browseEditObversePhotoBox").style.display = "none";
+    document.getElementById("browseEditReversePhotoBox").style.display = "block";
+    document.getElementById("browseEditShowReverseBtn").classList.add("active");
+    document.getElementById("browseEditShowObverseBtn").classList.remove("active");
+  }
+
+  function showBrowseEditView(coin) {
+    if (!coin) return;
+    document.getElementById("browseDetailView").style.display = "none";
+    document.getElementById("browseEditView").style.display = "block";
+    showBrowseObverseEditPhoto();
+
+    const gradeFromEl = document.getElementById("browseEditGradeFrom");
+    const hasGradeOption = Array.from(gradeFromEl.options).some(o => o.value === coin.grade);
+    gradeFromEl.value = hasGradeOption ? coin.grade : "__other__";
+    document.getElementById("browseEditGradeOther").style.display = hasGradeOption ? "none" : "block";
+    document.getElementById("browseEditGradeOther").value = hasGradeOption ? "" : coin.grade;
+
+    document.getElementById("browseEditGradeSource").value = coin.gradeSource || "";
+    document.getElementById("browseEditDesignation").value = coin.designation || "";
+    document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
+
+    const certInput = document.getElementById("browseEditCertTypeNumber");
+    certInput.value = coin.serNo || "";
+    certInput.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function initBrowseEdit() {
+    wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn");
+    wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn");
+    wireMockPhotoSlot("browseEditAdditionalPreview", "browseEditAdditionalPlaceholder", "browseEditAdditionalCameraBtn", "browseEditAdditionalLibraryBtn", "browseEditAdditionalCameraInput", "browseEditAdditionalLibraryInput", "browseEditAdditionalFrame", null, "browseEditAdditionalAdjustBtn");
+    wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+
+    document.getElementById("browseEditShowObverseBtn").addEventListener("click", showBrowseObverseEditPhoto);
+    document.getElementById("browseEditShowReverseBtn").addEventListener("click", showBrowseReverseEditPhoto);
+
+    buildGradeOptions(document.getElementById("browseEditGradeFrom"), true);
+    document.getElementById("browseEditGradeFrom").insertBefore(
+      new Option("— select —", ""), document.getElementById("browseEditGradeFrom").firstChild
+    );
+    document.getElementById("browseEditGradeFrom").addEventListener("change", (e) => {
+      document.getElementById("browseEditGradeOther").style.display = e.target.value === "__other__" ? "block" : "none";
+    });
+
+    document.getElementById("browseEditCertTypeNumber").addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      const certLink = document.getElementById("browseEditCertLinkPreview");
+      if (val) {
+        certLink.href = "https://www.pcgs.com/cert/" + val;
+        certLink.textContent = "View cert #" + val + " on PCGS →";
+        certLink.classList.remove("hidden");
+      } else {
+        certLink.classList.add("hidden");
+      }
+    });
+
+    document.getElementById("browseEditBackBtn").addEventListener("click", () => {
+      document.getElementById("browseEditView").style.display = "none";
+      document.getElementById("browseDetailView").style.display = "block";
+    });
+
+    document.getElementById("browseEditSaveBtn").addEventListener("click", () => {
+      showToast("Placeholder only — edits to " + (currentBrowseCoin ? currentBrowseCoin.id : "this coin") + " aren't saved yet.");
+    });
   }
 
   // ==================================================================
@@ -1786,11 +2270,13 @@
   // WISHLIST
   // ==================================================================
 
-  function initWishlist() {
+  function renderWishlistGrid() {
     const container = document.getElementById("wishlistContainer");
+    container.innerHTML = "";
     FAKE_WISHLIST.forEach(item => {
       const row = document.createElement("div");
       row.className = "case wish-item";
+      row.style.cursor = "pointer";
       row.innerHTML = `
         <div>
           <div class="wish-desc">${item.desc}</div>
@@ -1799,8 +2285,108 @@
         </div>
         <div class="wish-price">$${item.price.toLocaleString()}</div>
       `;
+      row.addEventListener("click", () => showWishlistDetail(item));
       container.appendChild(row);
     });
+  }
+
+  function initWishlist() {
+    renderWishlistGrid();
+
+    document.getElementById("wishlistDetailBackBtn").addEventListener("click", showWishlistGrid);
+    document.getElementById("wishlistPurchaseRow").addEventListener("click", () => showWishlistSubview("purchase"));
+    document.getElementById("wishlistPhotosRow").addEventListener("click", () => showWishlistSubview("photos"));
+    document.getElementById("wishlistPurchaseBackBtn").addEventListener("click", () => showWishlistSubview(null));
+    document.getElementById("wishlistPhotosBackBtn").addEventListener("click", () => showWishlistSubview(null));
+    document.getElementById("wishlistPurchaseDoneBtn").addEventListener("click", () => showWishlistSubview(null));
+    document.getElementById("wishlistPhotosDoneBtn").addEventListener("click", () => showWishlistSubview(null));
+
+    ["wishlistPurchasePrice", "wishlistShippingCost", "wishlistVendor"].forEach(id => {
+      document.getElementById(id).addEventListener("input", updateWishlistRowSummaries);
+    });
+    document.getElementById("wishlistPurchaseDate").addEventListener("change", updateWishlistRowSummaries);
+
+    document.getElementById("wishlistShowObverseBtn").addEventListener("click", showWishlistObversePhoto);
+    document.getElementById("wishlistShowReverseBtn").addEventListener("click", showWishlistReversePhoto);
+    wireMockPhotoSlot("wishlistObversePreview", "wishlistObversePlaceholder", "wishlistObverseCameraBtn", "wishlistObverseLibraryBtn", "wishlistObverseCameraInput", "wishlistObverseLibraryInput", "wishlistObverseFrame", "wishlistObverseDot", "wishlistObverseAdjustBtn");
+    wireMockPhotoSlot("wishlistReversePreview", "wishlistReversePlaceholder", "wishlistReverseCameraBtn", "wishlistReverseLibraryBtn", "wishlistReverseCameraInput", "wishlistReverseLibraryInput", "wishlistReverseFrame", "wishlistReverseDot", "wishlistReverseAdjustBtn");
+    wireMockPhotoSlot("wishlistAdditionalPreview", "wishlistAdditionalPlaceholder", "wishlistAdditionalCameraBtn", "wishlistAdditionalLibraryBtn", "wishlistAdditionalCameraInput", "wishlistAdditionalLibraryInput", "wishlistAdditionalFrame", null, "wishlistAdditionalAdjustBtn");
+    wireMockPhotoSlot("wishlistReceiptPreview", "wishlistReceiptPlaceholder", "wishlistReceiptCameraBtn", "wishlistReceiptLibraryBtn", "wishlistReceiptCameraInput", "wishlistReceiptLibraryInput");
+
+    document.getElementById("wishlistDetailSaveBtn").addEventListener("click", () => {
+      if (!currentWishlistItem) return;
+      currentWishlistItem.notes = document.getElementById("wishlistDetailNotes").value;
+      renderWishlistGrid();
+      showToast("Notes updated. Purchase Info/Photos are layout preview only — nothing saved to OneDrive yet.");
+    });
+  }
+
+  let currentWishlistItem = null;
+
+  function showWishlistGrid() {
+    document.getElementById("wishlistGridView").style.display = "block";
+    document.getElementById("wishlistDetailView").style.display = "none";
+    document.getElementById("wishlistPurchaseView").style.display = "none";
+    document.getElementById("wishlistPhotosView").style.display = "none";
+  }
+
+  function showWishlistDetail(item) {
+    currentWishlistItem = item;
+    document.getElementById("wishlistDetailName").textContent = item.desc;
+    document.getElementById("wishlistDetailMeta").textContent =
+      "Target $" + item.price.toLocaleString() + " · Added " + item.dateAdded;
+    document.getElementById("wishlistDetailNotes").value = item.notes;
+
+    // Purchase Info / Photos are freeform per-visit fields on this placeholder —
+    // reset each time so re-opening a different item doesn't carry over stale input.
+    document.getElementById("wishlistPurchasePrice").value = "";
+    document.getElementById("wishlistShippingCost").value = "";
+    document.getElementById("wishlistPurchaseDate").value = "";
+    document.getElementById("wishlistVendor").value = "";
+    updateWishlistRowSummaries();
+
+    document.getElementById("wishlistGridView").style.display = "none";
+    document.getElementById("wishlistDetailView").style.display = "block";
+    document.getElementById("wishlistPurchaseView").style.display = "none";
+    document.getElementById("wishlistPhotosView").style.display = "none";
+  }
+
+  function showWishlistSubview(which) {
+    document.getElementById("wishlistDetailView").style.display = which === null ? "block" : "none";
+    document.getElementById("wishlistPurchaseView").style.display = which === "purchase" ? "block" : "none";
+    document.getElementById("wishlistPhotosView").style.display = which === "photos" ? "block" : "none";
+    if (which === null) updateWishlistRowSummaries();
+    window.scrollTo({ top: 0 });
+  }
+
+  function updateWishlistRowSummaries() {
+    const price = document.getElementById("wishlistPurchasePrice").value;
+    const vendor = document.getElementById("wishlistVendor").value;
+    const purchaseParts = [];
+    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (vendor) purchaseParts.push(vendor);
+    document.getElementById("wishlistPurchaseSummary").textContent =
+      purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add, once you've bought this one";
+
+    const hasPhoto = document.getElementById("wishlistObverseDot").classList.contains("filled") ||
+      document.getElementById("wishlistReverseDot").classList.contains("filled") ||
+      document.getElementById("wishlistAdditionalFrame").classList.contains("has-photo");
+    document.getElementById("wishlistPhotosSummary").textContent =
+      hasPhoto ? "Photos added" : "Tap to add reference photos";
+  }
+
+  function showWishlistObversePhoto() {
+    document.getElementById("wishlistObversePhotoBox").style.display = "block";
+    document.getElementById("wishlistReversePhotoBox").style.display = "none";
+    document.getElementById("wishlistShowObverseBtn").classList.add("active");
+    document.getElementById("wishlistShowReverseBtn").classList.remove("active");
+  }
+
+  function showWishlistReversePhoto() {
+    document.getElementById("wishlistObversePhotoBox").style.display = "none";
+    document.getElementById("wishlistReversePhotoBox").style.display = "block";
+    document.getElementById("wishlistShowReverseBtn").classList.add("active");
+    document.getElementById("wishlistShowObverseBtn").classList.remove("active");
   }
 
   // ==================================================================
@@ -1831,8 +2417,59 @@
   }
 
   function updateNeedsQueueBadge() {
-    const badge = document.getElementById("needsDbCoinsBadge");
+    const badge = document.getElementById("needsAttentionBadge");
     badge.textContent = FAKE_NEEDS_QUEUE.length ? "(" + FAKE_NEEDS_QUEUE.length + ")" : "";
+  }
+
+  // ==================================================================
+  // STATS & VALUE — placeholder cost/value totals, not pulled from the workbook.
+  // A dedicated opt-in tab, not stat cards on the Dashboard front (that was tried
+  // and dropped earlier — see CLAUDE.md).
+  // ==================================================================
+
+  const STATS_DENOM_ORDER = ["1C", "5C", "10C", "25C", "50C", "$1"];
+  const DENOM_LABELS = { "1C": "Cents", "5C": "Nickels", "10C": "Dimes", "25C": "Quarters", "50C": "Halves", "$1": "Dollars" };
+
+  function formatMoney(n) {
+    return "$" + Math.round(n).toLocaleString();
+  }
+
+  function renderStats() {
+    const coins = FAKE_COINS.filter(c => c.itemType === "coin");
+    const medals = FAKE_COINS.filter(c => c.itemType === "medal");
+    const totalSpent = FAKE_COINS.reduce((sum, c) => sum + (c.cost || 0), 0);
+    const totalValue = FAKE_COINS.reduce((sum, c) => sum + (c.value || 0), 0);
+    const net = totalValue - totalSpent;
+
+    document.getElementById("statTotalItems").textContent = FAKE_COINS.length.toLocaleString();
+    document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
+    document.getElementById("statTotalSpent").textContent = formatMoney(totalSpent);
+    document.getElementById("statTotalValue").textContent = formatMoney(totalValue);
+
+    const netEl = document.getElementById("statNetGain");
+    netEl.textContent = (net >= 0 ? "+" : "−") + formatMoney(Math.abs(net));
+    netEl.classList.toggle("negative", net < 0);
+
+    const maxDenomValue = Math.max(...STATS_DENOM_ORDER.map(denom =>
+      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + c.value, 0)
+    ), 1);
+
+    const breakdown = document.getElementById("statsBreakdown");
+    breakdown.innerHTML = "";
+    STATS_DENOM_ORDER.forEach(denom => {
+      const group = coins.filter(c => c.denom === denom);
+      if (!group.length) return;
+      const groupValue = group.reduce((sum, c) => sum + c.value, 0);
+      const pct = Math.round((groupValue / maxDenomValue) * 100);
+      const row = document.createElement("div");
+      row.className = "stat-row";
+      row.innerHTML = `
+        <div class="stat-row-label">${DENOM_LABELS[denom]}</div>
+        <div class="stat-row-bar-track"><div class="stat-row-bar-fill" style="width:${pct}%"></div></div>
+        <div class="stat-row-value">${group.length} · ${formatMoney(groupValue)}</div>
+      `;
+      breakdown.appendChild(row);
+    });
   }
 
   // ==================================================================
@@ -2528,12 +3165,14 @@
 
   initDashboard();
   initBrowse();
+  initBrowseEdit();
   initAlbums();
   initWishlist();
   initPhotoAdjuster();
   initAddCoin();
   initBatchReceipt();
   renderNeedsQueue();
+  renderStats();
   navigate("dashboard");
 </script>
 

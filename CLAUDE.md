@@ -223,10 +223,25 @@ the same corner mapping:
   he sees at his local coin shop.
 
 ### Browse detail view (locked in)
-Browse is now a grid-then-detail pattern (same shape as Albums): tapping a
-grid card opens a full detail view for that coin with the flip-label
-treatment above, plus a back link. The grid itself is unchanged — small
-cards with plain text, no corner labels.
+Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
+opens a full detail view for that coin with the flip-label treatment above, plus
+a back link. An **Edit** button on the detail view opens an edit form covering
+exactly the bounded fields the app can safely write directly (see "Editing
+existing coins" below: Grade, GradeSource, Cert/Type Number, Designation, Storage
+Location) plus the ability to attach a photo to any Obverse/Reverse/Additional/
+Receipt slot that wasn't filled during Add Coin — reusing the same photo-slot/
+crop-adjuster module. Editing does **not** cover anything requiring research or
+judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
+stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
+the coin's Detail view, not the grid.
+
+### Browse: Grid/List toggle (locked in)
+A small icon toggle (grid icon / list icon) next to the filter row switches the
+coin listing between the existing card grid and a plain list-row layout. Both
+reuse the exact same card markup — list mode is a CSS rearrangement (smaller
+disc, single row, name+meta as one text block) rather than a separate render
+path, so the two stay in sync automatically. The chosen mode persists across
+filter changes within a Browse session.
 
 ### Browse filters (locked in)
 One filter row, single-select (only one chip active at a time, same interaction
@@ -236,20 +251,31 @@ in the top row — no hidden "More Filters" drawer; an earlier draft of this tri
 tucking Set/Commemorative into a collapsed panel and that was explicitly wrong,
 Ray wants them visible up top even though the row now needs horizontal scroll on
 phone widths.
-- **Sets**: matches any coin with a non-blank Set field (new All-sheet field:
-  blank / `Mint Set` / `Proof Set` / `Silver Proof Set`). Sub-types aren't broken
-  out into their own filters yet — this is one aggregate chip to start; unpack
-  into sub-filters later if that turns out to be needed.
+- **Sets is a picker of actual set entities, not a coin filter.** Tapping "Sets"
+  replaces the coin grid with a list of named sets (e.g. "2021 Silver Proof
+  Set") — a new **DB_Sets-style entity** distinct from a coin's own Set field,
+  each with a type (`Mint Set`/`Proof Set`/`Silver Proof Set`), a year, and the
+  specific coins that belong to it. Tapping a set shows just its member coins
+  (reusing the same grid/list rendering and Grid/List toggle), with its own back
+  link to the Sets picker. This replaced an earlier, explicitly-corrected version
+  that filtered individual coins down to "any coin tagged with a Set type" —
+  Ray's correction: clicking Sets should show sets, not coins. The Grid/List
+  toggle and denomination chip row are hidden while the Sets picker itself is
+  showing (nothing to toggle), and reappear once you're inside a specific set.
+- A coin's own **Set field** (blank / `Mint Set` / `Proof Set` / `Silver Proof
+  Set`) still exists on the All sheet and still says which aggregate category a
+  coin belongs to — it's just no longer what the "Sets" chip filters by. It's
+  what a specific DB_Sets-style entity's member coins would have in common.
 - **Medals**: a new **item type** (new All-sheet field, `coin` vs. `medal`),
   not just a filter tag — medals aren't coins (no denomination, not necessarily
   graded the same way) but do live in the same Browse list.
 - **Commemoratives**: matches a new boolean-ish All-sheet field.
 - **Set, Medals, and Commemoratives are not mutually exclusive with each other or
   with Denomination in the underlying data** — a coin can be both part of a Set
-  and a Commemorative (e.g. a commemorative sold packaged in a proof set). The
-  single-select chip only picks which lens you're looking through right now; it
-  doesn't imply the categories can't overlap, and tapping between them on the
-  same coin should show it in both.
+  and a Commemorative (e.g. a commemorative sold packaged in a proof set, demoed
+  by one coin appearing under both the Commemoratives filter and inside a named
+  set in the Sets picker). The single-select chip only picks which lens you're
+  looking through right now; it doesn't imply the categories can't overlap.
 - Flagged-but-not-built for a future filter dimension: metal/composition
   (Silver/Copper/Nickel/Clad/Gold — not always obvious from denomination alone).
   Also flagged: half dimes / three-cent pieces will need their own Denomination
@@ -325,18 +351,32 @@ below), not an API call. Everything else (CollectionID, Cost, PurchaseDate, Vend
 StorageLocation, etc.) stays manual — this only fills what the label itself
 certifies.
 
-### Needs DB_Coins Entry queue (locked in)
-Any coin saved without a DB_Coins match gets flagged and shows up in a
-dedicated in-app list (reachable via a dashboard quick action with a live
-count badge) — a visible backlog instead of relying on memory or scattered
-ParkingLot notes. Resolution process is unchanged: Claude research + Copilot
-adds the DB_Coins row; this just makes the backlog visible.
+### Needs Attention queue (locked in, renamed from "Needs DB_Coins Entry")
+Framed as a general discrepancy-tracking hub — "where any discrepancy gets
+identified, worked, and tracked" — not something narrowly scoped to DB_Coins
+misses. The only concrete content today is still coins saved without a DB_Coins
+match (flagged automatically, shown with a live count badge), and resolution is
+unchanged: Claude research + Copilot adds the DB_Coins row. The broader framing
+is intentional headroom for other discrepancy types later (nothing else feeds
+this queue yet) — don't assume every row is a DB_Coins miss when extending this.
+
+### Stats & Value (locked in)
+A dedicated Dashboard tile/tab, not front-loaded cards on the Dashboard itself
+(see "App structure" above for that distinction). Shows: total item count (with
+a coins-vs-medals breakdown), total spent, total estimated value, net gain/loss,
+and a by-Denomination breakdown (count + value, one row per denomination with a
+proportional bar). Depends on a new **Cost** field on the All sheet (purchase
+price) alongside the existing estimated-value field — needed for the spent/value/
+net-gain numbers to mean anything; today's Cost values are placeholder data, not
+pulled from the workbook.
 
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
 and can attach additional photos/receipts to an existing coin at any time. App CANNOT
 do anything requiring research or judgment (new PCGS# lookups, album slot matching,
-restructuring, cost allocation) — those stay chat + Copilot tasks.
+restructuring, cost allocation) — those stay chat + Copilot tasks. This is the exact
+scope of the Edit button on Browse's coin detail view (see "Browse detail view"
+above) — it doesn't expose any field beyond this list.
 
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
@@ -369,13 +409,31 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
-Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch Receipt is a
-dashboard-only quick action, not a sixth persistent nav item.
+Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch Receipt,
+Stats & Value, and Needs Attention are dashboard-only destinations, not
+persistent nav items — the persistent bottom/side nav stays those original five.
 
-Dashboard has no summary stat cards (Total Coins / Est. Value were tried and
-dropped — not useful up front). Current composition: pending-coin banner (only
-when one exists), Spotlight, "Go To" nav tiles for the other four sections, and
-the Batch Receipt quick action.
+Dashboard still has no summary stat cards on the front itself (Total Coins /
+Est. Value inline were tried and dropped early on — not useful up front). That's
+a different decision from having a **dedicated, opt-in Stats & Value tab**
+reachable via a tile (see below) — the tab is fine, front-loading its numbers
+onto the Dashboard directly is what was rejected.
+
+Dashboard composition: pending-coin banner (only when one exists), Spotlight,
+then a single flat **"Go To" tile grid** — Browse, Albums, Wishlist, Add Coin,
+Stats & Value, Batch Receipt, Needs Attention, all as equal tiles. There used to
+be a separate "Quick Actions" section below the Go-To grid for Batch
+Receipt/Needs Attention — that's gone; everything reachable from the Dashboard
+now lives in one grid rather than two visually separate tiers. Needs Attention
+carries a live count badge on its tile, same as before.
+
+Wishlist mirrors Browse's grid-then-detail shape: tapping an item opens a detail
+view with an editable Notes field (for things like "found one, negotiating
+price"), plus Purchase Info and Photos drill-down sections for once Ray's
+actually bought it. This does **not** promote/convert a Wishlist item into an
+owned coin with a CollectionID — that's a separate, unbuilt feature; the detail
+view just lets a want-list entry carry richer information while it's still a
+want-list entry.
 
 Device-tiered layout, especially for Albums: phone = simple scrollable list;
 tablet = full circular slot grid; desktop = grid with real photos inline.
