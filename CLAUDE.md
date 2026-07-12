@@ -197,6 +197,27 @@ together rather than mixed in at the top level.
   (doesn't resume the last adjustment, including rotation). This is still manual,
   user-driven placement, not smart edge detection — real auto-detection/AI
   cropping is out of scope (see "What NOT to build").
+- **The baked crop is display-only right now — nothing is written back to
+  OneDrive.** The "Use Photo" canvas bake produces a real cropped image, but it
+  only ever becomes a browser-local Blob URL, live in that one page load; it
+  isn't saved to localStorage (deliberately — see "What NOT to build") or
+  uploaded anywhere. Reload the page, or open the same coin on another device,
+  and the crop is gone — this is true whether the adjustment happens during Add
+  Coin or later via Browse Edit's "reopen adjuster." This isn't a gap specific
+  to the crop tool — it's the same underlying gap as every other Save button in
+  the app (Add Coin, Browse Edit, Wishlist, Batch Receipt all currently just
+  toast "nothing saved yet"): no real OneDrive/Graph API write layer exists
+  anywhere yet. Once that write layer gets built, the baked (post-crop) image is
+  what should get uploaded as `{CollectionID}_obverse.jpg` etc. — **whether the
+  pre-crop original also gets preserved somewhere is an open question, not yet
+  decided.**
+- **Splitting a combined image into two files isn't built, and isn't the same
+  tool.** The adjuster today takes one source photo and produces one cropped
+  output for one slot at a time. Manually cropping a `_combined.jpg` into
+  separate `_obverse.jpg`/`_reverse.jpg` files (see combined-photo handling
+  above) needs two different crop regions pulled from the *same* source image —
+  a different interaction shape (e.g. running the adjuster twice against the
+  same source with two saved-out regions), not yet designed or built.
 - **Obverse/Reverse show one at a time via a small toggle**, not stacked and
   not side by side — a dot on each toggle button lights up once that side has
   a photo. This keeps the bigger circle/bigger corner-label text (legible
