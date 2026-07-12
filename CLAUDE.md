@@ -52,7 +52,15 @@ CoinCollection/
 - CollectionID: `AY-#####` (5-digit). Parent rows get `-Set` suffix; child rows get
   `-A`/`-B`/etc. **This suffix pattern is reserved exclusively for
   acquisition/provenance lineage — never repurpose it for anything else.**
-- CoinID: custom `C-YYYY-M-DDD-##`
+- CoinID: custom `C-YYYY-M-DDD-##`. Meant to be unique per DB_Coins row (one row
+  per coin type/variant), but **this has only been audited for the ~326 DB_Coins
+  rows tied to currently-owned coins, not all ~3,753 rows** — a real duplicate-
+  CoinID row was already found and fixed once (2019-W Lincoln Cent Proof vs.
+  Reverse Proof shared `C-2019-W-1C-01` until split). Don't assume CoinID
+  uniqueness holds across the full DB_Coins table until the wider audit is done;
+  don't build caching/indexing logic on that assumption without a way to detect
+  a collision. (This is a different situation from `PCGS_Duplicate_Queue` below —
+  that's an *expected, handled* collision on a different column, PCGS#.)
 - SetID: custom `S-XXYY-TT-##`
 - SerNo (on All sheet): the PCGS/NGC **cert number alone** (not combined with the
   type/PCGS# — those are separate values; see PCGS Label Auto-Populate below for how
@@ -71,7 +79,10 @@ CoinCollection/
   new **SpotValue** column (not live yet — formula pending).
 - **DB_Coins** — ~3,753 reference coin types. Add rows opportunistically when a gap
   is hit during other research — never proactively expand into an exhaustive catalog.
-  Has Mintage (partially populated) and will get a new FunFact column.
+  Has Mintage (partially populated) and will get a new FunFact column. Co-managed
+  with Copilot outside app sessions (GSID population, PCGS# corrections, structural
+  fixes have happened this way) — **treat any previously-pulled copy of DB_Coins as
+  possibly stale**; re-pull before relying on it for anything beyond a quick mockup.
 - **DB_Sets** — reference sets, including all albums (Type=AL).
 - **Albums** (formerly AlbumSlots) — restructured; actual live columns are
   `Status`, `Year`, `MintMark`, `Description`, `AlbumName`, `AlbumID`, `CoinID`,
