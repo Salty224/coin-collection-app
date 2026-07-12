@@ -180,6 +180,7 @@
     overflow: hidden;
     white-space: nowrap;
     line-height: 1;
+    transition: width 0.15s ease, height 0.15s ease, font-size 0.15s ease;
   }
   .coin-disc.empty {
     background: none;
@@ -408,7 +409,6 @@
 
   /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
-  .photo-row { display: flex; flex-direction: column; gap: 16px; margin-bottom: 6px; }
   .photo-box {
     text-align: center;
     border: 1px dashed var(--case-border);
@@ -489,6 +489,41 @@
   .grade-resolved { font-size: 12px; color: var(--gold-bright); margin-top: 6px; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
+  /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
+     instead of stacking both full-size, to keep the page from getting long. */
+  .photo-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+  .photo-toggle-btn {
+    flex: 1; padding: 10px; border-radius: 20px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--text-muted); font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    font-family: inherit; transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .photo-toggle-btn.active { border-color: var(--gold); color: var(--gold-bright); background: rgba(201,162,39,0.08); }
+  .photo-toggle-dot {
+    width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--text-muted); background: transparent;
+  }
+  .photo-toggle-dot.filled { background: var(--gold-bright); border-color: var(--gold-bright); }
+
+  /* Year picker — decade grid, then a small grid of years within it, so
+     picking a year never means scrolling one giant list. Typing still works. */
+  .year-field-row { display: flex; gap: 8px; }
+  .year-field-row input { flex: 1; }
+  .year-pick-btn {
+    width: 44px; flex-shrink: 0; border-radius: 6px; border: 1px solid var(--case-border);
+    background: var(--bg-elevated); color: var(--gold-bright); font-size: 17px; cursor: pointer;
+  }
+  .year-picker {
+    margin-top: 8px; padding: 10px; border: 1px solid var(--case-border);
+    border-radius: 8px; background: var(--bg-elevated);
+  }
+  .year-picker.hidden { display: none; }
+  .year-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .year-grid button {
+    padding: 8px 4px; font-size: 12px; border-radius: 6px; border: 1px solid var(--case-border);
+    background: transparent; color: var(--text); cursor: pointer; font-family: inherit;
+  }
+  .year-grid button:hover { border-color: var(--gold); color: var(--gold-bright); }
+
   /* Circular presentation for coin photos (obverse/reverse/additional) — crops
      whatever rectangular photo was taken into a coin-like disc for preview. */
   .coin-photo-frame {
@@ -498,7 +533,7 @@
     display: flex; align-items: center; justify-content: center;
     overflow: hidden; position: relative;
     background: rgba(255,255,255,0.02);
-    transition: border-color 0.15s ease;
+    transition: border-color 0.15s ease, width 0.15s ease, height 0.15s ease;
   }
   .coin-photo-frame.has-photo { border-style: solid; border-color: var(--case-border-bright); }
   .coin-photo-frame .placeholder-icon { font-size: 26px; opacity: 0.45; margin: 0; }
@@ -778,43 +813,47 @@
         <div class="case form-card" id="addCoinMainView">
 
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos (optional)</div>
-          <div class="photo-row">
-            <div class="photo-box">
-              <div class="name">Obverse (front)</div>
-              <div class="flip-frame">
-                <span class="flip-label tl" id="flipObverseTL"></span>
-                <span class="flip-label tr" id="flipObverseTR"></span>
-                <div class="coin-photo-frame" id="obverseFrame">
-                  <span class="placeholder-icon" id="obversePlaceholder">📷</span>
-                  <img id="obversePreview">
-                </div>
-                <span class="flip-label bl" id="flipObverseBL"></span>
-                <span class="flip-label br" id="flipObverseBR"></span>
+          <div class="photo-toggle" id="photoToggle">
+            <button type="button" class="photo-toggle-btn active" id="showObverseBtn">
+              Obverse (front) <span class="photo-toggle-dot" id="obverseDot"></span>
+            </button>
+            <button type="button" class="photo-toggle-btn" id="showReverseBtn">
+              Reverse (back) <span class="photo-toggle-dot" id="reverseDot"></span>
+            </button>
+          </div>
+          <div class="photo-box" id="obversePhotoBox">
+            <div class="flip-frame">
+              <span class="flip-label tl" id="flipObverseTL"></span>
+              <span class="flip-label tr" id="flipObverseTR"></span>
+              <div class="coin-photo-frame" id="obverseFrame">
+                <span class="placeholder-icon" id="obversePlaceholder">📷</span>
+                <img id="obversePreview">
               </div>
-              <div class="photo-btns">
-                <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              </div>
-              <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
-              <input type="file" id="obverseLibraryInput" accept="image/*">
+              <span class="flip-label bl" id="flipObverseBL"></span>
+              <span class="flip-label br" id="flipObverseBR"></span>
             </div>
-            <div class="photo-box">
-              <div class="name">Reverse (back)</div>
-              <div class="flip-frame">
-                <span class="flip-label tl" id="flipReverseTL"></span>
-                <div class="coin-photo-frame" id="reverseFrame">
-                  <span class="placeholder-icon" id="reversePlaceholder">📷</span>
-                  <img id="reversePreview">
-                </div>
-                <span class="flip-label br" id="flipReverseBR"></span>
-              </div>
-              <div class="photo-btns">
-                <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              </div>
-              <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
-              <input type="file" id="reverseLibraryInput" accept="image/*">
+            <div class="photo-btns">
+              <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
+            <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="obverseLibraryInput" accept="image/*">
+          </div>
+          <div class="photo-box" id="reversePhotoBox" style="display:none;">
+            <div class="flip-frame">
+              <span class="flip-label tl" id="flipReverseTL"></span>
+              <div class="coin-photo-frame" id="reverseFrame">
+                <span class="placeholder-icon" id="reversePlaceholder">📷</span>
+                <img id="reversePreview">
+              </div>
+              <span class="flip-label br" id="flipReverseBR"></span>
+            </div>
+            <div class="photo-btns">
+              <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
           <label>Denomination</label>
@@ -829,10 +868,27 @@
           </select>
 
           <label>Year</label>
-          <input type="text" id="year" placeholder="e.g. 1943">
+          <div class="year-field-row">
+            <input type="text" id="year" placeholder="e.g. 1943">
+            <button type="button" class="year-pick-btn" id="yearPickBtn" aria-label="Pick year">📅</button>
+          </div>
+          <div class="year-picker hidden" id="yearPicker">
+            <div id="yearPickerDecades"></div>
+            <div id="yearPickerYears" style="display:none;">
+              <button class="back-link" id="yearPickerBackBtn" style="padding:0 0 8px;">← Decades</button>
+              <div class="year-grid" id="yearPickerYearGrid"></div>
+            </div>
+          </div>
 
           <label>Mint Mark</label>
-          <input type="text" id="mintMark" placeholder="e.g. D, S, or blank for Philadelphia">
+          <select id="mintMark">
+            <option value="">— none (Philadelphia) —</option>
+            <option value="D">D — Denver</option>
+            <option value="S">S — San Francisco</option>
+            <option value="CC">CC — Carson City</option>
+            <option value="O">O — New Orleans</option>
+            <option value="W">W — West Point</option>
+          </select>
 
           <label>Description</label>
           <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)">
@@ -1175,6 +1231,24 @@
     { denom: "1C",  year: "1943", mint: "S", variety: "Steel", desc: "Lincoln Wheat", dateFlagged: "2026-07-09" }
   ];
 
+  // Relative sizing so coin discs/photos read as roughly the right size next to each
+  // other — proportional to real diameters (dime is genuinely smaller than a cent,
+  // e.g.), but floored at 70% so nothing gets illegibly tiny on a phone screen.
+  const DENOM_SCALE = { "1C": 0.72, "5C": 0.75, "10C": 0.70, "25C": 0.79, "50C": 0.89, "$1": 1.0 };
+
+  function denomScale(denom) {
+    return DENOM_SCALE[denom] || 1.0;
+  }
+
+  function sizeCoinElement(el, denom, baseSizePx, baseFontPx) {
+    if (!el) return;
+    const scale = denomScale(denom);
+    const size = Math.round(baseSizePx * scale);
+    el.style.width = size + "px";
+    el.style.height = size + "px";
+    if (baseFontPx) el.style.fontSize = Math.round(baseFontPx * scale) + "px";
+  }
+
   // ==================================================================
   // NAV
   // ==================================================================
@@ -1217,6 +1291,7 @@
     }
     if (viewId === "addcoin") {
       showAddCoinMain();
+      showObversePhoto();
     }
     if (viewId === "browse") {
       showBrowseGrid();
@@ -1297,7 +1372,9 @@
     const frame = document.getElementById("spotlightFlipFrame");
     frame.style.opacity = 0;
     setTimeout(() => {
-      document.getElementById("spotlightDisc").textContent = coin.year;
+      const disc = document.getElementById("spotlightDisc");
+      disc.textContent = coin.year;
+      sizeCoinElement(disc, coin.denom, 120, 20);
       applyFlipCorners("spotlight", coin);
       frame.style.opacity = 1;
     }, 150);
@@ -1364,6 +1441,7 @@
       `;
       card.addEventListener("click", () => showBrowseDetail(coin));
       grid.appendChild(card);
+      sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
     });
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", showBrowseGrid);
@@ -1376,7 +1454,9 @@
 
   function showBrowseDetail(coin) {
     document.getElementById("browseDetailName").textContent = coin.name;
-    document.getElementById("browseDetailDisc").textContent = coin.year;
+    const disc = document.getElementById("browseDetailDisc");
+    disc.textContent = coin.year;
+    sizeCoinElement(disc, coin.denom, 150, 24);
     applyFlipCorners("browseDetail", coin);
     document.getElementById("browseGridView").style.display = "none";
     document.getElementById("browseDetailView").style.display = "block";
@@ -1565,7 +1645,7 @@
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
-  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId) {
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId) {
     const preview = document.getElementById(previewId);
     const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
@@ -1573,6 +1653,7 @@
     const cameraInput = document.getElementById(cameraInputId);
     const libraryInput = document.getElementById(libraryInputId);
     const frame = frameId ? document.getElementById(frameId) : null;
+    const dot = dotId ? document.getElementById(dotId) : null;
 
     cameraBtn.addEventListener("click", () => cameraInput.click());
     libraryBtn.addEventListener("click", () => libraryInput.click());
@@ -1582,6 +1663,7 @@
       preview.style.display = "block";
       if (placeholder) placeholder.style.display = "none";
       if (frame) frame.classList.add("has-photo");
+      if (dot) dot.classList.add("filled");
     }
     cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
@@ -1804,8 +1886,8 @@
   }
 
   function initAddCoin() {
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame");
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame");
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot");
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot");
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
     wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput", "additionalFrame");
 
@@ -1820,9 +1902,14 @@
 
     initGradePicker();
 
-    document.getElementById("denomination").addEventListener("change", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("denomination").addEventListener("change", () => {
+      maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels();
+      const denom = document.getElementById("denomination").value;
+      sizeCoinElement(document.getElementById("obverseFrame"), denom, 150, null);
+      sizeCoinElement(document.getElementById("reverseFrame"), denom, 150, null);
+    });
     document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
-    document.getElementById("mintMark").addEventListener("input", () => { checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("mintMark").addEventListener("change", () => { checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("variety").addEventListener("input", () => { checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; updateFlipLabels(); });
     document.getElementById("designation").addEventListener("input", updateFlipLabels);
@@ -1852,7 +1939,88 @@
       clearAlbumContext();
     });
 
+    initPhotoToggle();
+    initYearPicker();
     updateFlipLabels();
+  }
+
+  // ==================================================================
+  // OBVERSE / REVERSE TOGGLE — one flip card visible at a time so the page
+  // doesn't get long now that each card is bigger.
+  // ==================================================================
+
+  function showObversePhoto() {
+    document.getElementById("obversePhotoBox").style.display = "block";
+    document.getElementById("reversePhotoBox").style.display = "none";
+    document.getElementById("showObverseBtn").classList.add("active");
+    document.getElementById("showReverseBtn").classList.remove("active");
+  }
+
+  function showReversePhoto() {
+    document.getElementById("obversePhotoBox").style.display = "none";
+    document.getElementById("reversePhotoBox").style.display = "block";
+    document.getElementById("showReverseBtn").classList.add("active");
+    document.getElementById("showObverseBtn").classList.remove("active");
+  }
+
+  function initPhotoToggle() {
+    document.getElementById("showObverseBtn").addEventListener("click", showObversePhoto);
+    document.getElementById("showReverseBtn").addEventListener("click", showReversePhoto);
+  }
+
+  // ==================================================================
+  // YEAR PICKER — decade grid, then a small grid of years within it, so
+  // picking a year never means scrolling one giant list. Typing still works.
+  // ==================================================================
+
+  function initYearPicker() {
+    const decadesContainer = document.getElementById("yearPickerDecades");
+    const grid = document.createElement("div");
+    grid.className = "year-grid";
+    const currentYear = new Date().getFullYear();
+    const endDecade = Math.floor(currentYear / 10) * 10;
+    for (let d = 1790; d <= endDecade; d += 10) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = d + "s";
+      btn.addEventListener("click", () => showYearGridForDecade(d));
+      grid.appendChild(btn);
+    }
+    decadesContainer.appendChild(grid);
+
+    document.getElementById("yearPickBtn").addEventListener("click", () => {
+      document.getElementById("yearPicker").classList.toggle("hidden");
+    });
+    document.getElementById("yearPickerBackBtn").addEventListener("click", resetYearPickerToDecades);
+  }
+
+  function showYearGridForDecade(decade) {
+    document.getElementById("yearPickerDecades").style.display = "none";
+    document.getElementById("yearPickerYears").style.display = "block";
+    const yearGrid = document.getElementById("yearPickerYearGrid");
+    yearGrid.innerHTML = "";
+    const currentYear = new Date().getFullYear();
+    const maxYear = Math.min(decade + 9, currentYear);
+    for (let y = decade; y <= maxYear; y++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = y;
+      btn.addEventListener("click", () => selectYear(y));
+      yearGrid.appendChild(btn);
+    }
+  }
+
+  function resetYearPickerToDecades() {
+    document.getElementById("yearPickerDecades").style.display = "block";
+    document.getElementById("yearPickerYears").style.display = "none";
+  }
+
+  function selectYear(y) {
+    const input = document.getElementById("year");
+    input.value = y;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    document.getElementById("yearPicker").classList.add("hidden");
+    resetYearPickerToDecades();
   }
 
   function initBatchReceipt() {
