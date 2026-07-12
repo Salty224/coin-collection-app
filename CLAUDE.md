@@ -51,10 +51,21 @@ CoinCollection/
   CoinCollection (AI).xlsx
 ```
 - **Combined obverse+reverse in one image** (some PCGS TrueView shots, some seller
-  photos): file it as `{CollectionID}_obverse.jpg` only — leave Reverse blank, add a
-  Notes entry like "Reverse shown combined in obverse photo." Never duplicate the
-  file into both slots (implies two separate photos exist) and never file it as a
-  3rd/4th image (it's the primary photo, not supplementary).
+  photos) — **corrected, supersedes an earlier same-day decision**: file it as
+  `{CollectionID}_combined.jpg` in the Photo3 slot (Photo4 if Photo3 is already
+  taken by something else). Obverse and Reverse both stay **blank** — not just
+  Reverse — until someone manually crops the combined shot into two separate
+  files later. Add a Notes entry like "Combined obverse/reverse image in Photo3;
+  not yet cropped." The earlier version of this decision (file as `_obverse.jpg`,
+  leave only Reverse blank) is wrong — don't build against it.
+- **Saved-coin flip views (Spotlight, Browse detail) fall back to flagging this
+  state** rather than showing a blank face: when Obverse/Reverse are blank but a
+  combined Photo3/Photo4 exists, a small "📎 Combined obverse/reverse — not yet
+  cropped" note shows below the flip-frame (and in the screen-reader summary).
+  Today this only demonstrates the *flag* — the app doesn't load real photos
+  into Spotlight/Browse detail at all yet (those views still show the abstract
+  coin-disc placeholder, same as every other coin); actually swapping in the
+  real combined image once photo-loading exists is future work, not done here.
 - **This naming is spec'd but not yet wired up in the app** — the whole direct-write
   path (see "Add Coin: the core workflow" below) is still mockup/local-preview only,
   nothing has actually written a photo to OneDrive yet. When that write path gets

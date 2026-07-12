@@ -563,6 +563,14 @@
   }
   a.grade-cert-badge-inner:hover { border-color: var(--case-border-bright); text-decoration: underline; }
 
+  /* Flags that the disc above is standing in for an uncropped combined
+     obverse/reverse photo (Photo3/Photo4), not a normal single-face shot. */
+  .combined-photo-badge {
+    display: block; text-align: center; font-size: 11px; font-style: italic;
+    color: var(--text-muted); margin: 8px 0 -4px;
+  }
+  .combined-photo-badge.hidden { display: none; }
+
   #pcgsLabelAmbiguousPanel.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
@@ -867,6 +875,7 @@
             <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
             <span class="sr-only" id="spotlightSR"></span>
           </div>
+          <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
           <div class="spotlight-dots" id="spotlightDots"></div>
         </div>
 
@@ -914,6 +923,7 @@
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
+          <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
           <div class="grade-cert-badge hidden" id="browseDetailCertBadge"></div>
         </div>
 
@@ -1539,6 +1549,12 @@
     { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" }
   ];
 
+  // CollectionIDs whose Obverse/Reverse are blank because the only photo on file is
+  // an uncropped combined shot in Photo3/Photo4 (see CLAUDE.md OneDrive folder
+  // structure — combined obverse/reverse handling). The saved-coin flip views fall
+  // back to flagging this rather than showing a blank face.
+  const COMBINED_PHOTO_COIN_IDS = ["AY-00007"];
+
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
   // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
   // implied by which FAKE_ALBUMS entry a slot lives under, so not repeated per slot.)
@@ -1907,12 +1923,18 @@
     document.getElementById(prefix + "TR").textContent = coin.denom || "";
     document.getElementById(prefix + "BL").textContent = coin.grade || "";
 
+    const combinedBadge = document.getElementById(prefix + "CombinedBadge");
+    if (combinedBadge) {
+      combinedBadge.classList.toggle("hidden", !COMBINED_PHOTO_COIN_IDS.includes(coin.id));
+    }
+
     const srEl = document.getElementById(prefix + "SR");
     if (srEl) {
       srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
         (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
-        " (" + coin.id + ")";
+        " (" + coin.id + ")" +
+        (COMBINED_PHOTO_COIN_IDS.includes(coin.id) ? " — combined obverse/reverse photo, not yet cropped" : "");
     }
   }
 
