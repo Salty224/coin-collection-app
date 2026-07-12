@@ -172,21 +172,19 @@ the same corner mapping:
   stretched to the container width, so the coin stays proportional to an
   actual 2x2 flip (coin centered, real margin around it) instead of looking
   tiny in an overly wide box on desktop.
-- **Obverse is identification only — standard numismatic shorthand, no
-  price**: top-left Year+MintMark (`1945-S`); top-right the coded
-  Denomination only (`10C`, not the spelled-out series name — the full name
-  stays available elsewhere: Browse detail heading, Browse grid, sr-only
-  text); bottom-left Grade+GradeSource (`MS67 PCGS`); bottom-right
-  intentionally unused — a real flip's front doesn't carry price.
-- **Reverse (Add Coin only — saved coins don't yet track Variety/
-  Designation/Error/Price separately from the obverse display)**: carries
-  whatever doesn't belong on the obverse — top-left Variety+Designation
-  combined (`Micro S, FB`); bottom-left Error, if set; bottom-right Purchase
-  Price (moved here from Obverse — not front-of-flip content). Stays
-  label-free when Variety/Designation/Error/Price are all blank.
-- Exact corner split when both Variety/Designation *and* Error are present at
-  once isn't fully locked in beyond top-left/bottom-left — open for Ray to
-  revisit.
+- **Obverse is identification only — standard numismatic shorthand**:
+  top-left Year+MintMark (`1945-S`); top-right the coded Denomination only
+  (`10C`, not the spelled-out series name — the full name stays available
+  elsewhere: Browse detail heading, Browse grid, sr-only text); bottom-left
+  Grade+GradeSource (`MS67 PCGS`); bottom-right Variety+Designation combined,
+  if present (`Micro S, FB`).
+- **Reverse (Add Coin only — saved coins don't yet track Error/Price
+  separately from the obverse display)**: only two conditional items —
+  top-left Error, if set; bottom-right Purchase Price, if set (`$45.00`).
+  Denomination/Grade shorthand are real ANA/Red Book conventions; this
+  front/back split itself is **not** an official numismatic standard (none
+  exists) — it's Ray's own preference, matching the price-sticker placement
+  he sees at his local coin shop.
 
 ### Browse detail view (locked in)
 Browse is now a grid-then-detail pattern (same shape as Albums): tapping a
