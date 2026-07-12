@@ -140,12 +140,20 @@ together rather than mixed in at the top level.
   what was entered (e.g. "$45.00 · eBay seller") instead of the raw fields, so
   the top level stays short.
 - **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
-  circular**, cropped from whatever rectangular photo was taken (CSS
-  object-fit + border-radius, same treatment as the Spotlight/Browse coin
-  discs) so they read as a coin rather than a square photo. This is a display
-  crop only — it assumes the coin roughly fills the frame, not smart edge
-  detection. Real auto-detection/AI cropping is out of scope (see "What NOT to
-  build").
+  circular**, matching the Spotlight/Browse coin discs so they read as a coin
+  rather than a square photo.
+- **Manual pan/zoom crop adjuster (locked in)**: picking/taking a photo for a
+  circular slot opens an adjuster — drag to reposition, slider to zoom
+  (100–300%), bounded so the photo can't be panned past its own edges. "Use
+  Photo" bakes the result into an actual cropped image (canvas, fixed output
+  resolution) rather than keeping a live CSS crop, so it displays correctly
+  regardless of frame size (Obverse/Reverse resize with Denomination). A small
+  "adjust crop" icon button next to Camera/Library reopens the adjuster on the
+  same original photo afterward — not a one-shot, first-pick-only thing.
+  Reopening always resets to the original framing (doesn't resume the last
+  adjustment). This is still manual, user-driven placement, not smart edge
+  detection — real auto-detection/AI cropping is out of scope (see "What NOT
+  to build").
 - **Obverse/Reverse show one at a time via a small toggle**, not stacked and
   not side by side — a dot on each toggle button lights up once that side has
   a photo. This keeps the bigger circle/bigger corner-label text (legible
