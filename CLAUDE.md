@@ -288,18 +288,38 @@ the same corner mapping:
   text block underneath — the photo is the display. A screen-reader-only
   summary (`.sr-only`, visually hidden) carries the same info as plain text
   so it isn't lost for accessibility; the visible corner spans are
-  `aria-hidden`. Small grid/thumbnail views (Browse's grid) keep simple plain
-  text instead — labels wouldn't be legible at that size.
+  `aria-hidden`. **Superseded:** Browse's grid used to fall back to plain
+  disc+text (labels "wouldn't be legible at that size") — it now gets the
+  same flip-frame corner-label treatment too, at a smaller scale
+  (`.flip-frame-mini`, 11px labels); see "Browse: Grid/List toggle" below for
+  what that changed.
 - **The flip-frame is capped at a fixed max size (280px square)**, not
   stretched to the container width, so the coin stays proportional to an
   actual 2x2 flip (coin centered, real margin around it) instead of looking
-  tiny in an overly wide box on desktop.
+  tiny in an overly wide box on desktop. **The coin disc itself is sized to
+  fill that flip proportionally to a real coin's share of a 2x2 flip** — a
+  dollar (the largest denomination) fills ~75% of the frame width, scaling
+  down by `DENOM_SCALE` for smaller denominations, floored at 70% for
+  legibility as before. This applies everywhere the flip-frame is used
+  (Spotlight, Browse detail, Add Coin's obverse/reverse frames) — base disc
+  size is 210px within the 280px frame, up from an earlier, visually
+  undersized 150px (120px on Spotlight, which was also inconsistent with the
+  other two).
+- **No "From the cabinet" eyebrow above the Spotlight flip-frame** — removed;
+  it added a label above the coin that wasn't part of the flip-frame
+  metaphor itself and wasn't needed.
 - **Obverse is identification only — standard numismatic shorthand**:
-  top-left Year+MintMark (`1945-S`); top-right the coded Denomination only
-  (`10C`, not the spelled-out series name — the full name stays available
-  elsewhere: Browse detail heading, Browse grid, sr-only text); bottom-left
-  Grade+GradeSource (`MS-67 PCGS`); bottom-right Variety+Designation combined,
-  if present (`Micro S, FB`).
+  top-left Year+MintMark (`1945-S`); top-right **the series/type name plus
+  the coded denomination** (`Mercury 10C`, `Peace $1`, `Franklin 50C` — not
+  just the bare code anymore, and not the full spelled-out denomination
+  either). The series name is derived from `coin.name` by stripping a known
+  denomination-word suffix (`seriesLabel()` — e.g. "Mercury Dime" → "Mercury",
+  "Franklin Half Dollar" → "Franklin"); bottom-left Grade+GradeSource
+  (`MS-67 PCGS`); bottom-right Variety+Designation combined, if present
+  (`Micro S, FB`). **Exception: Browse's grid-mini cards** (see "Browse:
+  Grid/List toggle" below) keep the top-right corner to just the denomination
+  code — the series name doesn't fit legibly at that much smaller scale and
+  was truncating hard.
 - **Reverse (Add Coin only — saved coins don't yet track Error/Price
   separately from the obverse display)**: only two conditional items —
   top-left Error, if set; bottom-right Purchase Price, if set (`$45.00`).
@@ -337,6 +357,14 @@ the coin thumbnail entirely (reclaims row width) and enlarges Year+MintMark so
 it reads as the dominant, immediately-scannable element per row, with the coin
 name and CollectionID secondary. The chosen mode persists across filter changes
 within a Browse session.
+- **Superseded: grid mode now uses a `.flip-frame-mini`** — a scaled-down
+  version of the Dashboard/Browse-detail flip-frame (case background, corner
+  labels overlaid on the disc: top-left Year+MintMark, top-right denomination
+  code only, bottom-left Grade) instead of the earlier plain disc-then-text
+  card, so a coin reads as the same coin whether it's spotlighted or browsed.
+  The old plain name/meta/grade-badge text block still exists in the DOM
+  (used by list mode, unchanged) but is hidden in grid mode now that the
+  corner labels cover the same information.
 
 ### Browse filters (locked in)
 One filter row, single-select (only one chip active at a time, same interaction
@@ -439,14 +467,22 @@ field and drives three things when picked:
    SPEC and GRADE must never reach a lookup URL; the resolver defensively
    strips anything before a stray `/` as a second line of defense on top of
    the parser already isolating CERT correctly.
+4. **Cert/Type Number sits right below the Grader picker** (moved out from
+   its old spot further down the form, past Denomination/Year/Grade) — so
+   "who graded this" and "what's the cert number" read as one cohesive step,
+   whether the number arrives via PCGS label decode or manual entry for a
+   grader with no auto-decode. No behavior changed, just position — same
+   field ID, same fill logic.
 
 **Add Coin does not show a cert-lookup link at all** — it only captures and
 stores the CERT number (Cert/Type Number is a plain input, no link). The
 lookup link belongs solely to *viewing* a saved coin afterward — Browse
 detail's read-only badge (Grade + GradeSource + cert number folds into one
 pill; the whole badge is a link when a URL resolves) and Browse Edit's compact
-cert-badge input (small link-icon button beside it, same resolver). Album view
-doesn't show grade/cert info at all yet, so there's nothing to fix there today.
+cert-badge input (small link-icon button beside it, same resolver). **A filled
+Album slot now opens that same Browse detail view** (see "Albums" below), so
+grade/cert info is reachable from Albums too, just not rendered inline on the
+slot itself.
 
 ### PCGS Label Auto-Populate (locked in)
 A "PCGS Label #" field (Add Coin, shown only when Grader = `PCGS`, above
@@ -575,6 +611,14 @@ Receipt/Needs Attention — that's gone; everything reachable from the Dashboard
 now lives in one grid rather than two visually separate tiers. Needs Attention
 carries a live count badge on its tile, same as before.
 
+**Spotlight auto-rotates a coin's own obverse then reverse before advancing to
+the next coin** — not straight from coin to coin every tick as before. Same
+placeholder disc (no real photos yet), visually distinguished by a mirrored
+highlight position (`.reverse-face`) so it reads as "the coin turned over"
+rather than a different coin; corner labels (Year-Mint/Series+Denom/Grade)
+stay the same on both faces since they describe the coin, not which face is
+showing. Clicking a dot jumps straight to that coin's obverse.
+
 Wishlist mirrors Browse's grid-then-detail shape: tapping an item opens a detail
 view with an editable Notes field (for things like "found one, negotiating
 price"), plus Purchase Info and Photos drill-down sections for once Ray's
@@ -583,22 +627,56 @@ owned coin with a CollectionID — that's a separate, unbuilt feature; the detai
 view just lets a want-list entry carry richer information while it's still a
 want-list entry.
 
-Device-tiered layout, especially for Albums: phone = simple scrollable list;
-tablet = full circular slot grid; desktop = grid with real photos inline.
+A **"🔎 Found it — Add to Collection" button** on the Wishlist detail view jumps
+to Add Coin and prepopulates Denomination/Year/MintMark/Variety from the
+Wishlist item's structured fields (`denom`/`year`/`mint`/`variety` — Wishlist
+rows need these alongside the existing free-text `desc`/`notes` display
+string). Description is left to the existing auto-fill mechanism rather than
+parsed out of `desc`, since `desc` is a full display string ("1916-D Mercury
+Dime"), not a clean series name. This still doesn't convert or remove the
+Wishlist item — same non-promotion boundary as above; it just saves retyping
+what the want-list entry already knew.
 
 Albums is a picker first: a list of albums (name + fill-progress bar), tap one to
-open its slot detail. Albums render like a physical album page: circular slots,
-date/mintmark, mintage number (once populated) even on open holes. No per-album
-settings needed — each slot's appearance is automatic per-coin: photo if one
-exists, generic icon if owned but unphotographed, dashed outline if an open
-want-list hole. **Tapping an open/want slot jumps straight into Add Coin**, with
-the album + slot pre-filled (shown via a context banner, and pre-selected in the
-Add Coin "Assign to Album" field) — this supersedes the earlier "found it,
-pending" toggle idea.
+open it. **Tapping an open/want slot jumps straight into Add Coin**, with the
+album + slot pre-filled — not just the "Assign to Album" field and context
+banner, but the actual top-level identity fields too (Denomination, Year,
+MintMark, Description, Variety — split off the slot's own `description` via
+`splitDescriptionVariety()`), pulled from what that slot already defines. This
+supersedes the earlier "found it, pending" toggle idea. **Tapping a filled
+slot** opens that coin's Browse detail view (same Edit access as reaching it
+through Browse) — Back returns to the same album, on the same page it was
+opened from, not the albums list or Browse's grid.
 
-Deferred, not needed for initial build: animated page-flip / two-page desktop
-spread (simple instant toggle is enough for now), album cover + historical-info
-pages (content-driven, come back to this later).
+### Albums: page-flip book (locked in, supersedes the device-tiered/deferred
+notes below)
+Opening an album no longer shows one flat scrolling list of all its slots.
+It's a page-flip book, page sequence: **cover** (icon, name, fill progress) →
+**history/facts page** (a short blurb per album, Red-Book-style — set origin,
+notable design changes, etc.; a static `history` string per `FAKE_ALBUMS`
+entry today) → then the slots in fixed-size groups (6 per group), each group
+shown as **obverse**, then **reverse** of that same group, before the next
+group's obverse starts. (Obverse/reverse here just toggles the placeholder
+disc's mockup styling — see Spotlight auto-rotate below — there's no real
+per-slot photo yet.)
+- **Screen width decides one page at a time vs. a two-page spread** — under
+  900px width shows a single page; at/above it shows two pages side by side
+  with a book-spine visual seam between them, matching how many pages
+  actually exist (the last odd page shows alone even in spread mode).
+- **Navigation**: prev/next arrow buttons, plus swipe (touchstart/touchend,
+  ~50px threshold) on the page area. Both respect the current one-page vs.
+  two-page step size.
+- **Key-date coins are highlighted** with a small gold star badge and a
+  matching glow around the coin disc, driven by a `keyDate: true` flag per
+  slot (e.g. 1909-(S) VDB Lincoln cents, the 1878 8 Tail Feathers Morgan) —
+  this is manually flagged per slot today, not derived from any rule.
+- **Superseded:** the earlier device-tiered plan (phone = plain scrollable
+  list; tablet = circular slot grid; desktop = grid with real photos inline)
+  is gone — the book's fixed-size-page grid layout is now used at every
+  width, since a bounded 6-slot page is legible at any size and the old
+  "simple list on phone" mode doesn't fit a paginated-book metaphor. The
+  animated-page-flip-deferred and cover/history-page-deferred notes that used
+  to live here are done, not deferred, as of this feature.
 
 ## What NOT to build
 - AI photo pre-fill from receipts/coin photos — shelved permanently. Redundant with

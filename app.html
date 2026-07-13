@@ -188,6 +188,12 @@
     border: 2px dashed rgba(201,162,39,0.4);
     color: var(--text-muted);
   }
+  /* Reverse placeholder face — mirrored highlight (light now top-right, not
+     top-left) so the auto-rotation reads as "the coin turned over" rather than
+     a different coin, even though it's the same flat placeholder graphic. */
+  .coin-disc.reverse-face {
+    background: radial-gradient(circle at 65% 30%, #f3d98a, #c9a227 42%, #8a6b1c 78%, #5f4a12 100%);
+  }
 
   /* ---------- Spotlight ---------- */
   .spotlight {
@@ -201,16 +207,10 @@
     max-width: 312px;
     margin: 0 auto;
   }
-  .spotlight-eyebrow {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    color: var(--text-muted);
-  }
   .spotlight .coin-disc {
-    width: 120px;
-    height: 120px;
-    font-size: 20px;
+    width: 210px;
+    height: 210px;
+    font-size: 32px;
     transition: opacity 0.3s ease;
   }
   .spotlight-dots {
@@ -279,6 +279,28 @@
   .coin-card .coin-disc { width: 64px; height: 64px; font-size: 11px; }
   .coin-card .name { font-size: 13px; font-weight: 700; }
   .coin-card .meta { font-size: 11px; color: var(--text-muted); }
+
+  /* Grid mode: a scaled-down version of the Dashboard/Browse-detail flip-frame
+     (case + corner labels overlaid on the disc) instead of plain disc+text rows,
+     so a coin looks like the same coin whether it's spotlighted or browsed. List
+     mode hides this and falls back to the plain year-mint/name/id text below. */
+  .coin-card .flip-frame-mini {
+    position: relative;
+    width: 100%;
+    max-width: 120px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .coin-card .flip-frame-mini .coin-disc { margin: 0; }
+  .coin-card .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
+  .coin-grid:not(.list-view) .coin-card .coin-card-text,
+  .coin-grid:not(.list-view) .coin-card .grade-badge {
+    display: none;
+  }
+  .coin-grid.list-view .coin-card .flip-frame-mini { display: none; }
   .coin-card .grade-badge {
     font-size: 10px;
     padding: 2px 8px;
@@ -374,65 +396,104 @@
   .album-card .progress-fill { height: 100%; background: var(--gold); }
   .album-card .chevron { color: var(--text-muted); font-size: 18px; }
 
-  /* ---------- Albums: detail ---------- */
-  .album-block { margin-bottom: 26px; }
-  .album-header {
+  /* ---------- Albums: detail (page-flip book) ---------- */
+  /* One "page" at a time on phone; two side by side (a spread, like an open
+     book) once there's enough width. Cover, then History, then coin groups
+     alternating Obverse/Reverse of the same slots — see buildAlbumPages(). */
+  .book-pages {
     display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 10px;
+    gap: 16px;
+    justify-content: center;
+    align-items: stretch;
   }
-  .album-header h3 { margin: 0; font-size: 20px; color: var(--text); }
-  .album-header .progress { font-size: 12px; color: var(--text-muted); }
+  .book-pages.spread .album-page { flex: 1 1 0; min-width: 0; }
+  .book-pages.spread .album-page:first-child {
+    border-radius: 12px 4px 4px 12px;
+    box-shadow: inset -8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .book-pages.spread .album-page:last-child {
+    border-radius: 4px 12px 12px 4px;
+    box-shadow: inset 8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
+  }
 
-  .album-slots { padding: 16px; }
+  .album-page {
+    padding: 20px 18px;
+    min-height: 360px;
+    width: 100%;
+    max-width: 460px;
+  }
 
-  .album-slots .slot-row {
+  .album-page-cover {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 12px;
-    padding: 8px 4px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    cursor: default;
+    justify-content: center;
+    text-align: center;
+    gap: 8px;
   }
-  .album-slots .slot-row:last-child { border-bottom: none; }
-  .album-slots .slot-row.want { cursor: pointer; }
-  .slot-row .coin-disc { width: 40px; height: 40px; font-size: 8px; padding: 0 2px; }
-  .slot-row .slot-info { flex: 1; }
-  .slot-row .slot-label { font-size: 13px; font-weight: 600; }
-  .slot-row .slot-meta { font-size: 11px; color: var(--text-muted); }
-  .slot-row .slot-status {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  .album-page-cover .cover-icon { font-size: 56px; }
+  .album-page-cover h3 { margin: 6px 0 0; font-size: 21px; color: var(--text); }
+  .album-page-cover .cover-sub { font-size: 13px; color: var(--text-muted); }
+
+  .album-page-history p {
+    font-size: 14px;
+    line-height: 1.6;
     color: var(--text-muted);
   }
-  .slot-row.want .slot-status { color: var(--danger); }
-  .slot-row.want .slot-status::before { content: "tap to add"; }
-  .slot-row.filled .slot-status::before { content: "filled"; }
 
-  .album-slots .slot-grid { display: none; }
-
-  @media (min-width: 700px) {
-    .album-slots .slot-list { display: none; }
-    .album-slots .slot-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-      gap: 18px;
-      justify-items: center;
-    }
-    .slot-cell {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      width: 100px;
-    }
-    .slot-cell.want { cursor: pointer; }
-    .slot-cell .coin-disc { width: 84px; height: 84px; font-size: 13px; }
-    .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
-    .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
+  .album-page-coins .page-side-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    text-align: center;
   }
+  .book-slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 14px;
+    justify-items: center;
+  }
+  .slot-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    max-width: 100px;
+    position: relative;
+  }
+  .slot-cell.want,
+  .slot-cell:not(.want) { cursor: pointer; }
+  .slot-cell .coin-disc { width: 64px; height: 64px; font-size: 11px; }
+  .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
+  .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
+  .slot-cell.key-date .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright), inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5); }
+  .slot-cell.key-date.want .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright); }
+  .key-date-badge {
+    position: absolute;
+    top: -4px;
+    right: 8px;
+    color: var(--gold-bright);
+    font-size: 13px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  .book-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .book-nav button {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--case-border); background: var(--bg-case);
+    color: var(--gold-bright); font-size: 16px; cursor: pointer;
+  }
+  .book-nav button:disabled { opacity: 0.3; cursor: default; }
+  .book-page-indicator { font-size: 12px; color: var(--text-muted); }
 
   /* ---------- Wishlist ---------- */
   .wish-item {
@@ -697,9 +758,9 @@
     justify-content: center;
     transition: opacity 0.3s ease;
   }
-  .flip-frame .coin-photo-frame { margin: 0; width: 150px; height: 150px; }
+  .flip-frame .coin-photo-frame { margin: 0; width: 210px; height: 210px; }
   .flip-frame .coin-disc { margin: 0; }
-  #browseDetailFlipFrame .coin-disc { width: 150px; height: 150px; font-size: 24px; }
+  #browseDetailFlipFrame .coin-disc { width: 210px; height: 210px; font-size: 32px; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;
@@ -867,7 +928,6 @@
 
         <div class="section-title">Spotlight</div>
         <div class="case spotlight" id="spotlight">
-          <div class="spotlight-eyebrow">From the cabinet</div>
           <div class="flip-frame" id="spotlightFlipFrame">
             <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
             <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
@@ -1070,6 +1130,7 @@
             <span class="chevron">›</span>
           </div>
 
+          <button type="button" class="edit-btn" id="wishlistFoundItBtn" style="width:100%; padding:10px; margin-bottom:10px;">🔎 Found it — Add to Collection</button>
           <button class="save-btn" id="wishlistDetailSaveBtn">Save Changes</button>
           <div class="placeholder-note">Layout preview only — Purchase Info/Photos aren't saved to OneDrive yet.</div>
         </div>
@@ -1173,6 +1234,12 @@
           <button id="albumContextClearBtn">Clear</button>
         </div>
 
+        <div class="banner context-banner hidden" id="wishlistOriginBanner">
+          <span class="icon">⭐</span>
+          <span class="msg" id="wishlistOriginMsg"></span>
+          <button id="wishlistOriginClearBtn">Clear</button>
+        </div>
+
         <div class="case form-card" id="addCoinMainView">
 
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos (optional)</div>
@@ -1250,6 +1317,13 @@
             No auto-decode for this grader yet — enter the coin's details and cert number manually below.
           </p>
 
+          <label>Cert / Type Number</label>
+          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            Just captures the number here — the cert-lookup link lives on the saved coin's
+            Browse detail view, not during entry.
+          </p>
+
           <label>Denomination</label>
           <select id="denomination">
             <option value="">— select —</option>
@@ -1313,13 +1387,6 @@
             <label>GradeSource</label>
             <select id="gradeSource"></select>
           </div>
-
-          <label>Cert / Type Number</label>
-          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
-            Just captures the number here — the cert-lookup link lives on the saved coin's
-            Browse detail view, not during entry.
-          </p>
 
           <label>Designation</label>
           <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
@@ -1565,11 +1632,17 @@
     {
       name: "Lincoln Cents — Whitman Folder Vol. 1",
       icon: "🪙",
+      denom: "1C",
+      history: "Designed by Victor David Brenner, the Lincoln cent debuted in 1909 as the " +
+        "first US coin to feature a real person's portrait, marking Lincoln's 100th " +
+        "birthday. Brenner's initials (V.D.B.) on the reverse caused a public outcry over " +
+        "his prominent credit line and were removed within weeks — making the original " +
+        "1909-S VDB one of the most famous key dates in American numismatics.",
       slots: [
         { year: 1909, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1909-M-1C-01", filledBy: "AY-00004" },
-        { year: 1909, mintMark: "",  description: "Lincoln Wheat, VDB",  coinId: "C-1909-M-1C-02", filledBy: null },
+        { year: 1909, mintMark: "",  description: "Lincoln Wheat, VDB",  coinId: "C-1909-M-1C-02", filledBy: null, keyDate: true },
         { year: 1909, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1909-S-1C-01", filledBy: "AY-00004" },
-        { year: 1909, mintMark: "S", description: "Lincoln Wheat, VDB",  coinId: "C-1909-S-1C-02", filledBy: null },
+        { year: 1909, mintMark: "S", description: "Lincoln Wheat, VDB",  coinId: "C-1909-S-1C-02", filledBy: null, keyDate: true },
         { year: 1910, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1910-M-1C-01", filledBy: null },
         { year: 1910, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1910-S-1C-01", filledBy: null },
         { year: 1911, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1911-M-1C-01", filledBy: null },
@@ -1579,8 +1652,14 @@
     {
       name: "Morgan Dollars — Complete Date Set (P)",
       icon: "🏛️",
+      denom: "$1",
+      history: "Named for engraver George T. Morgan, this silver dollar ran 1878–1904 and " +
+        "again in 1921, struck largely from Comstock Lode silver under the Bland-Allison " +
+        "Act's mandated purchases. The 1878 issues include several reverse varieties from " +
+        "a rushed redesign — the 8 Tail Feathers variety, changed almost immediately to 7 " +
+        "Tail Feathers, is the set's best-known first-year rarity.",
       slots: [
-        { year: 1878, mintMark: "", description: "Morgan, 8 Tail Feathers", coinId: "C-1878-M-$1-01", filledBy: null },
+        { year: 1878, mintMark: "", description: "Morgan, 8 Tail Feathers", coinId: "C-1878-M-$1-01", filledBy: null, keyDate: true },
         { year: 1879, mintMark: "", description: "Morgan",                 coinId: "C-1879-M-$1-01", filledBy: null },
         { year: 1880, mintMark: "", description: "Morgan",                 coinId: "C-1880-M-$1-01", filledBy: null },
         { year: 1881, mintMark: "", description: "Morgan",                 coinId: "C-1881-M-$1-01", filledBy: null },
@@ -1596,10 +1675,21 @@
     return slot.year + (slot.mintMark ? "-" + slot.mintMark : "");
   }
 
+  // Album slot / Wishlist descriptions sometimes embed the variety after a comma
+  // (e.g. "Lincoln Wheat, VDB") — split so Description and Variety land in their
+  // own fields rather than conflated, matching the Add Coin field convention.
+  function splitDescriptionVariety(desc) {
+    if (!desc) return ["", ""];
+    const parts = desc.split(",").map(s => s.trim());
+    return [parts[0], parts.slice(1).join(", ")];
+  }
+
+  // denom/year/mint/variety are the structured identity fields — used to
+  // prepopulate Add Coin once Ray's found/bought the item (see "Found it" below).
   const FAKE_WISHLIST = [
-    { desc: "1916-D Mercury Dime", notes: "Key date — hold out for VF or better, problem-free", price: 1800, dateAdded: "2026-04-02" },
-    { desc: "1893-S Morgan Dollar", notes: "The big one. Patience.", price: 5500, dateAdded: "2026-05-14" },
-    { desc: "1937-D 3-Legged Buffalo Nickel", notes: "Variety — watch for altered fakes", price: 950, dateAdded: "2026-06-20" }
+    { desc: "1916-D Mercury Dime", notes: "Key date — hold out for VF or better, problem-free", price: 1800, dateAdded: "2026-04-02", denom: "10C", year: 1916, mint: "D", variety: "" },
+    { desc: "1893-S Morgan Dollar", notes: "The big one. Patience.", price: 5500, dateAdded: "2026-05-14", denom: "$1", year: 1893, mint: "S", variety: "" },
+    { desc: "1937-D 3-Legged Buffalo Nickel", notes: "Variety — watch for altered fakes", price: 950, dateAdded: "2026-06-20", denom: "5C", year: 1937, mint: "D", variety: "3-Legged" }
   ];
 
   // Set to a fake object to preview the pending-coin banner; null hides it (no real pending data yet).
@@ -1835,6 +1925,7 @@
   function navigate(viewId) {
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
+      clearWishlistContext();
     }
 
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
@@ -1918,8 +2009,22 @@
   }
 
   let spotlightIndex = 0;
+  let spotlightSide = "obverse"; // auto-rotation flips this coin's own faces before advancing to the next coin
   let spotlightTimer;
   const spotlightCoins = FAKE_COINS.slice(0, 5);
+
+  // coin.name is stored as "{Series} {Denomination word}" (e.g. "Mercury Dime",
+  // "Franklin Half Dollar") — strip the denomination word so the top-right
+  // corner can show "{Series} {DenomCode}" (e.g. "Mercury 10C") instead of
+  // repeating the spelled-out denomination the code already conveys.
+  const DENOM_NAME_SUFFIXES = ["Half Dollar", "Dollar", "Quarter", "Dime", "Nickel", "Cent", "Half"];
+  function seriesLabel(coin) {
+    const name = coin.name || "";
+    for (const suffix of DENOM_NAME_SUFFIXES) {
+      if (name.endsWith(" " + suffix)) return name.slice(0, -(suffix.length + 1));
+    }
+    return name;
+  }
 
   // Shared by every place a single *saved* coin gets the flip-label treatment
   // (Spotlight, Browse detail) — corner text plus a screen-reader-only summary,
@@ -1929,7 +2034,7 @@
     // Identification only, standard shorthand — same rule as Add Coin: coded
     // denomination, not the spelled-out name, and no price/value on this face.
     document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
-    document.getElementById(prefix + "TR").textContent = coin.denom || "";
+    document.getElementById(prefix + "TR").textContent = coin.denom ? (seriesLabel(coin) + " " + coin.denom) : seriesLabel(coin);
     document.getElementById(prefix + "BL").textContent = coin.grade || "";
 
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
@@ -1954,8 +2059,10 @@
     setTimeout(() => {
       const disc = document.getElementById("spotlightDisc");
       disc.textContent = coin.year;
-      sizeCoinElement(disc, coin.denom, 120, 20);
+      disc.classList.toggle("reverse-face", spotlightSide === "reverse");
+      sizeCoinElement(disc, coin.denom, 210, 32);
       applyFlipCorners("spotlight", coin);
+      frame.dataset.side = spotlightSide;
       frame.style.opacity = 1;
     }, 150);
 
@@ -1971,6 +2078,7 @@
       dot.className = "dot";
       dot.addEventListener("click", () => {
         spotlightIndex = i;
+        spotlightSide = "obverse";
         renderSpotlight();
         resetSpotlightTimer();
       });
@@ -1983,9 +2091,16 @@
   function resetSpotlightTimer() {
     clearInterval(spotlightTimer);
     spotlightTimer = setInterval(() => {
-      spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
+      // Flip to the same coin's reverse first; only advance to the next coin
+      // once both faces of the current one have been shown.
+      if (spotlightSide === "obverse") {
+        spotlightSide = "reverse";
+      } else {
+        spotlightSide = "obverse";
+        spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
+      }
       renderSpotlight();
-    }, 5000);
+    }, 4000);
   }
 
   // ==================================================================
@@ -2039,7 +2154,12 @@
       card.style.cursor = "pointer";
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
       card.innerHTML = `
-        <div class="coin-disc">${coin.year}</div>
+        <div class="flip-frame-mini">
+          <span class="flip-label tl">${yearMint}</span>
+          <span class="flip-label tr">${coin.denom || ""}</span>
+          <div class="coin-disc">${coin.year}</div>
+          <span class="flip-label bl">${coin.grade || ""}</span>
+        </div>
         <div class="coin-card-text">
           <div class="name">${coin.name}</div>
           <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
@@ -2047,7 +2167,10 @@
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
         <div class="value">$${coin.value.toLocaleString()}</div>
       `;
-      card.addEventListener("click", () => showBrowseDetail(coin));
+      card.addEventListener("click", () => {
+        browseDetailBackHandler = showBrowseGrid;
+        showBrowseDetail(coin);
+      });
       grid.appendChild(card);
       sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
     });
@@ -2156,7 +2279,7 @@
 
     applyBrowseFilters();
 
-    document.getElementById("browseDetailBackBtn").addEventListener("click", showBrowseGrid);
+    document.getElementById("browseDetailBackBtn").addEventListener("click", () => browseDetailBackHandler());
     document.getElementById("browseDetailEditBtn").addEventListener("click", () => showBrowseEditView(currentBrowseCoin));
   }
 
@@ -2167,13 +2290,17 @@
   }
 
   let currentBrowseCoin = null;
+  // Where Browse Detail's Back button returns to — defaults to the Browse grid,
+  // but Albums overrides this before opening a filled slot's coin so Back lands
+  // on the album instead of losing the user's place in Browse.
+  let browseDetailBackHandler = showBrowseGrid;
 
   function showBrowseDetail(coin) {
     currentBrowseCoin = coin;
     document.getElementById("browseDetailName").textContent = coin.name;
     const disc = document.getElementById("browseDetailDisc");
     disc.textContent = coin.year;
-    sizeCoinElement(disc, coin.denom, 150, 24);
+    sizeCoinElement(disc, coin.denom, 210, 32);
     applyFlipCorners("browseDetail", coin);
     renderCertBadge(coin);
     document.getElementById("browseGridView").style.display = "none";
@@ -2332,58 +2459,159 @@
     document.getElementById("albumsDetailView").style.display = "none";
   }
 
+  // An album "book": cover, then a history/facts page, then the slots grouped
+  // into fixed-size pages alternating obverse/reverse of the same group — like
+  // flipping through a physical Whitman folder or the Red Book. Page count and
+  // spread width are driven by buildAlbumPages()/isAlbumSpreadWidth() below;
+  // screen width alone decides single-page vs. two-page-side-by-side.
+  const ALBUM_PAGE_CHUNK = 6;
+  let currentAlbumIndex = null;
+  let currentAlbumPages = [];
+  let currentPageIndex = 0;
+
+  function buildAlbumPages(album) {
+    const pages = [{ type: "cover" }, { type: "history" }];
+    for (let i = 0; i < album.slots.length; i += ALBUM_PAGE_CHUNK) {
+      const chunk = album.slots.slice(i, i + ALBUM_PAGE_CHUNK);
+      pages.push({ type: "coins", side: "obverse", slots: chunk });
+      pages.push({ type: "coins", side: "reverse", slots: chunk });
+    }
+    return pages;
+  }
+
+  function isAlbumSpreadWidth() {
+    return window.matchMedia("(min-width: 900px)").matches;
+  }
+
+  function openAlbumAtPage(index, pageIndex) {
+    currentAlbumIndex = index;
+    currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index]);
+    currentPageIndex = pageIndex;
+    renderAlbumBook();
+    document.getElementById("albumsListView").style.display = "none";
+    document.getElementById("albumsDetailView").style.display = "block";
+  }
+
   function showAlbumDetail(index) {
-    const album = FAKE_ALBUMS[index];
-    const filledCount = album.slots.filter(s => s.filledBy).length;
-    const container = document.getElementById("albumsDetailContainer");
+    openAlbumAtPage(index, 0);
+  }
 
-    const listRows = album.slots.map(slot => `
-      <div class="slot-row ${slot.filledBy ? "filled" : "want"}" data-coin-id="${slot.coinId}">
-        <div class="coin-disc ${slot.filledBy ? "" : "empty"}">${slot.filledBy ? slot.year : ""}</div>
-        <div class="slot-info">
-          <div class="slot-label">${slotDisplayLabel(slot)}</div>
-          <div class="slot-meta">${slot.description}</div>
-        </div>
-        <div class="slot-status"></div>
-      </div>
-    `).join("");
-
-    const gridCells = album.slots.map(slot => `
-      <div class="slot-cell ${slot.filledBy ? "" : "want"}" data-coin-id="${slot.coinId}">
-        <div class="coin-disc ${slot.filledBy ? "" : "empty"}">${slot.filledBy ? slot.year : "?"}</div>
+  function renderSlotCell(slot, side) {
+    const filled = !!slot.filledBy;
+    const discClasses = ["coin-disc"];
+    if (!filled) discClasses.push("empty");
+    if (filled && side === "reverse") discClasses.push("reverse-face");
+    return `
+      <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}" data-coin-id="${slot.coinId}">
+        ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
+        <div class="${discClasses.join(" ")}">${filled ? slot.year : "?"}</div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
         <div class="slot-meta">${slot.description}</div>
       </div>
-    `).join("");
+    `;
+  }
+
+  function renderAlbumPageContent(page, album) {
+    if (page.type === "cover") {
+      const filledCount = album.slots.filter(s => s.filledBy).length;
+      return `
+        <div class="case album-page album-page-cover">
+          <div class="cover-icon">${album.icon}</div>
+          <h3>${album.name}</h3>
+          <div class="cover-sub">${filledCount} / ${album.slots.length} filled</div>
+        </div>
+      `;
+    }
+    if (page.type === "history") {
+      return `
+        <div class="case album-page album-page-history">
+          <div class="section-label" style="margin-top:0;">History &amp; Facts</div>
+          <p>${album.history || "No history notes on file for this set yet."}</p>
+        </div>
+      `;
+    }
+    return `
+      <div class="case album-page album-page-coins">
+        <div class="page-side-label">${page.side === "reverse" ? "Reverse" : "Obverse"}</div>
+        <div class="slot-grid book-slot-grid">${page.slots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
+      </div>
+    `;
+  }
+
+  function renderAlbumBook() {
+    const album = FAKE_ALBUMS[currentAlbumIndex];
+    const container = document.getElementById("albumsDetailContainer");
+    const spread = isAlbumSpreadWidth();
+    const indices = spread
+      ? [currentPageIndex, currentPageIndex + 1].filter(i => i < currentAlbumPages.length)
+      : [currentPageIndex];
 
     container.innerHTML = `
-      <div class="album-block">
-        <div class="album-header">
-          <h3>${album.name}</h3>
-          <span class="progress">${filledCount} / ${album.slots.length} filled</span>
+      <div class="album-book">
+        <div class="book-pages${spread ? " spread" : ""}">
+          ${indices.map(i => renderAlbumPageContent(currentAlbumPages[i], album)).join("")}
         </div>
-        <div class="case album-slots">
-          <div class="slot-list">${listRows}</div>
-          <div class="slot-grid">${gridCells}</div>
+        <div class="book-nav">
+          <button type="button" id="albumPagePrevBtn" aria-label="Previous page" ${currentPageIndex === 0 ? "disabled" : ""}>←</button>
+          <span class="book-page-indicator">Page ${indices[0] + 1}${indices.length > 1 ? "–" + (indices[indices.length - 1] + 1) : ""} of ${currentAlbumPages.length}</span>
+          <button type="button" id="albumPageNextBtn" aria-label="Next page" ${indices[indices.length - 1] >= currentAlbumPages.length - 1 ? "disabled" : ""}>→</button>
         </div>
       </div>
     `;
 
-    container.querySelectorAll(".slot-row.want, .slot-cell.want").forEach(el => {
+    const step = spread ? 2 : 1;
+    document.getElementById("albumPagePrevBtn").addEventListener("click", () => {
+      currentPageIndex = Math.max(0, currentPageIndex - step);
+      renderAlbumBook();
+    });
+    document.getElementById("albumPageNextBtn").addEventListener("click", () => {
+      currentPageIndex = Math.min(currentAlbumPages.length - 1, currentPageIndex + step);
+      renderAlbumBook();
+    });
+
+    const pagesEl = container.querySelector(".book-pages");
+    let touchStartX = null;
+    pagesEl.addEventListener("touchstart", e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    pagesEl.addEventListener("touchend", e => {
+      if (touchStartX === null) return;
+      const deltaX = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(deltaX) < 50) return;
+      if (deltaX < 0) document.getElementById("albumPageNextBtn").click();
+      else document.getElementById("albumPagePrevBtn").click();
+    });
+
+    container.querySelectorAll(".slot-cell.want").forEach(el => {
       el.addEventListener("click", () => {
         const slot = album.slots.find(s => s.coinId === el.dataset.coinId);
+        const [baseDesc, variety] = splitDescriptionVariety(slot.description);
         albumContext = {
           albumName: album.name,
           coinId: slot.coinId,
-          slotLabel: slotDisplayLabel(slot) + " (" + slot.description + ")"
+          slotLabel: slotDisplayLabel(slot) + " (" + slot.description + ")",
+          denom: album.denom,
+          year: slot.year,
+          mintMark: slot.mintMark,
+          description: baseDesc,
+          variety: variety
         };
         navigate("addcoin");
         applyAlbumContext();
       });
     });
 
-    document.getElementById("albumsListView").style.display = "none";
-    document.getElementById("albumsDetailView").style.display = "block";
+    container.querySelectorAll(".slot-cell:not(.want)").forEach(el => {
+      el.addEventListener("click", () => {
+        const slot = album.slots.find(s => s.coinId === el.dataset.coinId);
+        const coin = FAKE_COINS.find(c => c.id === slot.filledBy);
+        if (!coin) return;
+        const albumIndex = currentAlbumIndex;
+        const pageAtClick = currentPageIndex;
+        browseDetailBackHandler = () => { navigate("albums"); openAlbumAtPage(albumIndex, pageAtClick); };
+        navigate("browse");
+        showBrowseDetail(coin);
+      });
+    });
   }
 
   function applyAlbumContext() {
@@ -2395,6 +2623,24 @@
     document.getElementById("albumContextMsg").innerHTML =
       "Adding a coin for <strong>" + albumContext.albumName + "</strong> — slot " + albumContext.slotLabel;
     banner.classList.remove("hidden");
+
+    // Prepopulate the major attributes the slot itself already defines — Ray
+    // shouldn't have to retype what the album told the app on the way in.
+    if (albumContext.denom) {
+      document.getElementById("denomination").value = albumContext.denom;
+      const denom = albumContext.denom;
+      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
+      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
+    }
+    if (albumContext.year) document.getElementById("year").value = albumContext.year;
+    document.getElementById("mintMark").value = albumContext.mintMark || "";
+    if (albumContext.description) {
+      document.getElementById("description").value = albumContext.description;
+      descriptionAutoFilled = false;
+    }
+    if (albumContext.variety) document.getElementById("variety").value = albumContext.variety;
+    checkDbCoinsMatch();
+    updateFlipLabels();
 
     const assignSelect = document.getElementById("assignAlbum");
     const matchValue = albumContext.albumName + " :: " + albumContext.coinId;
@@ -2409,6 +2655,36 @@
     document.getElementById("albumContextBanner").classList.add("hidden");
     document.getElementById("assignAlbum").value = "";
     updateFormRowSummaries();
+  }
+
+  let wishlistContext = null; // { desc, denom, year, mint, variety } when arriving at Add Coin from a Wishlist item
+
+  function applyWishlistContext() {
+    const banner = document.getElementById("wishlistOriginBanner");
+    if (!wishlistContext) {
+      banner.classList.add("hidden");
+      return;
+    }
+    document.getElementById("wishlistOriginMsg").innerHTML =
+      "Adding a coin from your Wishlist — <strong>" + wishlistContext.desc + "</strong>";
+    banner.classList.remove("hidden");
+
+    if (wishlistContext.denom) {
+      document.getElementById("denomination").value = wishlistContext.denom;
+      sizeCoinElement(document.getElementById("obverseFrame"), wishlistContext.denom, 210, null);
+      sizeCoinElement(document.getElementById("reverseFrame"), wishlistContext.denom, 210, null);
+    }
+    if (wishlistContext.year) document.getElementById("year").value = wishlistContext.year;
+    document.getElementById("mintMark").value = wishlistContext.mint || "";
+    if (wishlistContext.variety) document.getElementById("variety").value = wishlistContext.variety;
+    maybeAutoFillDescription();
+    checkDbCoinsMatch();
+    updateFlipLabels();
+  }
+
+  function clearWishlistContext() {
+    wishlistContext = null;
+    document.getElementById("wishlistOriginBanner").classList.add("hidden");
   }
 
   // ==================================================================
@@ -2463,6 +2739,19 @@
       currentWishlistItem.notes = document.getElementById("wishlistDetailNotes").value;
       renderWishlistGrid();
       showToast("Notes updated. Purchase Info/Photos are layout preview only — nothing saved to OneDrive yet.");
+    });
+
+    document.getElementById("wishlistFoundItBtn").addEventListener("click", () => {
+      if (!currentWishlistItem) return;
+      wishlistContext = {
+        desc: currentWishlistItem.desc,
+        denom: currentWishlistItem.denom,
+        year: currentWishlistItem.year,
+        mint: currentWishlistItem.mint,
+        variety: currentWishlistItem.variety
+      };
+      navigate("addcoin");
+      applyWishlistContext();
     });
   }
 
@@ -3033,8 +3322,8 @@
     descriptionAutoFilled = false;
     document.getElementById("variety").value = row.variety || "";
     checkDbCoinsMatch();
-    sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 150, null);
-    sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 150, null);
+    sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 210, null);
+    sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 210, null);
   }
 
   function resolvePcgsLabelMatch(row, parsed) {
@@ -3158,6 +3447,7 @@
     document.getElementById("storageDoneBtn").addEventListener("click", showAddCoinMain);
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
+    document.getElementById("wishlistOriginClearBtn").addEventListener("click", clearWishlistContext);
 
     document.getElementById("pcgsLabelApplyBtn").addEventListener("click", handlePcgsLabelApply);
     document.getElementById("pcgsLabelInput").addEventListener("keydown", (e) => {
@@ -3189,8 +3479,8 @@
     document.getElementById("denomination").addEventListener("change", () => {
       maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels();
       const denom = document.getElementById("denomination").value;
-      sizeCoinElement(document.getElementById("obverseFrame"), denom, 150, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), denom, 150, null);
+      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
+      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
     });
     document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("mintMark").addEventListener("change", () => { checkDbCoinsMatch(); updateFlipLabels(); });
@@ -3221,6 +3511,7 @@
         showToast("Placeholder only — nothing saved. Graph API write comes later.");
       }
       clearAlbumContext();
+      clearWishlistContext();
     });
 
     initPhotoToggle();
