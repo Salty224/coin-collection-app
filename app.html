@@ -4,10 +4,43 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salty's Cabinet</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
 <style>
+  /* Self-hosted (not the Google Fonts CDN): on some devices — notably seen
+     Android tablet vs. PC — the CDN request silently fails or gets blocked by
+     a content blocker (same category of issue as alcdn.msauth.net being
+     blocked for MSAL, see CLAUDE.md), and the browser falls back to a system
+     font, so the app looks different device to device even though the CSS is
+     identical. Serving the four weights we actually use from the repo itself
+     removes that network dependency entirely. */
+  @font-face {
+    font-family: "Cormorant Garamond";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("fonts/cormorant-600.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "Cormorant Garamond";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("fonts/cormorant-700.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "Caveat";
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url("fonts/caveat-600.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "Caveat";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("fonts/caveat-700.woff2") format("woff2");
+  }
+
   :root {
     --bg: #0b0c0e;
     --bg-elevated: #16181c;
@@ -612,9 +645,10 @@
   }
   .cert-link-btn.small { width: 28px; height: 28px; border-radius: 14px; font-size: 12px; }
 
-  /* Read-only grade/cert badge — Browse Detail. A single pill combining Grade,
-     GradeSource, and cert number; the whole thing is a link when a cert lookup
-     URL resolves for that GradeSource, plain text otherwise. */
+  /* Read-only cert badge — Browse Detail. Cert number only (Grade+GradeSource
+     already show on the flip's bottom-left corner — repeating them here would
+     just be the same value twice); the pill is a link when a cert lookup URL
+     resolves for that GradeSource, plain text otherwise. */
   .grade-cert-badge { margin: 10px 0; text-align: center; }
   .grade-cert-badge.hidden { display: none; }
   .grade-cert-badge-inner {
@@ -623,6 +657,27 @@
     text-decoration: none;
   }
   a.grade-cert-badge-inner:hover { border-color: var(--case-border-bright); text-decoration: underline; }
+
+  /* Full detail panel below the flip — Browse Detail's "everything about this
+     coin" area: Value, Purchase Info, Fun Facts, Notes, Additional Photos. */
+  .detail-panel { margin-top: 14px; padding: 16px; }
+  .detail-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .detail-row:last-of-type { border-bottom: none; }
+  .detail-row.hidden { display: none; }
+  .detail-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);
+  }
+  .detail-value { font-size: 14px; font-weight: 600; color: var(--text); }
+  .detail-block { margin-top: 14px; }
+  .detail-block.hidden { display: none; }
+  .detail-block .detail-label { margin-bottom: 6px; }
+  .detail-block p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+  .detail-photo-thumb {
+    width: 60px; height: 60px; margin-right: 8px;
+  }
 
   /* Flags that the disc above is standing in for an uncropped combined
      obverse/reverse photo (Photo3/Photo4), not a normal single-face shot. */
@@ -778,6 +833,15 @@
   .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
   .flip-label.bl { bottom: 10px; left: 10px; }
   .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
+
+  /* A corner holding two related values (Type/Denom, Variety/Designation)
+     stacks them as two lines rather than crowding one line — each line still
+     ellipsizes on its own if it's the one that doesn't fit. */
+  .flip-label .corner-line {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Standard visually-hidden pattern: keeps the same info readable to screen
      readers without duplicating it as an on-screen text block (the corner
@@ -985,6 +1049,29 @@
           </div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
           <div class="grade-cert-badge hidden" id="browseDetailCertBadge"></div>
+
+          <div class="case detail-panel" id="browseDetailPanel">
+            <div class="detail-row">
+              <span class="detail-label">Value</span>
+              <span class="detail-value" id="detailValueText"></span>
+            </div>
+            <div class="detail-row hidden" id="detailPurchaseRow">
+              <span class="detail-label">Purchase</span>
+              <span class="detail-value" id="detailPurchaseText"></span>
+            </div>
+            <div class="detail-block hidden" id="detailFunFactBlock">
+              <div class="detail-label">Fun Fact</div>
+              <p id="detailFunFactText"></p>
+            </div>
+            <div class="detail-block hidden" id="detailNotesBlock">
+              <div class="detail-label">Notes</div>
+              <p id="detailNotesText"></p>
+            </div>
+            <div class="detail-block">
+              <div class="detail-label">Additional Photos</div>
+              <div id="detailPhotosRow"></div>
+            </div>
+          </div>
         </div>
 
         <div class="case form-card" id="browseEditView" style="display:none;">
@@ -1619,6 +1706,35 @@
     { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "" }
   ];
 
+  // Purchase Info detail, Fun Facts, Notes, and additional-photo flags — kept
+  // as a lookup by CollectionID rather than bloating every FAKE_COINS row,
+  // since only a few coins have this filled in today (same sparse-data pattern
+  // as gradeSource/serNo above). Feeds Browse detail's full detail panel.
+  const FAKE_COIN_DETAILS = {
+    "AY-00001": {
+      purchaseDate: "2019-03-14", vendor: "Heritage Auctions",
+      funFact: "Carson City Morgans carry the \"CC\" mintmark — the Carson City mint struck silver dollars almost entirely from Comstock Lode silver, and its dollars are some of the most collected by mint location alone.",
+      notes: "Bought at auction, still in the original PCGS holder.",
+      additionalPhotos: ["holder-label"]
+    },
+    "AY-00003": {
+      purchaseDate: "2021-08-02", vendor: "Local coin shop",
+      funFact: "The 1916-D is the key date of the entire Mercury Dime series — total mintage was just 264,000, a fraction of any other year/mint in the run.",
+      notes: ""
+    },
+    "AY-00006": {
+      purchaseDate: "2020-11-20", vendor: "eBay — coinguy88",
+      funFact: "",
+      notes: "Priced high for this grade due to low survival estimates in Good condition."
+    },
+    "AY-00010": {
+      purchaseDate: "2018-05-09", vendor: "GreatCollections",
+      funFact: "1955 Franklin proofs are commonly found with cameo contrast — frosted devices against mirrored fields — like this one (CAM designation).",
+      notes: "",
+      additionalPhotos: ["box-2-slot"]
+    }
+  };
+
   // CollectionIDs whose Obverse/Reverse are blank because the only photo on file is
   // an uncropped combined shot in Photo3/Photo4 (see CLAUDE.md OneDrive folder
   // structure — combined obverse/reverse handling). The saved-coin flip views fall
@@ -2026,6 +2142,29 @@
     return name;
   }
 
+  // Renders 1-2 stacked lines inside a flip-label corner instead of one run-on
+  // line — used wherever a corner combines two related values (Type/Denom,
+  // Variety/Designation) that would otherwise crowd together. Blank lines are
+  // skipped so a single value still renders as a plain single line.
+  function renderCornerLines(el, lines) {
+    const nonEmpty = lines.filter(Boolean);
+    el.innerHTML = nonEmpty.map(line => `<div class="corner-line">${line}</div>`).join("");
+  }
+
+  // Type name (top line of the TR stack) shortens to its last word if the full
+  // name still doesn't fit even on its own line (e.g. "Lincoln Memorial" →
+  // "Memorial") — measured against the actual rendered box, not guessed from
+  // character count, so it only kicks in when genuinely needed.
+  function renderTypeDenomCorner(el, coin) {
+    const type = seriesLabel(coin);
+    renderCornerLines(el, [type, coin.denom || ""]);
+    const typeLine = el.querySelector(".corner-line");
+    if (typeLine && typeLine.scrollWidth > typeLine.clientWidth) {
+      const words = type.trim().split(/\s+/);
+      if (words.length > 1) typeLine.textContent = words[words.length - 1];
+    }
+  }
+
   // Shared by every place a single *saved* coin gets the flip-label treatment
   // (Spotlight, Browse detail) — corner text plus a screen-reader-only summary,
   // since the overlay is the visible presentation but shouldn't be the only way
@@ -2034,7 +2173,7 @@
     // Identification only, standard shorthand — same rule as Add Coin: coded
     // denomination, not the spelled-out name, and no price/value on this face.
     document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
-    document.getElementById(prefix + "TR").textContent = coin.denom ? (seriesLabel(coin) + " " + coin.denom) : seriesLabel(coin);
+    renderTypeDenomCorner(document.getElementById(prefix + "TR"), coin);
     document.getElementById(prefix + "BL").textContent = coin.grade || "";
 
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
@@ -2297,31 +2436,37 @@
 
   function showBrowseDetail(coin) {
     currentBrowseCoin = coin;
+    document.getElementById("browseGridView").style.display = "none";
+    document.getElementById("browseDetailView").style.display = "block";
+    document.getElementById("browseEditView").style.display = "none";
+
+    // Visibility must be set before applyFlipCorners — its corner-overflow
+    // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a display:none
+    // subtree, which would always look "overflowing" and wrongly trigger the
+    // one-word shortening fallback.
     document.getElementById("browseDetailName").textContent = coin.name;
     const disc = document.getElementById("browseDetailDisc");
     disc.textContent = coin.year;
     sizeCoinElement(disc, coin.denom, 210, 32);
     applyFlipCorners("browseDetail", coin);
     renderCertBadge(coin);
-    document.getElementById("browseGridView").style.display = "none";
-    document.getElementById("browseDetailView").style.display = "block";
-    document.getElementById("browseEditView").style.display = "none";
+    renderBrowseDetailPanel(coin);
   }
 
-  // Read-only Grade+GradeSource+Cert badge — the whole pill is a link when a
-  // cert lookup URL resolves for this coin's GradeSource (grader-agnostic, via
-  // Lookup_Graders), otherwise plain text. No separate cert-link line.
+  // Read-only cert badge — cert number only. Grade+GradeSource already show
+  // on the flip's bottom-left corner, so this doesn't repeat them (see
+  // "Coin detail view" in CLAUDE.md) — it exists purely to carry the CERT
+  // lookup link. The pill is a link when a cert lookup URL resolves for this
+  // coin's GradeSource (grader-agnostic, via Lookup_Graders), plain text
+  // otherwise, hidden entirely if there's no cert number to show.
   function renderCertBadge(coin) {
     const badge = document.getElementById("browseDetailCertBadge");
-    if (!coin.grade) {
+    if (!coin.serNo) {
       badge.classList.add("hidden");
       badge.innerHTML = "";
       return;
     }
-    const gradeParts = [coin.grade];
-    if (coin.gradeSource) gradeParts.push(coin.gradeSource);
-    const certSuffix = coin.serNo ? " · #" + coin.serNo : "";
-    const text = gradeParts.join(" ") + certSuffix;
+    const text = "Cert #" + coin.serNo;
     const url = buildCertLookupUrl(coin.gradeSource, coin.serNo);
 
     if (url) {
@@ -2330,6 +2475,50 @@
       badge.innerHTML = `<span class="grade-cert-badge-inner">${text}</span>`;
     }
     badge.classList.remove("hidden");
+  }
+
+  // The "everything about this coin" panel below the flip — Value, Purchase
+  // Info, Fun Facts, Notes, Additional Photos. Purchase/Fun Fact/Notes/Photos
+  // come from FAKE_COIN_DETAILS (sparse — most placeholder coins don't have
+  // this filled in yet, same as gradeSource/serNo elsewhere).
+  function renderBrowseDetailPanel(coin) {
+    const details = FAKE_COIN_DETAILS[coin.id] || {};
+
+    document.getElementById("detailValueText").textContent = coin.value ? "$" + coin.value.toLocaleString() : "Not recorded";
+
+    const purchaseParts = [];
+    if (coin.cost) purchaseParts.push("$" + coin.cost.toLocaleString());
+    if (details.vendor) purchaseParts.push(details.vendor);
+    if (details.purchaseDate) purchaseParts.push(details.purchaseDate);
+    const purchaseRow = document.getElementById("detailPurchaseRow");
+    if (purchaseParts.length) {
+      document.getElementById("detailPurchaseText").textContent = purchaseParts.join(" · ");
+      purchaseRow.classList.remove("hidden");
+    } else {
+      purchaseRow.classList.add("hidden");
+    }
+
+    toggleDetailTextBlock("detailFunFactBlock", "detailFunFactText", details.funFact);
+    toggleDetailTextBlock("detailNotesBlock", "detailNotesText", details.notes);
+
+    const photosRow = document.getElementById("detailPhotosRow");
+    if (details.additionalPhotos && details.additionalPhotos.length) {
+      photosRow.innerHTML = details.additionalPhotos.map(() =>
+        `<div class="coin-photo-frame detail-photo-thumb"><span class="placeholder-icon">🖼️</span></div>`
+      ).join("");
+    } else {
+      photosRow.innerHTML = `<p class="placeholder-note" style="margin:0; text-align:left;">No additional photos on file.</p>`;
+    }
+  }
+
+  function toggleDetailTextBlock(blockId, textId, value) {
+    const block = document.getElementById(blockId);
+    if (value) {
+      document.getElementById(textId).textContent = value;
+      block.classList.remove("hidden");
+    } else {
+      block.classList.add("hidden");
+    }
   }
 
   // ==================================================================
@@ -2483,6 +2672,33 @@
     return window.matchMedia("(min-width: 900px)").matches;
   }
 
+  // Mirrors how a real bound book actually pages: the cover (index 0) is a
+  // standalone sheet-front — closed, you only ever see it alone, never paired
+  // with what's behind it. Once you're past it, spread mode pairs verso/recto
+  // in twos starting at index 1: (1,2), (3,4), (5,6)... — e.g. page 1 (the
+  // back of the cover / History) sits on the left, page 2 (first Obverse
+  // group) on the right.
+  function computeVisibleIndices(pageIndex, spread, totalPages) {
+    const clamped = Math.max(0, Math.min(pageIndex, totalPages - 1));
+    if (!spread || clamped === 0) return [clamped];
+    const start = (clamped % 2 === 1) ? clamped : clamped - 1;
+    const indices = [start];
+    if (start + 1 < totalPages) indices.push(start + 1);
+    return indices;
+  }
+
+  function nextAlbumPageIndex(pageIndex, spread, totalPages) {
+    if (!spread) return Math.min(pageIndex + 1, totalPages - 1);
+    const indices = computeVisibleIndices(pageIndex, true, totalPages);
+    return Math.min(indices[indices.length - 1] + 1, totalPages - 1);
+  }
+
+  function prevAlbumPageIndex(pageIndex, spread, totalPages) {
+    if (!spread) return Math.max(pageIndex - 1, 0);
+    const indices = computeVisibleIndices(pageIndex, true, totalPages);
+    return indices[0] <= 1 ? 0 : indices[0] - 2;
+  }
+
   function openAlbumAtPage(index, pageIndex) {
     currentAlbumIndex = index;
     currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index]);
@@ -2530,10 +2746,15 @@
         </div>
       `;
     }
+    // Physical page-flip accuracy: each coin passes through the paper when a
+    // page turns, so the coin that's rightmost on the front is leftmost on
+    // that same page's back — the reverse side renders the group in reversed
+    // left-right order, not the same order as its obverse.
+    const orderedSlots = page.side === "reverse" ? [...page.slots].reverse() : page.slots;
     return `
       <div class="case album-page album-page-coins">
         <div class="page-side-label">${page.side === "reverse" ? "Reverse" : "Obverse"}</div>
-        <div class="slot-grid book-slot-grid">${page.slots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
+        <div class="slot-grid book-slot-grid">${orderedSlots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
       </div>
     `;
   }
@@ -2542,9 +2763,8 @@
     const album = FAKE_ALBUMS[currentAlbumIndex];
     const container = document.getElementById("albumsDetailContainer");
     const spread = isAlbumSpreadWidth();
-    const indices = spread
-      ? [currentPageIndex, currentPageIndex + 1].filter(i => i < currentAlbumPages.length)
-      : [currentPageIndex];
+    const totalPages = currentAlbumPages.length;
+    const indices = computeVisibleIndices(currentPageIndex, spread, totalPages);
 
     container.innerHTML = `
       <div class="album-book">
@@ -2552,20 +2772,19 @@
           ${indices.map(i => renderAlbumPageContent(currentAlbumPages[i], album)).join("")}
         </div>
         <div class="book-nav">
-          <button type="button" id="albumPagePrevBtn" aria-label="Previous page" ${currentPageIndex === 0 ? "disabled" : ""}>←</button>
-          <span class="book-page-indicator">Page ${indices[0] + 1}${indices.length > 1 ? "–" + (indices[indices.length - 1] + 1) : ""} of ${currentAlbumPages.length}</span>
-          <button type="button" id="albumPageNextBtn" aria-label="Next page" ${indices[indices.length - 1] >= currentAlbumPages.length - 1 ? "disabled" : ""}>→</button>
+          <button type="button" id="albumPagePrevBtn" aria-label="Previous page" ${indices[0] === 0 ? "disabled" : ""}>←</button>
+          <span class="book-page-indicator">Page ${indices[0] + 1}${indices.length > 1 ? "–" + (indices[indices.length - 1] + 1) : ""} of ${totalPages}</span>
+          <button type="button" id="albumPageNextBtn" aria-label="Next page" ${indices[indices.length - 1] >= totalPages - 1 ? "disabled" : ""}>→</button>
         </div>
       </div>
     `;
 
-    const step = spread ? 2 : 1;
     document.getElementById("albumPagePrevBtn").addEventListener("click", () => {
-      currentPageIndex = Math.max(0, currentPageIndex - step);
+      currentPageIndex = prevAlbumPageIndex(currentPageIndex, spread, totalPages);
       renderAlbumBook();
     });
     document.getElementById("albumPageNextBtn").addEventListener("click", () => {
-      currentPageIndex = Math.min(currentAlbumPages.length - 1, currentPageIndex + step);
+      currentPageIndex = nextAlbumPageIndex(currentPageIndex, spread, totalPages);
       renderAlbumBook();
     });
 
@@ -3424,7 +3643,7 @@
     document.getElementById("flipObverseTL").textContent = yearMint;
     document.getElementById("flipObverseTR").textContent = denom;
     document.getElementById("flipObverseBL").textContent = gradeParts.join(" ");
-    document.getElementById("flipObverseBR").textContent = [variety, designation].filter(Boolean).join(", ");
+    renderCornerLines(document.getElementById("flipObverseBR"), [variety, designation]);
 
     // Reverse: Error and Purchase Price only, per Ray's own convention (not an
     // official numismatic standard) — matches the price sticker placement he

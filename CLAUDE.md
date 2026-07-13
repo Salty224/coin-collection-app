@@ -26,6 +26,17 @@ ask before updating rather than updating by default.
 - `index.html` — original connection test page (sign in / read / write test)
 - `stage.html` — working "Add New Coin" staging form (photo capture → OneDrive
   Staging folder). Confirmed working end-to-end. **Do not break this.**
+- `fonts/` — self-hosted Cormorant Garamond (600/700) and Caveat (600/700)
+  woff2 files, latin subset only. **Locked in: fonts are self-hosted, not
+  loaded from the Google Fonts CDN** — the CDN request was seen to render
+  differently across devices (Android tablet vs. PC), most likely a
+  CDN-blocking/content-blocker issue on one device and not the other (same
+  category as `alcdn.msauth.net` being blocked for MSAL — see below), causing
+  a silent fallback to a system font on just that device. Self-hosting removes
+  the network dependency entirely so rendering is consistent regardless of
+  what a given device blocks. If a font ever needs a new weight/family, fetch
+  the woff2 from Google Fonts' CSS API once and commit it here rather than
+  re-adding a CDN `<link>`.
 
 ## Azure / Entra config
 - Client ID: `bf9aaf28-a5e1-4eed-a006-15f03146693b`
@@ -309,17 +320,28 @@ the same corner mapping:
   it added a label above the coin that wasn't part of the flip-frame
   metaphor itself and wasn't needed.
 - **Obverse is identification only — standard numismatic shorthand**:
-  top-left Year+MintMark (`1945-S`); top-right **the series/type name plus
-  the coded denomination** (`Mercury 10C`, `Peace $1`, `Franklin 50C` — not
-  just the bare code anymore, and not the full spelled-out denomination
-  either). The series name is derived from `coin.name` by stripping a known
-  denomination-word suffix (`seriesLabel()` — e.g. "Mercury Dime" → "Mercury",
-  "Franklin Half Dollar" → "Franklin"); bottom-left Grade+GradeSource
-  (`MS-67 PCGS`); bottom-right Variety+Designation combined, if present
-  (`Micro S, FB`). **Exception: Browse's grid-mini cards** (see "Browse:
-  Grid/List toggle" below) keep the top-right corner to just the denomination
-  code — the series name doesn't fit legibly at that much smaller scale and
-  was truncating hard.
+  top-left Year+MintMark (`1945-S`); top-right **the series/type name and the
+  coded denomination as two stacked, right-justified lines** (`Mercury` over
+  `10C`, `Peace` over `$1`, `Franklin` over `50C`) — not one run-on line, and
+  not the full spelled-out denomination. The series name is derived from
+  `coin.name` by stripping a known denomination-word suffix (`seriesLabel()`
+  — e.g. "Mercury Dime" → "Mercury", "Franklin Half Dollar" → "Franklin");
+  bottom-left Grade+GradeSource (`MS-67 PCGS`); bottom-right Variety+
+  Designation, **also as two stacked lines** rather than a comma-joined
+  single line (`Micro S` over `FB`). **Exception: Browse's grid-mini cards**
+  (see "Browse: Grid/List toggle" below) keep the top-right corner to just
+  the denomination code, single line — the series name doesn't fit legibly
+  at that much smaller scale and was truncating hard.
+- **Two-line corner stacking is a general mechanism (`renderCornerLines()`),
+  not a one-off for Type/Denom** — any corner combining two related values
+  uses it, so the same crowding fix applies to Variety/Designation without a
+  separate implementation. **The type/series line additionally shortens to
+  its last word if the full name still doesn't fit even on its own line**
+  (e.g. "Lincoln Memorial" → "Memorial") — measured against the actual
+  rendered box (`scrollWidth` vs. `clientWidth`), not guessed from character
+  count, so it only kicks in when genuinely needed. This measurement
+  requires the element to already be visible/laid out — call sites that
+  toggle visibility must do so *before* populating corner text, not after.
 - **Reverse (Add Coin only — saved coins don't yet track Error/Price
   separately from the obverse display)**: only two conditional items —
   top-left Error, if set; bottom-right Purchase Price, if set (`$45.00`).
@@ -331,11 +353,25 @@ the same corner mapping:
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
-a back link. Below the flip-frame, a **grade/cert badge** shows Grade +
-GradeSource + cert number as one pill; the whole badge is a link (opens the
-cert lookup URL via the grader-agnostic `Lookup_Graders` resolver — see PCGS
-Label Auto-Populate below) when that GradeSource has a base URL on file, plain
-text otherwise. No separate cert-link line. An **Edit** button on the detail
+a back link. Below the flip-frame, a **cert badge** shows the cert number alone
+(`Cert #23456789`) — **not** Grade + GradeSource anymore, since those already
+show on the flip's bottom-left corner and repeating them below was redundant;
+the badge is hidden entirely if there's no cert number. The badge is a link
+(opens the cert lookup URL via the grader-agnostic `Lookup_Graders` resolver —
+see PCGS Label Auto-Populate below) when that GradeSource has a base URL on
+file, plain text otherwise. No separate cert-link line.
+
+Below the cert badge, a **full detail panel** is the one place all of a coin's
+data is viewable: Value, Purchase Info (cost/vendor/purchase date, whichever
+parts exist), Fun Fact, Notes, and Additional Photos (a thumbnail row, or "No
+additional photos on file" if none). Purchase/Fun Fact/Notes/Photos come from
+`FAKE_COIN_DETAILS`, a lookup by CollectionID kept separate from `FAKE_COINS`
+rather than bloating every coin row — sparsely populated today (a few coins
+have it filled in, most don't), same pattern as `gradeSource`/`serNo`. Each
+row/block hides itself when its data is blank rather than showing an empty
+label.
+
+An **Edit** button on the detail
 view opens an edit form covering exactly the bounded fields the app can safely
 write directly (see "Editing existing coins" below: Grade, GradeSource,
 Cert/Type Number, Designation, Storage Location) plus the ability to attach a
@@ -663,9 +699,27 @@ per-slot photo yet.)
   900px width shows a single page; at/above it shows two pages side by side
   with a book-spine visual seam between them, matching how many pages
   actually exist (the last odd page shows alone even in spread mode).
+- **Physically accurate book model, not just a generic pager (locked in,
+  refines the initial page-flip build)**: the cover (page index 0) is a
+  standalone sheet-front — **closed, only the cover is ever visible**, even at
+  spread width; it's never paired with the page behind it, same as a real
+  closed book. Opening it reveals the **back of the cover — the History &
+  Facts page** — which in a two-page spread sits on the **left**, paired with
+  the **first coin group's Obverse on the right**. Past that, spread pairing
+  continues in twos starting at page index 1: (1,2), (3,4), (5,6)... —
+  computed by `computeVisibleIndices()`, not a naive `[i, i+1]` pairing (which
+  would have wrongly spread the cover with History on first open).
+- **Reverse pages mirror in reversed left-right order, not the same order as
+  their Obverse** — a real coin physically passes through the paper when a
+  page turns, so the coin rightmost on a page's front is leftmost on that same
+  page's back. `renderAlbumPageContent()` reverses the slot array for
+  `side: "reverse"` pages; the underlying chunk/data order is untouched, this
+  is a display-only reversal.
 - **Navigation**: prev/next arrow buttons, plus swipe (touchstart/touchend,
-  ~50px threshold) on the page area. Both respect the current one-page vs.
-  two-page step size.
+  ~50px threshold) on the page area. In single-page mode these step by one
+  page at a time; in spread mode they step by whole pairs
+  (`nextAlbumPageIndex()`/`prevAlbumPageIndex()`), always landing back on a
+  valid pair boundary (or on the lone cover) rather than an arbitrary index.
 - **Key-date coins are highlighted** with a small gold star badge and a
   matching glow around the coin disc, driven by a `keyDate: true` flag per
   slot (e.g. 1909-(S) VDB Lincoln cents, the 1878 8 Tail Feathers Morgan) —
@@ -676,7 +730,9 @@ per-slot photo yet.)
   width, since a bounded 6-slot page is legible at any size and the old
   "simple list on phone" mode doesn't fit a paginated-book metaphor. The
   animated-page-flip-deferred and cover/history-page-deferred notes that used
-  to live here are done, not deferred, as of this feature.
+  to live here are done, not deferred, as of this feature. The very first
+  version of this feature paired pages naively (`[i, i+1]`) regardless of
+  content — that's superseded by the sheet-accurate pairing above.
 
 ## What NOT to build
 - AI photo pre-fill from receipts/coin photos — shelved permanently. Redundant with
