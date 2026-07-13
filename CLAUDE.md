@@ -164,6 +164,24 @@ CoinCollection/
    that stays a Claude-chat + Copilot-paste workflow. The app's only role there is
    the "Batch receipt" capture action below.
 
+### Post-save Albums matching (future requirement, not started — blocked on the
+write layer like everything else above)
+When a coin is saved (via the flow above, not the reverse "tapped an open Album
+slot" flow that already exists), the app should check Albums for a matching
+open slot — Year + MintMark + Denomination + MajorVariety — and **offer** to
+fill it; never auto-fill silently. Three cases:
+- **Matching slot is open** → offer to fill it; Ray accepts or declines.
+- **Matching slot is already filled by a different coin** → do NOT auto-replace.
+  Surface both coins to Ray so he can make a manual "upgrade" decision (e.g. he
+  found a nicer example of the same date/mint and wants to swap which coin sits
+  in the album, moving the other one out).
+- **No matching slot, or Ray doesn't want it in an album at all** (some coins
+  are intentionally kept out — e.g. routed to a display Container instead, even
+  when a slot exists) — this is a **choice Ray makes at save time**, not an
+  assumption the app makes either way. Never assume "yes, fill it" and never
+  assume "no, it doesn't go in an album" — always ask when a match exists.
+   the "Batch receipt" capture action below.
+
 ### Add Coin field layout (locked in)
 Top level is only what's needed to identify the coin and describe the specific
 slab — everything else is one level down. Partial purchase data (e.g. a price with
