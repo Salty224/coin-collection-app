@@ -50,27 +50,47 @@ CoinCollection/
                                  blank until reconciled
   CoinCollection (AI).xlsx
 ```
+- **Upload naming** (Ray's side — no suffix typing, just what the app captures):
+  `{CollectionID}_obverse.jpg` / `_reverse.jpg` / `_combined.jpg`.
 - **Combined obverse+reverse in one image** (some PCGS TrueView shots, some seller
-  photos) — **corrected, supersedes an earlier same-day decision**: file it as
-  `{CollectionID}_combined.jpg` in the Photo3 slot (Photo4 if Photo3 is already
-  taken by something else). Obverse and Reverse both stay **blank** — not just
-  Reverse — until someone manually crops the combined shot into two separate
-  files later. Add a Notes entry like "Combined obverse/reverse image in Photo3;
-  not yet cropped." The earlier version of this decision (file as `_obverse.jpg`,
-  leave only Reverse blank) is wrong — don't build against it.
-- **Saved-coin flip views (Spotlight, Browse detail) fall back to flagging this
-  state** rather than showing a blank face: when Obverse/Reverse are blank but a
-  combined Photo3/Photo4 exists, a small "📎 Combined obverse/reverse — not yet
-  cropped" note shows below the flip-frame (and in the screen-reader summary).
-  Today this only demonstrates the *flag* — the app doesn't load real photos
-  into Spotlight/Browse detail at all yet (those views still show the abstract
-  coin-disc placeholder, same as every other coin); actually swapping in the
-  real combined image once photo-loading exists is future work, not done here.
-- **This naming is spec'd but not yet wired up in the app** — the whole direct-write
-  path (see "Add Coin: the core workflow" below) is still mockup/local-preview only,
-  nothing has actually written a photo to OneDrive yet. When that write path gets
-  built, renaming the captured file to this convention at the moment CollectionID is
-  assigned is part of step 3/5 below, not a separate future feature.
+  photos): file the raw upload as `{CollectionID}_combined.jpg` in the Photo3 slot
+  (Photo4 if Photo3 is already taken by something else) — supersedes the same-day
+  decision that filed it as `_obverse.jpg`; don't build against that older version.
+- **Crop commit (final, locked in) — automatic renaming, Ray never types a
+  filename himself**: once the crop tool runs (on a normal obverse/reverse upload,
+  or on a combined image — see below), the app:
+  1. Preserves the untouched input as `{CollectionID}_obverse_original.jpg` (or
+     `_reverse_original.jpg`) — **never deleted**.
+  2. Writes the baked/cropped result as `{CollectionID}_obverse_cropped.jpg` (or
+     `_reverse_cropped.jpg`).
+- **No dedicated splitter tool for combined images.** Cropping a `_combined.jpg`
+  into separate obverse/reverse files is just the existing single-photo crop tool
+  run twice against the same `_combined.jpg` source — once framing the obverse
+  region, once the reverse region. Output: `_combined_original.jpg` (preserved),
+  `_obverse_cropped.jpg`, `_reverse_cropped.jpg`. Once both cropped files exist,
+  update Obverse/Reverse per the display rule below and clear the "combined, not
+  yet cropped" Remarks note.
+- **Display rule (locked in): Obverse/Reverse should never be blank once a photo
+  has been uploaded for that slot.**
+  - Immediately on upload, before any crop exists: point to the `_original` file
+    (shows the raw/uncropped photo — not ideal in the circular frame, but better
+    than no photo at all).
+  - Once the crop tool runs and a `_cropped` file exists: the column
+    automatically switches to point there instead. Cropped always wins once it
+    exists.
+  - If a crop is ever deleted/reset: falls back to `_original` again rather than
+    going blank.
+- **New All-sheet columns: `Obverse_Original` and `Reverse_Original`**, positioned
+  directly after `Obverse` and `Reverse`. They always hold the original filename
+  regardless of crop state (so Ray can locate/re-crop an original later without
+  hunting OneDrive by hand); `Obverse`/`Reverse` hold whichever filename is
+  currently *displayed* (original or cropped, per the rule above).
+- **This whole feature depends on the Graph API write layer being built first —
+  none of it functions until that exists.** Confirmed: every Save button in the
+  app is currently a stub (Add Coin, Browse Edit, Wishlist, Batch Receipt all just
+  toast "nothing saved yet") — no OneDrive writes happen anywhere in the app yet.
+  When that write layer gets built, this naming/renaming/fallback logic is what
+  it needs to implement — not a separate future feature on top of it.
 
 ## ID schemes (locked in)
 - CollectionID: `AY-#####` (5-digit). Parent rows get `-Set` suffix; child rows get
@@ -207,17 +227,15 @@ together rather than mixed in at the top level.
   to the crop tool — it's the same underlying gap as every other Save button in
   the app (Add Coin, Browse Edit, Wishlist, Batch Receipt all currently just
   toast "nothing saved yet"): no real OneDrive/Graph API write layer exists
-  anywhere yet. Once that write layer gets built, the baked (post-crop) image is
-  what should get uploaded as `{CollectionID}_obverse.jpg` etc. — **whether the
-  pre-crop original also gets preserved somewhere is an open question, not yet
-  decided.**
-- **Splitting a combined image into two files isn't built, and isn't the same
-  tool.** The adjuster today takes one source photo and produces one cropped
-  output for one slot at a time. Manually cropping a `_combined.jpg` into
-  separate `_obverse.jpg`/`_reverse.jpg` files (see combined-photo handling
-  above) needs two different crop regions pulled from the *same* source image —
-  a different interaction shape (e.g. running the adjuster twice against the
-  same source with two saved-out regions), not yet designed or built.
+  anywhere yet. Once that write layer gets built, the crop-commit/original-
+  preservation/display-fallback behavior is fully spec'd — see the crop
+  commit / display rule under "OneDrive folder structure" above — not an open
+  question anymore.
+- **Splitting a combined image into two files uses the existing single-photo
+  crop tool, unchanged — no dedicated splitter tool.** Run it twice against the
+  same `_combined.jpg` source (once for the obverse region, once for reverse);
+  see "OneDrive folder structure" above for the resulting filenames and the
+  Obverse/Reverse update that follows.
 - **Obverse/Reverse show one at a time via a small toggle**, not stacked and
   not side by side — a dot on each toggle button lights up once that side has
   a photo. This keeps the bigger circle/bigger corner-label text (legible
