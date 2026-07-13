@@ -1309,14 +1309,17 @@
           <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
           <div class="grade-resolved" id="gradeResolvedPreview"></div>
 
-          <label>GradeSource</label>
-          <select id="gradeSource"></select>
+          <div id="gradeSourceRow">
+            <label>GradeSource</label>
+            <select id="gradeSource"></select>
+          </div>
 
           <label>Cert / Type Number</label>
-          <div class="cert-input-row">
-            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
-            <a href="#" target="_blank" rel="noopener" class="cert-link-btn hidden" id="certLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
-          </div>
+          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            Just captures the number here — the cert-lookup link lives on the saved coin's
+            Browse detail view, not during entry.
+          </p>
 
           <label>Designation</label>
           <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
@@ -1633,7 +1636,13 @@
   function buildCertLookupUrl(gradeSource, cert) {
     const base = getGraderBaseUrl(gradeSource);
     if (!base || !cert) return null;
-    return base + cert.trim();
+    // Defensive: only the CERT portion is ever valid for a lookup. If a raw
+    // SPEC.GRADE/CERT label string somehow ends up here instead of the already-
+    // isolated cert number, strip everything up to the last "/" rather than
+    // send PCGS.com (or any grader) a URL that includes SPEC/GRADE too.
+    const certOnly = cert.trim().split("/").pop().trim();
+    if (!certOnly) return null;
+    return base + certOnly;
   }
 
   function buildGradeSourceOptions(selectEl) {
@@ -3042,9 +3051,10 @@
     document.getElementById("gradeSource").value = "PCGS";
     document.getElementById("addCoinGrader").value = "PCGS";
 
-    const certInput = document.getElementById("certTypeNumber");
-    certInput.value = parsed.cert;
-    refreshCertLink(certInput, document.getElementById("certLinkBtn"), "PCGS");
+    // Add Coin only captures CERT — the lookup link itself belongs to viewing a
+    // saved coin (Browse detail), not entry. parsed.cert is already isolated to
+    // the portion after "/" (see parsePcgsLabel) — never SPEC.GRADE.
+    document.getElementById("certTypeNumber").value = parsed.cert;
 
     updateFlipLabels();
 
@@ -3156,30 +3166,24 @@
 
     initGradePicker();
 
-    function refreshAddCoinCertLink() {
-      refreshCertLink(
-        document.getElementById("certTypeNumber"),
-        document.getElementById("certLinkBtn"),
-        document.getElementById("gradeSource").value
-      );
-    }
-    document.getElementById("certTypeNumber").addEventListener("input", refreshAddCoinCertLink);
-    document.getElementById("gradeSource").addEventListener("change", refreshAddCoinCertLink);
-
     // Grader is the friendlier, slab-specific entry point above the label field —
     // picking one sets GradeSource and decides whether the PCGS decode field or
     // the "no auto-decode, enter manually" note shows (see CLAUDE.md PCGS Label
-    // Auto-Populate / Grader dropdown section).
+    // Auto-Populate / Grader dropdown section). Once Grader is set, GradeSource
+    // is already established from it — hide the separate GradeSource dropdown
+    // instead of asking the same question again further down the form. It only
+    // reappears if Grader is cleared back to blank (manual/non-slab entry, e.g.
+    // Seller/Owner/AI-est).
     const graderSelect = document.getElementById("addCoinGrader");
     FAKE_LOOKUP_GRADERS.forEach(g => graderSelect.appendChild(new Option(g.code, g.code)));
     graderSelect.addEventListener("change", (e) => {
       const grader = e.target.value;
       document.getElementById("pcgsLabelBlock").style.display = grader === "PCGS" ? "block" : "none";
       document.getElementById("nonPcgsGraderNote").style.display = (grader && grader !== "PCGS") ? "block" : "none";
+      document.getElementById("gradeSourceRow").style.display = grader ? "none" : "block";
       if (grader) {
         document.getElementById("gradeSource").value = grader;
       }
-      refreshAddCoinCertLink();
     });
 
     document.getElementById("denomination").addEventListener("change", () => {

@@ -401,30 +401,34 @@ A **Grader** dropdown (Add Coin, above the label-entry field; sourced from
 `Lookup_Graders` — `PCGS`/`NGC`/`ANACS`/`ICG`/`CAC`) sits above the PCGS Label
 field and drives three things when picked:
 1. Sets **GradeSource** to match (see GradeSource note above — same list now).
+   **Once Grader is set, the separate GradeSource dropdown further down the
+   form hides** — it would just be asking the same question a second time.
+   It only reappears if Grader is cleared back to blank (the manual/non-slab
+   path: Seller, Owner, AI-est, or a grader picked without going through the
+   label-entry flow at all).
 2. Decides whether the label-entry field shows at all: only `PCGS` has a
    confirmed auto-decode format, so picking `PCGS` reveals the "PCGS Label #"
    field; picking any other grader hides it and shows a plain note instead
    ("no auto-decode for this grader yet — enter manually below"), per the
    ANACS/ICG/CAC research note further down.
-3. Enables the cert-lookup link once a cert number is present, using
-   `Lookup_Graders[GradeSource].Cert Lookup Base URL` — **grader-agnostic**, not
-   hardcoded per service. Adding a new confirmed grader to `Lookup_Graders`
-   (a base URL) is the only change needed to light up its lookup link; no code
-   change per grading service. The link only activates if that GradeSource
-   actually has a base URL on file (today: PCGS and NGC do, ANACS/ICG/CAC don't
-   — see the research note).
+3. Cert lookup is resolved via `Lookup_Graders[GradeSource].Cert Lookup Base
+   URL` — **grader-agnostic**, not hardcoded per service. Adding a new
+   confirmed grader to `Lookup_Graders` (a base URL) is the only change needed
+   to light up its lookup link; no code change per grading service. The link
+   only activates if that GradeSource actually has a base URL on file (today:
+   PCGS and NGC do, ANACS/ICG/CAC don't — see the research note). **Only the
+   CERT portion of a decoded label is ever valid input to this resolver** —
+   SPEC and GRADE must never reach a lookup URL; the resolver defensively
+   strips anything before a stray `/` as a second line of defense on top of
+   the parser already isolating CERT correctly.
 
-This same base-URL lookup is also what powers the Cert/Type Number field's
-link everywhere else in the app (Browse detail's read-only badge, Browse
-Edit) — one resolver, not a PCGS-specific one repeated in multiple places.
-
-**Cert/Type Number display pattern**: a compact input + a small link-icon
-button beside it (button only visible when a lookup URL resolves), not a
-separate full-line hyperlink underneath — this applies in Add Coin and Browse
-Edit. Browse's read-only coin detail view goes one step further and folds
-Grade + GradeSource + cert number into a single pill-shaped badge; the whole
-badge is a link when a URL resolves, plain text otherwise. No separate cert-link
-line anywhere in the app now.
+**Add Coin does not show a cert-lookup link at all** — it only captures and
+stores the CERT number (Cert/Type Number is a plain input, no link). The
+lookup link belongs solely to *viewing* a saved coin afterward — Browse
+detail's read-only badge (Grade + GradeSource + cert number folds into one
+pill; the whole badge is a link when a URL resolves) and Browse Edit's compact
+cert-badge input (small link-icon button beside it, same resolver). Album view
+doesn't show grade/cert info at all yet, so there's nothing to fix there today.
 
 ### PCGS Label Auto-Populate (locked in)
 A "PCGS Label #" field (Add Coin, shown only when Grader = `PCGS`, above
@@ -453,13 +457,15 @@ AU-55, AU-58`, then 60–70 prefixed by Finish: `Business Strike`→`MS-`,
 `Proof`/`Reverse Proof`→`PR-`, `SMS`/`Specimen`→`SP-`). Per the Grade picker's
 hyphen standard above, the prefix and number are always joined with a hyphen
 (`MS-65`, not `MS65`). GradeSource is set to `PCGS` automatically (it's a
-certified grade, not an estimate). SerNo is set to CERT, and the cert-lookup
-link is generated via the grader-agnostic `Lookup_Graders` resolver described
-above (`https://www.pcgs.com/cert/{CERT}` today, since that's PCGS's base URL
-on file) — same hotlink-only approach as the rest of PCGS integration (see
-External data sources below), not an API call. Everything else (CollectionID,
-Cost, PurchaseDate, Vendor, StorageLocation, etc.) stays manual — this only
-fills what the label itself certifies.
+certified grade, not an estimate). SerNo is set to CERT — Add Coin stops there;
+it does not build or show a cert-lookup link (see the Grader dropdown section
+above). Once the coin is saved, Browse detail/Edit generate that link on demand
+via the same grader-agnostic `Lookup_Graders` resolver (`https://www.pcgs.com/
+cert/{CERT}` today, since that's PCGS's base URL on file) — same hotlink-only
+approach as the rest of PCGS integration (see External data sources below),
+not an API call. Everything else (CollectionID, Cost, PurchaseDate, Vendor,
+StorageLocation, etc.) stays manual — this only fills what the label itself
+certifies.
 
 ### ANACS/ICG/CAC label format (deferred, not started)
 PCGS's label format (`SPEC.GRADE/CERT`) is confirmed and spec'd for auto-decode
