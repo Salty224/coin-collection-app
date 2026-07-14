@@ -385,8 +385,23 @@ the same corner mapping:
   `.flip-label.tr`/`.flip-label.br`'s `right` offset was pushed from `10px`
   to `18px` (on top of the existing padding) to give noticeably more
   clearance there specifically, rather than just adding more padding
-  uniformly. Still based on device reports rather than a local repro —
-  confirm on-device before considering this fully closed.
+  uniformly.
+  **Third follow-up, resolved differently: still clipping on the right after
+  both the padding and the extra offset.** Two rounds of "give it more room"
+  didn't fix a problem that clearly isn't about room, so the padding/offset
+  approach is abandoned — `.flip-label` and `.corner-line` had `overflow:
+  hidden`/`text-overflow: ellipsis` removed entirely (back to the original
+  `10px`/`10px` anchor offsets, no padding). The JS-side shortening
+  (`renderTypeDenomCorner`, measured via `scrollWidth`/`clientWidth`, which
+  doesn't depend on `overflow: hidden`) is what actually prevents unbounded
+  overflow for the one field prone to being long (the series/type name); it's
+  unaffected by this change and still verified working. Without a hard clip
+  edge, any small real-device rendering overshoot now spills a few px into
+  the surrounding empty corner space instead of visibly cutting off a
+  character. Still not reproducible in this environment — confirm on-device
+  before considering this fully closed. If it recurs, the next step is
+  likely trying a different font for the corner labels rather than further
+  box-model tuning, since two rounds of spacing fixes didn't hold.
 - **Obverse is identification only — standard numismatic shorthand**:
   top-left Year+MintMark (`1945-S`); top-right **the series/type name and the
   coded denomination as two stacked, right-justified lines** (`Mercury` over
@@ -469,15 +484,35 @@ within a Browse session.
   The old plain name/meta/grade-badge text block still exists in the DOM
   (used by list mode, unchanged) but is hidden in grid mode now that the
   corner labels cover the same information.
+- **Real-device fix: explicit 2-column layout at phone widths.** `.coin-grid`
+  relied on `grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))` to
+  size itself, which on at least one real Android device (Ray, Samsung S25)
+  was collapsing to a single column — full-width stacked cards — despite the
+  viewport comfortably fitting two 150px+ columns in every reproduction
+  attempt here. A `@media (max-width: 480px)` rule now forces
+  `grid-template-columns: repeat(2, 1fr)` directly at phone widths rather
+  than trusting `auto-fill`'s computed count there; `auto-fill` is untouched
+  above that width, where it was already producing 3+ columns without issue.
 
 ### Browse filters (locked in)
-One filter row, single-select (only one chip active at a time, same interaction
-as before): `All / Cents / Nickels / Dimes / Quarters / Halves / Dollars` (by
-Denomination), then a thin divider, then `Sets / Medals / Commemoratives`. All
-in the top row — no hidden "More Filters" drawer; an earlier draft of this tried
-tucking Set/Commemorative into a collapsed panel and that was explicitly wrong,
-Ray wants them visible up top even though the row now needs horizontal scroll on
-phone widths.
+One filter row: `All / Cents / Nickels / Dimes / Quarters / Halves / Dollars`
+(by Denomination), then a thin divider, then `Sets / Medals / Commemoratives`.
+All in the top row — no hidden "More Filters" drawer; an earlier draft of this
+tried tucking Set/Commemorative into a collapsed panel and that was explicitly
+wrong, Ray wants them visible up top even though the row now needs horizontal
+scroll on phone widths.
+- **Multi-select (locked in, supersedes the original single-select design):**
+  Denomination/Medals/Commemoratives chips are independently toggleable and
+  OR-combine — tapping both Dimes and Cents shows either. `browseSelectedFilterKeys`
+  (a `Set` of chip keys) holds the active combination; `browseFilterTest(coin)`
+  matches if the set is empty (nothing selected = show everything) or any
+  selected chip's own test matches. **"All" is a reset chip, not a combinable
+  value** — tapping it clears every other selection, and it reads as active
+  exactly when the set is empty; it never joins a combination itself.
+  **"Sets" stays a separate, exclusive action, not a multi-select chip** — it
+  replaces the coin grid with the picker of set entities described below,
+  which doesn't compose with "show me coins matching X" the way the other
+  chips do, so it doesn't touch `browseSelectedFilterKeys` at all.
 - **Sets is a picker of actual set entities, not a coin filter.** Tapping "Sets"
   replaces the coin grid with a list of named sets (e.g. "2021 Silver Proof
   Set") — a new **DB_Sets-style entity** distinct from a coin's own Set field,
@@ -501,8 +536,9 @@ phone widths.
   with Denomination in the underlying data** — a coin can be both part of a Set
   and a Commemorative (e.g. a commemorative sold packaged in a proof set, demoed
   by one coin appearing under both the Commemoratives filter and inside a named
-  set in the Sets picker). The single-select chip only picks which lens you're
-  looking through right now; it doesn't imply the categories can't overlap.
+  set in the Sets picker). The multi-select chips only pick which lens(es)
+  you're looking through right now; it doesn't imply the categories can't
+  overlap.
 - Also flagged, not yet decided: half dimes / three-cent pieces will need their
   own Denomination code once catalogued (`5C` is already the modern nickel, so
   a half dime can't reuse it) — deal with it when the first one is catalogued.
@@ -529,6 +565,9 @@ four mostly-zero fields to every coin row).
   dimension, so it wasn't done here without a dedicated decision. Everything
   the feature actually needs (qualification rule, AND-combination with Type,
   Metal-alone browsing) works fully with Type staying single-select.
+  **Superseded by the Type row's multi-select conversion above** — Metal
+  stays single-select itself (unchanged), it just now ANDs against whatever
+  combination of Type chips is active rather than a single one.
 - **Composition detail lives in the coin detail panel, not the grid/list
   cards** — a new Composition row in `renderBrowseDetailPanel()`, e.g.
   "Silver — 0.7734 oz," hidden when a coin has no tracked metal content.

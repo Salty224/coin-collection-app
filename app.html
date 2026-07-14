@@ -357,6 +357,17 @@
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 12px;
   }
+  /* Explicit column count at phone widths — auto-fill's computed count is
+     sensitive to exactly how the browser resolves available container width,
+     and on at least one real Android device it was collapsing to a single
+     column (full-width stacked cards) despite the viewport comfortably
+     fitting two 150px+ columns in every reproduction attempt here. Forcing
+     the count directly removes that dependency rather than trying to tune
+     minmax()'s minimum further. Untouched above this width, where auto-fill
+     already produces 3+ columns without issue. */
+  @media (max-width: 480px) {
+    .coin-grid:not(.list-view) { grid-template-columns: repeat(2, 1fr); }
+  }
   .coin-card {
     padding: 14px 10px;
     display: flex;
@@ -1018,41 +1029,33 @@
     line-height: 1.05;
     pointer-events: none;
     max-width: 47%;
-    /* Small buffer between the text and the hard overflow clip edge —
-       Caveat's cursive/italic glyphs (a trailing "y" swash, etc.) can render
-       ink slightly past their own measured advance width, and on at least
-       one real Android device this was getting flush-clipped even though
-       the text itself measured as fitting (scrollWidth === clientWidth,
-       no ellipsis fallback triggered) — reported as a slight right-side
-       clip on every corner, including short single-line text nowhere near
-       max-width, which points at glyph-ink overshoot / sub-pixel DPR
-       rounding rather than genuine text overflow. This inset doesn't move
-       the label's own anchored position (top/left/right/bottom stay put) —
-       it just gives content a few px of headroom before the real clip edge.
-       Not reproducible in this environment's desktop Chromium; based on the
-       device report rather than a local repro. */
-    padding: 0 4px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Superseded: this box used to also carry `overflow: hidden` +
+       `text-overflow: ellipsis`, plus a padding buffer and extra `right`
+       clearance on the tr/br corners, none of which stopped a persistent
+       real-device report (Ray, Samsung S25) of slight right-side clipping on
+       every corner — including short text nowhere near max-width, and
+       scrollWidth === clientWidth on every local repro attempt here, so it
+       was never genuine text overflow to begin with. The JS-side shortening
+       (renderTypeDenomCorner, measured against scrollWidth/clientWidth) is
+       what actually prevents unbounded overflow for the one field prone to
+       being long (the series/type name) — that measurement doesn't depend
+       on `overflow: hidden` at all. Dropping `overflow: hidden` here just
+       stops the CSS from hard-clipping whatever the real cause of the
+       overshoot was; any small overshoot now spills a few px into the
+       surrounding empty corner space instead of visibly cutting off a
+       character. max-width and white-space: nowrap are unchanged — they
+       still drive the shortening measurement, only the visual clipping is
+       gone. */
     white-space: nowrap;
   }
   .flip-label.tl { top: 10px;    left: 10px; }
   .flip-label.bl { bottom: 10px; left: 10px; }
-  /* Right-anchored corners get noticeably more clearance than the left ones
-     needed — the padding above fixed the left corners on Ray's device but
-     the right corners (text-align: right, trailing edge flush against the
-     `right` offset) were still clipping, so whatever's overshooting the box
-     edge here is worse on this side specifically. Pushed the anchor itself
-     inward rather than just padding again, to be safe. */
-  .flip-label.tr { top: 10px;    right: 18px;  text-align: right; }
-  .flip-label.br { bottom: 10px; right: 18px;  text-align: right; }
+  .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
+  .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
 
   /* A corner holding two related values (Type/Denom, Variety/Designation)
-     stacks them as two lines rather than crowding one line — each line still
-     ellipsizes on its own if it's the one that doesn't fit. */
+     stacks them as two lines rather than crowding one line. */
   .flip-label .corner-line {
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -2756,29 +2759,46 @@
     { name: "2021 Silver Proof Set",            type: "Silver Proof Set", year: 2021, coinIds: ["AY-00012"] }
   ];
 
-  // One filter row, single-select like a set of radio buttons. Denomination chips
-  // come first (matches how Ray already thinks about albums), then a divider, then
-  // Sets/Medals/Commemoratives. These three are NOT mutually exclusive with each
-  // other in the underlying data (a coin can be both part of a Set and a
-  // Commemorative — see AY-00014) — the chip only picks which single lens you're
-  // looking through right now, it doesn't imply the categories don't overlap.
-  // "Sets" browses actual set entities (FAKE_SETS), not a coin filter — clicking
-  // it shows sets themselves; tap a set to see its member coins.
+  // One filter row, multi-select (locked in — supersedes the earlier single-
+  // select/"radio button" design). Denomination chips come first (matches how
+  // Ray already thinks about albums), then a divider, then Sets/Medals/
+  // Commemoratives. Any combination of denomination/Medals/Commemoratives
+  // chips can be active at once (OR'd together — e.g. Dimes + Cents shows
+  // both); "All" is a reset chip, not a combinable value — selecting it
+  // clears every other selection, and it's the active state whenever nothing
+  // else is selected. These categories are NOT mutually exclusive with each
+  // other in the underlying data either (a coin can be both part of a Set
+  // and a Commemorative — see AY-00014) — multi-select here is about which
+  // lenses you're looking through at once, it doesn't imply the categories
+  // don't overlap. "Sets" stays a separate, exclusive action rather than a
+  // combinable chip — it browses actual set entities (FAKE_SETS), replacing
+  // the coin grid with a picker UI entirely, which doesn't compose with
+  // "show me coins matching X" the way the other chips do.
   const BROWSE_FILTER_CHIPS = [
-    { label: "All",            test: () => true },
-    { label: "Cents",          test: c => c.denom === "1C" },
-    { label: "Nickels",        test: c => c.denom === "5C" },
-    { label: "Dimes",          test: c => c.denom === "10C" },
-    { label: "Quarters",       test: c => c.denom === "25C" },
-    { label: "Halves",         test: c => c.denom === "50C" },
-    { label: "Dollars",        test: c => c.denom === "$1" },
+    { key: "all",             label: "All", isAll: true },
+    { key: "1C",              label: "Cents",          test: c => c.denom === "1C" },
+    { key: "5C",              label: "Nickels",        test: c => c.denom === "5C" },
+    { key: "10C",             label: "Dimes",          test: c => c.denom === "10C" },
+    { key: "25C",             label: "Quarters",       test: c => c.denom === "25C" },
+    { key: "50C",             label: "Halves",         test: c => c.denom === "50C" },
+    { key: "$1",              label: "Dollars",        test: c => c.denom === "$1" },
     { divider: true },
-    { label: "Sets",           isSets: true },
-    { label: "Medals",         test: c => c.itemType === "medal" },
-    { label: "Commemoratives", test: c => c.commemorative }
+    { key: "sets",            label: "Sets", isSets: true },
+    { key: "medals",          label: "Medals",         test: c => c.itemType === "medal" },
+    { key: "commemoratives",  label: "Commemoratives", test: c => c.commemorative }
   ];
 
-  let browseFilterTest = BROWSE_FILTER_CHIPS[0].test;
+  // Empty set = "All" (no filter). Populated with chip keys as the user
+  // multi-selects denomination/Medals/Commemoratives chips.
+  let browseSelectedFilterKeys = new Set();
+
+  function browseFilterTest(coin) {
+    if (browseSelectedFilterKeys.size === 0) return true;
+    return [...browseSelectedFilterKeys].some(key => {
+      const chip = BROWSE_FILTER_CHIPS.find(f => f.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
 
   // Precious-metal content per coin, mirroring Lookup_MetalContent's
   // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns — kept as a sparse lookup
@@ -2909,9 +2929,20 @@
     renderBrowseGrid(coins);
   }
 
+  // Reflects browseSelectedFilterKeys onto the chip buttons' "active" class —
+  // "All" reads active exactly when nothing else is selected; "Sets" never
+  // shows as active here since it's a navigation action, not a filter state.
+  function updateBrowseFilterChipsUI() {
+    document.querySelectorAll("#browseFilters .filter-chip").forEach(chip => {
+      const key = chip.dataset.key;
+      if (key === "all") chip.classList.toggle("active", browseSelectedFilterKeys.size === 0);
+      else if (key === "sets") chip.classList.remove("active");
+      else chip.classList.toggle("active", browseSelectedFilterKeys.has(key));
+    });
+  }
+
   function initBrowse() {
     const filterRow = document.getElementById("browseFilters");
-    let firstChip = null;
     BROWSE_FILTER_CHIPS.forEach(f => {
       if (f.divider) {
         const divider = document.createElement("div");
@@ -2920,20 +2951,25 @@
         return;
       }
       const chip = document.createElement("button");
-      chip.className = "filter-chip" + (!firstChip ? " active" : "");
+      chip.className = "filter-chip" + (f.isAll ? " active" : "");
       chip.textContent = f.label;
+      chip.dataset.key = f.key;
       chip.addEventListener("click", () => {
-        document.querySelectorAll("#browseFilters .filter-chip").forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
         if (f.isSets) {
           showBrowseSetsPickerMode();
-        } else {
-          browseFilterTest = f.test;
-          applyBrowseFilters();
+          return;
         }
+        if (f.isAll) {
+          browseSelectedFilterKeys.clear();
+        } else if (browseSelectedFilterKeys.has(f.key)) {
+          browseSelectedFilterKeys.delete(f.key);
+        } else {
+          browseSelectedFilterKeys.add(f.key);
+        }
+        updateBrowseFilterChipsUI();
+        applyBrowseFilters();
       });
       filterRow.appendChild(chip);
-      if (!firstChip) firstChip = chip;
     });
 
     const metalRow = document.getElementById("browseMetalFilters");
