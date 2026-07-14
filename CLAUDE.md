@@ -482,11 +482,38 @@ phone widths.
   by one coin appearing under both the Commemoratives filter and inside a named
   set in the Sets picker). The single-select chip only picks which lens you're
   looking through right now; it doesn't imply the categories can't overlap.
-- Flagged-but-not-built for a future filter dimension: metal/composition
-  (Silver/Copper/Nickel/Clad/Gold — not always obvious from denomination alone).
-  Also flagged: half dimes / three-cent pieces will need their own Denomination
-  code once catalogued (`5C` is already the modern nickel, so a half dime can't
-  reuse it) — not decided yet, deal with it when the first one is catalogued.
+- Also flagged, not yet decided: half dimes / three-cent pieces will need their
+  own Denomination code once catalogued (`5C` is already the modern nickel, so
+  a half dime can't reuse it) — deal with it when the first one is catalogued.
+
+### Metal filter (locked in)
+A second single-select chip row (`All Metals / Gold / Silver / Platinum /
+Palladium`) sits directly below the Type row, filtering on precious-metal
+content sourced from `Lookup_MetalContent`'s `SilverOz`/`GoldOz`/`PlatinumOz`/
+`PalladiumOz` columns (`FAKE_METAL_CONTENT`, a sparse lookup by CollectionID
+in the mockup — matches the `FAKE_COIN_DETAILS` pattern rather than adding
+four mostly-zero fields to every coin row).
+- **Qualification is ANY nonzero content, regardless of purity** — a 35%
+  Silver War Nickel and a 90% Silver Morgan both qualify under "Silver."
+- **Metal ANDs with Type** (`applyBrowseFilters()` filters on
+  `browseFilterTest(c) && browseMetalTest(c)`); Metal alone (Type left on
+  "All") shows every coin of that metal regardless of denomination/category.
+- **This is its own independent single-select row, not a conversion of the
+  Type row into multi-select.** The original spec for this feature described
+  Type pills as OR-combinable ("tapping both Dollar and Half Dollar shows
+  either") as if that already existed — it doesn't; Type is still explicitly
+  single-select, "only one chip active at a time," per the section above.
+  Converting Type to multi-select would be a real, separate interaction-model
+  change to an already-locked-in pattern, not a side effect of adding a metal
+  dimension, so it wasn't done here without a dedicated decision. Everything
+  the feature actually needs (qualification rule, AND-combination with Type,
+  Metal-alone browsing) works fully with Type staying single-select.
+- **Composition detail lives in the coin detail panel, not the grid/list
+  cards** — a new Composition row in `renderBrowseDetailPanel()`, e.g.
+  "Silver — 0.7734 oz," hidden when a coin has no tracked metal content.
+  Purity percentage isn't a separately tracked field in this mockup's data
+  model (only Oz content) — the real `Lookup_MetalContent` table would carry
+  that alongside the Oz figure.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &

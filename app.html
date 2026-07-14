@@ -1033,6 +1033,7 @@
           <div id="browseCoinsHeader">
             <h2 class="display" style="margin-top:0;">Browse Collection</h2>
             <div class="filter-row" id="browseFilters"></div>
+            <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
           </div>
 
           <div id="browseSetDetailHeader" style="display:none;">
@@ -1077,6 +1078,10 @@
             <div class="detail-row hidden" id="detailPurchaseRow">
               <span class="detail-label">Purchase</span>
               <span class="detail-value" id="detailPurchaseText"></span>
+            </div>
+            <div class="detail-row hidden" id="detailCompositionRow">
+              <span class="detail-label">Composition</span>
+              <span class="detail-value" id="detailCompositionText"></span>
             </div>
             <div class="detail-block hidden" id="detailFunFactBlock">
               <div class="detail-label">Fun Fact</div>
@@ -2372,6 +2377,42 @@
   ];
 
   let browseFilterTest = BROWSE_FILTER_CHIPS[0].test;
+
+  // Precious-metal content per coin, mirroring Lookup_MetalContent's
+  // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns — kept as a sparse lookup
+  // by CollectionID (same pattern as FAKE_COIN_DETAILS) rather than adding
+  // four mostly-zero fields to every FAKE_COINS row.
+  const FAKE_METAL_CONTENT = {
+    "AY-00001": { silverOz: 0.7734 }, // Morgan Dollar — 90% silver
+    "AY-00002": { silverOz: 0.3617 }, // Walking Liberty Half — 90% silver
+    "AY-00003": { silverOz: 0.0723 }, // Mercury Dime — 90% silver
+    "AY-00006": { silverOz: 0.1808 }, // Barber Quarter — 90% silver
+    "AY-00007": { silverOz: 0.7734 }, // Peace Dollar — 90% silver
+    "AY-00009": { silverOz: 0.1808 }, // Standing Liberty Quarter — 90% silver
+    "AY-00010": { silverOz: 0.3617 }, // Franklin Half Dollar — 90% silver
+    "AY-00012": { silverOz: 0.1808 }, // Washington Quarter — 2021 Silver Proof Set
+    "AY-00014": { silverOz: 0.7734 }  // Statue of Liberty Dollar — 90% silver
+  };
+
+  function metalContentFor(coin) {
+    return FAKE_METAL_CONTENT[coin.id] || {};
+  }
+
+  // A coin qualifies for a metal filter with ANY nonzero content, regardless
+  // of purity — a 35% Silver War Nickel and a 90% Silver Morgan both qualify
+  // under "Silver." Its own single-select row, independent of the Type
+  // chips above — see CLAUDE.md "Browse filters" for why this doesn't
+  // convert Type into a multi-select axis (that would be a separate,
+  // bigger change to an already-locked-in single-select interaction).
+  const BROWSE_METAL_CHIPS = [
+    { label: "All Metals", test: () => true },
+    { label: "Gold",       test: c => (metalContentFor(c).goldOz || 0) > 0 },
+    { label: "Silver",     test: c => (metalContentFor(c).silverOz || 0) > 0 },
+    { label: "Platinum",   test: c => (metalContentFor(c).platinumOz || 0) > 0 },
+    { label: "Palladium",  test: c => (metalContentFor(c).palladiumOz || 0) > 0 }
+  ];
+  let browseMetalTest = BROWSE_METAL_CHIPS[0].test;
+
   let browseViewMode = "grid"; // "grid" | "list" — persists across filter changes
 
   function renderBrowseGrid(coins) {
@@ -2419,7 +2460,7 @@
 
   function applyBrowseFilters() {
     showBrowseCoinsMode();
-    renderBrowseGrid(FAKE_COINS.filter(browseFilterTest));
+    renderBrowseGrid(FAKE_COINS.filter(c => browseFilterTest(c) && browseMetalTest(c)));
   }
 
   function renderSetsPicker() {
@@ -2490,6 +2531,22 @@
       });
       filterRow.appendChild(chip);
       if (!firstChip) firstChip = chip;
+    });
+
+    const metalRow = document.getElementById("browseMetalFilters");
+    let firstMetalChip = null;
+    BROWSE_METAL_CHIPS.forEach(m => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (!firstMetalChip ? " active" : "");
+      chip.textContent = m.label;
+      chip.addEventListener("click", () => {
+        document.querySelectorAll("#browseMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+        browseMetalTest = m.test;
+        applyBrowseFilters();
+      });
+      metalRow.appendChild(chip);
+      if (!firstMetalChip) firstMetalChip = chip;
     });
 
     document.getElementById("browseSetDetailBackBtn").addEventListener("click", showBrowseSetsPickerMode);
@@ -2587,6 +2644,23 @@
       purchaseRow.classList.remove("hidden");
     } else {
       purchaseRow.classList.add("hidden");
+    }
+
+    // Composition — Oz content per metal, matching Lookup_MetalContent's
+    // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns. Purity (40% vs. 90%
+    // Silver) isn't separately tracked in this mockup's data model; the real
+    // sheet would carry that alongside the Oz figure.
+    const metals = metalContentFor(coin);
+    const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
+    const compositionParts = Object.keys(metalLabels)
+      .filter(key => metals[key] > 0)
+      .map(key => metalLabels[key] + " — " + metals[key] + " oz");
+    const compositionRow = document.getElementById("detailCompositionRow");
+    if (compositionParts.length) {
+      document.getElementById("detailCompositionText").textContent = compositionParts.join(" · ");
+      compositionRow.classList.remove("hidden");
+    } else {
+      compositionRow.classList.add("hidden");
     }
 
     toggleDetailTextBlock("detailFunFactBlock", "detailFunFactText", details.funFact);
