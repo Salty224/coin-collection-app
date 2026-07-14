@@ -940,6 +940,34 @@ per-slot photo yet.)
   page at a time; in spread mode they step by whole pairs
   (`nextAlbumPageIndex()`/`prevAlbumPageIndex()`), always landing back on a
   valid pair boundary (or on the lone cover) rather than an arbitrary index.
+- **Rigid page-turn animation (locked in)**: a real page turn, not a corner-
+  peel/curl — `turnAlbumPage(direction)` builds a `.leaf-turn` element
+  (`perspective` on `.book-pages`, `transform: rotateY()`, `backface-
+  visibility: hidden`) and only the leaf that's *actually* flipping animates.
+  Forward: the old right-hand page (or the single visible page, in single-
+  page mode) is the turning leaf's front face; its own back face is the new
+  left page, pivoting at the left edge (the spine). Backward is the mirror —
+  pivot at the right edge. A page revealed on the *other* side of a spread is
+  a different leaf that was already sitting there underneath (per the same
+  leaf-pairing model above) — it renders statically with no rotation of its
+  own, not as a second animating element. Buttons disable for the ~0.65s
+  duration (`albumTurnInProgress`) so a real click can't land mid-turn; the
+  real DOM (with all click handlers rebound) only replaces the transient
+  animation markup once `transitionend` fires. Direct-open (tapping a slot
+  elsewhere in the app) still calls `renderAlbumBook()` straight, no
+  animation. Applies in both single-page and spread modes.
+- **Known gap, not fully resolved**: the spread tier's `.book-slot-grid`
+  (6 columns, fixed 64px coin-discs) still overflows past the card's right
+  edge on desktop widths — confirmed via direct measurement that at the
+  album-page's actual rendered width (~416px, the effective width for
+  essentially all desktop viewports because of `#app`'s own 1100px cap), 6
+  fixed 64px discs alone need ~384px against only ~378px of available grid
+  width, before gaps are even added. The gap was tightened 14px→9px per
+  Ray's initial fix, which measurably reduces the overflow (~76px→~51px) but
+  does not eliminate it — no gap value can, since the discs alone already
+  exceed the budget. Fully closing this needs either a smaller disc/column
+  count at this tier, or a wider page budget; flagged to Ray rather than
+  unilaterally overriding his "keep 6 columns and 64px discs" instruction.
 - **Key-date coins are highlighted** with a small gold star badge and a
   matching glow around the coin disc, driven by a `keyDate: true` flag per
   slot (e.g. 1909-(S) VDB Lincoln cents, the 1878 8 Tail Feathers Morgan) —
@@ -953,6 +981,53 @@ per-slot photo yet.)
   to live here are done, not deferred, as of this feature. The very first
   version of this feature paired pages naively (`[i, i+1]`) regardless of
   content — that's superseded by the sheet-accurate pairing above.
+
+### Littleton folder visual style (locked in)
+Manufactured Littleton-brand folders get a distinct cosmetic treatment from
+the rest of the app's dark UI — cream/tan cardboard page background, navy
+printed folder typography, and die-cut circular holes instead of the dark
+disc/case look. This applies to **every page** of a Littleton album (cover,
+history, and coin pages alike), not just the coin grid, so there's no jarring
+dark-to-cream jump between pages within the same folder.
+- **Which albums get it**: driven by a new album-level `folderStyle` field
+  (`"littleton"` vs. `"default"`), mirroring the real rule — any album whose
+  real DB_Sets row has a populated `MfgProductID` (e.g. `LCF18`, `LCF19`,
+  `C06`, `LCF31` — real Littleton product codes) gets the shared Littleton
+  look, **regardless of which specific product code** (no per-product visual
+  differences). An album with no MfgProductID (e.g. a Numis-style album,
+  `folderStyle: "default"`) keeps the existing dark-UI page look untouched —
+  none of the CSS/rendering below applies to it at all (scoped via `.littleton`
+  page and `.littleton-slot` cell modifier classes, never a base-class change).
+  `mfgProductId` is stored per album now (e.g. `"LCF19"`) even though it
+  doesn't drive any visual difference yet — this sets up future per-product
+  individualization (different hole counts/page layouts) without a schema
+  change later.
+- **Demo album**: `FAKE_ALBUMS`'s third entry ("Jefferson Nickels — Littleton
+  Folder Vol. 3") is a generic placeholder — no real Littleton folder has been
+  chosen yet (Ray's Volume 2 selection is still pending). Swap its name/date-
+  range/`mfgProductId` for the real folder once chosen, same stand-in pattern
+  as `FAKE_REFERENCE_IMAGES`/`FAKE_GRADING_HELP`.
+- **Die-cut holes** (`renderSlotCell()`, `.coin-disc.die-cut`): an **owned**
+  slot always shows a coin glyph seated in the hole with a thin light inner
+  ring where it meets the cardboard — never bare year text (unlike the
+  default dark-UI look, which still falls back to plain year text when no
+  reference image exists). If there's a real photo or series reference image,
+  it shows normally; if not (owned, photo pending), the same glyph shows
+  **desaturated/faded** (`opacity`, `grayscale` filter) so it reads as "owned,
+  waiting on a photo" rather than looking identical to a genuinely empty
+  hole. An **unfilled** slot (`.die-cut-empty`) shows no coin, no placeholder
+  icon at all, no "?" — just a plain shadowed punched hole, matching how an
+  unfilled real folder slot actually looks (the default dark-UI look still
+  shows a "?" for unfilled slots — that's unchanged for non-Littleton albums).
+- **Caption**: date + mintmark only under each hole (`.slot-label`) — the
+  second `.slot-meta` description line is dropped entirely for Littleton
+  pages, matching real folder printing. Non-Littleton pages keep both lines.
+- **Key-date marker**: the gold glowing-star treatment is restyled to a
+  small navy printed star + ring for Littleton pages, fitting the printed-
+  folder look rather than the dark-UI's glow.
+- **Numis-style silver-era albums are explicitly out of scope for this look**
+  — they get their own pass later, per Ray. Nothing about this feature
+  touches them.
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back

@@ -494,8 +494,10 @@
     gap: 16px;
     justify-content: center;
     align-items: stretch;
+    perspective: 1800px;
   }
-  .book-pages.spread .album-page { flex: 1 1 0; min-width: 0; }
+  .book-pages.spread .album-page,
+  .book-pages.spread .leaf-turn { flex: 1 1 0; min-width: 0; }
   .book-pages.spread .album-page:first-child {
     border-radius: 12px 4px 4px 12px;
     box-shadow: inset -8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
@@ -504,6 +506,35 @@
     border-radius: 4px 12px 12px 4px;
     box-shadow: inset 8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
   }
+
+  /* Rigid page-turn (Ray's spec: stiff cardboard, not a floppy paper curl) —
+     the turning leaf is a flat two-sided element that rotates around a fixed
+     vertical spine axis. Forward: pivot at the left edge (spine), rotating
+     -180deg so the leaf's own back face settles as the new left page.
+     Backward is the mirror: pivot at the right edge, rotating +180deg so the
+     leaf's own front face settles as the new right page. Only the turning
+     leaf animates — a newly-revealed page on the other side (a different
+     leaf, physically already sitting underneath) is rendered statically with
+     no rotation of its own, per the leaf-accurate model already used by
+     computeVisibleIndices()/reverseWithinRows(). */
+  .leaf-turn {
+    width: 100%;
+    max-width: 460px;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.65s cubic-bezier(0.45, 0.05, 0.55, 0.95);
+    transform: rotateY(0deg);
+  }
+  .leaf-turn.turn-next { transform: rotateY(-180deg); transform-origin: left center; }
+  .leaf-turn.turn-prev { transform: rotateY(180deg); transform-origin: right center; }
+  .leaf-turn:not(.turn-next):not(.turn-prev) { transform-origin: center center; }
+  .leaf-face {
+    position: absolute; inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .leaf-face-back { transform: rotateY(180deg); }
+  .leaf-face > .album-page { max-width: none; width: 100%; height: 100%; }
 
   .album-page {
     padding: 20px 18px;
@@ -553,6 +584,17 @@
   }
   .book-slot-grid.book-slot-grid-spread {
     grid-template-columns: repeat(6, 1fr);
+    /* 6 columns of the fixed 64px coin-disc at the 14px gap used elsewhere
+       need ~454px (6*64 + 5*14) but .album-page's content width at its
+       460px max-width is only ~424px after padding — grid items don't
+       shrink below their content's intrinsic size by default, so the extra
+       ~30px pushed the last column(s) past the card's right edge on
+       desktop-width viewports (never reproduced on Android tablet, which
+       stays under the 900px spread breakpoint and uses the 3-column tier
+       instead, with plenty of margin). Tightening the gap at this tier
+       specifically (14px -> 9px) closes that gap without touching the
+       6-column count or disc size. */
+    gap: 9px;
   }
   .slot-cell {
     display: flex;
@@ -577,6 +619,62 @@
     color: var(--gold-bright);
     font-size: 13px;
     text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  /* ---------- Littleton folder page skin ----------
+     Scoped strictly to album.folderStyle === "littleton" (a real, populated
+     DB_Sets MfgProductID — see FAKE_ALBUMS) via the .littleton page modifier
+     and .littleton-slot cell modifier. Every other album (folderStyle:
+     "default", not a manufactured product, e.g. a Numis-style album) is
+     completely untouched by any rule in this section. Cream/tan cardboard
+     + navy print, applied to cover/history/coin pages alike so there's no
+     jarring dark-to-cream jump between pages within the same folder. */
+  .album-page.littleton {
+    background: linear-gradient(160deg, #f2e9d1, #e7d9af 55%, #ddcd9b);
+    border: 1px solid #c6b586;
+    color: #1c2b5e;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4), 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .book-pages.spread .album-page.littleton:first-child {
+    box-shadow: inset -8px 0 12px -10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.4), 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .book-pages.spread .album-page.littleton:last-child {
+    box-shadow: inset 8px 0 12px -10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.4), 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .album-page.littleton h3 { color: #1c2b5e; }
+  .album-page.littleton .cover-sub,
+  .album-page.littleton .page-side-label { color: #4a5a8f; }
+  .album-page.littleton .section-label { color: #1c2b5e; }
+  .album-page.littleton .album-page-history p { color: #2c3d75; }
+
+  /* Die-cut circular holes. Owned + a real coin/reference image "seated" in
+     the hole gets a thin light inner ring where the coin meets the
+     cardboard; owned-but-no-image-yet gets the same glyph desaturated so it
+     reads as "pending," never identical to a truly empty/unowned hole (which
+     shows no icon at all, per how a real unfilled folder slot looks). */
+  .slot-cell.littleton-slot .slot-label { color: #1c2b5e; }
+  .slot-cell.littleton-slot .coin-disc.die-cut {
+    background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.55), rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.16));
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.3), 0 0 0 2px rgba(255,255,255,0.6);
+    border: none;
+    color: #1c2b5e;
+  }
+  .slot-cell.littleton-slot .coin-disc.die-cut.photo-pending {
+    opacity: 0.5;
+    filter: grayscale(65%);
+  }
+  .slot-cell.littleton-slot .coin-disc.die-cut-empty {
+    background: radial-gradient(circle at 40% 35%, rgba(0,0,0,0.26), rgba(0,0,0,0.4) 70%);
+    box-shadow: inset 0 3px 6px rgba(0,0,0,0.5), inset 0 -1px 2px rgba(255,255,255,0.08);
+  }
+  /* Key-date marker restyled to fit printed-folder look — a small navy
+     printed star + ring instead of the dark-UI's glowing gold outline. */
+  .slot-cell.littleton-slot.key-date .coin-disc.die-cut {
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.3), 0 0 0 2px #1c2b5e;
+  }
+  .slot-cell.littleton-slot .key-date-badge {
+    color: #1c2b5e;
+    text-shadow: none;
   }
 
   .book-nav {
@@ -1857,7 +1955,11 @@
     { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   itemType: "coin",  setType: "Mint Set",         commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   itemType: "coin",  setType: "Proof Set",        commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   cost: 12,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" }
+    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    // Owned but no photo AND no series reference image on file yet (Jefferson
+    // isn't in FAKE_REFERENCE_IMAGES) — the one real coin demonstrating the
+    // Littleton folder's "owned, photo pending" desaturated-glyph tier below.
+    { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" }
   ];
 
   // Purchase Info detail, Fun Facts, Notes, and additional-photo flags — kept
@@ -1918,11 +2020,25 @@
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
   // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
   // implied by which FAKE_ALBUMS entry a slot lives under, so not repeated per slot.)
+  //
+  // folderStyle / mfgProductId (album-level, mirrors DB_Sets): any album whose
+  // real DB_Sets row has a populated MfgProductID (e.g. LCF18, LCF19, C06,
+  // LCF31 — real Littleton product codes) gets the shared Littleton cosmetic
+  // treatment (cream cardboard, navy print, die-cut holes) via
+  // folderStyle:"littleton" — ALL Littleton-manufactured folders share one
+  // look regardless of which specific product code, so mfgProductId is
+  // stored now (for future per-product individualization — different hole
+  // counts/page layouts down the line) but doesn't drive any visual
+  // difference yet. An album with no MfgProductID (folderStyle:"default",
+  // e.g. a non-manufactured/Numis-style album) keeps the existing dark-UI
+  // page look untouched.
   const FAKE_ALBUMS = [
     {
       name: "Lincoln Cents — Whitman Folder Vol. 1",
       icon: "🪙",
       denom: "1C",
+      folderStyle: "default",
+      mfgProductId: "",
       history: "Designed by Victor David Brenner, the Lincoln cent debuted in 1909 as the " +
         "first US coin to feature a real person's portrait, marking Lincoln's 100th " +
         "birthday. Brenner's initials (V.D.B.) on the reverse caused a public outcry over " +
@@ -1943,6 +2059,8 @@
       name: "Morgan Dollars — Complete Date Set (P)",
       icon: "🏛️",
       denom: "$1",
+      folderStyle: "default",
+      mfgProductId: "",
       history: "Named for engraver George T. Morgan, this silver dollar ran 1878–1904 and " +
         "again in 1921, struck largely from Comstock Lode silver under the Bland-Allison " +
         "Act's mandated purchases. The 1878 issues include several reverse varieties from " +
@@ -1957,6 +2075,32 @@
         { year: 1883, mintMark: "", description: "Morgan",                 coinId: "C-1883-M-$1-01", filledBy: null },
         { year: 1884, mintMark: "", description: "Morgan",                 coinId: "C-1884-M-$1-01", filledBy: null },
         { year: 1885, mintMark: "", description: "Morgan",                 coinId: "C-1885-M-$1-01", filledBy: null }
+      ]
+    },
+    // Generic placeholder clad-era demo album — no real Littleton folder has
+    // been chosen yet (Volume 2 selection still pending per Ray). This exists
+    // purely to make the Littleton visual treatment demonstrable end-to-end,
+    // same stand-in approach as FAKE_REFERENCE_IMAGES/FAKE_GRADING_HELP. Swap
+    // for the real folder (name/date-range/mfgProductId) once chosen.
+    {
+      name: "Jefferson Nickels — Littleton Folder Vol. 3",
+      icon: "🪙",
+      denom: "5C",
+      folderStyle: "littleton",
+      mfgProductId: "LCF19",
+      history: "Designed by Felix Schlag, the Jefferson nickel replaced the Buffalo nickel " +
+        "in 1938 and has run in the same cupronickel composition ever since (aside from the " +
+        "1942–1945 wartime silver alloy). This folder covers a later run of dates, picked up " +
+        "one coin at a time from circulation and pocket change rather than purchased as a set.",
+      slots: [
+        { year: 1971, mintMark: "",  description: "Jefferson", coinId: "C-1971-M-5C-01", filledBy: "AY-00017" },
+        { year: 1971, mintMark: "D", description: "Jefferson", coinId: "C-1971-D-5C-01", filledBy: null },
+        { year: 1972, mintMark: "",  description: "Jefferson", coinId: "C-1972-M-5C-01", filledBy: null },
+        { year: 1972, mintMark: "D", description: "Jefferson", coinId: "C-1972-D-5C-01", filledBy: null },
+        { year: 1973, mintMark: "",  description: "Jefferson", coinId: "C-1973-M-5C-01", filledBy: null },
+        { year: 1973, mintMark: "D", description: "Jefferson", coinId: "C-1973-D-5C-01", filledBy: null },
+        { year: 1974, mintMark: "",  description: "Jefferson", coinId: "C-1974-M-5C-01", filledBy: null },
+        { year: 1974, mintMark: "D", description: "Jefferson", coinId: "C-1974-D-5C-01", filledBy: null }
       ]
     }
   ];
@@ -3138,21 +3282,47 @@
     openAlbumAtPage(index, 0);
   }
 
-  function renderSlotCell(slot, side) {
+  function renderSlotCell(slot, side, album) {
     const filled = !!slot.filledBy;
     const filledCoin = filled ? FAKE_COINS.find(c => c.id === slot.filledBy) : null;
     const useReference = filledCoin && hasReferenceImage(filledCoin);
+    const isLittleton = album && album.folderStyle === "littleton";
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
     if (filled && side === "reverse") discClasses.push("reverse-face");
     if (useReference) discClasses.push("reference-image");
-    const discContent = filled ? (useReference ? "🪙" : slot.year) : "?";
+
+    let discContent;
+    if (isLittleton) {
+      // Real folder printing shows no icon at all in an unfilled die-cut
+      // hole — never a "?" glyph. An owned coin always shows SOME coin glyph
+      // seated in the hole (never bare year text, unlike the default look
+      // below) — desaturated/faded when there's no real photo or reference
+      // image yet, so "owned, photo pending" reads differently from a
+      // genuinely empty/unowned hole rather than looking identical to it.
+      discClasses.push("die-cut");
+      if (filled) {
+        discContent = "🪙";
+        if (!useReference) discClasses.push("photo-pending");
+      } else {
+        discContent = "";
+        discClasses.push("die-cut-empty");
+      }
+    } else {
+      discContent = filled ? (useReference ? "🪙" : slot.year) : "?";
+    }
+
+    // Real Littleton folders print only date + mintmark under each hole, no
+    // separate description line — drop the second .slot-meta line for these
+    // pages (default/Numis-style pages keep both lines, unchanged).
+    const metaLine = isLittleton ? "" : `<div class="slot-meta">${slot.description}</div>`;
+
     return `
-      <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}" data-coin-id="${slot.coinId}">
+      <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
         ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
         <div class="${discClasses.join(" ")}">${discContent}</div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
-        <div class="slot-meta">${slot.description}</div>
+        ${metaLine}
       </div>
     `;
   }
@@ -3169,10 +3339,18 @@
   }
 
   function renderAlbumPageContent(page, album, spread) {
+    // Littleton-manufactured folders (album.folderStyle === "littleton",
+    // driven by a populated DB_Sets MfgProductID — see FAKE_ALBUMS above)
+    // get the shared cream-cardboard/navy-print/die-cut-hole treatment on
+    // every page, cover and history included, so there's no jarring dark
+    // cover immediately before a cream coin page. Non-Littleton albums
+    // (folderStyle:"default", not a manufactured product) are untouched.
+    const littletonClass = album.folderStyle === "littleton" ? " littleton" : "";
+
     if (page.type === "cover") {
       const filledCount = album.slots.filter(s => s.filledBy).length;
       return `
-        <div class="case album-page album-page-cover">
+        <div class="case album-page album-page-cover${littletonClass}">
           <div class="cover-icon">${album.icon}</div>
           <h3>${album.name}</h3>
           <div class="cover-sub">${filledCount} / ${album.slots.length} filled</div>
@@ -3181,7 +3359,7 @@
     }
     if (page.type === "history") {
       return `
-        <div class="case album-page album-page-history">
+        <div class="case album-page album-page-history${littletonClass}">
           <div class="section-label" style="margin-top:0;">History &amp; Facts</div>
           <p>${album.history || "No history notes on file for this set yet."}</p>
         </div>
@@ -3193,11 +3371,76 @@
     const columns = spread ? 6 : 3;
     const orderedSlots = page.side === "reverse" ? reverseWithinRows(page.slots, columns) : page.slots;
     return `
-      <div class="case album-page album-page-coins">
+      <div class="case album-page album-page-coins${littletonClass}">
         <div class="page-side-label">${page.side === "reverse" ? "Reverse" : "Obverse"}</div>
-        <div class="slot-grid book-slot-grid${spread ? " book-slot-grid-spread" : ""}">${orderedSlots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
+        <div class="slot-grid book-slot-grid${spread ? " book-slot-grid-spread" : ""}">${orderedSlots.map(slot => renderSlotCell(slot, page.side, album)).join("")}</div>
       </div>
     `;
+  }
+
+  let albumTurnInProgress = false;
+
+  // Rigid, leaf-accurate page turn (see .leaf-turn CSS above) — only the
+  // physical leaf that's actually flipping animates. Forward: the old
+  // right-hand page (or the single visible page, in single-page mode) is the
+  // turning leaf's front face; its own back face is the new left page.
+  // Backward is the mirror. A page revealed on the OTHER side of a spread is
+  // a different leaf that was already sitting there underneath — it's
+  // rendered statically with no rotation, per the existing leaf-pairing
+  // model in computeVisibleIndices(). Direct-open (tapping a slot from
+  // elsewhere) bypasses this entirely and calls renderAlbumBook() straight.
+  function turnAlbumPage(direction) {
+    if (albumTurnInProgress) return;
+    const spread = isAlbumSpreadWidth();
+    const totalPages = currentAlbumPages.length;
+    const oldIndices = computeVisibleIndices(currentPageIndex, spread, totalPages);
+    const newPageIndex = direction === "next"
+      ? nextAlbumPageIndex(currentPageIndex, spread, totalPages)
+      : prevAlbumPageIndex(currentPageIndex, spread, totalPages);
+    const newIndices = computeVisibleIndices(newPageIndex, spread, totalPages);
+
+    if (newIndices.join(",") === oldIndices.join(",")) return;
+
+    const container = document.getElementById("albumsDetailContainer");
+    const pagesEl = container.querySelector(".book-pages");
+    if (!pagesEl) { currentPageIndex = newPageIndex; renderAlbumBook(); return; }
+
+    const album = FAKE_ALBUMS[currentAlbumIndex];
+    const turningOldIdx = direction === "next" ? oldIndices[oldIndices.length - 1] : oldIndices[0];
+    const turningNewIdx = direction === "next" ? newIndices[0] : newIndices[newIndices.length - 1];
+    const staticNewIdx = newIndices.length > 1
+      ? (direction === "next" ? newIndices[1] : newIndices[0])
+      : null;
+
+    albumTurnInProgress = true;
+    document.getElementById("albumPagePrevBtn").disabled = true;
+    document.getElementById("albumPageNextBtn").disabled = true;
+
+    const leafHtml = `
+      <div class="leaf-turn" id="albumLeafTurn">
+        <div class="leaf-face leaf-face-front">${renderAlbumPageContent(currentAlbumPages[turningOldIdx], album, spread)}</div>
+        <div class="leaf-face leaf-face-back">${renderAlbumPageContent(currentAlbumPages[turningNewIdx], album, spread)}</div>
+      </div>
+    `;
+    const staticHtml = staticNewIdx !== null ? renderAlbumPageContent(currentAlbumPages[staticNewIdx], album, spread) : "";
+    pagesEl.innerHTML = direction === "next" ? (leafHtml + staticHtml) : (staticHtml + leafHtml);
+
+    const leaf = document.getElementById("albumLeafTurn");
+    // Force a layout flush so the browser registers the untransformed
+    // starting state before the turn class kicks off the CSS transition —
+    // otherwise the initial and final states could get coalesced into one
+    // paint with no visible animation.
+    void leaf.offsetWidth;
+
+    leaf.addEventListener("transitionend", () => {
+      currentPageIndex = newPageIndex;
+      albumTurnInProgress = false;
+      renderAlbumBook();
+    }, { once: true });
+
+    requestAnimationFrame(() => {
+      leaf.classList.add(direction === "next" ? "turn-next" : "turn-prev");
+    });
   }
 
   function renderAlbumBook() {
@@ -3220,14 +3463,8 @@
       </div>
     `;
 
-    document.getElementById("albumPagePrevBtn").addEventListener("click", () => {
-      currentPageIndex = prevAlbumPageIndex(currentPageIndex, spread, totalPages);
-      renderAlbumBook();
-    });
-    document.getElementById("albumPageNextBtn").addEventListener("click", () => {
-      currentPageIndex = nextAlbumPageIndex(currentPageIndex, spread, totalPages);
-      renderAlbumBook();
-    });
+    document.getElementById("albumPagePrevBtn").addEventListener("click", () => turnAlbumPage("prev"));
+    document.getElementById("albumPageNextBtn").addEventListener("click", () => turnAlbumPage("next"));
 
     const pagesEl = container.querySelector(".book-pages");
     let touchStartX = null;
