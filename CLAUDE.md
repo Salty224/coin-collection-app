@@ -791,6 +791,25 @@ Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch Receipt,
 Stats & Value, and Needs Attention are dashboard-only destinations, not
 persistent nav items — the persistent bottom/side nav stays those original five.
 
+### Initial splash screen (framework only, locked in)
+On load, a full-screen branded splash (`#splashScreen`) covers the app —
+"Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
+OneDrive…" status line — while a (currently simulated) connection is
+established, then fades out to reveal the Dashboard underneath. There's no
+real Graph API connection to wait on yet, so `runSplashConnect()` just runs a
+timed delay (`SPLASH_SIMULATED_DELAY_MS`, 1.4s) rather than an actual health
+check; the rest of the app has already rendered underneath by the time this
+runs, since it's wired in after the normal synchronous init sequence — the
+splash is purely a visual cover, not a gate blocking anything else from
+initializing. **Error state**: shows a "Couldn't connect" card with
+placeholder/minimal troubleshooting text and a Retry button — establishes
+that this path exists and is handled, not that it's polished (real reasons —
+sign-in expired, offline, workbook locked elsewhere, etc. — come once a real
+connection exists to fail). Since nothing can actually fail yet, the error
+path is only reachable via a dev-only `?splashError=1` URL param, not a real
+trigger condition — remove this toggle once a real connection check replaces
+the simulated delay.
+
 Dashboard still has no summary stat cards on the front itself (Total Coins /
 Est. Value inline were tried and dropped early on — not useful up front). That's
 a different decision from having a **dedicated, opt-in Stats & Value tab**

@@ -161,6 +161,46 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
   }
 
+  /* ---------- Initial splash screen (Part 10, framework only) ----------
+     Covers the app while a (currently simulated) OneDrive connection is
+     established, then fades out to reveal whatever's already rendered
+     underneath. No real connection exists yet — see initSplash() below. */
+  .splash-screen {
+    position: fixed; inset: 0; z-index: 500;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    transition: opacity 0.3s ease;
+  }
+  .splash-screen.fade-out { opacity: 0; pointer-events: none; }
+  .splash-screen.hidden { display: none; }
+  .splash-inner { text-align: center; padding: 20px; max-width: 320px; }
+  .splash-disc {
+    font-size: 64px; margin-bottom: 18px; display: inline-block;
+    animation: splashSpin 1.6s linear infinite;
+  }
+  @keyframes splashSpin {
+    0% { transform: rotateY(0deg); }
+    100% { transform: rotateY(360deg); }
+  }
+  .splash-title {
+    font-family: "Cormorant Garamond", Georgia, serif; color: var(--gold-bright);
+    font-size: 28px; margin: 0 0 8px;
+  }
+  .splash-status { color: var(--text-muted); font-size: 14px; }
+  .splash-error {
+    margin-top: 20px; background: var(--danger-bg);
+    border: 1px solid rgba(181,72,60,0.4); border-radius: 10px;
+    padding: 14px; text-align: left;
+  }
+  .splash-error.hidden { display: none; }
+  .splash-error-title { color: #e07a6c; font-weight: 700; margin-bottom: 8px; }
+  .splash-error-text { font-size: 13px; color: var(--text-muted); margin: 0 0 12px; }
+  #splashRetryBtn {
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    border: none; color: #241c05; font-weight: 700;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; width: 100%; font-family: inherit;
+  }
+
   /* ---------- Banners (pending / context) ---------- */
   .banner {
     display: flex;
@@ -981,6 +1021,25 @@
 <body>
 
 <div id="app">
+
+  <!-- Initial splash screen (Part 10, framework only) — see initSplash() /
+       runSplashConnect() in the script for the simulated connect/error logic. -->
+  <div class="splash-screen" id="splashScreen">
+    <div class="splash-inner">
+      <div class="splash-disc" aria-hidden="true">🪙</div>
+      <h1 class="splash-title">Salty's Cabinet</h1>
+      <div class="splash-status" id="splashStatus">Connecting to OneDrive…</div>
+      <div class="splash-error hidden" id="splashErrorBox">
+        <div class="splash-error-title">⚠️ Couldn't connect</div>
+        <p class="splash-error-text">
+          Placeholder troubleshooting text — once the real Graph API write
+          layer exists, this will show an actual reason (sign-in expired,
+          offline, workbook locked by someone else, etc.) and real next steps.
+        </p>
+        <button type="button" id="splashRetryBtn">Retry</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Mobile header -->
   <div class="topbar">
@@ -4447,6 +4506,44 @@
     });
   }
 
+  // Initial splash screen (Part 10, framework only). There's no real OneDrive
+  // connection to wait on yet — this simulates one with a timed delay so the
+  // splash reads as "establishing a connection and pulling initial data"
+  // rather than an instant blank flash. The rest of the app has already
+  // rendered underneath by the time this runs (init below is synchronous);
+  // the splash just covers it until the simulated connect finishes.
+  // `?splashError=1` forces the error path for testing/demoing that path —
+  // a dev-only toggle, not a real error condition, since nothing can actually
+  // fail yet with no live connection to fail.
+  const SPLASH_SIMULATED_DELAY_MS = 1400;
+
+  function runSplashConnect() {
+    const overlay = document.getElementById("splashScreen");
+    const status = document.getElementById("splashStatus");
+    const errorBox = document.getElementById("splashErrorBox");
+    overlay.classList.remove("fade-out", "hidden");
+    errorBox.classList.add("hidden");
+    status.style.display = "block";
+    status.textContent = "Connecting to OneDrive…";
+
+    const forceError = new URLSearchParams(location.search).get("splashError") === "1";
+
+    setTimeout(() => {
+      if (forceError) {
+        status.style.display = "none";
+        errorBox.classList.remove("hidden");
+        return;
+      }
+      overlay.classList.add("fade-out");
+      setTimeout(() => overlay.classList.add("hidden"), 320);
+    }, SPLASH_SIMULATED_DELAY_MS);
+  }
+
+  function initSplash() {
+    document.getElementById("splashRetryBtn").addEventListener("click", runSplashConnect);
+    runSplashConnect();
+  }
+
   // ==================================================================
   // INIT
   // ==================================================================
@@ -4463,6 +4560,7 @@
   renderNeedsQueue();
   renderStats();
   navigate("dashboard");
+  initSplash();
 </script>
 
 </body>
