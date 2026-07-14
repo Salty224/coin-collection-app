@@ -209,6 +209,31 @@ together rather than mixed in at the top level.
   columns** (not a schema change): Description is the series/design name (e.g.
   "Mercury (Winged Liberty)"); Variety is the true distinguishing feature (e.g.
   "Type 2", "Micro S", "Large Date"). Don't conflate them back into one field.
+- **Error and Variety are both dropdown + manual-override, but NOT the same
+  pattern (locked in) — don't build one generic component for both.** Error's
+  dropdown (`Lookup_Errors`) is **unfiltered** — an error can apply to any
+  coin regardless of type/series, so the list never narrows based on what's
+  being entered, and an unusual/manually-typed Error never affects whether
+  the coin qualifies for a direct database write (see "Direct-write vs.
+  Staging" below) — it's incidental to the specimen, not identity-defining.
+  Variety's dropdown is **context-sensitive** — filtered live to only the
+  varieties that actually exist in DB_Coins for the exact Year+MintMark+
+  Denomination already entered (`validVarietiesForCurrentCoin()`, refreshed
+  on every Denom/Year/Mint change via `refreshVarietyOptions()`) — a 1909
+  cent entry offers VDB, a 1920 quarter doesn't. Variety IS
+  identity-defining: an unrecognized/manually-typed value here (checked by
+  `isVarietyRecognized()` — the *resulting* value against the current
+  filtered list, not whether it was clicked vs. typed, so manually typing
+  text that happens to exactly match a valid option still counts as
+  recognized) routes the coin to Staging instead of a direct write. Both
+  fields keep a hidden input (`#variety`, `#errorDesc`) as the actual
+  source-of-truth value — every existing function that reads/writes them by
+  ID (DB_Coins match, flip-label corners, Album/Wishlist prepopulation, PCGS
+  label decode, the save payload) is unaffected by the dropdown UI sitting on
+  top; only the two rebuilt call sites (`applyDbCoinsRowToForm`,
+  `applyAlbumContext`/`applyWishlistContext`) also call
+  `refreshVarietyOptions()` after setting the hidden value, so the visible
+  select/override reflects it correctly.
 - **GradeSource** is a dropdown sourced from `Lookup_Graders` (`PCGS`, `NGC`,
   `ANACS`, `ICG`, `CAC` — whatever's in that table) plus three fixed
   non-certified options: `Seller` (taking the seller's word for it), `Owner`

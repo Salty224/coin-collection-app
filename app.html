@@ -1469,7 +1469,19 @@
           <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)">
 
           <label>Variety</label>
-          <input type="text" id="variety" placeholder="e.g. Type 2, Micro S, Large Date — the distinguishing feature, not the series">
+          <select id="varietySelect">
+            <option value="">— none —</option>
+            <option value="__other__">Other / not listed…</option>
+          </select>
+          <input type="text" id="varietyOther" style="display:none; margin-top:8px;" placeholder="Enter variety manually — e.g. Type 2, Micro S, Large Date">
+          <input type="hidden" id="variety">
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            Options are filtered to varieties that actually exist for the
+            Year + Mint Mark + Denomination entered above. Unlike Error,
+            Variety IS identity-defining — an unrecognized/manually-typed
+            value here means this coin needs a closer look before it can be
+            saved directly (see Save options below).
+          </p>
 
           <div class="banner context-banner hidden" id="dbMatchBanner">
             <span class="icon">✅</span>
@@ -1499,10 +1511,21 @@
           <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
 
           <label>Error</label>
-          <input type="text" id="errorDesc" placeholder="e.g. Off-center strike, broadstrike — optional, for mint errors">
+          <select id="errorSelect">
+            <option value="">— none —</option>
+            <option value="__other__">Other / not listed…</option>
+          </select>
+          <input type="text" id="errorOther" style="display:none; margin-top:8px;" placeholder="Describe the error — e.g. off-center strike, broadstrike">
+          <input type="hidden" id="errorDesc">
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            Optional, for mint errors. Applies to any coin — not tied to what's
+            entered above, and doesn't affect whether this coin can be saved
+            directly (an error is incidental to the specimen, not
+            identity-defining).
+          </p>
 
           <label>Notes</label>
-          <textarea placeholder="Anything else worth remembering"></textarea>
+          <textarea id="notesField" placeholder="Anything else worth remembering"></textarea>
 
           <div class="case form-row" id="purchaseInfoRow">
             <span class="fr-icon">💵</span>
@@ -1849,6 +1872,15 @@
     { code: "Seller", label: "Seller (taking their word for it)" },
     { code: "Owner",  label: "Owner (my own best estimate)" },
     { code: "AI-est", label: "AI-est (AI-assisted estimate)" }
+  ];
+
+  // Mint errors — applies to ANY coin regardless of type/series, so this list
+  // is never filtered by the coin being entered (unlike Variety below, which
+  // IS context-filtered). Real Lookup_Errors sheet has 42 rows; a
+  // representative subset is enough for the mockup.
+  const FAKE_LOOKUP_ERRORS = [
+    "Off-Center Strike", "Broadstrike", "Wrong Planchet", "Die Crack",
+    "Clipped Planchet", "Double Die", "Lamination Error", "Struck Through"
   ];
 
   function getGraderBaseUrl(code) {
@@ -2889,6 +2921,7 @@
       descriptionAutoFilled = false;
     }
     if (albumContext.variety) document.getElementById("variety").value = albumContext.variety;
+    refreshVarietyOptions();
     checkDbCoinsMatch();
     updateFlipLabels();
 
@@ -2927,6 +2960,7 @@
     if (wishlistContext.year) document.getElementById("year").value = wishlistContext.year;
     document.getElementById("mintMark").value = wishlistContext.mint || "";
     if (wishlistContext.variety) document.getElementById("variety").value = wishlistContext.variety;
+    refreshVarietyOptions();
     maybeAutoFillDescription();
     checkDbCoinsMatch();
     updateFlipLabels();
@@ -3561,6 +3595,59 @@
     }
   }
 
+  // Varieties that actually exist in DB_Coins for the exact Year+MintMark+
+  // Denomination already entered — e.g. a 1909 cent offers VDB, a 1920
+  // quarter doesn't. Context-sensitive, unlike Error above.
+  function validVarietiesForCurrentCoin() {
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    const mint = document.getElementById("mintMark").value;
+    if (!denom || !year) return [];
+    const matches = FAKE_DB_COINS.filter(c =>
+      c.denom === denom && String(c.year) === year && normField(c.mint) === normField(mint) && c.variety
+    ).map(c => c.variety);
+    return [...new Set(matches)];
+  }
+
+  // Rebuilds the Variety dropdown's options from the current Year+MintMark+
+  // Denomination, then reflects #variety's current value back into the
+  // select/manual-override UI — recognized value selected directly, blank
+  // shows "none", anything else (a manually-typed or carried-over value that
+  // isn't in the current filtered list) falls into the "Other" override so
+  // nothing gets silently dropped when Year/Mint/Denom change.
+  function refreshVarietyOptions() {
+    const select = document.getElementById("varietySelect");
+    const otherInput = document.getElementById("varietyOther");
+    const currentValue = document.getElementById("variety").value;
+    const validVarieties = validVarietiesForCurrentCoin();
+
+    select.innerHTML = `<option value="">— none —</option>` +
+      validVarieties.map(v => `<option value="${v}">${v}</option>`).join("") +
+      `<option value="__other__">Other / not listed…</option>`;
+
+    if (!currentValue) {
+      select.value = "";
+      otherInput.style.display = "none";
+    } else if (validVarieties.includes(currentValue)) {
+      select.value = currentValue;
+      otherInput.style.display = "none";
+    } else {
+      select.value = "__other__";
+      otherInput.style.display = "block";
+      otherInput.value = currentValue;
+    }
+  }
+
+  // Part 7's Staging-routing check: true if Variety is blank (nothing
+  // unrecognized to flag) or matches a currently-valid filtered option —
+  // false if it's a manually-typed value outside that list, regardless of
+  // whether it was typed or happens to match an option verbatim.
+  function isVarietyRecognized() {
+    const value = document.getElementById("variety").value.trim();
+    if (!value) return true;
+    return validVarietiesForCurrentCoin().includes(value);
+  }
+
   // ==================================================================
   // PCGS LABEL AUTO-POPULATE — parses a scanned/typed PCGS label number
   // (SPEC.GRADE/CERT) and auto-fills what the certified label itself
@@ -3599,6 +3686,7 @@
     document.getElementById("description").value = row.description || "";
     descriptionAutoFilled = false;
     document.getElementById("variety").value = row.variety || "";
+    refreshVarietyOptions();
     checkDbCoinsMatch();
     sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 210, null);
     sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 210, null);
@@ -3731,6 +3819,7 @@
     wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn");
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
     wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput", "additionalFrame", null, "additionalAdjustBtn");
+    refreshVarietyOptions();
 
     document.getElementById("purchaseInfoRow").addEventListener("click", () => showAddCoinSubview("purchase"));
     document.getElementById("storageAlbumRow").addEventListener("click", () => showAddCoinSubview("storage"));
@@ -3767,17 +3856,60 @@
     });
 
     document.getElementById("denomination").addEventListener("change", () => {
-      maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels();
+      maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
       const denom = document.getElementById("denomination").value;
       sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
       sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
     });
-    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); checkDbCoinsMatch(); updateFlipLabels(); });
-    document.getElementById("mintMark").addEventListener("change", () => { checkDbCoinsMatch(); updateFlipLabels(); });
-    document.getElementById("variety").addEventListener("input", () => { checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("mintMark").addEventListener("change", () => { refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
+
+    // Variety: dropdown filtered to this exact coin's valid varieties, plus a
+    // manual "Other" override. #variety (hidden) is the actual value every
+    // other function reads/writes — the select/other pair just drive it.
+    document.getElementById("varietySelect").addEventListener("change", (e) => {
+      const otherInput = document.getElementById("varietyOther");
+      if (e.target.value === "__other__") {
+        otherInput.style.display = "block";
+        otherInput.value = "";
+        otherInput.focus();
+        document.getElementById("variety").value = "";
+      } else {
+        otherInput.style.display = "none";
+        document.getElementById("variety").value = e.target.value;
+      }
+      checkDbCoinsMatch(); updateFlipLabels();
+    });
+    document.getElementById("varietyOther").addEventListener("input", (e) => {
+      document.getElementById("variety").value = e.target.value;
+      checkDbCoinsMatch(); updateFlipLabels();
+    });
+
     document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; updateFlipLabels(); });
     document.getElementById("designation").addEventListener("input", updateFlipLabels);
-    document.getElementById("errorDesc").addEventListener("input", updateFlipLabels);
+
+    // Error: unfiltered dropdown (applies to any coin) + manual "Other"
+    // override, same shape as Variety's override but no context-filtering.
+    const errorSelect = document.getElementById("errorSelect");
+    FAKE_LOOKUP_ERRORS.forEach(e => errorSelect.insertBefore(new Option(e, e), errorSelect.lastElementChild));
+    errorSelect.addEventListener("change", (e) => {
+      const otherInput = document.getElementById("errorOther");
+      if (e.target.value === "__other__") {
+        otherInput.style.display = "block";
+        otherInput.value = "";
+        otherInput.focus();
+        document.getElementById("errorDesc").value = "";
+      } else {
+        otherInput.style.display = "none";
+        document.getElementById("errorDesc").value = e.target.value;
+      }
+      updateFlipLabels();
+    });
+    document.getElementById("errorOther").addEventListener("input", (e) => {
+      document.getElementById("errorDesc").value = e.target.value;
+      updateFlipLabels();
+    });
+
     document.getElementById("gradeSource").addEventListener("change", updateFlipLabels);
     document.getElementById("purchasePrice").addEventListener("input", updateFlipLabels);
 
