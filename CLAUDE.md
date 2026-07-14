@@ -232,6 +232,19 @@ together rather than mixed in at the top level.
 - **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
   circular**, matching the Spotlight/Browse coin discs so they read as a coin
   rather than a square photo.
+- **EXIF orientation is applied explicitly, everywhere a captured photo gets
+  decoded (locked in)** — a phone camera photo's pixel data is often stored
+  sensor-native with an EXIF Orientation tag telling viewers how to rotate it;
+  a plain `<img>` generally honors that by default, but canvas `drawImage()`
+  never does regardless of browser, and this app's default handling had
+  already proven inconsistent in practice (Receipt photos rotating sideways
+  on save/display). `loadOrientedImageCanvas(file)` decodes any captured File
+  via `createImageBitmap(file, {imageOrientation: "from-image"})` and bakes
+  the correction into a same-orientation canvas immediately — used for both
+  the plain Receipt preview and as the very first step before the crop
+  adjuster ever sees a photo (so the adjuster's live preview and its final
+  canvas bake both work from already-correct pixels, with no dependency on
+  `drawImage()` ever honoring EXIF on its own).
 - **Manual pan/zoom/rotate crop adjuster (locked in)**: picking/taking a photo for
   a circular slot opens an adjuster — drag to reposition, slider to zoom
   (100–300%), bounded so the photo can't be panned past its own edges. Two 90°
@@ -319,6 +332,15 @@ the same corner mapping:
 - **No "From the cabinet" eyebrow above the Spotlight flip-frame** — removed;
   it added a label above the coin that wasn't part of the flip-frame
   metaphor itself and wasn't needed.
+- **Corner-label font bumped 20px → 25px** (too small to read on phone) and
+  **max-width loosened 42% → 47%** of the frame (more crowding headroom before
+  the shortening fallback needs to kick in at all) — both per Ray's real-device
+  report. **`text-size-adjust: 100%` (with `-webkit-` prefix) is set globally
+  on `html, body`** — mobile browsers (Samsung Internet included) can silently
+  auto-boost rendered text size on narrow viewports past its declared
+  font-size, which is exactly why corner-label truncation only ever showed up
+  phone-side and never reproduced in desktop-engine viewport-width testing
+  here; this locks rendered size to what's actually declared, everywhere.
 - **Obverse is identification only — standard numismatic shorthand**:
   top-left Year+MintMark (`1945-S`); top-right **the series/type name and the
   coded denomination as two stacked, right-justified lines** (`Mercury` over
@@ -509,6 +531,16 @@ field and drives three things when picked:
    whether the number arrives via PCGS label decode or manual entry for a
    grader with no auto-decode. No behavior changed, just position — same
    field ID, same fill logic.
+5. **Cert/Type Number is hidden entirely when Grader is blank**, exactly
+   mirroring GradeSource's own toggle — a non-slabbed coin has no cert number
+   to report at all, same redundant-field problem GradeSource already solved.
+   Both toggles (plus the PCGS-label-block/no-decode-note pair) are driven by
+   one shared `applyGraderDependentVisibility(grader)` function, called both
+   from the Grader dropdown's `change` handler and explicitly from the PCGS
+   label-decode path (`resolvePcgsLabelMatch`) — the decode path sets
+   `addCoinGrader.value` programmatically, which never fires a native
+   `change` event on its own, so it has to trigger the same visibility logic
+   itself rather than relying on the dropdown's listener.
 
 **Add Coin does not show a cert-lookup link at all** — it only captures and
 stores the CERT number (Cert/Type Number is a plain input, no link). The
@@ -709,12 +741,18 @@ per-slot photo yet.)
   continues in twos starting at page index 1: (1,2), (3,4), (5,6)... —
   computed by `computeVisibleIndices()`, not a naive `[i, i+1]` pairing (which
   would have wrongly spread the cover with History on first open).
-- **Reverse pages mirror in reversed left-right order, not the same order as
-  their Obverse** — a real coin physically passes through the paper when a
-  page turns, so the coin rightmost on a page's front is leftmost on that same
-  page's back. `renderAlbumPageContent()` reverses the slot array for
-  `side: "reverse"` pages; the underlying chunk/data order is untouched, this
-  is a display-only reversal.
+- **Reverse pages mirror in reversed left-right order only — row order top-to-
+  bottom stays fixed.** `.book-slot-grid` uses a **fixed column count per
+  breakpoint tier** (3 across single-page, 6 across spread), not the
+  responsive `auto-fill` it originally shipped with — a real album page has a
+  fixed number of slots per row, and fixing the count is what lets
+  `reverseWithinRows()` chunk a page's 6 slots into actual rows and reverse
+  each row's contents independently. (An earlier version reversed the whole
+  flat 6-item array, which also swapped which row's coins landed on top vs.
+  bottom — since a page's row boundaries can't be known from a responsive
+  `auto-fill` column count, fixing the count per tier was the fix, not a CSS
+  mirroring trick.) At the spread tier's 6-across single row, there's only one
+  row to begin with, so the reversal is trivially row-order-safe there.
 - **Navigation**: prev/next arrow buttons, plus swipe (touchstart/touchend,
   ~50px threshold) on the page area. In single-page mode these step by one
   page at a time; in spread mode they step by whole pairs

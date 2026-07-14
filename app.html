@@ -65,6 +65,14 @@
     color: var(--text);
     font-family: -apple-system, "Segoe UI", Arial, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    /* Mobile browsers (Samsung Internet included) can auto-boost rendered
+       text size on narrow viewports beyond the declared font-size — a
+       behavior desktop browsers don't have, which is why corner-label
+       truncation showed up phone-only and never reproduced in viewport-width
+       testing here. Locking this out keeps rendered size consistent with
+       what's actually declared, on every device. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   h1, h2, h3, .display {
@@ -482,11 +490,21 @@
     margin-bottom: 10px;
     text-align: center;
   }
+  /* Fixed column counts (not auto-fill) — a real album page has a fixed
+     number of slots per row, and JS needs to know the exact count to reverse
+     each row's contents independently on a page's Reverse side without also
+     swapping which row's coins land on top vs. bottom (see
+     reverseWithinRows()). Single-page mode: 3 across (2 rows of 3). Spread
+     mode: 6 across (a single row — trivially reversal-safe, no row-order risk
+     at that tier at all). */
   .book-slot-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 14px;
     justify-items: center;
+  }
+  .book-slot-grid.book-slot-grid-spread {
+    grid-template-columns: repeat(6, 1fr);
   }
   .slot-cell {
     display: flex;
@@ -820,11 +838,11 @@
     position: absolute;
     font-family: "Caveat", cursive;
     font-weight: 700;
-    font-size: 20px;
+    font-size: 25px;
     color: rgba(232, 199, 102, 0.85);
-    line-height: 1.1;
+    line-height: 1.05;
     pointer-events: none;
-    max-width: 42%;
+    max-width: 47%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1404,12 +1422,14 @@
             No auto-decode for this grader yet — enter the coin's details and cert number manually below.
           </p>
 
-          <label>Cert / Type Number</label>
-          <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
-            Just captures the number here — the cert-lookup link lives on the saved coin's
-            Browse detail view, not during entry.
-          </p>
+          <div id="certTypeNumberRow" style="display:none;">
+            <label>Cert / Type Number</label>
+            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+            <p class="placeholder-note" style="margin:-8px 0 16px;">
+              Just captures the number here — the cert-lookup link lives on the saved coin's
+              Browse detail view, not during entry.
+            </p>
+          </div>
 
           <label>Denomination</label>
           <select id="denomination">
@@ -2727,7 +2747,18 @@
     `;
   }
 
-  function renderAlbumPageContent(page, album) {
+  // Reverses each row's contents independently while keeping row order
+  // top-to-bottom intact — a flat .reverse() of the whole chunk would also
+  // swap which row's coins land on top vs. bottom, which is wrong: only
+  // left-right order should invert when a page's Reverse side renders (see
+  // renderAlbumPageContent()).
+  function reverseWithinRows(slots, columns) {
+    const rows = [];
+    for (let i = 0; i < slots.length; i += columns) rows.push(slots.slice(i, i + columns));
+    return rows.flatMap(row => [...row].reverse());
+  }
+
+  function renderAlbumPageContent(page, album, spread) {
     if (page.type === "cover") {
       const filledCount = album.slots.filter(s => s.filledBy).length;
       return `
@@ -2747,14 +2778,14 @@
       `;
     }
     // Physical page-flip accuracy: each coin passes through the paper when a
-    // page turns, so the coin that's rightmost on the front is leftmost on
-    // that same page's back — the reverse side renders the group in reversed
-    // left-right order, not the same order as its obverse.
-    const orderedSlots = page.side === "reverse" ? [...page.slots].reverse() : page.slots;
+    // page turns, so the coin that's rightmost on a row is leftmost on that
+    // same row's back — only left-right order inverts, row order stays put.
+    const columns = spread ? 6 : 3;
+    const orderedSlots = page.side === "reverse" ? reverseWithinRows(page.slots, columns) : page.slots;
     return `
       <div class="case album-page album-page-coins">
         <div class="page-side-label">${page.side === "reverse" ? "Reverse" : "Obverse"}</div>
-        <div class="slot-grid book-slot-grid">${orderedSlots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
+        <div class="slot-grid book-slot-grid${spread ? " book-slot-grid-spread" : ""}">${orderedSlots.map(slot => renderSlotCell(slot, page.side)).join("")}</div>
       </div>
     `;
   }
@@ -2769,7 +2800,7 @@
     container.innerHTML = `
       <div class="album-book">
         <div class="book-pages${spread ? " spread" : ""}">
-          ${indices.map(i => renderAlbumPageContent(currentAlbumPages[i], album)).join("")}
+          ${indices.map(i => renderAlbumPageContent(currentAlbumPages[i], album, spread)).join("")}
         </div>
         <div class="book-nav">
           <button type="button" id="albumPagePrevBtn" aria-label="Previous page" ${indices[0] === 0 ? "disabled" : ""}>←</button>
@@ -3125,6 +3156,26 @@
     });
   }
 
+  // A phone camera photo's pixel data is often stored sensor-native (e.g.
+  // landscape) with an EXIF Orientation tag telling viewers how to rotate it
+  // for display. A plain <img> generally honors that by default, but canvas
+  // drawImage() never does regardless of browser, and default handling has
+  // been inconsistent enough in practice (this exact bug, receipt photos
+  // rotating sideways) that we don't rely on implicit behavior anywhere in
+  // the photo pipeline. This decodes a captured File with EXIF orientation
+  // explicitly applied and bakes it into a same-orientation canvas, so
+  // everything downstream (receipt preview, the crop/adjuster, the final
+  // bake) works from already-correctly-oriented pixels.
+  async function loadOrientedImageCanvas(file) {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return canvas;
+  }
+
   // ==================================================================
   // PHOTO CROP ADJUSTER — drag to pan, slider to zoom, 90°/straighten to rotate.
   // Shared by every circular coin photo slot (Obverse/Reverse/Additional).
@@ -3134,7 +3185,7 @@
   let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId }
   const slotFiles = {}; // frameId -> original File, so "reopen adjuster" can re-crop the same photo
 
-  function openPhotoAdjust(file, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
+  async function openPhotoAdjust(file, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
     const overlay = document.getElementById("photoAdjustOverlay");
     const img = document.getElementById("photoAdjustImg");
     const circleSize = 240;
@@ -3149,7 +3200,12 @@
       document.getElementById("photoAdjustRotate").value = 0;
       applyPhotoAdjustTransform();
     };
-    img.src = URL.createObjectURL(file);
+    // Orient before the adjuster ever sees it — both the live on-screen
+    // preview and the final canvas bake (which draws from this same <img>)
+    // then work from already-correct pixels, with no dependency on canvas
+    // drawImage() honoring EXIF (it never does).
+    const orientedCanvas = await loadOrientedImageCanvas(file);
+    img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
     overlay.classList.remove("hidden");
   }
 
@@ -3297,14 +3353,17 @@
     cameraBtn.addEventListener("click", () => cameraInput.click());
     libraryBtn.addEventListener("click", () => libraryInput.click());
 
-    function handleFile(file) {
+    async function handleFile(file) {
       if (frameId) {
         // Circular coin photo — crop/zoom/pan before it becomes the preview.
         slotFiles[frameId] = file;
         openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
       } else {
-        // Receipt — plain rectangular preview, no adjuster.
-        preview.src = URL.createObjectURL(file);
+        // Receipt — plain rectangular preview, no adjuster, but still needs
+        // EXIF orientation applied explicitly (a raw blob URL on a plain
+        // <img> was the exact cause of receipts rotating sideways).
+        const orientedCanvas = await loadOrientedImageCanvas(file);
+        preview.src = orientedCanvas.toDataURL("image/jpeg", 0.92);
         preview.style.display = "block";
         if (placeholder) placeholder.style.display = "none";
       }
@@ -3545,6 +3604,20 @@
     sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 210, null);
   }
 
+  // Shared by the Grader dropdown's change handler and the PCGS label-decode
+  // path (which sets addCoinGrader's value programmatically and so never
+  // fires a native "change" event) — keeps the PCGS-label-block/no-decode
+  // note/GradeSource-row/Cert-row visibility in sync regardless of which
+  // path set Grader.
+  function applyGraderDependentVisibility(grader) {
+    document.getElementById("pcgsLabelBlock").style.display = grader === "PCGS" ? "block" : "none";
+    document.getElementById("nonPcgsGraderNote").style.display = (grader && grader !== "PCGS") ? "block" : "none";
+    document.getElementById("gradeSourceRow").style.display = grader ? "none" : "block";
+    // A non-slabbed coin (Grader blank) has no cert number to report at all
+    // — mirrors gradeSourceRow's toggle, just inverted.
+    document.getElementById("certTypeNumberRow").style.display = grader ? "block" : "none";
+  }
+
   function resolvePcgsLabelMatch(row, parsed) {
     applyDbCoinsRowToForm(row);
 
@@ -3558,6 +3631,7 @@
     }
     document.getElementById("gradeSource").value = "PCGS";
     document.getElementById("addCoinGrader").value = "PCGS";
+    applyGraderDependentVisibility("PCGS");
 
     // Add Coin only captures CERT — the lookup link itself belongs to viewing a
     // saved coin (Browse detail), not entry. parsed.cert is already isolated to
@@ -3686,12 +3760,9 @@
     const graderSelect = document.getElementById("addCoinGrader");
     FAKE_LOOKUP_GRADERS.forEach(g => graderSelect.appendChild(new Option(g.code, g.code)));
     graderSelect.addEventListener("change", (e) => {
-      const grader = e.target.value;
-      document.getElementById("pcgsLabelBlock").style.display = grader === "PCGS" ? "block" : "none";
-      document.getElementById("nonPcgsGraderNote").style.display = (grader && grader !== "PCGS") ? "block" : "none";
-      document.getElementById("gradeSourceRow").style.display = grader ? "none" : "block";
-      if (grader) {
-        document.getElementById("gradeSource").value = grader;
+      applyGraderDependentVisibility(e.target.value);
+      if (e.target.value) {
+        document.getElementById("gradeSource").value = e.target.value;
       }
     });
 
