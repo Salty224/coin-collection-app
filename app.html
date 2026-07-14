@@ -4091,8 +4091,14 @@
     document.getElementById("nonPcgsGraderNote").style.display = (grader && grader !== "PCGS") ? "block" : "none";
     document.getElementById("gradeSourceRow").style.display = grader ? "none" : "block";
     // A non-slabbed coin (Grader blank) has no cert number to report at all
-    // — mirrors gradeSourceRow's toggle, just inverted.
-    document.getElementById("certTypeNumberRow").style.display = grader ? "block" : "none";
+    // — mirrors gradeSourceRow's toggle, just inverted. PCGS also hides this
+    // row: the cert number is what's about to be decoded out of the PCGS
+    // Label # field above (resolvePcgsLabelMatch still sets #certTypeNumber's
+    // value programmatically even while its row is hidden), so showing an
+    // empty manual box right next to it would just ask for the same number
+    // twice. Only a grader with no auto-decode (NGC/ANACS/ICG/CAC) needs the
+    // manual box.
+    document.getElementById("certTypeNumberRow").style.display = (grader && grader !== "PCGS") ? "block" : "none";
   }
 
   function resolvePcgsLabelMatch(row, parsed) {

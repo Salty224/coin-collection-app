@@ -634,16 +634,25 @@ field and drives three things when picked:
    whether the number arrives via PCGS label decode or manual entry for a
    grader with no auto-decode. No behavior changed, just position — same
    field ID, same fill logic.
-5. **Cert/Type Number is hidden entirely when Grader is blank**, exactly
-   mirroring GradeSource's own toggle — a non-slabbed coin has no cert number
-   to report at all, same redundant-field problem GradeSource already solved.
-   Both toggles (plus the PCGS-label-block/no-decode-note pair) are driven by
-   one shared `applyGraderDependentVisibility(grader)` function, called both
-   from the Grader dropdown's `change` handler and explicitly from the PCGS
-   label-decode path (`resolvePcgsLabelMatch`) — the decode path sets
-   `addCoinGrader.value` programmatically, which never fires a native
-   `change` event on its own, so it has to trigger the same visibility logic
-   itself rather than relying on the dropdown's listener.
+5. **Cert/Type Number is hidden whenever Grader is blank OR `PCGS`** — a
+   non-slabbed coin has no cert number to report at all (mirrors
+   GradeSource's own toggle), and for PCGS specifically the number is what's
+   about to be decoded out of the PCGS Label # field directly above, so
+   showing an empty manual box right next to it would just ask for the same
+   number twice. `resolvePcgsLabelMatch()` still sets `#certTypeNumber`'s
+   value programmatically once decoded, even while its row stays hidden — the
+   field remains the real source of truth for `SerNo` on save, it's just not
+   presented for redundant manual entry. **Superseded:** an earlier version
+   of this toggle showed the row for any non-blank Grader, including PCGS;
+   corrected once it was clear PCGS coins never need it filled by hand. Only
+   a grader with no confirmed auto-decode (NGC, ANACS, ICG, CAC) still shows
+   the manual box. Both toggles (plus the PCGS-label-block/no-decode-note
+   pair) are driven by one shared `applyGraderDependentVisibility(grader)`
+   function, called both from the Grader dropdown's `change` handler and
+   explicitly from the PCGS label-decode path (`resolvePcgsLabelMatch`) — the
+   decode path sets `addCoinGrader.value` programmatically, which never fires
+   a native `change` event on its own, so it has to trigger the same
+   visibility logic itself rather than relying on the dropdown's listener.
 
 **Add Coin does not show a cert-lookup link at all** — it only captures and
 stores the CERT number (Cert/Type Number is a plain input, no link). The
