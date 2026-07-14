@@ -1154,7 +1154,10 @@
             <input type="file" id="browseEditReverseLibraryInput" accept="image/*">
           </div>
 
-          <label>Grade</label>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <label style="margin:0;">Grade</label>
+            <button type="button" class="cert-link-btn small" id="browseEditGradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
+          </div>
           <select id="browseEditGradeFrom"></select>
           <input type="text" id="browseEditGradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
 
@@ -1516,7 +1519,10 @@
             <span class="msg"><strong>No matching DB_Coins entry</strong> — this coin will still be added, but needs a catalog entry added later.</span>
           </div>
 
-          <label>Grade</label>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <label style="margin:0;">Grade</label>
+            <button type="button" class="cert-link-btn small" id="gradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
+          </div>
           <select id="gradeFrom"></select>
           <label class="grade-range-toggle">
             <input type="checkbox" id="gradeRangeToggle">
@@ -1744,6 +1750,19 @@
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contextual Grading Help — framework only (Part 8). Reuses the photo-
+       adjust overlay's modal chrome since it's the same "centered case-styled
+       panel over a dimmed backdrop" shape; content is unrelated. -->
+  <div class="photo-adjust-overlay hidden" id="gradingHelpOverlay">
+    <div class="photo-adjust-panel" style="max-width:340px; text-align:left;">
+      <div class="photo-adjust-title" id="gradingHelpTitle" style="text-align:center;">Grading Help</div>
+      <div id="gradingHelpBody" style="font-size:13px; color:var(--text); line-height:1.5;"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="gradingHelpCloseBtn" style="background: linear-gradient(180deg, var(--gold-bright), var(--gold)); border:none; color:#241c05; font-weight:700;">Close</button>
       </div>
     </div>
   </div>
@@ -2323,6 +2342,39 @@
     return !!FAKE_REFERENCE_IMAGES[referenceSeriesKey(coin)];
   }
 
+  // Contextual Grading Help (Part 8) — framework/location only. This wires
+  // the button -> per-series lookup -> modal mechanism end-to-end; it does
+  // NOT contain real researched grading criteria. Reproducing ANA's grading-
+  // guide text or PCGS's Photograde images would be a copyright violation,
+  // so this only ever links out to their own public reference pages —
+  // same hotlink-only posture as the rest of PCGS integration (see CLAUDE.md
+  // "External data sources"). Real content sourcing (what to actually look
+  // for at each grade tier, per series) is a separate, deferred task.
+  // Keyed the same way as FAKE_REFERENCE_IMAGES (referenceSeriesKey) so the
+  // two features share one series-identification mechanism.
+  const FAKE_GRADING_HELP = {
+    "Lincoln_Wheat": "Placeholder only — real series-specific grading guidance hasn't been researched/written yet. This entry exists to prove the per-series lookup renders correctly once real content is added.",
+    "Morgan": "Placeholder only — real series-specific grading guidance hasn't been researched/written yet. This entry exists to prove the per-series lookup renders correctly once real content is added."
+  };
+
+  function showGradingHelp(seriesKey, label) {
+    document.getElementById("gradingHelpTitle").textContent = "Grading Help" + (label ? " — " + label : "");
+    const tips = FAKE_GRADING_HELP[seriesKey];
+    const body = document.getElementById("gradingHelpBody");
+    body.innerHTML =
+      (tips
+        ? `<p style="margin:0 0 10px;">${tips}</p>`
+        : `<p class="placeholder-note" style="margin:0 0 10px;">No grading guidance on file yet for this series.</p>`
+      ) +
+      `<p class="placeholder-note" style="margin:0 0 10px;">
+         This app never reproduces ANA grading-guide text or PCGS Photograde
+         images (copyright) — only links out to their own reference pages.
+       </p>
+       <p style="margin:0 0 4px;"><a href="https://www.pcgs.com/photograde" target="_blank" rel="noopener">PCGS PhotoGrade →</a></p>
+       <p style="margin:0;"><a href="https://www.ngccoin.com/coin-grading/grading-standards/" target="_blank" rel="noopener">NGC Grading Standards →</a></p>`;
+    document.getElementById("gradingHelpOverlay").classList.remove("hidden");
+  }
+
   // Owned-photo-first, reference-image-second, blank-placeholder-third. This
   // mockup never has a persisted real owned photo to check (see "What NOT to
   // build" / crop-is-display-only), so in practice it's always tier 2 or 3
@@ -2867,6 +2919,11 @@
     }
     document.getElementById("browseEditCertTypeNumber").addEventListener("input", refreshBrowseEditCertLink);
     document.getElementById("browseEditGradeSource").addEventListener("change", refreshBrowseEditCertLink);
+
+    document.getElementById("browseEditGradeHelpBtn").addEventListener("click", () => {
+      if (!currentBrowseCoin) return;
+      showGradingHelp(referenceSeriesKey(currentBrowseCoin), seriesLabel(currentBrowseCoin));
+    });
 
     document.getElementById("browseEditBackBtn").addEventListener("click", () => {
       document.getElementById("browseEditView").style.display = "none";
@@ -4203,6 +4260,11 @@
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
     document.getElementById("wishlistOriginClearBtn").addEventListener("click", clearWishlistContext);
 
+    document.getElementById("gradeHelpBtn").addEventListener("click", () => {
+      const desc = document.getElementById("description").value.trim();
+      showGradingHelp(referenceSeriesKey({ description: desc }), desc || null);
+    });
+
     document.getElementById("pcgsLabelApplyBtn").addEventListener("click", handlePcgsLabelApply);
     document.getElementById("pcgsLabelInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); handlePcgsLabelApply(); }
@@ -4379,6 +4441,12 @@
     });
   }
 
+  function initGradingHelp() {
+    document.getElementById("gradingHelpCloseBtn").addEventListener("click", () => {
+      document.getElementById("gradingHelpOverlay").classList.add("hidden");
+    });
+  }
+
   // ==================================================================
   // INIT
   // ==================================================================
@@ -4389,6 +4457,7 @@
   initAlbums();
   initWishlist();
   initPhotoAdjuster();
+  initGradingHelp();
   initAddCoin();
   initBatchReceipt();
   renderNeedsQueue();

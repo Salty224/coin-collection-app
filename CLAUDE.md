@@ -706,6 +706,29 @@ acquired. The cert-lookup link still works for any of these once
 `Lookup_Graders` gets a confirmed base URL for it, independent of whether
 auto-decode is ever built.
 
+### Grading Help button (framework only, locked in)
+A ❓ icon button sits next to the Grade label in both Add Coin and Browse Edit
+(`#gradeHelpBtn`, `#browseEditGradeHelpBtn`) and opens a shared modal
+(`#gradingHelpOverlay`, reusing the photo-adjuster's overlay/panel chrome since
+it's the same "centered case-styled panel over a dimmed backdrop" shape). This
+spec item is **framework/location only** — it establishes the button placement
+and the per-series lookup/modal mechanism, not the underlying researched
+grading content. Series is identified the same way as the reference-image
+fallback above (`referenceSeriesKey()` — Add Coin reads it live off the
+Description field; Browse Edit reads it off the coin being edited), so both
+features share one series-identification mechanism rather than inventing a
+second one. `FAKE_GRADING_HELP` is a sparse structural stand-in (currently
+`Lincoln_Wheat` and `Morgan`, matching `FAKE_REFERENCE_IMAGES`'s placeholder
+keys) holding clearly-labeled placeholder text, not real grading criteria — a
+series with no entry shows a plain "no grading guidance on file yet" fallback
+instead. **Hard copyright constraint**: this must never reproduce ANA's
+grading-guide text or PCGS's Photograde images — the modal only ever
+summarizes-and-links to their own public reference pages (PCGS PhotoGrade,
+NGC Grading Standards), the same hotlink-only posture as the rest of PCGS
+integration under "External data sources" below. Actually researching and
+writing real per-series grading guidance is a separate, deferred task — same
+boundary as DB_Coins scope and ANACS/ICG/CAC label research above.
+
 ### Needs Attention queue (locked in, renamed from "Needs DB_Coins Entry")
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins
