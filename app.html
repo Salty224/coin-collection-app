@@ -235,6 +235,14 @@
   .coin-disc.reverse-face {
     background: radial-gradient(circle at 65% 30%, #f3d98a, #c9a227 42%, #8a6b1c 78%, #5f4a12 100%);
   }
+  /* Series-level reference image stand-in — deliberately desaturated/muted
+     relative to a real photo or the plain placeholder, plus a dashed ring,
+     so it visually reads as "generic art for this series" rather than a
+     photo of this specific coin. */
+  .coin-disc.reference-image {
+    background: radial-gradient(circle at 35% 30%, #d9cfa8, #a89a6e 42%, #6e6448 78%, #4a4230 100%);
+    box-shadow: inset 0 0 0 2px rgba(232,199,102,0.4), inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5);
+  }
 
   /* ---------- Spotlight ---------- */
   .spotlight {
@@ -2238,6 +2246,60 @@
     return name;
   }
 
+  // Series-level reference image fallback (locked in): when an owned coin
+  // has no real photo of its own, fall back to ONE generic image reused
+  // across every year/mintmark within its series — never per-CoinID, never
+  // per-date, no exceptions for visually-distinct varieties either. No
+  // date/mintmark is ever baked into the image; the flip's own corner text
+  // already covers that, and a dated image could visually contradict it for
+  // a different year.
+  //
+  // SeriesName key = DB_Coins.Description exactly (sanitized for filesystem-
+  // safe characters) — the canonical join key, not seriesLabel()'s
+  // display-only corner abbreviation, which can drift from it (e.g. "Buffalo
+  // Nickel" -> "Buffalo" via seriesLabel(), but DB_Coins.Description is
+  // "Buffalo (Indian Head)"). This mockup's FAKE_COINS rows don't carry
+  // their own Description field the way the real All sheet will, so
+  // referenceSeriesKey() below falls back to seriesLabel() as a practical
+  // approximation — real usage must key off the actual Description column.
+  function sanitizeSeriesName(name) {
+    return (name || "").trim().replace(/[^A-Za-z0-9]+/g, "_");
+  }
+
+  function referenceSeriesKey(coin) {
+    return sanitizeSeriesName(coin.description || seriesLabel(coin));
+  }
+
+  // Real asset sourcing (U.S. Mint product renders for modern currently-sold
+  // items, or a Ray-approved/Canva-made image for historical series) is a
+  // separate, ongoing task per CLAUDE.md — not resolved by this mechanism.
+  // These two entries are structural stand-ins so the fallback is
+  // demonstrable end-to-end, not real sourced artwork.
+  const FAKE_REFERENCE_IMAGES = {
+    "Lincoln_Wheat": true,
+    "Morgan": true
+  };
+
+  function hasReferenceImage(coin) {
+    return !!FAKE_REFERENCE_IMAGES[referenceSeriesKey(coin)];
+  }
+
+  // Owned-photo-first, reference-image-second, blank-placeholder-third. This
+  // mockup never has a persisted real owned photo to check (see "What NOT to
+  // build" / crop-is-display-only), so in practice it's always tier 2 or 3
+  // here — real usage would check for an actual Obverse/Reverse file first.
+  function applyDiscContent(discEl, coin) {
+    discEl.classList.remove("reference-image");
+    if (hasReferenceImage(coin)) {
+      discEl.textContent = "🪙";
+      discEl.classList.add("reference-image");
+      discEl.title = "Generic reference image for this series — not a photo of this specific coin";
+    } else {
+      discEl.textContent = coin.year;
+      discEl.title = "";
+    }
+  }
+
   // Renders 1-2 stacked lines inside a flip-label corner instead of one run-on
   // line — used wherever a corner combines two related values (Type/Denom,
   // Variety/Designation) that would otherwise crowd together. Blank lines are
@@ -2293,7 +2355,7 @@
     frame.style.opacity = 0;
     setTimeout(() => {
       const disc = document.getElementById("spotlightDisc");
-      disc.textContent = coin.year;
+      applyDiscContent(disc, coin);
       disc.classList.toggle("reverse-face", spotlightSide === "reverse");
       sizeCoinElement(disc, coin.denom, 210, 32);
       applyFlipCorners("spotlight", coin);
@@ -2428,7 +2490,7 @@
         <div class="flip-frame-mini">
           <span class="flip-label tl">${yearMint}</span>
           <span class="flip-label tr">${coin.denom || ""}</span>
-          <div class="coin-disc">${coin.year}</div>
+          <div class="coin-disc"></div>
           <span class="flip-label bl">${coin.grade || ""}</span>
         </div>
         <div class="coin-card-text">
@@ -2443,6 +2505,7 @@
         showBrowseDetail(coin);
       });
       grid.appendChild(card);
+      applyDiscContent(card.querySelector(".coin-disc"), coin);
       sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
     });
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
@@ -2594,7 +2657,7 @@
     // one-word shortening fallback.
     document.getElementById("browseDetailName").textContent = coin.name;
     const disc = document.getElementById("browseDetailDisc");
-    disc.textContent = coin.year;
+    applyDiscContent(disc, coin);
     sizeCoinElement(disc, coin.denom, 210, 32);
     applyFlipCorners("browseDetail", coin);
     renderCertBadge(coin);
@@ -2912,13 +2975,17 @@
 
   function renderSlotCell(slot, side) {
     const filled = !!slot.filledBy;
+    const filledCoin = filled ? FAKE_COINS.find(c => c.id === slot.filledBy) : null;
+    const useReference = filledCoin && hasReferenceImage(filledCoin);
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
     if (filled && side === "reverse") discClasses.push("reverse-face");
+    if (useReference) discClasses.push("reference-image");
+    const discContent = filled ? (useReference ? "🪙" : slot.year) : "?";
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}" data-coin-id="${slot.coinId}">
         ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
-        <div class="${discClasses.join(" ")}">${filled ? slot.year : "?"}</div>
+        <div class="${discClasses.join(" ")}">${discContent}</div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
         <div class="slot-meta">${slot.description}</div>
       </div>

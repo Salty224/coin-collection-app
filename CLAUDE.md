@@ -875,6 +875,55 @@ per-slot photo yet.)
   version of this feature paired pages naively (`[i, i+1]`) regardless of
   content — that's superseded by the sheet-accurate pairing above.
 
+### Series-level reference images (locked in — framework only, real assets still open)
+Any owned coin with no real Obverse/Reverse photo of its own now falls back
+to a **generic reference image for its series**, rather than the bare
+placeholder disc, wherever a coin renders at photo size (Spotlight, Browse
+detail, Browse grid, Albums' filled slots) — `applyDiscContent()`/
+`renderSlotCell()` check owned-photo-first (never true in this mockup, since
+no real photo persistence exists — see "What NOT to build"), then
+reference-image-second, then the bare placeholder third.
+- **One image per series, reused across every year/mintmark — no exceptions,
+  not even for visually-distinct varieties** (e.g. 1909-S VDB reuses the
+  plain Lincoln Wheat image). No date/mintmark is ever baked into the image
+  — the flip's own corner text already covers that, and a dated image could
+  visually contradict it for a coin of a different year. This was
+  deliberately kept exception-free to avoid reopening the exact scope
+  question it was meant to close; revisit only in a future round if needed.
+- **SeriesName key = `DB_Coins.Description` exactly, sanitized for
+  filesystem-safe characters** (`sanitizeSeriesName()`) — the canonical join
+  key, not `seriesLabel()`'s display-only corner abbreviation, which can
+  drift from it (e.g. "Buffalo Nickel" → `seriesLabel()` gives "Buffalo," but
+  the real `DB_Coins.Description` is "Buffalo (Indian Head)"). This matters
+  doubly since Ray will sometimes name Canva-made fallback files by hand — one
+  canonical source avoids the app and the uploaded files disagreeing.
+  **Caveat:** this mockup's `FAKE_COINS` rows don't carry their own
+  Description field the way the real All sheet will, so `referenceSeriesKey()`
+  falls back to `seriesLabel()` as a practical approximation for now — real
+  usage must key strictly off the actual Description column.
+- **Storage convention** (OneDrive, not yet wired to a real fetch — mocked
+  via a `FAKE_REFERENCE_IMAGES` lookup keyed by sanitized series name):
+  ```
+  CoinCollection/ReferenceImages/obverse/{SeriesName}_obverse.png
+  CoinCollection/ReferenceImages/reverse/{SeriesName}_reverse.png
+  ```
+  Transparent background, lowercase `.png`.
+- **Real asset sourcing is a separate, still-open task, not resolved by this
+  framework pass.** For modern currently-sold Mint products, attempt an
+  official U.S. Mint product render first (federal work, not copyrighted) —
+  hotlink/fetch restrictions still need verifying. For historical series (the
+  majority of this collection), no official render exists — propose a
+  candidate and get Ray's approval before treating it as final; if rejected,
+  Ray provides a Canva-made replacement via the same folder/naming
+  convention. Display logic is source-agnostic — doesn't matter whether an
+  image came from the Mint, was AI-generated, or hand-made, as long as it's
+  in the right place with the right name. The two entries currently in
+  `FAKE_REFERENCE_IMAGES` (Lincoln Wheat, Morgan) are structural stand-ins so
+  the fallback mechanism is demonstrable end-to-end — not real sourced
+  artwork, and visually distinguished (desaturated, dashed-ring disc, a
+  generic 🪙 glyph instead of the year) precisely so they don't get mistaken
+  for real approved art.
+
 ## What NOT to build
 - AI photo pre-fill from receipts/coin photos — shelved permanently. Redundant with
   free chat-based photo analysis Ray already gets through his Pro subscription.
