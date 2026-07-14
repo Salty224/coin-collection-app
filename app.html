@@ -1063,9 +1063,12 @@
         </div>
 
         <div id="browseDetailView" style="display:none;">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
             <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Browse Collection</button>
-            <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
+              <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
+            </div>
           </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
           <div class="case flip-frame" id="browseDetailFlipFrame">
@@ -1223,7 +1226,10 @@
       <!-- ============ WISHLIST ============ -->
       <section class="view" id="view-wishlist">
         <div id="wishlistGridView">
-          <h2 class="display" style="margin-top:0;">Wishlist</h2>
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <h2 class="display" style="margin-top:0;">Wishlist</h2>
+            <button type="button" class="edit-btn" id="wishlistShareBtn" aria-label="Share your wishlist" title="Share">📤 Share</button>
+          </div>
           <div id="wishlistContainer"></div>
         </div>
 
@@ -2184,6 +2190,39 @@
   }
 
   // ==================================================================
+  // SHARING — built once, generically, reused by both Wishlist (whole-list
+  // share) and Browse detail (single coin share), not two separate
+  // implementations. Web Share API first, since it's the only method that
+  // can include images alongside text and lets the user pick where to send
+  // it from their device's native share sheet; mailto: fallback otherwise
+  // (text only — no images that way). `files` is accepted for when a coin
+  // actually has a real photo to attach, which never happens in this
+  // mockup (no real photo persistence exists yet — see "What NOT to
+  // build"), so neither call site below passes any today.
+  // ==================================================================
+
+  async function shareContent({ title, text, mailtoSubject, files }) {
+    if (navigator.share) {
+      const shareData = { title, text };
+      if (files && files.length && navigator.canShare && navigator.canShare({ files })) {
+        shareData.files = files;
+      }
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if (err.name === "AbortError") return; // user cancelled — not a failure, don't fall back
+      }
+    }
+    const subject = encodeURIComponent(mailtoSubject || title || "Salty's Cabinet");
+    const body = encodeURIComponent(text || "");
+    window.location.href = "mailto:?subject=" + subject + "&body=" + body;
+    if (!navigator.share) {
+      showToast("No share sheet available on this browser — opening email instead. Photos aren't included this way.");
+    }
+  }
+
+  // ==================================================================
   // DASHBOARD
   // ==================================================================
 
@@ -2631,6 +2670,16 @@
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", () => browseDetailBackHandler());
     document.getElementById("browseDetailEditBtn").addEventListener("click", () => showBrowseEditView(currentBrowseCoin));
+    document.getElementById("browseDetailShareBtn").addEventListener("click", () => {
+      if (!currentBrowseCoin) return;
+      const coin = currentBrowseCoin;
+      const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
+      const text = yearMint + " " + coin.name +
+        (coin.grade ? ", grade " + coin.grade : "") +
+        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        " (" + coin.id + ")";
+      shareContent({ title: coin.name, text, mailtoSubject: "Coin: " + coin.name });
+    });
   }
 
   function showBrowseGrid() {
@@ -3210,6 +3259,15 @@
 
   function initWishlist() {
     renderWishlistGrid();
+
+    document.getElementById("wishlistShareBtn").addEventListener("click", () => {
+      const lines = FAKE_WISHLIST.map(item => {
+        const price = item.price ? " — target $" + item.price.toLocaleString() : "";
+        return "• " + item.desc + price + (item.notes ? " (" + item.notes + ")" : "");
+      });
+      const text = "My coin wishlist:\n\n" + lines.join("\n");
+      shareContent({ title: "My Wishlist — Salty's Cabinet", text, mailtoSubject: "My Coin Wishlist" });
+    });
 
     document.getElementById("wishlistDetailBackBtn").addEventListener("click", showWishlistGrid);
     document.getElementById("wishlistPurchaseRow").addEventListener("click", () => showWishlistSubview("purchase"));

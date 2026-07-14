@@ -808,6 +808,34 @@ Dime"), not a clean series name. This still doesn't convert or remove the
 Wishlist item — same non-promotion boundary as above; it just saves retyping
 what the want-list entry already knew.
 
+### Sharing (locked in)
+A generic `shareContent({title, text, mailtoSubject, files})` helper, built
+once and reused by both a Wishlist-page **📤 Share** button (shares the
+current full wishlist as one formatted list) and a Browse detail **📤**
+icon button (shares that one coin's identity/grade/value line) — not two
+separate implementations for what's the same underlying action.
+- **Tries the Web Share API first** (`navigator.share`, with
+  `navigator.canShare({files})` gating whether files get attached) — the
+  only method that can include images alongside text, letting the user pick
+  where to send it from their device's native share sheet. A user-cancelled
+  share (`AbortError`) is treated as a no-op, not a failure — it does not
+  fall through to the mailto fallback.
+- **Falls back to a plain `mailto:` link** with formatted text when the Web
+  Share API isn't available, with a toast noting photos aren't included that
+  way.
+- **`files` is real infrastructure, not wired to anything real yet** — no
+  coin in this mockup has an actual persisted photo to attach (see "What NOT
+  to build"), so neither call site passes any today; the plumbing is ready
+  for whenever real photo persistence exists.
+- **Cannot verify real Web Share Sheet behavior on Samsung Internet from
+  this environment** — same acknowledged testing-gap as elsewhere in this
+  project. Verified here: the correct branch executes and the correct
+  `{title, text}` payload is built, using a mocked `navigator.share`; actual
+  on-device share-sheet behavior needs Ray's own testing.
+- **Wishlist's layout is untouched** — the Share button was added to the
+  existing grid-view layout only; a separate Wishlist layout revision is
+  still a future, not-yet-started round.
+
 Albums is a picker first: a list of albums (name + fill-progress bar), tap one to
 open it. **Tapping an open/want slot jumps straight into Add Coin**, with the
 album + slot pre-filled — not just the "Assign to Album" field and context
