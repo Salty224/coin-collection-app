@@ -494,10 +494,14 @@
     gap: 16px;
     justify-content: center;
     align-items: stretch;
-    perspective: 1800px;
+    position: relative;
   }
+  /* Perspective only applies while a spread turn is actually animating (see
+     turnAlbumPage()) — it's added/removed via the .turning class rather than
+     living on .book-pages permanently, since it has no effect otherwise. */
+  .book-pages.turning { perspective: 1800px; }
   .book-pages.spread .album-page,
-  .book-pages.spread .leaf-turn { flex: 1 1 0; min-width: 0; }
+  .book-pages.spread .book-turn-slot { flex: 1 1 0; min-width: 0; }
   .book-pages.spread .album-page:first-child {
     border-radius: 12px 4px 4px 12px;
     box-shadow: inset -8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
@@ -507,27 +511,46 @@
     box-shadow: inset 8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
   }
 
-  /* Rigid page-turn (Ray's spec: stiff cardboard, not a floppy paper curl) —
-     the turning leaf is a flat two-sided element that rotates around a fixed
-     vertical spine axis. Forward: pivot at the left edge (spine), rotating
-     -180deg so the leaf's own back face settles as the new left page.
-     Backward is the mirror: pivot at the right edge, rotating +180deg so the
-     leaf's own front face settles as the new right page. Only the turning
-     leaf animates — a newly-revealed page on the other side (a different
-     leaf, physically already sitting underneath) is rendered statically with
-     no rotation of its own, per the leaf-accurate model already used by
-     computeVisibleIndices()/reverseWithinRows(). */
-  .leaf-turn {
-    width: 100%;
-    max-width: 460px;
+  /* Rigid, binder-ring page turn — spread mode ONLY (see turnAlbumPage()).
+     Single-page mode never animates: too narrow to show a spine at all, so a
+     "turn" there is just an instant content swap, no transition of any kind.
+     .book-turn-slot is a positioned wrapper occupying ONE flex slot (the one
+     whose content is changing) containing, stacked via z-index (not DOM
+     order, so this works for both directions without swapping markup order):
+       1. the newly-revealed static page (a different leaf, already sitting
+          underneath — never rotates, drawn first/lower).
+       2. .leaf-turn on top — a flat two-sided element, front face = the
+          page that WAS showing in this slot, back face = the page that
+          settles into this slot once the turn completes. It rotates around
+          a transform-origin fixed at the spine (the shared edge between the
+          two slots) — forward: left edge of the RIGHT slot; backward: right
+          edge of the LEFT slot — so it sweeps in 3D exactly onto the OTHER
+          slot's rectangle, never floating apart from it or opening a gap
+          (a binder-ring/book turn, not an accordion unfold). The sibling
+          slot (the one NOT changing) is rendered as plain static content,
+          also never rotating. */
+  .book-turn-slot {
     position: relative;
+    /* Explicit z-index (not just DOM order) so this slot's rotating leaf
+       always paints over its plain, unpositioned sibling slot regardless of
+       turn direction — "next" puts the turn-slot second in DOM order,
+       "prev" puts it first, and only an explicit z-index (which always
+       beats a default-stacked sibling) is direction-independent. */
+    z-index: 1;
+  }
+  .book-turn-slot .static-under {
+    position: relative;
+    z-index: 1;
+  }
+  .leaf-turn {
+    position: absolute; inset: 0;
+    z-index: 2;
     transform-style: preserve-3d;
     transition: transform 0.65s cubic-bezier(0.45, 0.05, 0.55, 0.95);
     transform: rotateY(0deg);
   }
   .leaf-turn.turn-next { transform: rotateY(-180deg); transform-origin: left center; }
   .leaf-turn.turn-prev { transform: rotateY(180deg); transform-origin: right center; }
-  .leaf-turn:not(.turn-next):not(.turn-prev) { transform-origin: center center; }
   .leaf-face {
     position: absolute; inset: 0;
     backface-visibility: hidden;
@@ -569,32 +592,20 @@
     margin-bottom: 10px;
     text-align: center;
   }
-  /* Fixed column counts (not auto-fill) — a real album page has a fixed
-     number of slots per row, and JS needs to know the exact count to reverse
-     each row's contents independently on a page's Reverse side without also
-     swapping which row's coins land on top vs. bottom (see
-     reverseWithinRows()). Single-page mode: 3 across (2 rows of 3). Spread
-     mode: 6 across (a single row — trivially reversal-safe, no row-order risk
-     at that tier at all). */
+  /* Column count and disc size are computed per render (computeAlbumGridLayout())
+     from the actual measured available width at that breakpoint, not a fixed
+     target — the goal is fitting as many coins per row as will stay legible,
+     not matching any particular column count. JS writes the result as CSS
+     custom properties on the grid element itself; these defaults only cover
+     the instant before the first real render. JS also needs the exact column
+     count (whatever it computes) to reverse each row's contents independently
+     on a page's Reverse side without also swapping which row's coins land on
+     top vs. bottom (see reverseWithinRows()). */
   .book-slot-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
+    grid-template-columns: repeat(var(--slot-columns, 3), 1fr);
+    gap: var(--slot-gap, 10px);
     justify-items: center;
-  }
-  .book-slot-grid.book-slot-grid-spread {
-    grid-template-columns: repeat(6, 1fr);
-    /* 6 columns of the fixed 64px coin-disc at the 14px gap used elsewhere
-       need ~454px (6*64 + 5*14) but .album-page's content width at its
-       460px max-width is only ~424px after padding — grid items don't
-       shrink below their content's intrinsic size by default, so the extra
-       ~30px pushed the last column(s) past the card's right edge on
-       desktop-width viewports (never reproduced on Android tablet, which
-       stays under the 900px spread breakpoint and uses the 3-column tier
-       instead, with plenty of margin). Tightening the gap at this tier
-       specifically (14px -> 9px) closes that gap without touching the
-       6-column count or disc size. */
-    gap: 9px;
   }
   .slot-cell {
     display: flex;
@@ -607,7 +618,11 @@
   }
   .slot-cell.want,
   .slot-cell:not(.want) { cursor: pointer; }
-  .slot-cell .coin-disc { width: 64px; height: 64px; font-size: 11px; }
+  .slot-cell .coin-disc {
+    width: var(--slot-disc-size, 64px);
+    height: var(--slot-disc-size, 64px);
+    font-size: var(--slot-disc-font, 11px);
+  }
   .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
   .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
   .slot-cell.key-date .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright), inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5); }
@@ -622,13 +637,12 @@
   }
 
   /* ---------- Littleton folder page skin ----------
-     Scoped strictly to album.folderStyle === "littleton" (a real, populated
-     DB_Sets MfgProductID — see FAKE_ALBUMS) via the .littleton page modifier
-     and .littleton-slot cell modifier. Every other album (folderStyle:
-     "default", not a manufactured product, e.g. a Numis-style album) is
-     completely untouched by any rule in this section. Cream/tan cardboard
-     + navy print, applied to cover/history/coin pages alike so there's no
-     jarring dark-to-cream jump between pages within the same folder. */
+     Applied via album.folderStyle === "littleton" (currently every album in
+     FAKE_ALBUMS — folderStyle stays as a real mechanism/field, in case a
+     future album ever needs a different look again, it's just not gated on
+     a populated MfgProductID anymore). Cream/tan cardboard + navy print,
+     applied to history/coin interior pages; the cover gets its own distinct
+     darker-brown/copper look just below rather than matching the interior. */
   .album-page.littleton {
     background: linear-gradient(160deg, #f2e9d1, #e7d9af 55%, #ddcd9b);
     border: 1px solid #c6b586;
@@ -646,6 +660,20 @@
   .album-page.littleton .page-side-label { color: #4a5a8f; }
   .album-page.littleton .section-label { color: #1c2b5e; }
   .album-page.littleton .album-page-history p { color: #2c3d75; }
+
+  /* Cover: distinct darker-brown/copper look vs. the cream/navy interior
+     pages (history + coins) — a folder's outer cover is a different material
+     read (heavier cardstock/leatherette) from its printed inside pages in
+     real life, and this keeps that same visual distinction here. Higher
+     specificity + later in source order than the shared .album-page.littleton
+     rules above so it wins over them for color/background. */
+  .album-page.album-page-cover.littleton {
+    background: linear-gradient(160deg, #6b4423, #4e3018 60%, #3c2510);
+    border-color: #2c1c0c;
+    color: #d4915a;
+  }
+  .album-page.album-page-cover.littleton h3 { color: #e0a066; }
+  .album-page.album-page-cover.littleton .cover-sub { color: #c17f4c; }
 
   /* Die-cut circular holes. Owned + a real coin/reference image "seated" in
      the hole gets a thin light inner ring where the coin meets the
@@ -2021,23 +2049,21 @@
   // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
   // implied by which FAKE_ALBUMS entry a slot lives under, so not repeated per slot.)
   //
-  // folderStyle / mfgProductId (album-level, mirrors DB_Sets): any album whose
-  // real DB_Sets row has a populated MfgProductID (e.g. LCF18, LCF19, C06,
-  // LCF31 — real Littleton product codes) gets the shared Littleton cosmetic
-  // treatment (cream cardboard, navy print, die-cut holes) via
-  // folderStyle:"littleton" — ALL Littleton-manufactured folders share one
-  // look regardless of which specific product code, so mfgProductId is
-  // stored now (for future per-product individualization — different hole
-  // counts/page layouts down the line) but doesn't drive any visual
-  // difference yet. An album with no MfgProductID (folderStyle:"default",
-  // e.g. a non-manufactured/Numis-style album) keeps the existing dark-UI
-  // page look untouched.
+  // folderStyle / mfgProductId (album-level, mirrors DB_Sets): folderStyle
+  // stays a real, per-album field (e.g. so a genuinely different look could
+  // be introduced for some future album), but for now every album uses
+  // "littleton" regardless of whether it has a real MfgProductID — Ray's
+  // call, not gated on that field anymore. mfgProductId (e.g. LCF18, LCF19,
+  // C06, LCF31 — real Littleton product codes) is still stored per album
+  // where it's actually known, purely as future metadata (e.g. for eventual
+  // per-product individualization — different hole counts/page layouts) —
+  // it doesn't drive any visual difference today.
   const FAKE_ALBUMS = [
     {
       name: "Lincoln Cents — Whitman Folder Vol. 1",
       icon: "🪙",
       denom: "1C",
-      folderStyle: "default",
+      folderStyle: "littleton",
       mfgProductId: "",
       history: "Designed by Victor David Brenner, the Lincoln cent debuted in 1909 as the " +
         "first US coin to feature a real person's portrait, marking Lincoln's 100th " +
@@ -2059,7 +2085,7 @@
       name: "Morgan Dollars — Complete Date Set (P)",
       icon: "🏛️",
       denom: "$1",
-      folderStyle: "default",
+      folderStyle: "littleton",
       mfgProductId: "",
       history: "Named for engraver George T. Morgan, this silver dollar ran 1878–1904 and " +
         "again in 1921, struck largely from Comstock Lode silver under the Bland-Allison " +
@@ -3338,13 +3364,54 @@
     return rows.flatMap(row => [...row].reverse());
   }
 
+  // Column count and disc size are computed from the actual available width
+  // at render time, not a fixed target per breakpoint — the goal is fitting
+  // as many coins per row as will stay legible, never matching any specific
+  // photo reference or a hardcoded count. Finds the largest column count that
+  // keeps each disc at or above a legibility floor, then sizes discs to
+  // exactly fill the row (capped at a comfortable maximum so they don't just
+  // keep growing on a wide, mostly-empty row).
+  const ALBUM_GRID_GAP = 10;
+  const ALBUM_GRID_MIN_DISC = 52;
+  const ALBUM_GRID_MAX_DISC = 64;
+  const ALBUM_GRID_MIN_COLUMNS = 3;
+  const ALBUM_GRID_MAX_COLUMNS = 10;
+
+  function computeAlbumGridLayout(availableWidth) {
+    let columns = ALBUM_GRID_MIN_COLUMNS;
+    for (let cols = ALBUM_GRID_MIN_COLUMNS + 1; cols <= ALBUM_GRID_MAX_COLUMNS; cols++) {
+      const size = (availableWidth - (cols - 1) * ALBUM_GRID_GAP) / cols;
+      if (size < ALBUM_GRID_MIN_DISC) break;
+      columns = cols;
+    }
+    const rawSize = (availableWidth - (columns - 1) * ALBUM_GRID_GAP) / columns;
+    const discSize = Math.max(ALBUM_GRID_MIN_DISC, Math.min(ALBUM_GRID_MAX_DISC, Math.floor(rawSize)));
+    const discFont = Math.max(9, Math.round(discSize * 0.17));
+    return { columns, gap: ALBUM_GRID_GAP, discSize, discFont };
+  }
+
+  // .album-page's real content width, derived from ONE live measurement
+  // (#albumsDetailContainer, which persists across re-renders — its innerHTML
+  // gets replaced but the element itself doesn't) plus fixed CSS constants
+  // this file itself controls (book-pages gap, page padding/border, page
+  // max-width) — a single verified measurement plus known local constants,
+  // rather than stacking multiple unverified assumptions the way the
+  // original hardcoded 6-column/64px layout did.
+  function albumPageContentWidth(spread) {
+    const container = document.getElementById("albumsDetailContainer");
+    const containerWidth = container ? container.getBoundingClientRect().width : 380;
+    const BOOK_PAGES_GAP = 16, PAGE_PADDING = 36, PAGE_BORDER = 2, PAGE_MAX_WIDTH = 460;
+    const rowWidth = spread ? (containerWidth - BOOK_PAGES_GAP) / 2 : Math.min(PAGE_MAX_WIDTH, containerWidth);
+    return Math.max(200, rowWidth - PAGE_PADDING - PAGE_BORDER);
+  }
+
   function renderAlbumPageContent(page, album, spread) {
-    // Littleton-manufactured folders (album.folderStyle === "littleton",
-    // driven by a populated DB_Sets MfgProductID — see FAKE_ALBUMS above)
-    // get the shared cream-cardboard/navy-print/die-cut-hole treatment on
-    // every page, cover and history included, so there's no jarring dark
-    // cover immediately before a cream coin page. Non-Littleton albums
-    // (folderStyle:"default", not a manufactured product) are untouched.
+    // album.folderStyle === "littleton" (currently every album — see
+    // FAKE_ALBUMS above) gets the shared cream-cardboard/navy-print/die-cut-
+    // hole treatment on every interior page (history + coins); the cover
+    // gets its own distinct darker-brown/copper look instead (see CSS).
+    // folderStyle remains a real per-album field in case some future album
+    // ever needs a different look again.
     const littletonClass = album.folderStyle === "littleton" ? " littleton" : "";
 
     if (page.type === "cover") {
@@ -3368,27 +3435,37 @@
     // Physical page-flip accuracy: each coin passes through the paper when a
     // page turns, so the coin that's rightmost on a row is leftmost on that
     // same row's back — only left-right order inverts, row order stays put.
-    const columns = spread ? 6 : 3;
+    const { columns, gap, discSize, discFont } = computeAlbumGridLayout(albumPageContentWidth(spread));
     const orderedSlots = page.side === "reverse" ? reverseWithinRows(page.slots, columns) : page.slots;
+    const gridStyle = `--slot-columns:${columns}; --slot-gap:${gap}px; --slot-disc-size:${discSize}px; --slot-disc-font:${discFont}px;`;
     return `
       <div class="case album-page album-page-coins${littletonClass}">
         <div class="page-side-label">${page.side === "reverse" ? "Reverse" : "Obverse"}</div>
-        <div class="slot-grid book-slot-grid${spread ? " book-slot-grid-spread" : ""}">${orderedSlots.map(slot => renderSlotCell(slot, page.side, album)).join("")}</div>
+        <div class="slot-grid book-slot-grid" style="${gridStyle}">${orderedSlots.map(slot => renderSlotCell(slot, page.side, album)).join("")}</div>
       </div>
     `;
   }
 
   let albumTurnInProgress = false;
 
-  // Rigid, leaf-accurate page turn (see .leaf-turn CSS above) — only the
-  // physical leaf that's actually flipping animates. Forward: the old
-  // right-hand page (or the single visible page, in single-page mode) is the
-  // turning leaf's front face; its own back face is the new left page.
-  // Backward is the mirror. A page revealed on the OTHER side of a spread is
-  // a different leaf that was already sitting there underneath — it's
-  // rendered statically with no rotation, per the existing leaf-pairing
-  // model in computeVisibleIndices(). Direct-open (tapping a slot from
-  // elsewhere) bypasses this entirely and calls renderAlbumBook() straight.
+  // Rigid, binder-ring page turn — SPREAD MODE ONLY. Single-page mode is too
+  // narrow to show a spine at all, so a "turn" there is just an instant
+  // content swap with no transition of any kind — never animated.
+  //
+  // In spread mode, only the ONE slot whose content is actually changing
+  // gets a .book-turn-slot wrapper; the other (unaffected) slot renders
+  // plain, static, non-rotating content exactly like a normal render. Inside
+  // the changing slot, the turning leaf (front face = what WAS showing there,
+  // back face = what settles there) is stacked via z-index (not DOM order —
+  // this is what makes both directions work without swapping markup order)
+  // above the newly-revealed static page (a different leaf, already sitting
+  // underneath, per the existing leaf-pairing model in
+  // computeVisibleIndices()). Its transform-origin is fixed at the spine
+  // (the shared edge between the two slots), so rotating it sweeps it in
+  // true 3D onto the other slot's own rectangle — never floating apart from
+  // it or opening a gap, unlike an accordion/fan unfold. Direct-open (tapping
+  // a slot from elsewhere) bypasses this entirely and calls
+  // renderAlbumBook() straight.
   function turnAlbumPage(direction) {
     if (albumTurnInProgress) return;
     const spread = isAlbumSpreadWidth();
@@ -3401,29 +3478,67 @@
 
     if (newIndices.join(",") === oldIndices.join(",")) return;
 
+    // Single-page mode never animates (see function comment). The lone
+    // cover <-> first spread boundary is also excluded here: it's a genuine
+    // page-COUNT change (1 visible page becoming 2, or vice versa), not a
+    // same-shape turn — a closed book's cover is full-width with no left/
+    // right side at all, so there's no sensible "sibling slot" content for
+    // it during a turn (attempting one produces a duplicated-cover artifact,
+    // not a real page). Treating this specific boundary as an instant swap
+    // avoids that glitch; every ordinary 2-page <-> 2-page turn still gets
+    // the full binder-ring animation below.
+    if (!spread || oldIndices.length !== newIndices.length) {
+      currentPageIndex = newPageIndex;
+      renderAlbumBook();
+      return;
+    }
+
     const container = document.getElementById("albumsDetailContainer");
     const pagesEl = container.querySelector(".book-pages");
     if (!pagesEl) { currentPageIndex = newPageIndex; renderAlbumBook(); return; }
 
     const album = FAKE_ALBUMS[currentAlbumIndex];
+    // The leaf turning this time is whichever slot's content is changing:
+    // forward turns the current right-hand page; backward turns the current
+    // left-hand page. Its front face is what's showing there right now; its
+    // back face is what settles into that role once the turn completes.
     const turningOldIdx = direction === "next" ? oldIndices[oldIndices.length - 1] : oldIndices[0];
     const turningNewIdx = direction === "next" ? newIndices[0] : newIndices[newIndices.length - 1];
+    // The OTHER slot either keeps showing a page that isn't changing at all
+    // (its own oldIndices entry, when both old and new pairs share that
+    // side), or reveals a different leaf that was already sitting underneath
+    // (staticNewIdx), or — closing back down to the lone cover — simply has
+    // nothing on that side once the turn completes.
     const staticNewIdx = newIndices.length > 1
       ? (direction === "next" ? newIndices[1] : newIndices[0])
       : null;
+    const otherSideHtml = staticNewIdx !== null
+      ? renderAlbumPageContent(currentAlbumPages[staticNewIdx], album, spread)
+      : "";
 
     albumTurnInProgress = true;
     document.getElementById("albumPagePrevBtn").disabled = true;
     document.getElementById("albumPageNextBtn").disabled = true;
 
-    const leafHtml = `
-      <div class="leaf-turn" id="albumLeafTurn">
-        <div class="leaf-face leaf-face-front">${renderAlbumPageContent(currentAlbumPages[turningOldIdx], album, spread)}</div>
-        <div class="leaf-face leaf-face-back">${renderAlbumPageContent(currentAlbumPages[turningNewIdx], album, spread)}</div>
+    const turnSlotHtml = `
+      <div class="book-turn-slot">
+        <div class="static-under">${otherSideHtml}</div>
+        <div class="leaf-turn" id="albumLeafTurn">
+          <div class="leaf-face leaf-face-front">${renderAlbumPageContent(currentAlbumPages[turningOldIdx], album, spread)}</div>
+          <div class="leaf-face leaf-face-back">${renderAlbumPageContent(currentAlbumPages[turningNewIdx], album, spread)}</div>
+        </div>
       </div>
     `;
-    const staticHtml = staticNewIdx !== null ? renderAlbumPageContent(currentAlbumPages[staticNewIdx], album, spread) : "";
-    pagesEl.innerHTML = direction === "next" ? (leafHtml + staticHtml) : (staticHtml + leafHtml);
+
+    // otherSideHtml is rendered inside .static-under (behind the leaf, via
+    // z-index) ONLY for the slot that's actually turning — it must not also
+    // appear a second time as the plain sibling slot, so the sibling slot
+    // below always uses the OLD content for whichever side isn't turning.
+    const siblingOldIdx = direction === "next" ? oldIndices[0] : oldIndices[oldIndices.length - 1];
+    const siblingHtml = renderAlbumPageContent(currentAlbumPages[siblingOldIdx], album, spread);
+
+    pagesEl.classList.add("turning");
+    pagesEl.innerHTML = direction === "next" ? (siblingHtml + turnSlotHtml) : (turnSlotHtml + siblingHtml);
 
     const leaf = document.getElementById("albumLeafTurn");
     // Force a layout flush so the browser registers the untransformed

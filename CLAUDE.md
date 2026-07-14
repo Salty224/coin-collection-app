@@ -940,34 +940,59 @@ per-slot photo yet.)
   page at a time; in spread mode they step by whole pairs
   (`nextAlbumPageIndex()`/`prevAlbumPageIndex()`), always landing back on a
   valid pair boundary (or on the lone cover) rather than an arbitrary index.
-- **Rigid page-turn animation (locked in)**: a real page turn, not a corner-
-  peel/curl — `turnAlbumPage(direction)` builds a `.leaf-turn` element
-  (`perspective` on `.book-pages`, `transform: rotateY()`, `backface-
-  visibility: hidden`) and only the leaf that's *actually* flipping animates.
-  Forward: the old right-hand page (or the single visible page, in single-
-  page mode) is the turning leaf's front face; its own back face is the new
-  left page, pivoting at the left edge (the spine). Backward is the mirror —
-  pivot at the right edge. A page revealed on the *other* side of a spread is
-  a different leaf that was already sitting there underneath (per the same
-  leaf-pairing model above) — it renders statically with no rotation of its
-  own, not as a second animating element. Buttons disable for the ~0.65s
-  duration (`albumTurnInProgress`) so a real click can't land mid-turn; the
-  real DOM (with all click handlers rebound) only replaces the transient
-  animation markup once `transitionend` fires. Direct-open (tapping a slot
-  elsewhere in the app) still calls `renderAlbumBook()` straight, no
-  animation. Applies in both single-page and spread modes.
-- **Known gap, not fully resolved**: the spread tier's `.book-slot-grid`
-  (6 columns, fixed 64px coin-discs) still overflows past the card's right
-  edge on desktop widths — confirmed via direct measurement that at the
-  album-page's actual rendered width (~416px, the effective width for
-  essentially all desktop viewports because of `#app`'s own 1100px cap), 6
-  fixed 64px discs alone need ~384px against only ~378px of available grid
-  width, before gaps are even added. The gap was tightened 14px→9px per
-  Ray's initial fix, which measurably reduces the overflow (~76px→~51px) but
-  does not eliminate it — no gap value can, since the discs alone already
-  exceed the budget. Fully closing this needs either a smaller disc/column
-  count at this tier, or a wider page budget; flagged to Ray rather than
-  unilaterally overriding his "keep 6 columns and 64px discs" instruction.
+- **Rigid, binder-ring page-turn animation (locked in, spread mode only)**: a
+  real page turn — pages pivot around a fixed central vertical axis (the
+  spine), like a ring binder or book, never an accordion/fan-unfold with a
+  growing gap between panels. `turnAlbumPage(direction)` gives only the slot
+  whose content is actually changing a `.book-turn-slot` wrapper containing,
+  stacked via **z-index** (not DOM order — this is what makes both directions
+  work correctly without swapping markup order): the newly-revealed static
+  page underneath (a different leaf, already sitting there per the existing
+  leaf-pairing model — never rotates), and `.leaf-turn` on top (`perspective`
+  on `.book-pages`, `transform: rotateY()`, `backface-visibility: hidden`),
+  front face = what was showing in that slot, back face = what settles there.
+  Its `transform-origin` is fixed at the spine (the shared edge between the
+  two slots), so it sweeps in true 3D onto the *other* slot's own rectangle —
+  it never floats apart from it. The sibling slot (not changing) renders
+  plain, static, non-rotating content. **Superseded:** an earlier version
+  placed the leaf in the wrong starting slot (the one it was turning *into*
+  rather than *out of*) with no z-index guarantee over its sibling — this
+  produced an accordion/fan-unfold look (panels separating with a growing
+  gap) instead of a binder-ring turn; both the starting-slot placement and
+  the z-index are what actually fix it, confirmed via direct measurement that
+  the gap between the two slot boxes stays constant (the normal `.book-pages`
+  gap) throughout the animation in both directions, never growing.
+  **Single-page mode never animates at all** — tapping next/prev there is an
+  instant content swap, no rotation, no transition; too narrow to show a
+  spine. **The lone-cover ↔ first-spread boundary is also an instant swap**,
+  not animated — it's a genuine page-*count* change (1 page becoming 2 or
+  vice versa), not a same-shape turn, and a closed book's cover has no real
+  left/right side to hand off between, so attempting to animate it produced a
+  duplicated-cover artifact; every ordinary 2-page ↔ 2-page turn still gets
+  the full animation. Buttons disable for the ~0.65s duration
+  (`albumTurnInProgress`) so a real click can't land mid-turn; the real DOM
+  (with all click handlers rebound) only replaces the transient animation
+  markup once `transitionend` fires. Direct-open (tapping a slot elsewhere in
+  the app) still calls `renderAlbumBook()` straight, no animation.
+- **Column count and disc size are computed, not fixed (locked in)**: the
+  goal is fitting as many coins per row as the available space allows at
+  each breakpoint while keeping the coin image and its caption legible — not
+  matching any particular target count or physical folder reference (an
+  earlier pass tried to reason from real Littleton folders' actual coin-per-
+  row count; that framing was wrong and is dropped). `computeAlbumGridLayout()`
+  finds the largest column count that keeps each disc at or above a
+  legibility floor (currently 52px), then sizes discs to fill the row exactly
+  (capped at a comfortable maximum, 64px) — both applied via CSS custom
+  properties (`--slot-columns`, `--slot-gap`, `--slot-disc-size`,
+  `--slot-disc-font`) on the grid element. `albumPageContentWidth()` derives
+  the real available width from one live measurement
+  (`#albumsDetailContainer`, which persists across re-renders) plus fixed,
+  file-owned CSS constants (book-pages gap, page padding/border, page
+  max-width) — one verified measurement plus known local constants, rather
+  than stacking multiple unverified assumptions the way the original
+  hardcoded 6-column/64px layout did (confirmed via measurement to overflow
+  by ~51px at that fixed size). Verified via direct measurement to produce
+  zero overflow from a 360px phone through a 1920px desktop viewport.
 - **Key-date coins are highlighted** with a small gold star badge and a
   matching glow around the coin disc, driven by a `keyDate: true` flag per
   slot (e.g. 1909-(S) VDB Lincoln cents, the 1878 8 Tail Feathers Morgan) —
@@ -983,51 +1008,58 @@ per-slot photo yet.)
   content — that's superseded by the sheet-accurate pairing above.
 
 ### Littleton folder visual style (locked in)
-Manufactured Littleton-brand folders get a distinct cosmetic treatment from
-the rest of the app's dark UI — cream/tan cardboard page background, navy
-printed folder typography, and die-cut circular holes instead of the dark
-disc/case look. This applies to **every page** of a Littleton album (cover,
-history, and coin pages alike), not just the coin grid, so there's no jarring
-dark-to-cream jump between pages within the same folder.
-- **Which albums get it**: driven by a new album-level `folderStyle` field
-  (`"littleton"` vs. `"default"`), mirroring the real rule — any album whose
-  real DB_Sets row has a populated `MfgProductID` (e.g. `LCF18`, `LCF19`,
-  `C06`, `LCF31` — real Littleton product codes) gets the shared Littleton
-  look, **regardless of which specific product code** (no per-product visual
-  differences). An album with no MfgProductID (e.g. a Numis-style album,
-  `folderStyle: "default"`) keeps the existing dark-UI page look untouched —
-  none of the CSS/rendering below applies to it at all (scoped via `.littleton`
-  page and `.littleton-slot` cell modifier classes, never a base-class change).
-  `mfgProductId` is stored per album now (e.g. `"LCF19"`) even though it
-  doesn't drive any visual difference yet — this sets up future per-product
-  individualization (different hole counts/page layouts) without a schema
-  change later.
+Every album currently gets a distinct cosmetic treatment from the rest of the
+app's dark UI — cream/tan cardboard interior pages with navy printed folder
+typography and die-cut circular holes, plus a visually distinct darker-brown/
+copper cover — instead of the dark disc/case look used elsewhere in the app.
+- **Which albums get it**: an album-level `folderStyle` field
+  (`"littleton"` today for every `FAKE_ALBUMS` entry) drives whether the
+  look applies, scoped via `.littleton` page and `.littleton-slot` cell
+  modifier classes (never a base-class change) so nothing here touches any
+  other view in the app. **Superseded:** this was originally gated on a
+  populated DB_Sets `MfgProductID` (Numis-style/non-manufactured albums would
+  stay dark-UI) — Ray's call is now to apply the look to every album
+  regardless of `MfgProductID`, until told otherwise. `folderStyle` stays a
+  real per-album field either way (not hardcoded away) in case a future album
+  ever needs a different look again. `mfgProductId` (e.g. `"LCF19"`) is still
+  stored per album where it's actually known, purely as future metadata (e.g.
+  eventual per-product individualization) — it doesn't drive any visual
+  difference today.
 - **Demo album**: `FAKE_ALBUMS`'s third entry ("Jefferson Nickels — Littleton
   Folder Vol. 3") is a generic placeholder — no real Littleton folder has been
   chosen yet (Ray's Volume 2 selection is still pending). Swap its name/date-
   range/`mfgProductId` for the real folder once chosen, same stand-in pattern
   as `FAKE_REFERENCE_IMAGES`/`FAKE_GRADING_HELP`.
+- **Cover is visually distinct from the interior pages (locked in)**: darker
+  brown background with copper-colored lettering, vs. the cream background
+  and navy print on history/coin interior pages — a folder's outer cover is a
+  different material in real life (heavier cardstock/leatherette) from its
+  printed inside pages, and the two looks are meant to read as different
+  surfaces, not one continuous skin.
 - **Die-cut holes** (`renderSlotCell()`, `.coin-disc.die-cut`): an **owned**
   slot always shows a coin glyph seated in the hole with a thin light inner
-  ring where it meets the cardboard — never bare year text (unlike the
-  default dark-UI look, which still falls back to plain year text when no
-  reference image exists). If there's a real photo or series reference image,
-  it shows normally; if not (owned, photo pending), the same glyph shows
+  ring where it meets the cardboard — never bare year text (unlike the old
+  dark-UI look, which fell back to plain year text when no reference image
+  existed). If there's a real photo or series reference image, it shows
+  normally; if not (owned, photo pending), the same glyph shows
   **desaturated/faded** (`opacity`, `grayscale` filter) so it reads as "owned,
   waiting on a photo" rather than looking identical to a genuinely empty
   hole. An **unfilled** slot (`.die-cut-empty`) shows no coin, no placeholder
   icon at all, no "?" — just a plain shadowed punched hole, matching how an
-  unfilled real folder slot actually looks (the default dark-UI look still
-  shows a "?" for unfilled slots — that's unchanged for non-Littleton albums).
+  unfilled real folder slot actually looks.
 - **Caption**: date + mintmark only under each hole (`.slot-label`) — the
-  second `.slot-meta` description line is dropped entirely for Littleton
-  pages, matching real folder printing. Non-Littleton pages keep both lines.
+  second `.slot-meta` description line is dropped entirely, matching real
+  folder printing.
 - **Key-date marker**: the gold glowing-star treatment is restyled to a
-  small navy printed star + ring for Littleton pages, fitting the printed-
-  folder look rather than the dark-UI's glow.
-- **Numis-style silver-era albums are explicitly out of scope for this look**
-  — they get their own pass later, per Ray. Nothing about this feature
-  touches them.
+  small navy printed star + ring, fitting the printed-folder look rather than
+  a glow.
+- **Reference photos were for color/material only, not the page-turn
+  mechanic (important correction)**: real Littleton folders physically
+  unfold accordion/fan-style flat on a table — that look was mistakenly
+  carried over into an early version of the page-turn *animation* itself
+  (see the binder-ring page-turn note above for the fix). The reference
+  photos only ever governed the cream/navy/die-cut *look*, never the
+  interaction/motion.
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
