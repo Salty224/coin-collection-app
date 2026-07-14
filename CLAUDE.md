@@ -993,10 +993,33 @@ per-slot photo yet.)
   hardcoded 6-column/64px layout did (confirmed via measurement to overflow
   by ~51px at that fixed size). Verified via direct measurement to produce
   zero overflow from a 360px phone through a 1920px desktop viewport.
-- **Key-date coins are highlighted** with a small gold star badge and a
-  matching glow around the coin disc, driven by a `keyDate: true` flag per
-  slot (e.g. 1909-(S) VDB Lincoln cents, the 1878 8 Tail Feathers Morgan) —
-  this is manually flagged per slot today, not derived from any rule.
+- **Coins-per-page is computed, not fixed (locked in)**: same "fill the
+  space available, don't push to a new page unnecessarily" principle as
+  columns, extended to the whole page rather than just one row.
+  `computeAlbumChunkSize()` derives rows from real available vertical space
+  (`computeAlbumPageRows()` — one live measurement of `#albumsDetailContainer`'s
+  position plus fixed, file-owned constants for the page padding/border, the
+  page-side-label line, and the book-nav controls, same one-measurement-plus-
+  known-constants approach as the width side) and multiplies by the computed
+  column count, replacing the old fixed `ALBUM_PAGE_CHUNK = 6`. This is
+  computed once, when an album is opened (`openAlbumAtPage()` now shows the
+  detail container *before* measuring it, since `computeAlbumChunkSize()`
+  needs real layout to read from) — not re-computed on every resize, matching
+  how the rest of the book's pagination is already decided once at open time;
+  resizing after opening can leave a page sized for a since-changed viewport,
+  an accepted minor cosmetic tradeoff rather than a live-reflowing pagination
+  engine. A small album (e.g. 8 slots) that fits entirely within one page's
+  computed capacity now gets exactly one Obverse/Reverse page pair instead of
+  being split across two pairs just because 8 > a fixed 6.
+- **Reverse-side coin order only mirrors Obverse in spread (two-page) mode**:
+  `reverseWithinRows()` is still correct and still runs, but only when
+  `spread` is true — in single-page mode, Obverse and Reverse are never seen
+  side by side (you flip forward to Reverse as its own separate screen), so
+  there's nothing for a mirrored order to actually demonstrate; Reverse just
+  keeps the same left-to-right order as Obverse there. In spread mode the
+  mirroring still matters: the left (Reverse) page of a two-page spread
+  should read as the mirror of the no-longer-visible Obverse side of those
+  same coins, since a real sheet flips left-right when turned over.
 - **Superseded:** the earlier device-tiered plan (phone = plain scrollable
   list; tablet = circular slot grid; desktop = grid with real photos inline)
   is gone — the book's fixed-size-page grid layout is now used at every

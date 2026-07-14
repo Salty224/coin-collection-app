@@ -3245,19 +3245,53 @@
   }
 
   // An album "book": cover, then a history/facts page, then the slots grouped
-  // into fixed-size pages alternating obverse/reverse of the same group — like
-  // flipping through a physical Whitman folder or the Red Book. Page count and
-  // spread width are driven by buildAlbumPages()/isAlbumSpreadWidth() below;
-  // screen width alone decides single-page vs. two-page-side-by-side.
-  const ALBUM_PAGE_CHUNK = 6;
+  // into pages alternating obverse/reverse of the same group — like flipping
+  // through a physical Whitman folder or the Red Book. Page count and spread
+  // width are driven by buildAlbumPages()/isAlbumSpreadWidth() below; screen
+  // width alone decides single-page vs. two-page-side-by-side.
   let currentAlbumIndex = null;
   let currentAlbumPages = [];
   let currentPageIndex = 0;
 
-  function buildAlbumPages(album) {
+  // Rows-per-page, same principle as computeAlbumGridLayout()'s columns —
+  // how many rows of the current disc size fit in the real available
+  // vertical space, so a page fills the room it's actually given instead of
+  // an arbitrary fixed slot count (which wasted a whole row of space at wider
+  // column counts, e.g. 6 columns x 1 row when 6 x 2 would fit the same
+  // page just as comfortably). "Reserved" below is fixed chrome this file
+  // owns and controls directly (page padding/border, the page-side-label
+  // line, the book-nav controls, a small safety margin) — one live
+  // measurement (container's position) plus known local constants, same
+  // methodology as albumPageContentWidth().
+  function computeAlbumPageRows(discSize, gap) {
+    const container = document.getElementById("albumsDetailContainer");
+    const containerTop = container ? container.getBoundingClientRect().top : 0;
+    const PAGE_PADDING_V = 40, PAGE_BORDER_V = 2, SIDE_LABEL_H = 24, BOOK_NAV_H = 52, SAFETY = 24;
+    const reserved = PAGE_PADDING_V + PAGE_BORDER_V + SIDE_LABEL_H + BOOK_NAV_H + SAFETY;
+    const available = window.innerHeight - containerTop - reserved;
+    const rowHeight = discSize + 6 /* slot-cell gap */ + 16 /* caption line */ + gap;
+    return Math.max(1, Math.floor(available / rowHeight));
+  }
+
+  // Chunk size (coins per page) is computed once, at the point an album is
+  // opened, from the actual available width and height at that moment —
+  // "fill the page with as many coins as fit, don't push extras to a new
+  // page unnecessarily" — rather than a fixed count. Not re-computed on
+  // every resize (matches how the rest of this book's pagination is already
+  // decided once at open time); resizing after opening can leave a page
+  // sized for a since-changed viewport, a minor cosmetic tradeoff rather
+  // than a live-reflowing pagination engine.
+  function computeAlbumChunkSize() {
+    const spread = isAlbumSpreadWidth();
+    const { columns, gap, discSize } = computeAlbumGridLayout(albumPageContentWidth(spread));
+    const rows = computeAlbumPageRows(discSize, gap);
+    return columns * rows;
+  }
+
+  function buildAlbumPages(album, chunkSize) {
     const pages = [{ type: "cover" }, { type: "history" }];
-    for (let i = 0; i < album.slots.length; i += ALBUM_PAGE_CHUNK) {
-      const chunk = album.slots.slice(i, i + ALBUM_PAGE_CHUNK);
+    for (let i = 0; i < album.slots.length; i += chunkSize) {
+      const chunk = album.slots.slice(i, i + chunkSize);
       pages.push({ type: "coins", side: "obverse", slots: chunk });
       pages.push({ type: "coins", side: "reverse", slots: chunk });
     }
@@ -3297,11 +3331,14 @@
 
   function openAlbumAtPage(index, pageIndex) {
     currentAlbumIndex = index;
-    currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index]);
-    currentPageIndex = pageIndex;
-    renderAlbumBook();
+    // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
+    // needs a real, laid-out #albumsDetailContainer to derive available
+    // width/height from, which isn't possible while it's still display:none.
     document.getElementById("albumsListView").style.display = "none";
     document.getElementById("albumsDetailView").style.display = "block";
+    currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index], computeAlbumChunkSize());
+    currentPageIndex = pageIndex;
+    renderAlbumBook();
   }
 
   function showAlbumDetail(index) {
@@ -3432,11 +3469,17 @@
         </div>
       `;
     }
-    // Physical page-flip accuracy: each coin passes through the paper when a
-    // page turns, so the coin that's rightmost on a row is leftmost on that
-    // same row's back — only left-right order inverts, row order stays put.
+    // Physical page-flip accuracy only matters when both sides are actually
+    // being compared — a two-page spread, where the left (reverse) page sits
+    // next to a right (obverse) page and its coin order should mirror the
+    // no-longer-visible obverse side of those SAME coins, since a real sheet
+    // flips left-right when turned over. In single-page mode nothing is ever
+    // shown side by side (you flip forward to Reverse as its own separate
+    // screen), so there's nothing for a mirrored order to actually
+    // demonstrate — Reverse just keeps the same left-to-right order as
+    // Obverse there.
     const { columns, gap, discSize, discFont } = computeAlbumGridLayout(albumPageContentWidth(spread));
-    const orderedSlots = page.side === "reverse" ? reverseWithinRows(page.slots, columns) : page.slots;
+    const orderedSlots = (spread && page.side === "reverse") ? reverseWithinRows(page.slots, columns) : page.slots;
     const gridStyle = `--slot-columns:${columns}; --slot-gap:${gap}px; --slot-disc-size:${discSize}px; --slot-disc-font:${discFont}px;`;
     return `
       <div class="case album-page album-page-coins${littletonClass}">
