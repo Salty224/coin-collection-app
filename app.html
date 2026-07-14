@@ -1215,6 +1215,10 @@
     .toast { bottom: 24px; }
   }
 </style>
+<!-- Loaded from jsdelivr, not the default Microsoft CDN (alcdn.msauth.net is
+     silently blocked by a browser extension Ray has) — same as index.html/
+     stage.html. Pinned to the same version those two pages use. -->
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 </head>
 <body>
 
@@ -2028,6 +2032,152 @@
 
 <script>
   // ==================================================================
+  // REAL Graph API integration — Reference Images (read-only, first real
+  // network/auth code in this file). Everything else in app.html still
+  // operates on FAKE_* in-memory data (see CLAUDE.md hard constraints /
+  // "What NOT to build") — this one feature is the exception, and it's
+  // scoped narrowly on purpose:
+  //   - GET only. This file never issues PUT/POST/PATCH anywhere, enforced
+  //     by the code itself (fetchReferenceImageBlob below is the only place
+  //     that ever calls fetch() against Graph, and it hardcodes method: "GET")
+  //     — not just left implicit because the requested scope happens to be
+  //     read-only.
+  //   - Path is a hardcoded CoinCollection/ReferenceImages/ prefix. No
+  //     dynamic/user-influenced value ever reaches the Graph call, and this
+  //     never touches CoinCollection (AI).xlsx or any other OneDrive path.
+  //   - Files.Read scope only (not Files.ReadWrite) — narrower than
+  //     index.html/stage.html's write-capable scope, since this feature only
+  //     ever reads.
+  //   - redirectUri below is a LOCAL DEV TESTING URI, not the production
+  //     GitHub Pages one — same per-exact-page-URI pattern as index.html/
+  //     stage.html, just registered against http://localhost:8791/app.html
+  //     instead. Add that exact URI to the Entra app registration before
+  //     testing; Microsoft's SPA platform config allows plain http on
+  //     localhost with no HTTPS requirement.
+  const referenceImageMsalConfig = {
+    auth: {
+      clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
+      authority: "https://login.microsoftonline.com/consumers",
+      redirectUri: "http://localhost:8791/app.html"
+    },
+    cache: {
+      cacheLocation: "localStorage" // MSAL's own token cache — narrow, intentional exception to the no-localStorage rule (auth-session state, not app data)
+    }
+  };
+  // MSAL is loaded from jsdelivr in a plain <script> tag in <head> — if that
+  // request gets blocked (offline, a content blocker, the exact class of
+  // issue already seen with alcdn.msauth.net — see CLAUDE.md), `msal` never
+  // gets defined. This whole feature is additive and must never be able to
+  // take the rest of the app (all still-fake, non-network functionality)
+  // down with it, so every entry point below degrades to "no reference image
+  // available" instead of throwing when that happens.
+  const referenceImageMsalInstance = (typeof msal !== "undefined")
+    ? new msal.PublicClientApplication(referenceImageMsalConfig)
+    : null;
+  const REFERENCE_IMAGE_SCOPES = ["Files.Read"];
+
+  if (referenceImageMsalInstance) {
+    referenceImageMsalInstance.handleRedirectPromise().catch(err => {
+      console.warn("Reference image sign-in redirect error:", err);
+    });
+  } else {
+    console.warn("MSAL failed to load — reference images will show placeholders only.");
+  }
+
+  // Same silent-then-redirect pattern as index.html's getToken(). Unlike
+  // index.html, there's no explicit "Sign In" button here — this is called
+  // lazily off the first coin render that needs a reference image, so the
+  // very first time that happens with no cached session, acquireTokenRedirect
+  // will navigate the page to Microsoft's sign-in (a real, full-page
+  // redirect, not a popup) and back again once Ray signs in.
+  async function getReferenceImageToken() {
+    if (!referenceImageMsalInstance) return null; // MSAL didn't load — see the guard above
+    const account = referenceImageMsalInstance.getAllAccounts()[0];
+    try {
+      const result = await referenceImageMsalInstance.acquireTokenSilent({ scopes: REFERENCE_IMAGE_SCOPES, account });
+      return result.accessToken;
+    } catch (e) {
+      referenceImageMsalInstance.acquireTokenRedirect({ scopes: REFERENCE_IMAGE_SCOPES });
+      return null;
+    }
+  }
+
+  const REFERENCE_IMAGES_FOLDER = "CoinCollection/ReferenceImages";
+
+  // In-memory only (never localStorage/sessionStorage for this — see CLAUDE.md
+  // "What NOT to build"): cleared on reload, fetched at most once per
+  // series+side per session. Keyed "{sanitizedSeriesName}_{obverse|reverse}"
+  // -> a blob URL string once loaded, or null once confirmed there's no image
+  // on file (a real 404 response from Graph) — a cached null still counts as
+  // "already attempted," so a genuine 404 doesn't get re-requested every
+  // render either. Critically, this is ONLY populated on a real answer from
+  // Graph (200 or 404) — see fetchReferenceImageBlob's { attempted } flag
+  // below — never on a "no token yet" outcome, so a series rendered before
+  // sign-in completes correctly retries (rather than being stuck showing the
+  // placeholder forever) once Ray actually signs in.
+  const referenceImageCache = {};
+  const referenceImageFetchesInFlight = {};
+
+  // The only function in this file that calls fetch() against Graph for this
+  // feature — single GET, hardcoded folder, no dynamic path segments beyond
+  // the already-sanitized seriesKey. Fetches raw bytes and builds a same-
+  // session blob URL rather than using @microsoft.graph.downloadUrl, which
+  // expires in ~1hr and would break a longer-running session.
+  //
+  // Returns { attempted: true, url } once Graph has actually answered (url is
+  // a blob URL, or null for a confirmed 404) — safe to cache permanently.
+  // Returns { attempted: false } for anything that isn't a real answer yet
+  // (no token/mid sign-in-redirect, a transient network error) — the caller
+  // must NOT cache this, so the next render retries instead of getting stuck.
+  async function fetchReferenceImageBlob(seriesKey, side) {
+    const token = await getReferenceImageToken();
+    if (!token) return { attempted: false }; // no session yet (mid-redirect, or signed out)
+    const fileName = `${seriesKey}_${side}.png`;
+    const path = REFERENCE_IMAGES_FOLDER + "/" + fileName;
+    try {
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+          path.split("/").map(encodeURIComponent).join("/") + ":/content",
+        { method: "GET", headers: { Authorization: "Bearer " + token } }
+      );
+      if (res.status === 404) return { attempted: true, url: null }; // no reference image on file yet — normal, not an error
+      if (!res.ok) {
+        console.warn("Reference image fetch failed:", fileName, res.status);
+        return { attempted: false }; // transient (e.g. throttling) — worth retrying later
+      }
+      const blob = await res.blob();
+      return { attempted: true, url: URL.createObjectURL(blob) };
+    } catch (e) {
+      console.warn("Reference image fetch error:", fileName, e.message);
+      return { attempted: false };
+    }
+  }
+
+  // Dedupes concurrent/repeat calls for the same series+side to at most one
+  // real request per session — safe to call as often as needed.
+  function ensureReferenceImageFetch(seriesKey, side) {
+    const key = seriesKey + "_" + side;
+    if (Object.prototype.hasOwnProperty.call(referenceImageCache, key)) {
+      return Promise.resolve(referenceImageCache[key]);
+    }
+    if (referenceImageFetchesInFlight[key]) return referenceImageFetchesInFlight[key];
+    const promise = fetchReferenceImageBlob(seriesKey, side).then(result => {
+      delete referenceImageFetchesInFlight[key];
+      if (result.attempted) {
+        referenceImageCache[key] = result.url;
+        return result.url;
+      }
+      return null; // not cached — a later call (e.g. after sign-in completes) will retry for real
+    });
+    referenceImageFetchesInFlight[key] = promise;
+    return promise;
+  }
+
+  function getCachedReferenceImageUrl(seriesKey, side) {
+    return referenceImageCache[seriesKey + "_" + side] || null;
+  }
+
+  // ==================================================================
   // FAKE DATA — placeholder only. No OneDrive / Graph calls in this file.
   // ==================================================================
 
@@ -2056,9 +2206,10 @@
     { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   itemType: "coin",  setType: "Proof Set",        commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   cost: 12,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
     { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    // Owned but no photo AND no series reference image on file yet (Jefferson
-    // isn't in FAKE_REFERENCE_IMAGES) — the one real coin demonstrating the
-    // Littleton folder's "owned, photo pending" desaturated-glyph tier below.
+    // Owned but no photo AND no series reference image on file yet (no
+    // CoinCollection/ReferenceImages/Jefferson_*.png on Ray's OneDrive as of
+    // this writing) — the one real coin demonstrating the Littleton folder's
+    // "owned, photo pending" desaturated-glyph tier below.
     { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" }
   ];
 
@@ -2632,15 +2783,25 @@
   // Real asset sourcing (U.S. Mint product renders for modern currently-sold
   // items, or a Ray-approved/Canva-made image for historical series) is a
   // separate, ongoing task per CLAUDE.md — not resolved by this mechanism.
-  // These two entries are structural stand-ins so the fallback is
-  // demonstrable end-to-end, not real sourced artwork.
-  const FAKE_REFERENCE_IMAGES = {
-    "Lincoln_Wheat": true,
-    "Morgan": true
-  };
-
-  function hasReferenceImage(coin) {
-    return !!FAKE_REFERENCE_IMAGES[referenceSeriesKey(coin)];
+  //
+  // Backed by a REAL read-only Graph API check now (see the "REAL Graph API
+  // integration" section at the top of this script), not the old
+  // FAKE_REFERENCE_IMAGES boolean stub — this looks in
+  // CoinCollection/ReferenceImages/ on Ray's own OneDrive for
+  // {seriesKey}_{side}.png. Synchronous return value reflects only what's
+  // already cached this session; a cache miss kicks off the real fetch in
+  // the background (see ensureReferenceImageFetch) and the coin's disc
+  // upgrades in place once it resolves (applyDiscContent below) — a miss on
+  // first call is expected and not itself an error.
+  function hasReferenceImage(coin, side) {
+    side = side || "obverse";
+    const seriesKey = referenceSeriesKey(coin);
+    const key = seriesKey + "_" + side;
+    if (Object.prototype.hasOwnProperty.call(referenceImageCache, key)) {
+      return !!referenceImageCache[key];
+    }
+    ensureReferenceImageFetch(seriesKey, side);
+    return false;
   }
 
   // Contextual Grading Help (Part 8) — framework/location only. This wires
@@ -2680,16 +2841,40 @@
   // mockup never has a persisted real owned photo to check (see "What NOT to
   // build" / crop-is-display-only), so in practice it's always tier 2 or 3
   // here — real usage would check for an actual Obverse/Reverse file first.
-  function applyDiscContent(discEl, coin) {
+  //
+  // side defaults to "obverse" since most call sites only ever show one face;
+  // Spotlight (the one place that flips) passes spotlightSide explicitly.
+  // Real reference images render as an actual photo (background-image + blob
+  // URL) rather than the old 🪙 stand-in glyph — the emoji now only shows
+  // while a real image hasn't loaded/isn't cached yet this session, same
+  // visual slot as before. If hasReferenceImage() triggered a fresh fetch
+  // (cache miss), this attaches a one-time callback that upgrades THIS exact
+  // discEl in place once the fetch resolves, as long as it's still in the
+  // document — this needs no page-wide re-render mechanism since the coin
+  // grid/detail/spotlight elements it's called on stay live in the DOM for
+  // the ~1 request the fetch takes.
+  function applyDiscContent(discEl, coin, side) {
+    side = side || "obverse";
+    const seriesKey = referenceSeriesKey(coin);
     discEl.classList.remove("reference-image");
-    if (hasReferenceImage(coin)) {
-      discEl.textContent = "🪙";
-      discEl.classList.add("reference-image");
-      discEl.title = "Generic reference image for this series — not a photo of this specific coin";
+    discEl.style.backgroundImage = "";
+    if (hasReferenceImage(coin, side)) {
+      applyRealReferenceImage(discEl, getCachedReferenceImageUrl(seriesKey, side));
     } else {
       discEl.textContent = coin.year;
       discEl.title = "";
+      ensureReferenceImageFetch(seriesKey, side).then(url => {
+        if (url && document.contains(discEl)) applyRealReferenceImage(discEl, url);
+      });
     }
+  }
+
+  function applyRealReferenceImage(discEl, url) {
+    discEl.textContent = "";
+    discEl.classList.add("reference-image");
+    discEl.style.backgroundImage = `url("${url}")`;
+    discEl.style.backgroundSize = "cover";
+    discEl.title = "Reference image for this series — not a photo of this specific coin";
   }
 
   // Renders 1-2 stacked lines inside a flip-label corner instead of one run-on
@@ -2747,7 +2932,7 @@
     frame.style.opacity = 0;
     setTimeout(() => {
       const disc = document.getElementById("spotlightDisc");
-      applyDiscContent(disc, coin);
+      applyDiscContent(disc, coin, spotlightSide);
       disc.classList.toggle("reverse-face", spotlightSide === "reverse");
       sizeCoinElement(disc, coin.denom, 210, 32);
       applyFlipCorners("spotlight", coin);
@@ -3467,12 +3652,21 @@
   function renderSlotCell(slot, side, album) {
     const filled = !!slot.filledBy;
     const filledCoin = filled ? FAKE_COINS.find(c => c.id === slot.filledBy) : null;
-    const useReference = filledCoin && hasReferenceImage(filledCoin);
+    // hasReferenceImage() here only reflects what's already cached this
+    // session (and kicks off the real fetch on a miss) — this is a string-
+    // templated render (innerHTML), not a live element reference, so unlike
+    // applyDiscContent() a slot doesn't self-upgrade mid-view when a fetch
+    // resolves; it picks up the cached image on the album's next render/
+    // reopen, same as this app's other computed-once-at-open-time choices
+    // (e.g. album page chunk sizing).
+    const useReference = filledCoin && hasReferenceImage(filledCoin, side);
+    const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(filledCoin), side) : null;
     const isLittleton = album && album.folderStyle === "littleton";
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
     if (filled && side === "reverse") discClasses.push("reverse-face");
     if (useReference) discClasses.push("reference-image");
+    const discStyleAttr = referenceUrl ? ` style="background-image:url('${referenceUrl}');background-size:cover;"` : "";
 
     let discContent;
     if (isLittleton) {
@@ -3484,14 +3678,14 @@
       // genuinely empty/unowned hole rather than looking identical to it.
       discClasses.push("die-cut");
       if (filled) {
-        discContent = "🪙";
+        discContent = referenceUrl ? "" : "🪙";
         if (!useReference) discClasses.push("photo-pending");
       } else {
         discContent = "";
         discClasses.push("die-cut-empty");
       }
     } else {
-      discContent = filled ? (useReference ? "🪙" : slot.year) : "?";
+      discContent = filled ? (referenceUrl ? "" : (useReference ? "🪙" : slot.year)) : "?";
     }
 
     // Real Littleton folders print only date + mintmark under each hole, no
@@ -3502,7 +3696,7 @@
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
         ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
-        <div class="${discClasses.join(" ")}">${discContent}</div>
+        <div class="${discClasses.join(" ")}"${discStyleAttr}>${discContent}</div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
         ${metaLine}
       </div>

@@ -45,7 +45,102 @@ ask before updating rather than updating by default.
 - MSAL: use `loginRedirect`, not popup (popup breaks on mobile after a canceled
   attempt). Load MSAL from jsdelivr CDN, not the default Microsoft CDN
   (`alcdn.msauth.net` is silently blocked by a browser extension Ray has).
-- Redirect URIs must be registered per page/route in Entra.
+- Redirect URIs must be registered per page/route in Entra. Registered so far:
+  `index.html` → bare `https://salty224.github.io/coin-collection-app/`;
+  `stage.html` → its own `.../stage.html`; `app.html` → local dev only,
+  `http://localhost:8791/app.html` (see "Real Graph API reads" below) — no
+  production redirect URI for `app.html` exists yet, that's a separate future
+  step once this app is actually deployed/tested beyond local dev.
+
+## Real Graph API reads (locked in — first real network/auth code in app.html)
+`app.html` was pure `FAKE_*` in-memory mockup data until the Reference Images
+feature below needed to check Ray's actual OneDrive — this is still the
+**only** real Graph code in the file; every Save button remains a stub (see
+"What NOT to build" / hard constraints — nothing here writes anything).
+- **Read-only, enforced in code, not just by scope.** `fetchReferenceImageBlob()`
+  is the only function that calls `fetch()` against Graph for this feature; it
+  hardcodes `method: "GET"` and requests the narrower `Files.Read` scope (not
+  `Files.ReadWrite`, unlike index.html/stage.html, which need write for their
+  own purposes).
+- **Path is a hardcoded `CoinCollection/ReferenceImages/` prefix** — no
+  dynamic/user-influenced path segment beyond the already-sanitized series key
+  ever reaches the Graph call, and this never touches `CoinCollection
+  (AI).xlsx` or any other OneDrive path. Graph itself has no folder-scoped
+  permissions — `Files.Read` grants read access to the whole drive — so this
+  boundary is enforced entirely by the calling code, not by anything Graph or
+  Entra can restrict on its own.
+- **MSAL bootstrap adapted from index.html's**, own `PublicClientApplication`
+  instance (`referenceImageMsalInstance`), same `clientId`/`authority`,
+  `cacheLocation: "localStorage"` (MSAL's own token cache — the same narrow,
+  intentional exception to the no-localStorage rule as the other two pages).
+  `redirectUri` is `http://localhost:8791/app.html` — **local dev testing
+  only**, registered in Entra as its own exact URI alongside index.html's and
+  stage.html's (Microsoft's SPA platform config allows plain `http://` on
+  `localhost`, no HTTPS needed). There's no explicit "Sign In" button on this
+  page (unlike index.html) — `getReferenceImageToken()` tries
+  `acquireTokenSilent` first and falls back to `acquireTokenRedirect` exactly
+  like index.html's `getToken()`, but it's triggered lazily by the first coin
+  render that needs an image rather than a click. Practically: the first time
+  `app.html` loads locally with no cached session, the very first coin disc
+  that needs a reference image will trigger a real full-page redirect to
+  Microsoft sign-in; after Ray signs in, the redirect returns to
+  `app.html` and normal rendering continues, retrying the fetch for real.
+- **The whole feature degrades gracefully if MSAL itself never loads.** The
+  jsdelivr `<script>` tag is a real external request, and this project has
+  already hit exactly this class of failure once (`alcdn.msauth.net` silently
+  blocked by a browser extension — see Azure/Entra config above). If `msal`
+  never becomes defined, `referenceImageMsalInstance` is `null` instead of
+  throwing, and every function that needs it (`getReferenceImageToken()`,
+  etc.) short-circuits to "no image available" rather than throwing — this
+  was verified to matter: an earlier version threw uncaught at the top of the
+  script when `msal` was undefined, which broke the *entire* app (all
+  navigation, all still-fake functionality) since it happened before the rest
+  of the script's function definitions ran. This one read-only feature must
+  never be able to take the rest of the mockup down with it.
+- **Image delivery: raw bytes → in-page blob URL, not
+  `@microsoft.graph.downloadUrl`** — the download URL Graph returns expires in
+  ~1hr, which would silently break a longer-running session; a blob URL
+  (`URL.createObjectURL`) lasts the whole page lifetime instead.
+- **Caching: in-memory only, keyed `{sanitizedSeriesName}_{obverse|reverse}`**
+  (`referenceImageCache`) — never localStorage/sessionStorage (see "What NOT
+  to build"), cleared on reload, fetched at most once per series+side per
+  session. **Only a real answer from Graph (200 or 404) gets cached** — a
+  fetch attempt that fails because there's no token yet (not signed in, mid
+  sign-in-redirect) is deliberately left uncached so it retries for real once
+  Ray actually signs in, rather than getting stuck showing the placeholder
+  forever for whatever series happened to render first.
+- **404 = "no reference image on file yet," same as the old boolean-false
+  path** — not an error, not surfaced to the user any differently than before.
+- **Lazy — fetches on first render of a given series, not eager on load.**
+  `hasReferenceImage(coin, side)` (default side `"obverse"`) is the trigger
+  point: a cache hit returns synchronously; a cache miss kicks off the real
+  fetch in the background and returns `false` for that call. Splash screen is
+  untouched by this — still the same simulated `SPLASH_SIMULATED_DELAY_MS`
+  timer as before; that redesign is explicitly deferred until more of the
+  real data-layer Graph calls exist.
+- **Live self-update vs. picks-up-on-next-render, depending on call site.**
+  `applyDiscContent()` (Spotlight, Browse grid cards, Browse detail) holds a
+  real DOM element reference, so on a cache miss it attaches a one-time
+  callback that swaps in the real image in place once the fetch resolves
+  (checking `document.contains(discEl)` first) — no page-wide re-render
+  mechanism needed. Albums' `renderSlotCell()` is string-templated
+  (`innerHTML`), so it can only reflect whatever's already cached at render
+  time — a slot whose image was still loading when the album page rendered
+  shows the fallback until the album is re-rendered/reopened, same
+  computed-once-at-open-time tradeoff as the album page's own chunk-size
+  sizing. This is a known, accepted minor gap, not a bug to chase.
+- **Real image replaces the old 🪙 stand-in glyph** (`applyRealReferenceImage()`
+  sets `background-image` + `background-size: cover` directly on the disc
+  element, inline, which wins over the `.coin-disc.reference-image` class's
+  CSS `background` shorthand for that one property) — the class's muted
+  ring/box-shadow styling still applies around it.
+- **Storage convention changed — flat folder, no obverse/reverse
+  subfolders**: `CoinCollection/ReferenceImages/{sanitizedSeriesName}_obverse.png`
+  and `.../{sanitizedSeriesName}_reverse.png` (e.g. `Lincoln_Wheat_obverse.png`),
+  superseding the earlier subfoldered `.../ReferenceImages/obverse/...` /
+  `.../reverse/...` layout described in the original spec — see "Series-level
+  reference images" below, which is the section this feature's fetch logic
+  actually implements against.
 
 ## OneDrive folder structure
 ```
@@ -1197,13 +1292,18 @@ reference-image-second, then the bare placeholder third.
   Description field the way the real All sheet will, so `referenceSeriesKey()`
   falls back to `seriesLabel()` as a practical approximation for now — real
   usage must key strictly off the actual Description column.
-- **Storage convention** (OneDrive, not yet wired to a real fetch — mocked
-  via a `FAKE_REFERENCE_IMAGES` lookup keyed by sanitized series name):
+- **Storage convention (superseded — now wired to a real read, see "Real
+  Graph API reads" above): flat folder, no obverse/reverse subfolders.**
   ```
-  CoinCollection/ReferenceImages/obverse/{SeriesName}_obverse.png
-  CoinCollection/ReferenceImages/reverse/{SeriesName}_reverse.png
+  CoinCollection/ReferenceImages/{SeriesName}_obverse.png
+  CoinCollection/ReferenceImages/{SeriesName}_reverse.png
   ```
-  Transparent background, lowercase `.png`.
+  e.g. `Lincoln_Wheat_obverse.png`. This replaced an earlier draft convention
+  that subfoldered by side (`.../obverse/...`, `.../reverse/...`) — that
+  layout is dropped, don't build against it. `{SeriesName}` is exactly
+  `sanitizeSeriesName()`'s output (alphanumeric + underscores, case
+  preserved) — matches what the real fetch code constructs, so a file must be
+  named with this exact casing to be found.
 - **Real asset sourcing is a separate, still-open task, not resolved by this
   framework pass.** For modern currently-sold Mint products, attempt an
   official U.S. Mint product render first (federal work, not copyrighted) —
@@ -1213,12 +1313,18 @@ reference-image-second, then the bare placeholder third.
   Ray provides a Canva-made replacement via the same folder/naming
   convention. Display logic is source-agnostic — doesn't matter whether an
   image came from the Mint, was AI-generated, or hand-made, as long as it's
-  in the right place with the right name. The two entries currently in
-  `FAKE_REFERENCE_IMAGES` (Lincoln Wheat, Morgan) are structural stand-ins so
-  the fallback mechanism is demonstrable end-to-end — not real sourced
-  artwork, and visually distinguished (desaturated, dashed-ring disc, a
-  generic 🪙 glyph instead of the year) precisely so they don't get mistaken
-  for real approved art.
+  in the right place with the right name.
+- **Superseded: the fallback used to be demonstrated via a `FAKE_REFERENCE_IMAGES`
+  boolean stub** (Lincoln Wheat and Morgan hardcoded `true`, rendering a
+  visually-distinguished stand-in — desaturated, dashed-ring disc, generic 🪙
+  glyph instead of the year — so it couldn't be mistaken for real approved
+  art). That stub is gone — see "Real Graph API reads" above. The app now
+  checks Ray's actual `CoinCollection/ReferenceImages/` folder for real
+  `{SeriesName}_{obverse|reverse}.png` files; a series shows the 🪙 glyph only
+  while its check is still in flight or unresolved (no token yet), and the
+  bare year-number disc once it's confirmed no file exists there — whether a
+  given series shows a real photo now depends entirely on whether that file
+  actually exists in OneDrive, not on any code stub.
 
 ## What NOT to build
 - AI photo pre-fill from receipts/coin photos — shelved permanently. Redundant with
