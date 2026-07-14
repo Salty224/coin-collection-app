@@ -376,10 +376,17 @@ the same corner mapping:
   swash, etc.) rendering ink slightly past their own measured advance width,
   or sub-pixel DPR rounding, either of which a flush `overflow: hidden` box
   clips immediately. Not reproducible in this environment's desktop
-  Chromium — `.flip-label` now carries `padding: 0 4px` as a safety buffer
+  Chromium — `.flip-label` carries `padding: 0 4px` as a safety buffer
   between text and the actual clip edge, without moving the label's anchored
-  position (`top`/`left`/`right`/`bottom` are unchanged). Confirm on-device
-  before considering this closed.
+  position (`top`/`left`/`right`/`bottom` are unchanged).
+  **Second follow-up: left corners (TL/BL) confirmed fixed by the padding
+  above; right corners (TR/BR) were still clipping.** Whatever's overshooting
+  the box edge is evidently worse on the right-anchored/right-aligned side —
+  `.flip-label.tr`/`.flip-label.br`'s `right` offset was pushed from `10px`
+  to `18px` (on top of the existing padding) to give noticeably more
+  clearance there specifically, rather than just adding more padding
+  uniformly. Still based on device reports rather than a local repro —
+  confirm on-device before considering this fully closed.
 - **Obverse is identification only — standard numismatic shorthand**:
   top-left Year+MintMark (`1945-S`); top-right **the series/type name and the
   coded denomination as two stacked, right-justified lines** (`Mercury` over
