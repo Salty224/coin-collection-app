@@ -595,6 +595,22 @@
     color: var(--text-muted);
   }
 
+  /* Trailing blank page — framework for future additional details, but its
+     real job today is pairing (see buildAlbumPages()): keeps the final
+     Reverse page from rendering alone at full single-page width. */
+  .album-page-blank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+  }
+  .blank-page-note {
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-muted);
+  }
+  .album-page.littleton.album-page-blank .blank-page-note { color: #6b7aa8; }
+
   .album-page-coins .page-side-label {
     font-size: 11px;
     text-transform: uppercase;
@@ -677,11 +693,44 @@
      read (heavier cardstock/leatherette) from its printed inside pages in
      real life, and this keeps that same visual distinction here. Higher
      specificity + later in source order than the shared .album-page.littleton
-     rules above so it wins over them for color/background. */
+     rules above so it wins over them for color/background.
+     Leather grain + gold filigree frame (locked in, Ray's request): two
+     faint crosshatched repeating-linear-gradient layers approximate a
+     tooled-leather texture under the base gradient; a gold outer border plus
+     an inset ::before frame line approximate a filigree border without
+     needing real vector artwork; a small ❦ flourish glyph anchors the
+     bottom edge like a leather-worker's stamp. */
   .album-page.album-page-cover.littleton {
-    background: linear-gradient(160deg, #6b4423, #4e3018 60%, #3c2510);
-    border-color: #2c1c0c;
+    background:
+      repeating-linear-gradient(135deg, rgba(0,0,0,0.12) 0px, rgba(0,0,0,0.12) 1px, transparent 1px, transparent 4px),
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.035) 0px, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 4px),
+      radial-gradient(ellipse at 30% 12%, rgba(255,255,255,0.07), transparent 55%),
+      linear-gradient(160deg, #6b4423, #4e3018 60%, #3c2510);
+    border: 2px solid #c79a5b;
+    box-shadow:
+      inset 0 0 0 1px rgba(0,0,0,0.5),
+      inset 0 0 26px rgba(0,0,0,0.55),
+      0 6px 18px rgba(0,0,0,0.35);
     color: #d4915a;
+    position: relative;
+  }
+  .album-page.album-page-cover.littleton::before {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border: 1px solid rgba(214,163,102,0.55);
+    border-radius: 6px;
+    pointer-events: none;
+  }
+  .album-page.album-page-cover.littleton::after {
+    content: "❦";
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 17px;
+    color: rgba(214,163,102,0.55);
+    pointer-events: none;
   }
   .album-page.album-page-cover.littleton h3 { color: #e0a066; }
   .album-page.album-page-cover.littleton .cover-sub { color: #c17f4c; }
@@ -3351,6 +3400,20 @@
       pages.push({ type: "coins", side: "obverse", slots: chunk });
       pages.push({ type: "coins", side: "reverse", slots: chunk });
     }
+    // A blank page always follows the last Reverse page — framework for
+    // future additional details, but its real purpose today is pairing: from
+    // index 1 on, pages always come in twos (History+Obverse, Reverse+
+    // Obverse, ...), so without this the final Reverse page has nothing to
+    // pair with and was rendering alone at full single-page width even in
+    // spread mode — visibly larger than every other (properly paired,
+    // half-width) page in the spread. One trailing blank page always
+    // restores the even count, since everything from index 1 onward comes in
+    // pairs of coin pages plus the single odd History page. The back cover
+    // (standalone, never paired — same treatment as the front cover) closes
+    // the book out, letting the last flip land somewhere real instead of
+    // dead-ending on the blank page.
+    pages.push({ type: "blank" });
+    pages.push({ type: "back-cover" });
     return pages;
   }
 
@@ -3522,6 +3585,21 @@
         <div class="case album-page album-page-history${littletonClass}">
           <div class="section-label" style="margin-top:0;">History &amp; Facts</div>
           <p>${album.history || "No history notes on file for this set yet."}</p>
+        </div>
+      `;
+    }
+    if (page.type === "blank") {
+      return `
+        <div class="case album-page album-page-blank${littletonClass}">
+          <p class="blank-page-note">— reserved for future notes —</p>
+        </div>
+      `;
+    }
+    if (page.type === "back-cover") {
+      return `
+        <div class="case album-page album-page-cover album-page-back-cover${littletonClass}">
+          <div class="cover-icon">${album.icon}</div>
+          <div class="cover-sub">${album.name}</div>
         </div>
       `;
     }

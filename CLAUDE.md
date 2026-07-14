@@ -1071,6 +1071,21 @@ per-slot photo yet.)
   engine. A small album (e.g. 8 slots) that fits entirely within one page's
   computed capacity now gets exactly one Obverse/Reverse page pair instead of
   being split across two pairs just because 8 > a fixed 6.
+- **Trailing blank page + back cover (locked in)**: `buildAlbumPages()` now
+  always appends a `blank` page after the last Reverse page, followed by a
+  `back-cover` page. From index 1 onward, pages always come in twos (History+
+  Obverse, Reverse+Obverse, ...) — without a trailing blank, the final
+  Reverse page had nothing to pair with and rendered alone at full single-
+  page width even in spread mode, visibly larger than every properly-paired
+  half-width page before it. One blank page always restores the even count
+  regardless of how many coin-group pairs an album has. The back cover is
+  standalone (never paired), reusing the front cover's exact styling
+  (`.album-page-cover`) — same "closed, no real left/right side" treatment,
+  so the length-mismatch transition into and out of it is correctly an
+  instant swap via the existing `oldIndices.length !== newIndices.length`
+  check, no changes needed there. The blank page is framework for future
+  additional content (a placeholder note says so today) — its real job right
+  now is the pairing fix, not a real feature yet.
 - **Reverse-side coin order only mirrors Obverse in spread (two-page) mode**:
   `reverseWithinRows()` is still correct and still runs, but only when
   `spread` is true — in single-page mode, Obverse and Reverse are never seen
@@ -1119,6 +1134,18 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
   different material in real life (heavier cardstock/leatherette) from its
   printed inside pages, and the two looks are meant to read as different
   surfaces, not one continuous skin.
+- **Leather texture + gold filigree frame (locked in, Ray's request)**: two
+  faint crosshatched `repeating-linear-gradient` layers under the base brown
+  gradient approximate a tooled-leather grain; a gold outer border plus an
+  inset `::before` frame line approximate a filigree border without needing
+  real vector artwork; a small ❦ flourish glyph anchors the bottom edge. CSS
+  approximation only — real ornate scrollwork would need actual SVG/image
+  assets, which is a possible future upgrade if this doesn't read rich enough
+  on a real device. Applies to both the front and back cover (they share the
+  same `.album-page-cover.littleton` styling).
+- **Back cover (locked in)**: the book now ends on a standalone back-cover
+  page (same treatment as the front cover, reusing `.album-page-cover`) after
+  a trailing blank page, rather than dead-ending on the blank page.
 - **Die-cut holes** (`renderSlotCell()`, `.coin-disc.die-cut`): an **owned**
   slot always shows a coin glyph seated in the hole with a thin light inner
   ring where it meets the cardboard — never bare year text (unlike the old
