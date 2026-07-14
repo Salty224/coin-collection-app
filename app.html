@@ -2773,7 +2773,7 @@
   // referenceSeriesKey() below falls back to seriesLabel() as a practical
   // approximation — real usage must key off the actual Description column.
   function sanitizeSeriesName(name) {
-    return (name || "").trim().replace(/[^A-Za-z0-9]+/g, "_");
+    return (name || "").trim().toLowerCase().replace(/[^A-Za-z0-9]+/g, "_");
   }
 
   function referenceSeriesKey(coin) {
