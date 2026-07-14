@@ -525,6 +525,57 @@ soft-check against DB_Coins:
   change that. CoinID (the DB_Coins reference key) is what's allowed to stay
   blank/pending on a miss.
 
+### Direct-write vs. Staging (locked in)
+A second Excel tab, **Staging**, mirrors All's exact columns plus one
+addition, `StagedDate`. It's a genuinely separate array/tab from All (not a
+status flag within All) so normal All/Browse browsing is never cluttered
+with in-progress entries — `FAKE_STAGING` in the mockup, kept apart from
+`FAKE_COINS` the same way.
+
+**Confidence is driven purely by Variety recognition** (`isConfidentMatch()`
+→ `isVarietyRecognized()`, see "Error and Variety" above) — a DB_Coins *miss*
+(no catalog row at all for that Year+MintMark+Denom) is a separate,
+pre-existing concern (the warning banner + Needs Attention queue above) and
+does **not** by itself block a direct save; only a manually-typed Variety
+that doesn't match the current filtered dropdown options does. Designation
+is never part of the confidence check either (see below) — these three
+checks are independent, even though an unrecognized Variety and a DB_Coins
+miss often happen to coincide in practice.
+
+**Save options**, presented together in Add Coin:
+- **Save to Database** — primary/default, shown only when confident. Assigns
+  a CollectionID and writes (in the mockup, pushes) directly into All.
+- **Save to Staging** — always available as a manual override even when
+  confident (Ray may want a second look before it's final), and the *only*
+  option shown when not confident.
+- Both destinations reserve a CollectionID at the moment of that save (not
+  deferred) via `getNextCollectionId()` — **this scans All and Staging
+  together**; there was no "next available CollectionID" logic anywhere in
+  the codebase before this, so it's one function checking both arrays from
+  the start rather than something that needed updating in several places. On
+  Staging rejection (not yet built — promotion/rejection UI is future work),
+  a deleted Staging row's CollectionID becomes available again for the next
+  `getNextCollectionId()` call, same as the AY-00470 reservation/release
+  precedent from ProjectPlan history.
+
+**Designation handling**: unspecified Designation at entry time does not
+block a direct write — it defaults to linking the base/parent (non-designated)
+CoinID. A **later edit** that adds/confirms Designation (Browse Edit's
+bounded Designation field) re-checks DB_Coins for a Designation-specific row
+via `checkDesignationReresolution()`. If 0 or 1 DB_Coins rows share the
+coin's base Year+MintMark+Denom+Variety key, there's nothing ambiguous —
+resolve straight through. **If 2+ rows share that base key, always surface
+the same "pick one" UI used for PCGS label ambiguous matches
+(`renderAmbiguousMatchList()`, factored out to be shared by both) — never
+auto-resolve silently, even if one candidate's Designation happens to match
+exactly.** This is a firm rule, not a preference: several real data bugs in
+this project's history trace back to exactly this kind of silent/assumed
+resolution (the 2019-W Lincoln Cent CoinID collision, a Morgan/Peace
+mislink) — ambiguous matches always need a human's eyes. `FAKE_DB_COINS` now
+carries a `designation` field per row, including a deliberate ambiguous pair
+(1909-S plain Lincoln Wheat, RD vs. BN) kept as real test data for this
+exact scenario rather than collapsed into one row.
+
 ### Grader dropdown + grader-agnostic cert linking (locked in)
 A **Grader** dropdown (Add Coin, above the label-entry field; sourced from
 `Lookup_Graders` — `PCGS`/`NGC`/`ANACS`/`ICG`/`CAC`) sits above the PCGS Label
