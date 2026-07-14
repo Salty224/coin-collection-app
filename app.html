@@ -1018,6 +1018,20 @@
     line-height: 1.05;
     pointer-events: none;
     max-width: 47%;
+    /* Small buffer between the text and the hard overflow clip edge —
+       Caveat's cursive/italic glyphs (a trailing "y" swash, etc.) can render
+       ink slightly past their own measured advance width, and on at least
+       one real Android device this was getting flush-clipped even though
+       the text itself measured as fitting (scrollWidth === clientWidth,
+       no ellipsis fallback triggered) — reported as a slight right-side
+       clip on every corner, including short single-line text nowhere near
+       max-width, which points at glyph-ink overshoot / sub-pixel DPR
+       rounding rather than genuine text overflow. This inset doesn't move
+       the label's own anchored position (top/left/right/bottom stay put) —
+       it just gives content a few px of headroom before the real clip edge.
+       Not reproducible in this environment's desktop Chromium; based on the
+       device report rather than a local repro. */
+    padding: 0 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

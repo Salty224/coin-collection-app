@@ -366,6 +366,20 @@ the same corner mapping:
   font-size, which is exactly why corner-label truncation only ever showed up
   phone-side and never reproduced in desktop-engine viewport-width testing
   here; this locks rendered size to what's actually declared, everywhere.
+- **Follow-up: slight right-side clipping on every corner (locked in)** — a
+  second real-device report, after the fixes above, of text looking
+  "slightly clipped" on the right edge in all four corners, including short
+  single-line text (`1916-D`, `VG-8`) nowhere near `max-width`. Since
+  `scrollWidth === clientWidth` in every reproduction attempt here (the
+  shortening fallback never even triggers), this isn't genuine text overflow
+  — the working theory is Caveat's cursive/italic glyphs (a trailing "y"
+  swash, etc.) rendering ink slightly past their own measured advance width,
+  or sub-pixel DPR rounding, either of which a flush `overflow: hidden` box
+  clips immediately. Not reproducible in this environment's desktop
+  Chromium — `.flip-label` now carries `padding: 0 4px` as a safety buffer
+  between text and the actual clip edge, without moving the label's anchored
+  position (`top`/`left`/`right`/`bottom` are unchanged). Confirm on-device
+  before considering this closed.
 - **Obverse is identification only — standard numismatic shorthand**:
   top-left Year+MintMark (`1945-S`); top-right **the series/type name and the
   coded denomination as two stacked, right-justified lines** (`Mercury` over
