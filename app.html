@@ -3687,7 +3687,15 @@
 
   function renderSlotCell(slot, side, album) {
     const filled = !!slot.filledBy;
-    const filledCoin = filled ? FAKE_COINS.find(c => c.id === slot.filledBy) : null;
+    // Keyed off the SLOT's own description, not the filled coin's — FAKE_COINS
+    // rows don't carry a real Description field in this mockup (see
+    // "Series-level reference images" caveat in CLAUDE.md), but FAKE_ALBUMS
+    // slots do, workbook-confirmed for Lincoln Cents (slotDescription()
+    // already prefers the real `variety`-split field when present, falling
+    // back to the legacy comma-embedded convention otherwise — same helper
+    // used for the assign-to-album dropdown/slot meta line). A slot's filled
+    // coin is definitionally that slot's series, so this is a correct (not
+    // approximate) key, unlike guessing from the coin's own display name.
     // hasReferenceImage() here only reflects what's already cached this
     // session (and kicks off the real fetch on a miss) — this is a string-
     // templated render (innerHTML), not a live element reference, so unlike
@@ -3695,8 +3703,9 @@
     // resolves; it picks up the cached image on the album's next render/
     // reopen, same as this app's other computed-once-at-open-time choices
     // (e.g. album page chunk sizing).
-    const useReference = filledCoin && hasReferenceImage(filledCoin, side);
-    const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(filledCoin), side) : null;
+    const referenceCoin = filled ? { description: slotDescription(slot) } : null;
+    const useReference = referenceCoin && hasReferenceImage(referenceCoin, side);
+    const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(referenceCoin), side) : null;
     const isLittleton = album && album.folderStyle === "littleton";
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
