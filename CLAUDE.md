@@ -244,7 +244,9 @@ CoinCollection/
 - **Wishlist** (new) — freestanding want-list items not tied to any album:
   Description, Notes, Target Price, Date Added.
 - **DB_Rolls** (new) — separate table, not part of the main coin data. Not needed
-  for the app shell yet.
+  for the app shell yet. Don't confuse this with **RollID**, a distinct All-sheet
+  column on owned rows that the Rolls tab is actually built against — see
+  "Browse: navigation restructure" below.
 - **ProjectPlan** and **ParkingLot** — the authoritative source of decisions and open
   items, date-stamped with row/column references. ParkingLot Status is now three
   states: Open / In progress / Resolved (+ Resolved Date). Default review filter
@@ -270,8 +272,7 @@ CoinCollection/
    that stays a Claude-chat + Copilot-paste workflow. The app's only role there is
    the "Batch receipt" capture action below.
 
-### Post-save Albums matching (future requirement, not started — blocked on the
-write layer like everything else above)
+### Post-save Albums matching (future requirement, not started — blocked on the write layer like everything else above)
 When a coin is saved (via the flow above, not the reverse "tapped an open Album
 slot" flow that already exists), the app should check Albums for a matching
 open slot — Year + MintMark + Denomination + MajorVariety — and **offer** to
@@ -286,7 +287,6 @@ fill it; never auto-fill silently. Three cases:
   when a slot exists) — this is a **choice Ray makes at save time**, not an
   assumption the app makes either way. Never assume "yes, fill it" and never
   assume "no, it doesn't go in an album" — always ask when a match exists.
-   the "Batch receipt" capture action below.
 
 ### Add Coin field layout (locked in)
 Top level is only what's needed to identify the coin and describe the specific
@@ -1131,8 +1131,7 @@ slot** opens that coin's Browse detail view (same Edit access as reaching it
 through Browse) — Back returns to the same album, on the same page it was
 opened from, not the albums list or Browse's grid.
 
-### Albums: page-flip book (locked in, supersedes the device-tiered/deferred
-notes below)
+### Albums: page-flip book (locked in, supersedes the device-tiered/deferred notes below)
 Opening an album no longer shows one flat scrolling list of all its slots.
 It's a page-flip book, page sequence: **cover** (icon, name, fill progress) →
 **history/facts page** (a short blurb per album, Red-Book-style — set origin,
