@@ -2765,19 +2765,26 @@
   // a different year.
   //
   // SeriesName key = DB_Coins.Description exactly (sanitized for filesystem-
-  // safe characters) — the canonical join key, not seriesLabel()'s
-  // display-only corner abbreviation, which can drift from it (e.g. "Buffalo
-  // Nickel" -> "Buffalo" via seriesLabel(), but DB_Coins.Description is
-  // "Buffalo (Indian Head)"). This mockup's FAKE_COINS rows don't carry
-  // their own Description field the way the real All sheet will, so
-  // referenceSeriesKey() below falls back to seriesLabel() as a practical
-  // approximation — real usage must key off the actual Description column.
+  // safe characters) — the canonical join key, and ONLY that. seriesLabel()
+  // (below) is a different function doing a different job — a display-only
+  // corner-label abbreviation built to keep the coin-flip's top-right corner
+  // legible on a real phone (it strips a denomination-word suffix so "Mercury
+  // Dime" reads as just "Mercury" next to the coded "10C" line; see CLAUDE.md
+  // "Coin-flip corner labels"). It was never an approximation of Description
+  // and must never be treated as one: Description text is series-specific
+  // and has to be looked up, not derived (confirmed example: seriesLabel()
+  // gives "Lincoln Wheat" for the "Lincoln Wheat Cent" coin, but the real
+  // DB_Coins.Description is "Lincoln Wheat Cent" — the denomination word is
+  // very much part of it for that series). If a coin has no real description
+  // value, there is nothing to key a reference image lookup on — return null
+  // rather than guessing, so callers treat it as "no reference image"
+  // instead of fetching against a fabricated key.
   function sanitizeSeriesName(name) {
     return (name || "").trim().toLowerCase().replace(/[^A-Za-z0-9]+/g, "_");
   }
 
   function referenceSeriesKey(coin) {
-    return sanitizeSeriesName(coin.description || seriesLabel(coin));
+    return coin.description ? sanitizeSeriesName(coin.description) : null;
   }
 
   // Real asset sourcing (U.S. Mint product renders for modern currently-sold
@@ -2796,6 +2803,7 @@
   function hasReferenceImage(coin, side) {
     side = side || "obverse";
     const seriesKey = referenceSeriesKey(coin);
+    if (!seriesKey) return false; // no real Description on this coin — nothing to look up
     const key = seriesKey + "_" + side;
     if (Object.prototype.hasOwnProperty.call(referenceImageCache, key)) {
       return !!referenceImageCache[key];
@@ -2863,9 +2871,11 @@
     } else {
       discEl.textContent = coin.year;
       discEl.title = "";
-      ensureReferenceImageFetch(seriesKey, side).then(url => {
-        if (url && document.contains(discEl)) applyRealReferenceImage(discEl, url);
-      });
+      if (seriesKey) {
+        ensureReferenceImageFetch(seriesKey, side).then(url => {
+          if (url && document.contains(discEl)) applyRealReferenceImage(discEl, url);
+        });
+      }
     }
   }
 

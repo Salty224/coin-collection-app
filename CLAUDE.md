@@ -1284,14 +1284,36 @@ reference-image-second, then the bare placeholder third.
 - **SeriesName key = `DB_Coins.Description` exactly, sanitized for
   filesystem-safe characters** (`sanitizeSeriesName()`) — the canonical join
   key, not `seriesLabel()`'s display-only corner abbreviation, which can
-  drift from it (e.g. "Buffalo Nickel" → `seriesLabel()` gives "Buffalo," but
-  the real `DB_Coins.Description` is "Buffalo (Indian Head)"). This matters
+  drift from it. **`Description` text is series-specific and must never be
+  assumed or derived — only looked up.** There is no reliable shortcut (no
+  "always/never includes the denomination word" rule, no consistent
+  parenthetical-vs-plain pattern) — it's whatever text actually sits in that
+  column for that series, confirmed against the real workbook, full stop.
+  (Superseded: an earlier version of this note claimed Description "never
+  includes the denomination word," generalizing from one example — "Buffalo
+  Nickel" → `seriesLabel()` gives "Buffalo," but the real Description is
+  "Buffalo (Indian Head)." That generalization was wrong: confirmed against
+  the workbook, Lincoln Wheat Cent and Morgan Dollar's real Description values
+  — "Lincoln Wheat Cent" and "Morgan Dollar" — do include the denomination
+  word. Buffalo's parenthetical form is a legitimate, real pattern; it just
+  isn't the only one, and none of this is guessable from the coin's own
+  `name`/denomination — `seriesLabel()`'s suffix-stripping is a display-only
+  abbreviation, never a stand-in for a real Description lookup.) This matters
   doubly since Ray will sometimes name Canva-made fallback files by hand — one
   canonical source avoids the app and the uploaded files disagreeing.
   **Caveat:** this mockup's `FAKE_COINS` rows don't carry their own
-  Description field the way the real All sheet will, so `referenceSeriesKey()`
-  falls back to `seriesLabel()` as a practical approximation for now — real
-  usage must key strictly off the actual Description column.
+  Description field the way the real All sheet will. `referenceSeriesKey()`
+  used to paper over that gap by falling back to `seriesLabel()` — exactly
+  the guessing this note now warns against, since `seriesLabel()` is a
+  display-formatting function (see above) with no relationship to the real
+  Description column. That fallback is removed: `referenceSeriesKey()`
+  returns `null` for a coin with no real `description` value, and every
+  caller (`hasReferenceImage()`, `applyDiscContent()`, `renderSlotCell()`)
+  treats a `null` key as "no reference image" rather than fetching against a
+  fabricated one. Practical effect in this mockup: since no `FAKE_COINS` row
+  carries a real `description` today, no coin shows a reference image yet —
+  that's correct, not a regression to fix, until `FAKE_COINS` (or the real
+  All sheet) actually carries confirmed Description values per coin.
 - **Storage convention (superseded — now wired to a real read, see "Real
   Graph API reads" above): flat folder, no obverse/reverse subfolders.**
   ```
