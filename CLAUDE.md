@@ -1290,13 +1290,14 @@ reference-image-second, then the bare placeholder third.
   parenthetical-vs-plain pattern) — it's whatever text actually sits in that
   column for that series, confirmed against the real workbook, full stop.
   (Superseded: an earlier version of this note claimed Description "never
-  includes the denomination word," generalizing from one example — "Buffalo
-  Nickel" → `seriesLabel()` gives "Buffalo," but the real Description is
-  "Buffalo (Indian Head)." That generalization was wrong: confirmed against
-  the workbook, Lincoln Wheat Cent and Morgan Dollar's real Description values
-  — "Lincoln Wheat Cent" and "Morgan Dollar" — do include the denomination
-  word. Buffalo's parenthetical form is a legitimate, real pattern; it just
-  isn't the only one, and none of this is guessable from the coin's own
+  includes the denomination word," generalizing from one example — a claimed
+  "Buffalo Nickel" → "Buffalo (Indian Head)" contrast that was never actually
+  verified against the workbook and turned out to be wrong; dropped rather
+  than repeated here. Confirmed against the real workbook instead: Lincoln
+  Wheat Cent, Morgan Dollar, Barber Quarter, Buffalo Nickel, and Washington
+  Quarter (the classic pre-1999 series, distinct from the 2007 "State -
+  Washington" quarter) all include the denomination word in their real
+  Description. None of this is guessable from the coin's own
   `name`/denomination — `seriesLabel()`'s suffix-stripping is a display-only
   abbreviation, never a stand-in for a real Description lookup.) This matters
   doubly since Ray will sometimes name Canva-made fallback files by hand — one

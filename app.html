@@ -2293,15 +2293,21 @@
         "birthday. Brenner's initials (V.D.B.) on the reverse caused a public outcry over " +
         "his prominent credit line and were removed within weeks — making the original " +
         "1909-S VDB one of the most famous key dates in American numismatics.",
+      // Description and Variety are always separate columns on the real Albums
+      // sheet, never concatenated — confirmed against the workbook. VDB is a
+      // Variety value, not part of Description, so it's its own `variety`
+      // field below rather than a comma-joined suffix (see splitDescriptionVariety()
+      // for the legacy comma-embedded convention still used by the other two
+      // albums below, which haven't been confirmed against real album data yet).
       slots: [
-        { year: 1909, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1909-M-1C-01", filledBy: "AY-00004" },
-        { year: 1909, mintMark: "",  description: "Lincoln Wheat, VDB",  coinId: "C-1909-M-1C-02", filledBy: null, keyDate: true },
-        { year: 1909, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1909-S-1C-01", filledBy: "AY-00004" },
-        { year: 1909, mintMark: "S", description: "Lincoln Wheat, VDB",  coinId: "C-1909-S-1C-02", filledBy: null, keyDate: true },
-        { year: 1910, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1910-M-1C-01", filledBy: null },
-        { year: 1910, mintMark: "S", description: "Lincoln Wheat",       coinId: "C-1910-S-1C-01", filledBy: null },
-        { year: 1911, mintMark: "",  description: "Lincoln Wheat",       coinId: "C-1911-M-1C-01", filledBy: null },
-        { year: 1911, mintMark: "D", description: "Lincoln Wheat",       coinId: "C-1911-D-1C-01", filledBy: null }
+        { year: 1909, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1909-M-1C-01", filledBy: "AY-00004" },
+        { year: 1909, mintMark: "",  description: "Lincoln Wheat Cent", variety: "VDB", coinId: "C-1909-M-1C-02", filledBy: null, keyDate: true },
+        { year: 1909, mintMark: "S", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1909-S-1C-01", filledBy: "AY-00004" },
+        { year: 1909, mintMark: "S", description: "Lincoln Wheat Cent", variety: "VDB", coinId: "C-1909-S-1C-02", filledBy: null, keyDate: true },
+        { year: 1910, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-M-1C-01", filledBy: null },
+        { year: 1910, mintMark: "S", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-S-1C-01", filledBy: null },
+        { year: 1911, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-M-1C-01", filledBy: null },
+        { year: 1911, mintMark: "D", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-D-1C-01", filledBy: null }
       ]
     },
     {
@@ -2361,10 +2367,26 @@
   // Album slot / Wishlist descriptions sometimes embed the variety after a comma
   // (e.g. "Lincoln Wheat, VDB") — split so Description and Variety land in their
   // own fields rather than conflated, matching the Add Coin field convention.
+  // This is a legacy convention for albums whose slot data hasn't been
+  // confirmed against real Albums-sheet data yet (Morgan Dollars, Jefferson
+  // Nickels below) — Description and Variety are actually separate columns on
+  // the real sheet, never concatenated (confirmed for Lincoln Cents' slots,
+  // which now carry a real `variety` field instead; see slotDescription()/
+  // slotVariety() below, which prefer that real field when present).
   function splitDescriptionVariety(desc) {
     if (!desc) return ["", ""];
     const parts = desc.split(",").map(s => s.trim());
     return [parts[0], parts.slice(1).join(", ")];
+  }
+
+  // Prefers a slot's real `variety` field (confirmed-against-workbook albums)
+  // over the legacy comma-embedded convention (splitDescriptionVariety) —
+  // lets both conventions coexist while only some albums have been confirmed.
+  function slotDescription(slot) {
+    return "variety" in slot ? slot.description : splitDescriptionVariety(slot.description)[0];
+  }
+  function slotVariety(slot) {
+    return "variety" in slot ? slot.variety : splitDescriptionVariety(slot.description)[1];
   }
 
   // denom/year/mint/variety are the structured identity fields — used to
@@ -2549,7 +2571,7 @@
   // finish/description/gsid are here to support the PCGS Label Auto-Populate feature below;
   // two rows deliberately share pcgs "5000" to demo the PCGS_Duplicate_Queue ambiguous-match flow.
   const FAKE_DB_COINS = [
-    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury (Winged Liberty)", finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "" },
+    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat",            finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000,  designation: "" },
     // Plain (non-VDB) 1909-S Lincoln Wheat exists as two Designation-specific
     // DB_Coins rows (RD vs. BN) sharing the same Year+MintMark+Denom+Variety —
@@ -2558,12 +2580,16 @@
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat",            finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000, designation: "RD" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat",            finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-03",  pcgs: "2431",  mintage: 1825000, designation: "BN" },
     { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan",                   finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000,  designation: "" },
-    { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber",                   finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664,   designation: "" },
-    { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo (Indian Head)",    finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000, designation: "" },
-    { denom: "5C",  year: 1937, mint: "D",  variety: "",        description: "Buffalo (Indian Head)",    finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000, designation: "" },
+    { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber Quarter",       finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664,   designation: "" },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000, designation: "" },
+    { denom: "5C",  year: 1937, mint: "D",  variety: "",        description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000, designation: "" },
     { denom: "1C",  year: 1950, mint: "",   variety: "",        description: "Lincoln Wheat",            finish: "Proof",           gsid: "GS-2091", coinId: "C-1950-M-1C-03",  pcgs: "9430",  mintage: 51386,   designation: "" },
-    { denom: "25C", year: 1932, mint: "",   variety: "",        description: "Washington",                finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-01", pcgs: "5000",  mintage: 5404000, designation: "" },
-    { denom: "25C", year: 1932, mint: "D",  variety: "",        description: "Washington",                finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-02", pcgs: "5000",  mintage: 436800,  designation: "" }
+    // "Washington Quarter" (this classic pre-1999 series) is distinct from the
+    // 2007 "State - Washington" quarter (a different real coin, the state of
+    // Washington's entry in the 50 State Quarters program) — confirmed
+    // against the workbook, not to be conflated.
+    { denom: "25C", year: 1932, mint: "",   variety: "",        description: "Washington Quarter",   finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-01", pcgs: "5000",  mintage: 5404000, designation: "" },
+    { denom: "25C", year: 1932, mint: "D",  variety: "",        description: "Washington Quarter",   finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-02", pcgs: "5000",  mintage: 436800,  designation: "" }
   ];
 
   // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
@@ -3533,7 +3559,7 @@
       album.slots.filter(s => !s.filledBy).forEach(slot => {
         const opt = document.createElement("option");
         opt.value = album.name + " :: " + slot.coinId;
-        opt.textContent = album.name + " — " + slotDisplayLabel(slot) + " (" + slot.description + ")";
+        opt.textContent = album.name + " — " + slotDisplayLabel(slot) + " (" + slotDescription(slot) + (slotVariety(slot) ? ", " + slotVariety(slot) : "") + ")";
         assignSelect.appendChild(opt);
       });
     });
@@ -3701,7 +3727,7 @@
     // Real Littleton folders print only date + mintmark under each hole, no
     // separate description line — drop the second .slot-meta line for these
     // pages (default/Numis-style pages keep both lines, unchanged).
-    const metaLine = isLittleton ? "" : `<div class="slot-meta">${slot.description}</div>`;
+    const metaLine = isLittleton ? "" : `<div class="slot-meta">${slotDescription(slot)}${slotVariety(slot) ? ", " + slotVariety(slot) : ""}</div>`;
 
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
@@ -3977,11 +4003,12 @@
     container.querySelectorAll(".slot-cell.want").forEach(el => {
       el.addEventListener("click", () => {
         const slot = album.slots.find(s => s.coinId === el.dataset.coinId);
-        const [baseDesc, variety] = splitDescriptionVariety(slot.description);
+        const baseDesc = slotDescription(slot);
+        const variety = slotVariety(slot);
         albumContext = {
           albumName: album.name,
           coinId: slot.coinId,
-          slotLabel: slotDisplayLabel(slot) + " (" + slot.description + ")",
+          slotLabel: slotDisplayLabel(slot) + " (" + baseDesc + (variety ? ", " + variety : "") + ")",
           denom: album.denom,
           year: slot.year,
           mintMark: slot.mintMark,
