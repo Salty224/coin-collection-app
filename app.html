@@ -463,6 +463,9 @@
   .filter-chip-divider {
     flex-shrink: 0; width: 1px; align-self: stretch; background: var(--case-border); margin: 0 2px;
   }
+  /* Browse's top-level Coins/Rolls/Sets/Albums tabs reuse .filter-chip's pill
+     look but read one level heavier than the filter rows beneath them. */
+  #browseTabRow .filter-chip { font-weight: 600; font-size: 13px; }
   .browse-empty {
     text-align: center; color: var(--text-muted); font-size: 13px; font-style: italic; padding: 30px 0;
   }
@@ -1299,15 +1302,17 @@
       <!-- ============ BROWSE ============ -->
       <section class="view" id="view-browse">
         <div id="browseGridView">
+          <h2 class="display" style="margin-top:0;" id="browseTitle">Coins</h2>
+          <div class="filter-row" id="browseTabRow"></div>
+
           <div id="browseCoinsHeader">
-            <h2 class="display" style="margin-top:0;">Browse Collection</h2>
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
+            <div class="filter-row" id="browseCommemorativeRow" style="margin-top:6px;"></div>
           </div>
 
-          <div id="browseSetDetailHeader" style="display:none;">
-            <button class="back-link" id="browseSetDetailBackBtn" style="padding-top:0;">← Sets</button>
-            <h2 class="display" style="margin-top:0;" id="browseSetDetailName"></h2>
+          <div id="browseSetsHeader" style="display:none;">
+            <div class="filter-row" id="browseSetsCategoryFilters"></div>
           </div>
 
           <div class="browse-toolbar" id="browseViewToggleRow">
@@ -1316,8 +1321,6 @@
               <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
             </div>
           </div>
-
-          <div id="browseSetsPicker" style="display:none;"></div>
 
           <div class="coin-grid" id="browseGrid"></div>
           <div class="browse-empty hidden" id="browseEmptyMsg">No coins match this filter.</div>
@@ -1478,6 +1481,7 @@
         <h2 class="display" style="margin-top:0;">Albums</h2>
 
         <div id="albumsListView">
+          <div class="filter-row" id="albumsFilters"></div>
           <div id="albumsListContainer"></div>
         </div>
 
@@ -2181,36 +2185,71 @@
   // FAKE DATA — placeholder only. No OneDrive / Graph calls in this file.
   // ==================================================================
 
-  // itemType ("coin"/"medal"), setType (blank/"Mint Set"/"Proof Set"/"Silver Proof
-  // Set"), and commemorative are stand-ins for new All-sheet fields — see CLAUDE.md
-  // Browse filters section. Set and Commemorative deliberately overlap (a coin can
-  // be both, e.g. AY-00014) rather than being mutually exclusive buckets.
+  // category (blank / "Commemorative" / a Set-category value — "Proof Set",
+  // "Mint Set", "Silver Proof Set", "Reverse Proof Set", "Legacy Collection",
+  // "Prestige Set", "Quarters Set", "Educational Set", etc.) and rollId
+  // (blank, or populated for a roll) are stand-ins for real All-sheet
+  // columns — see CLAUDE.md Browse filters section. Category is
+  // single-valued per row, confirmed against the real workbook — a row is
+  // never simultaneously Category="Proof Set" AND Category="Commemorative".
+  // Superseded: this used to be three separate fields — itemType
+  // ("coin"/"medal"), setType (a coin's own "which package" tag), and a
+  // commemorative boolean — dropped because the real workbook has no
+  // itemType column at all (Denomination="Medal" is the real signal) and
+  // because "a coin can be both part of a Set and a Commemorative" (the old
+  // AY-00014 example) no longer applies now that a Set is one owned
+  // Denomination="Multiple" bundle row, not a tag on an individually-
+  // catalogued coin — see "Series-level reference images"-adjacent history
+  // in this file's git log for the superseded model.
   // gradeSource/serNo/designation/storageLocation are the bounded edit-in-app
   // fields (see CLAUDE.md "Editing existing coins") — mostly blank here since
   // most placeholder coins predate that data being captured; a couple are
   // populated so the Browse-detail Edit form has something real to load.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "PCGS", serNo: "23456789", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "PCGS", serNo: "34567890", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
-    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "NGC",  serNo: "12309876", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
-    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   itemType: "coin",  setType: "Proof Set",        commemorative: false, gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   itemType: "coin",  setType: "",                 commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   itemType: "coin",  setType: "Silver Proof Set", commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   itemType: "coin",  setType: "Mint Set",         commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   itemType: "coin",  setType: "Proof Set",        commemorative: true,  gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "",    year: 2009, mint: "",   grade: "MS-65",  value: 15,   cost: 12,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "",    year: 2021, mint: "",   grade: "",       value: 20,   cost: 18,   itemType: "medal", setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
+    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   category: "",              rollId: "", gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    // Denomination="Medal" is the real workbook signal for a standalone
+    // medal (see CLAUDE.md) — these used to carry a blank denom plus a
+    // separate itemType:"medal" field; itemType is gone now that Denomination
+    // itself carries the real value.
+    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "Medal", year: 2009, mint: "", grade: "MS-65",  value: 15,   cost: 12,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "Medal", year: 2021, mint: "", grade: "",       value: 20,   cost: 18,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
     // Owned but no photo AND no series reference image on file yet (no
     // CoinCollection/ReferenceImages/Jefferson_*.png on Ray's OneDrive as of
     // this writing) — the one real coin demonstrating the Littleton folder's
     // "owned, photo pending" desaturated-glyph tier below.
-    { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    itemType: "coin",  setType: "",                 commemorative: false, gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" }
+    { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    // Set-bundle rows (new, Browse restructure): each one IS the owned item —
+    // Denomination="Multiple" bought/logged as a single purchase, not an
+    // aggregation of separately-catalogued member coins. Category is the
+    // reliable "is this a Set, and which kind" signal (confirmed against the
+    // real workbook), used directly by the Sets tab's category pills. A
+    // future parent/child CollectionID suffix system (AY-#####-Set / -A / -B)
+    // will eventually let a bundle's individual coins be broken out — out of
+    // scope for this restructure, see CLAUDE.md.
+    { id: "AY-00018", name: "2021 Silver Proof Set",                    denom: "Multiple", year: 2021, mint: "", grade: "", value: 180, cost: 150, category: "Silver Proof Set", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    { id: "AY-00019", name: "1999 United States Mint Set",              denom: "Multiple", year: 1999, mint: "", grade: "", value: 45,  cost: 35,  category: "Mint Set",         rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    { id: "AY-00020", name: "1955 United States Proof Set",             denom: "Multiple", year: 1955, mint: "", grade: "", value: 220, cost: 175, category: "Proof Set",        rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
+    { id: "AY-00021", name: "American Innovation Dollar Legacy Collection", denom: "Multiple", year: 2026, mint: "", grade: "", value: 60, cost: 55, category: "Legacy Collection", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    { id: "AY-00022", name: "1986 Statue of Liberty Commemorative 3-Coin Set", denom: "Multiple", year: 1986, mint: "", grade: "", value: 320, cost: 280, category: "Commemorative", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "" },
+    // Roll rows (new, Browse restructure): RollID populated, a normal single
+    // Denomination each (confirmed against the real workbook) — these are
+    // owned rows that happen to be an uncounted/unsearched roll rather than
+    // an individually catalogued single coin.
+    { id: "AY-00023", name: "1921 Morgan Dollar Roll (20 coins)", denom: "$1",  year: 1921, mint: "",  grade: "", value: 900, cost: 750, category: "", rollId: "R-1921-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
+    { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" }
   ];
 
   // Purchase Info detail, Fun Facts, Notes, and additional-photo flags — kept
@@ -2621,10 +2660,15 @@
   // NAV
   // ==================================================================
 
+  // Six persistent nav items (was five — see CLAUDE.md). "sets" has no
+  // #view-sets of its own; it's a shortcut into #view-browse with the Sets
+  // tab pre-selected (see navigate()'s "sets" special-case below), same
+  // underlying content as tapping Browse's own Sets tab.
   const NAV_ITEMS = [
     { id: "dashboard", icon: "🏛️", label: "Dashboard" },
     { id: "browse",    icon: "🔎", label: "Browse" },
     { id: "albums",    icon: "📔", label: "Albums" },
+    { id: "sets",      icon: "📦", label: "Sets" },
     { id: "wishlist",  icon: "⭐", label: "Wishlist" },
     { id: "addcoin",   icon: "➕", label: "Add Coin" }
   ];
@@ -2651,8 +2695,12 @@
       clearWishlistContext();
     }
 
+    // "sets" has no view element of its own — same #view-browse as "browse",
+    // just landing on a different tab (see NAV_ITEMS comment above).
+    const targetViewId = viewId === "sets" ? "browse" : viewId;
+
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-    document.getElementById("view-" + viewId).classList.add("active");
+    document.getElementById("view-" + targetViewId).classList.add("active");
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === viewId));
 
     if (viewId === "albums") {
@@ -2663,7 +2711,10 @@
       showObversePhoto();
     }
     if (viewId === "browse") {
-      showBrowseGrid();
+      showBrowseTab("coins");
+    }
+    if (viewId === "sets") {
+      showBrowseTab("sets");
     }
     if (viewId === "wishlist") {
       showWishlistGrid();
@@ -3017,49 +3068,40 @@
   // BROWSE
   // ==================================================================
 
-  // Stand-in for DB_Sets — actual named set instances (a specific year/product),
-  // not just the setType category tag on a coin. Clicking "Sets" browses these
-  // entities directly; a coin's own setType (see FAKE_COINS) only says which
-  // aggregate category it belongs to, not which specific set. Coin IDs here are
-  // deliberately a subset of the coins tagged with a matching setType above.
-  const FAKE_SETS = [
-    { name: "1955 Proof Set",                  type: "Proof Set",        year: 1955, coinIds: ["AY-00010"] },
-    { name: "1986 Statue of Liberty Proof Set", type: "Proof Set",        year: 1986, coinIds: ["AY-00014"] },
-    { name: "1999 Mint Set",                    type: "Mint Set",         year: 1999, coinIds: ["AY-00013"] },
-    { name: "2021 Silver Proof Set",            type: "Silver Proof Set", year: 2021, coinIds: ["AY-00012"] }
+  // Browse is four tabs: Coins | Rolls | Sets | Albums. Albums has no
+  // content of its own inside Browse — its tab is a straight shortcut to
+  // the standalone Albums page (same as navigating there directly), so
+  // activeBrowseTab only ever holds "coins"/"rolls"/"sets".
+  const BROWSE_TABS = [
+    { key: "coins",  label: "Coins" },
+    { key: "rolls",  label: "Rolls" },
+    { key: "sets",   label: "Sets" },
+    { key: "albums", label: "Albums" }
   ];
+  let activeBrowseTab = "coins";
 
-  // One filter row, multi-select (locked in — supersedes the earlier single-
-  // select/"radio button" design). Denomination chips come first (matches how
-  // Ray already thinks about albums), then a divider, then Sets/Medals/
-  // Commemoratives. Any combination of denomination/Medals/Commemoratives
-  // chips can be active at once (OR'd together — e.g. Dimes + Cents shows
-  // both); "All" is a reset chip, not a combinable value — selecting it
-  // clears every other selection, and it's the active state whenever nothing
-  // else is selected. These categories are NOT mutually exclusive with each
-  // other in the underlying data either (a coin can be both part of a Set
-  // and a Commemorative — see AY-00014) — multi-select here is about which
-  // lenses you're looking through at once, it doesn't imply the categories
-  // don't overlap. "Sets" stays a separate, exclusive action rather than a
-  // combinable chip — it browses actual set entities (FAKE_SETS), replacing
-  // the coin grid with a picker UI entirely, which doesn't compose with
-  // "show me coins matching X" the way the other chips do.
+  // One filter row, multi-select (locked in). Denomination chips plus Medal
+  // (Denomination="Medal" is itself a Denomination-style value now — see
+  // FAKE_COINS) OR together; "All" is a reset chip. Superseded: Sets used to
+  // be a chip in this same row that broke the OR-group (selecting it never
+  // un-highlighted "All", since it wasn't a peer value in the underlying
+  // data) — it's gone now that a Set is a top-level Browse tab, not a coin
+  // filter. Commemorative is also gone from this row — Category is a
+  // genuinely different field from Denomination, so it's its own
+  // independent AND'd toggle below instead of living in this OR-group.
   const BROWSE_FILTER_CHIPS = [
-    { key: "all",             label: "All", isAll: true },
-    { key: "1C",              label: "Cents",          test: c => c.denom === "1C" },
-    { key: "5C",              label: "Nickels",        test: c => c.denom === "5C" },
-    { key: "10C",             label: "Dimes",          test: c => c.denom === "10C" },
-    { key: "25C",             label: "Quarters",       test: c => c.denom === "25C" },
-    { key: "50C",             label: "Halves",         test: c => c.denom === "50C" },
-    { key: "$1",              label: "Dollars",        test: c => c.denom === "$1" },
-    { divider: true },
-    { key: "sets",            label: "Sets", isSets: true },
-    { key: "medals",          label: "Medals",         test: c => c.itemType === "medal" },
-    { key: "commemoratives",  label: "Commemoratives", test: c => c.commemorative }
+    { key: "all",   label: "All", isAll: true },
+    { key: "1C",    label: "Cents",    test: c => c.denom === "1C" },
+    { key: "5C",    label: "Nickels",  test: c => c.denom === "5C" },
+    { key: "10C",   label: "Dimes",    test: c => c.denom === "10C" },
+    { key: "25C",   label: "Quarters", test: c => c.denom === "25C" },
+    { key: "50C",   label: "Halves",   test: c => c.denom === "50C" },
+    { key: "$1",    label: "Dollars",  test: c => c.denom === "$1" },
+    { key: "Medal", label: "Medal",    test: c => c.denom === "Medal" }
   ];
 
   // Empty set = "All" (no filter). Populated with chip keys as the user
-  // multi-selects denomination/Medals/Commemoratives chips.
+  // multi-selects Denomination/Medal chips.
   let browseSelectedFilterKeys = new Set();
 
   function browseFilterTest(coin) {
@@ -3069,6 +3111,13 @@
       return chip && chip.test && chip.test(coin);
     });
   }
+
+  // Independent boolean toggle, ANDs against Denomination/Medal + Metal on
+  // the Coins tab — Category and Denomination are different fields, so
+  // "Dollars + Commemorative" is a real, meaningful combination (unlike on
+  // the Sets tab below, where Category IS the same field the pills read,
+  // making the two mutually exclusive there instead).
+  let browseCommemorativeOnly = false;
 
   // Precious-metal content per coin, mirroring Lookup_MetalContent's
   // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns — kept as a sparse lookup
@@ -3092,10 +3141,11 @@
 
   // A coin qualifies for a metal filter with ANY nonzero content, regardless
   // of purity — a 35% Silver War Nickel and a 90% Silver Morgan both qualify
-  // under "Silver." Its own single-select row, independent of the Type
-  // chips above — see CLAUDE.md "Browse filters" for why this doesn't
-  // convert Type into a multi-select axis (that would be a separate,
-  // bigger change to an already-locked-in single-select interaction).
+  // under "Silver." Its own single-select row, independent of the
+  // Denomination chips above — see CLAUDE.md "Browse filters" for why this
+  // doesn't convert Denomination into a single-select axis (that would be a
+  // separate, bigger change to an already-locked-in multi-select
+  // interaction).
   const BROWSE_METAL_CHIPS = [
     { label: "All Metals", test: () => true },
     { label: "Gold",       test: c => (metalContentFor(c).goldOz || 0) > 0 },
@@ -3104,6 +3154,27 @@
     { label: "Palladium",  test: c => (metalContentFor(c).palladiumOz || 0) > 0 }
   ];
   let browseMetalTest = BROWSE_METAL_CHIPS[0].test;
+
+  // Sets tab: Category pills. Category is single-valued per row (confirmed
+  // against the real workbook) — a bundle row is never both Category="Proof
+  // Set" and Category="Commemorative" — so unlike the Coins tab's
+  // Denomination row, this whole row behaves as ONE single-select axis
+  // (same interaction pattern as Metal above), not a combinable multi-
+  // select. "Other" is any Set-category row not matching one of the three
+  // named pills or Commemorative (Reverse Proof Set, Legacy Collection,
+  // Prestige Set, Quarters Set, Educational Set, and future values all land
+  // here — it deliberately excludes Commemorative-category rows, which are
+  // only reachable via their own pill).
+  const SET_NAMED_CATEGORIES = ["Proof Set", "Mint Set", "Silver Proof Set"];
+  const BROWSE_SET_CATEGORY_CHIPS = [
+    { label: "All",              test: () => true },
+    { label: "Proof Set",        test: c => c.category === "Proof Set" },
+    { label: "Mint Set",         test: c => c.category === "Mint Set" },
+    { label: "Silver Proof Set", test: c => c.category === "Silver Proof Set" },
+    { label: "Other",            test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" },
+    { label: "Commemorative",    test: c => c.category === "Commemorative" }
+  ];
+  let browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
 
   let browseViewMode = "grid"; // "grid" | "list" — persists across filter changes
 
@@ -3141,94 +3212,118 @@
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
 
-  // The three browseGridView sub-modes: a plain coin listing, the Sets picker
-  // (entities, not coins), and a specific set's member coins.
-  function showBrowseCoinsMode() {
-    document.getElementById("browseCoinsHeader").style.display = "block";
-    document.getElementById("browseSetDetailHeader").style.display = "none";
-    document.getElementById("browseViewToggleRow").classList.remove("hidden");
-    document.getElementById("browseSetsPicker").style.display = "none";
-    document.getElementById("browseGrid").style.display = "";
-  }
-
-  function applyBrowseFilters() {
-    showBrowseCoinsMode();
-    renderBrowseGrid(FAKE_COINS.filter(c => browseFilterTest(c) && browseMetalTest(c)));
-  }
-
-  function renderSetsPicker() {
-    const container = document.getElementById("browseSetsPicker");
-    container.innerHTML = "";
-    FAKE_SETS.forEach(set => {
-      const coins = set.coinIds.map(id => FAKE_COINS.find(c => c.id === id)).filter(Boolean);
-      const totalValue = coins.reduce((sum, c) => sum + c.value, 0);
+  // Sets tab reuses the box-icon "case album-card" style (same visual
+  // language as the Albums picker) rather than the coin-disc treatment
+  // above — a Denomination="Multiple" bundle row has no single coin to
+  // render as a disc. Tapping a card opens the same Browse detail view a
+  // Coins-tab card would (this row IS just an owned item now).
+  function renderSetsGrid(rows) {
+    const grid = document.getElementById("browseGrid");
+    grid.classList.remove("list-view");
+    grid.innerHTML = "";
+    rows.forEach(coin => {
       const card = document.createElement("div");
       card.className = "case album-card";
       card.style.cursor = "pointer";
       card.innerHTML = `
         <div class="album-card-icon">📦</div>
         <div class="album-card-info">
-          <div class="album-card-name">${set.name}</div>
-          <div class="set-card-progress">${set.type} · ${coins.length} coin${coins.length === 1 ? "" : "s"} · $${totalValue.toLocaleString()}</div>
+          <div class="album-card-name">${coin.name}</div>
+          <div class="set-card-progress">${coin.category || "Set"} · $${coin.value.toLocaleString()}</div>
         </div>
         <span class="chevron">›</span>
       `;
-      card.addEventListener("click", () => showSetDetail(set));
-      container.appendChild(card);
+      card.addEventListener("click", () => {
+        browseDetailBackHandler = showBrowseGrid;
+        showBrowseDetail(coin);
+      });
+      grid.appendChild(card);
     });
+    document.getElementById("browseEmptyMsg").classList.toggle("hidden", rows.length > 0);
   }
 
-  function showBrowseSetsPickerMode() {
-    document.getElementById("browseCoinsHeader").style.display = "block";
-    document.getElementById("browseSetDetailHeader").style.display = "none";
-    document.getElementById("browseViewToggleRow").classList.add("hidden");
-    document.getElementById("browseGrid").style.display = "none";
-    document.getElementById("browseEmptyMsg").classList.add("hidden");
-    renderSetsPicker();
-    document.getElementById("browseSetsPicker").style.display = "block";
+  // Coins tab's base row-set explicitly excludes Set-bundle rows
+  // (Denomination="Multiple", now the Sets tab's rows) and Roll rows
+  // (RollID populated, now the Rolls tab's rows) — those two tabs own that
+  // subset of All exclusively, so Coins never double-shows them and a row
+  // never appears in more than one tab.
+  function coinsTabBaseRows() {
+    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId);
   }
 
-  function showSetDetail(set) {
-    const coins = set.coinIds.map(id => FAKE_COINS.find(c => c.id === id)).filter(Boolean);
-    document.getElementById("browseCoinsHeader").style.display = "none";
-    document.getElementById("browseSetDetailHeader").style.display = "block";
-    document.getElementById("browseSetDetailName").textContent = set.name;
-    document.getElementById("browseSetsPicker").style.display = "none";
-    document.getElementById("browseViewToggleRow").classList.remove("hidden");
-    document.getElementById("browseGrid").style.display = "";
-    renderBrowseGrid(coins);
+  function applyCoinsTabFilters() {
+    const filtered = coinsTabBaseRows().filter(c =>
+      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative")
+    );
+    renderBrowseGrid(filtered);
   }
 
-  // Reflects browseSelectedFilterKeys onto the chip buttons' "active" class —
-  // "All" reads active exactly when nothing else is selected; "Sets" never
-  // shows as active here since it's a navigation action, not a filter state.
+  function applySetsTabFilters() {
+    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest);
+    renderSetsGrid(rows);
+  }
+
+  function applyRollsTabFilters() {
+    renderBrowseGrid(FAKE_COINS.filter(c => !!c.rollId));
+  }
+
+  // Reflects browseSelectedFilterKeys onto the Coins-tab Denomination/Medal
+  // chips' "active" class — "All" reads active exactly when nothing else is
+  // selected.
   function updateBrowseFilterChipsUI() {
     document.querySelectorAll("#browseFilters .filter-chip").forEach(chip => {
       const key = chip.dataset.key;
       if (key === "all") chip.classList.toggle("active", browseSelectedFilterKeys.size === 0);
-      else if (key === "sets") chip.classList.remove("active");
       else chip.classList.toggle("active", browseSelectedFilterKeys.has(key));
     });
   }
 
+  function updateBrowseTabsUI() {
+    document.querySelectorAll("#browseTabRow .filter-chip").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.key === activeBrowseTab);
+    });
+  }
+
+  // Switches Browse between its three in-place tabs (Coins/Rolls/Sets) —
+  // Albums has no content here at all, it's a straight redirect (see
+  // BROWSE_TABS comment above).
+  function showBrowseTab(tab) {
+    if (tab === "albums") {
+      navigate("albums");
+      return;
+    }
+    activeBrowseTab = tab;
+    updateBrowseTabsUI();
+
+    document.getElementById("browseCoinsHeader").style.display = tab === "coins" ? "block" : "none";
+    document.getElementById("browseSetsHeader").style.display = tab === "sets" ? "block" : "none";
+    document.getElementById("browseViewToggleRow").classList.toggle("hidden", tab === "sets");
+    document.getElementById("browseTitle").textContent =
+      tab === "coins" ? "Coins" : tab === "rolls" ? "Rolls" : "Sets";
+
+    if (tab === "coins") applyCoinsTabFilters();
+    else if (tab === "rolls") applyRollsTabFilters();
+    else if (tab === "sets") applySetsTabFilters();
+  }
+
   function initBrowse() {
+    const tabRow = document.getElementById("browseTabRow");
+    BROWSE_TABS.forEach(t => {
+      const btn = document.createElement("button");
+      btn.className = "filter-chip browse-tab" + (t.key === "coins" ? " active" : "");
+      btn.textContent = t.label;
+      btn.dataset.key = t.key;
+      btn.addEventListener("click", () => showBrowseTab(t.key));
+      tabRow.appendChild(btn);
+    });
+
     const filterRow = document.getElementById("browseFilters");
     BROWSE_FILTER_CHIPS.forEach(f => {
-      if (f.divider) {
-        const divider = document.createElement("div");
-        divider.className = "filter-chip-divider";
-        filterRow.appendChild(divider);
-        return;
-      }
       const chip = document.createElement("button");
       chip.className = "filter-chip" + (f.isAll ? " active" : "");
       chip.textContent = f.label;
       chip.dataset.key = f.key;
       chip.addEventListener("click", () => {
-        if (f.isSets) {
-          showBrowseSetsPickerMode();
-          return;
-        }
         if (f.isAll) {
           browseSelectedFilterKeys.clear();
         } else if (browseSelectedFilterKeys.has(f.key)) {
@@ -3237,10 +3332,21 @@
           browseSelectedFilterKeys.add(f.key);
         }
         updateBrowseFilterChipsUI();
-        applyBrowseFilters();
+        applyCoinsTabFilters();
       });
       filterRow.appendChild(chip);
     });
+
+    const commemorativeRow = document.getElementById("browseCommemorativeRow");
+    const commemorativeChip = document.createElement("button");
+    commemorativeChip.className = "filter-chip";
+    commemorativeChip.textContent = "Commemorative";
+    commemorativeChip.addEventListener("click", () => {
+      browseCommemorativeOnly = !browseCommemorativeOnly;
+      commemorativeChip.classList.toggle("active", browseCommemorativeOnly);
+      applyCoinsTabFilters();
+    });
+    commemorativeRow.appendChild(commemorativeChip);
 
     const metalRow = document.getElementById("browseMetalFilters");
     let firstMetalChip = null;
@@ -3252,13 +3358,27 @@
         document.querySelectorAll("#browseMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
         chip.classList.add("active");
         browseMetalTest = m.test;
-        applyBrowseFilters();
+        applyCoinsTabFilters();
       });
       metalRow.appendChild(chip);
       if (!firstMetalChip) firstMetalChip = chip;
     });
 
-    document.getElementById("browseSetDetailBackBtn").addEventListener("click", showBrowseSetsPickerMode);
+    const setCategoryRow = document.getElementById("browseSetsCategoryFilters");
+    let firstSetCategoryChip = null;
+    BROWSE_SET_CATEGORY_CHIPS.forEach(sc => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (!firstSetCategoryChip ? " active" : "");
+      chip.textContent = sc.label;
+      chip.addEventListener("click", () => {
+        document.querySelectorAll("#browseSetsCategoryFilters .filter-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+        browseSetCategoryTest = sc.test;
+        applySetsTabFilters();
+      });
+      setCategoryRow.appendChild(chip);
+      if (!firstSetCategoryChip) firstSetCategoryChip = chip;
+    });
 
     document.getElementById("browseGridViewBtn").addEventListener("click", () => {
       browseViewMode = "grid";
@@ -3273,7 +3393,7 @@
       document.getElementById("browseGrid").classList.add("list-view");
     });
 
-    applyBrowseFilters();
+    showBrowseTab("coins");
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", () => browseDetailBackHandler());
     document.getElementById("browseDetailEditBtn").addEventListener("click", () => showBrowseEditView(currentBrowseCoin));
@@ -3529,9 +3649,40 @@
 
   let albumContext = null; // { albumName, slotLabel } when arriving at Add Coin via an open slot
 
-  function initAlbums() {
+  // Denomination filter for the albums picker list — additive to whatever
+  // Albums already did, nothing else about it changes. Each album already
+  // carries its own top-level `denom` field (every album is inherently
+  // single-denomination — see FAKE_ALBUMS), so this just filters on that
+  // existing field rather than deriving anything new. Same multi-select-OR
+  // interaction as the Coins tab's Denomination row for consistency.
+  const ALBUMS_DENOM_CHIPS = [
+    { key: "all", label: "All", isAll: true },
+    { key: "1C",  label: "Cents" },
+    { key: "5C",  label: "Nickels" },
+    { key: "10C", label: "Dimes" },
+    { key: "25C", label: "Quarters" },
+    { key: "50C", label: "Halves" },
+    { key: "$1",  label: "Dollars" }
+  ];
+  let albumsSelectedDenoms = new Set();
+
+  function albumsFilterTest(album) {
+    return albumsSelectedDenoms.size === 0 || albumsSelectedDenoms.has(album.denom);
+  }
+
+  function updateAlbumsFilterChipsUI() {
+    document.querySelectorAll("#albumsFilters .filter-chip").forEach(chip => {
+      const key = chip.dataset.key;
+      if (key === "all") chip.classList.toggle("active", albumsSelectedDenoms.size === 0);
+      else chip.classList.toggle("active", albumsSelectedDenoms.has(key));
+    });
+  }
+
+  function renderAlbumsList() {
     const listContainer = document.getElementById("albumsListContainer");
+    listContainer.innerHTML = "";
     FAKE_ALBUMS.forEach((album, index) => {
+      if (!albumsFilterTest(album)) return;
       const filledCount = album.slots.filter(s => s.filledBy).length;
       const pct = Math.round((filledCount / album.slots.length) * 100);
       const card = document.createElement("div");
@@ -3548,6 +3699,30 @@
       card.addEventListener("click", () => showAlbumDetail(index));
       listContainer.appendChild(card);
     });
+  }
+
+  function initAlbums() {
+    const filterRow = document.getElementById("albumsFilters");
+    ALBUMS_DENOM_CHIPS.forEach(f => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (f.isAll ? " active" : "");
+      chip.textContent = f.label;
+      chip.dataset.key = f.key;
+      chip.addEventListener("click", () => {
+        if (f.isAll) {
+          albumsSelectedDenoms.clear();
+        } else if (albumsSelectedDenoms.has(f.key)) {
+          albumsSelectedDenoms.delete(f.key);
+        } else {
+          albumsSelectedDenoms.add(f.key);
+        }
+        updateAlbumsFilterChipsUI();
+        renderAlbumsList();
+      });
+      filterRow.appendChild(chip);
+    });
+
+    renderAlbumsList();
 
     document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
 
@@ -4309,8 +4484,11 @@
   }
 
   function renderStats() {
-    const coins = FAKE_COINS.filter(c => c.itemType === "coin");
-    const medals = FAKE_COINS.filter(c => c.itemType === "medal");
+    // Denomination="Medal" is the real medal signal now (see FAKE_COINS) —
+    // superseded the old itemType field, which doesn't exist in the real
+    // workbook.
+    const coins = FAKE_COINS.filter(c => c.denom !== "Medal");
+    const medals = FAKE_COINS.filter(c => c.denom === "Medal");
     const totalSpent = FAKE_COINS.reduce((sum, c) => sum + (c.cost || 0), 0);
     const totalValue = FAKE_COINS.reduce((sum, c) => sum + (c.value || 0), 0);
     const net = totalValue - totalSpent;
@@ -4997,9 +5175,8 @@
       grade: resolveGrade(),
       value: 0,
       cost: Number(document.getElementById("purchasePrice").value) || 0,
-      itemType: "coin",
-      setType: "",
-      commemorative: false,
+      category: "",
+      rollId: "",
       gradeSource: document.getElementById("gradeSource").value,
       serNo: document.getElementById("certTypeNumber").value,
       designation: document.getElementById("designation").value,

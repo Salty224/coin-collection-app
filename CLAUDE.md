@@ -589,54 +589,123 @@ within a Browse session.
   than trusting `auto-fill`'s computed count there; `auto-fill` is untouched
   above that width, where it was already producing 3+ columns without issue.
 
-### Browse filters (locked in)
+### Browse filters (locked in, superseded by "Browse: navigation restructure" below)
 One filter row: `All / Cents / Nickels / Dimes / Quarters / Halves / Dollars`
-(by Denomination), then a thin divider, then `Sets / Medals / Commemoratives`.
-All in the top row — no hidden "More Filters" drawer; an earlier draft of this
-tried tucking Set/Commemorative into a collapsed panel and that was explicitly
-wrong, Ray wants them visible up top even though the row now needs horizontal
-scroll on phone widths.
-- **Multi-select (locked in, supersedes the original single-select design):**
-  Denomination/Medals/Commemoratives chips are independently toggleable and
-  OR-combine — tapping both Dimes and Cents shows either. `browseSelectedFilterKeys`
-  (a `Set` of chip keys) holds the active combination; `browseFilterTest(coin)`
-  matches if the set is empty (nothing selected = show everything) or any
-  selected chip's own test matches. **"All" is a reset chip, not a combinable
-  value** — tapping it clears every other selection, and it reads as active
-  exactly when the set is empty; it never joins a combination itself.
-  **"Sets" stays a separate, exclusive action, not a multi-select chip** — it
-  replaces the coin grid with the picker of set entities described below,
-  which doesn't compose with "show me coins matching X" the way the other
-  chips do, so it doesn't touch `browseSelectedFilterKeys` at all.
-- **Sets is a picker of actual set entities, not a coin filter.** Tapping "Sets"
-  replaces the coin grid with a list of named sets (e.g. "2021 Silver Proof
-  Set") — a new **DB_Sets-style entity** distinct from a coin's own Set field,
-  each with a type (`Mint Set`/`Proof Set`/`Silver Proof Set`), a year, and the
-  specific coins that belong to it. Tapping a set shows just its member coins
-  (reusing the same grid/list rendering and Grid/List toggle), with its own back
-  link to the Sets picker. This replaced an earlier, explicitly-corrected version
-  that filtered individual coins down to "any coin tagged with a Set type" —
-  Ray's correction: clicking Sets should show sets, not coins. The Grid/List
-  toggle and denomination chip row are hidden while the Sets picker itself is
-  showing (nothing to toggle), and reappear once you're inside a specific set.
-- A coin's own **Set field** (blank / `Mint Set` / `Proof Set` / `Silver Proof
-  Set`) still exists on the All sheet and still says which aggregate category a
-  coin belongs to — it's just no longer what the "Sets" chip filters by. It's
-  what a specific DB_Sets-style entity's member coins would have in common.
-- **Medals**: a new **item type** (new All-sheet field, `coin` vs. `medal`),
-  not just a filter tag — medals aren't coins (no denomination, not necessarily
-  graded the same way) but do live in the same Browse list.
-- **Commemoratives**: matches a new boolean-ish All-sheet field.
-- **Set, Medals, and Commemoratives are not mutually exclusive with each other or
-  with Denomination in the underlying data** — a coin can be both part of a Set
-  and a Commemorative (e.g. a commemorative sold packaged in a proof set, demoed
-  by one coin appearing under both the Commemoratives filter and inside a named
-  set in the Sets picker). The multi-select chips only pick which lens(es)
-  you're looking through right now; it doesn't imply the categories can't
-  overlap.
-- Also flagged, not yet decided: half dimes / three-cent pieces will need their
-  own Denomination code once catalogued (`5C` is already the modern nickel, so
-  a half dime can't reuse it) — deal with it when the first one is catalogued.
+(by Denomination), then a thin divider, then `Sets / Medals / Commemoratives`,
+all multi-select/OR-combinable except "Sets," which was a separate exclusive
+action replacing the coin grid with a picker of named **DB_Sets-style
+entities** (`FAKE_SETS`, e.g. "2021 Silver Proof Set") each pointing at a list
+of separately-owned member CollectionIDs — tapping a set showed just its
+member coins. A coin's own `Set`/`Medals`/`Commemoratives` fields were tags
+layered on an individually-catalogued coin, not mutually exclusive with each
+other or Denomination (a coin could be both part of a Set and a
+Commemorative, e.g. old AY-00014).
+- **This whole model is gone as of the Browse navigation restructure below** —
+  kept here only for history. The real bug that triggered the restructure:
+  selecting "Sets" never un-highlighted "All," because Sets was never a peer
+  value in the same underlying data as Denomination/Medals/Commemoratives —
+  it was a different *kind* of thing (a navigation action) wearing a filter
+  chip's clothes. Confirmed against the real workbook during the restructure:
+  a coin's own Set-package tag isn't a reliable/real concept the way this
+  section assumed — see below for what replaced it.
+- Still true, unaffected by the restructure: half dimes / three-cent pieces
+  will need their own Denomination code once catalogued (`5C` is already the
+  modern nickel, so a half dime can't reuse it) — deal with it when the first
+  one is catalogued.
+
+### Browse: navigation restructure (locked in, supersedes "Browse filters" above)
+Browse is now **four tabs: Coins | Rolls | Sets | Albums**, not one filter
+row mixing Denomination with Sets/Medals/Commemoratives. `showBrowseTab()`
+switches between them; `activeBrowseTab` only ever holds `coins`/`rolls`/
+`sets` — **the Albums tab has no content of its own inside Browse at all, it
+immediately calls `navigate("albums")`** and lands on the real, standalone
+Albums page (same page reachable from its own nav item) rather than
+rendering anything inline.
+- **Root cause of the old bug, and the real signal that replaced it
+  (confirmed against the workbook):** `SetID` is NOT a reliable "is this a
+  Set" signal — 135 of 136 Set-category rows currently have a blank `SetID`
+  (a known backlog, unrelated to this restructure, not something to fix
+  here). The reliable signal is **Denomination="Multiple" combined with
+  Category** being one of `Proof Set` / `Mint Set` / `Silver Proof Set` /
+  `Reverse Proof Set` / `Legacy Collection` / `Prestige Set` / `Quarters Set`
+  / `Educational Set` (and similar future values).
+- **A Set is now one owned All-sheet row, period** — Denomination="Multiple"
+  bought/logged as a single bundled purchase — not an aggregation of
+  separately-catalogued member coins. This retires the old `FAKE_SETS`
+  entity-with-member-coinIds model entirely (`renderSetsPicker`,
+  `showBrowseSetsPickerMode`, `showSetDetail`, the `isSets` chip special-case,
+  and their DOM — all removed, not just hidden). A future parent/child
+  CollectionID suffix system (`AY-#####-Set` / `-A` / `-B`, same suffix
+  pattern reserved for acquisition/provenance lineage under "ID schemes")
+  will eventually let a bundle's individual coins be broken out into child
+  rows — **explicitly out of scope for this restructure**, don't build
+  toward it speculatively.
+- **`category` is a new, single-valued All-sheet field** (confirmed against
+  the workbook — a row is never simultaneously Category="Proof Set" AND
+  Category="Commemorative") that **replaces two old fields**: the coin-level
+  `setType` tag (a coin's own "which package" tag — retired, since Sets are
+  bundle rows now, not a tag on an individual coin) and the `commemorative`
+  boolean (Commemorative is just one possible Category value, on both
+  individual coins — 22 real rows, single Denomination — and Set-bundle rows
+  — 4 real rows, Denomination="Multiple").
+- **`Denomination="Medal"` replaces the old `itemType` field entirely** — the
+  real workbook has no `itemType` column; a standalone medal (never bundled
+  inside a Set) carries Denomination="Medal" directly. Every place that used
+  to read `coin.itemType === "medal"` (the Coins-tab Medals chip, the Stats &
+  Value tile's coins-vs-medals breakdown) now reads `coin.denom === "Medal"`
+  instead.
+- **`RollID` is a new, distinct All-sheet column** (confirmed against the
+  workbook, separate from `DB_Rolls`, which stays a product-reference table
+  only, still not part of the main coin data) — an owned row with a populated
+  `RollID` belongs to the Rolls tab. Rows with RollID carry a normal single
+  Denomination each (not "Multiple") — a roll is still fundamentally
+  one-denomination, unlike a Set bundle.
+- **Coins tab**: unchanged Denomination pills (`Cents`/`Nickels`/`Dimes`/
+  `Quarters`/`Halves`/`Dollars`) plus a new **Medal pill**, all multi-select/
+  OR-combinable exactly like before (`BROWSE_FILTER_CHIPS`,
+  `browseSelectedFilterKeys`) — this row's base row-set explicitly excludes
+  Denomination="Multiple" (Sets) and RollID-populated (Rolls) rows, so a row
+  never double-shows across tabs. Metal stays its own single-select row,
+  unchanged. **Commemorative is now an independent boolean toggle**, not part
+  of the Denomination OR-group — Category and Denomination are different
+  fields, so "Dollars + Commemorative" is a real, meaningful AND (all three
+  axes — Denomination/Medal, Metal, Commemorative — AND together;
+  `applyCoinsTabFilters()`).
+- **Sets tab**: Category pills — `Proof Set` / `Mint Set` / `Silver Proof
+  Set` / `Other` / `Commemorative`, plus `All`. **Unlike the Coins tab, this
+  whole row is single-select, not multi-select** — Category is the exact
+  same single-valued field the pills read, so a row can never match two of
+  them at once (`BROWSE_SET_CATEGORY_CHIPS`, same single-select interaction
+  pattern as Metal). `Other` = any Set-category row not matching one of the
+  three named pills or Commemorative (`Reverse Proof Set`/`Legacy
+  Collection`/`Prestige Set`/`Quarters Set`/`Educational Set`/future values
+  all land here; it deliberately excludes Commemorative-category rows, which
+  are only reachable via their own pill). No Denomination filter on this tab
+  — nearly all Set rows are Denomination="Multiple," so it wouldn't produce a
+  meaningful split; deliberate, not an oversight. Cards reuse the existing
+  box-icon `.album-card` style (`renderSetsGrid`) rather than the coin-disc
+  treatment — a Denomination="Multiple" row has no single coin to render as a
+  disc — and there's no Grid/List toggle (hidden while this tab is active).
+  Tapping a card opens the same Browse detail view a Coins-tab card would;
+  this row IS just an owned item now, nothing set-specific about its detail
+  view.
+- **Rolls tab**: plain list/grid of RollID-populated rows, no filter pills at
+  all (low row count) — reuses the standard coin-disc card treatment exactly
+  like Coins, since every roll row carries one normal Denomination.
+- **Nav**: `Sets` is a full 6th persistent nav item, same standing as Albums
+  — see "App structure" above. `Rolls` deliberately got no nav entry or
+  Dashboard tile at all — reachable only by tapping its tab after already
+  being in Browse.
+- **Albums got an additive Denomination filter, nothing else changed there.**
+  Each album already carries its own top-level `denom` field (every album is
+  inherently single-denomination) — the new filter row just reads that
+  existing field (`albumsFilterTest`), no new derivation logic was needed.
+  Same multi-select-OR interaction as the Coins tab's Denomination row.
+- **Explicitly out of scope for this restructure**: no in-app "Add Set" /
+  "Add Roll" creation flow — display and filtering only, same boundary as
+  Coins/Albums today. Real creation is hard-blocked on the CollectionID-
+  reservation system and the OneDrive write layer, neither of which exist
+  yet (see "Add Coin: the core workflow").
 
 ### Metal filter (locked in)
 A second single-select chip row (`All Metals / Gold / Silver / Platinum /
@@ -647,9 +716,12 @@ in the mockup — matches the `FAKE_COIN_DETAILS` pattern rather than adding
 four mostly-zero fields to every coin row).
 - **Qualification is ANY nonzero content, regardless of purity** — a 35%
   Silver War Nickel and a 90% Silver Morgan both qualify under "Silver."
-- **Metal ANDs with Type** (`applyBrowseFilters()` filters on
-  `browseFilterTest(c) && browseMetalTest(c)`); Metal alone (Type left on
-  "All") shows every coin of that metal regardless of denomination/category.
+- **Metal ANDs with Type** (superseded name for what the Coins tab now calls
+  Denomination — `applyCoinsTabFilters()`, née `applyBrowseFilters()`, filters
+  on `browseFilterTest(c) && browseMetalTest(c) && ...`, now with a third
+  Commemorative-toggle term added by the Browse navigation restructure above);
+  Metal alone (Type left on "All") shows every coin of that metal regardless
+  of denomination/category.
 - **This is its own independent single-select row, not a conversion of the
   Type row into multi-select.** The original spec for this feature described
   Type pills as OR-combinable ("tapping both Dollar and Half Dollar shows
@@ -951,9 +1023,15 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
-Browse / Albums / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch Receipt,
-Stats & Value, and Needs Attention are dashboard-only destinations, not
-persistent nav items — the persistent bottom/side nav stays those original five.
+Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
+Receipt, Stats & Value, and Needs Attention are dashboard-only destinations,
+not persistent nav items. **Superseded: the persistent bottom/side nav is now
+six items, not five** — `Sets` was added as a full persistent nav entry (see
+"Browse: navigation restructure" below), same standing as Albums; the
+Dashboard's "Go To" tile grid is generated from the same nav-item list, so
+Sets automatically got a Dashboard tile too, the same way Albums always has.
+Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
+tile — it's reachable only via its own tab inside Browse.
 
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
