@@ -562,6 +562,94 @@ judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
 stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
 the coin's Detail view, not the grid.
 
+### Carried forward — not yet built (three Browse issues, raised same session as the navigation restructure above)
+Three issues were raised against the Browse restructure above. Clarifying
+questions were asked and answered for all three, but **none of the three had
+code written or committed before the session ended** — confirmed directly
+against git history (no commits past the restructure + the CLAUDE.md heading
+cleanup) and against the live code (the bugs described below are still
+present verbatim). A prior handoff message claimed Issues 1 and 2 were
+"built and committed separately this session" — that claim was checked and
+is incorrect; don't trust it. All three need to actually be built from
+scratch by whichever session picks this up.
+
+- **Issue 1 — Sets tab layout regression (bug, confirmed root cause, fix not
+  yet applied).** Sets tab cards render side-by-side in a horizontal row
+  instead of a vertical full-width stack. Root cause: `renderSetsGrid()`
+  appends `.album-card`-styled cards into `#browseGrid`, which carries the
+  `.coin-grid` class — a CSS grid (`grid-template-columns: repeat(auto-fill,
+  minmax(150px,1fr))`) that lays out any children in multiple columns
+  regardless of what's inside them. The card markup itself is correct
+  (matches Albums' own list exactly); it's sitting in a grid container that
+  wasn't built for it. Fix: stop applying `.coin-grid`'s multi-column layout
+  when rendering the Sets tab, so cards stack full-width top-to-bottom like
+  Albums' own list does.
+
+- **Issue 2 — remove the Value overlay from Coins-tab grid cards.** `.coin-card
+  .value` sits directly beneath the coin-disc image inside each Coins-tab
+  grid card; it should be removed so the card image is clean, matching the
+  Dashboard Spotlight's image-only treatment. Value stays in the coin detail
+  view (see Issue 3 below), just not on the list card. **Confirmed scope**:
+  remove it from grid-mode cards only — list-mode rows (where the coin-disc
+  is already hidden entirely and Value reads more like a price tag at the
+  end of a text row, not an image overlay) keep showing it.
+
+- **Issue 3 — expand the coin detail view into the comprehensive deep-dive,
+  plus Album/Set linkage.** Currently the detail panel (`renderBrowseDetailPanel()`,
+  see "Browse detail view" above) only shows Value/Purchase/Composition/Fun
+  Fact/Notes/Additional Photos. It should expose everything the database has
+  on that coin, organized rather than dumped: a few key facts always visible
+  (Value, Grade, current summary info — largely already covered by the flip
+  corners + cert badge), with denser groups (e.g. full Purchase Details —
+  Cost, Shipping, Total, Seller, PurchaseDate, Receipt) behind an
+  expandable/collapsible section. Loosely mirrors the All sheet's 8
+  color-coded column groups (Identity, Coin Details, Grading, Financial,
+  Storage, Notes, Photos, Sale) as a starting point — doesn't need to match
+  1:1, use judgment on grouping.
+  **New: Album and Set linkage.** A section showing which Album and/or Set
+  (if any) a coin belongs to, as a real clickable link back to that page. A
+  coin can have an Album link, a Set link, both, or neither — handle all
+  four cases cleanly, omitting gracefully (no empty/broken-looking section)
+  when there's no linkage rather than showing one.
+  **Confirmed answers, don't re-ask:**
+  1. **Album linkage**: look up `Albums.FilledBy` for a match against the
+     coin's CollectionID (already reliable/well-populated — 268 slots have
+     it). Tapping the link opens that album at its normal starting page
+     (not a jump to the exact slot's page inside the book).
+  2. **Set linkage matching key**: add a `setId` field to `FAKE_COINS` rows
+     (both individual coins and Set-bundle rows) and match an individual
+     coin's `setId` against a bundle row's *own* `setId` — **not** against
+     the bundle row's CollectionID. Confirmed against the real workbook:
+     only 28 of 386 owned coins currently have SetID populated (~158 sets
+     still need parent/child restructuring per ParkingLot), so most coins
+     won't show a Set link yet — that's accurate, not a bug. Populate just
+     one demo pair to prove the link works (e.g. the 2021 Silver Proof Set
+     bundle row + the Washington Quarter individual coin, which were already
+     thematically tied together in the pre-restructure mockup data), leave
+     the rest blank. Tapping the link opens that bundle row's own detail
+     view — through this same expanded `showBrowseDetail()`, since a Set is
+     just a coin-shaped row now, not a separate page type.
+  3. **"Sale" group**: skip it entirely, not even as a framework/placeholder
+     section — no sold/deaccessioned concept exists anywhere in this app's
+     data model today, unlike the other 7 groups which all map to real
+     fields already present somewhere.
+  4. **New mock-data scope boundary**: add only sparse `shippingCost` +
+     `receipt` demo fields (in `FAKE_COIN_DETAILS`, a couple of coins) plus
+     the `setId` pairing above — same sparse-population convention already
+     used throughout this file. Do **not** add unrelated fields nobody asked
+     for just because they're nominally "in the database" (a CoinID
+     cross-reference to DB_Coins, an Error field, SpotValue) — those stay
+     out of scope for this issue.
+  5. **Interaction pattern**: inline expand/collapse on the same screen
+     (accordion-style) — **not** Add Coin's "replace the screen, back link
+     returns" drill-down pattern. This is a read-only viewing screen, not a
+     data-entry form; no accordion/disclosure component exists yet in this
+     app, a small new one is warranted here (not overengineering — it's the
+     literal feature being asked for).
+  6. **Browse Edit stays untouched** — the bounded Grade/GradeSource/Cert/
+     Designation/Storage Location editor (see "Editing existing coins")
+     is not part of this issue's scope at all.
+
 ### Browse: Grid/List toggle (locked in)
 A small icon toggle (grid icon / list icon) next to the filter row switches the
 coin listing between the existing card grid and a plain list-row layout. Both
