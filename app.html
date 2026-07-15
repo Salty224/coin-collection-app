@@ -2572,18 +2572,18 @@
   // two rows deliberately share pcgs "5000" to demo the PCGS_Duplicate_Queue ambiguous-match flow.
   const FAKE_DB_COINS = [
     { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "" },
-    { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat",            finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000,  designation: "" },
-    // Plain (non-VDB) 1909-S Lincoln Wheat exists as two Designation-specific
+    { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000,  designation: "" },
+    // Plain (non-VDB) 1909-S Lincoln Wheat Cent exists as two Designation-specific
     // DB_Coins rows (RD vs. BN) sharing the same Year+MintMark+Denom+Variety —
     // deliberately kept as a real ambiguous-match case (see "Direct-write vs.
     // Staging" / Designation re-resolution below), not collapsed into one row.
-    { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat",            finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000, designation: "RD" },
-    { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat",            finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-03",  pcgs: "2431",  mintage: 1825000, designation: "BN" },
-    { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan",                   finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000,  designation: "" },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000, designation: "RD" },
+    { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-03",  pcgs: "2431",  mintage: 1825000, designation: "BN" },
+    { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan Dollar",        finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000,  designation: "" },
     { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber Quarter",       finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664,   designation: "" },
     { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000, designation: "" },
     { denom: "5C",  year: 1937, mint: "D",  variety: "",        description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-01",  pcgs: "3964",  mintage: 17826000, designation: "" },
-    { denom: "1C",  year: 1950, mint: "",   variety: "",        description: "Lincoln Wheat",            finish: "Proof",           gsid: "GS-2091", coinId: "C-1950-M-1C-03",  pcgs: "9430",  mintage: 51386,   designation: "" },
+    { denom: "1C",  year: 1950, mint: "",   variety: "",        description: "Lincoln Wheat Cent",   finish: "Proof",           gsid: "GS-2091", coinId: "C-1950-M-1C-03",  pcgs: "9430",  mintage: 51386,   designation: "" },
     // "Washington Quarter" (this classic pre-1999 series) is distinct from the
     // 2007 "State - Washington" quarter (a different real coin, the state of
     // Washington's entry in the 50 State Quarters program) — confirmed
