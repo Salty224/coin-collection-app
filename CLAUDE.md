@@ -540,14 +540,42 @@ see PCGS Label Auto-Populate below) when that GradeSource has a base URL on
 file, plain text otherwise. No separate cert-link line.
 
 Below the cert badge, a **full detail panel** is the one place all of a coin's
-data is viewable: Value, Purchase Info (cost/vendor/purchase date, whichever
-parts exist), Fun Fact, Notes, and Additional Photos (a thumbnail row, or "No
-additional photos on file" if none). Purchase/Fun Fact/Notes/Photos come from
-`FAKE_COIN_DETAILS`, a lookup by CollectionID kept separate from `FAKE_COINS`
-rather than bloating every coin row — sparsely populated today (a few coins
-have it filled in, most don't), same pattern as `gradeSource`/`serNo`. Each
-row/block hides itself when its data is blank rather than showing an empty
-label.
+data is viewable (`renderBrowseDetailPanel()`). Structure (Issue 3 — the
+comprehensive deep-dive, locked in and built):
+- **Always-visible key facts**, one row each, each hiding itself when blank:
+  Value, Grade, Storage, Composition (`setDetailRow()`). Identity and
+  Grading are intentionally NOT repeated here — the flip corners + cert
+  badge above already carry Year/Mint/Type/Grade/Cert.
+- **"Belongs to" linkage** — a section (always visible when any link exists,
+  omitted entirely otherwise) with real clickable chips to the Album and/or
+  Set the coin is part of. Album via `resolveCoinAlbumLink()` (scans
+  `Albums.FilledBy` for this CollectionID → opens that album at its cover via
+  `openAlbumFromLink()`, not a jump to the coin's exact slot page). Set via
+  `resolveCoinSetLink()` (matches the coin's own `setId` against a
+  Denomination="Multiple" bundle row's OWN `setId` — **not** its
+  CollectionID — excluding self, so a bundle viewed directly never links to
+  itself → opens that bundle's own detail view through the same
+  `showBrowseDetail()`). A coin can have an Album link, a Set link, both, or
+  neither; all four cases render cleanly. Only one demo Set pair carries a
+  `setId` today (Washington Quarter AY-00012 ↔ 2021 Silver Proof Set bundle
+  AY-00018), matching how sparse real SetID population is (~28 of 386 rows) —
+  most coins correctly show no Set link.
+- **Denser groups behind inline accordions** (`appendAccordion()`, a small
+  new disclosure component — inline expand/collapse on the same screen,
+  default collapsed, NOT Add Coin's replace-the-screen drill-down), each
+  omitted entirely when it has no data: **Purchase Details** (Cost, Shipping,
+  Total, Seller, Purchase Date, Receipt — Cost from `coin.cost`, the rest
+  from `FAKE_COIN_DETAILS`; Total shown only when both Cost and Shipping
+  exist so it's a real sum), **Notes & Facts** (Fun Fact + Notes), and
+  **Additional Photos** (thumbnail row). No **Sale** group — no
+  sold/deaccessioned concept exists in the data model, deliberately skipped
+  (not even a placeholder).
+Purchase/Fun Fact/Notes/Photos and the sparse `shippingCost`/`receipt` demo
+fields come from `FAKE_COIN_DETAILS`, a lookup by CollectionID kept separate
+from `FAKE_COINS` rather than bloating every coin row — sparsely populated
+today (a few coins have it filled in, most don't), same pattern as
+`gradeSource`/`serNo`. Browse Edit is untouched by this — Issue 3 is purely
+the read-only viewing screen.
 
 An **Edit** button on the detail
 view opens an edit form covering exactly the bounded fields the app can safely
@@ -562,86 +590,31 @@ judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
 stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
 the coin's Detail view, not the grid.
 
-### Carried forward — not yet built (Issue 3 only; Issues 1 and 2 are now done)
-Three issues were raised against the Browse restructure above.
-
-**Issues 1 and 2 are built, committed, and verified** — confirmed in a real
-browser (Playwright/Chromium), not just reasoned about: Sets tab cards now
-stack full-width like Albums' list, and Coins-tab grid cards show a clean
-image with no Value text, while Coins-tab list mode and every Rolls-tab card
-(grid or list) were checked to still show Value exactly as before, untouched.
-- Issue 1 fix: `.coin-grid.sets-mode` (an override paralleling `.list-view`'s
-  own stacking rule, applied only while rendering the Sets tab and always
-  cleared by `renderBrowseGrid()` so it can't leak into Coins/Rolls).
-- Issue 2 fix: `#browseGrid[data-tab="coins"]:not(.list-view) .coin-card
-  .value { display: none; }`, with `showBrowseTab()` setting
-  `#browseGrid`'s `data-tab` attribute — needed because Rolls renders
-  through this exact same `.coin-card`/`renderBrowseGrid()` path and must
-  keep showing Value on its own cards, so the fix couldn't just key off
-  `.coin-grid`/`.list-view` alone without also hiding Value on Rolls.
-
-**Issue 3 is the only one still open.** Clarifying questions were asked and
-answered for it (below), but **no code has been written or committed for it
-yet** — it's deliberately being held for a session running on Opus, given
-its architectural scope (new data fields, a new accordion/disclosure
-component, cross-page linkage). Don't build it opportunistically alongside
-an unrelated task; wait for that dedicated session.
-
-**Issue 3 — expand the coin detail view into the comprehensive deep-dive,
-plus Album/Set linkage.** Currently the detail panel (`renderBrowseDetailPanel()`,
-  see "Browse detail view" above) only shows Value/Purchase/Composition/Fun
-  Fact/Notes/Additional Photos. It should expose everything the database has
-  on that coin, organized rather than dumped: a few key facts always visible
-  (Value, Grade, current summary info — largely already covered by the flip
-  corners + cert badge), with denser groups (e.g. full Purchase Details —
-  Cost, Shipping, Total, Seller, PurchaseDate, Receipt) behind an
-  expandable/collapsible section. Loosely mirrors the All sheet's 8
-  color-coded column groups (Identity, Coin Details, Grading, Financial,
-  Storage, Notes, Photos, Sale) as a starting point — doesn't need to match
-  1:1, use judgment on grouping.
-  **New: Album and Set linkage.** A section showing which Album and/or Set
-  (if any) a coin belongs to, as a real clickable link back to that page. A
-  coin can have an Album link, a Set link, both, or neither — handle all
-  four cases cleanly, omitting gracefully (no empty/broken-looking section)
-  when there's no linkage rather than showing one.
-  **Confirmed answers, don't re-ask:**
-  1. **Album linkage**: look up `Albums.FilledBy` for a match against the
-     coin's CollectionID (already reliable/well-populated — 268 slots have
-     it). Tapping the link opens that album at its normal starting page
-     (not a jump to the exact slot's page inside the book).
-  2. **Set linkage matching key**: add a `setId` field to `FAKE_COINS` rows
-     (both individual coins and Set-bundle rows) and match an individual
-     coin's `setId` against a bundle row's *own* `setId` — **not** against
-     the bundle row's CollectionID. Confirmed against the real workbook:
-     only 28 of 386 owned coins currently have SetID populated (~158 sets
-     still need parent/child restructuring per ParkingLot), so most coins
-     won't show a Set link yet — that's accurate, not a bug. Populate just
-     one demo pair to prove the link works (e.g. the 2021 Silver Proof Set
-     bundle row + the Washington Quarter individual coin, which were already
-     thematically tied together in the pre-restructure mockup data), leave
-     the rest blank. Tapping the link opens that bundle row's own detail
-     view — through this same expanded `showBrowseDetail()`, since a Set is
-     just a coin-shaped row now, not a separate page type.
-  3. **"Sale" group**: skip it entirely, not even as a framework/placeholder
-     section — no sold/deaccessioned concept exists anywhere in this app's
-     data model today, unlike the other 7 groups which all map to real
-     fields already present somewhere.
-  4. **New mock-data scope boundary**: add only sparse `shippingCost` +
-     `receipt` demo fields (in `FAKE_COIN_DETAILS`, a couple of coins) plus
-     the `setId` pairing above — same sparse-population convention already
-     used throughout this file. Do **not** add unrelated fields nobody asked
-     for just because they're nominally "in the database" (a CoinID
-     cross-reference to DB_Coins, an Error field, SpotValue) — those stay
-     out of scope for this issue.
-  5. **Interaction pattern**: inline expand/collapse on the same screen
-     (accordion-style) — **not** Add Coin's "replace the screen, back link
-     returns" drill-down pattern. This is a read-only viewing screen, not a
-     data-entry form; no accordion/disclosure component exists yet in this
-     app, a small new one is warranted here (not overengineering — it's the
-     literal feature being asked for).
-  6. **Browse Edit stays untouched** — the bounded Grade/GradeSource/Cert/
-     Designation/Storage Location editor (see "Editing existing coins")
-     is not part of this issue's scope at all.
+### Carried forward — not yet built (empty — all three Browse issues are done)
+The three issues raised against the Browse restructure above are **all built,
+committed, and browser-verified** — nothing is carried forward here anymore.
+Kept as a heading only so a future session sees the queue is intentionally
+empty rather than missing.
+- **Issue 1 (Sets tab cards rendered side-by-side)** — fixed via
+  `.coin-grid.sets-mode` (parallels `.list-view`'s own stacking rule, applied
+  only while rendering the Sets tab, cleared by `renderBrowseGrid()` so it
+  can't leak into Coins/Rolls).
+- **Issue 2 (Value overlay on Coins-tab grid cards)** — fixed via
+  `#browseGrid[data-tab="coins"]:not(.list-view) .coin-card .value {
+  display:none }`, with `showBrowseTab()` setting `#browseGrid`'s `data-tab`
+  attribute so Rolls (same `.coin-card`/`renderBrowseGrid()` path) and both
+  tabs' list modes keep Value.
+- **Issue 3 (comprehensive coin detail view + Album/Set linkage)** — built;
+  see the expanded "Browse detail view" section above for the full mechanism
+  (`renderBrowseDetailPanel()` restructured into always-visible key facts +
+  a "Belongs to" Album/Set linkage section + inline `appendAccordion()`
+  groups; `resolveCoinAlbumLink()`/`resolveCoinSetLink()`; sparse
+  `setId`/`shippingCost`/`receipt` demo data). Verified in a real browser:
+  Album linkage resolves via `Albums.FilledBy` (Lincoln Wheat Cent →
+  Lincoln Cents album, opening at the cover), Set linkage resolves via `setId`
+  and NOT CollectionID (Washington Quarter → 2021 Silver Proof Set bundle,
+  which itself shows no self-link), the accordions collapse/expand, coins with
+  no linkage omit the section cleanly, and Browse Edit is unaffected.
 
 ### Browse: Grid/List toggle (locked in)
 A small icon toggle (grid icon / list icon) next to the filter row switches the

@@ -950,6 +950,58 @@
     width: 60px; height: 60px; margin-right: 8px;
   }
 
+  /* Issue 3 — expanded coin detail view. A small inline accordion (not a
+     drill-down): each dense group is a header button that expands its body
+     in place. Read-only viewing screen, so this is display-only chrome. */
+  .detail-section-heading {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); margin: 18px 0 6px;
+  }
+  .detail-accordion { margin-top: 10px; }
+  .detail-accordion + .detail-accordion { margin-top: 8px; }
+  .accordion-header {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 11px 14px; border: 1px solid var(--case-border);
+    border-radius: 10px; background: var(--bg-case); color: var(--text);
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    text-align: left;
+  }
+  .accordion-header:hover { border-color: var(--case-border-bright); }
+  .accordion-header .accordion-chevron {
+    flex-shrink: 0; color: var(--text-muted); font-size: 12px;
+    transition: transform 0.18s ease;
+  }
+  .accordion-header[aria-expanded="true"] .accordion-chevron { transform: rotate(90deg); }
+  .accordion-body {
+    padding: 4px 14px 6px; border: 1px solid var(--case-border); border-top: none;
+    border-radius: 0 0 10px 10px; margin-top: -1px;
+  }
+  .accordion-body.hidden { display: none; }
+  .accordion-body .detail-row:first-child { padding-top: 10px; }
+  .accordion-body p { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+  /* "Belongs to" linkage — Album and/or Set the coin is part of, as real
+     clickable chips back to that page. Always visible when any linkage
+     exists; the whole section is omitted when there's neither. */
+  .detail-linkage { margin-top: 18px; }
+  .detail-linkage.hidden { display: none; }
+  .linkage-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .linkage-chip {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    border: 1px solid var(--case-border); border-radius: 10px;
+    background: var(--bg-case); color: var(--text); font-family: inherit;
+    font-size: 13px; cursor: pointer; text-align: left; width: 100%;
+  }
+  .linkage-chip:hover { border-color: var(--gold); }
+  .linkage-chip .linkage-icon { flex-shrink: 0; font-size: 18px; }
+  .linkage-chip .linkage-text { flex: 1; min-width: 0; }
+  .linkage-chip .linkage-kind {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-muted); display: block;
+  }
+  .linkage-chip .linkage-name { font-weight: 600; color: var(--text); }
+  .linkage-chip .linkage-arrow { flex-shrink: 0; color: var(--text-muted); font-size: 16px; }
+
   /* Flags that the disc above is standing in for an uncropped combined
      obverse/reverse photo (Photo3/Photo4), not a normal single-face shot. */
   .combined-photo-badge {
@@ -1362,30 +1414,34 @@
           <div class="grade-cert-badge hidden" id="browseDetailCertBadge"></div>
 
           <div class="case detail-panel" id="browseDetailPanel">
-            <div class="detail-row">
+            <!-- Key facts, always visible (each row hides itself when blank). -->
+            <div class="detail-row hidden" id="detailValueRow">
               <span class="detail-label">Value</span>
               <span class="detail-value" id="detailValueText"></span>
             </div>
-            <div class="detail-row hidden" id="detailPurchaseRow">
-              <span class="detail-label">Purchase</span>
-              <span class="detail-value" id="detailPurchaseText"></span>
+            <div class="detail-row hidden" id="detailGradeRow">
+              <span class="detail-label">Grade</span>
+              <span class="detail-value" id="detailGradeText"></span>
+            </div>
+            <div class="detail-row hidden" id="detailStorageRow">
+              <span class="detail-label">Storage</span>
+              <span class="detail-value" id="detailStorageText"></span>
             </div>
             <div class="detail-row hidden" id="detailCompositionRow">
               <span class="detail-label">Composition</span>
               <span class="detail-value" id="detailCompositionText"></span>
             </div>
-            <div class="detail-block hidden" id="detailFunFactBlock">
-              <div class="detail-label">Fun Fact</div>
-              <p id="detailFunFactText"></p>
+
+            <!-- Album / Set linkage — always visible when any link exists,
+                 whole section omitted otherwise. JS-populated. -->
+            <div class="detail-linkage hidden" id="detailLinkage">
+              <div class="detail-label">Belongs to</div>
+              <div class="linkage-chips" id="detailLinkageChips"></div>
             </div>
-            <div class="detail-block hidden" id="detailNotesBlock">
-              <div class="detail-label">Notes</div>
-              <p id="detailNotesText"></p>
-            </div>
-            <div class="detail-block">
-              <div class="detail-label">Additional Photos</div>
-              <div id="detailPhotosRow"></div>
-            </div>
+
+            <!-- Denser groups behind inline accordions (JS-populated). Each
+                 accordion is omitted entirely when it has no data. -->
+            <div id="detailAccordions"></div>
           </div>
         </div>
 
@@ -2233,7 +2289,7 @@
     { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
     { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   category: "",              rollId: "", gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2",   variety: "" },
     { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   category: "",              rollId: "", setId: "S-2021-SP-01", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
     // Denomination="Medal" is the real workbook signal for a standalone
@@ -2255,7 +2311,14 @@
     // future parent/child CollectionID suffix system (AY-#####-Set / -A / -B)
     // will eventually let a bundle's individual coins be broken out — out of
     // scope for this restructure, see CLAUDE.md.
-    { id: "AY-00018", name: "2021 Silver Proof Set",                    denom: "Multiple", year: 2021, mint: "", grade: "", value: 180, cost: 150, category: "Silver Proof Set", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    // setId here matches the Washington Quarter (AY-00012) above — the one
+    // demo Set-linkage pair (see CLAUDE.md Issue 3). An individual coin's
+    // setId is matched against a bundle row's OWN setId (not its
+    // CollectionID) to resolve "which Set does this coin belong to." Only
+    // this one pair carries a setId; every other row leaves it absent, since
+    // only ~28 of 386 real owned rows have SetID populated today — most coins
+    // correctly show no Set link.
+    { id: "AY-00018", name: "2021 Silver Proof Set",                    denom: "Multiple", year: 2021, mint: "", grade: "", value: 180, cost: 150, category: "Silver Proof Set", rollId: "", setId: "S-2021-SP-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
     { id: "AY-00019", name: "1999 United States Mint Set",              denom: "Multiple", year: 1999, mint: "", grade: "", value: 45,  cost: 35,  category: "Mint Set",         rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
     { id: "AY-00020", name: "1955 United States Proof Set",             denom: "Multiple", year: 1955, mint: "", grade: "", value: 220, cost: 175, category: "Proof Set",        rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
     { id: "AY-00021", name: "American Innovation Dollar Legacy Collection", denom: "Multiple", year: 2026, mint: "", grade: "", value: 60, cost: 55, category: "Legacy Collection", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
@@ -2273,8 +2336,13 @@
   // since only a few coins have this filled in today (same sparse-data pattern
   // as gradeSource/serNo above). Feeds Browse detail's full detail panel.
   const FAKE_COIN_DETAILS = {
+    // shippingCost/receipt are sparse demo fields added for Issue 3's expanded
+    // Purchase Details group (Cost/Shipping/Total/Seller/PurchaseDate/Receipt)
+    // — Cost lives on the FAKE_COINS row itself (coin.cost); the rest are here,
+    // same sparse-by-CollectionID convention as vendor/purchaseDate. Only a
+    // couple of coins carry them, matching how sparse the real data is.
     "AY-00001": {
-      purchaseDate: "2019-03-14", vendor: "Heritage Auctions",
+      purchaseDate: "2019-03-14", vendor: "Heritage Auctions", shippingCost: 12.50, receipt: true,
       funFact: "Carson City Morgans carry the \"CC\" mintmark — the Carson City mint struck silver dollars almost entirely from Comstock Lode silver, and its dollars are some of the most collected by mint location alone.",
       notes: "Bought at auction, still in the original PCGS holder.",
       additionalPhotos: ["holder-label"]
@@ -2290,7 +2358,7 @@
       notes: "Priced high for this grade due to low survival estimates in Good condition."
     },
     "AY-00010": {
-      purchaseDate: "2018-05-09", vendor: "GreatCollections",
+      purchaseDate: "2018-05-09", vendor: "GreatCollections", shippingCost: 6.00, receipt: true,
       funFact: "1955 Franklin proofs are commonly found with cameo contrast — frosted devices against mirrored fields — like this one (CAM designation).",
       notes: "",
       additionalPhotos: ["box-2-slot"]
@@ -3496,26 +3564,25 @@
     badge.classList.remove("hidden");
   }
 
-  // The "everything about this coin" panel below the flip — Value, Purchase
-  // Info, Fun Facts, Notes, Additional Photos. Purchase/Fun Fact/Notes/Photos
-  // come from FAKE_COIN_DETAILS (sparse — most placeholder coins don't have
-  // this filled in yet, same as gradeSource/serNo elsewhere).
+  // Issue 3 — the comprehensive coin deep-dive panel below the flip. Structure:
+  //   1. Always-visible key facts (Value / Grade / Storage / Composition) —
+  //      each row hides itself when blank.
+  //   2. "Belongs to" linkage — Album and/or Set the coin is part of, as real
+  //      clickable chips; the whole section is omitted when there's neither.
+  //   3. Denser groups (Purchase Details, Notes & Facts, Photos) behind inline
+  //      accordions — each accordion omitted entirely when it has no data.
+  // This loosely mirrors the All sheet's column groups (Identity/Grading are
+  // already carried by the flip corners + cert badge above, so they aren't
+  // repeated here; the "Sale" group is deliberately skipped — no
+  // sold/deaccessioned concept exists in this app's data model). Sparse by
+  // design: most placeholder coins only fill in a few of these, same
+  // convention as FAKE_COIN_DETAILS / gradeSource / serNo elsewhere.
   function renderBrowseDetailPanel(coin) {
     const details = FAKE_COIN_DETAILS[coin.id] || {};
 
-    document.getElementById("detailValueText").textContent = coin.value ? "$" + coin.value.toLocaleString() : "Not recorded";
-
-    const purchaseParts = [];
-    if (coin.cost) purchaseParts.push("$" + coin.cost.toLocaleString());
-    if (details.vendor) purchaseParts.push(details.vendor);
-    if (details.purchaseDate) purchaseParts.push(details.purchaseDate);
-    const purchaseRow = document.getElementById("detailPurchaseRow");
-    if (purchaseParts.length) {
-      document.getElementById("detailPurchaseText").textContent = purchaseParts.join(" · ");
-      purchaseRow.classList.remove("hidden");
-    } else {
-      purchaseRow.classList.add("hidden");
-    }
+    setDetailRow("detailValueRow", "detailValueText", coin.value ? "$" + coin.value.toLocaleString() : "");
+    setDetailRow("detailGradeRow", "detailGradeText", coin.grade || "");
+    setDetailRow("detailStorageRow", "detailStorageText", coin.storageLocation || "");
 
     // Composition — Oz content per metal, matching Lookup_MetalContent's
     // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns. Purity (40% vs. 90%
@@ -3526,35 +3593,159 @@
     const compositionParts = Object.keys(metalLabels)
       .filter(key => metals[key] > 0)
       .map(key => metalLabels[key] + " — " + metals[key] + " oz");
-    const compositionRow = document.getElementById("detailCompositionRow");
-    if (compositionParts.length) {
-      document.getElementById("detailCompositionText").textContent = compositionParts.join(" · ");
-      compositionRow.classList.remove("hidden");
-    } else {
-      compositionRow.classList.add("hidden");
-    }
+    setDetailRow("detailCompositionRow", "detailCompositionText", compositionParts.join(" · "));
 
-    toggleDetailTextBlock("detailFunFactBlock", "detailFunFactText", details.funFact);
-    toggleDetailTextBlock("detailNotesBlock", "detailNotesText", details.notes);
+    renderDetailLinkage(coin);
+    renderDetailAccordions(coin, details);
+  }
 
-    const photosRow = document.getElementById("detailPhotosRow");
-    if (details.additionalPhotos && details.additionalPhotos.length) {
-      photosRow.innerHTML = details.additionalPhotos.map(() =>
-        `<div class="coin-photo-frame detail-photo-thumb"><span class="placeholder-icon">🖼️</span></div>`
-      ).join("");
+  function setDetailRow(rowId, textId, value) {
+    const row = document.getElementById(rowId);
+    if (value) {
+      document.getElementById(textId).textContent = value;
+      row.classList.remove("hidden");
     } else {
-      photosRow.innerHTML = `<p class="placeholder-note" style="margin:0; text-align:left;">No additional photos on file.</p>`;
+      row.classList.add("hidden");
     }
   }
 
-  function toggleDetailTextBlock(blockId, textId, value) {
-    const block = document.getElementById(blockId);
-    if (value) {
-      document.getElementById(textId).textContent = value;
-      block.classList.remove("hidden");
-    } else {
-      block.classList.add("hidden");
+  // Album linkage: the coin fills a slot somewhere in Albums (Albums.FilledBy
+  // === this CollectionID). Returns the album's index + name, or null. 268
+  // real album slots have FilledBy populated, so this resolves for most album
+  // coins.
+  function resolveCoinAlbumLink(coin) {
+    for (let i = 0; i < FAKE_ALBUMS.length; i++) {
+      if (FAKE_ALBUMS[i].slots.some(s => s.filledBy === coin.id)) {
+        return { albumIndex: i, albumName: FAKE_ALBUMS[i].name };
+      }
     }
+    return null;
+  }
+
+  // Set linkage: match this coin's OWN setId against a Set-bundle row's OWN
+  // setId (a Denomination="Multiple" row) — NOT against the bundle's
+  // CollectionID (see CLAUDE.md Issue 3). Excludes the coin itself, so a
+  // bundle row viewed directly doesn't link to itself. Returns the bundle
+  // row, or null. Only ~28 of 386 real owned rows have SetID today, so most
+  // coins correctly resolve to null here.
+  function resolveCoinSetLink(coin) {
+    if (!coin.setId) return null;
+    return FAKE_COINS.find(c => c.id !== coin.id && c.denom === "Multiple" && c.setId === coin.setId) || null;
+  }
+
+  function renderDetailLinkage(coin) {
+    const section = document.getElementById("detailLinkage");
+    const chips = document.getElementById("detailLinkageChips");
+    const album = resolveCoinAlbumLink(coin);
+    const set = resolveCoinSetLink(coin);
+
+    if (!album && !set) {
+      section.classList.add("hidden");
+      chips.innerHTML = "";
+      return;
+    }
+
+    chips.innerHTML = "";
+    if (album) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "linkage-chip";
+      btn.innerHTML =
+        `<span class="linkage-icon">📔</span>` +
+        `<span class="linkage-text"><span class="linkage-kind">Album</span>` +
+        `<span class="linkage-name">${album.albumName}</span></span>` +
+        `<span class="linkage-arrow">›</span>`;
+      btn.addEventListener("click", () => openAlbumFromLink(album.albumIndex));
+      chips.appendChild(btn);
+    }
+    if (set) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "linkage-chip";
+      btn.innerHTML =
+        `<span class="linkage-icon">📦</span>` +
+        `<span class="linkage-text"><span class="linkage-kind">Set</span>` +
+        `<span class="linkage-name">${set.name}</span></span>` +
+        `<span class="linkage-arrow">›</span>`;
+      // A Set is just a coin-shaped bundle row now, so its "page" is this same
+      // Browse detail view re-rendered for that row.
+      btn.addEventListener("click", () => {
+        browseDetailBackHandler = showBrowseGrid;
+        showBrowseDetail(set);
+        window.scrollTo({ top: 0 });
+      });
+      chips.appendChild(btn);
+    }
+    section.classList.remove("hidden");
+  }
+
+  // Opens an album at its normal starting page (the cover), same as tapping it
+  // in the Albums picker — not a jump to the coin's exact slot page inside the
+  // book (per CLAUDE.md Issue 3). navigate() switches to the Albums view (and
+  // shows its list); openAlbumAtPage() then opens the specific book over it.
+  function openAlbumFromLink(albumIndex) {
+    navigate("albums");
+    openAlbumAtPage(albumIndex, 0);
+  }
+
+  function renderDetailAccordions(coin, details) {
+    const container = document.getElementById("detailAccordions");
+    container.innerHTML = "";
+
+    // --- Purchase Details (Financial group) ---
+    const purchaseRows = [];
+    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
+    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (coin.cost && details.shippingCost != null) {
+      purchaseRows.push(["Total", "$" + (coin.cost + details.shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    }
+    if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
+    if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
+    if (details.receipt) purchaseRows.push(["Receipt", "On file"]);
+    if (purchaseRows.length) {
+      appendAccordion(container, "Purchase Details", purchaseRows.map(([label, value]) =>
+        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+      ).join(""));
+    }
+
+    // --- Notes & Facts ---
+    let notesHtml = "";
+    if (details.funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
+    if (details.notes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
+    if (notesHtml) appendAccordion(container, "Notes & Facts", notesHtml);
+
+    // --- Photos ---
+    if (details.additionalPhotos && details.additionalPhotos.length) {
+      const thumbs = details.additionalPhotos.map(() =>
+        `<div class="coin-photo-frame detail-photo-thumb"><span class="placeholder-icon">🖼️</span></div>`
+      ).join("");
+      appendAccordion(container, "Additional Photos", `<div style="display:flex; flex-wrap:wrap; padding-top:10px;">${thumbs}</div>`);
+    }
+  }
+
+  // Builds one inline accordion (header button + collapsible body), default
+  // collapsed. A small disclosure component — the first one this app needed —
+  // for the read-only detail view; not the drill-down/replace-the-screen
+  // pattern Add Coin uses for data entry.
+  function appendAccordion(container, title, bodyHtml, opts) {
+    const open = !!(opts && opts.open);
+    const wrap = document.createElement("div");
+    wrap.className = "detail-accordion";
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "accordion-header";
+    header.setAttribute("aria-expanded", String(open));
+    header.innerHTML = `<span>${title}</span><span class="accordion-chevron">›</span>`;
+    const body = document.createElement("div");
+    body.className = "accordion-body" + (open ? "" : " hidden");
+    body.innerHTML = bodyHtml;
+    header.addEventListener("click", () => {
+      const nowOpen = body.classList.toggle("hidden") === false;
+      header.setAttribute("aria-expanded", String(nowOpen));
+    });
+    wrap.appendChild(header);
+    wrap.appendChild(body);
+    container.appendChild(wrap);
   }
 
   // ==================================================================
