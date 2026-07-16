@@ -3433,7 +3433,12 @@
     "AY-00012": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Washington Quarter — 2021 Silver Proof Set
     "AY-00013": { metalCategory: "Clad", edge: "Reeded" }, // Roosevelt Dime (1999) — modern Cu-Ni clad
     "AY-00014": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Statue of Liberty Dollar (1986 commemorative) — 90% silver
-    "AY-00017": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" } // Jefferson Nickel — Cu-Ni
+    "AY-00017": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Jefferson Nickel — Cu-Ni
+    // Two Set-child rows with real spec data so a child's own detail view
+    // exercises the Specifications accordion path (children are keyed by their
+    // own -A/-B CollectionID, same as any owned row).
+    "AY-00022-B": { silverOz: 0.7736, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded", reedCount: 150 }, // 1986 Statue of Liberty Dollar — 90% silver
+    "AY-00022-C": { goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" } // 1986 Statue of Liberty Half Eagle — 90% gold $5
   };
 
   function metalContentFor(coin) {
@@ -3856,7 +3861,7 @@
           <div class="coin-disc"></div>
           <span class="flip-label bl">${child.grade || ""}</span>
         </div>
-        <div class="set-child-caption">${seriesLabel(child)}</div>
+        <div class="set-child-caption">${child.name}</div>
       `;
       card.addEventListener("click", () => {
         const setBackHandler = browseDetailBackHandler;
@@ -3967,13 +3972,28 @@
     return FAKE_COINS.find(c => c.id !== coin.id && c.denom === "Multiple" && c.setId === coin.setId) || null;
   }
 
+  // Child → parent-Set linkage, via originSetId — the reverse of the
+  // multi-coin display (a child coin, viewed on its own detail, links back UP
+  // to the Set bundle it's physically inside). Deliberately kept SEPARATE from
+  // resolveCoinSetLink() above (Issue-3's setId "belongs to" mechanism) —
+  // different field, different relationship, never merged. Only an individual
+  // child row resolves here: a Set bundle viewed directly (isSetRow) returns
+  // null so it never links to itself, and a normal coin with no originSetId
+  // returns null. The parent bundle IS in FAKE_COINS (only children are
+  // nested-only), so this find() resolves it.
+  function resolveChildParentSet(coin) {
+    if (!coin.originSetId || isSetRow(coin)) return null;
+    return FAKE_COINS.find(c => c.denom === "Multiple" && c.originSetId === coin.originSetId) || null;
+  }
+
   function renderDetailLinkage(coin) {
     const section = document.getElementById("detailLinkage");
     const chips = document.getElementById("detailLinkageChips");
     const album = resolveCoinAlbumLink(coin);
     const set = resolveCoinSetLink(coin);
+    const parentSet = resolveChildParentSet(coin);
 
-    if (!album && !set) {
+    if (!album && !set && !parentSet) {
       section.classList.add("hidden");
       chips.innerHTML = "";
       return;
@@ -4006,6 +4026,25 @@
       btn.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
         showBrowseDetail(set);
+        window.scrollTo({ top: 0 });
+      });
+      chips.appendChild(btn);
+    }
+    if (parentSet) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "linkage-chip";
+      btn.innerHTML =
+        `<span class="linkage-icon">📦</span>` +
+        `<span class="linkage-text"><span class="linkage-kind">Set</span>` +
+        `<span class="linkage-name">${parentSet.name}</span></span>` +
+        `<span class="linkage-arrow">›</span>`;
+      // Navigates to the parent Set's own detail view (which re-renders its
+      // child-flip grid). Back returns to the grid — same as the setId set
+      // chip above.
+      btn.addEventListener("click", () => {
+        browseDetailBackHandler = showBrowseGrid;
+        showBrowseDetail(parentSet);
         window.scrollTo({ top: 0 });
       });
       chips.appendChild(btn);

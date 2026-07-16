@@ -727,7 +727,10 @@ today's single-flip display with zero visual change.
 - **Layout: a responsive grid of `.flip-frame-mini`** (the same mini-flip the
   Browse grid cards use — `renderSetChildFlips()`), 2-up on phone, 3-up at
   ≥600px, each child in its own small `.case` box with year-mint / denom /
-  grade corner labels + a series-name caption. `showBrowseDetail()` branches:
+  grade corner labels + a caption of the child's **full name** (`child.name`,
+  not `seriesLabel()` — avoids the "Statue of Liberty" vs. "Statue of Liberty
+  Half Eagle" inconsistency where one child's denom word got stripped and
+  another's didn't). `showBrowseDetail()` branches:
   set-with-children hides `#browseDetailFlipFrame` and populates
   `#browseDetailChildFlips`, skipping `applyFlipCorners()` entirely (it
   measures `#browseDetailDisc`, now in a `display:none` subtree — the exact
@@ -741,6 +744,19 @@ today's single-flip display with zero visual change.
   so the Set's Back still goes to the grid afterward — same per-origin
   back-handler pattern Albums' filled-slot tap uses. A child is an individual
   coin (real `denom`), so its Edit button correctly routes to Edit Coin.
+- **A child's own detail view links back UP to its parent Set** — a "Belongs
+  to → Set" chip in the linkage section (`resolveChildParentSet()`, matching
+  the child's `originSetId` against the parent bundle row in `FAKE_COINS`),
+  tapping it opens the parent Set's detail. This is the reverse of the
+  multi-coin display and is deliberately kept SEPARATE from
+  `resolveCoinSetLink()` (Issue-3's `setId` chip) — different field, different
+  relationship, never merged. A Set bundle viewed directly (`isSetRow`)
+  resolves `null` here so it never self-links; a normal coin with no
+  `originSetId` also resolves `null`. Child detail views also render the
+  normal coin Specifications accordion when the child carries a
+  `FAKE_METAL_CONTENT` entry (demo: `AY-00022-B` silver dollar, `AY-00022-C`
+  gold half eagle) — children are keyed by their own `-A`/`-B` CollectionID
+  there, same as any owned row.
 - **Expanded info box — a "Set Details" facts group** (`renderDetailAccordions()`,
   Set rows only): Coins in Set (DERIVED from `setChildrenFor().length`, not
   stored), Face Value, Mintage (from `FAKE_SET_FACTS`, a sparse lookup by the
