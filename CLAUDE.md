@@ -13,6 +13,16 @@ completions (a bug fix, a component built to existing spec, a screen finished pe
 existing spec) — just do the work. If unsure whether something rises to that bar,
 ask before updating rather than updating by default.
 
+## End-of-task reporting (standing rule)
+When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
+plain-text summary block: what changed, how it was verified, and — critically —
+any open questions or concerns worth a second look (an ambiguous instruction,
+a tradeoff made without explicit sign-off, a side effect on something else,
+an unresolved item carried over from a prior task) so the two of you can
+deliberate before anything moves further. Don't skip the questions section
+just because nothing came up — say so explicitly rather than omitting it.
+This applies on top of, not instead of, the CLAUDE.md update rule below.
+
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
 - No backend server — static HTML/JS + Microsoft Graph API only.
