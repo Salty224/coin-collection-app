@@ -57,6 +57,34 @@ ask before updating rather than updating by default.
 feature below needed to check Ray's actual OneDrive — this is still the
 **only** real Graph code in the file; every Save button remains a stub (see
 "What NOT to build" / hard constraints — nothing here writes anything).
+- **DISABLED BY DEFAULT IN PRODUCTION** (`const ENABLE_REFERENCE_IMAGES = false`,
+  set right above the MSAL bootstrap in app.html). The 7/15 localhost testing
+  session hardcoded `redirectUri: "http://localhost:8791/app.html"` for local
+  dev — there's no production redirect URI registered in Entra for `app.html`
+  yet (see "Azure / Entra config" above). On the live GitHub Pages site this
+  surfaced as **Albums appearing to hang/re-auth on load**: every coin render
+  with no cached reference image (i.e. every render, since no real
+  `ReferenceImages` files exist on OneDrive yet) called `hasReferenceImage()`
+  → `ensureReferenceImageFetch()` → `getReferenceImageToken()`, found no
+  cached MSAL account, and fell back to `acquireTokenRedirect()` — a real
+  full-page navigation toward Microsoft sign-in with a `redirect_uri` Entra
+  never registered for production. Albums hit this hardest (most coin discs
+  per screen via `renderSlotCell()`), but Spotlight/Browse were equally
+  exposed. The flag is checked at the two real choke points —
+  `hasReferenceImage()` returns `false` immediately, and `ensureReferenceImageFetch()`
+  (every caller's real entry point to a Graph/MSAL call) returns
+  `Promise.resolve(null)` immediately — so no caller, present or future, can
+  reintroduce this by skipping a check at its own call site.
+  `referenceImageMsalInstance` also isn't constructed at all while the flag
+  is off, not just left unused.
+  **To re-enable for local testing:** set `ENABLE_REFERENCE_IMAGES = true`,
+  run a local server on port 8791 from the repo root (e.g.
+  `python3 -m http.server 8791`), add `http://localhost:8791/app.html` as a
+  redirect URI in the Entra app registration if it isn't there already, then
+  load `http://localhost:8791/app.html` — the first coin render needing an
+  image will redirect to a real Microsoft sign-in and back. **Set it back to
+  `false` before merging/deploying again** until a real production redirect
+  URI exists and this has a non-localhost-only story.
 - **Read-only, enforced in code, not just by scope.** `fetchReferenceImageBlob()`
   is the only function that calls `fetch()` against Graph for this feature; it
   hardcodes `method: "GET"` and requests the narrower `Files.Read` scope (not

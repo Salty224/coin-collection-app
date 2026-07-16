@@ -2121,6 +2121,33 @@
   //     instead. Add that exact URI to the Entra app registration before
   //     testing; Microsoft's SPA platform config allows plain http on
   //     localhost with no HTTPS requirement.
+  //
+  // DISABLED BY DEFAULT IN PRODUCTION (2026-07 session, following the 7/15
+  // localhost testing round above). redirectUri is hardcoded to
+  // http://localhost:8791/app.html, which only exists during local dev —
+  // there's no production redirect URI registered in Entra for app.html yet
+  // (see "Azure / Entra config" in CLAUDE.md). On the live GitHub Pages site,
+  // any coin render with no cached reference image (i.e. every render, since
+  // no real ReferenceImages files exist on OneDrive yet) calls
+  // hasReferenceImage() -> ensureReferenceImageFetch() ->
+  // getReferenceImageToken(), which found no cached MSAL account, fell back
+  // to acquireTokenRedirect(), and tried to navigate the whole page to
+  // Microsoft sign-in with a redirect_uri Entra never registered for
+  // production — this is what surfaced as Albums appearing to hang/re-auth
+  // on load (Albums renders the most coin discs per screen, via
+  // renderSlotCell(), so it hit this path hardest and first, but every view
+  // that renders a coin disc — Spotlight, Browse — was equally exposed).
+  //
+  // To re-enable for local testing: set this back to true, run a local
+  // server on port 8791 (e.g. `python3 -m http.server 8791` from the repo
+  // root), add http://localhost:8791/app.html as a redirect URI in the Entra
+  // app registration if it's not there already, then load
+  // http://localhost:8791/app.html — the first coin render needing an image
+  // will redirect to a real Microsoft sign-in and back. Set back to false
+  // before merging/deploying again until a real production redirect URI
+  // exists and this has a non-localhost-only story.
+  const ENABLE_REFERENCE_IMAGES = false;
+
   const referenceImageMsalConfig = {
     auth: {
       clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
@@ -2137,8 +2164,12 @@
   // gets defined. This whole feature is additive and must never be able to
   // take the rest of the app (all still-fake, non-network functionality)
   // down with it, so every entry point below degrades to "no reference image
-  // available" instead of throwing when that happens.
-  const referenceImageMsalInstance = (typeof msal !== "undefined")
+  // available" instead of throwing when that happens. Gated on
+  // ENABLE_REFERENCE_IMAGES too — skip constructing MSAL at all when
+  // disabled, not just declining to use it, so there's no live
+  // PublicClientApplication instance sitting around reading its own
+  // localStorage cache for no reason while this is off.
+  const referenceImageMsalInstance = (ENABLE_REFERENCE_IMAGES && typeof msal !== "undefined")
     ? new msal.PublicClientApplication(referenceImageMsalConfig)
     : null;
   const REFERENCE_IMAGE_SCOPES = ["Files.Read"];
@@ -2147,7 +2178,7 @@
     referenceImageMsalInstance.handleRedirectPromise().catch(err => {
       console.warn("Reference image sign-in redirect error:", err);
     });
-  } else {
+  } else if (ENABLE_REFERENCE_IMAGES) {
     console.warn("MSAL failed to load — reference images will show placeholders only.");
   }
 
@@ -2221,8 +2252,14 @@
   }
 
   // Dedupes concurrent/repeat calls for the same series+side to at most one
-  // real request per session — safe to call as often as needed.
+  // real request per session — safe to call as often as needed. This is the
+  // single real choke point for every path that can trigger a Graph
+  // request/sign-in redirect (hasReferenceImage(), applyDiscContent()'s
+  // direct call below) — gating here, not just at each call site, means a
+  // future caller can't accidentally reintroduce the production auth-loop
+  // bug by skipping the ENABLE_REFERENCE_IMAGES check.
   function ensureReferenceImageFetch(seriesKey, side) {
+    if (!ENABLE_REFERENCE_IMAGES) return Promise.resolve(null);
     const key = seriesKey + "_" + side;
     if (Object.prototype.hasOwnProperty.call(referenceImageCache, key)) {
       return Promise.resolve(referenceImageCache[key]);
@@ -2957,6 +2994,7 @@
   // upgrades in place once it resolves (applyDiscContent below) — a miss on
   // first call is expected and not itself an error.
   function hasReferenceImage(coin, side) {
+    if (!ENABLE_REFERENCE_IMAGES) return false; // disabled in production — see the flag's comment above for why/how to re-enable
     side = side || "obverse";
     const seriesKey = referenceSeriesKey(coin);
     if (!seriesKey) return false; // no real Description on this coin — nothing to look up
