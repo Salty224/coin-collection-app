@@ -562,40 +562,33 @@ judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
 stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
 the coin's Detail view, not the grid.
 
-### Carried forward — not yet built (three Browse issues, raised same session as the navigation restructure above)
-Three issues were raised against the Browse restructure above. Clarifying
-questions were asked and answered for all three, but **none of the three had
-code written or committed before the session ended** — confirmed directly
-against git history (no commits past the restructure + the CLAUDE.md heading
-cleanup) and against the live code (the bugs described below are still
-present verbatim). A prior handoff message claimed Issues 1 and 2 were
-"built and committed separately this session" — that claim was checked and
-is incorrect; don't trust it. All three need to actually be built from
-scratch by whichever session picks this up.
+### Carried forward — not yet built (Issue 3 only; Issues 1 and 2 are now done)
+Three issues were raised against the Browse restructure above.
 
-- **Issue 1 — Sets tab layout regression (bug, confirmed root cause, fix not
-  yet applied).** Sets tab cards render side-by-side in a horizontal row
-  instead of a vertical full-width stack. Root cause: `renderSetsGrid()`
-  appends `.album-card`-styled cards into `#browseGrid`, which carries the
-  `.coin-grid` class — a CSS grid (`grid-template-columns: repeat(auto-fill,
-  minmax(150px,1fr))`) that lays out any children in multiple columns
-  regardless of what's inside them. The card markup itself is correct
-  (matches Albums' own list exactly); it's sitting in a grid container that
-  wasn't built for it. Fix: stop applying `.coin-grid`'s multi-column layout
-  when rendering the Sets tab, so cards stack full-width top-to-bottom like
-  Albums' own list does.
+**Issues 1 and 2 are built, committed, and verified** — confirmed in a real
+browser (Playwright/Chromium), not just reasoned about: Sets tab cards now
+stack full-width like Albums' list, and Coins-tab grid cards show a clean
+image with no Value text, while Coins-tab list mode and every Rolls-tab card
+(grid or list) were checked to still show Value exactly as before, untouched.
+- Issue 1 fix: `.coin-grid.sets-mode` (an override paralleling `.list-view`'s
+  own stacking rule, applied only while rendering the Sets tab and always
+  cleared by `renderBrowseGrid()` so it can't leak into Coins/Rolls).
+- Issue 2 fix: `#browseGrid[data-tab="coins"]:not(.list-view) .coin-card
+  .value { display: none; }`, with `showBrowseTab()` setting
+  `#browseGrid`'s `data-tab` attribute — needed because Rolls renders
+  through this exact same `.coin-card`/`renderBrowseGrid()` path and must
+  keep showing Value on its own cards, so the fix couldn't just key off
+  `.coin-grid`/`.list-view` alone without also hiding Value on Rolls.
 
-- **Issue 2 — remove the Value overlay from Coins-tab grid cards.** `.coin-card
-  .value` sits directly beneath the coin-disc image inside each Coins-tab
-  grid card; it should be removed so the card image is clean, matching the
-  Dashboard Spotlight's image-only treatment. Value stays in the coin detail
-  view (see Issue 3 below), just not on the list card. **Confirmed scope**:
-  remove it from grid-mode cards only — list-mode rows (where the coin-disc
-  is already hidden entirely and Value reads more like a price tag at the
-  end of a text row, not an image overlay) keep showing it.
+**Issue 3 is the only one still open.** Clarifying questions were asked and
+answered for it (below), but **no code has been written or committed for it
+yet** — it's deliberately being held for a session running on Opus, given
+its architectural scope (new data fields, a new accordion/disclosure
+component, cross-page linkage). Don't build it opportunistically alongside
+an unrelated task; wait for that dedicated session.
 
-- **Issue 3 — expand the coin detail view into the comprehensive deep-dive,
-  plus Album/Set linkage.** Currently the detail panel (`renderBrowseDetailPanel()`,
+**Issue 3 — expand the coin detail view into the comprehensive deep-dive,
+plus Album/Set linkage.** Currently the detail panel (`renderBrowseDetailPanel()`,
   see "Browse detail view" above) only shows Value/Purchase/Composition/Fun
   Fact/Notes/Additional Photos. It should expose everything the database has
   on that coin, organized rather than dumped: a few key facts always visible
