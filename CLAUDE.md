@@ -531,21 +531,26 @@ the same corner mapping:
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
-a back link. Below the flip-frame, a **cert badge** shows the cert number alone
-(`Cert #23456789`) — **not** Grade + GradeSource anymore, since those already
-show on the flip's bottom-left corner and repeating them below was redundant;
-the badge is hidden entirely if there's no cert number. The badge is a link
-(opens the cert lookup URL via the grader-agnostic `Lookup_Graders` resolver —
-see PCGS Label Auto-Populate below) when that GradeSource has a base URL on
-file, plain text otherwise. No separate cert-link line.
+a back link. **Superseded: the standalone cert badge below the flip is gone** —
+the cert number moved into the always-visible key-facts block instead (see
+below), rather than living in its own pill between the flip and the panel.
 
-Below the cert badge, a **full detail panel** is the one place all of a coin's
-data is viewable (`renderBrowseDetailPanel()`). Structure (Issue 3 — the
-comprehensive deep-dive, locked in and built):
+A **full detail panel** is the one place all of a coin's data is viewable
+(`renderBrowseDetailPanel()`). Structure (Issue 3 — the comprehensive
+deep-dive, locked in and built):
 - **Always-visible key facts**, one row each, each hiding itself when blank:
-  Value, Grade, Storage, Composition (`setDetailRow()`). Identity and
-  Grading are intentionally NOT repeated here — the flip corners + cert
-  badge above already carry Year/Mint/Type/Grade/Cert.
+  Value, Grade, **Cert**, Storage, Composition (`setDetailRow()`). Identity
+  is intentionally not repeated here — the flip corners already carry
+  Year/Mint/Type. **Cert** is the cert number itself, hyperlinked using the
+  coin's own `certLink` field directly (a stored URL, All/DB_Coins schema —
+  **never** a URL constructed from the cert number the way the old badge did
+  via `buildCertLookupUrl()`) when populated, plain text when there's a cert
+  number but no `certLink` on file, row hidden entirely with no cert number
+  at all. (NGC's own cert-lookup page may bot-check the visitor after the
+  link opens — expected, outside the app's control, not something to fix.)
+  `buildCertLookupUrl()` itself is unchanged and still used elsewhere (Browse
+  Edit's link button, Add Coin's grading-help icon) — this only affects how
+  the read-only detail view sources its link.
 - **"Belongs to" linkage** — a section (always visible when any link exists,
   omitted entirely otherwise) with real clickable chips to the Album and/or
   Set the coin is part of. Album via `resolveCoinAlbumLink()` (scans
@@ -561,21 +566,34 @@ comprehensive deep-dive, locked in and built):
   AY-00018), matching how sparse real SetID population is (~28 of 386 rows) —
   most coins correctly show no Set link.
 - **Denser groups behind inline accordions** (`appendAccordion()`, a small
-  new disclosure component — inline expand/collapse on the same screen,
-  default collapsed, NOT Add Coin's replace-the-screen drill-down), each
-  omitted entirely when it has no data: **Purchase Details** (Cost, Shipping,
-  Total, Seller, Purchase Date, Receipt — Cost from `coin.cost`, the rest
-  from `FAKE_COIN_DETAILS`; Total shown only when both Cost and Shipping
-  exist so it's a real sum), **Notes & Facts** (Fun Fact + Notes), and
-  **Additional Photos** (thumbnail row). No **Sale** group — no
-  sold/deaccessioned concept exists in the data model, deliberately skipped
-  (not even a placeholder).
-Purchase/Fun Fact/Notes/Photos and the sparse `shippingCost`/`receipt` demo
-fields come from `FAKE_COIN_DETAILS`, a lookup by CollectionID kept separate
-from `FAKE_COINS` rather than bloating every coin row — sparsely populated
-today (a few coins have it filled in, most don't), same pattern as
-`gradeSource`/`serNo`. Browse Edit is untouched by this — Issue 3 is purely
-the read-only viewing screen.
+  disclosure component — inline expand/collapse on the same screen, default
+  collapsed, NOT Add Coin's replace-the-screen drill-down), each omitted
+  entirely when it has no data:
+  - **Purchase Details** — **Total leads, with Cost and Shipping listed
+    underneath it as the two components that sum to it** (superseded: this
+    used to be Cost/Shipping/Total in that order) — then Seller, Purchase
+    Date, Receipt. Cost from `coin.cost`, the rest from `FAKE_COIN_DETAILS`;
+    Total shown only when both Cost and Shipping exist so it's a real sum.
+    Each row still shows independently of the others.
+  - **Specifications** (new) — Composition (also shown in the always-visible
+    summary row above; the overlap is intentional, matching how the physical
+    Red Book itself presents this data as its own dedicated table), Weight,
+    Diameter, Thickness, Edge, No. of Reeds. Weight/Thickness/Edge/ReedCount
+    are new DB_Coins columns (Excel-side backfill in progress, mostly blank
+    today by design) — ReedCount only ever applies to a reeded-edge coin.
+    All sourced from the same `FAKE_METAL_CONTENT` sparse lookup Composition
+    already uses (`compositionTextFor()`, shared by both the summary row and
+    this accordion so they can't drift out of sync).
+  - **Notes & Facts** (Fun Fact + Notes).
+  - **Additional Photos** (thumbnail row).
+  - No **Sale** group — no sold/deaccessioned concept exists in the data
+    model, deliberately skipped (not even a placeholder).
+Purchase/Fun Fact/Notes/Photos and the sparse `shippingCost`/`receipt`/specs
+demo fields come from `FAKE_COIN_DETAILS`/`FAKE_METAL_CONTENT`, lookups by
+CollectionID kept separate from `FAKE_COINS` rather than bloating every coin
+row — sparsely populated today (a few coins have it filled in, most don't),
+same pattern as `gradeSource`/`serNo`. Browse Edit is untouched by any of
+this — it's purely the read-only viewing screen.
 
 An **Edit** button on the detail
 view opens an edit form covering exactly the bounded fields the app can safely
@@ -583,12 +601,14 @@ write directly (see "Editing existing coins" below: Grade, GradeSource,
 Cert/Type Number, Designation, Storage Location) plus the ability to attach a
 photo to any Obverse/Reverse/Additional/Receipt slot that wasn't filled during
 Add Coin — reusing the same photo-slot/crop-adjuster module. In Edit mode the
-same cert number is a compact pill-styled input (not a full-width labeled
-field) with a small link-icon button beside it, visually matching the
-read-only badge. Editing does **not** cover anything requiring research or
-judgment (album/slot re-matching, cost allocation, new catalog lookups) — that
-stays a chat + Copilot task, same boundary as before. "Back" from Edit returns to
-the coin's Detail view, not the grid.
+cert number is a compact pill-styled input (not a full-width labeled field)
+with a small link-icon button beside it, using `buildCertLookupUrl()`
+(grader-agnostic, unchanged) — a different, still-constructed-URL mechanism
+from the read-only detail view's stored-`certLink` approach above; the two
+were deliberately decoupled, not unified. Editing does **not** cover anything
+requiring research or judgment (album/slot re-matching, cost allocation, new
+catalog lookups) — that stays a chat + Copilot task, same boundary as before.
+"Back" from Edit returns to the coin's Detail view, not the grid.
 
 ### Carried forward — not yet built (empty — all three Browse issues are done)
 The three issues raised against the Browse restructure above are **all built,
@@ -761,7 +781,7 @@ rendering anything inline.
   reservation system and the OneDrive write layer, neither of which exist
   yet (see "Add Coin: the core workflow").
 
-### Metal filter (locked in)
+### Metal filter (locked in, pill set superseded below — mechanics still apply)
 A second single-select chip row (`All Metals / Gold / Silver / Platinum /
 Palladium`) sits directly below the Type row, filtering on precious-metal
 content sourced from `Lookup_MetalContent`'s `SilverOz`/`GoldOz`/`PlatinumOz`/
@@ -795,6 +815,45 @@ four mostly-zero fields to every coin row).
   Purity percentage isn't a separately tracked field in this mockup's data
   model (only Oz content) — the real `Lookup_MetalContent` table would carry
   that alongside the Oz figure.
+
+### Metal filter: expanded to 7 categories (locked in, supersedes the pill set above)
+The Metal filter pills now read a new, real field —
+`Lookup_MetalContent.MetalCategory`, one of exactly 7 values: `Gold` /
+`Silver` / `Platinum` / `Copper` / `Zinc` / `Clad` / `Other`
+(`metalCategoryFor()`, still sourced from `FAKE_METAL_CONTENT` — same sparse
+lookup, same CollectionID key, no new data structure) — instead of the old
+precious-metals-only Oz-qualification rule.
+- **A different, coexisting concept from Composition, not a replacement for
+  it.** The Oz-based fields (`goldOz`/`silverOz`/etc.) and their "any nonzero
+  content" qualification rule are untouched and still drive the detail
+  panel's Composition row (and the new Specifications accordion — see
+  "Browse detail view" above). MetalCategory is a single categorical bucket
+  per coin covering **every** coin, not just precious-metal ones (a modern
+  clad quarter gets `Clad`, not blank) — a different column doing a
+  different job on the same row.
+- **Still single-select** — combinable OR/AND filter behavior across axes
+  (Denomination/Metal/Commemorative/etc. all combining freely) is a real,
+  separate, not-yet-built spec item; explicitly out of scope here, not an
+  oversight.
+- **"Other" matches EITHER an explicit `Other` OR a blank/unset
+  MetalCategory** — most rows will show blank/Other interchangeably until a
+  separate research pass backfills the real column, and a genuinely unset
+  category has to land somewhere or it becomes unreachable via any pill.
+- **Supplementary info per pill, hover or tap** — each pill carries a native
+  `title` attribute (free desktop hover) listing that bucket's constituent
+  compositions (`METAL_CATEGORY_INFO`, a static reference object, not
+  per-coin data), e.g. Silver → "90% Silver, 99.9% Silver, 40% Silver, 35%
+  Silver (War Nickel)." Hover doesn't reach touch devices, so tapping a pill
+  (which already selects it as the active filter) also fires the existing
+  `showToast()` with the same text — reusing the toast mechanism already
+  established elsewhere in this app for exactly this "brief, non-blocking
+  supplementary info" role, rather than a new popover component.
+- **Sparse by design, same as everything else in this mockup** — only coins
+  with a real, known composition got an explicit MetalCategory assigned
+  (mostly Silver, a couple of Copper/Clad examples); Gold/Platinum/Zinc have
+  zero demo coins today since none of this collection's placeholder rows are
+  actually gold/platinum/zinc coins — left genuinely absent rather than
+  faked, same as the "most rows blank until research" expectation.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &

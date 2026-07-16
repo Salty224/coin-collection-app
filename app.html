@@ -916,19 +916,6 @@
   }
   .cert-link-btn.small { width: 28px; height: 28px; border-radius: 14px; font-size: 12px; }
 
-  /* Read-only cert badge — Browse Detail. Cert number only (Grade+GradeSource
-     already show on the flip's bottom-left corner — repeating them here would
-     just be the same value twice); the pill is a link when a cert lookup URL
-     resolves for that GradeSource, plain text otherwise. */
-  .grade-cert-badge { margin: 10px 0; text-align: center; }
-  .grade-cert-badge.hidden { display: none; }
-  .grade-cert-badge-inner {
-    display: inline-block; font-size: 13px; font-weight: 600; padding: 5px 14px; border-radius: 14px;
-    background: rgba(201,162,39,0.15); color: var(--gold-bright); border: 1px solid var(--case-border);
-    text-decoration: none;
-  }
-  a.grade-cert-badge-inner:hover { border-color: var(--case-border-bright); text-decoration: underline; }
-
   /* Full detail panel below the flip — Browse Detail's "everything about this
      coin" area: Value, Purchase Info, Fun Facts, Notes, Additional Photos. */
   .detail-panel { margin-top: 14px; padding: 16px; }
@@ -1411,7 +1398,6 @@
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
-          <div class="grade-cert-badge hidden" id="browseDetailCertBadge"></div>
 
           <div class="case detail-panel" id="browseDetailPanel">
             <!-- Key facts, always visible (each row hides itself when blank). -->
@@ -1422,6 +1408,14 @@
             <div class="detail-row hidden" id="detailGradeRow">
               <span class="detail-label">Grade</span>
               <span class="detail-value" id="detailGradeText"></span>
+            </div>
+            <!-- Cert number, moved in here from its own standalone badge — a
+                 real link when CertLink is populated (using that stored URL
+                 directly, never a URL constructed from the cert number),
+                 plain text otherwise. -->
+            <div class="detail-row hidden" id="detailCertRow">
+              <span class="detail-label">Cert</span>
+              <span class="detail-value" id="detailCertText"></span>
             </div>
             <div class="detail-row hidden" id="detailStorageRow">
               <span class="detail-label">Storage</span>
@@ -2278,12 +2272,12 @@
   // most placeholder coins predate that data being captured; a couple are
   // populated so the Browse-detail Edit form has something real to load.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe",    variety: "" },
     { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe",    variety: "" },
     { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
     { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", designation: "",    storageLocation: "Safe",    variety: "" },
+    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe",    variety: "" },
     { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
     { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
     { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
@@ -3203,39 +3197,81 @@
   // making the two mutually exclusive there instead).
   let browseCommemorativeOnly = false;
 
-  // Precious-metal content per coin, mirroring Lookup_MetalContent's
-  // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns — kept as a sparse lookup
-  // by CollectionID (same pattern as FAKE_COIN_DETAILS) rather than adding
-  // four mostly-zero fields to every FAKE_COINS row.
+  // Precious-metal content AND physical specs per coin, mirroring
+  // Lookup_MetalContent's columns — kept as a sparse lookup by CollectionID
+  // (same pattern as FAKE_COIN_DETAILS) rather than adding a dozen mostly-
+  // blank fields to every FAKE_COINS row. goldOz/silverOz/platinumOz/
+  // palladiumOz drive the always-visible Composition row (Oz content, real
+  // qualification signal for the old precious-metals-only filter — see
+  // compositionTextFor()). weight/diameterMm/thicknessMm/edge/reedCount feed
+  // the Specifications accordion (Weight/Thickness/Edge/ReedCount are new
+  // DB_Coins columns still being backfilled Excel-side, mostly blank by
+  // design — reedCount only ever applies to a reeded edge). metalCategory is
+  // the new Lookup_MetalContent.MetalCategory field (one of exactly 7:
+  // Gold/Silver/Platinum/Copper/Zinc/Clad/Other) driving the expanded Metal
+  // filter below — a different, coexisting concept from the Oz-based
+  // Composition figures, not a replacement for them.
   const FAKE_METAL_CONTENT = {
-    "AY-00001": { silverOz: 0.7734 }, // Morgan Dollar — 90% silver
-    "AY-00002": { silverOz: 0.3617 }, // Walking Liberty Half — 90% silver
-    "AY-00003": { silverOz: 0.0723 }, // Mercury Dime — 90% silver
-    "AY-00006": { silverOz: 0.1808 }, // Barber Quarter — 90% silver
-    "AY-00007": { silverOz: 0.7734 }, // Peace Dollar — 90% silver
-    "AY-00009": { silverOz: 0.1808 }, // Standing Liberty Quarter — 90% silver
-    "AY-00010": { silverOz: 0.3617 }, // Franklin Half Dollar — 90% silver
-    "AY-00012": { silverOz: 0.1808 }, // Washington Quarter — 2021 Silver Proof Set
-    "AY-00014": { silverOz: 0.7734 }  // Statue of Liberty Dollar — 90% silver
+    "AY-00001": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, thicknessMm: 2.4, edge: "Reeded", reedCount: 150 }, // Morgan Dollar — 90% silver
+    "AY-00002": { silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded" }, // Walking Liberty Half — 90% silver
+    "AY-00003": { silverOz: 0.0723, metalCategory: "Silver", weight: 2.5,   diameterMm: 17.9, edge: "Reeded" }, // Mercury Dime — 90% silver
+    "AY-00004": { metalCategory: "Copper", weight: 3.11, diameterMm: 19.05, edge: "Plain" }, // Lincoln Wheat Cent — bronze, pre-1982
+    "AY-00005": { metalCategory: "Copper", edge: "Plain" }, // Indian Head Cent — bronze
+    "AY-00006": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Barber Quarter — 90% silver
+    "AY-00007": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Peace Dollar — 90% silver
+    "AY-00008": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Buffalo Nickel — Cu-Ni, same bucket as the standard modern 5c
+    "AY-00009": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Standing Liberty Quarter — 90% silver
+    "AY-00010": { silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded", reedCount: 150 }, // Franklin Half Dollar — 90% silver
+    "AY-00011": { metalCategory: "Clad" }, // Statue of Liberty Half (1986 commemorative) — Cu-Ni clad, not silver
+    "AY-00012": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Washington Quarter — 2021 Silver Proof Set
+    "AY-00013": { metalCategory: "Clad", edge: "Reeded" }, // Roosevelt Dime (1999) — modern Cu-Ni clad
+    "AY-00014": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Statue of Liberty Dollar (1986 commemorative) — 90% silver
+    "AY-00017": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" } // Jefferson Nickel — Cu-Ni
   };
 
   function metalContentFor(coin) {
     return FAKE_METAL_CONTENT[coin.id] || {};
   }
 
-  // A coin qualifies for a metal filter with ANY nonzero content, regardless
-  // of purity — a 35% Silver War Nickel and a 90% Silver Morgan both qualify
-  // under "Silver." Its own single-select row, independent of the
-  // Denomination chips above — see CLAUDE.md "Browse filters" for why this
-  // doesn't convert Denomination into a single-select axis (that would be a
-  // separate, bigger change to an already-locked-in multi-select
-  // interaction).
+  function metalCategoryFor(coin) {
+    return metalContentFor(coin).metalCategory || "";
+  }
+
+  // Reference info per MetalCategory bucket — static, not per-coin — shown as
+  // supplementary info on the Metal filter pills (title attribute + tap
+  // toast, wired up where the pills are built in initBrowse() below). Not
+  // exhaustive, just representative examples.
+  const METAL_CATEGORY_INFO = {
+    "Gold": "91.67% Gold (Eagles), 99.99% Gold (Buffalo)",
+    "Silver": "90% Silver, 99.9% Silver, 40% Silver, 35% Silver (War Nickel)",
+    "Platinum": "99.95% Platinum",
+    "Copper": "Bronze, Copper (pre-1982 cents)",
+    "Zinc": "Copper-Plated Zinc (1982–present cents)",
+    "Clad": "Copper-Nickel Clad, Copper-Nickel (dimes/quarters/halves 1965–present, standard 5c nickel)",
+    "Other": "Manganese-Brass, Zinc-Coated Steel (1943 cent), anything else"
+  };
+
+  // Metal filter — single-select (locked in; combinable OR/AND across axes
+  // is a separate, not-yet-built spec item). Superseded: this used to be 4
+  // precious-metal-only pills qualifying on "any nonzero Oz content"
+  // (goldOz/silverOz/platinumOz/palladiumOz — that qualification rule still
+  // lives on in the Composition row, unchanged). The filter itself now reads
+  // the new, real Lookup_MetalContent.MetalCategory field instead — a
+  // single categorical bucket per coin, covering every coin (not just
+  // precious-metal ones) across exactly 7 values. "Other" matches EITHER an
+  // explicit "Other" OR a blank/unset category, since most rows will show
+  // blank/Other interchangeably until a separate research pass backfills
+  // MetalCategory — an unset category has to land somewhere or it's
+  // unreachable via any pill.
+  const METAL_CATEGORIES = ["Gold", "Silver", "Platinum", "Copper", "Zinc", "Clad", "Other"];
   const BROWSE_METAL_CHIPS = [
     { label: "All Metals", test: () => true },
-    { label: "Gold",       test: c => (metalContentFor(c).goldOz || 0) > 0 },
-    { label: "Silver",     test: c => (metalContentFor(c).silverOz || 0) > 0 },
-    { label: "Platinum",   test: c => (metalContentFor(c).platinumOz || 0) > 0 },
-    { label: "Palladium",  test: c => (metalContentFor(c).palladiumOz || 0) > 0 }
+    ...METAL_CATEGORIES.map(cat => ({
+      label: cat,
+      test: cat === "Other"
+        ? c => { const m = metalCategoryFor(c); return !m || m === "Other"; }
+        : c => metalCategoryFor(c) === cat
+    }))
   ];
   let browseMetalTest = BROWSE_METAL_CHIPS[0].test;
 
@@ -3454,11 +3490,19 @@
       const chip = document.createElement("button");
       chip.className = "filter-chip" + (!firstMetalChip ? " active" : "");
       chip.textContent = m.label;
+      // Supplementary constituent-compositions info per bucket — a native
+      // title attribute covers desktop hover for free; tapping the pill
+      // (which already selects it as the filter) also surfaces the same
+      // text via the existing toast mechanism, since hover doesn't reach
+      // touch devices (Samsung Internet included).
+      const info = METAL_CATEGORY_INFO[m.label];
+      if (info) chip.title = info;
       chip.addEventListener("click", () => {
         document.querySelectorAll("#browseMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
         chip.classList.add("active");
         browseMetalTest = m.test;
         applyCoinsTabFilters();
+        if (info) showToast(m.label + ": " + info);
       });
       metalRow.appendChild(chip);
       if (!firstMetalChip) firstMetalChip = chip;
@@ -3536,67 +3580,65 @@
     applyDiscContent(disc, coin);
     sizeCoinElement(disc, coin.denom, 210, 32);
     applyFlipCorners("browseDetail", coin);
-    renderCertBadge(coin);
     renderBrowseDetailPanel(coin);
   }
 
-  // Read-only cert badge — cert number only. Grade+GradeSource already show
-  // on the flip's bottom-left corner, so this doesn't repeat them (see
-  // "Coin detail view" in CLAUDE.md) — it exists purely to carry the CERT
-  // lookup link. The pill is a link when a cert lookup URL resolves for this
-  // coin's GradeSource (grader-agnostic, via Lookup_Graders), plain text
-  // otherwise, hidden entirely if there's no cert number to show.
-  function renderCertBadge(coin) {
-    const badge = document.getElementById("browseDetailCertBadge");
-    if (!coin.serNo) {
-      badge.classList.add("hidden");
-      badge.innerHTML = "";
-      return;
-    }
-    const text = "Cert #" + coin.serNo;
-    const url = buildCertLookupUrl(coin.gradeSource, coin.serNo);
-
-    if (url) {
-      badge.innerHTML = `<a class="grade-cert-badge-inner" href="${url}" target="_blank" rel="noopener">${text} 🔗</a>`;
-    } else {
-      badge.innerHTML = `<span class="grade-cert-badge-inner">${text}</span>`;
-    }
-    badge.classList.remove("hidden");
-  }
-
   // Issue 3 — the comprehensive coin deep-dive panel below the flip. Structure:
-  //   1. Always-visible key facts (Value / Grade / Storage / Composition) —
+  //   1. Always-visible key facts (Value / Grade / Cert / Storage / Composition) —
   //      each row hides itself when blank.
   //   2. "Belongs to" linkage — Album and/or Set the coin is part of, as real
   //      clickable chips; the whole section is omitted when there's neither.
-  //   3. Denser groups (Purchase Details, Notes & Facts, Photos) behind inline
-  //      accordions — each accordion omitted entirely when it has no data.
-  // This loosely mirrors the All sheet's column groups (Identity/Grading are
-  // already carried by the flip corners + cert badge above, so they aren't
-  // repeated here; the "Sale" group is deliberately skipped — no
-  // sold/deaccessioned concept exists in this app's data model). Sparse by
-  // design: most placeholder coins only fill in a few of these, same
-  // convention as FAKE_COIN_DETAILS / gradeSource / serNo elsewhere.
+  //   3. Denser groups (Purchase Details, Specifications, Notes & Facts,
+  //      Photos) behind inline accordions — each accordion omitted entirely
+  //      when it has no data.
+  // This loosely mirrors the All sheet's column groups ("Sale" is deliberately
+  // skipped — no sold/deaccessioned concept exists in this app's data model).
+  // Sparse by design: most placeholder coins only fill in a few of these,
+  // same convention as FAKE_COIN_DETAILS / gradeSource / serNo elsewhere.
   function renderBrowseDetailPanel(coin) {
     const details = FAKE_COIN_DETAILS[coin.id] || {};
 
     setDetailRow("detailValueRow", "detailValueText", coin.value ? "$" + coin.value.toLocaleString() : "");
     setDetailRow("detailGradeRow", "detailGradeText", coin.grade || "");
+
+    // Cert number, moved in from its own standalone badge — a real link only
+    // when CertLink itself is populated (a stored URL, All/DB_Coins schema
+    // field), never a URL constructed from the cert number the way the old
+    // badge did via buildCertLookupUrl(). Plain text when there's a cert
+    // number but no CertLink on file; row hidden entirely with no cert
+    // number at all. (NGC's own cert-lookup page may bot-check the visitor
+    // after the link opens — expected, outside the app's control.)
+    const certRow = document.getElementById("detailCertRow");
+    if (coin.serNo) {
+      document.getElementById("detailCertText").innerHTML = coin.certLink
+        ? `<a href="${coin.certLink}" target="_blank" rel="noopener">${coin.serNo} 🔗</a>`
+        : coin.serNo;
+      certRow.classList.remove("hidden");
+    } else {
+      certRow.classList.add("hidden");
+    }
+
     setDetailRow("detailStorageRow", "detailStorageText", coin.storageLocation || "");
 
     // Composition — Oz content per metal, matching Lookup_MetalContent's
     // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns. Purity (40% vs. 90%
     // Silver) isn't separately tracked in this mockup's data model; the real
     // sheet would carry that alongside the Oz figure.
-    const metals = metalContentFor(coin);
-    const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
-    const compositionParts = Object.keys(metalLabels)
-      .filter(key => metals[key] > 0)
-      .map(key => metalLabels[key] + " — " + metals[key] + " oz");
-    setDetailRow("detailCompositionRow", "detailCompositionText", compositionParts.join(" · "));
+    setDetailRow("detailCompositionRow", "detailCompositionText", compositionTextFor(coin));
 
     renderDetailLinkage(coin);
     renderDetailAccordions(coin, details);
+  }
+
+  // Shared by the always-visible Composition row and the Specifications
+  // accordion below, so the two never drift out of sync.
+  function compositionTextFor(coin) {
+    const metals = metalContentFor(coin);
+    const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
+    return Object.keys(metalLabels)
+      .filter(key => metals[key] > 0)
+      .map(key => metalLabels[key] + " — " + metals[key] + " oz")
+      .join(" · ");
   }
 
   function setDetailRow(rowId, textId, value) {
@@ -3692,18 +3734,43 @@
     const container = document.getElementById("detailAccordions");
     container.innerHTML = "";
 
-    // --- Purchase Details (Financial group) ---
+    // --- Purchase Details (Financial group) — Total leads, with Cost and
+    // Shipping listed underneath it as the two components that sum to it
+    // (inverse of the old Cost/Shipping/Total order). Each row still only
+    // shows when its own data exists, independent of the others.
     const purchaseRows = [];
-    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
-    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     if (coin.cost && details.shippingCost != null) {
       purchaseRows.push(["Total", "$" + (coin.cost + details.shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     }
+    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
+    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
     if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
     if (details.receipt) purchaseRows.push(["Receipt", "On file"]);
     if (purchaseRows.length) {
       appendAccordion(container, "Purchase Details", purchaseRows.map(([label, value]) =>
+        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+      ).join(""));
+    }
+
+    // --- Specifications (Coin Details group) — Composition (also shown in
+    // the always-visible summary row above; some overlap is intentional,
+    // matching how the physical Red Book itself presents this data as its
+    // own dedicated table) plus Weight/Diameter/Thickness/Edge/No. of Reeds.
+    // ReedCount only ever applies to a reeded edge — a plain-edge coin simply
+    // won't have it set. All sourced from the same FAKE_METAL_CONTENT sparse
+    // lookup Composition already uses.
+    const specs = metalContentFor(coin);
+    const specRows = [];
+    const composition = compositionTextFor(coin);
+    if (composition) specRows.push(["Composition", composition]);
+    if (specs.weight != null) specRows.push(["Weight", specs.weight + " g"]);
+    if (specs.diameterMm != null) specRows.push(["Diameter", specs.diameterMm + " mm"]);
+    if (specs.thicknessMm != null) specRows.push(["Thickness", specs.thicknessMm + " mm"]);
+    if (specs.edge) specRows.push(["Edge", specs.edge]);
+    if (specs.reedCount != null) specRows.push(["No. of Reeds", String(specs.reedCount)]);
+    if (specRows.length) {
+      appendAccordion(container, "Specifications", specRows.map(([label, value]) =>
         `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
       ).join(""));
     }
