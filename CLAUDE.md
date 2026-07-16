@@ -539,18 +539,24 @@ A **full detail panel** is the one place all of a coin's data is viewable
 (`renderBrowseDetailPanel()`). Structure (Issue 3 — the comprehensive
 deep-dive, locked in and built):
 - **Always-visible key facts**, one row each, each hiding itself when blank:
-  Value, Grade, **Cert**, Storage, Composition (`setDetailRow()`). Identity
-  is intentionally not repeated here — the flip corners already carry
-  Year/Mint/Type. **Cert** is the cert number itself, hyperlinked using the
-  coin's own `certLink` field directly (a stored URL, All/DB_Coins schema —
-  **never** a URL constructed from the cert number the way the old badge did
-  via `buildCertLookupUrl()`) when populated, plain text when there's a cert
-  number but no `certLink` on file, row hidden entirely with no cert number
-  at all. (NGC's own cert-lookup page may bot-check the visitor after the
-  link opens — expected, outside the app's control, not something to fix.)
-  `buildCertLookupUrl()` itself is unchanged and still used elsewhere (Browse
-  Edit's link button, Add Coin's grading-help icon) — this only affects how
-  the read-only detail view sources its link.
+  Value, **Cert**, Storage (`setDetailRow()`). Identity is intentionally not
+  repeated here — the flip corners already carry Year/Mint/Type. **Cert** is
+  the cert number itself, hyperlinked using the coin's own `certLink` field
+  directly (a stored URL, All/DB_Coins schema — **never** a URL constructed
+  from the cert number the way the old badge did via `buildCertLookupUrl()`)
+  when populated, plain text when there's a cert number but no `certLink` on
+  file, row hidden entirely with no cert number at all. (NGC's own
+  cert-lookup page may bot-check the visitor after the link opens — expected,
+  outside the app's control, not something to fix.) `buildCertLookupUrl()`
+  itself is unchanged and still used elsewhere (Browse Edit's link button,
+  Add Coin's grading-help icon) — this only affects how the read-only detail
+  view sources its link.
+  **Superseded: Grade and Composition used to also live in this row.** Grade
+  was a straight duplicate of the flip's own bottom-left corner — removed,
+  no replacement needed. Composition's intentional-overlap-with-Specifications
+  design (see below) was reconsidered and dropped too — it now lives only in
+  Specifications; `compositionTextFor()` is unchanged and still shared, it
+  just has one caller instead of two.
 - **"Belongs to" linkage** — a section (always visible when any link exists,
   omitted entirely otherwise) with real clickable chips to the Album and/or
   Set the coin is part of. Album via `resolveCoinAlbumLink()` (scans
@@ -574,16 +580,21 @@ deep-dive, locked in and built):
     used to be Cost/Shipping/Total in that order) — then Seller, Purchase
     Date, Receipt. Cost from `coin.cost`, the rest from `FAKE_COIN_DETAILS`;
     Total shown only when both Cost and Shipping exist so it's a real sum.
-    Each row still shows independently of the others.
-  - **Specifications** (new) — Composition (also shown in the always-visible
-    summary row above; the overlap is intentional, matching how the physical
-    Red Book itself presents this data as its own dedicated table), Weight,
-    Diameter, Thickness, Edge, No. of Reeds. Weight/Thickness/Edge/ReedCount
-    are new DB_Coins columns (Excel-side backfill in progress, mostly blank
-    today by design) — ReedCount only ever applies to a reeded-edge coin.
-    All sourced from the same `FAKE_METAL_CONTENT` sparse lookup Composition
-    already uses (`compositionTextFor()`, shared by both the summary row and
-    this accordion so they can't drift out of sync).
+    Each row still shows independently of the others. **Receipt is a real
+    link, not plain "On file" text** (superseded) — `details.receipt` holds
+    the actual stored path directly (`CoinReceipts/{CollectionID}_receipt.jpg`
+    per the documented naming convention), used as the link's `href` exactly
+    the same "stored value used directly" way `certLink` is, not constructed.
+    Row hidden entirely when Receipt is blank, same as every other row here.
+  - **Specifications** (new) — Composition, Weight, Diameter, Thickness, Edge,
+    No. of Reeds. **Superseded: Composition used to also appear in the
+    always-visible key-facts row above** ("intentional overlap," matching how
+    the physical Red Book presents this data as its own dedicated table) —
+    reconsidered and removed from there; Composition now lives only here.
+    Weight/Thickness/Edge/ReedCount are new DB_Coins columns (Excel-side
+    backfill in progress, mostly blank today by design) — ReedCount only ever
+    applies to a reeded-edge coin. All sourced from the same
+    `FAKE_METAL_CONTENT` sparse lookup (`compositionTextFor()`).
   - **Notes & Facts** (Fun Fact + Notes).
   - **Additional Photos** (thumbnail row).
   - No **Sale** group — no sold/deaccessioned concept exists in the data
@@ -1186,6 +1197,15 @@ highlight position (`.reverse-face`) so it reads as "the coin turned over"
 rather than a different coin; corner labels (Year-Mint/Series+Denom/Grade)
 stay the same on both faces since they describe the coin, not which face is
 showing. Clicking a dot jumps straight to that coin's obverse.
+
+**The Spotlight flip-frame itself is click-through** — tapping the
+currently-displayed coin (read live off `spotlightIndex` at click time, not a
+value captured once at init, since the carousel keeps rotating) opens that
+coin's Browse detail view, same `showBrowseDetail()` destination as clicking
+a coin from Browse. Back returns to the Dashboard (`browseDetailBackHandler`
+set to a Dashboard-specific closure before navigating), not Browse's own
+grid — same per-origin back-handler pattern Albums' filled-slot tap already
+uses.
 
 Wishlist mirrors Browse's grid-then-detail shape: tapping an item opens a detail
 view with an editable Notes field (for things like "found one, negotiating

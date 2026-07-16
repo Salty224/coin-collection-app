@@ -1405,10 +1405,9 @@
               <span class="detail-label">Value</span>
               <span class="detail-value" id="detailValueText"></span>
             </div>
-            <div class="detail-row hidden" id="detailGradeRow">
-              <span class="detail-label">Grade</span>
-              <span class="detail-value" id="detailGradeText"></span>
-            </div>
+            <!-- Grade is intentionally NOT repeated here — it's already shown
+                 on the flip's bottom-left corner (see applyFlipCorners()); a
+                 second copy in this row would just be a duplicate. -->
             <!-- Cert number, moved in here from its own standalone badge — a
                  real link when CertLink is populated (using that stored URL
                  directly, never a URL constructed from the cert number),
@@ -1421,10 +1420,8 @@
               <span class="detail-label">Storage</span>
               <span class="detail-value" id="detailStorageText"></span>
             </div>
-            <div class="detail-row hidden" id="detailCompositionRow">
-              <span class="detail-label">Composition</span>
-              <span class="detail-value" id="detailCompositionText"></span>
-            </div>
+            <!-- Composition lives in the Specifications accordion only now —
+                 no longer duplicated up here (see renderDetailAccordions()). -->
 
             <!-- Album / Set linkage — always visible when any link exists,
                  whole section omitted otherwise. JS-populated. -->
@@ -2335,8 +2332,12 @@
     // — Cost lives on the FAKE_COINS row itself (coin.cost); the rest are here,
     // same sparse-by-CollectionID convention as vendor/purchaseDate. Only a
     // couple of coins carry them, matching how sparse the real data is.
+    // receipt holds the actual stored OneDrive path (CoinReceipts/{CollectionID}
+    // _receipt.jpg, per the documented naming convention), not a boolean —
+    // Purchase Details links straight to that value, same "stored value used
+    // directly" pattern as coin.certLink, rather than constructing anything.
     "AY-00001": {
-      purchaseDate: "2019-03-14", vendor: "Heritage Auctions", shippingCost: 12.50, receipt: true,
+      purchaseDate: "2019-03-14", vendor: "Heritage Auctions", shippingCost: 12.50, receipt: "CoinReceipts/AY-00001_receipt.jpg",
       funFact: "Carson City Morgans carry the \"CC\" mintmark — the Carson City mint struck silver dollars almost entirely from Comstock Lode silver, and its dollars are some of the most collected by mint location alone.",
       notes: "Bought at auction, still in the original PCGS holder.",
       additionalPhotos: ["holder-label"]
@@ -2352,7 +2353,7 @@
       notes: "Priced high for this grade due to low survival estimates in Good condition."
     },
     "AY-00010": {
-      purchaseDate: "2018-05-09", vendor: "GreatCollections", shippingCost: 6.00, receipt: true,
+      purchaseDate: "2018-05-09", vendor: "GreatCollections", shippingCost: 6.00, receipt: "CoinReceipts/AY-00010_receipt.jpg",
       funFact: "1955 Franklin proofs are commonly found with cameo contrast — frosted devices against mirrored fields — like this one (CAM designation).",
       notes: "",
       additionalPhotos: ["box-2-slot"]
@@ -3123,6 +3124,23 @@
       });
       dotsContainer.appendChild(dot);
     });
+
+    // Click-through: opens whichever coin is showing at the moment of the
+    // click (reads spotlightIndex live, not a value captured at init time,
+    // since the carousel keeps rotating in the background) — same Browse
+    // detail view as clicking a coin from Browse itself. Back returns to the
+    // Dashboard, not Browse's own grid, since that's where this click
+    // actually originated (same per-origin browseDetailBackHandler pattern
+    // used by Albums' filled-slot tap).
+    const frame = document.getElementById("spotlightFlipFrame");
+    frame.style.cursor = "pointer";
+    frame.addEventListener("click", () => {
+      const coin = spotlightCoins[spotlightIndex];
+      browseDetailBackHandler = () => navigate("dashboard");
+      navigate("browse");
+      showBrowseDetail(coin);
+    });
+
     renderSpotlight();
     resetSpotlightTimer();
   }
@@ -3599,7 +3617,6 @@
     const details = FAKE_COIN_DETAILS[coin.id] || {};
 
     setDetailRow("detailValueRow", "detailValueText", coin.value ? "$" + coin.value.toLocaleString() : "");
-    setDetailRow("detailGradeRow", "detailGradeText", coin.grade || "");
 
     // Cert number, moved in from its own standalone badge — a real link only
     // when CertLink itself is populated (a stored URL, All/DB_Coins schema
@@ -3619,12 +3636,6 @@
     }
 
     setDetailRow("detailStorageRow", "detailStorageText", coin.storageLocation || "");
-
-    // Composition — Oz content per metal, matching Lookup_MetalContent's
-    // SilverOz/GoldOz/PlatinumOz/PalladiumOz columns. Purity (40% vs. 90%
-    // Silver) isn't separately tracked in this mockup's data model; the real
-    // sheet would carry that alongside the Oz figure.
-    setDetailRow("detailCompositionRow", "detailCompositionText", compositionTextFor(coin));
 
     renderDetailLinkage(coin);
     renderDetailAccordions(coin, details);
@@ -3746,7 +3757,13 @@
     if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
     if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
-    if (details.receipt) purchaseRows.push(["Receipt", "On file"]);
+    // details.receipt holds the actual stored path directly (same
+    // stored-value-used-directly pattern as coin.certLink above) — a real
+    // link when populated, row omitted entirely when blank (same hide/show
+    // rule as every other Purchase Details row).
+    if (details.receipt) {
+      purchaseRows.push(["Receipt", `<a href="${details.receipt}" target="_blank" rel="noopener">On file 🔗</a>`]);
+    }
     if (purchaseRows.length) {
       appendAccordion(container, "Purchase Details", purchaseRows.map(([label, value]) =>
         `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
