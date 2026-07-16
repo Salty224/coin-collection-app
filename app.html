@@ -424,6 +424,13 @@
   }
   .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
 
+  /* Sets tab (see CLAUDE.md "Carried forward" — Issue 1 fix): its .album-card
+     cards were inheriting .coin-grid's multi-column layout and rendering
+     side-by-side instead of stacked full-width like Albums' own list. This
+     overrides that layout the same way .list-view does below, without
+     coupling Sets to the Coins-tab-specific list/grid view-mode concept. */
+  .coin-grid.sets-mode { display: flex; flex-direction: column; gap: 8px; }
+
   /* List mode reuses the same .coin-card markup — CSS alone rearranges it into a row.
      No thumbnail (reclaims width) — Year+MintMark becomes the dominant, immediately
      scannable element instead, with the name/CollectionID secondary underneath. */
@@ -3181,6 +3188,7 @@
   function renderBrowseGrid(coins) {
     const grid = document.getElementById("browseGrid");
     grid.classList.toggle("list-view", browseViewMode === "list");
+    grid.classList.remove("sets-mode");
     grid.innerHTML = "";
     coins.forEach(coin => {
       const card = document.createElement("div");
@@ -3217,9 +3225,17 @@
   // above — a Denomination="Multiple" bundle row has no single coin to
   // render as a disc. Tapping a card opens the same Browse detail view a
   // Coins-tab card would (this row IS just an owned item now).
+  //
+  // "sets-mode" forces the same full-width vertical stack Albums' own list
+  // uses (fixes the regression where these cards inherited #browseGrid's
+  // .coin-grid multi-column layout and rendered side-by-side instead) — see
+  // CLAUDE.md "Carried forward" for the diagnosis. renderBrowseGrid() (the
+  // Coins/Rolls tabs' own render path) always clears this class first, so
+  // it can't leak into another tab's grid layout.
   function renderSetsGrid(rows) {
     const grid = document.getElementById("browseGrid");
     grid.classList.remove("list-view");
+    grid.classList.add("sets-mode");
     grid.innerHTML = "";
     rows.forEach(coin => {
       const card = document.createElement("div");
