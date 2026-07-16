@@ -1384,10 +1384,7 @@
         <div id="browseDetailView" style="display:none;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
             <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Browse Collection</button>
-            <div style="display:flex; gap:8px;">
-              <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
-              <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
-            </div>
+            <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
           </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
           <div class="case flip-frame" id="browseDetailFlipFrame">
@@ -1400,6 +1397,13 @@
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
           <div class="case detail-panel" id="browseDetailPanel">
+            <!-- Superseded: Edit used to live in the top action row next to
+                 Share, above the flip. Moved down into this info box instead
+                 — Share stays up top. Routes to Edit Coin or Edit Set
+                 depending on the row's own denom (see the click handler). -->
+            <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+              <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
+            </div>
             <!-- Key facts, always visible (each row hides itself when blank). -->
             <div class="detail-row hidden" id="detailValueRow">
               <span class="detail-label">Value</span>
@@ -1535,6 +1539,55 @@
           </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
+          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
+        </div>
+
+        <!-- Edit Set — a Set-bundle row (Denomination="Multiple") is a
+             fundamentally different kind of row from an individual coin, so
+             it gets its own edit form rather than reusing Edit Coin's
+             Grade/GradeSource/Cert/Designation/photo-capture fields, none of
+             which apply to a bundle. Coin-membership editing (adding/
+             removing individual coins from a Set) is intentionally NOT here
+             — see CLAUDE.md. -->
+        <div class="case form-card" id="browseEditSetView" style="display:none;">
+          <button class="back-link" id="browseEditSetBackBtn" style="padding-top:0;">← Set Details</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Set</div>
+          <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
+            Storage/Container, Value, and Purchase Details for this Set as a whole.
+            Adding or removing individual coins from this Set isn't supported here yet.
+          </p>
+
+          <label>Storage / Container</label>
+          <input type="text" id="editSetStorageLocation" placeholder="e.g. Safe, Box 2, display Container">
+
+          <label>Value</label>
+          <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" id="editSetCost" placeholder="e.g. 450.00">
+
+          <label>Shipping Cost</label>
+          <input type="number" step="0.01" id="editSetShippingCost" placeholder="e.g. 12.50">
+
+          <label>Purchase Date</label>
+          <input type="date" id="editSetPurchaseDate">
+
+          <label>Vendor / Seller</label>
+          <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <div class="name">🧾 Receipt Photo</div>
+            <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
+            <img id="editSetReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="editSetReceiptLibraryInput" accept="image/*">
+          </div>
+
+          <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
           <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
         </div>
       </section>
@@ -3596,7 +3649,14 @@
     showBrowseTab("coins");
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", () => browseDetailBackHandler());
-    document.getElementById("browseDetailEditBtn").addEventListener("click", () => showBrowseEditView(currentBrowseCoin));
+    document.getElementById("browseDetailEditBtn").addEventListener("click", () => {
+      if (!currentBrowseCoin) return;
+      if (isSetRow(currentBrowseCoin)) {
+        showBrowseEditSetView(currentBrowseCoin);
+      } else {
+        showBrowseEditView(currentBrowseCoin);
+      }
+    });
     document.getElementById("browseDetailShareBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
@@ -3613,6 +3673,7 @@
     document.getElementById("browseGridView").style.display = "block";
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditView").style.display = "none";
+    document.getElementById("browseEditSetView").style.display = "none";
   }
 
   let currentBrowseCoin = null;
@@ -3626,6 +3687,7 @@
     document.getElementById("browseGridView").style.display = "none";
     document.getElementById("browseDetailView").style.display = "block";
     document.getElementById("browseEditView").style.display = "none";
+    document.getElementById("browseEditSetView").style.display = "none";
 
     // Visibility must be set before applyFlipCorners — its corner-overflow
     // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a display:none
@@ -3711,6 +3773,15 @@
       }
     }
     return null;
+  }
+
+  // A Set is just a Denomination="Multiple" All-sheet row (see "Browse:
+  // navigation restructure" in CLAUDE.md) — same signal used everywhere else
+  // a row needs to be told apart from an individual coin (Sets tab filtering,
+  // resolveCoinSetLink() below). Used by the Edit button's routing so a Set
+  // opens Edit Set instead of Edit Coin.
+  function isSetRow(coin) {
+    return coin.denom === "Multiple";
   }
 
   // Set linkage: match this coin's OWN setId against a Set-bundle row's OWN
@@ -3911,6 +3982,26 @@
     certInput.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  // Edit Set — Storage/Container, Value, and Purchase Details for a
+  // Denomination="Multiple" bundle row. Purchase Details fields come from
+  // the same FAKE_COIN_DETAILS sparse lookup renderDetailAccordions() already
+  // reads (cost lives on the row itself, same as an individual coin).
+  // Coin-membership editing is intentionally not part of this form — see
+  // CLAUDE.md.
+  function showBrowseEditSetView(coin) {
+    if (!coin) return;
+    document.getElementById("browseDetailView").style.display = "none";
+    document.getElementById("browseEditSetView").style.display = "block";
+
+    const details = FAKE_COIN_DETAILS[coin.id] || {};
+    document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
+    document.getElementById("editSetValue").value = coin.value != null ? coin.value : "";
+    document.getElementById("editSetCost").value = coin.cost != null ? coin.cost : "";
+    document.getElementById("editSetShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
+    document.getElementById("editSetPurchaseDate").value = details.purchaseDate || "";
+    document.getElementById("editSetVendor").value = details.vendor || "";
+  }
+
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn");
     wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn");
@@ -3958,6 +4049,22 @@
         const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
         showToast("Placeholder only — edits to " + coinId + " aren't saved yet." + linkMsg);
       });
+    });
+  }
+
+  // Same non-functional Save stub pattern as Edit Coin — no live OneDrive
+  // write layer exists yet for either form.
+  function initBrowseEditSet() {
+    wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+
+    document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
+      document.getElementById("browseEditSetView").style.display = "none";
+      document.getElementById("browseDetailView").style.display = "block";
+    });
+
+    document.getElementById("browseEditSetSaveBtn").addEventListener("click", () => {
+      if (!currentBrowseCoin) return;
+      showToast("Placeholder only — edits to " + currentBrowseCoin.id + " aren't saved yet.");
     });
   }
 
@@ -5848,6 +5955,7 @@
   initDashboard();
   initBrowse();
   initBrowseEdit();
+  initBrowseEditSet();
   initAlbums();
   initWishlist();
   initPhotoAdjuster();

@@ -634,20 +634,51 @@ row — sparsely populated today (a few coins have it filled in, most don't),
 same pattern as `gradeSource`/`serNo`. Browse Edit is untouched by any of
 this — it's purely the read-only viewing screen.
 
-An **Edit** button on the detail
-view opens an edit form covering exactly the bounded fields the app can safely
-write directly (see "Editing existing coins" below: Grade, GradeSource,
-Cert/Type Number, Designation, Storage Location) plus the ability to attach a
-photo to any Obverse/Reverse/Additional/Receipt slot that wasn't filled during
-Add Coin — reusing the same photo-slot/crop-adjuster module. In Edit mode the
-cert number is a compact pill-styled input (not a full-width labeled field)
-with a small link-icon button beside it, using `buildCertLookupUrl()`
-(grader-agnostic, unchanged) — a different, still-constructed-URL mechanism
-from the read-only detail view's stored-`certLink` approach above; the two
-were deliberately decoupled, not unified. Editing does **not** cover anything
-requiring research or judgment (album/slot re-matching, cost allocation, new
-catalog lookups) — that stays a chat + Copilot task, same boundary as before.
-"Back" from Edit returns to the coin's Detail view, not the grid.
+An **Edit** button lives inside the detail panel now (`#browseDetailPanel`,
+the info box below the flip — **superseded: it used to sit in the top action
+row next to Share**, above the flip; moved down into the box so Share is the
+only thing left up top) and routes to one of two different forms depending
+on the row's own `denom`, via `isSetRow(coin)` (`coin.denom === "Multiple"`,
+the same signal used everywhere else a row needs to be told apart from an
+individual coin):
+- **An individual coin or Roll row** (any real single `denom`) → **Edit
+  Coin**, covering exactly the bounded fields the app can safely write
+  directly (see "Editing existing coins" below: Grade, GradeSource, Cert/Type
+  Number, Designation, Storage Location) plus the ability to attach a photo
+  to any Obverse/Reverse/Additional/Receipt slot that wasn't filled during
+  Add Coin — reusing the same photo-slot/crop-adjuster module. In Edit mode
+  the cert number is a compact pill-styled input (not a full-width labeled
+  field) with a small link-icon button beside it, using `buildCertLookupUrl()`
+  (grader-agnostic, unchanged) — a different, still-constructed-URL mechanism
+  from the read-only detail view's stored-`certLink` approach above; the two
+  were deliberately decoupled, not unified. Editing does **not** cover
+  anything requiring research or judgment (album/slot re-matching, cost
+  allocation, new catalog lookups) — that stays a chat + Copilot task, same
+  boundary as before.
+- **A Set-bundle row** (`Denomination="Multiple"`) → **Edit Set** (new,
+  `showBrowseEditSetView()`/`initBrowseEditSet()`), a separate form — none of
+  Edit Coin's Grade/GradeSource/Cert/Designation/photo-capture fields apply
+  to a bundle. Covers Storage/Container, Value, and Purchase Details (Seller,
+  Cost, Shipping, Purchase Date, Receipt — same photo-slot pattern as Edit
+  Coin's Receipt field, no adjuster). Fields prefill from the same
+  `coin.cost`/`FAKE_COIN_DETAILS` sources `renderDetailAccordions()` already
+  reads, so the two stay consistent. **Coin-membership editing (adding/
+  removing individual coins from a Set) is explicitly NOT part of this form**
+  — out of scope for now, tracked as a parking-lot item, not even a
+  placeholder UI exists for it. Same non-functional Save stub pattern as
+  Edit Coin (no live OneDrive write layer exists for either form yet).
+- **Bug fix, confirmed via screenshots**: tapping Edit on a Set used to
+  always open Edit Coin regardless of row type (the shared `browseDetailView`
+  had one Edit button with one hardcoded target) — this is what `isSetRow()`
+  routing above fixes. **Checked Albums and Rolls for the same bug**: neither
+  has it. An Album's filled slot always resolves to a real individual coin
+  row (`FAKE_COINS.find(c => c.id === slot.filledBy)`), and Rolls rows are
+  real single-`denom` coin-like rows too (`RollID` populated, never
+  `denom === "Multiple"`) — Edit Coin is the objectively correct form for
+  both, verified in a real browser (Lincoln Cents album slot → Edit Coin;
+  a Rolls-tab row → Edit Coin; a Sets-tab row → Edit Set).
+"Back" from either edit form returns to the coin/Set's Detail view, not the
+grid.
 
 ### Carried forward — not yet built (empty — all three Browse issues are done)
 The three issues raised against the Browse restructure above are **all built,
@@ -1142,7 +1173,10 @@ and can attach additional photos/receipts to an existing coin at any time. App C
 do anything requiring research or judgment (new PCGS# lookups, album slot matching,
 restructuring, cost allocation) — those stay chat + Copilot tasks. This is the exact
 scope of the Edit button on Browse's coin detail view (see "Browse detail view"
-above) — it doesn't expose any field beyond this list.
+above) — it doesn't expose any field beyond this list. A Set-bundle row
+(`Denomination="Multiple"`) gets a different, separate Edit Set form instead
+(Storage/Container, Value, Purchase Details) — see "Browse detail view" above;
+coin-membership editing for a Set is explicitly out of scope, parking-lot item.
 
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
