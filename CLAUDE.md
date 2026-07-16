@@ -249,7 +249,14 @@ CoinCollection/
   don't build caching/indexing logic on that assumption without a way to detect
   a collision. (This is a different situation from `PCGS_Duplicate_Queue` below —
   that's an *expected, handled* collision on a different column, PCGS#.)
-- SetID: custom `S-XXYY-TT-##`
+- SetID: custom `S-XXYY-TT-##`. **Distinct from `OriginSetID`** (the multi-coin
+  Set-display join field, see "Multi-coin Set display") — SetID is Issue-3's
+  "an individual coin *belongs to* a Set" chip linkage; OriginSetID is "these
+  child coins are physically *inside* this Set bundle." Two different
+  relationships, deliberately separate fields. **The parent/child `-Set`/`-A`
+  suffix above is the human-readable provenance lineage, but the code join for
+  child coins is the explicit `OriginSetID` field, not string-parsing the
+  suffix.**
 - SerNo (on All sheet): the PCGS/NGC **cert number alone** (not combined with the
   type/PCGS# — those are separate values; see PCGS Label Auto-Populate below for how
   a scanned label splits into its parts).
@@ -690,6 +697,71 @@ individual coin):
 "Back" from either edit form returns to the coin/Set's Detail view, not the
 grid.
 
+#### Multi-coin Set display (locked in)
+A Set-bundle row (`Denomination="Multiple"`) that has known component coins
+renders each child's own coin-flip instead of the single generic
+"Set / Multiple" flip. Built to fall back cleanly: a Set with no linked
+children (the large majority — a real, intentional backlog, ~158 rows) keeps
+today's single-flip display with zero visual change.
+- **Child linkage — `originSetId`, a NEW field kept fully separate from
+  Issue-3's `setId`.** These are two different relationships and must never
+  cross-wire: `setId` (S-XXYY-TT-##) is Issue-3's "an individual owned coin
+  *belongs to* this Set" chip linkage (`resolveCoinSetLink()`, matched against
+  a bundle's own `setId`); `originSetId` (demo `OS-YYYY-XXX-##`) is "these
+  child coins are physically *inside* this Set bundle." A parent bundle and
+  all its children share one `originSetId`. **The `-Set`/`-A`/`-B` CollectionID
+  suffix pattern (see "ID schemes") stays the human-readable provenance
+  lineage but is NOT the code join key** — the join is the explicit
+  `originSetId` field, deliberately, to avoid brittle CollectionID-string
+  parsing. Children have `originSetId` but no `setId`, so they never trigger
+  the Issue-3 "belongs to" chip.
+- **Children are nested-only** (`FAKE_SET_CHILDREN`, keyed by `originSetId` →
+  array of coin-shaped child rows) — kept in a SEPARATE lookup from
+  `FAKE_COINS`, NOT added to it. Every place that lists/aggregates owned rows
+  (Coins/Rolls/Sets tabs, Stats & Value) iterates `FAKE_COINS`, so keeping
+  children out of it auto-excludes them from all of those with zero filter
+  changes — a 3-coin set counts as one owned item (the bundle), never four.
+  Children never appear as standalone Browse rows. `setChildrenFor(coin)` is
+  the single accessor; returns `[]` for non-Sets, Sets with no `originSetId`,
+  and Sets whose breakdown isn't populated yet.
+- **Layout: a responsive grid of `.flip-frame-mini`** (the same mini-flip the
+  Browse grid cards use — `renderSetChildFlips()`), 2-up on phone, 3-up at
+  ≥600px, each child in its own small `.case` box with year-mint / denom /
+  grade corner labels + a series-name caption. `showBrowseDetail()` branches:
+  set-with-children hides `#browseDetailFlipFrame` and populates
+  `#browseDetailChildFlips`, skipping `applyFlipCorners()` entirely (it
+  measures `#browseDetailDisc`, now in a `display:none` subtree — the exact
+  stale-measurement case its own comment warns about); everything else keeps
+  the single-flip path unchanged. Verified 2→5 children, phone + desktop, no
+  cramping (a 5-coin set's last coin sitting alone on its row is normal grid
+  flow, accepted).
+- **Child flips are clickable** → open that child's own full detail view
+  (`showBrowseDetail(child)`), with Back returning to the parent Set. The
+  Set's own Back target is captured at click time and restored when returning,
+  so the Set's Back still goes to the grid afterward — same per-origin
+  back-handler pattern Albums' filled-slot tap uses. A child is an individual
+  coin (real `denom`), so its Edit button correctly routes to Edit Coin.
+- **Expanded info box — a "Set Details" facts group** (`renderDetailAccordions()`,
+  Set rows only): Coins in Set (DERIVED from `setChildrenFor().length`, not
+  stored), Face Value, Mintage (from `FAKE_SET_FACTS`, a sparse lookup by the
+  bundle's CollectionID). Deliberately NOT a coin's Specifications — a bundle
+  has no single composition/weight/diameter (and has no `FAKE_METAL_CONTENT`
+  entry, so the coin Specifications accordion renders nothing for a Set
+  anyway). Each row hides when blank; the whole group is omitted for a Set
+  with no facts and no children. No aggregate metal roll-ups (e.g. summed
+  silver oz) for now — deferred.
+- **Fun Facts fold into the existing "Notes & Facts" group**, not a separate
+  accordion — a Set carrying a `funFact` in `FAKE_COIN_DETAILS` renders it
+  through the exact same path a coin does, hidden entirely when absent. No
+  real Set `FunFact` data exists in the workbook yet (a planned Excel schema
+  change); the section is built to render only when present.
+- **Demo data**: `AY-00022` (1986 Statue of Liberty 3-Coin Set) has three
+  real children; `AY-00025` (a new 2026 Best-of-Mint 5-Coin Proof Set) has
+  five, to stress-test layout. The other bundle rows (`AY-00018..21`) stay
+  childless to prove the single-flip fallback. Only the two demo sets carry
+  `originSetId`/`FAKE_SET_CHILDREN`/`FAKE_SET_FACTS`; a Set `funFact` is on
+  `AY-00022` only.
+
 ### Carried forward — not yet built (empty — all three Browse issues are done)
 The three issues raised against the Browse restructure above are **all built,
 committed, and browser-verified** — nothing is carried forward here anymore.
@@ -788,12 +860,14 @@ rendering anything inline.
   separately-catalogued member coins. This retires the old `FAKE_SETS`
   entity-with-member-coinIds model entirely (`renderSetsPicker`,
   `showBrowseSetsPickerMode`, `showSetDetail`, the `isSets` chip special-case,
-  and their DOM — all removed, not just hidden). A future parent/child
-  CollectionID suffix system (`AY-#####-Set` / `-A` / `-B`, same suffix
-  pattern reserved for acquisition/provenance lineage under "ID schemes")
-  will eventually let a bundle's individual coins be broken out into child
-  rows — **explicitly out of scope for this restructure**, don't build
-  toward it speculatively.
+  and their DOM — all removed, not just hidden). The parent/child CollectionID
+  suffix system (`AY-#####-Set` / `-A` / `-B`, acquisition/provenance lineage
+  under "ID schemes") was out of scope for *this restructure* — but child
+  coins are now surfaced read-only on the Set detail view via the separate
+  `originSetId` join (see "Multi-coin Set display" above). Still out of scope:
+  breaking a bundle out into standalone owned child *rows* (children remain
+  nested-only, not independently browsable/counted), and any in-app creation
+  of that structure.
 - **`category` is a new, single-valued All-sheet field** (confirmed against
   the workbook — a row is never simultaneously Category="Proof Set" AND
   Category="Commemorative") that **replaces two old fields**: the coin-level

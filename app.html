@@ -424,6 +424,42 @@
     font-weight: 600;
   }
 
+  /* Multi-coin Set detail: a responsive grid of clickable child-coin
+     mini-flips (reuses .flip-frame-mini, unscoped from .coin-card here).
+     2-up on phone (Ray's default), more columns on wider screens. Each
+     child sits in its own small case box so the corner labels read against
+     the same case background the Browse grid cards use. */
+  .set-child-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    max-width: 280px;
+    margin: 0 auto 14px;
+  }
+  .set-child-grid.hidden { display: none; }
+  @media (min-width: 600px) {
+    .set-child-grid { grid-template-columns: repeat(3, 1fr); max-width: 480px; }
+  }
+  .set-child-flip { padding: 10px; cursor: pointer; text-align: center; }
+  .set-child-grid .flip-frame-mini {
+    position: relative;
+    width: 100%;
+    max-width: 120px;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .set-child-grid .flip-frame-mini .coin-disc { margin: 0; }
+  .set-child-grid .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
+  .set-child-caption {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.2;
+  }
+
   .browse-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
   .browse-toolbar.hidden { display: none; }
   .view-toggle { display: flex; gap: 4px; }
@@ -1394,6 +1430,12 @@
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
+          <!-- Multi-coin Set display: a Set with linked child coins (via
+               originSetId) renders each child's own mini-flip here INSTEAD of
+               the single generic "Multiple" flip above. Childless Sets and
+               individual coins keep the single flip; this grid stays hidden
+               for them. JS-populated in showBrowseDetail(). -->
+          <div class="set-child-grid hidden" id="browseDetailChildFlips" aria-label="Coins in this set"></div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
           <div class="case detail-panel" id="browseDetailPanel">
@@ -2403,7 +2445,17 @@
     { id: "AY-00019", name: "1999 United States Mint Set",              denom: "Multiple", year: 1999, mint: "", grade: "", value: 45,  cost: 35,  category: "Mint Set",         rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
     { id: "AY-00020", name: "1955 United States Proof Set",             denom: "Multiple", year: 1955, mint: "", grade: "", value: 220, cost: 175, category: "Proof Set",        rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
     { id: "AY-00021", name: "American Innovation Dollar Legacy Collection", denom: "Multiple", year: 2026, mint: "", grade: "", value: 60, cost: 55, category: "Legacy Collection", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
-    { id: "AY-00022", name: "1986 Statue of Liberty Commemorative 3-Coin Set", denom: "Multiple", year: 1986, mint: "", grade: "", value: 320, cost: 280, category: "Commemorative", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "" },
+    // originSetId links this bundle to its child coins in FAKE_SET_CHILDREN
+    // (the multi-coin display feature). Distinct from `setId` above — setId
+    // is Issue-3's "an individual owned coin belongs to this Set" chip
+    // linkage; originSetId is "these child coins are physically inside this
+    // Set bundle" provenance. The two are deliberately kept separate so
+    // neither triggers the other's resolution logic. Only Sets with a real
+    // child breakdown carry originSetId; the childless bundles above leave
+    // it absent and fall back to the single-flip display.
+    { id: "AY-00022", name: "1986 Statue of Liberty Commemorative 3-Coin Set", denom: "Multiple", year: 1986, mint: "", grade: "", value: 320, cost: 280, category: "Commemorative", rollId: "", originSetId: "OS-1986-STL-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "" },
+    // A larger (5-coin) demo Set to stress-test the mini-flip grid layout.
+    { id: "AY-00025", name: "2026 Best-of-Mint 5-Coin Proof Set", denom: "Multiple", year: 2026, mint: "", grade: "", value: 140, cost: 120, category: "Proof Set", rollId: "", originSetId: "OS-2026-BOM-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
     // Roll rows (new, Browse restructure): RollID populated, a normal single
     // Denomination each (confirmed against the real workbook) — these are
     // owned rows that happen to be an uncounted/unsearched roll rather than
@@ -2411,6 +2463,43 @@
     { id: "AY-00023", name: "1921 Morgan Dollar Roll (20 coins)", denom: "$1",  year: 1921, mint: "",  grade: "", value: 900, cost: 750, category: "", rollId: "R-1921-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
     { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" }
   ];
+
+  // Child coins physically inside a Set bundle, keyed by the parent's
+  // originSetId. Kept SEPARATE from FAKE_COINS on purpose (per Q2 —
+  // nested-only): children never appear as standalone rows in the
+  // Coins/Rolls/Sets tabs or Stats & Value, and keeping them out of
+  // FAKE_COINS means every one of those (which all iterate/filter FAKE_COINS)
+  // auto-excludes them with zero filter changes. Each child is a normal
+  // coin-shaped row so showBrowseDetail()/applyFlipCorners()/the detail panel
+  // all work unchanged when a child flip is tapped. Sparse by design: only a
+  // few Sets have this populated today (the large majority are still childless
+  // single bundle rows — a known backlog, not missing data).
+  const FAKE_SET_CHILDREN = {
+    "OS-1986-STL-01": [
+      { id: "AY-00022-A", name: "Statue of Liberty Half Dollar", denom: "50C", year: 1986, mint: "S", grade: "PR-69", value: 25,  cost: 22,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" },
+      { id: "AY-00022-B", name: "Statue of Liberty Dollar",      denom: "$1",  year: 1986, mint: "S", grade: "PR-69", value: 60,  cost: 55,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" },
+      { id: "AY-00022-C", name: "Statue of Liberty Half Eagle",  denom: "$5",  year: 1986, mint: "W", grade: "PR-70", value: 235, cost: 203, gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" }
+    ],
+    "OS-2026-BOM-01": [
+      { id: "AY-00025-A", name: "Lincoln Cent",        denom: "1C",  year: 2026, mint: "S", grade: "PR-70", value: 12, cost: 10, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-B", name: "Jefferson Nickel",    denom: "5C",  year: 2026, mint: "S", grade: "PR-70", value: 14, cost: 12, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-C", name: "Roosevelt Dime",      denom: "10C", year: 2026, mint: "S", grade: "PR-70", value: 16, cost: 14, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-D", name: "Washington Quarter",  denom: "25C", year: 2026, mint: "S", grade: "PR-70", value: 22, cost: 20, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-E", name: "Kennedy Half Dollar", denom: "50C", year: 2026, mint: "S", grade: "PR-70", value: 30, cost: 26, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" }
+    ]
+  };
+
+  // Set-level facts (per Q4) — a small facts group for the Set detail's
+  // expanded info box, distinct from a coin's Specifications (a bundle has no
+  // single composition/weight/diameter). Sparse lookup by the bundle's
+  // CollectionID; coin count is derived from FAKE_SET_CHILDREN, not stored
+  // here. faceValue/mintage render only when present; a Set with no entry
+  // here (and no children) shows no facts group at all. No aggregate metal
+  // roll-ups for now (deferred per Q4).
+  const FAKE_SET_FACTS = {
+    "AY-00022": { faceValue: "$6.50", mintage: 500000 },
+    "AY-00025": { faceValue: "$0.91", mintage: 250000 }
+  };
 
   // Purchase Info detail, Fun Facts, Notes, and additional-photo flags — kept
   // as a lookup by CollectionID rather than bloating every FAKE_COINS row,
@@ -2431,6 +2520,15 @@
       funFact: "Carson City Morgans carry the \"CC\" mintmark — the Carson City mint struck silver dollars almost entirely from Comstock Lode silver, and its dollars are some of the most collected by mint location alone.",
       notes: "Bought at auction, still in the original PCGS holder.",
       additionalPhotos: ["holder-label"]
+    },
+    // A Set-bundle row can carry the same detail fields a coin does — this one
+    // demonstrates a Set-level funFact folding into the shared "Notes & Facts"
+    // group (Q7). No FunFact data exists for real Sets in the workbook yet
+    // (that's a planned Excel schema change) — the section renders only when
+    // present and hides entirely when absent, same sparse pattern as coins.
+    "AY-00022": {
+      purchaseDate: "2018-07-04", vendor: "U.S. Mint",
+      funFact: "The 1986 Statue of Liberty program marked the statue's centennial and was the first modern U.S. commemorative to include a gold coin — the $5 half eagle — alongside the silver dollar and clad half."
     },
     "AY-00003": {
       purchaseDate: "2021-08-02", vendor: "Local coin shop",
@@ -3682,6 +3780,15 @@
   // on the album instead of losing the user's place in Browse.
   let browseDetailBackHandler = showBrowseGrid;
 
+  // A Set's child coins (multi-coin display) — keyed by the parent's
+  // originSetId in FAKE_SET_CHILDREN. Returns [] for non-Sets, Sets with no
+  // originSetId, and Sets whose breakdown isn't populated yet (the childless
+  // backlog) — every one of which falls back to the single-flip display.
+  function setChildrenFor(coin) {
+    if (!isSetRow(coin) || !coin.originSetId) return [];
+    return FAKE_SET_CHILDREN[coin.originSetId] || [];
+  }
+
   function showBrowseDetail(coin) {
     currentBrowseCoin = coin;
     document.getElementById("browseGridView").style.display = "none";
@@ -3689,16 +3796,81 @@
     document.getElementById("browseEditView").style.display = "none";
     document.getElementById("browseEditSetView").style.display = "none";
 
-    // Visibility must be set before applyFlipCorners — its corner-overflow
-    // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a display:none
-    // subtree, which would always look "overflowing" and wrongly trigger the
-    // one-word shortening fallback.
     document.getElementById("browseDetailName").textContent = coin.name;
-    const disc = document.getElementById("browseDetailDisc");
-    applyDiscContent(disc, coin);
-    sizeCoinElement(disc, coin.denom, 210, 32);
-    applyFlipCorners("browseDetail", coin);
+
+    const singleFlip = document.getElementById("browseDetailFlipFrame");
+    const childGrid = document.getElementById("browseDetailChildFlips");
+    const children = setChildrenFor(coin);
+
+    if (children.length) {
+      // Multi-coin Set: render each child's own mini-flip instead of the
+      // single generic "Multiple" flip. The single flip and its combined-
+      // photo badge are hidden; skip applyFlipCorners entirely (it measures
+      // #browseDetailDisc, which is now inside a display:none subtree — the
+      // exact stale-measurement case its own comment warns about).
+      singleFlip.style.display = "none";
+      document.getElementById("browseDetailCombinedBadge").classList.add("hidden");
+      renderSetChildFlips(coin, children);
+      childGrid.classList.remove("hidden");
+      // Keep the screen-reader summary meaningful even though the visible
+      // corner labels (populated by applyFlipCorners) are skipped here.
+      document.getElementById("browseDetailSR").textContent =
+        coin.name + " — a set of " + children.length + " coins (" + coin.id + ").";
+    } else {
+      // Individual coin, or a Set with no linked children — unchanged
+      // single-flip behavior. Visibility must be set before applyFlipCorners:
+      // its corner-overflow measurement (scrollWidth vs. clientWidth) reads as
+      // 0/0 on a display:none subtree, which would always look "overflowing"
+      // and wrongly trigger the one-word shortening fallback.
+      childGrid.classList.add("hidden");
+      childGrid.innerHTML = "";
+      singleFlip.style.display = "";
+      const disc = document.getElementById("browseDetailDisc");
+      applyDiscContent(disc, coin);
+      sizeCoinElement(disc, coin.denom, 210, 32);
+      applyFlipCorners("browseDetail", coin);
+    }
+
     renderBrowseDetailPanel(coin);
+  }
+
+  // Builds the clickable child-coin mini-flip grid for a multi-coin Set.
+  // Each child reuses the same .flip-frame-mini markup the Browse grid cards
+  // use, so a coin reads as the same coin whether spotlighted, browsed, or
+  // shown inside its set. Tapping a child opens that child's own full detail
+  // view, with Back returning to this Set (same per-origin back-handler
+  // pattern Albums' filled-slot tap uses) — and the Set's own Back target is
+  // captured and restored so it still returns to the grid afterward.
+  function renderSetChildFlips(parentSet, children) {
+    const grid = document.getElementById("browseDetailChildFlips");
+    grid.innerHTML = "";
+    children.forEach(child => {
+      const yearMint = child.year + (child.mint ? "-" + child.mint : "");
+      const card = document.createElement("div");
+      card.className = "case set-child-flip";
+      card.dataset.childId = child.id;
+      card.innerHTML = `
+        <div class="flip-frame-mini">
+          <span class="flip-label tl">${yearMint}</span>
+          <span class="flip-label tr">${child.denom || ""}</span>
+          <div class="coin-disc"></div>
+          <span class="flip-label bl">${child.grade || ""}</span>
+        </div>
+        <div class="set-child-caption">${seriesLabel(child)}</div>
+      `;
+      card.addEventListener("click", () => {
+        const setBackHandler = browseDetailBackHandler;
+        browseDetailBackHandler = () => {
+          showBrowseDetail(parentSet);
+          browseDetailBackHandler = setBackHandler;
+        };
+        showBrowseDetail(child);
+        window.scrollTo({ top: 0 });
+      });
+      grid.appendChild(card);
+      applyDiscContent(card.querySelector(".coin-disc"), child);
+      sizeCoinElement(card.querySelector(".coin-disc"), child.denom, 64, 11);
+    });
   }
 
   // Issue 3 — the comprehensive coin deep-dive panel below the flip. Structure:
@@ -3899,6 +4071,28 @@
       appendAccordion(container, "Specifications", specRows.map(([label, value]) =>
         `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
       ).join(""));
+    }
+
+    // --- Set Details (Set-level facts group, per Q4) — Set-bundle rows only.
+    // A bundle has no single composition/weight/diameter, so instead of a
+    // coin's Specifications (which reads FAKE_METAL_CONTENT a Set has no entry
+    // in, so it renders nothing for a Set anyway) this shows Set-level facts:
+    // coin count DERIVED from the linked children, plus face value / mintage
+    // from FAKE_SET_FACTS. Each row hides when its data is absent, and the
+    // whole group is omitted for a Set with no facts at all (the childless
+    // backlog Sets) — same sparse pattern as everything else here.
+    if (isSetRow(coin)) {
+      const setFacts = FAKE_SET_FACTS[coin.id] || {};
+      const childCount = setChildrenFor(coin).length;
+      const setRows = [];
+      if (childCount) setRows.push(["Coins in Set", String(childCount)]);
+      if (setFacts.faceValue) setRows.push(["Face Value", setFacts.faceValue]);
+      if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
+      if (setRows.length) {
+        appendAccordion(container, "Set Details", setRows.map(([label, value]) =>
+          `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+        ).join(""));
+      }
     }
 
     // --- Notes & Facts ---
