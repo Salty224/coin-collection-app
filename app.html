@@ -400,6 +400,15 @@
   .coin-grid:not(.list-view) .coin-card .grade-badge {
     display: none;
   }
+  /* Coins-tab grid cards only (see CLAUDE.md "Carried forward" — Issue 2):
+     the image should be clean, matching Spotlight's image-only treatment.
+     Value stays in the coin detail view instead. Scoped to
+     [data-tab="coins"], not just :not(.list-view), because Rolls renders
+     through this exact same .coin-card markup/CSS and must keep showing
+     Value on its own grid cards; list mode (either tab) is untouched. */
+  #browseGrid[data-tab="coins"]:not(.list-view) .coin-card .value {
+    display: none;
+  }
   .coin-grid.list-view .coin-card .flip-frame-mini { display: none; }
   .coin-card .grade-badge {
     font-size: 10px;
@@ -3310,6 +3319,13 @@
     }
     activeBrowseTab = tab;
     updateBrowseTabsUI();
+
+    // Drives the Coins-tab-only Value removal below (CSS keyed off
+    // #browseGrid[data-tab="coins"]) — Rolls shares the exact same
+    // .coin-card markup/render path (renderBrowseGrid()) but must keep
+    // showing Value on its cards, so the CSS needs a per-tab hook rather
+    // than something keyed off shared markup/classes alone.
+    document.getElementById("browseGrid").dataset.tab = tab;
 
     document.getElementById("browseCoinsHeader").style.display = tab === "coins" ? "block" : "none";
     document.getElementById("browseSetsHeader").style.display = tab === "sets" ? "block" : "none";
