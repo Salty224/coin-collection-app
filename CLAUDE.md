@@ -23,6 +23,13 @@ deliberate before anything moves further. Don't skip the questions section
 just because nothing came up — say so explicitly rather than omitting it.
 This applies on top of, not instead of, the CLAUDE.md update rule below.
 
+## Merge policy (standing rule)
+Auto-merge feature branches to main at the end of a task by default — don't wait
+for Ray to explicitly ask each time. **Exception:** large/architectural/
+cross-cutting work (e.g. the CollectionID-reservation system) stays held on its
+branch — wait for Ray's explicit go-ahead before merging that class of work, same
+as before this policy existed.
+
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
 - No backend server — static HTML/JS + Microsoft Graph API only.
