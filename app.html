@@ -736,6 +736,11 @@
   }
   .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
   .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
+  /* Key-date-only variety line (e.g. "VDB" under "1909") — distinct from the
+     dropped .slot-meta description line above; real folders print this only
+     for the specific varieties that actually need distinguishing from the
+     plain date. */
+  .slot-cell .slot-variety { font-size: 10px; font-weight: 600; color: var(--gold-bright); text-align: center; margin-top: -3px; }
   .slot-cell.key-date .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright), inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5); }
   .slot-cell.key-date.want .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright); }
   /* Wraps just the disc (not the whole slot-cell, which is wider to fit the
@@ -831,6 +836,7 @@
      reads as "pending," never identical to a truly empty/unowned hole (which
      shows no icon at all, per how a real unfilled folder slot looks). */
   .slot-cell.littleton-slot .slot-label { color: #1c2b5e; }
+  .slot-cell.littleton-slot .slot-variety { color: #8a5a1e; }
   .slot-cell.littleton-slot .coin-disc.die-cut {
     background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.55), rgba(0,0,0,0.08) 65%, rgba(0,0,0,0.16));
     box-shadow: inset 0 2px 5px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.3), 0 0 0 2px rgba(255,255,255,0.6);
@@ -5075,6 +5081,15 @@
     // pages (default/Numis-style pages keep both lines, unchanged).
     const metaLine = isLittleton ? "" : `<div class="slot-meta">${slotDescription(slot)}${slotVariety(slot) ? ", " + slotVariety(slot) : ""}</div>`;
 
+    // Key-date coins (e.g. the 1909-S VDB Lincoln cent) print the variety
+    // right under the date/mintmark, same as a real folder calls out the
+    // one date in a run that needs distinguishing — not shown for ordinary
+    // slots, where the plain date is already unambiguous. Independent of
+    // metaLine/isLittleton above: this shows on Littleton pages too, since
+    // dropping the *description* line there was about not repeating the
+    // series name, not about hiding a distinguishing variety.
+    const varietyLine = (slot.keyDate && slotVariety(slot)) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
+
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
         <div class="slot-disc-wrap">
@@ -5082,6 +5097,7 @@
           ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
         </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
+        ${varietyLine}
         ${metaLine}
       </div>
     `;

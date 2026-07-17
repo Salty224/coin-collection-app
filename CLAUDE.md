@@ -1926,6 +1926,16 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
 - **Caption**: date + mintmark only under each hole (`.slot-label`) — the
   second `.slot-meta` description line is dropped entirely, matching real
   folder printing.
+- **Key-date variety line (new)**: a key-date slot (`slot.keyDate`) that
+  also carries a real `variety` (e.g. 1909/1909-S Lincoln Cent → `VDB`)
+  prints that variety directly under the date/mintmark caption
+  (`.slot-variety`), same as a real folder calls out the one date in a run
+  that actually needs distinguishing. **Independent of the dropped
+  `.slot-meta` line above** — that line was about not repeating the
+  series/description text, not about hiding a distinguishing variety, so
+  this isn't a reversal of that decision. Ordinary (non-key-date) slots are
+  unaffected — still just the plain date/mintmark, nothing added. Uses the
+  existing `slotVariety()` helper, not new data.
 - **Key-date marker (superseded, twice)**: originally a gold glowing-star
   treatment, then restyled to a small navy printed star + ring to fit the
   printed-folder look. Ray didn't like the navy version in practice — the
