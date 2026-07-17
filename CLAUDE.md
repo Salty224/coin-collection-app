@@ -30,6 +30,12 @@ cross-cutting work (e.g. the CollectionID-reservation system) stays held on its
 branch — wait for Ray's explicit go-ahead before merging that class of work, same
 as before this policy existed.
 
+## Clarifying-question format (standing rule)
+Never use an interactive multiple-choice question tool/prompt on Ray. Always ask
+clarifying questions as plain, copy-pasteable text in the chat response instead —
+he discusses them with Claude (chat) separately and brings back answers to all of
+them at once, which an interactive per-question picker doesn't allow for.
+
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
 - No backend server — static HTML/JS + Microsoft Graph API only.
