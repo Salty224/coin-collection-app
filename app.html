@@ -462,9 +462,9 @@
   .set-child-grid .flip-frame-mini .coin-disc { margin: 0; }
   .set-child-grid .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
 
-  .browse-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-  .browse-toolbar.hidden { display: none; }
+  .browse-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .view-toggle { display: flex; gap: 4px; }
+  .view-toggle.hidden { display: none; }
   .view-toggle-btn {
     width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--case-border);
     background: var(--bg-case); color: var(--text-muted); font-size: 15px; cursor: pointer;
@@ -1490,14 +1490,6 @@
           <h2 class="display" style="margin-top:0;" id="browseTitle">Coins</h2>
           <div class="filter-row" id="browseTabRow"></div>
 
-          <!-- Year filter: shared across Coins/Rolls/Sets (the only tabs this
-               view ever renders — Albums is a straight redirect, see
-               showBrowseTab()), so one row/popup covers all three rather than
-               duplicating it per tab. -->
-          <div class="filter-row" id="browseYearFilterRow">
-            <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
-          </div>
-
           <div id="browseCoinsHeader">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
@@ -1520,7 +1512,15 @@
             </div>
           </div>
 
-          <div class="browse-toolbar" id="browseViewToggleRow">
+          <!-- Toolbar row, always present for Coins/Rolls/Sets (Albums never
+               reaches this view — it's a straight redirect, see
+               showBrowseTab()): the Year filter on the left (shared across
+               all three tabs), the Grid/List toggle on the right (Coins
+               only — Sets/Rolls have no grid mode to switch into, same
+               reasoning as before, just now scoped to the toggle itself
+               rather than hiding this whole row). -->
+          <div class="browse-toolbar" id="browseToolbarRow">
+            <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
             <div class="view-toggle" id="browseViewToggle">
               <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
               <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
@@ -3887,10 +3887,10 @@
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", rows.length > 0);
   }
 
-  // Year filter — shared across Coins/Rolls/Sets (see the markup comment
-  // above #browseYearFilterRow). Free-text Begin/End Year, not preset range
-  // pills: Begin alone means "exactly this year"; Begin+End means an
-  // inclusive range. null/null means no filter is active.
+  // Year filter — shared across Coins/Rolls/Sets (the "Year" chip is built
+  // into #browseTabRow itself, see initBrowse()). Free-text Begin/End Year,
+  // not preset range pills: Begin alone means "exactly this year"; Begin+End
+  // means an inclusive range. null/null means no filter is active.
   let yearFilterBegin = null;
   let yearFilterEnd = null;
 
@@ -3930,11 +3930,29 @@
     return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId);
   }
 
+  // Same blank/Philadelphia, D, S, CC, O, W order as the Mint Mark dropdown
+  // (see CLAUDE.md "Add Coin field layout") — an unrecognized/future mark
+  // sorts after all of these rather than being treated as blank.
+  const MINT_MARK_ORDER = ["", "D", "S", "CC", "O", "W"];
+  function mintMarkSortIndex(mint) {
+    const i = MINT_MARK_ORDER.indexOf(mint || "");
+    return i === -1 ? MINT_MARK_ORDER.length : i;
+  }
+
+  // Default display order for the Coins tab: date (Year) first, then Mint
+  // Mark — not the array's own insertion order. Ties beyond that (two coins
+  // sharing both Year and MintMark, e.g. a plain date vs. a variety) keep
+  // their relative array order (Array.prototype.sort is stable), rather
+  // than introducing a third arbitrary tiebreak field.
+  function sortCoinsTabRows(rows) {
+    return rows.slice().sort((a, b) => a.year - b.year || mintMarkSortIndex(a.mint) - mintMarkSortIndex(b.mint));
+  }
+
   function applyCoinsTabFilters() {
     const filtered = coinsTabBaseRows().filter(c =>
       browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") && yearRowTest(c)
     );
-    renderBrowseGrid(filtered);
+    renderBrowseGrid(sortCoinsTabRows(filtered));
   }
 
   function applySetsTabFilters() {
@@ -4040,7 +4058,10 @@
     // Grid/List toggle only applies to Coins' .coin-disc cards — Sets and
     // Rolls both render full-width .album-card rows with no grid mode to
     // toggle into (same reasoning for both, see renderSetsGrid/renderRollsGrid).
-    document.getElementById("browseViewToggleRow").classList.toggle("hidden", tab === "sets" || tab === "rolls");
+    // The toolbar row itself (browseToolbarRow) stays visible on all three
+    // tabs regardless — it also carries the Year filter chip, which applies
+    // to Sets/Rolls too; only the view-toggle sub-element hides.
+    document.getElementById("browseViewToggle").classList.toggle("hidden", tab === "sets" || tab === "rolls");
     document.getElementById("browseTitle").textContent =
       tab === "coins" ? "Coins" : tab === "rolls" ? "Rolls" : "Sets";
 

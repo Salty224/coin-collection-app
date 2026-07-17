@@ -975,6 +975,13 @@ rendering anything inline.
   fields, so "Dollars + Commemorative" is a real, meaningful AND (all three
   axes — Denomination/Medal, Metal, Commemorative — AND together;
   `applyCoinsTabFilters()`).
+  **Default display order is Year then Mint Mark** (`sortCoinsTabRows()`,
+  applied after every filter combination, not the underlying array's own
+  insertion order) — mint mark ties break on the same canonical order as
+  the Mint Mark dropdown (blank/Philadelphia, D, S, CC, O, W;
+  `MINT_MARK_ORDER`/`mintMarkSortIndex()`), not alphabetically. Two rows
+  sharing both Year and MintMark keep their relative array order (a stable
+  sort), rather than introducing a third arbitrary tiebreak field.
 - **Sets tab**: Category pills — `All`, `Proof Set` / `Mint Set` / `Silver
   Proof Set`, **`Commemorative`, then `Other` last** (fixed pill-order bug:
   `Other` and `Commemorative` were swapped; `Other` must always render last
@@ -1167,13 +1174,22 @@ precious-metals-only Oz-qualification rule.
   faked, same as the "most rows blank until research" expectation.
 
 ### Year filter (locked in — Coins, Rolls, Sets; not Albums)
-A `Year` trigger chip (`#browseYearFilterBtn`) sits in its own row directly
-under the Coins/Rolls/Sets/Albums tab row — **one shared row/popup covers
-all three tabs** rather than duplicating it per tab, since `#view-browse`
-never renders anything but those three (Albums is a straight `navigate()`
-redirect, see "Browse: navigation restructure" — the row is simply always
-present whenever this view shows content at all, which naturally excludes
-Albums with no extra visibility logic needed).
+A `Year` trigger chip (`#browseYearFilterBtn`) sits in a shared toolbar row
+(`#browseToolbarRow`) directly above the grid/list — **one shared
+button/popup covers all three tabs** rather than duplicating it per tab,
+since `#view-browse` never renders anything but those three (Albums is a
+straight `navigate()` redirect, see "Browse: navigation restructure" — the
+toolbar is simply always present whenever this view shows content at all,
+which naturally excludes Albums with no extra visibility logic needed).
+**Superseded: originally its own lone row directly under the tab row** —
+Ray's real-device feedback was that a single pill sitting alone in its own
+row read as visually odd/unbalanced. Moved into the same toolbar row that
+already held the Grid/List view toggle (`.browse-toolbar`, restyled
+`justify-content: space-between` so Year anchors left and the toggle
+anchors right) — the toolbar itself now stays visible on Rolls/Sets too
+(previously hidden there entirely, since only Coins needed the view
+toggle); only the `.view-toggle` sub-element hides per tab now, not the
+whole row, so Year keeps working everywhere it needs to.
 - **Free-text Begin/End Year inputs in a popup, not preset range pills** —
   tapping the chip opens `#yearFilterOverlay`, reusing the exact same
   photo-adjust overlay/panel chrome as Grading Help (same "centered
