@@ -1918,6 +1918,47 @@ reference-image-second, then the bare placeholder third.
 - localStorage/sessionStorage for anything that matters — use OneDrive as the
   actual store; the app should be re-derivable from OneDrive state at any time.
 
+## Session log — carried-forward state (not app architecture, tracked here for continuity)
+
+### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
+- **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
+  max CollectionID `AY-00663`, 16 rows still missing a CollectionID (blocked on
+  the set-restructure). `DB_Coins` 3,760 rows, 0 duplicate CoinIDs. Albums 419
+  slots across 6 albums (Roosevelt Dimes 1946-1964 at 12/48 filled).
+  `PCGS_Duplicate_Queue` essentially resolved (197 items closed). ~79 open
+  ParkingLot items. **Treat as a point-in-time snapshot, not current fact** —
+  re-check before relying on any of these numbers, same caution CLAUDE.md
+  already gives for any pulled copy of DB_Coins.
+- **Two stale Copilot findings caught and sent back for re-verification**
+  (not new gaps): (1) SpotValue formula — already built and deployed 7/13 on
+  `All!Z`, Copilot's briefing proposed it as new work; (2) Albums "17 orphan
+  CoinID references" — investigated 7/13, did not reproduce (0 orphan refs
+  confirmed then). Don't accept either as a real open item without a fresh
+  count.
+- **Copilot task list in flight** (sequenced, one research thread at a time):
+  re-verify the two stale items above; status-check NGC certification
+  research (~93/366 as of last check) and the 3-row OGP Value paste
+  (unconfirmed as of 7/16 evening); compile the 59 letter-only-grade rows
+  with context (data-gathering only, no conversion decision yet); then
+  research the Jamestown/Lincoln Bicentennial/Bald Eagle Recovery
+  product-code pairs against PCGS CoinFacts.
+- **Explicitly held back / blocked, not forgotten**: GSID Phase 2 (blocked on
+  Ray photographing Lincoln Memorial/Wheat/Shield Cent + American Silver
+  Eagle Red Book pages); the 158-set restructuring (blocked on Ray choosing a
+  priority order — Proof Sets / Silver Proof Sets / Mint Sets / a specific
+  year range); American Women Quarters Proof Set identification (needs Ray to
+  check his own physical box/certificate); ANACS/ICG/CAC label research
+  (parked, no urgency, unchanged from the ANACS/ICG/CAC note above).
+- **This session's app-side work** (CollectionID-reservation Promotion/
+  Rejection) is documented in full under "CollectionID-reservation system —
+  Promotion / Rejection" above; this log entry is only the workbook/Copilot
+  side of the same session, which doesn't otherwise touch app.html.
+- No direct workbook edits were made by Claude (chat) this session — all
+  app-side work went through Claude Code (merged to main, see above); all
+  workbook-side work is Copilot's, per the task list above. No new checkpoint
+  upload was needed yet — one is recommended once Copilot's current task
+  list is confirmed complete.
+
 ## Full design history
 For the complete session-by-session reasoning behind these decisions, see the
 project's Claude.ai knowledge base (Project: "Coin Collection"), particularly
