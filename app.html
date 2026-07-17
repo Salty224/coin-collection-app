@@ -403,46 +403,17 @@
   .coin-card .flip-frame-mini .coin-disc { margin: 0; }
   .coin-card .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
 
-  /* Roll cards (Rolls tab): reads as a short stack of coins viewed edge-on —
-     a roll is ~20 coins, not one — rather than the plain single-coin flip
-     every other card uses. Only the top coin's face is a real .coin-disc
-     (same reference-image/placeholder/tap-to-flip treatment as any other
-     coin); the layers beneath are plain decorative edges, negative z-index
-     so they always stay behind both the disc and the flip-toggle button. */
-  .coin-roll-stack {
-    position: relative;
-    /* Establishes its own stacking context so the negative-z-index .roll-edge
-       layers below stack correctly relative to THIS element (behind the top
-       disc, in front of its own background) instead of escaping past it and
-       painting behind the card's own opaque background, invisibly. */
-    isolation: isolate;
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .coin-roll-stack .roll-edge {
-    position: absolute;
-    left: 50%;
-    width: 84%;
-    aspect-ratio: 1 / 1;
-    border-radius: 50%;
-    background: linear-gradient(160deg, #8f7a42, #6e5c2f 55%, #52431f);
-    border: 1px solid rgba(0,0,0,0.45);
-    box-shadow: 0 2px 2px rgba(0,0,0,0.35);
-  }
-  .coin-roll-stack .roll-edge:nth-child(1) { transform: translate(-50%, 8px); z-index: -3; opacity: 0.55; }
-  .coin-roll-stack .roll-edge:nth-child(2) { transform: translate(-50%, 5px); z-index: -2; opacity: 0.72; }
-  .coin-roll-stack .roll-edge:nth-child(3) { transform: translate(-50%, 2px); z-index: -1; opacity: 0.88; }
-  .coin-roll-stack .coin-disc { position: relative; z-index: 0; }
   .coin-grid:not(.list-view) .coin-card .coin-card-text,
   .coin-grid:not(.list-view) .coin-card .grade-badge {
     display: none;
   }
   /* Coins-tab grid cards only (see CLAUDE.md "Carried forward" — Issue 2):
      the image should be clean, matching Spotlight's image-only treatment.
-     Value stays in the coin detail view instead. Scoped to
-     [data-tab="coins"], not just :not(.list-view), because Rolls renders
-     through this exact same .coin-card markup/CSS and must keep showing
-     Value on its own grid cards; list mode (either tab) is untouched. */
+     Value stays in the coin detail view instead. Kept scoped to
+     [data-tab="coins"] rather than just :not(.list-view) — Coins is the
+     only tab still rendering .coin-card markup (Rolls moved to its own
+     .album-card-style rows, see renderRollsGrid), but the explicit hook
+     costs nothing and avoids depending on that staying true. */
   #browseGrid[data-tab="coins"]:not(.list-view) .coin-card .value {
     display: none;
   }
@@ -504,7 +475,10 @@
      cards were inheriting .coin-grid's multi-column layout and rendering
      side-by-side instead of stacked full-width like Albums' own list. This
      overrides that layout the same way .list-view does below, without
-     coupling Sets to the Coins-tab-specific list/grid view-mode concept. */
+     coupling Sets to the Coins-tab-specific list/grid view-mode concept.
+     Reused by the Rolls tab's own .album-card-style rows (renderRollsGrid) —
+     same full-width stacked list, same reasoning, not Sets-specific despite
+     the name. */
   .coin-grid.sets-mode { display: flex; flex-direction: column; gap: 8px; }
 
   /* List mode reuses the same .coin-card markup — CSS alone rearranges it into a row.
@@ -581,6 +555,12 @@
   }
   .album-card .progress-fill { height: 100%; background: var(--gold); }
   .album-card .chevron { color: var(--text-muted); font-size: 18px; }
+
+  /* ---------- Rolls tab: list rows (reuses the Albums picker's .album-card
+     visual language exactly, same as the Sets tab does — see renderRollsGrid) ---------- */
+  .roll-card-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .rolls-sort-row { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+  .rolls-sort-row select { width: auto; padding: 6px 30px 6px 12px; font-size: 12px; }
 
   /* ---------- Albums: detail (page-flip book) ---------- */
   /* One "page" at a time on phone; two side by side (a spread, like an open
@@ -1512,6 +1492,18 @@
 
           <div id="browseSetsHeader" style="display:none;">
             <div class="filter-row" id="browseSetsCategoryFilters"></div>
+          </div>
+
+          <div id="browseRollsHeader" style="display:none;">
+            <div class="rolls-sort-row">
+              <select id="rollsSortSelect" aria-label="Sort Rolls">
+                <option value="year-desc">Year (Newest First)</option>
+                <option value="year-asc">Year (Oldest First)</option>
+                <option value="denom">Denomination</option>
+                <option value="value-desc">Value (High to Low)</option>
+                <option value="name">Name (A-Z)</option>
+              </select>
+            </div>
           </div>
 
           <div class="browse-toolbar" id="browseViewToggleRow">
@@ -3752,19 +3744,11 @@
       card.className = "case coin-card";
       card.style.cursor = "pointer";
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
-      // A roll reads as a stack of coins (~20), not one — see .coin-roll-stack
-      // above. A generic/mixed-date roll has no single year/mint to show; its
-      // row carries the literal string "Various" as coin.year (mint blank),
-      // which yearMint's own concatenation already renders correctly with no
-      // special-casing needed here.
-      const discHtml = isRollRow(coin)
-        ? `<div class="coin-roll-stack"><div class="roll-edge"></div><div class="roll-edge"></div><div class="roll-edge"></div><div class="coin-disc"></div></div>`
-        : `<div class="coin-disc"></div>`;
       card.innerHTML = `
         <div class="flip-frame-mini">
           <span class="flip-label tl">${yearMint}</span>
           <span class="flip-label tr">${coin.denom || ""}</span>
-          ${discHtml}
+          <div class="coin-disc"></div>
           <span class="flip-label bl">${coin.grade || ""}</span>
         </div>
         <div class="coin-card-text">
@@ -3796,8 +3780,8 @@
   // uses (fixes the regression where these cards inherited #browseGrid's
   // .coin-grid multi-column layout and rendered side-by-side instead) — see
   // CLAUDE.md "Carried forward" for the diagnosis. renderBrowseGrid() (the
-  // Coins/Rolls tabs' own render path) always clears this class first, so
-  // it can't leak into another tab's grid layout.
+  // Coins tab's own render path) always clears this class first, so it
+  // can't leak into another tab's grid layout.
   function renderSetsGrid(rows) {
     const grid = document.getElementById("browseGrid");
     grid.classList.remove("list-view");
@@ -3812,6 +3796,40 @@
         <div class="album-card-info">
           <div class="album-card-name">${coin.name}</div>
           <div class="set-card-progress">${coin.category || "Set"} · $${coin.value.toLocaleString()}</div>
+        </div>
+        <span class="chevron">›</span>
+      `;
+      card.addEventListener("click", () => {
+        browseDetailBackHandler = showBrowseGrid;
+        showBrowseDetail(coin);
+      });
+      grid.appendChild(card);
+    });
+    document.getElementById("browseEmptyMsg").classList.toggle("hidden", rows.length > 0);
+  }
+
+  // Rolls tab: same "case album-card" visual language as Sets/Albums —
+  // superseded the earlier .coin-roll-stack visual (a short stack of edge-on
+  // discs). A roll is one owned row same as a Set bundle, so it gets the
+  // same icon-based list treatment rather than a coin-disc/flip-frame; the
+  // full flip/corner-label experience still lives one tap away, in Browse
+  // detail. Reuses "sets-mode" for the same full-width stacked layout — see
+  // its CSS comment, generic despite the name.
+  function renderRollsGrid(rows) {
+    const grid = document.getElementById("browseGrid");
+    grid.classList.remove("list-view");
+    grid.classList.add("sets-mode");
+    grid.innerHTML = "";
+    rows.forEach(coin => {
+      const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
+      const card = document.createElement("div");
+      card.className = "case album-card";
+      card.style.cursor = "pointer";
+      card.innerHTML = `
+        <div class="album-card-icon">🪙</div>
+        <div class="album-card-info">
+          <div class="album-card-name">${coin.name}</div>
+          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · $${coin.value.toLocaleString()}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -3845,8 +3863,37 @@
     renderSetsGrid(rows);
   }
 
+  let rollsSortKey = "year-desc"; // persists across tab switches, same as browseViewMode
+
+  // A mixed-date roll carries the literal string "Various" as its year (see
+  // CLAUDE.md Roll cards) — not a real date to sort by. Non-numeric years
+  // always sort to the bottom regardless of direction, rather than being
+  // coerced into 0/NaN comparison noise.
+  function rollYearNumber(coin) {
+    const n = Number(coin.year);
+    return isNaN(n) ? null : n;
+  }
+
+  function compareRollYear(a, b, direction) {
+    const yearA = rollYearNumber(a), yearB = rollYearNumber(b);
+    if (yearA === null && yearB === null) return 0;
+    if (yearA === null) return 1;
+    if (yearB === null) return -1;
+    return direction === "asc" ? yearA - yearB : yearB - yearA;
+  }
+
+  function sortRollRows(rows) {
+    const sorted = rows.slice();
+    if (rollsSortKey === "year-desc") sorted.sort((a, b) => compareRollYear(a, b, "desc"));
+    else if (rollsSortKey === "year-asc") sorted.sort((a, b) => compareRollYear(a, b, "asc"));
+    else if (rollsSortKey === "denom") sorted.sort((a, b) => STATS_DENOM_ORDER.indexOf(a.denom) - STATS_DENOM_ORDER.indexOf(b.denom));
+    else if (rollsSortKey === "value-desc") sorted.sort((a, b) => b.value - a.value);
+    else if (rollsSortKey === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
+    return sorted;
+  }
+
   function applyRollsTabFilters() {
-    renderBrowseGrid(FAKE_COINS.filter(c => !!c.rollId));
+    renderRollsGrid(sortRollRows(FAKE_COINS.filter(c => !!c.rollId)));
   }
 
   // Reflects browseSelectedFilterKeys onto the Coins-tab Denomination/Medal
@@ -3878,15 +3925,16 @@
     updateBrowseTabsUI();
 
     // Drives the Coins-tab-only Value removal below (CSS keyed off
-    // #browseGrid[data-tab="coins"]) — Rolls shares the exact same
-    // .coin-card markup/render path (renderBrowseGrid()) but must keep
-    // showing Value on its cards, so the CSS needs a per-tab hook rather
-    // than something keyed off shared markup/classes alone.
+    // #browseGrid[data-tab="coins"]).
     document.getElementById("browseGrid").dataset.tab = tab;
 
     document.getElementById("browseCoinsHeader").style.display = tab === "coins" ? "block" : "none";
     document.getElementById("browseSetsHeader").style.display = tab === "sets" ? "block" : "none";
-    document.getElementById("browseViewToggleRow").classList.toggle("hidden", tab === "sets");
+    document.getElementById("browseRollsHeader").style.display = tab === "rolls" ? "block" : "none";
+    // Grid/List toggle only applies to Coins' .coin-disc cards — Sets and
+    // Rolls both render full-width .album-card rows with no grid mode to
+    // toggle into (same reasoning for both, see renderSetsGrid/renderRollsGrid).
+    document.getElementById("browseViewToggleRow").classList.toggle("hidden", tab === "sets" || tab === "rolls");
     document.getElementById("browseTitle").textContent =
       tab === "coins" ? "Coins" : tab === "rolls" ? "Rolls" : "Sets";
 
@@ -3988,6 +4036,11 @@
       document.getElementById("browseListViewBtn").classList.add("active");
       document.getElementById("browseGridViewBtn").classList.remove("active");
       document.getElementById("browseGrid").classList.add("list-view");
+    });
+
+    document.getElementById("rollsSortSelect").addEventListener("change", (e) => {
+      rollsSortKey = e.target.value;
+      applyRollsTabFilters();
     });
 
     showBrowseTab("coins");

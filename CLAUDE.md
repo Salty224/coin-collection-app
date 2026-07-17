@@ -984,12 +984,13 @@ rendering anything inline.
   Tapping a card opens the same Browse detail view a Coins-tab card would;
   this row IS just an owned item now, nothing set-specific about its detail
   view.
-- **Rolls tab**: plain list/grid of RollID-populated rows, no filter pills at
-  all (low row count) — reuses `renderBrowseGrid()`/`showBrowseDetail()`
-  exactly like Coins, since every roll row carries one normal Denomination.
-  **Superseded: grid mode no longer uses the plain single-coin flip-mini** —
-  see "Roll cards" below for the visual and detail-view changes; list mode
-  and everything else about this tab is unchanged.
+- **Rolls tab**: RollID-populated rows, no filter pills (low row count), tap
+  into the same `showBrowseDetail()` view as Coins, since every roll row
+  carries one normal Denomination. **Superseded twice**: originally reused
+  `renderBrowseGrid()`'s coin-disc grid; then restyled to a stacked-coin
+  visual (`.coin-roll-stack`); now a plain `album-card`-style list with a
+  sort control — see "Rolls tab: list view + sort control" below for the
+  current, locked-in design.
 - **Nav**: `Sets` is a full 6th persistent nav item, same standing as Albums
   — see "App structure" above. `Rolls` deliberately got no nav entry or
   Dashboard tile at all — reachable only by tapping its tab after already
@@ -1005,16 +1006,45 @@ rendering anything inline.
   reservation system and the OneDrive write layer, neither of which exist
   yet (see "Add Coin: the core workflow").
 
-### Roll cards (locked in, supersedes the plain single-coin flip treatment)
-A roll is ~20 coins, not one — the Rolls tab's grid cards now read as a
+### Rolls tab: list view + sort control (locked in, supersedes the coin-stack visual below)
+The Rolls tab no longer renders its own coin-disc grid at all — it's a
+plain list of **`case album-card` rows, styled identically to the Albums
+picker list** (`renderRollsGrid()`): a 🪙 icon, the roll's name + a
+`{yearMint} · {denom} · $value` meta line, and a chevron, tapping into the
+same Browse detail view as before. This replaces the earlier
+`.coin-roll-stack`/`.roll-edge` edge-on stack visual (see below) entirely —
+that CSS and markup are gone, not just hidden. Reuses the `sets-mode` CSS
+class for the full-width stacked layout (same class the Sets tab already
+uses for its own `album-card` rows — generic despite the name, see its CSS
+comment). Since there's no coin-disc grid anymore, the Grid/List view
+toggle is hidden for this tab too (same as Sets) — a list of icon rows has
+no grid mode to switch into.
+- **New sort control** (`#rollsSortSelect`, a plain `<select>` above the
+  list, right-aligned) — no sort control existed anywhere else in the app
+  to match, so this establishes the pattern rather than reusing one: Year
+  (Newest/Oldest First), Denomination (canonical `STATS_DENOM_ORDER`, not
+  alphabetical), Value (High to Low), Name (A-Z). Persists across tab
+  switches within a session (`rollsSortKey`), same as the Coins tab's own
+  `browseViewMode`.
+- **The mixed-date "Various" roll is handled explicitly in the year sort**
+  (`rollYearNumber()`/`compareRollYear()`) — a non-numeric year always sorts
+  to the bottom regardless of direction, rather than producing `NaN`
+  comparison noise. Verified via headless browser against the real
+  `AY-00026` demo row (see below).
+- Composition/Specifications behavior, the `applyFlipCorners()` corner-label
+  fix, and everything else about a Roll's own Browse **detail** view are
+  unchanged by this — only the Rolls **tab's list rendering** changed.
+
+#### Superseded: the coin-stack visual (`.coin-roll-stack`)
+A roll is ~20 coins, not one — the Rolls tab's grid cards used to read as a
 short stack of coins viewed edge-on (`.coin-roll-stack`, 3 decorative
 `.roll-edge` circles peeking out below/behind, negative z-index scoped via
 `isolation: isolate` so they stay behind both the disc and the tap-to-flip
 button instead of escaping past it and painting behind the whole card's own
-background, invisibly). Only the top layer is a real `.coin-disc` — same
+background, invisibly). Only the top layer was a real `.coin-disc` — same
 reference-image/placeholder/tap-to-flip treatment as any other coin's disc,
-just with muted stacked edges beneath it. List mode and every other Rolls
-tab behavior is unchanged.
+just with muted stacked edges beneath it. **Gone as of the list-view
+redesign above** — kept here only for history.
 - **Generic/mixed-date roll**: `coin.year` carries the literal string
   `"Various"` (mint left blank) for a roll that isn't one specific date —
   **no new flag/schema field**, confirmed safe by auditing every place
