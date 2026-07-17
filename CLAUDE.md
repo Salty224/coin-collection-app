@@ -1188,11 +1188,78 @@ miss often happen to coincide in practice.
   deferred) via `getNextCollectionId()` — **this scans All and Staging
   together**; there was no "next available CollectionID" logic anywhere in
   the codebase before this, so it's one function checking both arrays from
-  the start rather than something that needed updating in several places. On
-  Staging rejection (not yet built — promotion/rejection UI is future work),
-  a deleted Staging row's CollectionID becomes available again for the next
-  `getNextCollectionId()` call, same as the AY-00470 reservation/release
-  precedent from ProjectPlan history.
+  the start rather than something that needed updating in several places.
+
+### CollectionID-reservation system — Promotion / Rejection (locked in)
+The reservation *engine* (`getNextCollectionId()` scanning `FAKE_COINS` +
+`FAKE_STAGING` together, reserve-on-Staging-save, the confidence-driven
+Save-to-Database/Save-to-Staging button pair, Variety match/no-match
+routing, and the shared ambiguous-Designation "pick one" picker) was already
+built in a prior session. This round added the two remaining reservation
+rules — **Promotion** and **Rejection** — plus the minimal review surface
+that triggers them. Still mockup-only: everything operates on the in-memory
+`FAKE_COINS`/`FAKE_STAGING` arrays; **no OneDrive/Graph write calls were
+added** (that's still a separate future task).
+- **Staging Review** is a new **dashboard-only** destination (same standing
+  as Needs Attention — a Dashboard "Go To" tile with a live count badge,
+  `#view-staging`, `renderStagingList()`), **not** a persistent nav item. It
+  lists each staged row with its already-reserved CollectionID and two
+  actions.
+- **Promote** (`promoteStagedCoin()`) moves the row Staging → All (`FAKE_COINS`)
+  with the reserved **CollectionID carried forward unchanged** — never
+  re-reserved or re-validated (it was decided at Staging entry). Staging-only
+  fields (`stagedDate`, `remarks`) are stripped so the promoted row matches an
+  All-sheet record's shape.
+- **Reject** (`rejectStagedCoin()`) deletes the Staging row, freeing its
+  CollectionID. **Monotonic `max+1`, permanent gaps allowed (Ray's explicit
+  Q2 call):** only the **highest** reserved ID actually becomes reusable when
+  rejected (next reservation reuses it); a rejected **mid-sequence** ID stays
+  a permanent gap and is deliberately **never** handed back out — reusing a
+  gap ID is the exact bug class behind two real prior collisions (2019-W
+  Lincoln Cent CoinID, Morgan/Peace mislink), and a mid-range ID may already
+  be referenced by a photo/receipt. The reject toast states which case
+  happened. This preserves the AY-00470 reservation/release precedent (that
+  was a top-most release) without extending it to gap reclamation.
+- **Reused vs. newly written**: reused unchanged — `getNextCollectionId()`,
+  `isConfidentMatch()`/`isVarietyRecognized()`, `validVarietiesForCurrentCoin()`/
+  `refreshVarietyOptions()`, `renderAmbiguousMatchList()`,
+  `checkDesignationReresolution()`, `saveAddCoinForm()`, the button pair and
+  banners. Newly written — the `#view-staging` markup, `renderStagingList()`,
+  `promoteStagedCoin()`, `rejectStagedCoin()`, `updateStagingBadge()`, the
+  `collectionIdNumber()`/`highestReservedIdNumber()` helpers, the Staging
+  Review dashboard tile + `.staging-*` CSS, and a badge refresh on
+  save-to-Staging.
+- **Conformance check (all 12 original task rules verified, headless-browser
+  driven, 23/23 assertions passing):** format `AY-#####` zero-padded (r1);
+  next-ID scans both arrays (r2); reserve at Staging save (r3); promote
+  carries ID forward, no re-reserve (r4); reject frees the ID, top-most
+  reusable / mid gap permanent (r5); confidence-gated button pair, Staging
+  always available (r6); confidence reuses the existing green-checkmark logic
+  (r7); unspecified Designation doesn't block a direct write (r8); 2+
+  Designation candidates always surface the shared picker, never
+  auto-resolve (r9); Variety filtered to Year+MintMark+Denomination (r10);
+  unrecognized Variety routes to Staging regardless of typed-vs-clicked (r11);
+  Error field never affects eligibility (r12). No deviations found; nothing
+  needed re-derivation.
+- **Assumptions made**: (a) the reserved CollectionID is treated as the row's
+  identity key for both promote (findIndex by `id`) and reject — safe since
+  IDs are unique by construction; (b) Staging Review lists newest-first
+  (matches the Needs Attention list's ordering); (c) since `FAKE_STAGING`
+  starts empty on load, the Staging list/badge are only exercised once a coin
+  is actually saved to Staging in-session — no seed staging data was added.
+
+**Out of scope — deliberately not built (new future item):** an **"Add Set
+to database"** flow — the parallel of Add Coin for a Denomination="Multiple"
+Set-bundle row (reserving a CollectionID, its own DB_Sets/Category matching
+and confidence logic, child/`originSetId` linkage at creation time). Not
+started; it needs its own design pass and, like everything else, is
+ultimately blocked on the real OneDrive write layer. The reservation work
+here is coin-shaped only.
+
+On Staging rejection, a deleted Staging row's CollectionID becomes available
+again for the next `getNextCollectionId()` call only under the monotonic
+`max+1` rule above (top-most only), same spirit as the AY-00470
+reservation/release precedent from ProjectPlan history.
 
 **Designation handling**: unspecified Designation at entry time does not
 block a direct write — it defaults to linking the base/parent (non-designated)

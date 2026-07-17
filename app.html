@@ -907,6 +907,22 @@
   .wish-item .wish-price { font-size: 14px; color: var(--gold-bright); font-weight: 700; white-space: nowrap; }
   .wish-detail-meta { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
 
+  /* ---------- Staging Review row actions ---------- */
+  .staging-id { font-size: 11px; color: var(--gold-bright); font-weight: 700; letter-spacing: 0.5px; }
+  .staging-actions { display: flex; flex-direction: column; gap: 6px; }
+  .staging-btn {
+    padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 6px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .staging-btn.promote {
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    color: #241c05; border: none;
+  }
+  .staging-btn.reject {
+    background: var(--bg-elevated); color: var(--text-muted);
+    border: 1px solid var(--case-border);
+  }
+
   /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
   .photo-box {
@@ -2225,6 +2241,23 @@
         <p class="placeholder-note" id="needsDbCoinsEmptyNote" style="display:none;">Nothing flagged right now.</p>
       </section>
 
+      <!-- ============ STAGING REVIEW ============ -->
+      <section class="view" id="view-staging">
+        <button class="back-link" id="stagingBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;">Staging Review</h2>
+        <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
+          Coins saved to Staging already hold a reserved CollectionID (assigned at
+          save time, not deferred). <strong>Promote</strong> moves a row into the
+          collection with that same ID carried forward unchanged; <strong>Reject</strong>
+          removes it and frees its ID. IDs never backfill — only the highest reserved
+          ID becomes reusable when rejected; a rejected mid-sequence ID stays a
+          permanent gap (deliberate, to avoid ever reusing an ID a photo/receipt may
+          already reference). Placeholder only — nothing is written to OneDrive yet.
+        </p>
+        <div id="stagingContainer"></div>
+        <p class="placeholder-note" id="stagingEmptyNote" style="display:none;">Nothing in Staging right now.</p>
+      </section>
+
       <!-- ============ STATS & VALUE ============ -->
       <section class="view" id="view-stats">
         <button class="back-link" id="statsBackBtn">← Back</button>
@@ -3107,6 +3140,9 @@
     if (viewId === "wishlist") {
       showWishlistGrid();
     }
+    if (viewId === "staging") {
+      renderStagingList();
+    }
 
     previousViewId = viewId;
     window.scrollTo({ top: 0 });
@@ -3185,7 +3221,8 @@
     const EXTRA_DASHBOARD_TILES = [
       { id: "stats",        icon: "📊",  label: "Stats &amp; Value" },
       { id: "batchreceipt", icon: "🧾",  label: "Batch Receipt" },
-      { id: "needsdbcoins", icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" }
+      { id: "needsdbcoins", icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" },
+      { id: "staging",      icon: "📥",  label: "Staging Review", badgeId: "stagingBadge" }
     ];
     EXTRA_DASHBOARD_TILES.forEach(item => {
       const tile = document.createElement("div");
@@ -3199,6 +3236,7 @@
     document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("statsBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("stagingBackBtn").addEventListener("click", () => navigate("dashboard"));
 
     initSpotlight();
   }
@@ -5410,6 +5448,99 @@
   }
 
   // ==================================================================
+  // STAGING REVIEW — Promotion (Staging -> All, ID carried forward
+  // unchanged) and Rejection (delete -> ID freed). The reservation ENGINE
+  // (getNextCollectionId, scanning FAKE_COINS + FAKE_STAGING together) was
+  // already built earlier; this is the two remaining reservation rules
+  // (4 and 5) plus the minimal review surface that actually triggers a
+  // promote or a reject. Dashboard-only destination, same standing as
+  // Needs Attention. Still a mockup — both arrays are in-memory, nothing
+  // is written to OneDrive.
+  // ==================================================================
+
+  // Numeric part of a plain AY-##### id — ignores -Set/-A/-B lineage
+  // suffixes exactly the way getNextCollectionId does. NaN if unparseable.
+  function collectionIdNumber(id) {
+    return parseInt(String(id).replace("AY-", ""), 10);
+  }
+
+  // Highest reserved CollectionID number in use across BOTH arrays — the
+  // only ID that monotonic max+1 will hand back out if it's freed.
+  function highestReservedIdNumber() {
+    const used = [...FAKE_COINS, ...FAKE_STAGING]
+      .map(c => collectionIdNumber(c.id))
+      .filter(n => !isNaN(n));
+    return used.length ? Math.max(...used) : 0;
+  }
+
+  function renderStagingList() {
+    const container = document.getElementById("stagingContainer");
+    container.innerHTML = "";
+    document.getElementById("stagingEmptyNote").style.display = FAKE_STAGING.length ? "none" : "block";
+
+    // Newest staged first, matching the Needs Attention list's ordering.
+    FAKE_STAGING.slice().reverse().forEach(row => {
+      const yearMint = (row.year || "") + (row.mint ? "-" + row.mint : "");
+      const label = [row.name, yearMint, row.variety].filter(Boolean).join(" · ");
+      const gradeLine = row.grade ? row.grade + (row.gradeSource ? " " + row.gradeSource : "") : "No grade recorded";
+      const item = document.createElement("div");
+      item.className = "case wish-item";
+      item.innerHTML = `
+        <div>
+          <div class="staging-id">${row.id}</div>
+          <div class="wish-desc">${label}</div>
+          <div class="wish-notes">${gradeLine}</div>
+          <div class="wish-date">Staged ${row.stagedDate}</div>
+        </div>
+        <div class="staging-actions">
+          <button class="staging-btn promote">Promote</button>
+          <button class="staging-btn reject">Reject</button>
+        </div>
+      `;
+      item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
+      item.querySelector(".reject").addEventListener("click", () => rejectStagedCoin(row.id));
+      container.appendChild(item);
+    });
+
+    updateStagingBadge();
+  }
+
+  function updateStagingBadge() {
+    const badge = document.getElementById("stagingBadge");
+    if (badge) badge.textContent = FAKE_STAGING.length ? "(" + FAKE_STAGING.length + ")" : "";
+  }
+
+  // Rule 4: move the row Staging -> All, carrying its reserved CollectionID
+  // forward UNCHANGED — the ID is not re-reserved or re-validated, it was
+  // decided at Staging entry. Staging-only fields (stagedDate, remarks) are
+  // dropped so the promoted row matches an All-sheet record's shape.
+  function promoteStagedCoin(collectionId) {
+    const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
+    if (idx === -1) return;
+    const { stagedDate, remarks, ...coinRecord } = FAKE_STAGING[idx];
+    FAKE_STAGING.splice(idx, 1);
+    FAKE_COINS.push(coinRecord);
+    renderStagingList();
+    showToast("Placeholder only — " + collectionId + " promoted to the collection (ID carried forward). Nothing written to OneDrive yet.");
+  }
+
+  // Rule 5: delete the Staging row and free its CollectionID. Per the
+  // deliberate monotonic max+1 rule (see CLAUDE.md), the freed ID only
+  // becomes reusable if it was the highest reserved ID — a rejected
+  // mid-sequence ID stays a permanent gap, so an ID that a photo/receipt
+  // may already reference is never handed back out to a different coin.
+  function rejectStagedCoin(collectionId) {
+    const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
+    if (idx === -1) return;
+    const wasHighest = collectionIdNumber(collectionId) === highestReservedIdNumber();
+    FAKE_STAGING.splice(idx, 1);
+    renderStagingList();
+    showToast(wasHighest
+      ? "Placeholder only — " + collectionId + " rejected; it was the highest ID, so it's free to reuse now."
+      : "Placeholder only — " + collectionId + " rejected; its slot stays a permanent gap (IDs never backfill).");
+  }
+
+  // ==================================================================
   // STATS & VALUE — placeholder cost/value totals, not pulled from the workbook.
   // A dedicated opt-in tab, not stat cards on the Dashboard front (that was tried
   // and dropped earlier — see CLAUDE.md).
@@ -6153,6 +6284,7 @@
         stagedDate: new Date().toISOString().slice(0, 10),
         remarks: document.getElementById("notesField") ? document.getElementById("notesField").value : ""
       });
+      updateStagingBadge();
       showToast("Placeholder only — " + collectionId + " reserved and saved to Staging for review.");
     }
 
@@ -6453,6 +6585,7 @@
   initAddCoin();
   initBatchReceipt();
   renderNeedsQueue();
+  updateStagingBadge();
   renderStats();
   navigate("dashboard");
   initSplash();
