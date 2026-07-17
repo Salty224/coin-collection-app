@@ -3146,11 +3146,18 @@
       showAddCoinMain();
       showObversePhoto();
     }
+    // Entering Browse from OUTSIDE it (this function) resets every filter
+    // axis back to baseline — switching between Browse's own Coins/Rolls/
+    // Sets/Albums tabs (showBrowseTab(), called directly by the in-page tab
+    // row) must NOT reset anything, which is exactly why this call lives
+    // here and not inside showBrowseTab() itself.
     if (viewId === "browse") {
+      resetBrowseFilters();
       showBrowseGrid();
       showBrowseTab("coins");
     }
     if (viewId === "sets") {
+      resetBrowseFilters();
       showBrowseGrid();
       showBrowseTab("sets");
     }
@@ -3977,6 +3984,33 @@
     document.querySelectorAll("#browseTabRow .filter-chip").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.key === activeBrowseTab);
     });
+  }
+
+  // Resets every Browse filter axis back to baseline (All / All Metals / no
+  // Year filter / Commemorative off) — called only from navigate() when
+  // entering Browse from OUTSIDE it (bottom nav, a Dashboard tile, or any
+  // other external link), never from showBrowseTab() itself, so switching
+  // between Browse's own Coins/Rolls/Sets/Albums tabs keeps whatever
+  // filters were already active. Deliberately does not touch browseViewMode
+  // or rollsSortKey — those are display preferences, not filters, and
+  // weren't part of this fix.
+  function resetBrowseFilters() {
+    browseSelectedFilterKeys.clear();
+    updateBrowseFilterChipsUI();
+
+    browseCommemorativeOnly = false;
+    const commemorativeChip = document.querySelector("#browseCommemorativeRow .filter-chip");
+    if (commemorativeChip) commemorativeChip.classList.remove("active");
+
+    browseMetalTest = BROWSE_METAL_CHIPS[0].test;
+    document.querySelectorAll("#browseMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
+
+    browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
+    document.querySelectorAll("#browseSetsCategoryFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
+
+    yearFilterBegin = null;
+    yearFilterEnd = null;
+    updateYearFilterButtonUI();
   }
 
   // Switches Browse between its three in-place tabs (Coins/Rolls/Sets) —

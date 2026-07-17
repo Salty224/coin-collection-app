@@ -1203,7 +1203,47 @@ Albums with no extra visibility logic needed).
   select and Commemorative toggle already use.
 - Switching tabs does not clear the filter — Year state (`yearFilterBegin`/
   `yearFilterEnd`) is shared/global across Coins/Rolls/Sets, same persistence
-  model as `browseViewMode`/`rollsSortKey`.
+  model as `browseViewMode`/`rollsSortKey`. **Entering Browse from outside it
+  does clear it** — see "Browse filters: reset on external entry" below.
+
+### Browse filters: reset on external entry (locked in)
+**Bug fix:** every Browse filter axis (Denomination/Medal chips, Metal
+pills, Commemorative toggle, Set Category pills, Year range) was persisting
+indefinitely across the whole session — leaving Browse to the Dashboard and
+coming back later via the bottom nav still showed whatever filters had been
+left active, with no way to tell from the UI that a filter was silently
+narrowing the list.
+- **The fix distinguishes two different kinds of "entering Browse," and
+  only one of them resets**, per `resetBrowseFilters()`:
+  - **Switching between Browse's own Coins/Rolls/Sets/Albums tabs**
+    (`showBrowseTab()`, called by the in-page tab row) **must keep every
+    active filter as-is** — this already worked correctly and is
+    unchanged. Confirmed: setting Year + Denomination + Metal, then
+    switching Coins → Rolls → Sets → back to Coins, leaves all three
+    untouched at every step.
+  - **Entering Browse from outside it** (the bottom/side nav Browse icon,
+    the bottom/side nav Sets icon, the Dashboard's Browse tile, the
+    Dashboard's Sets tile, or any other external link that lands on
+    Browse) **resets every filter axis to baseline** (All / All Metals /
+    no Year filter / Commemorative off / Sets Category back to All).
+  - The dividing line is `navigate()` vs. `showBrowseTab()` — `navigate()`
+    is the only place any code outside Browse itself can land on it (every
+    external entry point funnels through it, confirmed by grep: no other
+    call site ever toggles `#view-browse` active or calls
+    `showBrowseGrid()`/`showBrowseTab()` directly), so `resetBrowseFilters()`
+    is called from inside `navigate()`'s `"browse"`/`"sets"` branches, right
+    before `showBrowseTab()` runs — never from inside `showBrowseTab()`
+    itself, which is also the internal sub-tab-switch path and must not
+    reset anything.
+  - This also covers the Spotlight click-through and an Albums filled-slot
+    tap, both of which call `navigate("browse")` before `showBrowseDetail()`
+    to jump straight to a coin's detail view (see "App structure" and
+    "Albums" above) — filters reset there too, consistently, even though
+    the grid itself isn't what's immediately visible.
+- **Deliberately does not touch `browseViewMode` (grid/list) or
+  `rollsSortKey` (Rolls sort order)** — those are display preferences, not
+  filters, and weren't part of this fix; they still persist across an
+  external Browse re-entry, unchanged.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &
