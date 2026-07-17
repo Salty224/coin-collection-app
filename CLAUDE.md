@@ -564,10 +564,19 @@ the same corner mapping:
   — e.g. "Mercury Dime" → "Mercury", "Franklin Half Dollar" → "Franklin");
   bottom-left Grade+GradeSource (`MS-67 PCGS`); bottom-right Variety+
   Designation, **also as two stacked lines** rather than a comma-joined
-  single line (`Micro S` over `FB`). **Exception: Browse's grid-mini cards**
-  (see "Browse: Grid/List toggle" below) keep the top-right corner to just
-  the denomination code, single line — the series name doesn't fit legibly
-  at that much smaller scale and was truncating hard.
+  single line (`Micro S` over `FB`).
+  **Reversed: Coins-tab grid-mini cards previously dropped the series/type
+  name (denomination code only), since it didn't fit legibly at that much
+  smaller scale and was truncating hard.** Restored, per Ray's explicit
+  request, using the exact same `renderTypeDenomCorner()` the full flip-frame
+  already uses (not a separate mini-scale implementation) — its last-word
+  shortening fallback (e.g. "Walking Liberty" → "Liberty" when the full name
+  doesn't fit) is what actually fixes the original truncation problem, so the
+  restoration doesn't reintroduce it. Verified in a real browser across
+  several coins, including one that needed the shortening fallback. Rolls
+  (no longer rendered as `.coin-card` at all, see "Rolls tab" below) and Set
+  children's mini-flips (`renderSetChildFlips()`) are unaffected — this only
+  touches the Coins tab's own grid cards (`renderBrowseGrid()`).
 - **Two-line corner stacking is a general mechanism (`renderCornerLines()`),
   not a one-off for Type/Denom** — any corner combining two related values
   uses it, so the same crowding fix applies to Variety/Designation without a
@@ -966,8 +975,11 @@ rendering anything inline.
   fields, so "Dollars + Commemorative" is a real, meaningful AND (all three
   axes — Denomination/Medal, Metal, Commemorative — AND together;
   `applyCoinsTabFilters()`).
-- **Sets tab**: Category pills — `Proof Set` / `Mint Set` / `Silver Proof
-  Set` / `Other` / `Commemorative`, plus `All`. **Unlike the Coins tab, this
+- **Sets tab**: Category pills — `All`, `Proof Set` / `Mint Set` / `Silver
+  Proof Set`, **`Commemorative`, then `Other` last** (fixed pill-order bug:
+  `Other` and `Commemorative` were swapped; `Other` must always render last
+  since it's the catch-all bucket, `Commemorative` sits second-to-last — no
+  other reordering). **Unlike the Coins tab, this
   whole row is single-select, not multi-select** — Category is the exact
   same single-valued field the pills read, so a row can never match two of
   them at once (`BROWSE_SET_CATEGORY_CHIPS`, same single-select interaction
@@ -1153,6 +1165,45 @@ precious-metals-only Oz-qualification rule.
   zero demo coins today since none of this collection's placeholder rows are
   actually gold/platinum/zinc coins — left genuinely absent rather than
   faked, same as the "most rows blank until research" expectation.
+
+### Year filter (locked in — Coins, Rolls, Sets; not Albums)
+A `Year` trigger chip (`#browseYearFilterBtn`) sits in its own row directly
+under the Coins/Rolls/Sets/Albums tab row — **one shared row/popup covers
+all three tabs** rather than duplicating it per tab, since `#view-browse`
+never renders anything but those three (Albums is a straight `navigate()`
+redirect, see "Browse: navigation restructure" — the row is simply always
+present whenever this view shows content at all, which naturally excludes
+Albums with no extra visibility logic needed).
+- **Free-text Begin/End Year inputs in a popup, not preset range pills** —
+  tapping the chip opens `#yearFilterOverlay`, reusing the exact same
+  photo-adjust overlay/panel chrome as Grading Help (same "centered
+  case-styled panel over a dimmed backdrop" shape, different content).
+  Begin Year alone filters to that exact year; Begin+End filters an
+  inclusive range (`yearRowTest()`). Clearing both via the Clear button
+  removes the filter entirely.
+- **Validation, deliberately minimal**: End Year before Begin Year is
+  rejected via a toast, popup stays open, filter state unchanged — no
+  other validation (no min/max year bounds, no format enforcement beyond
+  `<input type="number">`).
+- **ANDs with every other active filter on that tab** — same combining
+  pattern as Denomination/Metal/Commemorative on Coins and Category on
+  Sets (`applyCoinsTabFilters()`/`applyRollsTabFilters()`/
+  `applySetsTabFilters()` each add `.filter(yearRowTest)` to their existing
+  chain). Verified: Year + a Denomination chip together narrow to the
+  intersection, not either alone.
+- **A row with no single real year is excluded whenever the filter is
+  active** — the mixed-date "Various" Roll (`AY-00026`, see "Rolls tab:
+  list view + sort control") has no specific year to test against a
+  Begin/End bound, so it drops out of the result set the moment any Year
+  filter is set, same reasoning `rollYearNumber()` already uses for Rolls
+  sorting. It reappears once the filter is cleared.
+- **Button label reflects the active filter** (`updateYearFilterButtonUI()`):
+  plain "Year" when inactive, `Year: 1916` for a single year, `Year: 1900–1950`
+  for a range — same "chip shows its own state" convention the Rolls sort
+  select and Commemorative toggle already use.
+- Switching tabs does not clear the filter — Year state (`yearFilterBegin`/
+  `yearFilterEnd`) is shared/global across Coins/Rolls/Sets, same persistence
+  model as `browseViewMode`/`rollsSortKey`.
 
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &

@@ -1484,6 +1484,14 @@
           <h2 class="display" style="margin-top:0;" id="browseTitle">Coins</h2>
           <div class="filter-row" id="browseTabRow"></div>
 
+          <!-- Year filter: shared across Coins/Rolls/Sets (the only tabs this
+               view ever renders — Albums is a straight redirect, see
+               showBrowseTab()), so one row/popup covers all three rather than
+               duplicating it per tab. -->
+          <div class="filter-row" id="browseYearFilterRow">
+            <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
+          </div>
+
           <div id="browseCoinsHeader">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
@@ -2308,6 +2316,23 @@
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Year filter popup (Coins/Rolls/Sets) — reuses the same photo-adjust
+       overlay/panel chrome as Grading Help below; content is unrelated.
+       Free-text Begin/End Year, not preset range pills. -->
+  <div class="photo-adjust-overlay hidden" id="yearFilterOverlay">
+    <div class="photo-adjust-panel" style="max-width:300px;">
+      <div class="photo-adjust-title">Filter by Year</div>
+      <label for="yearFilterBegin">Begin Year</label>
+      <input type="number" id="yearFilterBegin" placeholder="e.g. 1909" inputmode="numeric">
+      <label for="yearFilterEnd">End Year (optional)</label>
+      <input type="number" id="yearFilterEnd" placeholder="Leave blank for a single year" inputmode="numeric">
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="yearFilterClearBtn">Clear</button>
+        <button type="button" id="yearFilterApplyBtn" style="background: linear-gradient(180deg, var(--gold-bright), var(--gold)); border:none; color:#241c05; font-weight:700;">Apply</button>
       </div>
     </div>
   </div>
@@ -3727,8 +3752,8 @@
     { label: "Proof Set",        test: c => c.category === "Proof Set" },
     { label: "Mint Set",         test: c => c.category === "Mint Set" },
     { label: "Silver Proof Set", test: c => c.category === "Silver Proof Set" },
-    { label: "Other",            test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" },
-    { label: "Commemorative",    test: c => c.category === "Commemorative" }
+    { label: "Commemorative",    test: c => c.category === "Commemorative" },
+    { label: "Other",            test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
   ];
   let browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
 
@@ -3747,7 +3772,7 @@
       card.innerHTML = `
         <div class="flip-frame-mini">
           <span class="flip-label tl">${yearMint}</span>
-          <span class="flip-label tr">${coin.denom || ""}</span>
+          <span class="flip-label tr"></span>
           <div class="coin-disc"></div>
           <span class="flip-label bl">${coin.grade || ""}</span>
         </div>
@@ -3766,6 +3791,13 @@
       applyDiscContent(card.querySelector(".coin-disc"), coin);
       sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
       attachFlipToggle(card.querySelector(".flip-frame-mini"), card.querySelector(".coin-disc"), coin, { mini: true });
+      // Series/type name restored here (top-right, stacked over the denom
+      // code) via the same renderTypeDenomCorner() the full flip-frame uses —
+      // reused specifically because it already carries the last-word
+      // shortening fallback that fixes the exact truncation problem grid-mini
+      // cards dropped this for previously (see CLAUDE.md). Must run after
+      // appendChild (needs real layout to measure scrollWidth against).
+      renderTypeDenomCorner(card.querySelector(".flip-label.tr"), coin);
     });
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
@@ -3842,6 +3874,40 @@
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", rows.length > 0);
   }
 
+  // Year filter — shared across Coins/Rolls/Sets (see the markup comment
+  // above #browseYearFilterRow). Free-text Begin/End Year, not preset range
+  // pills: Begin alone means "exactly this year"; Begin+End means an
+  // inclusive range. null/null means no filter is active.
+  let yearFilterBegin = null;
+  let yearFilterEnd = null;
+
+  // A row with no real single year (a mixed-date Roll carries the literal
+  // string "Various", see CLAUDE.md Roll cards) can't be tested against a
+  // specific year/range — excluded whenever the filter is active, same
+  // reasoning rollYearNumber() already uses for Rolls-tab sorting.
+  function yearRowTest(coin) {
+    if (yearFilterBegin === null) return true;
+    const year = Number(coin.year);
+    if (isNaN(year)) return false;
+    if (yearFilterEnd === null) return year === yearFilterBegin;
+    return year >= yearFilterBegin && year <= yearFilterEnd;
+  }
+
+  function updateYearFilterButtonUI() {
+    const btn = document.getElementById("browseYearFilterBtn");
+    const active = yearFilterBegin !== null;
+    btn.classList.toggle("active", active);
+    btn.textContent = !active ? "Year"
+      : yearFilterEnd === null ? "Year: " + yearFilterBegin
+      : "Year: " + yearFilterBegin + "–" + yearFilterEnd;
+  }
+
+  function applyActiveBrowseTabFilters() {
+    if (activeBrowseTab === "coins") applyCoinsTabFilters();
+    else if (activeBrowseTab === "rolls") applyRollsTabFilters();
+    else if (activeBrowseTab === "sets") applySetsTabFilters();
+  }
+
   // Coins tab's base row-set explicitly excludes Set-bundle rows
   // (Denomination="Multiple", now the Sets tab's rows) and Roll rows
   // (RollID populated, now the Rolls tab's rows) — those two tabs own that
@@ -3853,13 +3919,13 @@
 
   function applyCoinsTabFilters() {
     const filtered = coinsTabBaseRows().filter(c =>
-      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative")
+      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") && yearRowTest(c)
     );
     renderBrowseGrid(filtered);
   }
 
   function applySetsTabFilters() {
-    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest);
+    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest);
     renderSetsGrid(rows);
   }
 
@@ -3893,7 +3959,7 @@
   }
 
   function applyRollsTabFilters() {
-    renderRollsGrid(sortRollRows(FAKE_COINS.filter(c => !!c.rollId)));
+    renderRollsGrid(sortRollRows(FAKE_COINS.filter(c => !!c.rollId).filter(yearRowTest)));
   }
 
   // Reflects browseSelectedFilterKeys onto the Coins-tab Denomination/Medal
@@ -4041,6 +4107,41 @@
     document.getElementById("rollsSortSelect").addEventListener("change", (e) => {
       rollsSortKey = e.target.value;
       applyRollsTabFilters();
+    });
+
+    const yearFilterOverlay = document.getElementById("yearFilterOverlay");
+    const yearFilterBeginInput = document.getElementById("yearFilterBegin");
+    const yearFilterEndInput = document.getElementById("yearFilterEnd");
+    document.getElementById("browseYearFilterBtn").addEventListener("click", () => {
+      yearFilterBeginInput.value = yearFilterBegin === null ? "" : yearFilterBegin;
+      yearFilterEndInput.value = yearFilterEnd === null ? "" : yearFilterEnd;
+      yearFilterOverlay.classList.remove("hidden");
+    });
+    document.getElementById("yearFilterApplyBtn").addEventListener("click", () => {
+      const beginRaw = yearFilterBeginInput.value.trim();
+      const endRaw = yearFilterEndInput.value.trim();
+      const begin = beginRaw ? Number(beginRaw) : null;
+      const end = endRaw ? Number(endRaw) : null;
+      if (end !== null && begin === null) {
+        showToast("Enter a Begin Year, or leave both blank to clear the filter.");
+        return;
+      }
+      if (begin !== null && end !== null && end < begin) {
+        showToast("End Year can't be before Begin Year.");
+        return;
+      }
+      yearFilterBegin = begin;
+      yearFilterEnd = end;
+      updateYearFilterButtonUI();
+      yearFilterOverlay.classList.add("hidden");
+      applyActiveBrowseTabFilters();
+    });
+    document.getElementById("yearFilterClearBtn").addEventListener("click", () => {
+      yearFilterBegin = null;
+      yearFilterEnd = null;
+      updateYearFilterButtonUI();
+      yearFilterOverlay.classList.add("hidden");
+      applyActiveBrowseTabFilters();
     });
 
     showBrowseTab("coins");
