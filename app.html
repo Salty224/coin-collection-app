@@ -2295,6 +2295,134 @@
         <p class="placeholder-note">Cost and value figures are placeholder data — no live totals from the workbook yet.</p>
       </section>
 
+      <!-- ============ ADD SET — Step 1 (set-level basics) ============ -->
+      <section class="view" id="view-addset">
+        <button class="back-link" id="addSetBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;">Add Set</h2>
+        <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
+          Capture a bundled Set (a Denomination="Multiple" purchase). Submitting Step 1
+          reserves a CollectionID and starts a Draft in Staging right away — you can add
+          the coins now or come back to it later via "In Progress Sets."
+        </p>
+
+        <label for="addSetName">Set name / description</label>
+        <input type="text" id="addSetName" placeholder="e.g. 1999 United States Mint Set">
+
+        <label for="addSetProductCode">Mint product code (if known)</label>
+        <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
+        <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
+
+        <label for="addSetExpectedCount">Expected coin count (your own count)</label>
+        <input type="number" id="addSetExpectedCount" inputmode="numeric" placeholder="e.g. 8">
+
+        <div class="section-label">Sub-groups (optional)</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+          e.g. "Philadelphia" / "Denver" for a Mint Set. If used, the expected count is
+          per sub-group and each coin belongs to exactly one. Leave empty for a flat set.
+        </p>
+        <div id="addSetSubGroups"></div>
+        <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
+
+        <div class="section-label">Photos (optional)</div>
+        <div class="photo-box" id="addSetWholeBox">
+          <div class="name">📦 Whole-set photo (optional)</div>
+          <img id="addSetWholePreview" style="width:100%; max-height:160px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+          <div class="photo-btns">
+            <button type="button" id="addSetWholeCameraBtn">📷 Camera</button>
+            <button type="button" id="addSetWholeLibraryBtn">🖼️ Library</button>
+          </div>
+          <input type="file" id="addSetWholeCameraInput" accept="image/*" capture="environment">
+          <input type="file" id="addSetWholeLibraryInput" accept="image/*">
+        </div>
+        <div class="photo-box" id="addSetReceiptBox" style="margin-top:10px;">
+          <div class="name">🧾 Receipt photo (optional)</div>
+          <img id="addSetReceiptPreview" style="width:100%; max-height:160px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+          <div class="photo-btns">
+            <button type="button" id="addSetReceiptCameraBtn">📷 Camera</button>
+            <button type="button" id="addSetReceiptLibraryBtn">🖼️ Library</button>
+          </div>
+          <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
+          <input type="file" id="addSetReceiptLibraryInput" accept="image/*">
+        </div>
+
+        <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
+        <p class="placeholder-note" id="addSetStep1Note"></p>
+      </section>
+
+      <!-- ============ ADD SET — Step 2 (children, one at a time) ============ -->
+      <section class="view" id="view-addset-children">
+        <button class="back-link" id="addSetChildrenBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;" id="addSetChildTitle">Add coins</h2>
+        <div class="case" style="padding:12px 16px; margin-bottom:14px;">
+          <div style="font-size:13px; font-weight:700;" id="addSetChildSetName"></div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="addSetChildProgress"></div>
+          <div style="font-size:11px; color:var(--gold-bright); margin-top:4px;" id="addSetChildReservedId"></div>
+        </div>
+
+        <div id="addSetSubGroupPickerRow" style="display:none;">
+          <label for="addSetChildSubGroup">Sub-group for this coin</label>
+          <select id="addSetChildSubGroup"></select>
+        </div>
+
+        <div class="photo-row" style="display:flex; gap:10px;">
+          <div class="photo-box" style="flex:1;">
+            <div class="name">Obverse</div>
+            <img id="addSetChildObvPreview" style="width:100%; height:100px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+            <div class="photo-btns">
+              <button type="button" id="addSetChildObvCameraBtn">📷</button>
+              <button type="button" id="addSetChildObvLibraryBtn">🖼️</button>
+            </div>
+            <input type="file" id="addSetChildObvCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="addSetChildObvLibraryInput" accept="image/*">
+          </div>
+          <div class="photo-box" style="flex:1;">
+            <div class="name">Reverse</div>
+            <img id="addSetChildRevPreview" style="width:100%; height:100px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+            <div class="photo-btns">
+              <button type="button" id="addSetChildRevCameraBtn">📷</button>
+              <button type="button" id="addSetChildRevLibraryBtn">🖼️</button>
+            </div>
+            <input type="file" id="addSetChildRevCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="addSetChildRevLibraryInput" accept="image/*">
+          </div>
+        </div>
+
+        <label for="addSetChildDenom">Denomination</label>
+        <select id="addSetChildDenom"></select>
+        <label for="addSetChildYear">Year</label>
+        <input type="text" id="addSetChildYear" inputmode="numeric" placeholder="e.g. 1999">
+        <label for="addSetChildMint">Mint Mark</label>
+        <select id="addSetChildMint">
+          <option value="">— (Philadelphia) —</option>
+          <option value="D">D</option><option value="S">S</option>
+          <option value="CC">CC</option><option value="O">O</option><option value="W">W</option>
+        </select>
+        <label for="addSetChildVariety">Variety</label>
+        <input type="text" id="addSetChildVariety" placeholder="e.g. Type 2 — optional">
+        <label for="addSetChildGrade">Grade</label>
+        <input type="text" id="addSetChildGrade" placeholder="e.g. MS-67 — optional">
+        <label for="addSetChildDesignation">Designation</label>
+        <input type="text" id="addSetChildDesignation" placeholder="e.g. FB, DCAM — optional">
+
+        <button class="save-btn" id="addSetChildSaveBtn">Save this coin &amp; add another</button>
+        <button type="button" class="save-btn" id="addSetChildDoneBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:10px;">Done — mark set complete (pending research)</button>
+        <button type="button" class="save-btn" id="addSetChildPauseBtn" style="background:none; color:var(--text-muted); border:none; margin-top:4px;">Pause — leave as Draft, finish later</button>
+        <p class="placeholder-note" id="addSetChildNote"></p>
+      </section>
+
+      <!-- ============ IN PROGRESS SETS (Draft resume list) ============ -->
+      <section class="view" id="view-inprogresssets">
+        <button class="back-link" id="inProgressSetsBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;">In Progress Sets</h2>
+        <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
+          Draft Sets you've started but not yet marked complete. Tap one to resume where you
+          left off. Drafts live in Staging and persist across sessions and devices.
+        </p>
+        <div id="inProgressSetsContainer"></div>
+        <p class="placeholder-note" id="inProgressSetsEmptyNote" style="display:none;">No Sets in progress right now.</p>
+        <p class="placeholder-note" id="inProgressSetsErrorNote" style="display:none;"></p>
+      </section>
+
     </main>
   </div>
 
@@ -2540,6 +2668,388 @@
 
   function getCachedReferenceImageUrl(seriesKey, side) {
     return referenceImageCache[seriesKey + "_" + side] || null;
+  }
+
+  // ==================================================================
+  // ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
+  // (real first-write infrastructure for this file — see CLAUDE.md
+  // "Add Set / CollectionID reservation (write layer)"). Everything is
+  // gated so it can NEVER touch the real production workbook or fire a
+  // broken auth redirect on the deployed site:
+  //   - ENABLE_SET_WRITE_LAYER defaults false (localhost-dev only until a
+  //     production redirect URI exists — Q6/CLAUDE.md), exactly mirroring
+  //     ENABLE_REFERENCE_IMAGES. When false, getWriteToken() returns null
+  //     and never redirects, so tapping Add Set's Save on the live site
+  //     degrades to a toast instead of a page-navigating sign-in attempt.
+  //   - WRITE_TARGET defaults "copy" — all paths resolve under
+  //     CoinCollection/_Testing/ so nothing hits the real workbook/Staging.
+  //     Flipping to "live" is a manual, Ray-only change (never automatic),
+  //     and even then the app still only ever writes Staging folders +
+  //     photo files, never the workbook itself (Q1=b / Q3).
+  //   - All logic runs against a swappable graphClient; headless tests
+  //     inject a MockGraphClient so the reservation/draft/promotion logic
+  //     is fully verifiable without touching OneDrive (Q12).
+  // ==================================================================
+
+  const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
+  const WRITE_TARGET = "copy";          // "copy" | "live" — Ray-only flip (Q5)
+
+  const WRITE_PATHS = {
+    copy: {
+      workbook:     "CoinCollection/_Testing/CoinCollection (AI) COPY.xlsx",
+      stagingBase:  "CoinCollection/_Testing/Staging",
+      coinPhotos:   "CoinCollection/_Testing/CoinPhotos",
+      coinReceipts: "CoinCollection/_Testing/CoinReceipts"
+    },
+    live: {
+      workbook:     "CoinCollection/CoinCollection (AI).xlsx",
+      stagingBase:  "CoinCollection/Staging",
+      coinPhotos:   "CoinCollection/CoinPhotos",
+      coinReceipts: "CoinCollection/CoinReceipts"
+    }
+  };
+  function writePaths() { return WRITE_PATHS[WRITE_TARGET]; }
+
+  // Dedicated write-capable MSAL instance (Files.ReadWrite). Same clientId/
+  // authority/localhost redirectUri as the reference-image reader, but a
+  // separate instance so the two independently-flagged features don't couple.
+  // Constructed only when ENABLE_SET_WRITE_LAYER is on AND msal loaded, so
+  // there's no dormant write-capable auth instance on the live site.
+  const setWriteMsalInstance = (ENABLE_SET_WRITE_LAYER && typeof msal !== "undefined")
+    ? new msal.PublicClientApplication({
+        auth: {
+          clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
+          authority: "https://login.microsoftonline.com/consumers",
+          redirectUri: "http://localhost:8791/app.html"
+        },
+        cache: { cacheLocation: "localStorage" }
+      })
+    : null;
+  const WRITE_MSAL_SCOPES = ["Files.ReadWrite"];
+  if (setWriteMsalInstance) {
+    setWriteMsalInstance.handleRedirectPromise().catch(err => console.warn("Set-write sign-in redirect error:", err));
+  }
+
+  async function getWriteToken() {
+    if (!setWriteMsalInstance) return null; // disabled or MSAL absent — never redirect
+    const account = setWriteMsalInstance.getAllAccounts()[0];
+    try {
+      const result = await setWriteMsalInstance.acquireTokenSilent({ scopes: WRITE_MSAL_SCOPES, account });
+      return result.accessToken;
+    } catch (e) {
+      setWriteMsalInstance.acquireTokenRedirect({ scopes: WRITE_MSAL_SCOPES });
+      return null;
+    }
+  }
+
+  // ---- Graph client abstraction --------------------------------------
+  // A minimal filesystem-ish interface over Graph, so the reservation/
+  // draft/promotion logic depends on THIS, not on fetch() directly, and
+  // can be driven by a MockGraphClient in headless tests. Every method
+  // returns a Promise. Paths are OneDrive-root-relative (no leading slash).
+
+  function graphEncodePath(path) {
+    return path.split("/").map(encodeURIComponent).join("/");
+  }
+
+  const RealGraphClient = {
+    async putContent(path, body, contentType) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable (not signed in or disabled).");
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
+        { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": contentType || "application/octet-stream" }, body }
+      );
+      if (!res.ok) throw new Error("PUT " + path + " failed: " + res.status + " " + (await res.text()));
+      return res.json();
+    },
+    uploadFile(path, fileOrBlob) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream"); },
+    uploadBytes(path, bytes) { return this.putContent(path, bytes, "application/octet-stream"); },
+    uploadJson(path, obj) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json"); },
+    async getJson(path) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("GET json " + path + " failed: " + res.status);
+      return res.json();
+    },
+    async getFileBytes(path) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("GET bytes " + path + " failed: " + res.status);
+      return res.arrayBuffer();
+    },
+    async getItemMeta(path) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path),
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("GET meta " + path + " failed: " + res.status);
+      return res.json();
+    },
+    async listChildren(folderPath) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(folderPath) + ":/children?$select=name",
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return []; // folder doesn't exist yet = no children
+      if (!res.ok) throw new Error("list " + folderPath + " failed: " + res.status);
+      const data = await res.json();
+      return (data.value || []).map(c => c.name);
+    },
+    async deleteItem(path) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path),
+        { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok && res.status !== 404) throw new Error("DELETE " + path + " failed: " + res.status);
+      return true;
+    },
+    // Read-only workbook read (the one unavoidable live-workbook touch, Q2=a).
+    // GET the used range of a worksheet and pull one column by header name.
+    async readWorkbookColumn(workbookPath, sheet, header) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
+      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Workbook read failed: " + res.status);
+      const data = await res.json();
+      const values = data.values || [];
+      if (!values.length) return [];
+      const col = values[0].indexOf(header);
+      if (col === -1) return [];
+      return values.slice(1).map(r => r[col]).filter(v => v !== null && v !== undefined && v !== "");
+    }
+  };
+
+  // In-memory Graph stand-in for headless tests (Q12). Backs a flat path->
+  // entry store; workbook reads come from a seeded column map. Mirrors the
+  // Real client's contract (same method names, same null-on-404 semantics).
+  function createMockGraphClient(seed) {
+    const store = new Map();          // path -> { kind:"json"|"bytes", value }
+    const workbookColumns = (seed && seed.workbookColumns) || {}; // "Sheet::Header" -> [values]
+    return {
+      _store: store,
+      putContent(path, body, contentType) { store.set(path, { kind: "bytes", value: body }); return Promise.resolve({ name: path.split("/").pop() }); },
+      uploadFile(path, f) { store.set(path, { kind: "bytes", value: f }); return Promise.resolve({ name: path.split("/").pop() }); },
+      uploadBytes(path, b) { store.set(path, { kind: "bytes", value: b }); return Promise.resolve({ name: path.split("/").pop() }); },
+      uploadJson(path, obj) { store.set(path, { kind: "json", value: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve({ name: path.split("/").pop() }); },
+      getJson(path) { const e = store.get(path); return Promise.resolve(e && e.kind === "json" ? JSON.parse(JSON.stringify(e.value)) : null); },
+      getFileBytes(path) { const e = store.get(path); return Promise.resolve(e ? e.value : null); },
+      getItemMeta(path) { return Promise.resolve(store.has(path) ? { name: path.split("/").pop() } : null); },
+      listChildren(folderPath) {
+        const prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
+        const names = new Set();
+        for (const key of store.keys()) {
+          if (key.startsWith(prefix)) names.add(key.slice(prefix.length).split("/")[0]);
+        }
+        return Promise.resolve([...names]);
+      },
+      deleteItem(path) { store.delete(path); return Promise.resolve(true); },
+      readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); }
+    };
+  }
+
+  // The active client — Real by default; tests swap in a mock. Kept mutable
+  // so nothing captures a stale reference.
+  let activeGraphClient = RealGraphClient;
+  function graph() { return activeGraphClient; }
+  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; } // test-only seam
+
+  // ---- CollectionID reservation module -------------------------------
+  // Standalone + reusable (Part 1): Add Set uses it now, Add Coin later.
+  // Does NOT embed any Add-Set-specific logic. Reserving a parent ID
+  // implicitly reserves the whole -A/-B/-C child namespace under it, since
+  // children derive from the parent and nothing else can claim that parent
+  // number once its Draft Staging row exists.
+
+  // Numeric part of a plain AY-##### id (shared with the coin-side mockup's
+  // helper of the same behavior). Ignores -A/-Set style suffixes.
+  function reservationIdNumber(id) { return parseInt(String(id).replace("AY-", ""), 10); }
+
+  // 0->A, 25->Z, 26->AA, ... (bijective base-26). Real sets are well under
+  // 26 children, but this stays correct past Z rather than breaking.
+  function childSuffix(index) {
+    let s = "", n = index;
+    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return s;
+  }
+  function childCollectionId(parentId, index) { return parentId + "-" + childSuffix(index); }
+
+  // Highest AY on the live All sheet (Q2=a: read-only workbook read).
+  async function readMaxCollectionIdFromAll() {
+    const ids = await graph().readWorkbookColumn(writePaths().workbook, "All", "CollectionID");
+    let max = 0;
+    for (const v of ids) { const n = reservationIdNumber(v); if (!isNaN(n)) max = Math.max(max, n); }
+    return max;
+  }
+
+  // Highest parent AY already reserved among open Staging drafts (durable,
+  // survives app close/reopen and other devices — Part 1 #3, since drafts
+  // are real Staging files, not in-memory state).
+  async function readMaxReservedIdFromStaging() {
+    const drafts = await listSetDrafts();
+    let max = 0;
+    for (const d of drafts) { const n = reservationIdNumber(d.collectionID); if (!isNaN(n)) max = Math.max(max, n); }
+    return max;
+  }
+
+  // Reserve the next available parent CollectionID = max(All, open Staging)
+  // + 1. The claim becomes durable the moment the caller writes the Draft
+  // Staging row (Add Set Step 1 does this immediately) — this function only
+  // computes the number; persistence is the draft write, so a single-user
+  // reserve-then-immediately-write is collision-safe.
+  async function reserveNextCollectionId() {
+    const [allMax, stagingMax] = await Promise.all([readMaxCollectionIdFromAll(), readMaxReservedIdFromStaging()]);
+    const next = Math.max(allMax, stagingMax) + 1;
+    return "AY-" + String(next).padStart(5, "0");
+  }
+
+  // ---- Set-draft persistence (Staging folder + JSON, Q1=b) -----------
+  // Each draft lives at {stagingBase}/{parentCollectionID}/set.json, with
+  // its photos as sibling files in the same folder. Children are embedded
+  // in the parent's set.json (reliable association, Part 2) rather than
+  // separate linked files.
+
+  function setDraftPath(collectionId) { return writePaths().stagingBase + "/" + collectionId + "/set.json"; }
+  function setDraftFolder(collectionId) { return writePaths().stagingBase + "/" + collectionId; }
+
+  const SET_STATUS = { DRAFT: "Draft", COMPLETE: "Complete — pending research", PROMOTED: "Promoted" };
+
+  // Builds the initial Draft record from Step-1 basics. GSID is empty by
+  // definition (pending, Q9) and the ResearchNote spells out what's still
+  // unresolved, same shape as the NGC/PCGS research-queue notes.
+  function buildSetDraft(collectionId, step1) {
+    const researchLines = ["GSID pending — new release"];
+    if (!step1.productCode) researchLines.push("SetID/product code unconfirmed — verify against Mint catalog");
+    if (step1.dbSetsMatch === null && step1.productCode) researchLines.push("Product code entered but no DB_Sets match — confirm at reconciliation");
+    return {
+      collectionID: collectionId,
+      type: "set",
+      status: SET_STATUS.DRAFT,
+      setName: step1.setName || "",
+      productCode: step1.productCode || "",
+      setId: step1.productCode || "",            // product code doubles as SetID when known; else assigned at reconciliation
+      dbSetsMatch: step1.dbSetsMatch || null,
+      expectedChildCount: Number(step1.expectedChildCount) || 0,
+      subGroups: Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
+      gsid: "",                                    // empty = pending everywhere (Q9)
+      researchNote: researchLines.join("\n"),
+      wholeSetPhoto: step1.wholeSetPhoto || "",
+      receiptPhoto: step1.receiptPhoto || "",
+      children: [],
+      confirmedChildCount: null,
+      filesMovedOnPromotion: false,                // Part 3 tracking flag
+      createdDate: new Date().toISOString(),
+      updatedDate: new Date().toISOString()
+    };
+  }
+
+  async function writeSetDraft(draft) {
+    draft.updatedDate = new Date().toISOString();
+    await graph().uploadJson(setDraftPath(draft.collectionID), draft);
+    return draft;
+  }
+  async function readSetDraft(collectionId) { return graph().getJson(setDraftPath(collectionId)); }
+
+  async function listSetDrafts() {
+    const base = writePaths().stagingBase;
+    const folders = await graph().listChildren(base); // folder names are parent CollectionIDs
+    const drafts = [];
+    for (const name of folders) {
+      const draft = await graph().getJson(base + "/" + name + "/set.json");
+      if (draft && draft.type === "set") drafts.push(draft);
+    }
+    return drafts;
+  }
+
+  // Next child id off a draft, based on how many children it already holds.
+  function nextChildCollectionId(draft) { return childCollectionId(draft.collectionID, draft.children.length); }
+
+  // Appends a captured child (identity + grade + photos only, Q7 — no
+  // DB_Coins confidence/routing) with its app-assigned -A/-B/-C id and its
+  // OriginSetID pointing at the parent, then persists the whole draft.
+  async function addChildToSetDraft(collectionId, child, subGroup) {
+    const draft = await readSetDraft(collectionId);
+    if (!draft) throw new Error("Set draft not found: " + collectionId);
+    const record = {
+      collectionID: nextChildCollectionId(draft),
+      originSetId: draft.collectionID,
+      subGroup: subGroup || "",
+      denom: child.denom || "", year: child.year || "", mint: child.mint || "",
+      variety: child.variety || "", grade: child.grade || "", designation: child.designation || "",
+      photos: child.photos || {}
+    };
+    draft.children.push(record);
+    await writeSetDraft(draft);
+    return { draft, child: record };
+  }
+
+  // Ray explicitly marks capture done → Copilot research picks it up (the
+  // app never sets "Promoted" itself, Part 2/3). He may confirm a final
+  // count here that differs from the originally-declared expected count.
+  async function markSetDraftComplete(collectionId, confirmedCount) {
+    const draft = await readSetDraft(collectionId);
+    if (!draft) throw new Error("Set draft not found: " + collectionId);
+    draft.status = SET_STATUS.COMPLETE;
+    if (typeof confirmedCount === "number") draft.confirmedChildCount = confirmedCount;
+    await writeSetDraft(draft);
+    return draft;
+  }
+
+  // ---- Promotion file-move loop (Part 3 step 3) ----------------------
+  // On launch, relocate photos for any draft an EXTERNAL reconciliation
+  // has already marked Promoted but whose files haven't moved yet. Strict
+  // copy-then-verify-then-delete-original per move (Q4) — a failed op
+  // always leaves the source intact — and idempotent, so a partial run
+  // resumes cleanly on the next launch.
+  function plannedPromotionMoves(draft) {
+    const p = writePaths(), folder = setDraftFolder(draft.collectionID), moves = [];
+    if (draft.wholeSetPhoto) moves.push({ src: folder + "/" + draft.wholeSetPhoto, dest: p.coinPhotos + "/" + draft.collectionID + "_set.jpg" });
+    if (draft.receiptPhoto) moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.collectionID + "_receipt.jpg" });
+    (draft.children || []).forEach(ch => {
+      if (ch.photos && ch.photos.obverse) moves.push({ src: folder + "/" + ch.photos.obverse, dest: p.coinPhotos + "/" + ch.collectionID + "_obverse.jpg" });
+      if (ch.photos && ch.photos.reverse) moves.push({ src: folder + "/" + ch.photos.reverse, dest: p.coinPhotos + "/" + ch.collectionID + "_reverse.jpg" });
+    });
+    return moves;
+  }
+
+  async function movePromotedSetFiles(draft) {
+    const moves = plannedPromotionMoves(draft);
+    const results = [];
+    for (const m of moves) {
+      const destMeta = await graph().getItemMeta(m.dest);
+      const srcBytes = await graph().getFileBytes(m.src);
+      if (destMeta && srcBytes === null) { results.push({ ...m, ok: true, reason: "already moved" }); continue; } // idempotent resume
+      if (srcBytes === null) { results.push({ ...m, ok: false, reason: "source missing" }); continue; }
+      await graph().uploadBytes(m.dest, srcBytes);              // copy
+      const verify = await graph().getItemMeta(m.dest);          // verify
+      if (!verify) { results.push({ ...m, ok: false, reason: "verify failed — source kept" }); continue; }
+      await graph().deleteItem(m.src);                           // delete original ONLY after verified copy
+      results.push({ ...m, ok: true });
+    }
+    const allOk = results.every(r => r.ok);
+    if (allOk) { draft.filesMovedOnPromotion = true; await writeSetDraft(draft); } // mark done only when every move succeeded
+    return { collectionID: draft.collectionID, moves: results, allOk };
+  }
+
+  async function processPromotedSetDrafts() {
+    const out = [];
+    let drafts;
+    try { drafts = await listSetDrafts(); } catch (e) { return out; } // never let this break launch
+    for (const d of drafts) {
+      if (d.status === SET_STATUS.PROMOTED && !d.filesMovedOnPromotion) {
+        try { out.push(await movePromotedSetFiles(d)); } catch (e) { out.push({ collectionID: d.collectionID, error: String(e) }); }
+      }
+    }
+    return out;
   }
 
   // ==================================================================
@@ -3173,6 +3683,12 @@
     if (viewId === "staging") {
       renderStagingList();
     }
+    if (viewId === "addset") {
+      showAddSetStep1();
+    }
+    if (viewId === "inprogresssets") {
+      renderInProgressSets();
+    }
 
     previousViewId = viewId;
     window.scrollTo({ top: 0 });
@@ -3249,10 +3765,12 @@
     // Actions" section below the Go-To grid — folded into the same grid instead,
     // as one flat set of destinations rather than two visually separate tiers.
     const EXTRA_DASHBOARD_TILES = [
-      { id: "stats",        icon: "📊",  label: "Stats &amp; Value" },
-      { id: "batchreceipt", icon: "🧾",  label: "Batch Receipt" },
-      { id: "needsdbcoins", icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" },
-      { id: "staging",      icon: "📥",  label: "Staging Review", badgeId: "stagingBadge" }
+      { id: "stats",          icon: "📊",  label: "Stats &amp; Value" },
+      { id: "batchreceipt",   icon: "🧾",  label: "Batch Receipt" },
+      { id: "needsdbcoins",   icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" },
+      { id: "staging",        icon: "📥",  label: "Staging Review", badgeId: "stagingBadge" },
+      { id: "addset",         icon: "📦",  label: "Add Set" },
+      { id: "inprogresssets", icon: "🧩",  label: "In Progress Sets", badgeId: "inProgressSetsBadge" }
     ];
     EXTRA_DASHBOARD_TILES.forEach(item => {
       const tile = document.createElement("div");
@@ -3267,6 +3785,9 @@
     document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("statsBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("stagingBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("addSetBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("addSetChildrenBackBtn").addEventListener("click", () => navigate("inprogresssets"));
+    document.getElementById("inProgressSetsBackBtn").addEventListener("click", () => navigate("dashboard"));
 
     initSpotlight();
   }
@@ -6796,6 +7317,310 @@
   }
 
   // ==================================================================
+  // ADD SET — capture-flow UI controller (Part 2). Uses the reservation +
+  // draft modules above; contains NO reservation logic of its own. Children
+  // capture identity + grade + photos only (Q7) straight into the parent
+  // Staging draft with app-assigned -A/-B/-C ids. Photo capture reuses the
+  // same File-per-slot pattern the rest of the app uses; the real upload of
+  // those files (and the draft write) go through the shared graph() client,
+  // so with the write layer disabled on the live site every write throws
+  // "Write layer unavailable" and is caught into a friendly localhost-only
+  // toast rather than a broken auth redirect.
+  // ==================================================================
+
+  // Minimal DB_Sets stand-in for the product-code prefill demo (same sparse
+  // placeholder pattern as the other FAKE_* lookups). Real prefill fields
+  // (denom mix, composition) come from the workbook at reconciliation.
+  const FAKE_DB_SETS = [
+    { productCode: "1999RG", name: "1999 United States Mint Set", category: "Mint Set" },
+    { productCode: "2021RC", name: "2021 Silver Proof Set", category: "Silver Proof Set" }
+  ];
+  function matchDbSetsByProductCode(code) {
+    if (!code) return null;
+    return FAKE_DB_SETS.find(s => s.productCode.toLowerCase() === code.trim().toLowerCase()) || null;
+  }
+
+  let currentSetDraft = null;                 // the draft being captured/resumed
+  const addSetPhotoFiles = { whole: null, receipt: null, childObv: null, childRev: null };
+
+  // Lightweight photo-slot wiring for Add Set (plain preview + File capture,
+  // no circular crop adjuster — set/receipt/child photos are rectangular
+  // captures here). Stores the File under addSetPhotoFiles[key].
+  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
+    const preview = document.getElementById(previewId);
+    const cam = document.getElementById(cameraInputId);
+    const lib = document.getElementById(libraryInputId);
+    document.getElementById(cameraBtnId).addEventListener("click", () => cam.click());
+    document.getElementById(libraryBtnId).addEventListener("click", () => lib.click());
+    async function handle(file) {
+      addSetPhotoFiles[key] = file;
+      const canvas = await loadOrientedImageCanvas(file);
+      preview.src = canvas.toDataURL("image/jpeg", 0.9);
+      preview.style.display = "block";
+    }
+    cam.addEventListener("change", () => { if (cam.files[0]) handle(cam.files[0]); });
+    lib.addEventListener("change", () => { if (lib.files[0]) handle(lib.files[0]); });
+  }
+
+  function addSetClearPhoto(key, previewId) {
+    addSetPhotoFiles[key] = null;
+    const p = document.getElementById(previewId);
+    p.src = ""; p.style.display = "none";
+  }
+
+  function initAddSet() {
+    // Populate the child denomination dropdown from the same coded list Add Coin uses.
+    const denomSel = document.getElementById("addSetChildDenom");
+    denomSel.innerHTML = `<option value="">— select —</option>` +
+      Object.keys(DENOM_LABELS).map(code => `<option value="${code}">${code} — ${DENOM_LABELS[code]}</option>`).join("");
+
+    wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput");
+    wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput");
+    wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
+    wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
+
+    // Live DB_Sets match note as the product code is typed.
+    document.getElementById("addSetProductCode").addEventListener("input", (e) => {
+      const note = document.getElementById("addSetMatchNote");
+      const m = matchDbSetsByProductCode(e.target.value);
+      if (!e.target.value.trim()) { note.textContent = ""; note.style.color = ""; return; }
+      if (m) { note.textContent = "✓ Matched DB_Sets: " + m.name + " (" + m.category + ")"; note.style.color = "var(--gold-bright)"; }
+      else { note.textContent = "No DB_Sets match — will be resolved at reconciliation."; note.style.color = "var(--text-muted)"; }
+    });
+
+    document.getElementById("addSetAddSubGroupBtn").addEventListener("click", () => addSubGroupRow());
+    document.getElementById("addSetStartBtn").addEventListener("click", startSetCapture);
+    document.getElementById("addSetChildSaveBtn").addEventListener("click", saveCurrentChild);
+    document.getElementById("addSetChildDoneBtn").addEventListener("click", markCurrentSetComplete);
+    document.getElementById("addSetChildPauseBtn").addEventListener("click", () => {
+      showToast("Left as Draft — resume any time from In Progress Sets.");
+      navigate("inprogresssets");
+    });
+  }
+
+  function addSubGroupRow(name, count) {
+    const container = document.getElementById("addSetSubGroups");
+    const row = document.createElement("div");
+    row.className = "subgroup-row";
+    row.style.cssText = "display:flex; gap:8px; margin-top:8px; align-items:center;";
+    row.innerHTML = `
+      <input type="text" class="sg-name" placeholder="Sub-group name" style="flex:2;" value="${name || ""}">
+      <input type="number" class="sg-count" placeholder="count" inputmode="numeric" style="flex:1;" value="${count != null ? count : ""}">
+      <button type="button" class="sg-remove" style="background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+    `;
+    row.querySelector(".sg-remove").addEventListener("click", () => row.remove());
+    container.appendChild(row);
+  }
+
+  function readSubGroups() {
+    return [...document.querySelectorAll("#addSetSubGroups .subgroup-row")]
+      .map(r => ({ name: r.querySelector(".sg-name").value.trim(), expectedCount: Number(r.querySelector(".sg-count").value) || 0 }))
+      .filter(sg => sg.name);
+  }
+
+  function showAddSetStep1() {
+    currentSetDraft = null;
+    ["addSetName", "addSetProductCode", "addSetExpectedCount"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("addSetMatchNote").textContent = "";
+    document.getElementById("addSetSubGroups").innerHTML = "";
+    document.getElementById("addSetStep1Note").textContent = "";
+    addSetClearPhoto("whole", "addSetWholePreview");
+    addSetClearPhoto("receipt", "addSetReceiptPreview");
+  }
+
+  // Uploads a captured photo File to the draft's Staging folder under the
+  // given filename, returning that filename (or "" if no file). All uploads
+  // go through graph(), so a disabled write layer throws here and the caller
+  // surfaces the localhost-only message.
+  async function uploadDraftPhoto(collectionId, fileKey, fileName) {
+    const file = addSetPhotoFiles[fileKey];
+    if (!file) return "";
+    await graph().uploadFile(setDraftFolder(collectionId) + "/" + fileName, file);
+    return fileName;
+  }
+
+  async function startSetCapture() {
+    const setName = document.getElementById("addSetName").value.trim();
+    if (!setName) { showToast("Give the set a name first."); return; }
+    const productCode = document.getElementById("addSetProductCode").value.trim();
+    const expected = Number(document.getElementById("addSetExpectedCount").value) || 0;
+    const subGroups = readSubGroups();
+    const note = document.getElementById("addSetStep1Note");
+
+    try {
+      note.textContent = "Reserving CollectionID…";
+      const collectionId = await reserveNextCollectionId();
+      // Photos first (so their filenames land in the draft record), then the draft.
+      const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
+      const receiptName = await uploadDraftPhoto(collectionId, "receipt", "receipt.jpg");
+      const draft = buildSetDraft(collectionId, {
+        setName, productCode,
+        dbSetsMatch: matchDbSetsByProductCode(productCode),
+        expectedChildCount: expected, subGroups,
+        wholeSetPhoto: wholeName, receiptPhoto: receiptName
+      });
+      await writeSetDraft(draft);
+      currentSetDraft = draft;
+      updateInProgressSetsBadge();
+      showToast("Reserved " + collectionId + " — draft started in Staging.");
+      renderChildStep();
+    } catch (e) {
+      note.textContent = "";
+      showToast(writeUnavailableMessage(e));
+    }
+  }
+
+  function writeUnavailableMessage(e) {
+    if (String(e).includes("Write layer unavailable")) {
+      return "Add Set writes are localhost-dev only right now (write layer disabled).";
+    }
+    return "Couldn't save: " + (e && e.message ? e.message : e);
+  }
+
+  // Which sub-group the next child belongs to, and how many remain, when the
+  // set is sub-grouped. Children are assigned to the first sub-group that
+  // hasn't hit its own expected count yet.
+  function currentSubGroupForNextChild(draft) {
+    if (!draft.subGroups || !draft.subGroups.length) return null;
+    for (const sg of draft.subGroups) {
+      const captured = draft.children.filter(c => c.subGroup === sg.name).length;
+      if (captured < sg.expectedCount) return sg;
+    }
+    return draft.subGroups[draft.subGroups.length - 1]; // all "full" — extras land in the last group
+  }
+
+  function renderChildStep() {
+    const draft = currentSetDraft;
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-addset-children").classList.add("active");
+    window.scrollTo({ top: 0 });
+
+    document.getElementById("addSetChildSetName").textContent = draft.setName;
+    document.getElementById("addSetChildReservedId").textContent = "Parent " + draft.collectionID + " · next coin " + nextChildCollectionId(draft);
+
+    const sub = currentSubGroupForNextChild(draft);
+    const pickerRow = document.getElementById("addSetSubGroupPickerRow");
+    if (draft.subGroups && draft.subGroups.length) {
+      pickerRow.style.display = "block";
+      const sel = document.getElementById("addSetChildSubGroup");
+      sel.innerHTML = draft.subGroups.map(sg => `<option value="${sg.name}">${sg.name}</option>`).join("");
+      if (sub) sel.value = sub.name;
+      const captured = draft.children.filter(c => c.subGroup === (sub ? sub.name : "")).length;
+      document.getElementById("addSetChildProgress").textContent =
+        draft.children.length + " captured · " + (sub ? sub.name + " group: coin " + (captured + 1) + " of " + sub.expectedCount : "");
+    } else {
+      pickerRow.style.display = "none";
+      const total = draft.expectedChildCount || "?";
+      document.getElementById("addSetChildProgress").textContent = "Coin " + (draft.children.length + 1) + " of " + total;
+    }
+    clearChildForm();
+  }
+
+  function clearChildForm() {
+    ["addSetChildYear", "addSetChildVariety", "addSetChildGrade", "addSetChildDesignation"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("addSetChildDenom").value = "";
+    document.getElementById("addSetChildMint").value = "";
+    addSetClearPhoto("childObv", "addSetChildObvPreview");
+    addSetClearPhoto("childRev", "addSetChildRevPreview");
+  }
+
+  async function saveCurrentChild() {
+    const draft = currentSetDraft;
+    if (!draft) return;
+    const denom = document.getElementById("addSetChildDenom").value;
+    if (!denom) { showToast("Pick a denomination for this coin."); return; }
+    const note = document.getElementById("addSetChildNote");
+    const subGroup = (draft.subGroups && draft.subGroups.length) ? document.getElementById("addSetChildSubGroup").value : "";
+    const childId = nextChildCollectionId(draft);
+
+    try {
+      note.textContent = "Saving coin…";
+      const obvName = await uploadDraftPhoto(draft.collectionID, "childObv", childId + "_obverse.jpg");
+      const revName = await uploadDraftPhoto(draft.collectionID, "childRev", childId + "_reverse.jpg");
+      const { draft: updated } = await addChildToSetDraft(draft.collectionID, {
+        denom,
+        year: document.getElementById("addSetChildYear").value.trim(),
+        mint: document.getElementById("addSetChildMint").value,
+        variety: document.getElementById("addSetChildVariety").value.trim(),
+        grade: document.getElementById("addSetChildGrade").value.trim(),
+        designation: document.getElementById("addSetChildDesignation").value.trim(),
+        photos: { obverse: obvName, reverse: revName }
+      }, subGroup);
+      currentSetDraft = updated;
+      note.textContent = "";
+      showToast("Saved " + childId + " to the draft.");
+      renderChildStep();
+    } catch (e) {
+      note.textContent = "";
+      showToast(writeUnavailableMessage(e));
+    }
+  }
+
+  async function markCurrentSetComplete() {
+    const draft = currentSetDraft;
+    if (!draft) return;
+    try {
+      await markSetDraftComplete(draft.collectionID, draft.children.length);
+      updateInProgressSetsBadge();
+      showToast(draft.collectionID + " marked Complete — pending research.");
+      navigate("dashboard");
+    } catch (e) {
+      showToast(writeUnavailableMessage(e));
+    }
+  }
+
+  // ---- In Progress Sets (Draft resume list) --------------------------
+  async function renderInProgressSets() {
+    const container = document.getElementById("inProgressSetsContainer");
+    const emptyNote = document.getElementById("inProgressSetsEmptyNote");
+    const errNote = document.getElementById("inProgressSetsErrorNote");
+    container.innerHTML = "";
+    emptyNote.style.display = "none";
+    errNote.style.display = "none";
+    let drafts;
+    try {
+      drafts = (await listSetDrafts()).filter(d => d.status === SET_STATUS.DRAFT);
+    } catch (e) {
+      errNote.style.display = "block";
+      errNote.textContent = writeUnavailableMessage(e);
+      return;
+    }
+    if (!drafts.length) { emptyNote.style.display = "block"; updateInProgressSetsBadge(0); return; }
+    drafts.sort((a, b) => (b.createdDate || "").localeCompare(a.createdDate || ""));
+    drafts.forEach(draft => {
+      const total = (draft.subGroups && draft.subGroups.length)
+        ? draft.subGroups.reduce((s, g) => s + (g.expectedCount || 0), 0)
+        : draft.expectedChildCount;
+      const item = document.createElement("div");
+      item.className = "case wish-item";
+      item.style.cursor = "pointer";
+      item.innerHTML = `
+        <div>
+          <div class="staging-id">${draft.collectionID}</div>
+          <div class="wish-desc">${draft.setName || "(unnamed set)"}</div>
+          <div class="wish-notes">${draft.children.length} of ${total || "?"} coins captured</div>
+          <div class="wish-date">Started ${(draft.createdDate || "").slice(0, 10)}</div>
+        </div>
+        <span class="chevron">›</span>
+      `;
+      item.addEventListener("click", () => { currentSetDraft = draft; renderChildStep(); });
+      container.appendChild(item);
+    });
+    updateInProgressSetsBadge(drafts.length);
+  }
+
+  async function updateInProgressSetsBadge(known) {
+    const badge = document.getElementById("inProgressSetsBadge");
+    if (!badge) return;
+    let count = known;
+    if (typeof count !== "number") {
+      try { count = (await listSetDrafts()).filter(d => d.status === SET_STATUS.DRAFT).length; }
+      catch (e) { count = 0; } // write layer disabled — no drafts readable, show nothing
+    }
+    badge.textContent = count ? "(" + count + ")" : "";
+  }
+
+  // ==================================================================
   // INIT
   // ==================================================================
 
@@ -6808,12 +7633,19 @@
   initPhotoAdjuster();
   initGradingHelp();
   initAddCoin();
+  initAddSet();
   initBatchReceipt();
   renderNeedsQueue();
   updateStagingBadge();
+  updateInProgressSetsBadge();
   renderStats();
   navigate("dashboard");
   initSplash();
+  // Launch-time promotion file-move scan (Part 3 step 3): relocate photos for
+  // any externally-Promoted Set draft whose files haven't moved yet. Fully
+  // guarded — with the write layer disabled it catches and no-ops, so it can
+  // never break launch or fire an auth redirect on the live site.
+  processPromotedSetDrafts().catch(() => {});
 </script>
 
 </body>

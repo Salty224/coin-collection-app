@@ -1385,13 +1385,16 @@ added** (that's still a separate future task).
   starts empty on load, the Staging list/badge are only exercised once a coin
   is actually saved to Staging in-session — no seed staging data was added.
 
-**Out of scope — deliberately not built (new future item):** an **"Add Set
-to database"** flow — the parallel of Add Coin for a Denomination="Multiple"
-Set-bundle row (reserving a CollectionID, its own DB_Sets/Category matching
-and confidence logic, child/`originSetId` linkage at creation time). Not
-started; it needs its own design pass and, like everything else, is
-ultimately blocked on the real OneDrive write layer. The reservation work
-here is coin-shaped only.
+**"Add Set to database" — now BUILT (held on branch `claude/add-set-reservation`,
+awaiting Ray's review + explicit go-ahead before merge).** This was previously
+filed here as a deliberately-out-of-scope future item; it's now implemented as
+the app's first real OneDrive write layer. See the dedicated section
+"Add Set + real write layer" below for the full design. Note it is a SEPARATE,
+real reservation module from the coin-side in-memory mockup in this section —
+the two coexist by design and were NOT unified (Q8): the coin-side mockup here
+(monotonic `max+1`, app-driven Promotion/Rejection over `FAKE_*` arrays) is
+untouched; the new Set-side module reserves against the LIVE workbook and uses
+an external-reconciliation Promoted model.
 
 On Staging rejection, a deleted Staging row's CollectionID becomes available
 again for the next `getNextCollectionId()` call only under the monotonic
@@ -1415,6 +1418,103 @@ mislink) — ambiguous matches always need a human's eyes. `FAKE_DB_COINS` now
 carries a `designation` field per row, including a deliberate ambiguous pair
 (1909-S plain Lincoln Wheat, RD vs. BN) kept as real test data for this
 exact scenario rather than collapsed into one row.
+
+### Add Set + real write layer (BUILT — held on branch, NOT merged; awaiting Ray go-ahead)
+The app's first real OneDrive **write** layer, plus a new **Add Set** capture
+flow that uses it and a durable **CollectionID reservation** module. Built to
+a 3-part spec; all 12 clarifying answers are baked in. **This is large/
+architectural and stays on `claude/add-set-reservation` until Ray's explicit
+merge go-ahead** — do not auto-merge. Verified entirely headless via a mock
+Graph client (57 assertions); the real live-against-a-copy run is Ray's to
+execute (see the numbered checklist committed alongside, `docs/ADD_SET_LIVE_RUN_CHECKLIST.md`).
+
+**Scope boundary — what the app writes (Q1=b / Q3):** the app NEVER writes the
+Excel workbook. Its only writes are (i) Staging **drafts as JSON files** in
+OneDrive folders, (ii) photo uploads to those folders, (iii) promotion-time
+photo **file moves**, (iv) nothing else. Moving confirmed data into the real
+All/DB_Sets/DB_Coins rows and setting `Status="Promoted"` is the EXTERNAL
+manual/Copilot reconciliation step — the app only ever READS that status.
+
+**Safety posture (all gates default to the safe state):**
+- `ENABLE_SET_WRITE_LAYER = false` (localhost-dev only until a production
+  redirect URI exists — Q6). When false, `getWriteToken()` returns null and
+  NEVER fires an auth redirect, so on the live GitHub Pages site tapping Add
+  Set's Save degrades to a friendly "localhost-dev only" toast instead of a
+  broken sign-in navigation. Exactly mirrors the `ENABLE_REFERENCE_IMAGES`
+  precedent.
+- `WRITE_TARGET = "copy"` (Q5) → every path resolves under
+  `CoinCollection/_Testing/` (`WRITE_PATHS`), so nothing can touch the real
+  workbook/Staging. Flipping to `"live"` is a manual, Ray-only, one-line
+  change and STILL only writes Staging folders + photos, never the workbook.
+- The real workbook is never duplicated by the app — **Ray creates the test
+  copy himself** at `CoinCollection/_Testing/CoinCollection (AI) COPY.xlsx`.
+
+**Graph client abstraction (`RealGraphClient` / `createMockGraphClient` /
+`graph()` / `__setGraphClientForTest`):** all reservation/draft/promotion
+logic depends on a swappable `graph()` client, never on `fetch()` directly,
+so a `MockGraphClient` (in-memory path→entry store + seeded workbook columns)
+drives the whole flow headlessly with no OneDrive (Q12). `RealGraphClient`
+adapts stage.html's proven `Files.ReadWrite` PUT pattern and adds
+`getFileBytes`/`getItemMeta`/`listChildren`/`deleteItem`/`readWorkbookColumn`.
+
+**Reservation module (`reserveNextCollectionId`, standalone/reusable per
+Part 1 — Add Coin migrates to it LATER, not this round, Q11):**
+- Next parent ID = `max(All!CollectionID, open Staging draft parent IDs) + 1`,
+  zero-padded `AY-#####`. The All read is the one unavoidable live-workbook
+  touch and is **read-only** (Graph workbook `usedRange`, Q2=a); a counter
+  file is the documented fallback if that proves slow/lock-prone.
+- Reserving a parent implicitly reserves its whole `-A/-B/-C…` child namespace
+  (`childSuffix()` is bijective base-26, correct past Z). The claim becomes
+  durable the instant Step 1 writes the Draft (a real Staging file, so it
+  survives close/reopen and other devices — Part 1 #3).
+- Abandoned Draft reservations are left sitting indefinitely — no auto-expiry
+  (Part 1 #4).
+
+**Add Set flow (`view-addset` Step 1 → `view-addset-children` Step 2):**
+- **Step 1** (set-level basics): name, optional Mint product code (live
+  `matchDbSetsByProductCode()` against a sparse `FAKE_DB_SETS` stand-in →
+  prefill note), self-declared expected child count, optional dynamic
+  **sub-groups** (name + per-group count), optional whole-set + receipt
+  photos. Submitting reserves the ID and writes the Draft IMMEDIATELY (does
+  not require any children yet). GSID is stored **empty = pending** (Q9) with
+  a `researchNote` spelling out what's unresolved (GSID + product-code
+  confirmation), same shape as the NGC/PCGS research queues.
+- **Step 2** (children one at a time): reuses the app's photo-slot + field
+  widgets (NOT a forked form) but captures **identity + grade + photos only**
+  — no DB_Coins confidence/routing, no per-child Save-to-DB-vs-Staging choice
+  (Q7). Each child gets an app-assigned `-A/-B/-C` id and an `originSetId`
+  pointing at the parent, appended into the parent's `set.json` (embedded, for
+  reliable association) and persisted on each save. Sub-grouped sets show a
+  per-group "coin N of M" and auto-advance to the next unfilled group.
+- **Status field** (drives resume + the promotion loop): `Draft` (resume
+  state) → `Complete — pending research` (Ray marks capture done; may confirm
+  a final count differing from the declared expected) → `Promoted` (set
+  EXTERNALLY by reconciliation; the app only reads it). The app never sets
+  `Promoted` itself.
+- **Resume** via a Dashboard-only **"In Progress Sets"** tile with a count
+  badge (Q10): lists `Draft` drafts newest-first, tap to resume Step 2 at the
+  right coin/sub-group. Same dashboard-tile pattern as Staging Review / Needs
+  Attention.
+
+**Promotion file-move loop (`processPromotedSetDrafts`, Part 3 step 3, runs at
+launch):** for each `Promoted` draft not yet moved (`filesMovedOnPromotion`
+flag), relocate its photos from the Staging folder to the final convention
+(`CoinPhotos/{childId}_obverse.jpg` etc., `CoinReceipts/{parent}_receipt.jpg`,
+whole-set → `CoinPhotos/{parent}_set.jpg`). **Every move is strictly
+copy-then-verify-then-delete-original (Q4) — a failed/unverifiable copy always
+leaves the source intact**, the draft stays `Promoted` (flag not set), and the
+next launch retries; per-move idempotent (dest-exists + source-gone = already
+moved). No whole-workbook backup this round (Q4) — the app never writes the
+workbook, so there's nothing to protect; that logic is shelved until Add
+Coin/reconciliation writes Excel directly.
+
+**Reused vs. newly written:** REUSED — stage.html's PUT pattern (adapted into
+`RealGraphClient`), the photo-capture File-per-slot idiom, `loadOrientedImageCanvas`,
+`DENOM_LABELS`, the dashboard-tile/badge pattern, the coin-side `collectionIdNumber`
+concept. NEW — the entire write layer + mock, the reservation/draft/promotion
+modules, the three views + `initAddSet` controller, `FAKE_DB_SETS`, and the two
+dashboard tiles. The coin-side in-memory reservation/Staging-Review mockup is
+completely untouched (Q8).
 
 ### Grader dropdown + grader-agnostic cert linking (locked in)
 A **Grader** dropdown (Add Coin, above the label-entry field; sourced from
