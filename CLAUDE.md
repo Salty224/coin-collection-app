@@ -399,8 +399,8 @@ together rather than mixed in at the top level.
   valid.
 - **Secondary, collapsed by default — Purchase Info**: Purchase Price, Shipping
   Cost, Purchase Date, Vendor/Seller, Receipt photo.
-- **Secondary, collapsed by default — Storage & Album**: Storage Location, Assign
-  to Album (which album + which open slot), Additional photo.
+- **Secondary, collapsed by default — Storage & Album**: Storage Location,
+  Container, Assign to Album (which album + which open slot), Additional photo.
 - **Interaction pattern for the two secondary sections is drill-down, not an
   inline accordion**: tapping "Purchase Info" or "Storage & Album" replaces the
   top-level fields with just that section's fields (a back link returns to the
@@ -1282,14 +1282,26 @@ pulled from the workbook.
 
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
-and can attach additional photos/receipts to an existing coin at any time. App CANNOT
-do anything requiring research or judgment (new PCGS# lookups, album slot matching,
-restructuring, cost allocation) — those stay chat + Copilot tasks. This is the exact
-scope of the Edit button on Browse's coin detail view (see "Browse detail view"
-above) — it doesn't expose any field beyond this list. A Set-bundle row
-(`Denomination="Multiple"`) gets a different, separate Edit Set form instead
-(Storage/Container, Value, Purchase Details) — see "Browse detail view" above;
-coin-membership editing for a Set is explicitly out of scope, parking-lot item.
+Container, and can attach additional photos/receipts to an existing coin at any time.
+**Container is a real, separate All-sheet column from StorageLocation** (not a
+schema change — it already exists in the workbook) — Edit Coin exposes both as two
+independent fields, same as Edit Set below. App CANNOT do anything requiring
+research or judgment (new PCGS# lookups, album slot matching, restructuring, cost
+allocation) — those stay chat + Copilot tasks. This is the exact scope of the Edit
+button on Browse's coin detail view (see "Browse detail view" above) — it doesn't
+expose any field beyond this list. A Set-bundle row (`Denomination="Multiple"`)
+gets a different, separate Edit Set form instead (Storage Location, Container,
+Value, Purchase Details — Storage Location and Container are two separate inputs
+there too, **superseding** an earlier single blended "Storage / Container" field) —
+see "Browse detail view" above; coin-membership editing for a Set is explicitly out
+of scope, parking-lot item.
+
+**Location detail-view section (new)**: a "Location" accordion (same collapsed-by-
+default pattern as Purchase Details/Set Details/Notes & Facts) shows Storage
+Location + Container for both individual coins and Sets, hidden when neither has
+data. This is **additive, not a move** — Storage Location still also shows in the
+always-visible key facts row above the accordions (Value/Cert/Storage), unchanged;
+Container only ever appears in the new Location section.
 
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.

@@ -1513,9 +1513,9 @@
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Coin</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
             Only what the app can safely write directly: Grade, GradeSource, Cert/Type
-            Number, Designation, Storage Location, and any photo slot not filled during
-            Add Coin. Everything else (album/slot re-matching, cost allocation, new
-            catalog research) stays a chat + Copilot task.
+            Number, Designation, Storage Location, Container, and any photo slot not
+            filled during Add Coin. Everything else (album/slot re-matching, cost
+            allocation, new catalog research) stays a chat + Copilot task.
           </p>
 
           <div class="photo-toggle" id="browseEditPhotoToggle">
@@ -1579,6 +1579,9 @@
           <label>Storage Location</label>
           <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
 
+          <label>Container</label>
+          <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
+
           <div class="photo-box" style="margin-top:14px;">
             <div class="name">🖼️ Additional Photo</div>
             <div class="coin-photo-frame" id="browseEditAdditionalFrame">
@@ -1621,12 +1624,15 @@
           <button class="back-link" id="browseEditSetBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Set</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
-            Storage/Container, Value, and Purchase Details for this Set as a whole.
+            Storage, Container, Value, and Purchase Details for this Set as a whole.
             Adding or removing individual coins from this Set isn't supported here yet.
           </p>
 
-          <label>Storage / Container</label>
-          <input type="text" id="editSetStorageLocation" placeholder="e.g. Safe, Box 2, display Container">
+          <label>Storage Location</label>
+          <input type="text" id="editSetStorageLocation" placeholder="e.g. Safe, Box 2">
+
+          <label>Container</label>
+          <input type="text" id="editSetContainer" placeholder="e.g. display case, original Mint packaging">
 
           <label>Value</label>
           <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
@@ -2075,6 +2081,9 @@
           <label>Storage Location</label>
           <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A">
 
+          <label>Container</label>
+          <input type="text" id="container" placeholder="e.g. display case, capsule tray">
+
           <label>Assign to Album</label>
           <select id="assignAlbum">
             <option value="">— not part of an album —</option>
@@ -2427,31 +2436,31 @@
   // most placeholder coins predate that data being captured; a couple are
   // populated so the Browse-detail Edit form has something real to load.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
-    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe",    variety: "" },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", variety: "" },
-    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   category: "",              rollId: "", gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   category: "",              rollId: "", setId: "S-2021-SP-01", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
-    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2",   variety: "" },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe", container: "Capsule tray", variety: "" },
+    { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "" },
+    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "" },
+    { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   category: "",              rollId: "", gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2", container: "2x2 flip box", variety: "" },
+    { id: "AY-00011", name: "Statue of Liberty Half",     denom: "50C", year: 1986, mint: "S",  grade: "PR-69",  value: 22,   cost: 28,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2", container: "",   variety: "" },
+    { id: "AY-00012", name: "Washington Quarter",         denom: "25C", year: 2021, mint: "S",  grade: "PR-70",  value: 45,   cost: 45,   category: "",              rollId: "", setId: "S-2021-SP-01", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2", container: "",   variety: "" },
+    { id: "AY-00013", name: "Roosevelt Dime",             denom: "10C", year: 1999, mint: "P",  grade: "MS-65",  value: 8,    cost: 10,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2", container: "",   variety: "" },
+    { id: "AY-00014", name: "Statue of Liberty Dollar",   denom: "$1",  year: 1986, mint: "S",  grade: "PR-69",  value: 60,   cost: 65,   category: "Commemorative", rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Box 2", container: "",   variety: "" },
     // Denomination="Medal" is the real workbook signal for a standalone
     // medal (see CLAUDE.md) — these used to carry a blank denom plus a
     // separate itemType:"medal" field; itemType is gone now that Denomination
     // itself carries the real value.
-    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "Medal", year: 2009, mint: "", grade: "MS-65",  value: 15,   cost: 12,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
-    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "Medal", year: 2021, mint: "", grade: "",       value: 20,   cost: 18,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00015", name: "Lincoln Bicentennial Medal", denom: "Medal", year: 2009, mint: "", grade: "MS-65",  value: 15,   cost: 12,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00016", name: "US Mint Inaugural Medal",    denom: "Medal", year: 2021, mint: "", grade: "",       value: 20,   cost: 18,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     // Owned but no photo AND no series reference image on file yet (no
     // CoinCollection/ReferenceImages/Jefferson_*.png on Ray's OneDrive as of
     // this writing) — the one real coin demonstrating the Littleton folder's
     // "owned, photo pending" desaturated-glyph tier below.
-    { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "",        variety: "" },
+    { id: "AY-00017", name: "Jefferson Nickel",           denom: "5C",  year: 1971, mint: "",   grade: "",       value: 1,    cost: 1,    category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     // Set-bundle rows (new, Browse restructure): each one IS the owned item —
     // Denomination="Multiple" bought/logged as a single purchase, not an
     // aggregation of separately-catalogued member coins. Category is the
@@ -2467,10 +2476,10 @@
     // this one pair carries a setId; every other row leaves it absent, since
     // only ~28 of 386 real owned rows have SetID populated today — most coins
     // correctly show no Set link.
-    { id: "AY-00018", name: "2021 Silver Proof Set",                    denom: "Multiple", year: 2021, mint: "", grade: "", value: 180, cost: 150, category: "Silver Proof Set", rollId: "", setId: "S-2021-SP-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
-    { id: "AY-00019", name: "1999 United States Mint Set",              denom: "Multiple", year: 1999, mint: "", grade: "", value: 45,  cost: 35,  category: "Mint Set",         rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
-    { id: "AY-00020", name: "1955 United States Proof Set",             denom: "Multiple", year: 1955, mint: "", grade: "", value: 220, cost: 175, category: "Proof Set",        rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
-    { id: "AY-00021", name: "American Innovation Dollar Legacy Collection", denom: "Multiple", year: 2026, mint: "", grade: "", value: 60, cost: 55, category: "Legacy Collection", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    { id: "AY-00018", name: "2021 Silver Proof Set",                    denom: "Multiple", year: 2021, mint: "", grade: "", value: 180, cost: 150, category: "Silver Proof Set", rollId: "", setId: "S-2021-SP-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "Original Mint packaging", variety: "" },
+    { id: "AY-00019", name: "1999 United States Mint Set",              denom: "Multiple", year: 1999, mint: "", grade: "", value: 45,  cost: 35,  category: "Mint Set",         rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" },
+    { id: "AY-00020", name: "1955 United States Proof Set",             denom: "Multiple", year: 1955, mint: "", grade: "", value: 220, cost: 175, category: "Proof Set",        rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "",  variety: "" },
+    { id: "AY-00021", name: "American Innovation Dollar Legacy Collection", denom: "Multiple", year: 2026, mint: "", grade: "", value: 60, cost: 55, category: "Legacy Collection", rollId: "", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" },
     // originSetId links this bundle to its child coins in FAKE_SET_CHILDREN
     // (the multi-coin display feature). Distinct from `setId` above — setId
     // is Issue-3's "an individual owned coin belongs to this Set" chip
@@ -2479,15 +2488,15 @@
     // neither triggers the other's resolution logic. Only Sets with a real
     // child breakdown carry originSetId; the childless bundles above leave
     // it absent and fall back to the single-flip display.
-    { id: "AY-00022", name: "1986 Statue of Liberty Commemorative 3-Coin Set", denom: "Multiple", year: 1986, mint: "", grade: "", value: 320, cost: 280, category: "Commemorative", rollId: "", originSetId: "OS-1986-STL-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "" },
+    { id: "AY-00022", name: "1986 Statue of Liberty Commemorative 3-Coin Set", denom: "Multiple", year: 1986, mint: "", grade: "", value: 320, cost: 280, category: "Commemorative", rollId: "", originSetId: "OS-1986-STL-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "Display case", variety: "" },
     // A larger (5-coin) demo Set to stress-test the mini-flip grid layout.
-    { id: "AY-00025", name: "2026 Best-of-Mint 5-Coin Proof Set", denom: "Multiple", year: 2026, mint: "", grade: "", value: 140, cost: 120, category: "Proof Set", rollId: "", originSetId: "OS-2026-BOM-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" },
+    { id: "AY-00025", name: "2026 Best-of-Mint 5-Coin Proof Set", denom: "Multiple", year: 2026, mint: "", grade: "", value: 140, cost: 120, category: "Proof Set", rollId: "", originSetId: "OS-2026-BOM-01", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" },
     // Roll rows (new, Browse restructure): RollID populated, a normal single
     // Denomination each (confirmed against the real workbook) — these are
     // owned rows that happen to be an uncounted/unsearched roll rather than
     // an individually catalogued single coin.
-    { id: "AY-00023", name: "1921 Morgan Dollar Roll (20 coins)", denom: "$1",  year: 1921, mint: "",  grade: "", value: 900, cost: 750, category: "", rollId: "R-1921-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe",  variety: "" },
-    { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "" }
+    { id: "AY-00023", name: "1921 Morgan Dollar Roll (20 coins)", denom: "$1",  year: 1921, mint: "",  grade: "", value: 900, cost: 750, category: "", rollId: "R-1921-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "Coin tube", variety: "" },
+    { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" }
   ];
 
   // Child coins physically inside a Set bundle, keyed by the parent's
@@ -2502,16 +2511,16 @@
   // single bundle rows — a known backlog, not missing data).
   const FAKE_SET_CHILDREN = {
     "OS-1986-STL-01": [
-      { id: "AY-00022-A", name: "Statue of Liberty Half Dollar", denom: "50C", year: 1986, mint: "S", grade: "PR-69", value: 25,  cost: 22,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" },
-      { id: "AY-00022-B", name: "Statue of Liberty Dollar",      denom: "$1",  year: 1986, mint: "S", grade: "PR-69", value: 60,  cost: 55,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" },
-      { id: "AY-00022-C", name: "Statue of Liberty Half Eagle",  denom: "$5",  year: 1986, mint: "W", grade: "PR-70", value: 235, cost: 203, gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", variety: "", originSetId: "OS-1986-STL-01" }
+      { id: "AY-00022-A", name: "Statue of Liberty Half Dollar", denom: "50C", year: 1986, mint: "S", grade: "PR-69", value: 25,  cost: 22,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "", variety: "", originSetId: "OS-1986-STL-01" },
+      { id: "AY-00022-B", name: "Statue of Liberty Dollar",      denom: "$1",  year: 1986, mint: "S", grade: "PR-69", value: 60,  cost: 55,  gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "", variety: "", originSetId: "OS-1986-STL-01" },
+      { id: "AY-00022-C", name: "Statue of Liberty Half Eagle",  denom: "$5",  year: 1986, mint: "W", grade: "PR-70", value: 235, cost: 203, gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "", variety: "", originSetId: "OS-1986-STL-01" }
     ],
     "OS-2026-BOM-01": [
-      { id: "AY-00025-A", name: "Lincoln Cent",        denom: "1C",  year: 2026, mint: "S", grade: "PR-70", value: 12, cost: 10, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
-      { id: "AY-00025-B", name: "Jefferson Nickel",    denom: "5C",  year: 2026, mint: "S", grade: "PR-70", value: 14, cost: 12, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
-      { id: "AY-00025-C", name: "Roosevelt Dime",      denom: "10C", year: 2026, mint: "S", grade: "PR-70", value: 16, cost: 14, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
-      { id: "AY-00025-D", name: "Washington Quarter",  denom: "25C", year: 2026, mint: "S", grade: "PR-70", value: 22, cost: 20, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" },
-      { id: "AY-00025-E", name: "Kennedy Half Dollar", denom: "50C", year: 2026, mint: "S", grade: "PR-70", value: 30, cost: 26, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", variety: "", originSetId: "OS-2026-BOM-01" }
+      { id: "AY-00025-A", name: "Lincoln Cent",        denom: "1C",  year: 2026, mint: "S", grade: "PR-70", value: 12, cost: 10, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-B", name: "Jefferson Nickel",    denom: "5C",  year: 2026, mint: "S", grade: "PR-70", value: 14, cost: 12, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-C", name: "Roosevelt Dime",      denom: "10C", year: 2026, mint: "S", grade: "PR-70", value: 16, cost: 14, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-D", name: "Washington Quarter",  denom: "25C", year: 2026, mint: "S", grade: "PR-70", value: 22, cost: 20, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "", originSetId: "OS-2026-BOM-01" },
+      { id: "AY-00025-E", name: "Kennedy Half Dollar", denom: "50C", year: 2026, mint: "S", grade: "PR-70", value: 30, cost: 26, gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "", originSetId: "OS-2026-BOM-01" }
     ]
   };
 
@@ -3462,9 +3471,10 @@
     "AY-00013": { metalCategory: "Clad", edge: "Reeded" }, // Roosevelt Dime (1999) — modern Cu-Ni clad
     "AY-00014": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Statue of Liberty Dollar (1986 commemorative) — 90% silver
     "AY-00017": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Jefferson Nickel — Cu-Ni
-    // Two Set-child rows with real spec data so a child's own detail view
-    // exercises the Specifications accordion path (children are keyed by their
-    // own -A/-B CollectionID, same as any owned row).
+    // All three Set-child rows have real spec data so every child's own
+    // detail view exercises the Specifications accordion path (children are
+    // keyed by their own -A/-B/-C CollectionID, same as any owned row).
+    "AY-00022-A": { metalCategory: "Clad", weight: 9.00, diameterMm: 30.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Dollar — copper-nickel clad, no precious-metal content (real historical composition, unlike its silver/gold set-mates)
     "AY-00022-B": { silverOz: 0.7736, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded", reedCount: 150 }, // 1986 Statue of Liberty Dollar — 90% silver
     "AY-00022-C": { goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" } // 1986 Statue of Liberty Half Eagle — 90% gold $5
   };
@@ -4120,6 +4130,22 @@
       ).join(""));
     }
 
+    // --- Location (Storage Location + Container) — additive, not a move:
+    // Storage Location already shows in the always-visible key facts above,
+    // and stays there; this section exists for Container (a real, separate
+    // All-sheet field from StorageLocation) plus a repeated Storage Location
+    // so the two read together as one physical-location fact group. Applies
+    // to both individual coins and Sets; hidden entirely when neither field
+    // has data, same convention as every other accordion here.
+    const locationRows = [];
+    if (coin.storageLocation) locationRows.push(["Storage Location", coin.storageLocation]);
+    if (coin.container) locationRows.push(["Container", coin.container]);
+    if (locationRows.length) {
+      appendAccordion(container, "Location", locationRows.map(([label, value]) =>
+        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+      ).join(""));
+    }
+
     // --- Specifications (Coin Details group) — Composition (also shown in
     // the always-visible summary row above; some overlap is intentional,
     // matching how the physical Red Book itself presents this data as its
@@ -4239,6 +4265,7 @@
     document.getElementById("browseEditGradeSource").value = coin.gradeSource || "";
     document.getElementById("browseEditDesignation").value = coin.designation || "";
     document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
+    document.getElementById("browseEditContainer").value = coin.container || "";
 
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
@@ -4258,6 +4285,7 @@
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
     document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
+    document.getElementById("editSetContainer").value = coin.container || "";
     document.getElementById("editSetValue").value = coin.value != null ? coin.value : "";
     document.getElementById("editSetCost").value = coin.cost != null ? coin.cost : "";
     document.getElementById("editSetShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
@@ -5500,10 +5528,12 @@
       purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
 
     const storageLocation = document.getElementById("storageLocation").value;
+    const container = document.getElementById("container").value;
     const assignSelect = document.getElementById("assignAlbum");
     const assignText = assignSelect.selectedIndex > 0 ? assignSelect.options[assignSelect.selectedIndex].textContent : "";
     const storageParts = [];
     if (storageLocation) storageParts.push(storageLocation);
+    if (container) storageParts.push(container);
     if (assignText) storageParts.push(assignText);
     document.getElementById("storageAlbumSummary").textContent =
       storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or assign an album";
@@ -5898,7 +5928,8 @@
       gradeSource: document.getElementById("gradeSource").value,
       serNo: document.getElementById("certTypeNumber").value,
       designation: document.getElementById("designation").value,
-      storageLocation: document.getElementById("storageLocation").value
+      storageLocation: document.getElementById("storageLocation").value,
+      container: document.getElementById("container").value
     };
   }
 
