@@ -1228,6 +1228,41 @@
     white-space: nowrap;
   }
 
+  /* Tap-to-flip: a small dedicated icon, distinct from the flip-frame's own
+     navigate-on-tap target, so flipping to the reverse and opening a coin's
+     detail view are never the same gesture. Sits bottom-center, clear of the
+     corner labels (which anchor to the frame's own left/right edges) and of
+     the two full corners a coin's identity actually needs. Corner labels
+     never change on flip (they describe the coin, not which face is
+     showing, per "Coin-flip corner labels") — only the disc's image and its
+     reverse-face mirror styling do. */
+  .flip-toggle-btn {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--case-border);
+    background: rgba(0,0,0,0.55);
+    color: var(--gold-bright);
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .flip-toggle-btn:hover { border-color: var(--gold); }
+  .flip-toggle-btn.mini {
+    width: 18px;
+    height: 18px;
+    font-size: 10px;
+    bottom: 1px;
+  }
+
   /* Standard visually-hidden pattern: keeps the same info readable to screen
      readers without duplicating it as an on-screen text block (the corner
      labels are the visible presentation once a coin is saved). */
@@ -3261,6 +3296,34 @@
     }
   }
 
+  // Tap-to-flip: attaches a small dedicated icon to a flip-frame that toggles
+  // its disc between obverse/reverse in place — image + reverse-face mirror
+  // styling only, since corner labels describe the coin, not which face is
+  // showing (see applyFlipCorners()), and never change on flip. Deliberately
+  // a separate tap target from the frame's own navigate-on-tap handler
+  // (stopPropagation on click) so flipping and opening a coin's detail view
+  // are never the same gesture. Each call owns its own "side" state via
+  // closure — safe to call fresh on every render since the frame itself is
+  // rebuilt (Browse grid, Set child flips) or explicitly cleared first
+  // (Browse detail's single persistent flip-frame — see showBrowseDetail()).
+  function attachFlipToggle(frameEl, discEl, coin, opts) {
+    const mini = !!(opts && opts.mini);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "flip-toggle-btn" + (mini ? " mini" : "");
+    btn.setAttribute("aria-label", "Flip to see the other side");
+    btn.title = "Flip";
+    btn.textContent = "⟲";
+    let side = "obverse";
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      side = side === "obverse" ? "reverse" : "obverse";
+      applyDiscContent(discEl, coin, side);
+      discEl.classList.toggle("reverse-face", side === "reverse");
+    });
+    frameEl.appendChild(btn);
+  }
+
   function applyRealReferenceImage(discEl, url) {
     discEl.textContent = "";
     discEl.classList.add("reference-image");
@@ -3366,6 +3429,27 @@
       navigate("browse");
       showBrowseDetail(coin);
     });
+
+    // Manual flip, alongside the existing auto-rotate timer — reuses the
+    // exact same spotlightSide/renderSpotlight() mechanism the timer already
+    // drives (not the generic attachFlipToggle() helper other flip-frames
+    // use, which tracks its own private side state; Spotlight's side is
+    // shared/global so the auto-rotate and the manual button never disagree
+    // about which face is currently showing). Resets the timer so a manual
+    // flip doesn't get immediately undone by the next tick.
+    const flipBtn = document.createElement("button");
+    flipBtn.type = "button";
+    flipBtn.className = "flip-toggle-btn";
+    flipBtn.setAttribute("aria-label", "Flip to see the other side");
+    flipBtn.title = "Flip";
+    flipBtn.textContent = "⟲";
+    flipBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      spotlightSide = spotlightSide === "obverse" ? "reverse" : "obverse";
+      renderSpotlight();
+      resetSpotlightTimer();
+    });
+    frame.appendChild(flipBtn);
 
     renderSpotlight();
     resetSpotlightTimer();
@@ -3579,6 +3663,7 @@
       grid.appendChild(card);
       applyDiscContent(card.querySelector(".coin-disc"), coin);
       sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
+      attachFlipToggle(card.querySelector(".flip-frame-mini"), card.querySelector(".coin-disc"), coin, { mini: true });
     });
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
@@ -3872,6 +3957,13 @@
       applyDiscContent(disc, coin);
       sizeCoinElement(disc, coin.denom, 210, 32);
       applyFlipCorners("browseDetail", coin);
+      // singleFlip is a persistent element reused across every showBrowseDetail()
+      // call (unlike Browse grid/Set child cards, which are rebuilt from scratch
+      // each render) — clear out the previous coin's flip-toggle button before
+      // attaching a fresh one bound to this coin, or they'd accumulate.
+      const oldToggle = singleFlip.querySelector(".flip-toggle-btn");
+      if (oldToggle) oldToggle.remove();
+      attachFlipToggle(singleFlip, disc, coin, { mini: false });
     }
 
     renderBrowseDetailPanel(coin);
@@ -3915,6 +4007,7 @@
       grid.appendChild(card);
       applyDiscContent(card.querySelector(".coin-disc"), child);
       sizeCoinElement(card.querySelector(".coin-disc"), child.denom, 64, 11);
+      attachFlipToggle(card.querySelector(".flip-frame-mini"), card.querySelector(".coin-disc"), child, { mini: true });
     });
   }
 

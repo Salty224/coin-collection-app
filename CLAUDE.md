@@ -586,6 +586,44 @@ the same corner mapping:
   exists) — it's Ray's own preference, matching the price-sticker placement
   he sees at his local coin shop.
 
+### Tap-to-flip (locked in)
+Every flip-frame a saved coin renders in now carries a small dedicated ⟲
+icon (`.flip-toggle-btn`, bottom-center of the frame) that flips that one
+card between obverse/reverse in place — before this, "flip" was only ever
+the visual/naming metaphor (the flip-frame, the corner labels styled like a
+2x2 flip) with no way for Ray to actually trigger it himself outside
+Spotlight's own automatic rotation.
+- **Deliberately a separate tap target from the frame's own navigate-on-tap
+  handler** (`stopPropagation()` on the icon's click) — every flip-frame
+  already opens a coin's Browse detail view on tap (grid cards, Set child
+  flips, Spotlight, a filled Album slot), so flipping and navigating can
+  never be the same gesture without one stepping on the other.
+- **Only the disc's image and its `.reverse-face` mirror styling change on
+  flip — corner labels never do.** This isn't new behavior, just newly
+  reachable by hand: corner labels describe the coin itself (year/mint,
+  series+denom, grade), not which face is currently showing, per "Coin-flip
+  corner labels" above — `applyFlipCorners()` isn't re-run on flip.
+- **Applies to**: Browse grid cards (mini), Browse detail's single flip,
+  Set child mini-flips, and Spotlight. Each of the first three owns private
+  `side` state via closure (`attachFlipToggle()`); Spotlight instead drives
+  its existing shared `spotlightSide`/`renderSpotlight()` mechanism directly
+  (wired once in `initSpotlight()`) so the auto-rotate timer and the manual
+  button never disagree about which face is showing — clicking it resets
+  the timer so a manual flip isn't immediately undone by the next tick.
+- **Browse detail's single flip-frame is a persistent, reused DOM element**
+  (unlike grid/Set-child cards, which are fully rebuilt each render) — every
+  `showBrowseDetail()` call removes any previous coin's flip-toggle button
+  before attaching a fresh one bound to the new coin, or they'd accumulate
+  across coin views.
+- **Deliberately NOT added to individual Album slot cells** — Albums already
+  has its own, different mechanism for viewing a coin's reverse: the
+  page-flip book turns to a dedicated Reverse page for the whole slot group
+  (see "Albums: page-flip book" below). Adding a second, per-slot flip
+  control there would both clutter an already-dense grid (up to 6 slots a
+  row) and fight with the reason that dedicated Reverse pages exist at all.
+  A filled slot's own coin is still reachable there (tap it → its Browse
+  detail view), which now carries the same flip icon as any other coin.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
