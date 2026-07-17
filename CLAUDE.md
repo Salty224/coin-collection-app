@@ -985,8 +985,11 @@ rendering anything inline.
   this row IS just an owned item now, nothing set-specific about its detail
   view.
 - **Rolls tab**: plain list/grid of RollID-populated rows, no filter pills at
-  all (low row count) — reuses the standard coin-disc card treatment exactly
-  like Coins, since every roll row carries one normal Denomination.
+  all (low row count) — reuses `renderBrowseGrid()`/`showBrowseDetail()`
+  exactly like Coins, since every roll row carries one normal Denomination.
+  **Superseded: grid mode no longer uses the plain single-coin flip-mini** —
+  see "Roll cards" below for the visual and detail-view changes; list mode
+  and everything else about this tab is unchanged.
 - **Nav**: `Sets` is a full 6th persistent nav item, same standing as Albums
   — see "App structure" above. `Rolls` deliberately got no nav entry or
   Dashboard tile at all — reachable only by tapping its tab after already
@@ -1001,6 +1004,51 @@ rendering anything inline.
   Coins/Albums today. Real creation is hard-blocked on the CollectionID-
   reservation system and the OneDrive write layer, neither of which exist
   yet (see "Add Coin: the core workflow").
+
+### Roll cards (locked in, supersedes the plain single-coin flip treatment)
+A roll is ~20 coins, not one — the Rolls tab's grid cards now read as a
+short stack of coins viewed edge-on (`.coin-roll-stack`, 3 decorative
+`.roll-edge` circles peeking out below/behind, negative z-index scoped via
+`isolation: isolate` so they stay behind both the disc and the tap-to-flip
+button instead of escaping past it and painting behind the whole card's own
+background, invisibly). Only the top layer is a real `.coin-disc` — same
+reference-image/placeholder/tap-to-flip treatment as any other coin's disc,
+just with muted stacked edges beneath it. List mode and every other Rolls
+tab behavior is unchanged.
+- **Generic/mixed-date roll**: `coin.year` carries the literal string
+  `"Various"` (mint left blank) for a roll that isn't one specific date —
+  **no new flag/schema field**, confirmed safe by auditing every place
+  `year` is read in the file (corner labels, grid captions, sr-only text,
+  DB_Coins-match comparisons): all of them either concatenate it into a
+  string or explicitly cast with `String()` already, none do numeric
+  arithmetic on it, so `"Various"` renders correctly everywhere with zero
+  other code changes. Demo row: `AY-00026`, "Roll of 20 Silver Dollars
+  (mixed dates)".
+- **Composition is promoted to an always-visible key fact for Rolls only**
+  (`isRollRow()`, gated purely on a populated `RollID`) — melt/junk-silver
+  value hinges on it, unlike a normal coin, where Composition still lives
+  only inside the collapsed Specifications accordion. The Specifications
+  accordion itself is skipped entirely for Rolls (per "Rolls need much less
+  detail than an individual coin" — Weight/Diameter/Edge/etc. describe one
+  coin, not a roll of ~20, and aren't meaningful without an aggregation this
+  app doesn't do). **A Roll's Composition/`FAKE_METAL_CONTENT` entry holds
+  the AGGREGATE oz for the whole roll, not one coin** (e.g. the 1921 Morgan
+  Dollar Roll's 15.468 oz = 0.7734 oz/coin × 20) — showing a single coin's
+  figure would understate real melt value by ~20x and defeat the point of
+  surfacing it prominently at all.
+- **Corner-label fix, applies to Rolls specifically**: `applyFlipCorners()`'s
+  top-right corner used to always run `seriesLabel()`/`renderTypeDenomCorner()`
+  (which assume `coin.name` is shaped like `"{Series} {Denomination word}"`,
+  e.g. "Morgan Dollar") — a Roll's name is a full descriptive sentence
+  ("Roll of 20 Silver Dollars (mixed dates)"), so stripping a denom-word
+  suffix did nothing useful, and the "shorten to last word if it doesn't fit"
+  fallback (meant for an overlong series name) picked whatever token
+  happened to be last, garbling into things like "dates)" or "coins)$1" —
+  caught via direct browser testing, not just code review, before this
+  shipped. Fixed: a Roll's top-right corner shows just the denomination
+  code, same exception Browse's grid-mini cards already use for every card
+  — the full descriptive name is already the page's own title above the
+  flip, so nothing is lost.
 
 ### Metal filter (locked in, pill set superseded below — mechanics still apply)
 A second single-select chip row (`All Metals / Gold / Silver / Platinum /

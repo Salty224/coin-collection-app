@@ -402,6 +402,37 @@
   }
   .coin-card .flip-frame-mini .coin-disc { margin: 0; }
   .coin-card .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
+
+  /* Roll cards (Rolls tab): reads as a short stack of coins viewed edge-on —
+     a roll is ~20 coins, not one — rather than the plain single-coin flip
+     every other card uses. Only the top coin's face is a real .coin-disc
+     (same reference-image/placeholder/tap-to-flip treatment as any other
+     coin); the layers beneath are plain decorative edges, negative z-index
+     so they always stay behind both the disc and the flip-toggle button. */
+  .coin-roll-stack {
+    position: relative;
+    /* Establishes its own stacking context so the negative-z-index .roll-edge
+       layers below stack correctly relative to THIS element (behind the top
+       disc, in front of its own background) instead of escaping past it and
+       painting behind the card's own opaque background, invisibly. */
+    isolation: isolate;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .coin-roll-stack .roll-edge {
+    position: absolute;
+    left: 50%;
+    width: 84%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background: linear-gradient(160deg, #8f7a42, #6e5c2f 55%, #52431f);
+    border: 1px solid rgba(0,0,0,0.45);
+    box-shadow: 0 2px 2px rgba(0,0,0,0.35);
+  }
+  .coin-roll-stack .roll-edge:nth-child(1) { transform: translate(-50%, 8px); z-index: -3; opacity: 0.55; }
+  .coin-roll-stack .roll-edge:nth-child(2) { transform: translate(-50%, 5px); z-index: -2; opacity: 0.72; }
+  .coin-roll-stack .roll-edge:nth-child(3) { transform: translate(-50%, 2px); z-index: -1; opacity: 0.88; }
+  .coin-roll-stack .coin-disc { position: relative; z-index: 0; }
   .coin-grid:not(.list-view) .coin-card .coin-card-text,
   .coin-grid:not(.list-view) .coin-card .grade-badge {
     display: none;
@@ -1527,8 +1558,17 @@
               <span class="detail-label">Storage</span>
               <span class="detail-value" id="detailStorageText"></span>
             </div>
-            <!-- Composition lives in the Specifications accordion only now —
-                 no longer duplicated up here (see renderDetailAccordions()). -->
+            <!-- Composition lives in the Specifications accordion only for a
+                 normal coin — no longer duplicated up here (see
+                 renderDetailAccordions()). Rolls are the one exception: a
+                 roll's melt/junk-silver value hinges on composition, so it's
+                 promoted to always-visible here instead of buried in a
+                 collapsed accordion (see renderBrowseDetailPanel(), gated on
+                 isRollRow()). -->
+            <div class="detail-row hidden" id="detailCompositionRow">
+              <span class="detail-label">Composition</span>
+              <span class="detail-value" id="detailCompositionText"></span>
+            </div>
 
             <!-- Album / Set linkage — always visible when any link exists,
                  whole section omitted otherwise. JS-populated. -->
@@ -2531,7 +2571,16 @@
     // owned rows that happen to be an uncounted/unsearched roll rather than
     // an individually catalogued single coin.
     { id: "AY-00023", name: "1921 Morgan Dollar Roll (20 coins)", denom: "$1",  year: 1921, mint: "",  grade: "", value: 900, cost: 750, category: "", rollId: "R-1921-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "Coin tube", variety: "" },
-    { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" }
+    { id: "AY-00024", name: "Roll of 40 Washington Quarters",     denom: "25C", year: 1964, mint: "D", grade: "", value: 55,  cost: 45,  category: "", rollId: "R-1964-002", gradeSource: "", serNo: "", designation: "", storageLocation: "Box 2", container: "", variety: "" },
+    // Generic/mixed-date roll — no single year/mint applies, so year carries
+    // the literal string "Various" (mint left blank) instead of a real year
+    // number. No new flag/schema field needed: every place year renders
+    // (corner labels, grid captions, sr-only text, DB_Coins-match String()
+    // comparisons) either concatenates it into a string or explicitly casts
+    // it with String() already — audited every call site, none do numeric
+    // arithmetic on year — so this reads correctly everywhere with zero
+    // other code changes.
+    { id: "AY-00026", name: "Roll of 20 Silver Dollars (mixed dates)", denom: "$1", year: "Various", mint: "", grade: "", value: 950, cost: 700, category: "", rollId: "R-MIXED-001", gradeSource: "", serNo: "", designation: "", storageLocation: "Safe", container: "Coin tube", variety: "" }
   ];
 
   // Child coins physically inside a Set bundle, keyed by the parent's
@@ -3363,7 +3412,22 @@
     // Identification only, standard shorthand — same rule as Add Coin: coded
     // denomination, not the spelled-out name, and no price/value on this face.
     document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
-    renderTypeDenomCorner(document.getElementById(prefix + "TR"), coin);
+    // A Roll's coin.name is a full descriptive sentence ("Roll of 20 Silver
+    // Dollars (mixed dates)"), not the "{Series} {Denomination word}" shape
+    // seriesLabel()/renderTypeDenomCorner() assume — stripping a denom-word
+    // suffix from it does nothing useful, and the last-word shortening
+    // fallback (meant for an overlong series name) picks whatever token
+    // happens to be last, garbling into things like "dates)". Rolls get the
+    // same denom-code-only treatment Browse's grid-mini cards already use
+    // for every card (see CLAUDE.md "Coin-flip corner labels" exception) —
+    // the full descriptive name is already the page's own title above the
+    // flip, so nothing is lost.
+    const trEl = document.getElementById(prefix + "TR");
+    if (isRollRow(coin)) {
+      renderCornerLines(trEl, [coin.denom || ""]);
+    } else {
+      renderTypeDenomCorner(trEl, coin);
+    }
     document.getElementById(prefix + "BL").textContent = coin.grade || "";
 
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
@@ -3560,7 +3624,15 @@
     // keyed by their own -A/-B/-C CollectionID, same as any owned row).
     "AY-00022-A": { metalCategory: "Clad", weight: 9.00, diameterMm: 30.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Dollar — copper-nickel clad, no precious-metal content (real historical composition, unlike its silver/gold set-mates)
     "AY-00022-B": { silverOz: 0.7736, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded", reedCount: 150 }, // 1986 Statue of Liberty Dollar — 90% silver
-    "AY-00022-C": { goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" } // 1986 Statue of Liberty Half Eagle — 90% gold $5
+    "AY-00022-C": { goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Eagle — 90% gold $5
+    // Roll rows: Composition here is the AGGREGATE oz for the whole roll, not
+    // one coin — that's what actually matters for melt/junk-silver value
+    // estimation (see isRollRow() and its always-visible Composition key
+    // fact), and understating it 20x by showing a single coin's oz would
+    // defeat the point of surfacing it prominently at all.
+    "AY-00023": { silverOz: 15.468, metalCategory: "Silver" }, // 1921 Morgan Dollar Roll (20 coins) — 90% silver, 0.7734 oz/coin x 20
+    "AY-00024": { silverOz: 7.232,  metalCategory: "Silver" }, // Roll of 40 Washington Quarters, 1964-D — last pre-clad year, 90% silver, 0.1808 oz/coin x 40 (same per-coin figure as AY-00012)
+    "AY-00026": { silverOz: 15.468, metalCategory: "Silver" }  // Roll of 20 Silver Dollars (mixed dates) — 90% silver dollars regardless of specific date, 0.7734 oz/coin x 20
   };
 
   function metalContentFor(coin) {
@@ -3642,11 +3714,19 @@
       card.className = "case coin-card";
       card.style.cursor = "pointer";
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
+      // A roll reads as a stack of coins (~20), not one — see .coin-roll-stack
+      // above. A generic/mixed-date roll has no single year/mint to show; its
+      // row carries the literal string "Various" as coin.year (mint blank),
+      // which yearMint's own concatenation already renders correctly with no
+      // special-casing needed here.
+      const discHtml = isRollRow(coin)
+        ? `<div class="coin-roll-stack"><div class="roll-edge"></div><div class="roll-edge"></div><div class="roll-edge"></div><div class="coin-disc"></div></div>`
+        : `<div class="coin-disc"></div>`;
       card.innerHTML = `
         <div class="flip-frame-mini">
           <span class="flip-label tl">${yearMint}</span>
           <span class="flip-label tr">${coin.denom || ""}</span>
-          <div class="coin-disc"></div>
+          ${discHtml}
           <span class="flip-label bl">${coin.grade || ""}</span>
         </div>
         <div class="coin-card-text">
@@ -4047,12 +4127,26 @@
 
     setDetailRow("detailStorageRow", "detailStorageText", coin.storageLocation || "");
 
+    // Composition is promoted to an always-visible key fact for Rolls only
+    // (melt/junk-silver value hinges on it, and a roll otherwise gets much
+    // less detail than an individual coin) — every other coin still shows it
+    // solely inside the collapsed Specifications accordion, unchanged.
+    setDetailRow("detailCompositionRow", "detailCompositionText", isRollRow(coin) ? compositionTextFor(coin) : "");
+
     renderDetailLinkage(coin);
     renderDetailAccordions(coin, details);
   }
 
-  // Shared by the always-visible Composition row and the Specifications
-  // accordion below, so the two never drift out of sync.
+  // A Roll is any owned row with a populated RollID — a normal single
+  // Denomination (never "Multiple", unlike a Set), just sold/stored as a
+  // multi-coin roll rather than catalogued individually. Same "denom vs.
+  // rollId vs. neither" three-way distinction Browse's own tabs already use.
+  function isRollRow(coin) {
+    return !!coin.rollId;
+  }
+
+  // Shared by the Composition key fact (Rolls only, see above) and the
+  // Specifications accordion below, so the two never drift out of sync.
   function compositionTextFor(coin) {
     const metals = metalContentFor(coin);
     const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
@@ -4239,26 +4333,32 @@
       ).join(""));
     }
 
-    // --- Specifications (Coin Details group) — Composition (also shown in
-    // the always-visible summary row above; some overlap is intentional,
-    // matching how the physical Red Book itself presents this data as its
-    // own dedicated table) plus Weight/Diameter/Thickness/Edge/No. of Reeds.
-    // ReedCount only ever applies to a reeded edge — a plain-edge coin simply
-    // won't have it set. All sourced from the same FAKE_METAL_CONTENT sparse
-    // lookup Composition already uses.
-    const specs = metalContentFor(coin);
-    const specRows = [];
-    const composition = compositionTextFor(coin);
-    if (composition) specRows.push(["Composition", composition]);
-    if (specs.weight != null) specRows.push(["Weight", specs.weight + " g"]);
-    if (specs.diameterMm != null) specRows.push(["Diameter", specs.diameterMm + " mm"]);
-    if (specs.thicknessMm != null) specRows.push(["Thickness", specs.thicknessMm + " mm"]);
-    if (specs.edge) specRows.push(["Edge", specs.edge]);
-    if (specs.reedCount != null) specRows.push(["No. of Reeds", String(specs.reedCount)]);
-    if (specRows.length) {
-      appendAccordion(container, "Specifications", specRows.map(([label, value]) =>
-        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
-      ).join(""));
+    // --- Specifications (Coin Details group) — Composition plus
+    // Weight/Diameter/Thickness/Edge/No. of Reeds. ReedCount only ever
+    // applies to a reeded edge — a plain-edge coin simply won't have it set.
+    // All sourced from the same FAKE_METAL_CONTENT sparse lookup.
+    // Skipped entirely for Rolls: a roll needs much less overall detail than
+    // an individual coin, and Composition (the one field that actually
+    // matters for a roll — melt/junk-silver value) is already promoted to
+    // an always-visible key fact above instead of buried in here; the
+    // remaining fields (Weight/Diameter/etc.) describe a single coin, not a
+    // roll of ~20, so they're not roll-meaningful without an aggregation
+    // this app doesn't do.
+    if (!isRollRow(coin)) {
+      const specs = metalContentFor(coin);
+      const specRows = [];
+      const composition = compositionTextFor(coin);
+      if (composition) specRows.push(["Composition", composition]);
+      if (specs.weight != null) specRows.push(["Weight", specs.weight + " g"]);
+      if (specs.diameterMm != null) specRows.push(["Diameter", specs.diameterMm + " mm"]);
+      if (specs.thicknessMm != null) specRows.push(["Thickness", specs.thicknessMm + " mm"]);
+      if (specs.edge) specRows.push(["Edge", specs.edge]);
+      if (specs.reedCount != null) specRows.push(["No. of Reeds", String(specs.reedCount)]);
+      if (specRows.length) {
+        appendAccordion(container, "Specifications", specRows.map(([label, value]) =>
+          `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+        ).join(""));
+      }
     }
 
     // --- Set Details (Set-level facts group, per Q4) — Set-bundle rows only.
