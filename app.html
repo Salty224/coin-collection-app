@@ -59,6 +59,12 @@
 
   * { box-sizing: border-box; }
 
+  /* Plain text hyperlinks (cert lookup, receipt, grading-help references) —
+     browser-default blue is hard to read against this app's black background.
+     Icon-button links (.cert-link-btn etc.) already set their own color and
+     drop the underline, so they're unaffected by this. */
+  a { color: var(--text); text-decoration: underline; }
+
   html, body {
     margin: 0; padding: 0;
     background: var(--bg);
@@ -1419,7 +1425,7 @@
 
         <div id="browseDetailView" style="display:none;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-            <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Browse Collection</button>
+            <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Back</button>
             <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
           </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
@@ -1483,7 +1489,7 @@
         </div>
 
         <div class="case form-card" id="browseEditView" style="display:none;">
-          <button class="back-link" id="browseEditBackBtn" style="padding-top:0;">← Coin Details</button>
+          <button class="back-link" id="browseEditBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Coin</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
             Only what the app can safely write directly: Grade, GradeSource, Cert/Type
@@ -1592,7 +1598,7 @@
              removing individual coins from a Set) is intentionally NOT here
              — see CLAUDE.md. -->
         <div class="case form-card" id="browseEditSetView" style="display:none;">
-          <button class="back-link" id="browseEditSetBackBtn" style="padding-top:0;">← Set Details</button>
+          <button class="back-link" id="browseEditSetBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Set</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
             Storage/Container, Value, and Purchase Details for this Set as a whole.
@@ -1644,7 +1650,7 @@
         </div>
 
         <div id="albumsDetailView" style="display:none;">
-          <button class="back-link" id="albumsBackBtn">← All Albums</button>
+          <button class="back-link" id="albumsBackBtn">← Back</button>
           <div id="albumsDetailContainer"></div>
         </div>
       </section>
@@ -1660,7 +1666,7 @@
         </div>
 
         <div class="case form-card" id="wishlistDetailView" style="display:none;">
-          <button class="back-link" id="wishlistDetailBackBtn" style="padding-top:0;">← Wishlist</button>
+          <button class="back-link" id="wishlistDetailBackBtn" style="padding-top:0;">← Back</button>
           <h2 class="display" style="margin-top:0;" id="wishlistDetailName"></h2>
           <div class="wish-detail-meta" id="wishlistDetailMeta"></div>
 
@@ -1691,7 +1697,7 @@
         </div>
 
         <div class="case form-card" id="wishlistPurchaseView" style="display:none;">
-          <button class="back-link" id="wishlistPurchaseBackBtn" style="padding-top:0;">← Wishlist Item</button>
+          <button class="back-link" id="wishlistPurchaseBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
 
           <label>Purchase Price</label>
@@ -1722,7 +1728,7 @@
         </div>
 
         <div class="case form-card" id="wishlistPhotosView" style="display:none;">
-          <button class="back-link" id="wishlistPhotosBackBtn" style="padding-top:0;">← Wishlist Item</button>
+          <button class="back-link" id="wishlistPhotosBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos</div>
 
           <div class="photo-toggle" id="wishlistPhotoToggle">
@@ -1900,7 +1906,7 @@
           <div class="year-picker hidden" id="yearPicker">
             <div id="yearPickerDecades"></div>
             <div id="yearPickerYears" style="display:none;">
-              <button class="back-link" id="yearPickerBackBtn" style="padding:0 0 8px;">← Decades</button>
+              <button class="back-link" id="yearPickerBackBtn" style="padding:0 0 8px;">← Back</button>
               <div class="year-grid" id="yearPickerYearGrid"></div>
             </div>
           </div>
@@ -2012,7 +2018,7 @@
         </div>
 
         <div class="case form-card" id="addCoinPurchaseView" style="display:none;">
-          <button class="back-link" id="purchaseBackBtn" style="padding-top:0;">← Coin Details</button>
+          <button class="back-link" id="purchaseBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
 
           <label>Purchase Price</label>
@@ -2043,7 +2049,7 @@
         </div>
 
         <div class="case form-card" id="addCoinStorageView" style="display:none;">
-          <button class="back-link" id="storageBackBtn" style="padding-top:0;">← Coin Details</button>
+          <button class="back-link" id="storageBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage &amp; Album</div>
 
           <label>Storage Location</label>
@@ -2075,7 +2081,7 @@
 
       <!-- ============ BATCH RECEIPT ============ -->
       <section class="view" id="view-batchreceipt">
-        <button class="back-link" id="batchReceiptBackBtn">← Dashboard</button>
+        <button class="back-link" id="batchReceiptBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Batch Receipt</h2>
         <div class="case form-card">
           <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
@@ -2103,7 +2109,7 @@
 
       <!-- ============ NEEDS DB_COINS ENTRY ============ -->
       <section class="view" id="view-needsdbcoins">
-        <button class="back-link" id="needsDbCoinsBackBtn">← Dashboard</button>
+        <button class="back-link" id="needsDbCoinsBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Needs Attention</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
           Where any discrepancy gets identified, worked, and tracked. Right now that's
@@ -2117,7 +2123,7 @@
 
       <!-- ============ STATS & VALUE ============ -->
       <section class="view" id="view-stats">
-        <button class="back-link" id="statsBackBtn">← Dashboard</button>
+        <button class="back-link" id="statsBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Stats &amp; Value</h2>
 
         <div class="stat-tile-grid">
