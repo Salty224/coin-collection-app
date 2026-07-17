@@ -459,12 +459,6 @@
   }
   .set-child-grid .flip-frame-mini .coin-disc { margin: 0; }
   .set-child-grid .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
-  .set-child-caption {
-    margin-top: 6px;
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.2;
-  }
 
   .browse-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
   .browse-toolbar.hidden { display: none; }
@@ -572,8 +566,16 @@
      turnAlbumPage()) — it's added/removed via the .turning class rather than
      living on .book-pages permanently, since it has no effect otherwise. */
   .book-pages.turning { perspective: 1800px; }
+  /* flex-basis:0 (a bare "1 1 0") would make Chromium grow both items
+     equally in content-box terms and THEN add each item's own padding/
+     border on top — .album-page's real padding+border (38px) inflated it
+     past .book-turn-slot's (which carries none), shifting the whole spread
+     asymmetric for a turn's entire duration. A fixed percentage flex-basis
+     (accounting for the row's own 16px gap) sidesteps that entirely: it's
+     the OUTER (border-box) size directly, so both slots always end up
+     pixel-identical regardless of either one's own padding/border. */
   .book-pages.spread .album-page,
-  .book-pages.spread .book-turn-slot { flex: 1 1 0; min-width: 0; }
+  .book-pages.spread .book-turn-slot { flex: 0 0 calc(50% - 8px); min-width: 0; }
   .book-pages.spread .album-page:first-child {
     border-radius: 12px 4px 4px 12px;
     box-shadow: inset -8px 0 12px -10px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
@@ -609,6 +611,11 @@
        "prev" puts it first, and only an explicit z-index (which always
        beats a default-stacked sibling) is direction-independent. */
     z-index: 1;
+    /* Must match .album-page's own max-width exactly — an ultra-wide
+       viewport can push the calc(50% - 8px) flex-basis above 460px, and
+       without this cap this wrapper (unlike .album-page) would have nothing
+       stopping it from growing past its capped static sibling. */
+    max-width: 460px;
   }
   .book-turn-slot .static-under {
     position: relative;
@@ -658,12 +665,17 @@
 
   /* Trailing blank page — framework for future additional details, but its
      real job today is pairing (see buildAlbumPages()): keeps the final
-     Reverse page from rendering alone at full single-page width. */
+     Reverse page from rendering alone at full single-page width. Sizing
+     relies solely on the shared .album-page min-height:360px + .book-pages'
+     align-items:stretch, same as every other page type (cover/history/coin
+     pages) — an earlier min-height:100% here (a percentage, dependent on the
+     ancestor already having a resolved height at paint time) was unique to
+     this one page type and caused it to render as a narrow strip on first
+     paint before a later layout pass expanded it to full size. */
   .album-page-blank {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 100%;
   }
   .blank-page-note {
     font-size: 13px;
@@ -715,12 +727,18 @@
   .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
   .slot-cell.key-date .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright), inset 0 0 10px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.5); }
   .slot-cell.key-date.want .coin-disc { box-shadow: 0 0 0 2px var(--gold-bright); }
+  /* Wraps just the disc (not the whole slot-cell, which is wider to fit the
+     label/meta text below) so the key-date star below anchors to the disc's
+     own edge at any computed disc size/column count, instead of drifting
+     inside or outside the circle depending on how much spare cell width
+     happens to surround it. */
+  .slot-disc-wrap { position: relative; display: inline-flex; }
   .key-date-badge {
     position: absolute;
-    top: -4px;
-    right: 8px;
+    top: -8px;
+    right: -8px;
     color: var(--gold-bright);
-    font-size: 13px;
+    font-size: 17px;
     text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   }
 
@@ -816,14 +834,16 @@
     background: radial-gradient(circle at 40% 35%, rgba(0,0,0,0.26), rgba(0,0,0,0.4) 70%);
     box-shadow: inset 0 3px 6px rgba(0,0,0,0.5), inset 0 -1px 2px rgba(255,255,255,0.08);
   }
-  /* Key-date marker restyled to fit printed-folder look — a small navy
-     printed star + ring instead of the dark-UI's glowing gold outline. */
+  /* Key-date marker: gold ring around the disc + a gold star anchored just
+     outside its edge (see .slot-disc-wrap/.key-date-badge above) — same
+     treatment as the dark-UI look, on top of the Littleton page skin.
+     Supersedes an earlier navy-printed-star restyle (Ray's call: he didn't
+     like the star/marker reading as inside the circle at real column
+     widths — fixed by anchoring the badge to the disc itself, not the wider
+     slot-cell — and prefers gold to match the rest of the app's key-date
+     styling rather than a folder-print-matched navy). */
   .slot-cell.littleton-slot.key-date .coin-disc.die-cut {
-    box-shadow: inset 0 2px 5px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.3), 0 0 0 2px #1c2b5e;
-  }
-  .slot-cell.littleton-slot .key-date-badge {
-    color: #1c2b5e;
-    text-shadow: none;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.4), inset 0 -1px 2px rgba(255,255,255,0.3), 0 0 0 2px var(--gold);
   }
 
   .book-nav {
@@ -3849,11 +3869,14 @@
 
   // Builds the clickable child-coin mini-flip grid for a multi-coin Set.
   // Each child reuses the same .flip-frame-mini markup the Browse grid cards
-  // use, so a coin reads as the same coin whether spotlighted, browsed, or
-  // shown inside its set. Tapping a child opens that child's own full detail
-  // view, with Back returning to this Set (same per-origin back-handler
-  // pattern Albums' filled-slot tap uses) — and the Set's own Back target is
-  // captured and restored so it still returns to the grid afterward.
+  // use — no name caption, matching every other flip-frame-mini in the app
+  // (Browse grid cards show only the flip + corner labels; the full name is
+  // only ever revealed by tapping into a coin's own detail view) — so a coin
+  // reads as the same coin whether spotlighted, browsed, or shown inside its
+  // set. Tapping a child opens that child's own full detail view, with Back
+  // returning to this Set (same per-origin back-handler pattern Albums'
+  // filled-slot tap uses) — and the Set's own Back target is captured and
+  // restored so it still returns to the grid afterward.
   function renderSetChildFlips(parentSet, children) {
     const grid = document.getElementById("browseDetailChildFlips");
     grid.innerHTML = "";
@@ -3869,7 +3892,6 @@
           <div class="coin-disc"></div>
           <span class="flip-label bl">${child.grade || ""}</span>
         </div>
-        <div class="set-child-caption">${child.name}</div>
       `;
       card.addEventListener("click", () => {
         const setBackHandler = browseDetailBackHandler;
@@ -4608,8 +4630,10 @@
 
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
-        ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
-        <div class="${discClasses.join(" ")}"${discStyleAttr}>${discContent}</div>
+        <div class="slot-disc-wrap">
+          <div class="${discClasses.join(" ")}"${discStyleAttr}>${discContent}</div>
+          ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
+        </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
         ${metaLine}
       </div>
@@ -4703,11 +4727,12 @@
       `;
     }
     if (page.type === "back-cover") {
+      // Blank, deliberately — no icon, no album name (unlike the front
+      // cover, which shows both). Keeps the same cover styling (leather
+      // texture, gold filigree frame) as the physical material, just with
+      // nothing printed on it.
       return `
-        <div class="case album-page album-page-cover album-page-back-cover${littletonClass}">
-          <div class="cover-icon">${album.icon}</div>
-          <div class="cover-sub">${album.name}</div>
-        </div>
+        <div class="case album-page album-page-cover album-page-back-cover${littletonClass}"></div>
       `;
     }
     // Physical page-flip accuracy only matters when both sides are actually

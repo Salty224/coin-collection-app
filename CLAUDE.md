@@ -1640,9 +1640,20 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
 - **Caption**: date + mintmark only under each hole (`.slot-label`) — the
   second `.slot-meta` description line is dropped entirely, matching real
   folder printing.
-- **Key-date marker**: the gold glowing-star treatment is restyled to a
-  small navy printed star + ring, fitting the printed-folder look rather than
-  a glow.
+- **Key-date marker (superseded, twice)**: originally a gold glowing-star
+  treatment, then restyled to a small navy printed star + ring to fit the
+  printed-folder look. Ray didn't like the navy version in practice — the
+  star/marker read as sitting inside the coin circle rather than clearly
+  outside it. Now: **gold** ring around the disc (back to gold, not navy) +
+  a **larger** gold star anchored just outside the circle's top-right edge.
+  The "inside the circle" complaint turned out to be a real positioning bug,
+  not just a color preference — `.key-date-badge` used to position itself
+  relative to the whole `.slot-cell` (label + meta text included), so at real
+  computed column widths there often wasn't enough spare cell width for the
+  badge's offset to actually clear the disc. Fixed by wrapping just the disc
+  in `.slot-disc-wrap` (sized to the disc alone) and anchoring the badge to
+  *that*, so it always sits a fixed, disc-relative distance outside the
+  circle's edge regardless of column count/disc size.
 - **Reference photos were for color/material only, not the page-turn
   mechanic (important correction)**: real Littleton folders physically
   unfold accordion/fan-style flat on a table — that look was mistakenly
