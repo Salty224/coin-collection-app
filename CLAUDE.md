@@ -200,8 +200,9 @@ CoinCollection/
                            3rd/4th image is actually needed — slab label closeup, box,
                            etc.) _photo3.jpg, _photo4.jpg. Flat — no subfolder by
                            year/series/anything else.
-  CoinReceipts/           named {CollectionID}_receipt.jpg, or timestamp-named for
-                           batch receipts not yet tied to a coin
+  CoinReceipts/           named {CollectionID}_receipt.pdf, or timestamp-named for
+                           batch receipts not yet tied to a coin — always a PDF now,
+                           see "Receipt photos auto-convert to PDF" below
   Staging/{YYYYMMDD-HHMMSS}/   fallback landing zone when a direct Excel write fails
                                  — data.json + generic-named photos, collectionID left
                                  blank until reconciled
@@ -248,6 +249,85 @@ CoinCollection/
   toast "nothing saved yet") — no OneDrive writes happen anywhere in the app yet.
   When that write layer gets built, this naming/renaming/fallback logic is what
   it needs to implement — not a separate future feature on top of it.
+
+### Receipt photos auto-convert to PDF (locked in)
+Every Receipt slot in the app — Add Coin, Browse Edit, Wishlist, Edit Set,
+Batch Receipt, and Add Set's receipt slot, all six — auto-wraps a captured or
+picked image (jpg/png) into a single-page PDF before it's treated as "the file
+to store." **Naming convention updated**: `CoinReceipts/{CollectionID}_receipt.jpg`
+is now `..._receipt.pdf` (see "OneDrive folder structure" above) — this
+supersedes every earlier `_receipt.jpg` reference in this file.
+- **Page size = the photo's own pixel dimensions, no forced US-Letter page, no
+  re-flow.** A tall phone photo gets a tall page; a wide one gets a wide page.
+- **Losslessly wrapped, not re-compressed.** A JPEG's original bytes are
+  embedded byte-for-byte via the PDF's native `/DCTDecode` filter — zero
+  re-encoding, so quality is bit-identical to the captured photo. A PNG has no
+  equivalent native PDF filter, so it's decoded to raw pixels and re-packed via
+  `/FlateDecode` (lossless deflate, via the browser's built-in
+  `CompressionStream` — no library); inflating it reproduces the exact same
+  pixels, the same lossless relationship a `.png` already has to its own raw
+  data. EXIF rotation (JPEG only) is honored via the PDF page's own `/Rotate`
+  entry rather than baking a rotation into the pixels, so the embedded bytes
+  stay identical to the source while still displaying right-side-up. Only the
+  four pure-rotation EXIF values are mapped; the four mirrored values (rare
+  from a real camera) are left unrotated — a known, accepted limitation, same
+  "not worth the tradeoff for a case that basically never happens" call as the
+  no-dedicated-combined-image-splitter-tool decision elsewhere in this file.
+- **If the picked file is already a PDF, it passes through completely
+  unchanged** — no re-wrap, byte-for-byte the original file, just renamed to
+  the standard `..._receipt.pdf` convention. Every Receipt slot's Library
+  file input now accepts `application/pdf` alongside images so a PDF is
+  actually selectable there (Camera inputs stay image-only, unchanged — a
+  camera capture is inherently a photo, never a PDF).
+- **No PDF library** — a minimal valid single-page/single-image PDF (a
+  handful of objects + an xref table) is hand-written directly, matching this
+  project's established self-contained/no-external-CDN posture (see the
+  self-hosted-fonts and jsdelivr-not-default-MSAL-CDN notes above) rather than
+  pulling in something like pdf-lib from a CDN for what's a small, well-
+  defined file-format subset.
+- **The on-screen preview is unaffected — still a live photo thumbnail**,
+  exactly as before; the PDF wrap is a storage-format change, not a UI
+  change. The one exception is the already-a-PDF pass-through case, where
+  there's no image to preview at all — that slot shows a small "📄 filename
+  attached" indicator instead (reusing the existing placeholder-icon element
+  where one exists, or a small note appended into the photo-box where it
+  doesn't, e.g. Add Set's plainer boxes) rather than leaving the box looking
+  blank/broken.
+- **Add Set's receipt slot is the one real end-to-end wire-up** — it already
+  has a real write layer (`ENABLE_SET_WRITE_LAYER`), so its captured/picked
+  file is prepared into a PDF Blob immediately and that's what actually
+  uploads via `uploadDraftPhoto()`/`graph().uploadFile()` (Blob-safe already —
+  confirmed `uploadFile(path, fileOrBlob)` never assumed a real `File`). The
+  promotion file-move step (`plannedPromotionMoves()`) now derives the
+  destination extension from the Staging filename itself instead of a
+  hardcoded `.jpg`, so it stays correct regardless of what actually got
+  stored there. **Add Set's whole-set photo (`wireAddSetPhotoSlot("whole", ...)`)
+  is explicitly NOT a receipt and is untouched** — still a plain image, no
+  PDF wrap; only the `"receipt"` key opts in (`isReceipt` param).
+- **The other five slots (Add Coin, Browse Edit, Wishlist, Edit Set, Batch
+  Receipt) have no real write layer yet — every Save there is still a stub**,
+  per the hard constraint above. For these, the prepared PDF is stored in a
+  new `receiptFiles` registry (keyed by the slot's preview element ID),
+  ready-but-unconsumed — the same "build for a future consumer" posture the
+  Add Set draft/reservation system already established. Nothing currently
+  reads `receiptFiles`; whichever write layer eventually lands for these
+  flows is what should consume it, at which point no further conversion work
+  is needed — the PDF is already sitting there prepared.
+- **A conversion failure never blocks the live preview or the capture
+  itself** — wrapped in try/catch, same "a secondary feature can't take down
+  the primary flow" posture as the reference-image MSAL-load-failure
+  handling. Add Set's receipt slot falls back to storing the raw photo
+  (renamed `receipt.jpg`) rather than losing the capture entirely if the
+  wrap throws; the other five just leave `receiptFiles` unset for that slot.
+- **Not verified against a real device/browser beyond this environment's
+  Chromium** — `CompressionStream` (used for the PNG path) needs Chrome
+  80+/Safari 16.4+/Firefox 113+; confirmed present in this environment's
+  headless Chromium, but Samsung Internet's exact support window wasn't
+  independently confirmed. Worth a real-device check, same "cannot verify
+  from this environment" caveat as the Web Share API note elsewhere in this
+  file — if it's ever missing on a real device, the try/catch means it fails
+  quietly (no receiptFiles entry, or the Add Set raw-photo fallback) rather
+  than breaking capture.
 
 ## ID schemes (locked in)
 - CollectionID: `AY-#####` (5-digit). Parent rows get `-Set` suffix; child rows get
@@ -687,7 +767,7 @@ deep-dive, locked in and built):
     Total shown only when both Cost and Shipping exist so it's a real sum.
     Each row still shows independently of the others. **Receipt is a real
     link, not plain "On file" text** (superseded) — `details.receipt` holds
-    the actual stored path directly (`CoinReceipts/{CollectionID}_receipt.jpg`
+    the actual stored path directly (`CoinReceipts/{CollectionID}_receipt.pdf`
     per the documented naming convention), used as the link's `href` exactly
     the same "stored value used directly" way `certLink` is, not constructed.
     Row hidden entirely when Receipt is blank, same as every other row here.
@@ -1024,6 +1104,46 @@ rendering anything inline.
   Coins/Albums today. Real creation is hard-blocked on the CollectionID-
   reservation system and the OneDrive write layer, neither of which exist
   yet (see "Add Coin: the core workflow").
+
+### Medal tab (locked in, supersedes the Medal chip mentioned above)
+Browse is now **five** tabs — `Coins | Medal | Rolls | Sets | Albums`
+(`BROWSE_TABS`) — Medal promoted from a Denomination-style chip inside the
+Coins tab's filter row to its own top-level tab, one path to it, not both.
+Nav placement only, per Ray's explicit framing: medals aren't numismatically
+coins even though they share the CoinID pattern — no underlying data/schema
+change (Denomination="Medal" is still exactly what it was).
+- **`coinsTabBaseRows()` now also excludes `denom==="Medal"`** (alongside the
+  existing Set-bundle/Roll exclusions) and a new `medalTabBaseRows()`
+  (`FAKE_COINS.filter(c => c.denom==="Medal")`) feeds a new
+  `applyMedalTabFilters()` — same "a row never appears in more than one tab"
+  rule the Rolls/Sets split already established.
+- **Reuses Coins' exact card treatment** (`renderBrowseGrid`, same
+  `.coin-card`/flip-frame-mini look, same Grid/List toggle, same Value-hidden-
+  on-grid CSS rule — extended to `[data-tab="medal"]` alongside
+  `[data-tab="coins"]` so a medal's grid card looks exactly as it did when it
+  was still inside the Coins tab).
+- **Metal filter + Commemorative toggle stay available on the Medal tab** — a
+  medal can still be gold/silver and can still be Category="Commemorative",
+  so those axes are still meaningful and still AND-combine, same as before
+  the tab split. **Only the Denomination pill row hides** (`#browseFilters`,
+  toggled in `showBrowseTab()`) — there's nothing to choose there anymore,
+  the tab itself already scopes to Denomination="Medal". Both tabs share the
+  same `#browseCoinsHeader` container; only the inner pill row's visibility
+  differs per tab.
+- **Year + Missing Photos toolbar filters apply unchanged** (shared across
+  Coins/Rolls/Sets already, now Medal too — no new logic needed, the shared
+  toolbar row was already tab-agnostic).
+- **No nav entry or Dashboard tile** — same standing as Rolls (not Sets/
+  Albums, which are full persistent nav items): reachable only by tapping
+  the tab after already being in Browse. `resetBrowseFilters()`/external-
+  entry-resets-to-Coins-tab behavior is unaffected — Medal introduces no new
+  persisted filter state of its own.
+- Verified headless (14 assertions): tab order/labels, Medal chip gone from
+  the Denomination row, `coinsTabBaseRows()` excludes Medal, Medal tab card
+  count matches `medalTabBaseRows()` exactly, Metal/Commemorative header
+  stays visible while the Denomination row hides, Year filter ANDs correctly
+  against the Medal tab, and switching back to Coins restores the
+  Denomination row.
 
 ### Rolls tab: list view + sort control (locked in, supersedes the coin-stack visual below)
 The Rolls tab no longer renders its own coin-disc grid at all — it's a
@@ -1638,7 +1758,7 @@ Part 1 — Add Coin migrates to it LATER, not this round, Q11):**
 **Promotion file-move loop (`processPromotedSetDrafts`, Part 3 step 3, runs at
 launch):** for each `Promoted` draft not yet moved (`filesMovedOnPromotion`
 flag), relocate its photos from the Staging folder to the final convention
-(`CoinPhotos/{childId}_obverse.jpg` etc., `CoinReceipts/{parent}_receipt.jpg`,
+(`CoinPhotos/{childId}_obverse.jpg` etc., `CoinReceipts/{parent}_receipt.pdf`,
 whole-set → `CoinPhotos/{parent}_set.jpg`). **Every move is strictly
 copy-then-verify-then-delete-original (Q4) — a failed/unverifiable copy always
 leaves the source intact**, the draft stays `Promoted` (flag not set), and the
