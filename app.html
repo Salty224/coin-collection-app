@@ -6410,8 +6410,9 @@
     });
 
     const badge = document.getElementById("needsAttentionBadge");
-    const total = actionRows.length + researchRows.length;
-    badge.textContent = total ? "(" + total + ")" : "";
+    // Badge counts only "Needs your action" — items Ray can actually resolve
+    // himself — not the research section, which is stuck on Copilot, not him.
+    badge.textContent = actionRows.length ? "(" + actionRows.length + ")" : "";
   }
 
   // ==================================================================

@@ -1689,9 +1689,8 @@ integration under "External data sources" below. Actually researching and
 writing real per-series grading guidance is a separate, deferred task — same
 boundary as DB_Coins scope and ANACS/ICG/CAC label research above.
 
-### Needs Attention hub (BUILT — held on branch `claude/needs-attention-hub`,
-NOT merged; awaiting Ray go-ahead). Supersedes the old flat "Needs Attention
-queue" below, which is kept only for history.
+### Needs Attention hub (BUILT and merged to main). Supersedes the old flat
+"Needs Attention queue" below, which is kept only for history.
 The Dashboard's "Needs Attention" tile is now a consolidated hub
 (`renderNeedsAttentionHub()`) replacing Staging Review and In Progress Sets as
 **separate dashboard tiles** — both of those screens (and their internal
@@ -1743,10 +1742,14 @@ is:
     original spec's literal wording (Sets/Coins with that status), extended
     to coins via the "no DB_Coins match" heuristic above since coins have no
     literal status field of their own.
-- **Dashboard badge** = total count across BOTH sections combined (a design
-  call, not explicitly specified — flagged for Ray to weigh in on; the prior
-  badge was always a flat total too, so this preserves that convention rather
-  than inventing a new one).
+- **Dashboard badge** = count of "Needs your action" only, NOT a total across
+  both sections (Ray's explicit call, resolving open item 3 below) — the
+  badge should only reflect things Ray can actually resolve himself; items
+  stuck waiting on Copilot research don't belong in a number that reads as
+  "things to go do." **Supersedes an earlier version of this hub** that
+  summed both sections, matching the prior flat-queue badge's convention —
+  that convention wasn't actually right once the hub split "actionable" from
+  "research-bound," so it wasn't preserved here.
 
 **"Open workbook in Excel" link (Task 2, plain link only — the `ms-excel:`
 desktop-preferred variant was explicitly marked a nice-to-have and NOT
@@ -1820,13 +1823,14 @@ resolved by headless testing):**
    (a few rows marked "has a photo" to keep the hub readable) the right call,
    or would Ray rather see the literal "everything's missing" state and
    handle hub noise a different way (e.g. capping the list, paginating)?
-3. Is "badge = total of both sections" the right semantic, or should it only
-   count "Needs your action" (the more urgent bucket) since research-bound
-   items aren't really actionable by Ray day-to-day?
+Item 3 (badge semantics) is resolved — see "Dashboard badge" above — and
+removed from this list at merge time.
 Verified entirely headless (36 new assertions across two suites — hub
 sections/dismissal/badge math, and the Missing Photos filter/webUrl
 degradation), plus the full 189-assertion prior suite re-run clean — 225/225
-total, zero regressions. No live OneDrive session was available this session
+total, zero regressions; badge math re-verified again post-merge against the
+merged tree after the "action-only" change. No live OneDrive session was
+available this session
 (Ray offline) — items 1 above specifically needs his own click-through,
 consistent with how the original write-layer work also had a Ray-only live
 step.
