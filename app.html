@@ -562,6 +562,53 @@
   .rolls-sort-row { display: flex; justify-content: flex-end; margin-bottom: 12px; }
   .rolls-sort-row select { width: auto; padding: 6px 30px 6px 12px; font-size: 12px; }
 
+  /* ---------- Sets tab: completeness checklist ----------
+     A Lineage pill (Proof Set / Uncirculated Coin Set / Silver Proof Set)
+     turns the Sets tab into an at-a-glance "which years do I own" grid drawn
+     from DB_Sets. Owned years render as a normal lit tile; unowned years use
+     the same hollow/grayed language as an empty album die-cut hole. Years no
+     product was ever issued in simply have no DB_Sets row, so they get no tile
+     at all (never a hollow one). The grid layout is a mode class on the shared
+     #browseGrid, same approach as .sets-mode/.list-view. */
+  .coin-grid.checklist-mode {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 10px;
+  }
+  @media (max-width: 480px) { .coin-grid.checklist-mode { grid-template-columns: repeat(3, 1fr); } }
+  .set-tile {
+    border: 1px solid var(--case-border);
+    border-radius: 10px;
+    background: var(--bg-case);
+    padding: 12px 8px;
+    text-align: center;
+    cursor: pointer;
+    min-height: 92px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    transition: border-color 0.15s ease;
+  }
+  .set-tile:hover { border-color: var(--case-border-bright); }
+  .set-tile .set-tile-icon { font-size: 18px; line-height: 1; height: 18px; }
+  .set-tile .set-tile-year { font-family: "Cormorant Garamond", Georgia, serif; font-size: 26px; font-weight: 700; line-height: 1; color: var(--text); }
+  .set-tile .set-tile-name { font-size: 10px; color: var(--text-muted); line-height: 1.2; }
+  /* Owned = lit, gold-tinted (the "filled hole" state). */
+  .set-tile.owned {
+    border-color: var(--gold);
+    background: linear-gradient(160deg, rgba(201,162,39,0.16), rgba(201,162,39,0.04));
+  }
+  .set-tile.owned .set-tile-year { color: var(--gold-bright); }
+  /* Unowned = hollow/grayed, same visual intent as .die-cut-empty in albums:
+     dashed edge, recessed dark fill, muted text, faded (no) icon. */
+  .set-tile.empty {
+    border-style: dashed;
+    border-color: rgba(255,255,255,0.14);
+    background: rgba(0,0,0,0.20);
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.4);
+    opacity: 0.72;
+  }
+  .set-tile.empty .set-tile-year { color: var(--text-muted); }
+  .set-tile.empty .set-tile-name { opacity: 0.85; }
+
   /* ---------- Albums: detail (page-flip book) ---------- */
   /* One "page" at a time on phone; two side by side (a spread, like an open
      book) once there's enough width. Cover, then History, then coin groups
@@ -1498,6 +1545,16 @@
 
           <div id="browseSetsHeader" style="display:none;">
             <div class="filter-row" id="browseSetsCategoryFilters"></div>
+            <!-- Complete/Component/Premium sub-filter — only shown when a
+                 Lineage pill (checklist mode) is active; reuses the Rolls-sort
+                 dropdown styling (decision B1). -->
+            <div class="rolls-sort-row" id="setScopeRow" style="display:none;">
+              <select id="setScopeSelect" aria-label="Set scope">
+                <option value="Complete">Complete sets</option>
+                <option value="Component">Component sets</option>
+                <option value="Premium">Premium sets</option>
+              </select>
+            </div>
           </div>
 
           <div id="browseRollsHeader" style="display:none;">
@@ -2313,6 +2370,14 @@
           the coins now or come back to it later via "In Progress Sets."
         </p>
 
+        <!-- Shown only when arriving from a Sets-tab completeness-checklist
+             empty tile (setChecklistContext). The name is pre-composed and the
+             year/SetID ride along invisibly onto the draft (decision A2). -->
+        <div class="banner context-banner hidden" id="addSetContextBanner">
+          <span class="icon">🧩</span>
+          <span class="msg" id="addSetContextMsg"></span>
+        </div>
+
         <label for="addSetName">Set name / description</label>
         <input type="text" id="addSetName" placeholder="e.g. 1999 United States Mint Set">
 
@@ -2978,7 +3043,13 @@
   // unresolved, same shape as the NGC/PCGS research-queue notes.
   function buildSetDraft(collectionId, step1) {
     const researchLines = ["GSID pending — new release"];
-    if (!step1.productCode) researchLines.push("SetID/product code unconfirmed — verify against Mint catalog");
+    // A checklist deep-link carries a known intended SetID (and Lineage/year)
+    // from DB_Sets, so the SetID is NOT unconfirmed in that case.
+    if (step1.checklistSetId) {
+      researchLines.push("Linked from Sets completeness checklist — " + step1.checklistLineage + " " + step1.year + " (SetID " + step1.checklistSetId + "); confirm at reconciliation");
+    } else if (!step1.productCode) {
+      researchLines.push("SetID/product code unconfirmed — verify against Mint catalog");
+    }
     if (step1.dbSetsMatch === null && step1.productCode) researchLines.push("Product code entered but no DB_Sets match — confirm at reconciliation");
     return {
       collectionID: collectionId,
@@ -2986,7 +3057,14 @@
       status: SET_STATUS.DRAFT,
       setName: step1.setName || "",
       productCode: step1.productCode || "",
-      setId: step1.productCode || "",            // product code doubles as SetID when known; else assigned at reconciliation
+      // A checklist SetID (a real intended SetID from DB_Sets) wins when
+      // present; otherwise the product code doubles as SetID when known; else
+      // assigned at reconciliation. `year` is a new draft field, populated only
+      // on the checklist path (blank for a plain Add Set — no visible Year
+      // field was added, per decision A2).
+      setId: step1.checklistSetId || step1.productCode || "",
+      year: step1.year || "",
+      lineage: step1.checklistLineage || "",
       dbSetsMatch: step1.dbSetsMatch || null,
       expectedChildCount: Number(step1.expectedChildCount) || 0,
       subGroups: Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
@@ -3731,6 +3809,9 @@
       clearAlbumContext();
       clearWishlistContext();
     }
+    if (previousViewId === "addset" && viewId !== "addset") {
+      clearAddSetContext();
+    }
 
     // "sets" has no view element of its own — same #view-browse as "browse",
     // just landing on a different tab (see NAV_ITEMS comment above).
@@ -4381,33 +4462,48 @@
   ];
   let browseMetalTest = BROWSE_METAL_CHIPS[0].test;
 
-  // Sets tab: Category pills. Category is single-valued per row (confirmed
-  // against the real workbook) — a bundle row is never both Category="Proof
-  // Set" and Category="Commemorative" — so unlike the Coins tab's
-  // Denomination row, this whole row behaves as ONE single-select axis
-  // (same interaction pattern as Metal above), not a combinable multi-
-  // select. "Other" is any Set-category row not matching one of the three
-  // named pills or Commemorative (Reverse Proof Set, Legacy Collection,
-  // Prestige Set, Quarters Set, Educational Set, and future values all land
-  // here — it deliberately excludes Commemorative-category rows, which are
-  // only reachable via their own pill).
+  // Sets tab: Category pills. Two kinds of pill now coexist on this one
+  // single-select row:
+  //   - LINEAGE pills (Proof Set / Uncirculated Coin Set / Silver Proof Set)
+  //     carry a `lineage` and switch the tab into COMPLETENESS-CHECKLIST mode
+  //     (renderSetChecklist) — a year grid drawn from DB_Sets, owned vs.
+  //     unowned, with the Complete/Component/Premium sub-filter dropdown
+  //     showing beneath. These replace the old owned-rows-filter behaviour of
+  //     the same three category pills (that's the whole feature).
+  //   - LIST pills (All / Commemorative / Other) carry a `test` and keep the
+  //     original owned-Set-rows list behaviour completely untouched (Q3) —
+  //     Commemorative-scope Sets never enter the checklist, since they have no
+  //     Lineage.
+  // "Uncirculated Coin Set" is the renamed pill for the Mint's own current
+  // term (decision C); the underlying category DATA value stays "Mint Set",
+  // which is why SET_NAMED_CATEGORIES (used only by the "Other" list-mode
+  // catch-all) is unchanged. Still single-select, exactly one pill active.
   const SET_NAMED_CATEGORIES = ["Proof Set", "Mint Set", "Silver Proof Set"];
   const BROWSE_SET_CATEGORY_CHIPS = [
-    { label: "All",              test: () => true },
-    { label: "Proof Set",        test: c => c.category === "Proof Set" },
-    { label: "Mint Set",         test: c => c.category === "Mint Set" },
-    { label: "Silver Proof Set", test: c => c.category === "Silver Proof Set" },
-    { label: "Commemorative",    test: c => c.category === "Commemorative" },
-    { label: "Other",            test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
+    { label: "All",                   test: () => true },
+    { label: "Proof Set",             lineage: "Proof Set" },
+    { label: "Uncirculated Coin Set", lineage: "Uncirculated Coin Set" },
+    { label: "Silver Proof Set",      lineage: "Silver Proof Set" },
+    { label: "Commemorative",         test: c => c.category === "Commemorative" },
+    { label: "Other",                 test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
   ];
+  // The active Sets-tab pill config (drives list-vs-checklist branching in
+  // applySetsTabFilters). browseSetCategoryTest mirrors its `test` for the
+  // list-mode path; unused while a lineage pill is active.
+  let activeSetCategoryChip = BROWSE_SET_CATEGORY_CHIPS[0];
   let browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
+  let setChecklistScope = "Complete"; // Complete | Component | Premium — default per decision E
+  // Carried from a checklist empty-tile tap into Add Set (decision A2): the
+  // year/lineage/SetID ride along invisibly onto the draft; the name pre-fills
+  // #addSetName. Cleared when leaving Add Set (navigate leaving-guard).
+  let setChecklistContext = null;
 
   let browseViewMode = "grid"; // "grid" | "list" — persists across filter changes
 
   function renderBrowseGrid(coins) {
     const grid = document.getElementById("browseGrid");
     grid.classList.toggle("list-view", browseViewMode === "list");
-    grid.classList.remove("sets-mode");
+    grid.classList.remove("sets-mode", "checklist-mode");
     grid.innerHTML = "";
     coins.forEach(coin => {
       const card = document.createElement("div");
@@ -4461,7 +4557,7 @@
   // can't leak into another tab's grid layout.
   function renderSetsGrid(rows) {
     const grid = document.getElementById("browseGrid");
-    grid.classList.remove("list-view");
+    grid.classList.remove("list-view", "checklist-mode");
     grid.classList.add("sets-mode");
     grid.innerHTML = "";
     rows.forEach(coin => {
@@ -4494,7 +4590,7 @@
   // its CSS comment, generic despite the name.
   function renderRollsGrid(rows) {
     const grid = document.getElementById("browseGrid");
-    grid.classList.remove("list-view");
+    grid.classList.remove("list-view", "checklist-mode");
     grid.classList.add("sets-mode");
     grid.innerHTML = "";
     rows.forEach(coin => {
@@ -4589,9 +4685,75 @@
   }
 
   function applySetsTabFilters() {
-    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
-      .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
-    renderSetsGrid(rows);
+    const scopeRow = document.getElementById("setScopeRow");
+    if (activeSetCategoryChip && activeSetCategoryChip.lineage) {
+      // Checklist mode: show the scope dropdown, render the year grid.
+      scopeRow.style.display = "";
+      renderSetChecklist(activeSetCategoryChip.lineage, setChecklistScope);
+    } else {
+      // List mode (All/Commemorative/Other): original owned-rows behaviour,
+      // untouched. Hide the scope dropdown.
+      scopeRow.style.display = "none";
+      const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
+        .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
+      renderSetsGrid(rows);
+    }
+  }
+
+  // Completeness checklist for one Lineage + SetScope: a year grid drawn from
+  // the DB_Sets universe, owned tiles lit, unowned tiles hollow (same intent
+  // as an empty album die-cut hole). Years with no DB_Sets row for this
+  // lineage/scope get no tile at all (decision D — never a hollow tile for a
+  // year nothing was issued). Honors the shared Year filter (natural for a
+  // year-indexed grid); the Missing-Photos toggle is intentionally ignored
+  // here — it's an owned-row audit with no meaning for reference tiles (a
+  // decision not covered by A-F; see the report/CLAUDE.md note).
+  function renderSetChecklist(lineage, scope) {
+    const grid = document.getElementById("browseGrid");
+    grid.classList.remove("list-view", "sets-mode");
+    grid.classList.add("checklist-mode");
+    grid.innerHTML = "";
+    document.getElementById("browseEmptyMsg").classList.add("hidden");
+
+    const rows = FAKE_DB_SETS
+      .filter(s => s.setScope === scope && dbSetLineageIncludes(s, lineage))
+      .filter(s => yearRowTest({ year: s.year }))
+      .sort((a, b) => a.year - b.year);
+
+    if (!rows.length) {
+      const note = document.createElement("div");
+      note.className = "browse-empty";
+      note.style.gridColumn = "1 / -1";
+      note.textContent = "No " + scope.toLowerCase() + " " + lineage + " sets on file to track yet.";
+      grid.appendChild(note);
+      return;
+    }
+
+    rows.forEach(row => {
+      const ownedCoin = ownedSetForSetId(row.setId);
+      const owned = !!ownedCoin;
+      const tile = document.createElement("div");
+      tile.className = "set-tile " + (owned ? "owned" : "empty");
+      tile.innerHTML = `
+        <div class="set-tile-icon">${owned ? "📦" : ""}</div>
+        <div class="set-tile-year">${row.year}</div>
+        <div class="set-tile-name">${row.tileLabel || row.name}</div>`;
+      tile.addEventListener("click", () => {
+        if (owned) {
+          // A year I own — open that Set's detail (dormant until SetID linkage
+          // lands; back returns to this grid, same as a Sets-tab card).
+          browseDetailBackHandler = showBrowseGrid;
+          showBrowseDetail(ownedCoin);
+        } else {
+          // A year I don't own — deep-link into Add Set, pre-filled, reusing
+          // the album empty-hole tap pattern (decision A2).
+          setChecklistContext = { year: row.year, lineage: lineage, setId: row.setId, name: row.name };
+          navigate("addset");
+          applyAddSetContext();
+        }
+      });
+      grid.appendChild(tile);
+    });
   }
 
   let rollsSortKey = "year-desc"; // persists across tab switches, same as browseViewMode
@@ -4665,7 +4827,13 @@
     browseMetalTest = BROWSE_METAL_CHIPS[0].test;
     document.querySelectorAll("#browseMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
 
+    activeSetCategoryChip = BROWSE_SET_CATEGORY_CHIPS[0];
     browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
+    setChecklistScope = "Complete";
+    const setScopeSelectEl = document.getElementById("setScopeSelect");
+    if (setScopeSelectEl) setScopeSelectEl.value = "Complete";
+    const setScopeRowEl = document.getElementById("setScopeRow");
+    if (setScopeRowEl) setScopeRowEl.style.display = "none";
     document.querySelectorAll("#browseSetsCategoryFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
 
     yearFilterBegin = null;
@@ -4784,11 +4952,18 @@
       chip.addEventListener("click", () => {
         document.querySelectorAll("#browseSetsCategoryFilters .filter-chip").forEach(c => c.classList.remove("active"));
         chip.classList.add("active");
-        browseSetCategoryTest = sc.test;
+        activeSetCategoryChip = sc;
+        browseSetCategoryTest = sc.test || (() => true);
         applySetsTabFilters();
       });
       setCategoryRow.appendChild(chip);
       if (!firstSetCategoryChip) firstSetCategoryChip = chip;
+    });
+
+    // Complete/Component/Premium sub-filter (checklist mode only).
+    document.getElementById("setScopeSelect").addEventListener("change", (e) => {
+      setChecklistScope = e.target.value;
+      applySetsTabFilters();
     });
 
     document.getElementById("browseGridViewBtn").addEventListener("click", () => {
@@ -7563,13 +7738,89 @@
   // Minimal DB_Sets stand-in for the product-code prefill demo (same sparse
   // placeholder pattern as the other FAKE_* lookups). Real prefill fields
   // (denom mix, composition) come from the workbook at reconciliation.
-  const FAKE_DB_SETS = [
-    { productCode: "1999RG", name: "1999 United States Mint Set", category: "Mint Set" },
-    { productCode: "2021RC", name: "2021 Silver Proof Set", category: "Silver Proof Set" }
-  ];
+  // DB_Sets reference universe for the Sets-tab completeness checklist. Each
+  // row is one (year × Lineage × SetScope) annual product. `lineage` is the
+  // new workbook field; a comma-separated value (the 1965-67 Special Mint Set)
+  // means the row belongs to BOTH lineages and shows under both checklists
+  // (decision D). `setScope` is Complete/Component/Premium (Commemorative is
+  // out of scope for this feature and has no Lineage, so it never appears
+  // here). `setId` is the eventual All-sheet SetID linkage key — a checklist
+  // tile is "owned" when an owned Denomination="Multiple" row carries a
+  // matching setId. That linkage isn't populated yet (separate data task), so
+  // every tile renders unowned today, matching the live site — that's expected,
+  // not a bug. This is a representative span (not exhaustive): enough to show
+  // owned-vs-unowned rendering, the SMS dual-lineage share, per-scope
+  // switching, and natural "no product that year = no tile" gaps (e.g. Silver
+  // Proof only from 1992; nothing before it). `tileLabel` is the compact
+  // caption under the big year on each tile. `category` is retained so the
+  // existing product-code match note (matchDbSetsByProductCode) still works.
+  const FAKE_DB_SETS = (function buildFakeDbSets() {
+    const out = [];
+    const push = (year, lineage, setScope, code, name, tileLabel, category, productCode) =>
+      out.push({ year, lineage, setScope, setId: `S-${year}-${code}-01`, name, tileLabel,
+                 category: category || lineage, productCode: productCode || "" });
+
+    // ---- Proof Set (Complete) — traditional proof sets. Gap 1965-67 is
+    // filled by the SMS rows below (which count for this lineage too). ----
+    [1960,1961,1962,1963,1964,1968,1969,1970,1971,1972,1973,1974,1975].forEach(y =>
+      push(y, "Proof Set", "Complete", "PR", `${y} United States Proof Set`, "Proof Set"));
+
+    // ---- Uncirculated Coin Set (Complete) — the Mint's "Mint Set". Same SMS
+    // gap. category stays "Mint Set" (the workbook data value; only the pill
+    // LABEL was renamed — decision C). ----
+    [1959,1960,1961,1962,1963,1964,1968,1969,1970,1971,1972,1973,1974].forEach(y =>
+      push(y, "Uncirculated Coin Set", "Complete", "UC", `${y} United States Uncirculated Coin Set`, "Unc. Set", "Mint Set"));
+    // The two original demo rows carried real product codes used by the Add
+    // Set product-code match — preserve them on their real years.
+    const uc1999 = out.find(s => s.year === 1999 && s.lineage === "Uncirculated Coin Set");
+    if (!uc1999) push(1999, "Uncirculated Coin Set", "Complete", "UC", "1999 United States Mint Set", "Unc. Set", "Mint Set", "1999RG");
+
+    // ---- 1965-67 Special Mint Set — replaced BOTH the proof set and the mint
+    // set those years, so one row carries both lineages (decision D). ----
+    [1965,1966,1967].forEach(y =>
+      push(y, "Proof Set,Uncirculated Coin Set", "Complete", "SMS", `${y} Special Mint Set`, "Special Mint Set", "Special Mint Set"));
+
+    // ---- Silver Proof Set (Complete) — only from 1992 on, so the checklist
+    // naturally starts at 1992 (no hollow tiles for earlier years). 2021 row
+    // keeps its original demo product code. ----
+    [1992,1993,1994,1995,1996,1997,1998,1999,2000].forEach(y =>
+      push(y, "Silver Proof Set", "Complete", "SP", `${y} United States Silver Proof Set`, "Silver Proof"));
+    push(2021, "Silver Proof Set", "Complete", "SP", "2021 Silver Proof Set", "Silver Proof", "Silver Proof Set", "2021RC");
+
+    // ---- Component scope — subset products (e.g. quarters-only). ----
+    [1999,2000,2001,2002].forEach(y =>
+      push(y, "Proof Set", "Component", "PRQ", `${y} 50 State Quarters Proof Set`, "Quarters"));
+    [2004,2005].forEach(y =>
+      push(y, "Silver Proof Set", "Component", "SPQ", `${y} Silver Quarters Proof Set`, "Silver Quarters"));
+
+    // ---- Premium scope — deluxe/limited variants sold alongside the standard
+    // set (Prestige Proof Set, Premier Silver Proof Set). Uncirculated Coin Set
+    // has none seeded, deliberately, so its Premium scope shows the empty-state
+    // message. ----
+    [1983,1984,1986,1987,1988,1992,1996].forEach(y =>
+      push(y, "Proof Set", "Premium", "PRP", `${y} Prestige Proof Set`, "Prestige"));
+    [1992,1993,1994,1995,1996,1997,1998].forEach(y =>
+      push(y, "Silver Proof Set", "Premium", "SPP", `${y} Premier Silver Proof Set`, "Premier"));
+
+    return out;
+  })();
+
   function matchDbSetsByProductCode(code) {
     if (!code) return null;
-    return FAKE_DB_SETS.find(s => s.productCode.toLowerCase() === code.trim().toLowerCase()) || null;
+    return FAKE_DB_SETS.find(s => s.productCode && s.productCode.toLowerCase() === code.trim().toLowerCase()) || null;
+  }
+
+  // Whether a DB_Sets row belongs to the given Lineage — handles the
+  // comma-separated dual-lineage SMS rows (decision D).
+  function dbSetLineageIncludes(dbSet, lineage) {
+    return String(dbSet.lineage || "").split(",").map(x => x.trim()).includes(lineage);
+  }
+
+  // The owned Set-bundle row (if any) whose SetID links to a checklist tile.
+  // Resolves to none today since SetID linkage isn't populated yet.
+  function ownedSetForSetId(setId) {
+    if (!setId) return null;
+    return FAKE_COINS.find(c => c.denom === "Multiple" && c.setId && c.setId === setId) || null;
   }
 
   let currentSetDraft = null;                 // the draft being captured/resumed
@@ -7690,6 +7941,29 @@
     document.getElementById("addSetStep1Note").textContent = "";
     addSetClearPhoto("whole", "addSetWholePreview");
     addSetClearPhoto("receipt", "addSetReceiptPreview");
+    // Banner hidden by default; applyAddSetContext() (called right AFTER
+    // navigate on the checklist path) re-shows/fills it. Deliberately does NOT
+    // null setChecklistContext — that survives navigate so applyAddSetContext
+    // can read it; it's cleared only when actually leaving Add Set.
+    document.getElementById("addSetContextBanner").classList.add("hidden");
+  }
+
+  // Deep-link pre-fill from a Sets completeness-checklist empty tile (A2):
+  // shows the banner and pre-composes the set name. Year/SetID are NOT visible
+  // form fields — they ride on setChecklistContext straight to the draft.
+  function applyAddSetContext() {
+    const banner = document.getElementById("addSetContextBanner");
+    if (!setChecklistContext) { banner.classList.add("hidden"); return; }
+    document.getElementById("addSetContextMsg").innerHTML =
+      "Adding the missing <strong>" + setChecklistContext.name + "</strong> to your collection";
+    banner.classList.remove("hidden");
+    document.getElementById("addSetName").value = setChecklistContext.name;
+  }
+
+  function clearAddSetContext() {
+    setChecklistContext = null;
+    const banner = document.getElementById("addSetContextBanner");
+    if (banner) banner.classList.add("hidden");
   }
 
   // Uploads a captured photo File to the draft's Staging folder under the
@@ -7717,11 +7991,15 @@
       // Photos first (so their filenames land in the draft record), then the draft.
       const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
       const receiptName = await uploadDraftPhoto(collectionId, "receipt", "receipt.jpg");
+      const ctx = setChecklistContext; // present only on a checklist deep-link
       const draft = buildSetDraft(collectionId, {
         setName, productCode,
         dbSetsMatch: matchDbSetsByProductCode(productCode),
         expectedChildCount: expected, subGroups,
-        wholeSetPhoto: wholeName, receiptPhoto: receiptName
+        wholeSetPhoto: wholeName, receiptPhoto: receiptName,
+        year: ctx ? ctx.year : "",
+        checklistSetId: ctx ? ctx.setId : "",
+        checklistLineage: ctx ? ctx.lineage : ""
       });
       await writeSetDraft(draft);
       currentSetDraft = draft;
