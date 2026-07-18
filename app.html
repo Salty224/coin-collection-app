@@ -4474,18 +4474,23 @@
   //     original owned-Set-rows list behaviour completely untouched (Q3) —
   //     Commemorative-scope Sets never enter the checklist, since they have no
   //     Lineage.
-  // "Uncirculated Coin Set" is the renamed pill for the Mint's own current
-  // term (decision C); the underlying category DATA value stays "Mint Set",
-  // which is why SET_NAMED_CATEGORIES (used only by the "Other" list-mode
-  // catch-all) is unchanged. Still single-select, exactly one pill active.
+  // Pill labels are display-only and intentionally differ from the
+  // Lineage/category DATA values they drive (`lineage`/`test`, unchanged) —
+  // "Uncirculated Sets"/"Proof Sets"/"Silver Proof Sets"/"Commemorative Sets"
+  // is Ray's chosen wording, not a rename of "Proof Set" etc. themselves.
+  // "Uncirculated Sets" still drives lineage="Uncirculated Coin Set" (the
+  // Mint's own current term, decision C from the checklist build) — only the
+  // pill's displayed text changed again here, not the Lineage value. Order:
+  // All / Uncirculated / Proof / Silver Proof / Commemorative / Other. Still
+  // single-select, exactly one pill active.
   const SET_NAMED_CATEGORIES = ["Proof Set", "Mint Set", "Silver Proof Set"];
   const BROWSE_SET_CATEGORY_CHIPS = [
-    { label: "All",                   test: () => true },
-    { label: "Proof Set",             lineage: "Proof Set" },
-    { label: "Uncirculated Coin Set", lineage: "Uncirculated Coin Set" },
-    { label: "Silver Proof Set",      lineage: "Silver Proof Set" },
-    { label: "Commemorative",         test: c => c.category === "Commemorative" },
-    { label: "Other",                 test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
+    { label: "All",                 test: () => true },
+    { label: "Uncirculated Sets",   lineage: "Uncirculated Coin Set" },
+    { label: "Proof Sets",          lineage: "Proof Set" },
+    { label: "Silver Proof Sets",   lineage: "Silver Proof Set" },
+    { label: "Commemorative Sets",  test: c => c.category === "Commemorative" },
+    { label: "Other",                test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
   ];
   // The active Sets-tab pill config (drives list-vs-checklist branching in
   // applySetsTabFilters). browseSetCategoryTest mirrors its `test` for the
