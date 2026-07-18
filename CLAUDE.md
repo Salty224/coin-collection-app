@@ -1651,14 +1651,22 @@ carries a `designation` field per row, including a deliberate ambiguous pair
 (1909-S plain Lincoln Wheat, RD vs. BN) kept as real test data for this
 exact scenario rather than collapsed into one row.
 
-### Add Set + real write layer (BUILT — held on branch, NOT merged; awaiting Ray go-ahead)
+### Add Set + real write layer (BUILT and merged to main)
 The app's first real OneDrive **write** layer, plus a new **Add Set** capture
 flow that uses it and a durable **CollectionID reservation** module. Built to
-a 3-part spec; all 12 clarifying answers are baked in. **This is large/
-architectural and stays on `claude/add-set-reservation` until Ray's explicit
-merge go-ahead** — do not auto-merge. Verified entirely headless via a mock
-Graph client (77 assertions); the real live-against-a-copy run is Ray's to
-execute (see the numbered checklist committed alongside, `docs/ADD_SET_LIVE_RUN_CHECKLIST.md`).
+a 3-part spec; all 12 clarifying answers are baked in. Verified entirely
+headless via a mock Graph client (77 assertions); the real live-against-a-copy
+run is Ray's to execute (see the numbered checklist committed alongside,
+`docs/ADD_SET_LIVE_RUN_CHECKLIST.md`).
+**Merge status correction:** this was previously flagged in this file as
+"held on branch `claude/add-set-reservation`, NOT merged" — that was stale.
+It was actually merged to main in an earlier session, and every subsequent
+round of work (Needs Attention hub, Sets checklist, Medal tab, receipt-to-PDF,
+this Bug 3 fix, etc.) has been built directly on top of it in main.
+`claude/add-set-reservation` has no commits of its own that aren't already in
+main's history — **main is now the source of truth for all Add Set/write-layer
+work, full stop**; the branch name is kept here only as a historical pointer
+to where this feature originated, not as a place future work should land.
 
 **Two bugs found during Ray's live copy-workbook run, both fixed and
 re-verified headless (checklist itself passed — B8-B9/C12-C14/D16/E19-E20 all
@@ -1667,16 +1675,19 @@ architecture changes):**
 - **Bug 1 — Pause used to discard whatever was typed but not yet formally
   saved.** Fixed via a new `partialChild` field on the draft (distinct from a
   real `children[]` entry — never counted as captured, never gets a
-  CollectionID). The Pause handler now reads the current form fields
-  (`readChildFormValues()`, identity fields only — photos are in-memory
-  `File`s and can't round-trip through a JSON draft, so they're deliberately
-  not part of this) and persists them before navigating away; `renderChildStep()`
-  restores them into the form on resume (`restoreChildFormValues()`) and
-  clears `partialChild` the moment it's consumed, so a stale partial can't
-  reappear after being shown once. A real save (`addChildToSetDraft()`)
-  always clears any leftover `partialChild` too, since a formal save
-  supersedes it. Pausing a genuinely blank form leaves `partialChild` as
-  `null` rather than persisting an empty object.
+  CollectionID). The Pause handler reads the current form fields
+  (`readChildFormValues()`, identity fields — see Bug 3 below for photos,
+  which are handled separately) and persists them before navigating away;
+  `renderChildStep()` restores them into the form on resume
+  (`restoreChildFormValues()`) and clears `partialChild` the moment it's
+  consumed, so a stale partial can't reappear after being shown once. A real
+  save (`addChildToSetDraft()`) always clears any leftover `partialChild`
+  too, since a formal save supersedes it. Pausing a genuinely blank form
+  leaves `partialChild` as `null` rather than persisting an empty object.
+  **Superseded in part by Bug 3 below**: this original fix explicitly
+  excluded photos ("in-memory Files can't round-trip through a JSON draft,
+  so they're deliberately not part of this") — that exclusion is what Bug 3
+  fixes; the text-field persistence described here is otherwise unchanged.
 - **Bug 2 — no way to correct `expectedChildCount` after Step 1, and hitting
   it produced a nonsensical "Coin 4 of 3."** Fixed two ways: (a) an inline
   "Expected count [Update]" control now sits on the child-capture screen
@@ -1697,6 +1708,42 @@ architecture changes):**
   not leaving a junk partial, adjusting count mid-capture on both flat and
   sub-grouped sets, and the graceful overflow message at exactly-met and
   past-met counts for both set shapes.
+- **Bug 3 — a captured-but-not-yet-saved child photo didn't survive Pause.**
+  Found during review of the Bug 1 fix (photos were explicitly excluded from
+  `partialChild`), confirmed by design rather than a live reproduction, and
+  fixed the same session. A photo is now uploaded to this draft's real
+  Staging folder (`setDraftFolder()`, i.e. `CoinCollection/Staging/
+  {CollectionID}/` under whichever `WRITE_TARGET` is active — same `"copy"`
+  gating as every other Add Set write, unchanged) **the moment Pause is
+  tapped**, not deferred to a formal Save — using the exact same
+  `{childId}_obverse.jpg`/`_reverse.jpg` filenames `saveCurrentChild()`
+  itself uses, since `nextChildCollectionId()` is stable for as long as one
+  child-capture form stays open. Only the resulting **filename reference**
+  is written into `partialChild.photos` — never the photo bytes — keeping
+  the JSON draft small. `renderChildStep()` now also calls a new
+  `restorePartialChildPhotos()` on resume, which fetches those bytes back
+  from Staging and repopulates both the live preview and `addSetPhotoFiles`,
+  so `saveCurrentChild()`'s existing upload call transparently re-uses the
+  already-staged photo — no special-casing needed there, and Ray never has
+  to re-take a photo that already exists in Staging. Guarded against a race
+  where a fresh capture lands while the async restore is still in flight
+  (checked both before the fetch starts and again right after it resolves,
+  so the slower-to-arrive restored photo can never clobber a newer one Ray
+  just took). A second Pause correctly overwrites the Staging file if the
+  photo was re-taken, and falls back to the already-referenced filename
+  (rather than uploading blank) if resume's restore hasn't finished landing
+  yet when Ray pauses again. 23 new headless assertions (mock Graph client):
+  photo persists byte-for-byte across Pause → resume, the reference is
+  cleared once the child is formally saved (with the saved child's own
+  record carrying the same unchanged photo bytes) and correctly replaced if
+  the photo is re-taken instead, a Pause with no photo taken behaves exactly
+  as before (blank `photos.obverse`/`reverse`, nothing uploaded), a fully
+  empty Pause still stores `partialChild = null`, and the mid-restore race
+  guard. Verified working for sub-grouped sets too (a separate ad-hoc check,
+  not part of the saved suite files). The 6 existing suite files (77
+  assertions) re-run clean alongside — 105/105 total across everything run
+  this session, zero regressions.
+  zero regressions.
 
 **Scope boundary — what the app writes (Q1=b / Q3):** the app NEVER writes the
 Excel workbook. Its only writes are (i) Staging **drafts as JSON files** in

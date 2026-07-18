@@ -8254,10 +8254,36 @@
     // Bug 1 fix: Pause now persists whatever's currently typed into the form
     // (not yet formally saved as a child) onto the draft before navigating
     // away, so resume restores it instead of showing a blank form.
+    // Bug 3 fix: any captured-but-not-yet-saved photo is uploaded to this
+    // draft's real Staging folder RIGHT HERE (not deferred to Save) —
+    // childId + "_obverse.jpg"/"_reverse.jpg", the exact same filenames
+    // saveCurrentChild() itself uses, since nextChildCollectionId() is
+    // stable for as long as this specific child-capture form stays open
+    // (it only advances once a real save happens). Only the resulting
+    // filename REFERENCE is kept in partialChild — never the photo bytes
+    // themselves — so JSON size stays small and resume just re-fetches from
+    // OneDrive (see restorePartialChildPhotos below) instead of requiring
+    // Ray to re-take a photo that's already sitting in Staging.
     document.getElementById("addSetChildPauseBtn").addEventListener("click", async () => {
       if (currentSetDraft) {
         const values = readChildFormValues();
-        currentSetDraft.partialChild = childFormValuesAreEmpty(values) ? null : values;
+        const childId = nextChildCollectionId(currentSetDraft);
+        // A prior Pause may already have a reference on file — if resume's
+        // async photo-refetch (restorePartialChildPhotos) hasn't landed yet
+        // when this second Pause fires, addSetPhotoFiles would look empty
+        // even though the photo genuinely exists in Staging; falling back to
+        // the existing reference (rather than uploading "") avoids silently
+        // discarding an already-uploaded photo in that race.
+        const priorPhotos = (currentSetDraft.partialChild && currentSetDraft.partialChild.photos) || {};
+        let obvName = "", revName = "";
+        try {
+          obvName = await uploadDraftPhoto(currentSetDraft.collectionID, "childObv", childId + "_obverse.jpg");
+          revName = await uploadDraftPhoto(currentSetDraft.collectionID, "childRev", childId + "_reverse.jpg");
+        } catch (e) { /* best-effort — text fields still persist even if a photo upload fails */ }
+        if (!obvName && priorPhotos.obverse) obvName = priorPhotos.obverse;
+        if (!revName && priorPhotos.reverse) revName = priorPhotos.reverse;
+        const isEmpty = childFormValuesAreEmpty(values) && !obvName && !revName;
+        currentSetDraft.partialChild = isEmpty ? null : Object.assign({}, values, { photos: { obverse: obvName, reverse: revName } });
         try { await writeSetDraft(currentSetDraft); } catch (e) { /* best-effort — still let them navigate away */ }
       }
       showToast("Left as Draft — resume any time from In Progress Sets.");
@@ -8472,8 +8498,10 @@
     // whatever's in the form at that later point).
     if (draft.partialChild) {
       restoreChildFormValues(draft.partialChild);
+      const restoredPhotos = draft.partialChild.photos; // captured before partialChild is nulled below
       draft.partialChild = null;
       writeSetDraft(draft).catch(() => {}); // best-effort; form already shows the restored values regardless
+      restorePartialChildPhotos(draft.collectionID, restoredPhotos).catch(() => {}); // Bug 3 fix — fire-and-forget, best-effort
     } else {
       clearChildForm();
     }
@@ -8487,9 +8515,9 @@
     addSetClearPhoto("childRev", "addSetChildRevPreview");
   }
 
-  // Reads the child form's typed/selected FIELD values only — not photos,
-  // which are in-memory Files that can't round-trip through a JSON Staging
-  // draft. Used by Pause to capture whatever's currently in the form.
+  // Reads the child form's typed/selected FIELD values only. Photos are
+  // handled separately by the Pause handler (uploaded to Staging directly,
+  // referenced by filename — see Bug 3 fix there), not read here.
   function readChildFormValues() {
     return {
       denom: document.getElementById("addSetChildDenom").value,
@@ -8512,8 +8540,45 @@
     document.getElementById("addSetChildVariety").value = v.variety || "";
     document.getElementById("addSetChildGrade").value = v.grade || "";
     document.getElementById("addSetChildDesignation").value = v.designation || "";
-    addSetClearPhoto("childObv", "addSetChildObvPreview"); // photos never persist across a Pause — see readChildFormValues
+    // Clear to a clean baseline first — restorePartialChildPhotos (Bug 3
+    // fix) fills these back in a moment later, asynchronously, if v.photos
+    // has real references to fetch from Staging. Kept as two separate steps
+    // (sync field restore here, async photo fetch there) rather than one,
+    // so a slow/failed photo fetch never blocks or delays the text fields
+    // Ray actually typed from showing up immediately.
+    addSetClearPhoto("childObv", "addSetChildObvPreview");
     addSetClearPhoto("childRev", "addSetChildRevPreview");
+  }
+
+  // Bug 3 fix: a Pause'd child's captured photos were uploaded to Staging
+  // immediately (see the Pause handler) with only a filename reference kept
+  // in partialChild.photos — resume fetches the actual bytes back from that
+  // reference and repopulates both the live preview and addSetPhotoFiles
+  // (so saveCurrentChild()'s existing upload call naturally re-uses them,
+  // no special-casing needed there). Best-effort per slot: a fetch failure
+  // just leaves that one slot empty rather than blocking the rest of resume.
+  // Guarded against a real capture landing mid-fetch (checked both before
+  // starting the fetch and again right after it resolves) so a fresh photo
+  // Ray takes while this is still in flight is never clobbered by the
+  // slower-to-arrive restored one.
+  async function restorePartialChildPhotos(collectionId, photos) {
+    if (!photos) return;
+    const jobs = [
+      { key: "childObv", name: photos.obverse, previewId: "addSetChildObvPreview" },
+      { key: "childRev", name: photos.reverse, previewId: "addSetChildRevPreview" }
+    ];
+    for (const job of jobs) {
+      if (!job.name || addSetPhotoFiles[job.key]) continue;
+      try {
+        const raw = await graph().getFileBytes(setDraftFolder(collectionId) + "/" + job.name);
+        if (!raw || addSetPhotoFiles[job.key]) continue; // missing, or a fresh capture won the race while we awaited
+        const blob = raw instanceof Blob ? raw : new Blob([raw], { type: "image/jpeg" });
+        addSetPhotoFiles[job.key] = blob;
+        const preview = document.getElementById(job.previewId);
+        preview.src = URL.createObjectURL(blob);
+        preview.style.display = "block";
+      } catch (e) { /* best-effort — leave that slot empty rather than blocking the rest of resume */ }
+    }
   }
 
   async function saveCurrentChild() {
