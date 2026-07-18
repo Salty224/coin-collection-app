@@ -410,11 +410,15 @@
   /* Coins-tab grid cards only (see CLAUDE.md "Carried forward" — Issue 2):
      the image should be clean, matching Spotlight's image-only treatment.
      Value stays in the coin detail view instead. Kept scoped to
-     [data-tab="coins"] rather than just :not(.list-view) — Coins is the
-     only tab still rendering .coin-card markup (Rolls moved to its own
-     .album-card-style rows, see renderRollsGrid), but the explicit hook
-     costs nothing and avoids depending on that staying true. */
-  #browseGrid[data-tab="coins"]:not(.list-view) .coin-card .value {
+     [data-tab="coins"]/[data-tab="medal"] rather than just :not(.list-view)
+     — Coins/Medal are the only tabs still rendering .coin-card markup
+     (Rolls moved to its own .album-card-style rows, see renderRollsGrid),
+     but the explicit hook costs nothing and avoids depending on that
+     staying true. Medal included here to preserve its exact prior look
+     from when it was a Denomination chip inside the Coins tab, not a
+     behavior change from the tab-split itself. */
+  #browseGrid[data-tab="coins"]:not(.list-view) .coin-card .value,
+  #browseGrid[data-tab="medal"]:not(.list-view) .coin-card .value {
     display: none;
   }
   .coin-grid.list-view .coin-card .flip-frame-mini { display: none; }
@@ -1763,7 +1767,7 @@
               <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="browseEditReceiptLibraryInput" accept="image/*">
+            <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
@@ -1815,7 +1819,7 @@
               <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="editSetReceiptLibraryInput" accept="image/*">
+            <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
 
           <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
@@ -1904,7 +1908,7 @@
               <button type="button" id="wishlistReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="wishlistReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="wishlistReceiptLibraryInput" accept="image/*">
+            <input type="file" id="wishlistReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
 
           <button class="save-btn" id="wishlistPurchaseDoneBtn">Done</button>
@@ -2225,7 +2229,7 @@
               <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="receiptLibraryInput" accept="image/*">
+            <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
           </div>
 
           <button class="save-btn" id="purchaseDoneBtn">Done</button>
@@ -2284,7 +2288,7 @@
               <button type="button" id="batchReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
             <input type="file" id="batchReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="batchReceiptLibraryInput" accept="image/*">
+            <input type="file" id="batchReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
           <label>Notes (optional)</label>
           <textarea placeholder="e.g. GreatCollections order, 4 coins, arriving next week"></textarea>
@@ -2415,7 +2419,7 @@
             <button type="button" id="addSetReceiptLibraryBtn">🖼️ Library</button>
           </div>
           <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
-          <input type="file" id="addSetReceiptLibraryInput" accept="image/*">
+          <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
         </div>
 
         <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
@@ -3164,7 +3168,13 @@
   function plannedPromotionMoves(draft) {
     const p = writePaths(), folder = setDraftFolder(draft.collectionID), moves = [];
     if (draft.wholeSetPhoto) moves.push({ src: folder + "/" + draft.wholeSetPhoto, dest: p.coinPhotos + "/" + draft.collectionID + "_set.jpg" });
-    if (draft.receiptPhoto) moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.collectionID + "_receipt.jpg" });
+    // Extension follows draft.receiptPhoto itself (now always ".pdf" per the
+    // receipt-auto-PDF-wrap behaviour) rather than a hardcoded ".jpg" —
+    // resilient to whatever the Staging filename actually ended up as.
+    if (draft.receiptPhoto) {
+      const ext = draft.receiptPhoto.slice(draft.receiptPhoto.lastIndexOf("."));
+      moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.collectionID + "_receipt" + ext });
+    }
     (draft.children || []).forEach(ch => {
       if (ch.photos && ch.photos.obverse) moves.push({ src: folder + "/" + ch.photos.obverse, dest: p.coinPhotos + "/" + ch.collectionID + "_obverse.jpg" });
       if (ch.photos && ch.photos.reverse) moves.push({ src: folder + "/" + ch.photos.reverse, dest: p.coinPhotos + "/" + ch.collectionID + "_reverse.jpg" });
@@ -3360,11 +3370,12 @@
     // same sparse-by-CollectionID convention as vendor/purchaseDate. Only a
     // couple of coins carry them, matching how sparse the real data is.
     // receipt holds the actual stored OneDrive path (CoinReceipts/{CollectionID}
-    // _receipt.jpg, per the documented naming convention), not a boolean —
+    // _receipt.pdf, per the documented naming convention — receipts auto-convert
+    // to a single-page PDF on upload, see CLAUDE.md), not a boolean —
     // Purchase Details links straight to that value, same "stored value used
     // directly" pattern as coin.certLink, rather than constructing anything.
     "AY-00001": {
-      purchaseDate: "2019-03-14", vendor: "Heritage Auctions", shippingCost: 12.50, receipt: "CoinReceipts/AY-00001_receipt.jpg",
+      purchaseDate: "2019-03-14", vendor: "Heritage Auctions", shippingCost: 12.50, receipt: "CoinReceipts/AY-00001_receipt.pdf",
       funFact: "Carson City Morgans carry the \"CC\" mintmark — the Carson City mint struck silver dollars almost entirely from Comstock Lode silver, and its dollars are some of the most collected by mint location alone.",
       notes: "Bought at auction, still in the original PCGS holder.",
       additionalPhotos: ["holder-label"]
@@ -3389,7 +3400,7 @@
       notes: "Priced high for this grade due to low survival estimates in Good condition."
     },
     "AY-00010": {
-      purchaseDate: "2018-05-09", vendor: "GreatCollections", shippingCost: 6.00, receipt: "CoinReceipts/AY-00010_receipt.jpg",
+      purchaseDate: "2018-05-09", vendor: "GreatCollections", shippingCost: 6.00, receipt: "CoinReceipts/AY-00010_receipt.pdf",
       funFact: "1955 Franklin proofs are commonly found with cameo contrast — frosted devices against mirrored fields — like this one (CAM designation).",
       notes: "",
       additionalPhotos: ["box-2-slot"]
@@ -4302,27 +4313,34 @@
   // BROWSE
   // ==================================================================
 
-  // Browse is four tabs: Coins | Rolls | Sets | Albums. Albums has no
+  // Browse is five tabs: Coins | Medal | Rolls | Sets | Albums. Albums has no
   // content of its own inside Browse — its tab is a straight shortcut to
   // the standalone Albums page (same as navigating there directly), so
-  // activeBrowseTab only ever holds "coins"/"rolls"/"sets".
+  // activeBrowseTab only ever holds "coins"/"medal"/"rolls"/"sets".
+  // Medal is a top-level tab, not a Denomination chip inside Coins anymore
+  // (superseded — see BROWSE_FILTER_CHIPS below) — medals aren't
+  // numismatically coins even though they share the CoinID pattern; this is
+  // nav placement only, no underlying data/schema change.
   const BROWSE_TABS = [
     { key: "coins",  label: "Coins" },
+    { key: "medal",  label: "Medal" },
     { key: "rolls",  label: "Rolls" },
     { key: "sets",   label: "Sets" },
     { key: "albums", label: "Albums" }
   ];
   let activeBrowseTab = "coins";
 
-  // One filter row, multi-select (locked in). Denomination chips plus Medal
-  // (Denomination="Medal" is itself a Denomination-style value now — see
-  // FAKE_COINS) OR together; "All" is a reset chip. Superseded: Sets used to
-  // be a chip in this same row that broke the OR-group (selecting it never
+  // One filter row, multi-select (locked in). Denomination chips OR
+  // together; "All" is a reset chip. Superseded: Sets used to be a chip in
+  // this same row that broke the OR-group (selecting it never
   // un-highlighted "All", since it wasn't a peer value in the underlying
   // data) — it's gone now that a Set is a top-level Browse tab, not a coin
   // filter. Commemorative is also gone from this row — Category is a
   // genuinely different field from Denomination, so it's its own
   // independent AND'd toggle below instead of living in this OR-group.
+  // Medal is ALSO gone from this row (superseded again) — it's now its own
+  // top-level Browse tab (see BROWSE_TABS above), same reasoning as Sets:
+  // one path to it, not both.
   const BROWSE_FILTER_CHIPS = [
     { key: "all",   label: "All", isAll: true },
     { key: "1C",    label: "Cents",    test: c => c.denom === "1C" },
@@ -4330,8 +4348,7 @@
     { key: "10C",   label: "Dimes",    test: c => c.denom === "10C" },
     { key: "25C",   label: "Quarters", test: c => c.denom === "25C" },
     { key: "50C",   label: "Halves",   test: c => c.denom === "50C" },
-    { key: "$1",    label: "Dollars",  test: c => c.denom === "$1" },
-    { key: "Medal", label: "Medal",    test: c => c.denom === "Medal" }
+    { key: "$1",    label: "Dollars",  test: c => c.denom === "$1" }
   ];
 
   // Empty set = "All" (no filter). Populated with chip keys as the user
@@ -4650,17 +4667,25 @@
 
   function applyActiveBrowseTabFilters() {
     if (activeBrowseTab === "coins") applyCoinsTabFilters();
+    else if (activeBrowseTab === "medal") applyMedalTabFilters();
     else if (activeBrowseTab === "rolls") applyRollsTabFilters();
     else if (activeBrowseTab === "sets") applySetsTabFilters();
   }
 
   // Coins tab's base row-set explicitly excludes Set-bundle rows
-  // (Denomination="Multiple", now the Sets tab's rows) and Roll rows
-  // (RollID populated, now the Rolls tab's rows) — those two tabs own that
-  // subset of All exclusively, so Coins never double-shows them and a row
-  // never appears in more than one tab.
+  // (Denomination="Multiple", now the Sets tab's rows), Roll rows
+  // (RollID populated, now the Rolls tab's rows), and Medal rows
+  // (Denomination="Medal", now the Medal tab's rows — see medalTabBaseRows
+  // below) — those tabs each own their own subset of All exclusively, so
+  // Coins never double-shows them and a row never appears in more than one
+  // tab.
   function coinsTabBaseRows() {
-    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId);
+    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId && c.denom !== "Medal");
+  }
+
+  // Medal tab's base row-set — the mirror image of the exclusion above.
+  function medalTabBaseRows() {
+    return FAKE_COINS.filter(c => c.denom === "Medal");
   }
 
   // Same blank/Philadelphia, D, S, CC, O, W order as the Mint Mark dropdown
@@ -4684,6 +4709,22 @@
   function applyCoinsTabFilters() {
     const filtered = coinsTabBaseRows().filter(c =>
       browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") &&
+      yearRowTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
+    );
+    renderBrowseGrid(sortCoinsTabRows(filtered));
+  }
+
+  // Medal tab — same coin-disc card treatment as Coins (renderBrowseGrid),
+  // same Metal/Commemorative/Year/Missing-Photos filters (a medal can still
+  // be gold/silver and can still be Commemorative-category, so those axes
+  // stay meaningful here) — just no Denomination pill row, since there's
+  // only one denomination value to show (#browseFilters is hidden for this
+  // tab in showBrowseTab()). browseFilterTest is deliberately NOT applied —
+  // Denomination chips don't exist on this tab, so there's nothing for it to
+  // filter against.
+  function applyMedalTabFilters() {
+    const filtered = medalTabBaseRows().filter(c =>
+      browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") &&
       yearRowTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
     );
     renderBrowseGrid(sortCoinsTabRows(filtered));
@@ -4860,26 +4901,30 @@
     activeBrowseTab = tab;
     updateBrowseTabsUI();
 
-    // Drives the Coins-tab-only Value removal below (CSS keyed off
-    // #browseGrid[data-tab="coins"]).
+    // Drives the Coins/Medal-tab-only Value removal below (CSS keyed off
+    // #browseGrid[data-tab="coins"|"medal"]).
     document.getElementById("browseGrid").dataset.tab = tab;
 
-    document.getElementById("browseCoinsHeader").style.display = tab === "coins" ? "block" : "none";
+    // Medal reuses Coins' whole header block (Metal filter + Commemorative
+    // toggle stay meaningful for a medal — it can still be gold/silver,
+    // still be Commemorative-category) — only the inner Denomination pill
+    // row (#browseFilters) hides for Medal, since there's nothing to choose
+    // (a single denomination value, already the tab itself).
+    document.getElementById("browseCoinsHeader").style.display = (tab === "coins" || tab === "medal") ? "block" : "none";
+    document.getElementById("browseFilters").style.display = tab === "coins" ? "flex" : "none";
     document.getElementById("browseSetsHeader").style.display = tab === "sets" ? "block" : "none";
     document.getElementById("browseRollsHeader").style.display = tab === "rolls" ? "block" : "none";
-    // Grid/List toggle only applies to Coins' .coin-disc cards — Sets and
+    // Grid/List toggle applies to Coins'/Medal's .coin-disc cards — Sets and
     // Rolls both render full-width .album-card rows with no grid mode to
     // toggle into (same reasoning for both, see renderSetsGrid/renderRollsGrid).
-    // The toolbar row itself (browseToolbarRow) stays visible on all three
+    // The toolbar row itself (browseToolbarRow) stays visible on all four
     // tabs regardless — it also carries the Year filter chip, which applies
     // to Sets/Rolls too; only the view-toggle sub-element hides.
     document.getElementById("browseViewToggle").classList.toggle("hidden", tab === "sets" || tab === "rolls");
     document.getElementById("browseTitle").textContent =
-      tab === "coins" ? "Coins" : tab === "rolls" ? "Rolls" : "Sets";
+      tab === "coins" ? "Coins" : tab === "medal" ? "Medal" : tab === "rolls" ? "Rolls" : "Sets";
 
-    if (tab === "coins") applyCoinsTabFilters();
-    else if (tab === "rolls") applyRollsTabFilters();
-    else if (tab === "sets") applySetsTabFilters();
+    applyActiveBrowseTabFilters();
   }
 
   function initBrowse() {
@@ -6763,6 +6808,288 @@
   }
 
   // ==================================================================
+  // RECEIPT → PDF WRAPPING — every Receipt slot in the app (Add Coin, Browse
+  // Edit, Wishlist, Edit Set, Batch Receipt, Add Set) auto-wraps a captured/
+  // picked image into a single-page PDF sized to the photo's own pixel
+  // dimensions before it's treated as "the file to store" — no forced
+  // US-Letter page, no re-flow, no re-compression. If the picked file is
+  // already a PDF, it passes through byte-for-byte unchanged.
+  //
+  // Losslessness: a JPEG's original bytes are embedded as-is via the PDF
+  // /DCTDecode filter (the PDF spec's native "this stream IS a JPEG" filter)
+  // — zero re-encoding, so image quality is bit-identical to the source. A
+  // PNG has no equivalent native PDF filter, so it's decoded to raw pixels
+  // and re-packed via /FlateDecode (lossless deflate, via the browser's
+  // native CompressionStream — no library) — this is still fully lossless:
+  // inflating the stream reproduces the exact same pixels, just losslessly
+  // compressed, the same relationship a .png file itself already has to its
+  // own raw pixels.
+  //
+  // EXIF rotation (JPEG only) is honored via the PDF page's own /Rotate
+  // entry rather than baking a rotation into the pixels — this keeps the
+  // embedded bytes identical to the source file while still displaying
+  // right-side-up in any PDF viewer. Only the four pure-rotation EXIF values
+  // (1/3/6/8) are mapped; the four mirrored values (2/4/5/7), which would
+  // need an actual pixel flip to fix and are vanishingly rare from a real
+  // camera, are left unrotated — a known, accepted limitation, not a bug to
+  // chase (same "not worth the tradeoff for a case that basically never
+  // happens" call as the no-dedicated-splitter-tool decision elsewhere).
+  //
+  // No PDF library — this hand-writes a minimal, valid single-page/single-
+  // image PDF (a handful of objects + an xref table), matching this
+  // project's established "self-contained, no external CDN dependency"
+  // posture (see fonts/MSAL CDN notes) rather than pulling in a library like
+  // pdf-lib from a CDN for what's structurally a very small, well-defined
+  // file format subset.
+  // ==================================================================
+
+  function isPdfFile(file) {
+    return file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+  }
+
+  function escapeHtmlText(str) {
+    const div = document.createElement("div");
+    div.textContent = str == null ? "" : String(str);
+    return div.innerHTML;
+  }
+
+  async function deflateBytes(bytes) {
+    const cs = new CompressionStream("deflate");
+    const writer = cs.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const chunks = [];
+    let total = 0;
+    const reader = cs.readable.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.length;
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.length; }
+    return out;
+  }
+
+  // Best-effort JPEG header scan: component count (for the PDF ColorSpace —
+  // DeviceRGB for the near-universal 3-component case, DeviceGray for a
+  // genuinely grayscale-encoded JPEG, e.g. some scanner output) and EXIF
+  // Orientation (for the PDF page's /Rotate). Bounds-checked throughout and
+  // wrapped in try/catch by the caller — a parse hiccup on some oddball
+  // JPEG must never break the receipt capture flow, it just falls back to
+  // the safe, overwhelmingly-common default (3 components, no rotation).
+  function parseJpegInfo(bytes) {
+    let components = 3, rotate = 0;
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return { components, rotate };
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { i++; continue; }
+      const marker = bytes[i + 1];
+      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+      if (marker === 0xD9 || marker === 0xDA) break; // EOI or start-of-scan — headers are done
+      if (i + 4 > bytes.length) break;
+      const segLen = dv.getUint16(i + 2);
+      if (segLen < 2) break; // malformed — bail safely, keep defaults
+      if (marker === 0xE1 && i + 4 + 10 <= bytes.length) {
+        // APP1 — possibly EXIF ("Exif\0\0" + TIFF header).
+        const s = i + 4;
+        if (bytes[s] === 0x45 && bytes[s+1] === 0x78 && bytes[s+2] === 0x69 && bytes[s+3] === 0x66 && bytes[s+4] === 0 && bytes[s+5] === 0) {
+          const tiff = s + 6;
+          const little = dv.getUint16(tiff) === 0x4949;
+          const get16 = (o) => dv.getUint16(o, little);
+          const get32 = (o) => dv.getUint32(o, little);
+          try {
+            const ifd0 = tiff + get32(tiff + 4);
+            const numEntries = get16(ifd0);
+            for (let e = 0; e < numEntries; e++) {
+              const entry = ifd0 + 2 + e * 12;
+              if (get16(entry) === 0x0112) { // Orientation tag
+                const val = get16(entry + 8);
+                if (val === 3) rotate = 180;
+                else if (val === 6) rotate = 90;
+                else if (val === 8) rotate = 270;
+                // 1 = normal; 2/4/5/7 = mirrored — left unrotated (see module comment).
+                break;
+              }
+            }
+          } catch (e) { /* malformed EXIF — keep default rotate=0 */ }
+        }
+      } else if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC && i + 9 < bytes.length) {
+        // SOFn: [precision:1][height:2][width:2][numComponents:1]
+        components = bytes[i + 9] === 1 ? 1 : 3;
+      }
+      i += 2 + segLen;
+    }
+    return { components, rotate };
+  }
+
+  function utf8ByteLength(str) { return new TextEncoder().encode(str).length; }
+
+  // Hand-built minimal single-page, single-image PDF. `parts` mixes ASCII
+  // text (PDF syntax) with raw binary (the image stream) — built as an array
+  // of Blob parts rather than one JS string, since a string can't safely
+  // carry arbitrary binary bytes.
+  function buildSinglePageImagePdf({ width, height, rotate, colorSpace, filter, imageBytes }) {
+    const parts = [];
+    let offset = 0;
+    const objOffsets = [];
+    function text(str) { parts.push(str); offset += utf8ByteLength(str); }
+    function bytes(b) { parts.push(b); offset += b.length; }
+    function obj(n, body) { objOffsets[n] = offset; text(n + " 0 obj\n" + body + "\nendobj\n"); }
+
+    text("%PDF-1.4\n");
+    obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    obj(3,
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + width + " " + height + "] " +
+      (rotate ? "/Rotate " + rotate + " " : "") +
+      "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>"
+    );
+
+    objOffsets[4] = offset;
+    text(
+      "4 0 obj\n<< /Type /XObject /Subtype /Image /Width " + width + " /Height " + height +
+      " /ColorSpace /" + colorSpace + " /BitsPerComponent 8 /Filter /" + filter +
+      " /Length " + imageBytes.length + " >>\nstream\n"
+    );
+    bytes(imageBytes);
+    text("\nendstream\nendobj\n");
+
+    const contentStream = "q " + width + " 0 0 " + height + " 0 0 cm /Im0 Do Q";
+    obj(5, "<< /Length " + utf8ByteLength(contentStream) + " >>\nstream\n" + contentStream + "\nendstream");
+
+    const xrefStart = offset;
+    let xref = "xref\n0 6\n0000000000 65535 f \n";
+    for (let n = 1; n <= 5; n++) xref += String(objOffsets[n]).padStart(10, "0") + " 00000 n \n";
+    text(xref);
+    text("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" + xrefStart + "\n%%EOF");
+
+    return new Blob(parts, { type: "application/pdf" });
+  }
+
+  // Wraps one image File (JPEG or PNG) into a single-page PDF sized to the
+  // image's own pixel dimensions. Not for a File that's already a PDF — call
+  // isPdfFile() first and pass those straight through unchanged (see
+  // prepareReceiptFile below, the actual call sites' entry point).
+  async function wrapImageFileAsPdf(file) {
+    const isPng = file.type === "image/png" || /\.png$/i.test(file.name || "");
+    const raw = new Uint8Array(await file.arrayBuffer());
+    const bitmap = await createImageBitmap(file);
+    const width = bitmap.width, height = bitmap.height;
+
+    if (isPng) {
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const rgba = ctx.getImageData(0, 0, width, height).data;
+      const rgb = new Uint8Array(width * height * 3);
+      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+        rgb[j] = rgba[i]; rgb[j + 1] = rgba[i + 1]; rgb[j + 2] = rgba[i + 2];
+        // Alpha is dropped — a receipt is an opaque document photo, and a
+        // transparent PNG (rare for this use case) flattens onto the implicit
+        // white page background, a harmless simplification here.
+      }
+      const deflated = await deflateBytes(rgb);
+      return buildSinglePageImagePdf({ width, height, rotate: 0, colorSpace: "DeviceRGB", filter: "FlateDecode", imageBytes: deflated });
+    }
+
+    bitmap.close();
+    const { components, rotate } = parseJpegInfo(raw);
+    return buildSinglePageImagePdf({
+      width, height, rotate,
+      colorSpace: components === 1 ? "DeviceGray" : "DeviceRGB",
+      filter: "DCTDecode",
+      imageBytes: raw // the original JPEG bytes, byte-for-byte — zero re-encode
+    });
+  }
+
+  // The one entry point every Receipt slot's capture handler calls. Returns
+  // { blob, filename } — blob is always a PDF (either freshly wrapped, or
+  // the original file passed through unchanged when it already was one).
+  // Wrapped in try/catch by callers: a conversion hiccup must never block
+  // the live on-screen preview, which has already succeeded by the time this
+  // runs (same "secondary feature can't take down the primary flow" posture
+  // as the reference-image MSAL-load-failure handling elsewhere).
+  async function prepareReceiptFile(file) {
+    const baseName = (file.name || "receipt").replace(/\.[^.]+$/, "");
+    if (isPdfFile(file)) {
+      return { blob: file, filename: baseName + ".pdf" };
+    }
+    const blob = await wrapImageFileAsPdf(file);
+    return { blob, filename: baseName + ".pdf" };
+  }
+
+  // receiptFiles[previewId] = { blob, filename } — the actual PDF that would
+  // be uploaded for that slot, once a real write layer exists for it. Add
+  // Set already has a real write layer (addSetPhotoFiles, unchanged
+  // structurally — see wireAddSetPhotoSlot) so its receipt slot writes here
+  // too, keyed the same way, for consistency; Add Coin/Browse Edit/Wishlist/
+  // Edit Set/Batch Receipt have no real upload yet (every Save there is
+  // still a stub, per CLAUDE.md), so this is prepared-but-unconsumed state,
+  // ready the moment those flows get a real write layer — the same "build
+  // for a future consumer" posture the Add Set draft/reservation system
+  // already established.
+  const receiptFiles = {};
+
+  // Shared preview-state helpers for a Receipt slot's photo-box — either
+  // the shared placeholder-icon shape (wireMockPhotoSlot's slots) or Add
+  // Set's plainer preview-only box (wireAddSetPhotoSlot, no placeholder
+  // element at all). Both are handled here so neither call site needs its
+  // own bespoke PDF-indicator logic.
+  function showReceiptImagePreview(previewId, placeholderId, dataUrl) {
+    const preview = document.getElementById(previewId);
+    preview.src = dataUrl;
+    preview.style.display = "block";
+    clearReceiptPdfIndicator(previewId, placeholderId);
+  }
+
+  function showReceiptPdfIndicator(previewId, placeholderId, filename) {
+    const preview = document.getElementById(previewId);
+    preview.style.display = "none";
+    preview.removeAttribute("src");
+    const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
+    if (placeholder) {
+      if (!placeholder.dataset.origIcon) placeholder.dataset.origIcon = placeholder.innerHTML;
+      placeholder.innerHTML = "📄<div style=\"font-size:10px; opacity:0.85; margin-top:2px; word-break:break-all;\">" + escapeHtmlText(filename) + "</div>";
+      placeholder.style.display = "";
+    } else {
+      // No dedicated placeholder element (Add Set's plain photo boxes) —
+      // a small note appended once into the same .photo-box, reused/updated
+      // on subsequent picks rather than re-created each time.
+      const box = preview.closest(".photo-box");
+      if (box) {
+        let note = box.querySelector(".pdf-attached-note");
+        if (!note) {
+          note = document.createElement("div");
+          note.className = "pdf-attached-note";
+          note.style.cssText = "font-size:12px; color:var(--gold-bright); margin-bottom:6px;";
+          preview.insertAdjacentElement("afterend", note);
+        }
+        note.textContent = "📄 " + filename + " attached";
+        note.style.display = "";
+      }
+    }
+  }
+
+  function clearReceiptPdfIndicator(previewId, placeholderId) {
+    const preview = document.getElementById(previewId);
+    const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
+    if (placeholder && placeholder.dataset.origIcon) {
+      placeholder.innerHTML = placeholder.dataset.origIcon;
+      delete placeholder.dataset.origIcon;
+      placeholder.style.display = "none"; // a real photo is showing now — same convention as every other slot
+    }
+    const box = preview.closest(".photo-box");
+    const note = box ? box.querySelector(".pdf-attached-note") : null;
+    if (note) note.style.display = "none";
+  }
+
+  // ==================================================================
   // PHOTO CROP ADJUSTER — drag to pan, slider to zoom, 90°/straighten to rotate.
   // Shared by every circular coin photo slot (Obverse/Reverse/Additional).
   // Receipt photos stay a plain rectangular preview, no adjuster needed there.
@@ -6944,14 +7271,28 @@
         // Circular coin photo — crop/zoom/pan before it becomes the preview.
         slotFiles[frameId] = file;
         openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
+      } else if (isPdfFile(file)) {
+        // Already a PDF — passes through unchanged, no image preview to show.
+        receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf" };
+        showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
       } else {
-        // Receipt — plain rectangular preview, no adjuster, but still needs
-        // EXIF orientation applied explicitly (a raw blob URL on a plain
-        // <img> was the exact cause of receipts rotating sideways).
+        // Receipt photo — plain rectangular live preview, no crop adjuster,
+        // but still needs EXIF orientation applied explicitly (a raw blob
+        // URL on a plain <img> was the exact cause of receipts rotating
+        // sideways). The preview stays a photo — auto-PDF-wrapping is a
+        // storage-format change, not a UI change, so what's shown here is
+        // unaffected by it.
         const orientedCanvas = await loadOrientedImageCanvas(file);
-        preview.src = orientedCanvas.toDataURL("image/jpeg", 0.92);
-        preview.style.display = "block";
-        if (placeholder) placeholder.style.display = "none";
+        showReceiptImagePreview(previewId, placeholderId, orientedCanvas.toDataURL("image/jpeg", 0.92));
+        // The actual file that would be stored: the ORIGINAL raw file (not
+        // the re-encoded preview above) wrapped losslessly into a PDF. A
+        // wrap failure must never break the preview that already succeeded.
+        try {
+          receiptFiles[previewId] = await prepareReceiptFile(file);
+        } catch (e) {
+          console.warn("Receipt PDF wrap failed for " + previewId + ":", e);
+          delete receiptFiles[previewId];
+        }
       }
     }
     cameraInput.addEventListener("change", () => {
@@ -7830,21 +8171,48 @@
 
   let currentSetDraft = null;                 // the draft being captured/resumed
   const addSetPhotoFiles = { whole: null, receipt: null, childObv: null, childRev: null };
+  // Upload filename per key — only "receipt" varies (always ends up ".pdf",
+  // see wireAddSetPhotoSlot's isReceipt branch); every other key keeps its
+  // fixed ".jpg" name, assigned directly at the uploadDraftPhoto() call site.
+  const addSetPhotoFilenames = { receipt: "receipt.pdf" };
 
   // Lightweight photo-slot wiring for Add Set (plain preview + File capture,
   // no circular crop adjuster — set/receipt/child photos are rectangular
   // captures here). Stores the File under addSetPhotoFiles[key].
-  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId) {
+  // isReceipt: only Add Set's "receipt" slot auto-wraps to PDF — "whole"
+  // (the whole-set packaging photo) is not a receipt and stays a plain image,
+  // untouched by this.
+  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, isReceipt) {
     const preview = document.getElementById(previewId);
     const cam = document.getElementById(cameraInputId);
     const lib = document.getElementById(libraryInputId);
     document.getElementById(cameraBtnId).addEventListener("click", () => cam.click());
     document.getElementById(libraryBtnId).addEventListener("click", () => lib.click());
     async function handle(file) {
-      addSetPhotoFiles[key] = file;
+      if (isReceipt && isPdfFile(file)) {
+        const prepared = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf" };
+        addSetPhotoFiles[key] = prepared.blob;
+        addSetPhotoFilenames[key] = prepared.filename;
+        showReceiptPdfIndicator(previewId, null, prepared.filename);
+        return;
+      }
       const canvas = await loadOrientedImageCanvas(file);
-      preview.src = canvas.toDataURL("image/jpeg", 0.9);
-      preview.style.display = "block";
+      if (isReceipt) {
+        showReceiptImagePreview(previewId, null, canvas.toDataURL("image/jpeg", 0.9));
+        try {
+          const prepared = await prepareReceiptFile(file);
+          addSetPhotoFiles[key] = prepared.blob;
+          addSetPhotoFilenames[key] = prepared.filename;
+        } catch (e) {
+          console.warn("Receipt PDF wrap failed for Add Set:", e);
+          addSetPhotoFiles[key] = file; // fall back to the raw photo rather than losing the capture entirely
+          addSetPhotoFilenames[key] = "receipt.jpg";
+        }
+      } else {
+        addSetPhotoFiles[key] = file;
+        preview.src = canvas.toDataURL("image/jpeg", 0.9);
+        preview.style.display = "block";
+      }
     }
     cam.addEventListener("change", () => { if (cam.files[0]) handle(cam.files[0]); });
     lib.addEventListener("change", () => { if (lib.files[0]) handle(lib.files[0]); });
@@ -7852,8 +8220,10 @@
 
   function addSetClearPhoto(key, previewId) {
     addSetPhotoFiles[key] = null;
+    if (key === "receipt") addSetPhotoFilenames.receipt = "receipt.pdf"; // back to default, no stale filename from a prior pick
     const p = document.getElementById(previewId);
     p.src = ""; p.style.display = "none";
+    clearReceiptPdfIndicator(previewId, null);
   }
 
   function initAddSet() {
@@ -7863,7 +8233,7 @@
       Object.keys(DENOM_LABELS).map(code => `<option value="${code}">${code} — ${DENOM_LABELS[code]}</option>`).join("");
 
     wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput");
-    wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput");
+    wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
 
@@ -7995,7 +8365,7 @@
       const collectionId = await reserveNextCollectionId();
       // Photos first (so their filenames land in the draft record), then the draft.
       const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
-      const receiptName = await uploadDraftPhoto(collectionId, "receipt", "receipt.jpg");
+      const receiptName = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
       const ctx = setChecklistContext; // present only on a checklist deep-link
       const draft = buildSetDraft(collectionId, {
         setName, productCode,
