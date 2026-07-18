@@ -1520,7 +1520,10 @@
                reasoning as before, just now scoped to the toggle itself
                rather than hiding this whole row). -->
           <div class="browse-toolbar" id="browseToolbarRow">
-            <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
+              <button type="button" class="filter-chip" id="browseMissingPhotoFilterBtn">Missing Photos</button>
+            </div>
             <div class="view-toggle" id="browseViewToggle">
               <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
               <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
@@ -2233,18 +2236,23 @@
         </div>
       </section>
 
-      <!-- ============ NEEDS DB_COINS ENTRY ============ -->
+      <!-- ============ NEEDS ATTENTION (consolidated hub) ============ -->
       <section class="view" id="view-needsdbcoins">
         <button class="back-link" id="needsDbCoinsBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Needs Attention</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
-          Where any discrepancy gets identified, worked, and tracked. Right now that's
-          coins added without a matching DB_Coins catalog row — resolving those is still a
-          Claude-research + Copilot-paste job, this list just keeps the backlog visible
-          instead of relying on memory or scattered ParkingLot notes.
+          Where any discrepancy gets identified, worked, and tracked — unfinished entries,
+          gaps only you can resolve, and anything sitting with Copilot for research.
         </p>
-        <div id="needsDbCoinsContainer"></div>
-        <p class="placeholder-note" id="needsDbCoinsEmptyNote" style="display:none;">Nothing flagged right now.</p>
+
+        <div class="section-label">Needs your action</div>
+        <div id="needsActionContainer"></div>
+        <p class="placeholder-note" id="needsActionEmptyNote" style="display:none;">Nothing needs your action right now.</p>
+
+        <div class="section-label">Waiting on Copilot research</div>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:0;" id="needsResearchWorkbookNote"></p>
+        <div id="needsResearchContainer"></div>
+        <p class="placeholder-note" id="needsResearchEmptyNote" style="display:none;">Nothing waiting on research right now.</p>
       </section>
 
       <!-- ============ STAGING REVIEW ============ -->
@@ -2831,15 +2839,33 @@
       const col = values[0].indexOf(header);
       if (col === -1) return [];
       return values.slice(1).map(r => r[col]).filter(v => v !== null && v !== undefined && v !== "");
+    },
+    // Task 2: the workbook's own Graph webUrl, for an "Open workbook in
+    // Excel" link — read-only metadata, same GET a plain item-meta lookup
+    // would do, just read directly for the workbook path specifically
+    // (never assumes the app itself wrote/uploaded the workbook, unlike
+    // getItemMeta's null-if-never-uploaded semantics elsewhere in this file).
+    async getWorkbookWebUrl() {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(writePaths().workbook),
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Workbook metadata fetch failed: " + res.status);
+      const data = await res.json();
+      return data.webUrl || null;
     }
   };
 
   // In-memory Graph stand-in for headless tests (Q12). Backs a flat path->
   // entry store; workbook reads come from a seeded column map. Mirrors the
   // Real client's contract (same method names, same null-on-404 semantics).
+  // seed.workbookWebUrl lets a test simulate either a real link (default, a
+  // synthetic-but-truthy URL) or an unavailable one (pass null explicitly).
   function createMockGraphClient(seed) {
     const store = new Map();          // path -> { kind:"json"|"bytes", value }
     const workbookColumns = (seed && seed.workbookColumns) || {}; // "Sheet::Header" -> [values]
+    const workbookWebUrl = (seed && "workbookWebUrl" in seed) ? seed.workbookWebUrl : "https://mock.onedrive.example/workbook";
     return {
       _store: store,
       putContent(path, body, contentType) { store.set(path, { kind: "bytes", value: body }); return Promise.resolve({ name: path.split("/").pop() }); },
@@ -2858,7 +2884,8 @@
         return Promise.resolve([...names]);
       },
       deleteItem(path) { store.delete(path); return Promise.resolve(true); },
-      readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); }
+      readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); },
+      getWorkbookWebUrl() { return Promise.resolve(workbookWebUrl); }
     };
   }
 
@@ -2867,6 +2894,24 @@
   let activeGraphClient = RealGraphClient;
   function graph() { return activeGraphClient; }
   function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; } // test-only seam
+
+  // Cached once per session (Task 2) — the workbook's own webUrl never
+  // changes mid-session, so there's no reason to re-fetch it per render.
+  // undefined = not yet attempted; null = attempted and unavailable (write
+  // layer disabled, or a real fetch failure) — both are falsy, but kept
+  // distinct so a caller can tell "never tried" from "tried and failed" if
+  // it ever matters; today every caller just treats both as "no link yet."
+  let cachedWorkbookWebUrl = undefined;
+  async function getCachedWorkbookWebUrl() {
+    if (cachedWorkbookWebUrl !== undefined) return cachedWorkbookWebUrl;
+    try {
+      cachedWorkbookWebUrl = await graph().getWorkbookWebUrl();
+    } catch (e) {
+      cachedWorkbookWebUrl = null;
+    }
+    return cachedWorkbookWebUrl;
+  }
+  function __resetWorkbookWebUrlCacheForTest() { cachedWorkbookWebUrl = undefined; } // test-only seam
 
   // ---- CollectionID reservation module -------------------------------
   // Standalone + reusable (Part 1): Add Set uses it now, Add Coin later.
@@ -2957,6 +3002,12 @@
       partialChild: null,
       confirmedChildCount: null,
       filesMovedOnPromotion: false,                // Part 3 tracking flag
+      // Permanently-dismissed Needs Attention gaps on THIS draft (e.g.
+      // "wholeSetPhoto") — real, persisted dismissals (unlike the coin-side
+      // hub's ephemeral ones), since a Set draft already has a live write
+      // layer. Never resurfaces once dismissed; independent of the standing
+      // Missing Photos audit, which ignores dismissal state entirely.
+      dismissedGaps: [],
       createdDate: new Date().toISOString(),
       updatedDate: new Date().toISOString()
     };
@@ -3011,6 +3062,17 @@
     if (!draft) throw new Error("Set draft not found: " + collectionId);
     draft.status = SET_STATUS.COMPLETE;
     if (typeof confirmedCount === "number") draft.confirmedChildCount = confirmedCount;
+    await writeSetDraft(draft);
+    return draft;
+  }
+
+  // Permanently dismisses one Needs Attention gap (e.g. "wholeSetPhoto") on
+  // a Set draft — real, persisted (Q2), never resurfaces. Idempotent: does
+  // nothing if already dismissed.
+  async function dismissSetDraftGap(collectionId, gapKey) {
+    const draft = await readSetDraft(collectionId);
+    if (!draft) throw new Error("Set draft not found: " + collectionId);
+    if (!draft.dismissedGaps.includes(gapKey)) draft.dismissedGaps.push(gapKey);
     await writeSetDraft(draft);
     return draft;
   }
@@ -3087,11 +3149,23 @@
   // fields (see CLAUDE.md "Editing existing coins") — mostly blank here since
   // most placeholder coins predate that data being captured; a couple are
   // populated so the Browse-detail Edit form has something real to load.
+  //
+  // hasObversePhoto/hasReversePhoto (new, sparse — same placeholder-lookup
+  // convention as FAKE_METAL_CONTENT/FAKE_COIN_DETAILS elsewhere in this
+  // file): NOT a claim that real photo persistence exists (it doesn't — see
+  // CLAUDE.md "What NOT to build") — this only demonstrates the Missing
+  // Photos filter/gap-detection UI against a differentiated few rows rather
+  // than either faking full coverage or flooding every screen with all ~480
+  // rows flagged at once. A row with neither field set is, honestly, also
+  // missing a photo (true today for the entire real collection) — it's just
+  // not marked here to keep the demo readable. Whichever real OneDrive
+  // CoinPhotos presence check eventually replaces this should read the same
+  // two flags' *meaning*, not this literal field.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe", container: "Capsule tray", variety: "" },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe", container: "Capsule tray", variety: "", hasObversePhoto: true, hasReversePhoto: true },
     { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
-    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "" },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true },
+    { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "", hasObversePhoto: true, hasReversePhoto: false },
     { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
     { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
@@ -3700,6 +3774,9 @@
     if (viewId === "inprogresssets") {
       renderInProgressSets();
     }
+    if (viewId === "needsdbcoins") {
+      renderNeedsAttentionHub();
+    }
 
     previousViewId = viewId;
     window.scrollTo({ top: 0 });
@@ -3775,13 +3852,16 @@
     // Batch Receipt / Needs Attention / Stats used to live in a separate "Quick
     // Actions" section below the Go-To grid — folded into the same grid instead,
     // as one flat set of destinations rather than two visually separate tiers.
+    // Staging Review and In Progress Sets no longer get their own tiles —
+    // both screens still exist untouched and are still reachable (via a
+    // link from inside the Needs Attention hub below), they just aren't
+    // separate front-door destinations anymore. Needs Attention's badge now
+    // reflects the consolidated hub's total across both its sections.
     const EXTRA_DASHBOARD_TILES = [
       { id: "stats",          icon: "📊",  label: "Stats &amp; Value" },
       { id: "batchreceipt",   icon: "🧾",  label: "Batch Receipt" },
       { id: "needsdbcoins",   icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" },
-      { id: "staging",        icon: "📥",  label: "Staging Review", badgeId: "stagingBadge" },
-      { id: "addset",         icon: "📦",  label: "Add Set" },
-      { id: "inprogresssets", icon: "🧩",  label: "In Progress Sets", badgeId: "inProgressSetsBadge" }
+      { id: "addset",         icon: "🧩",  label: "Add Set" }
     ];
     EXTRA_DASHBOARD_TILES.forEach(item => {
       const tile = document.createElement("div");
@@ -3795,10 +3875,13 @@
     document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("statsBackBtn").addEventListener("click", () => navigate("dashboard"));
-    document.getElementById("stagingBackBtn").addEventListener("click", () => navigate("dashboard"));
+    // Both screens below lost their own dashboard tile — the Needs Attention
+    // hub is their only front-door now, so Back returns there instead of
+    // skipping past it to the Dashboard.
+    document.getElementById("stagingBackBtn").addEventListener("click", () => navigate("needsdbcoins"));
     document.getElementById("addSetBackBtn").addEventListener("click", () => navigate("dashboard"));
     document.getElementById("addSetChildrenBackBtn").addEventListener("click", () => navigate("inprogresssets"));
-    document.getElementById("inProgressSetsBackBtn").addEventListener("click", () => navigate("dashboard"));
+    document.getElementById("inProgressSetsBackBtn").addEventListener("click", () => navigate("needsdbcoins"));
 
     initSpotlight();
   }
@@ -4189,6 +4272,23 @@
   // making the two mutually exclusive there instead).
   let browseCommemorativeOnly = false;
 
+  // Standing "Missing Photos" audit filter (shared across Coins/Rolls/Sets,
+  // same toolbar placement as Year) — independent of the Needs Attention
+  // hub's dismissible photo gaps: this is a pure audit list, Rolls included,
+  // and dismissing a gap in the hub never removes a row from here (per
+  // Ray's explicit call — some rows, like Rolls, are never "nag-worthy" but
+  // still belong in a complete audit view).
+  let browseMissingPhotoOnly = false;
+
+  // A Set-bundle row (denom "Multiple") only ever has one representative
+  // photo, not a real obverse/reverse pair, so only its one flag is checked;
+  // an ordinary coin or Roll needs BOTH missing to count (Q5a — either
+  // photo present means it's not missing).
+  function coinMissingPhoto(coin) {
+    if (coin.denom === "Multiple") return !coin.hasObversePhoto;
+    return !coin.hasObversePhoto && !coin.hasReversePhoto;
+  }
+
   // Precious-metal content AND physical specs per coin, mirroring
   // Lookup_MetalContent's columns — kept as a sparse lookup by CollectionID
   // (same pattern as FAKE_COIN_DETAILS) rather than adding a dozen mostly-
@@ -4482,13 +4582,15 @@
 
   function applyCoinsTabFilters() {
     const filtered = coinsTabBaseRows().filter(c =>
-      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") && yearRowTest(c)
+      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") &&
+      yearRowTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
     );
     renderBrowseGrid(sortCoinsTabRows(filtered));
   }
 
   function applySetsTabFilters() {
-    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest);
+    const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
+      .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
     renderSetsGrid(rows);
   }
 
@@ -4522,7 +4624,9 @@
   }
 
   function applyRollsTabFilters() {
-    renderRollsGrid(sortRollRows(FAKE_COINS.filter(c => !!c.rollId).filter(yearRowTest)));
+    const rows = FAKE_COINS.filter(c => !!c.rollId).filter(yearRowTest)
+      .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
+    renderRollsGrid(sortRollRows(rows));
   }
 
   // Reflects browseSelectedFilterKeys onto the Coins-tab Denomination/Medal
@@ -4567,6 +4671,9 @@
     yearFilterBegin = null;
     yearFilterEnd = null;
     updateYearFilterButtonUI();
+
+    browseMissingPhotoOnly = false;
+    document.getElementById("browseMissingPhotoFilterBtn").classList.remove("active");
   }
 
   // Switches Browse between its three in-place tabs (Coins/Rolls/Sets) —
@@ -4734,6 +4841,14 @@
       yearFilterEnd = null;
       updateYearFilterButtonUI();
       yearFilterOverlay.classList.add("hidden");
+      applyActiveBrowseTabFilters();
+    });
+
+    // Standing Missing Photos audit filter — a plain boolean toggle sharing
+    // the Year chip's row, same "shared across Coins/Rolls/Sets" placement.
+    document.getElementById("browseMissingPhotoFilterBtn").addEventListener("click", (e) => {
+      browseMissingPhotoOnly = !browseMissingPhotoOnly;
+      e.target.classList.toggle("active", browseMissingPhotoOnly);
       applyActiveBrowseTabFilters();
     });
 
@@ -6173,35 +6288,131 @@
   }
 
   // ==================================================================
-  // NEEDS DB_COINS ENTRY — visible backlog of coins added without a catalog match
+  // NEEDS ATTENTION — consolidated hub (replaces Staging Review + In
+  // Progress Sets as separate dashboard tiles; both screens still exist,
+  // completely untouched, and are one tap away from a row in here — see
+  // CLAUDE.md "Needs Attention hub" for the full design/rationale). Two
+  // sections, driven by WHY something is stuck, not what kind of record it
+  // is:
+  //   - "Needs your action": unfinished entries only Ray can finish/decide
+  //     (Set Drafts, coin-side Staging rows with no research need) plus
+  //     dismissible photo gaps on otherwise-complete records.
+  //   - "Waiting on Copilot research": anything stuck for a RESEARCH reason
+  //     — no DB_Coins match (coin-side, whether staged or already saved),
+  //     or a Set draft marked Complete — pending research — each paired
+  //     with the "Open workbook in Excel" link (Task 2).
   // ==================================================================
 
-  function renderNeedsQueue() {
-    const container = document.getElementById("needsDbCoinsContainer");
-    container.innerHTML = "";
-    document.getElementById("needsDbCoinsEmptyNote").style.display = FAKE_NEEDS_QUEUE.length ? "none" : "block";
+  // Ephemeral coin-side gap dismissals — resets on reload, consistent with
+  // the rest of the still-unwritten Add Coin/coin-Staging path (Q2). Keyed
+  // by CollectionID. Set-side dismissals are real — persisted directly on
+  // the draft's own `dismissedGaps` (see dismissSetDraftGap above).
+  const dismissedCoinPhotoGaps = new Set();
 
-    FAKE_NEEDS_QUEUE.slice().reverse().forEach(item => {
-      const row = document.createElement("div");
-      row.className = "case wish-item";
-      const label = (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") +
-        (item.variety ? " · " + item.variety : "");
-      row.innerHTML = `
-        <div>
-          <div class="wish-desc">${label}</div>
-          <div class="wish-notes">No DB_Coins match — needs a catalog entry</div>
-          <div class="wish-date">Flagged ${item.dateFlagged}</div>
-        </div>
-      `;
-      container.appendChild(row);
+  async function renderNeedsAttentionHub() {
+    const actionContainer = document.getElementById("needsActionContainer");
+    const researchContainer = document.getElementById("needsResearchContainer");
+    actionContainer.innerHTML = "";
+    researchContainer.innerHTML = "";
+
+    const actionRows = [];   // { html, onClick?, onDismiss? }
+    const researchRows = []; // { html }
+
+    // --- Set drafts: status alone decides the section (not researchNote
+    // content — every new Set carries a "GSID pending" note by design, so
+    // using that to classify would wrongly send every in-progress Draft to
+    // the research section). Draft = still Ray's to finish; Complete =
+    // handed off to Copilot, matches the original spec's literal wording.
+    let setDrafts = [];
+    try { setDrafts = await listSetDrafts(); } catch (e) { /* write layer disabled/unavailable — degrade to "no Sets" below, same as In Progress Sets does */ }
+    const draftSets = setDrafts.filter(d => d.status === SET_STATUS.DRAFT);
+    const completeSets = setDrafts.filter(d => d.status === SET_STATUS.COMPLETE);
+
+    if (draftSets.length) {
+      actionRows.push({
+        html: `<div class="wish-desc">${draftSets.length} Set${draftSets.length === 1 ? "" : "s"} in progress</div><div class="wish-notes">Resume where you left off</div>`,
+        onClick: () => navigate("inprogresssets")
+      });
+    }
+
+    // --- Coin-side Staging rows: split by the same research-need signal
+    // used everywhere else in this app (findDbCoinsMatch — same predicate
+    // checkDbCoinsMatch() runs live on the Add Coin form).
+    const stagingResearch = FAKE_STAGING.filter(c => !findDbCoinsMatch(c));
+    const stagingActionable = FAKE_STAGING.filter(c => !!findDbCoinsMatch(c));
+    if (stagingActionable.length) {
+      actionRows.push({
+        html: `<div class="wish-desc">${stagingActionable.length} coin${stagingActionable.length === 1 ? "" : "s"} awaiting your decision</div><div class="wish-notes">Promote or reject in Staging Review</div>`,
+        onClick: () => navigate("staging")
+      });
+    }
+
+    // --- Dismissible photo gaps (Needs your action only) — Rolls are never
+    // nag-worthy here (Q5b), though they still appear in the standing
+    // Missing Photos audit filter regardless of any dismissal below.
+    FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
+      actionRows.push({
+        html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
+        onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
+      });
+    });
+    // Same gap, Set-side — real/persisted dismissal since a draft already
+    // has a live write layer (Q2). Checked on Draft + Complete drafts only;
+    // a Promoted set is done and out of the app's concern.
+    [...draftSets, ...completeSets].forEach(draft => {
+      if (draft.wholeSetPhoto || draft.dismissedGaps.includes("wholeSetPhoto")) return;
+      actionRows.push({
+        html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">Missing whole-set photo — ${draft.collectionID}</div>`,
+        onDismiss: async () => { await dismissSetDraftGap(draft.collectionID, "wholeSetPhoto"); renderNeedsAttentionHub(); }
+      });
     });
 
-    updateNeedsQueueBadge();
-  }
+    // --- Research section content ---
+    stagingResearch.forEach(c => {
+      const label = (c.name || c.denom) + " · " + c.year + (c.mint ? "-" + c.mint : "") + (c.variety ? " · " + c.variety : "");
+      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
+    });
+    FAKE_NEEDS_QUEUE.slice().reverse().forEach(item => {
+      const label = (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") + (item.variety ? " · " + item.variety : "");
+      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">No DB_Coins match — needs a catalog entry</div><div class="wish-date">Flagged ${item.dateFlagged}</div>` });
+    });
+    completeSets.forEach(draft => {
+      researchRows.push({ html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">${draft.collectionID} · Complete — pending research</div>` });
+    });
 
-  function updateNeedsQueueBadge() {
+    // Fetched/cached once (Task 2) — only bother if there's something to
+    // attach it to. A null result (write layer disabled, or a real fetch
+    // failure) degrades to one explanatory note instead of a broken link
+    // repeated on every row.
+    const webUrl = researchRows.length ? await getCachedWorkbookWebUrl() : null;
+    document.getElementById("needsResearchWorkbookNote").textContent =
+      (researchRows.length && !webUrl) ? "Workbook link unavailable right now (write layer disabled, or not signed in)." : "";
+
+    document.getElementById("needsActionEmptyNote").style.display = actionRows.length ? "none" : "block";
+    actionRows.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      row.style.cursor = r.onClick ? "pointer" : "default";
+      row.innerHTML = `<div>${r.html}</div>` + (r.onDismiss ? `<button type="button" class="staging-btn reject">Dismiss</button>` : "");
+      if (r.onClick) row.addEventListener("click", r.onClick);
+      if (r.onDismiss) {
+        row.querySelector(".staging-btn").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
+      }
+      actionContainer.appendChild(row);
+    });
+
+    document.getElementById("needsResearchEmptyNote").style.display = researchRows.length ? "none" : "block";
+    researchRows.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      row.innerHTML = `<div>${r.html}${webUrl ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : ""}</div>`;
+      researchContainer.appendChild(row);
+    });
+
     const badge = document.getElementById("needsAttentionBadge");
-    badge.textContent = FAKE_NEEDS_QUEUE.length ? "(" + FAKE_NEEDS_QUEUE.length + ")" : "";
+    // Badge counts only "Needs your action" — items Ray can actually resolve
+    // himself — not the research section, which is stuck on Copilot, not him.
+    badge.textContent = actionRows.length ? "(" + actionRows.length + ")" : "";
   }
 
   // ==================================================================
@@ -6721,6 +6932,21 @@
 
   function normField(v) { return (v || "").trim().toUpperCase(); }
 
+  // Shared DB_Coins soft-match predicate — same denom+year+mint+variety key
+  // checkDbCoinsMatch() uses live off the Add Coin form, factored out so the
+  // Needs Attention hub can run the identical check against an already-
+  // saved/staged record (denom/year/mint/variety fields) without re-deriving
+  // the matching rule a second time.
+  function findDbCoinsMatch(record) {
+    if (!record.denom || !record.year) return null;
+    return FAKE_DB_COINS.find(c =>
+      c.denom === record.denom &&
+      String(c.year) === String(record.year) &&
+      normField(c.mint) === normField(record.mint) &&
+      normField(c.variety) === normField(record.variety)
+    ) || null;
+  }
+
   function checkDbCoinsMatch() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
@@ -6739,12 +6965,7 @@
       return;
     }
 
-    const found = FAKE_DB_COINS.find(c =>
-      c.denom === denom &&
-      String(c.year) === year &&
-      normField(c.mint) === normField(mint) &&
-      normField(c.variety) === normField(variety)
-    );
+    const found = findDbCoinsMatch({ denom, year, mint, variety });
 
     if (found) {
       lastDbMatch = found;
@@ -7026,7 +7247,7 @@
         desc: document.getElementById("description").value,
         dateFlagged: new Date().toISOString().slice(0, 10)
       });
-      renderNeedsQueue();
+      renderNeedsAttentionHub(); // fire-and-forget refresh — badge/list catch up whenever this resolves
     }
 
     const collectionId = getNextCollectionId();
@@ -7753,7 +7974,7 @@
   initAddCoin();
   initAddSet();
   initBatchReceipt();
-  renderNeedsQueue();
+  renderNeedsAttentionHub();
   updateStagingBadge();
   updateInProgressSetsBadge();
   renderStats();

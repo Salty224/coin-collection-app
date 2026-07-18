@@ -1689,7 +1689,153 @@ integration under "External data sources" below. Actually researching and
 writing real per-series grading guidance is a separate, deferred task — same
 boundary as DB_Coins scope and ANACS/ICG/CAC label research above.
 
-### Needs Attention queue (locked in, renamed from "Needs DB_Coins Entry")
+### Needs Attention hub (BUILT and merged to main). Supersedes the old flat
+"Needs Attention queue" below, which is kept only for history.
+The Dashboard's "Needs Attention" tile is now a consolidated hub
+(`renderNeedsAttentionHub()`) replacing Staging Review and In Progress Sets as
+**separate dashboard tiles** — both of those screens (and their internal
+promote/reject / resume logic) are **completely untouched**; they just lost
+their own front door and are reached via a link/row from inside the hub
+instead (`navigate("staging")` / `navigate("inprogresssets")`, both pre-
+existing). Their Back buttons now return to the hub (`needsdbcoins`) rather
+than skipping past it to the Dashboard, since the hub is their only entry
+point now.
+
+Two sections, split by **why** something is stuck, not what kind of record it
+is:
+- **"Needs your action"** — things only Ray can finish or decide:
+  - An aggregate row, **"N Set(s) in progress"**, if any Set draft has
+    `status="Draft"` — taps through to the untouched In Progress Sets screen.
+    Status alone decides this (not `researchNote` content) — every new Set
+    draft carries a "GSID pending" note by design (see "Add Set" above), so
+    using that to classify would wrongly route every in-progress Draft into
+    the research section below.
+  - An aggregate row, **"N coin(s) awaiting your decision"**, if any
+    coin-side `FAKE_STAGING` row has a confident DB_Coins match (nothing left
+    to resolve but Promote/Reject) — taps through to the untouched Staging
+    Review screen.
+  - **Dismissible photo gaps** — one row per otherwise-complete record
+    missing a photo (`coinMissingPhoto()`, see Missing Photos below),
+    each with its own **Dismiss** button, permanent, no snooze/resurface
+    (Q1). **Rolls never get a gap row here** (Q5b) even though they still
+    show up in the standing Missing Photos audit filter.
+    - **Coin-side dismissals are ephemeral** (`dismissedCoinPhotoGaps`, an
+      in-memory `Set` of CollectionIDs) — resets on reload, consistent with
+      the rest of the still-unwritten Add Coin/coin-Staging path (Q2). This
+      was a deliberate choice, not an oversight: building real persistence
+      for Add Coin's mockup was explicitly out of scope for this task.
+    - **Set-side dismissals are real** — a new `dismissedGaps: []` array on
+      the Set draft itself (`dismissSetDraftGap()`), persisted via the same
+      write layer Add Set already has (Q2). Checked on `Draft` and
+      `Complete — pending research` drafts (missing `wholeSetPhoto`); a
+      `Promoted` draft is done/externally-reconciled and out of scope here.
+- **"Waiting on Copilot research"** — anything stuck for a *research* reason,
+  each row paired with the "Open workbook in Excel" link (see below):
+  - Coin-side `FAKE_STAGING` rows with **no** DB_Coins match
+    (`findDbCoinsMatch()`, factored out of the Add Coin form's own
+    `checkDbCoinsMatch()` so both use the identical denom+year+mint+variety
+    rule rather than two copies of it).
+  - The original flat `FAKE_NEEDS_QUEUE` backlog (already-saved coins with no
+    DB_Coins match) — unchanged data/push logic, just relocated into this
+    section instead of its own flat list.
+  - Set drafts with `status="Complete — pending research"` — matches the
+    original spec's literal wording (Sets/Coins with that status), extended
+    to coins via the "no DB_Coins match" heuristic above since coins have no
+    literal status field of their own.
+- **Dashboard badge** = count of "Needs your action" only, NOT a total across
+  both sections (Ray's explicit call, resolving open item 3 below) — the
+  badge should only reflect things Ray can actually resolve himself; items
+  stuck waiting on Copilot research don't belong in a number that reads as
+  "things to go do." **Supersedes an earlier version of this hub** that
+  summed both sections, matching the prior flat-queue badge's convention —
+  that convention wasn't actually right once the hub split "actionable" from
+  "research-bound," so it wasn't preserved here.
+
+**"Open workbook in Excel" link (Task 2, plain link only — the `ms-excel:`
+desktop-preferred variant was explicitly marked a nice-to-have and NOT
+built).** `RealGraphClient.getWorkbookWebUrl()` does a single read-only GET
+on the workbook's own Graph metadata (whichever workbook `WRITE_TARGET`
+currently points at — the `_Testing` copy or eventually live) and returns its
+`webUrl`; `getCachedWorkbookWebUrl()` fetches this **once per session** and
+caches it (a test-only `__resetWorkbookWebUrlCacheForTest()` seam exists
+since the cache would otherwise outlive a test's mock-client swap). Shares
+the SAME gated write-layer MSAL instance Add Set already uses
+(`ENABLE_SET_WRITE_LAYER`/`getWriteToken()`) rather than standing up a third
+auth instance — so this link is subject to the identical safety posture:
+disabled/localhost-only until the same production-redirect-URI prerequisite
+is met, degrading to one explanatory note ("Workbook link unavailable...")
+instead of a broken link when unavailable. **Not verified against a real
+OneDrive session** — Ray's live-run needs to confirm the link actually lands
+in an *editable* Excel session for the file owner, not a read-only preview
+(see the open items list at the end of this section).
+
+**Missing Photos — a standing, always-available Browse filter (Q6), separate
+from the hub above.** A new `browseMissingPhotoOnly` boolean toggle chip
+shares the Year filter's toolbar row on Coins/Rolls/Sets (same ANDs-with-
+everything-else pattern, same reset-on-external-Browse-entry). `coinMissingPhoto(coin)`
+is the single shared predicate both this filter and the hub's dismissible
+gaps use: **missing = BOTH obverse and reverse absent** for an ordinary
+coin/Roll (Q5a — either one present means "not missing"); a Set-bundle row
+(`denom==="Multiple"`) only ever has one representative photo, so only that
+one flag is checked. **Rolls are included here** (Q5b — "informationally," in
+Ray's words) even though they're excluded from the hub's nag list; this
+filter never looks at hub dismissal state at all, by design — it's a pure
+audit, not a to-do list.
+- **New sparse demo fields, `hasObversePhoto`/`hasReversePhoto`, on a handful
+  of `FAKE_COINS` rows only** (AY-00001, AY-00003 both true; AY-00004
+  obverse-only, deliberately exercising the "one photo present = not
+  missing" rule) — same sparse-lookup convention as `FAKE_METAL_CONTENT`/
+  `FAKE_COIN_DETAILS` elsewhere in this file. **This is a real, flagged
+  interpretive call, not a neutral default**: since no coin in this mockup
+  has ever had a real persisted photo (see "What NOT to build"), the
+  *honest* answer today is that every non-Roll owned row is "missing" —
+  which would flood the hub with ~20 dismissible rows at once (confirmed via
+  screenshot during build). Marking a few rows as "has a photo" keeps the
+  hub demo readable, matching how every other sparse `FAKE_*` lookup in this
+  file already handles "not all data exists yet," but it's worth Ray's
+  explicit sign-off rather than assuming it's the right call long-term —
+  whichever real OneDrive CoinPhotos-presence check eventually replaces this
+  should preserve the same two-flag *meaning*, not this literal field.
+
+**Add Set's Dashboard icon changed to 🧩** (from 📦, which collided with the
+Sets browse tile — Q7, Ray's "your judgment, just keep it distinct"). 🧩 was
+already free (previously In Progress Sets', which lost its own tile in this
+same change).
+
+**Reused vs. newly written:** REUSED — `writeSetDraft`/`readSetDraft`
+unchanged, the existing Staging Review and In Progress Sets screens
+completely untouched internally, the `.wish-item`/`.staging-btn` CSS (no new
+classes needed), the Year filter's toolbar-sharing pattern (mirrored exactly
+for Missing Photos), `checkDbCoinsMatch()`'s matching rule (extracted into
+`findDbCoinsMatch()`, called by both the live form and the hub). NEW —
+`renderNeedsAttentionHub()` and its two-section render logic,
+`dismissedCoinPhotoGaps` / `dismissSetDraftGap()` / `dismissedGaps` on the
+draft schema, `coinMissingPhoto()`, `getWorkbookWebUrl()` /
+`getCachedWorkbookWebUrl()`, the Missing Photos toggle, and the sparse photo
+demo fields.
+
+**Open items needing Ray's live confirmation or sign-off (flagged, not
+resolved by headless testing):**
+1. Does the "Open workbook in Excel" link actually land in an *editable*
+   Excel Online session for the file owner, not a read-only preview? Same
+   "needs a real click-through" caveat as the original Task 2 investigation.
+2. Is the sparse `hasObversePhoto`/`hasReversePhoto` demo-field approach
+   (a few rows marked "has a photo" to keep the hub readable) the right call,
+   or would Ray rather see the literal "everything's missing" state and
+   handle hub noise a different way (e.g. capping the list, paginating)?
+Item 3 (badge semantics) is resolved — see "Dashboard badge" above — and
+removed from this list at merge time.
+Verified entirely headless (36 new assertions across two suites — hub
+sections/dismissal/badge math, and the Missing Photos filter/webUrl
+degradation), plus the full 189-assertion prior suite re-run clean — 225/225
+total, zero regressions; badge math re-verified again post-merge against the
+merged tree after the "action-only" change. No live OneDrive session was
+available this session
+(Ray offline) — items 1 above specifically needs his own click-through,
+consistent with how the original write-layer work also had a Ray-only live
+step.
+
+### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins
 misses. The only concrete content today is still coins saved without a DB_Coins
