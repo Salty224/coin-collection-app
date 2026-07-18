@@ -1261,6 +1261,99 @@ narrowing the list.
   filters, and weren't part of this fix; they still persist across an
   external Browse re-entry, unchanged.
 
+### Sets tab: completeness checklist (locked in)
+The Sets tab's three **Lineage** pills now double as an at-a-glance
+completeness checklist — "which years of the annual Proof Set / Uncirculated
+Coin Set / Silver Proof Set do I own vs. not" — instead of filtering owned
+rows. Owned years render as a normal lit tile; unowned years use the same
+hollow/grayed language as an empty album die-cut hole. Built to a 6-answer
+spec (A–F below). Verified headless (21 assertions, `verify_checklist.js`) +
+on-device-style screenshot; prior suites (badge/hub regression) re-run clean.
+- **Two kinds of pill coexist on the one single-select Sets category row**
+  (`BROWSE_SET_CATEGORY_CHIPS`): **Lineage pills** carry a `lineage`
+  (`Proof Set` / `Uncirculated Coin Set` / `Silver Proof Set`) and switch the
+  tab into **checklist mode** (`renderSetChecklist()`); **list pills**
+  (`All` / `Commemorative` / `Other`) carry a `test` and keep the original
+  owned-Set-rows list behaviour **completely untouched** (Q3/decision C).
+  `activeSetCategoryChip` drives the branch in `applySetsTabFilters()`.
+- **Two new DB_Sets fields drive it**: `Lineage` (`Proof Set` /
+  `Uncirculated Coin Set` / `Silver Proof Set`, or blank for
+  commemorative/one-off) and `SetScope` (`Complete` / `Component` /
+  `Premium` / `Commemorative`). `Complete` = the standard top-level annual
+  product; `Component` = a subset (quarters-only); `Premium` = a deluxe
+  variant (Prestige/Premier); `Commemorative` = out of scope for this feature
+  entirely (blank Lineage, never enters the checklist).
+- **The checklist universe is DB_Sets, not the owned rows** (decision E):
+  `renderSetChecklist(lineage, scope)` iterates `FAKE_DB_SETS` rows matching
+  the active lineage+scope, sorted by year. A tile is **owned** when an owned
+  `Denomination="Multiple"` row's `setId` matches the DB_Sets row's `setId`
+  (`ownedSetForSetId()`). **SetID linkage for owned rows isn't populated yet**
+  (separate data task) — so every tile renders unowned today, matching the
+  live site. That's expected, **not a bug**. Ownership rendering was verified
+  by temporarily linking a row in-test, never seeded into shipped data.
+- **Years with no product get NO tile** (decision D) — the checklist only
+  renders DB_Sets rows that exist, so a year nothing was issued in simply has
+  no row (e.g. Silver Proof only from 1992 → no hollow tiles before it). This
+  falls out of the model for free; there's no calendar-range-with-gaps logic.
+- **1965-67 Special Mint Set is one DB_Sets row carrying BOTH lineages**
+  (comma-separated `"Proof Set,Uncirculated Coin Set"`, decision D) — it
+  replaced both products those years. `dbSetLineageIncludes()` comma-splits
+  and tests membership, so the same SMS tile (same `setId`) shows under both
+  the Proof Set and Uncirculated Coin Set checklists.
+- **Pill rename (decision C): "Mint Set" → "Uncirculated Coin Set"** to match
+  the new Lineage vocabulary and the Mint's own current term. Only the pill
+  **label** changed — the underlying `category` DATA value stays `"Mint Set"`,
+  so `SET_NAMED_CATEGORIES` (used only by the `Other` list-mode catch-all) is
+  unchanged.
+- **Complete/Component/Premium sub-filter** (`#setScopeSelect`) reuses the
+  Rolls-sort `.rolls-sort-row` `<select>` styling (decision B1), right-aligned
+  under the pill row. Shown **only in checklist mode** (hidden for
+  All/Commemorative/Other). Default = `Complete` (decision E);
+  `setChecklistScope` persists across tab switches, reset to `Complete` on
+  external Browse entry (`resetBrowseFilters()`), same model as the other
+  Browse filters.
+- **Grid layout is a mode class on the shared `#browseGrid`**
+  (`.coin-grid.checklist-mode`), same approach as `.sets-mode`/`.list-view`
+  — every other render path (`renderBrowseGrid`/`renderSetsGrid`/
+  `renderRollsGrid`) clears `checklist-mode`, and the checklist clears the
+  other two, so switching tabs never leaves a stale layout.
+- **Empty-tile tap → Add Set deep-link (decision A2)** — reuses the album
+  empty-hole tap **pattern** (context object → `navigate` → apply-context),
+  NOT the same function (the album deep-links Add Coin; this deep-links Add
+  Set). `setChecklistContext = {year, lineage, setId, name}` is carried into
+  Add Set: `applyAddSetContext()` shows a 🧩 banner and pre-composes
+  `#addSetName` from the DB_Sets row's name (e.g. "1972 United States Proof
+  Set"); the year/SetID/lineage ride **invisibly** onto the draft — **no
+  visible Year/SetID fields were added to Add Set Step 1** (that's a separate,
+  bigger decision, deferred per A2). Context is cleared when leaving Add Set
+  (a `navigate` leaving-guard mirroring the Add Coin one). `buildSetDraft()`
+  gained `year` + `lineage` fields; a checklist `setId` (a real intended SetID
+  from DB_Sets) wins over the product code, and the research note records the
+  checklist linkage instead of "SetID unconfirmed". A plain (non-checklist)
+  Add Set is unchanged — blank year/lineage, no banner.
+- **Owned-tile tap → that Set's Browse detail** (dormant until SetID linkage
+  lands), Back returning to the checklist — same as a Sets-tab card.
+- **`FAKE_DB_SETS` reseeded** from a 2-row product-code stub into a
+  representative span (built by a small IIFE, `buildFakeDbSets()`), covering
+  all three lineages × Complete, plus Component (quarters-only) and Premium
+  (Prestige/Premier) examples, the SMS dual-lineage rows, and deliberate gaps
+  (Silver Proof starts 1992; Uncirculated Coin Set has no Premium rows, so its
+  Premium scope shows the empty-state message). The two original demo product
+  codes (`1999RG`, `2021RC`) are preserved on their real rows so the Add Set
+  product-code match note still works. Not exhaustive — a representative
+  stand-in, same convention as every other sparse `FAKE_*` lookup.
+
+**Decisions made during the build not covered by A–F (flagged, not guessed):**
+- **The checklist honors the shared Year filter but ignores the Missing
+  Photos toggle.** Year filtering a year-indexed completeness grid is natural
+  and consistent with "ANDs with everything" (`yearRowTest` applied to each
+  DB_Sets row's year); Missing Photos is an owned-row photo audit with no
+  meaning for reference tiles, so it's deliberately not applied in checklist
+  mode. Worth a glance to confirm that split is what Ray wants.
+- **`OGPPhoto` (the new packaging-photo column on All) was left out entirely**
+  (decision F) — announced for a later task, nothing in the checklist needs
+  it.
+
 ### Grade picker (locked in)
 Grade is a dropdown built from Lookup_Grades (Circulated / Mint State / Proof &
 Specimen / Details & Problem Grades groups), not free text. Two extra modes on top
