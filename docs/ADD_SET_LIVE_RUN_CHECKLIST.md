@@ -5,9 +5,21 @@ before `WRITE_TARGET` is ever flipped to `"live"`. Everything below runs against
 a **copy** of the workbook and a `_Testing/` Staging folder — it never touches
 the real `CoinCollection (AI).xlsx`.
 
-All app-side logic is already verified headless (57 automated assertions via a
+All app-side logic is already verified headless (77 automated assertions via a
 mock Graph client). This checklist is specifically to confirm the **real Graph
 API** behaves the same on your account/OneDrive as the mock did.
+
+> **Update:** your first live run through this checklist passed (B8-B9,
+> C12-C14, D16, E19-E20 all confirmed) and surfaced two real UX bugs, both
+> now fixed and re-verified headless: (1) Pause used to discard anything typed
+> but not yet formally saved — it now persists and restores those fields on
+> resume; (2) there was no way to correct the expected coin count mid-capture,
+> and hitting it produced a nonsensical "Coin 4 of 3" — there's now an inline
+> "Update" count control on the coin-capture screen, and going at/over count
+> shows a clear "You've captured N coins — add another, or mark this set
+> complete?" prompt instead. Steps C10-C13 below now additionally cover this —
+> re-run at least C10-C14 to confirm on your account before considering this
+> fully closed.
 
 ---
 
@@ -50,16 +62,31 @@ API** behaves the same on your account/OneDrive as the mock did.
 10. Capture coin 1 (pick a denomination, optionally a photo), tap **Save this
     coin & add another**. Verify the progress advances to "Coin 2 of 3" and the
     form clears.
-11. Capture coin 2. Then tap **Pause — leave as Draft, finish later**.
-12. **Verify:** you land on **In Progress Sets** and the set is listed as
-    "2 of 3 coins captured". Close the browser tab entirely, reopen
-    `http://localhost:8791/app.html`, go to **In Progress Sets** — the draft is
-    still there (proves durability across sessions).
-13. Tap the draft to resume; verify it reopens at "Coin 3 of 3". Capture coin 3.
-14. **Verify in OneDrive:** `set.json` now has 3 children with ids
-    `AY-#####-A/-B/-C`, each with `originSetId` = the parent id. If you added
-    child photos, confirm `AY-#####-A_obverse.jpg` etc. exist in the same
-    Staging folder.
+11. Type coin 2's fields (denomination, year, etc.) but do **NOT** tap Save —
+    tap **Pause — leave as Draft, finish later** directly instead.
+    **Verify (Bug 1 fix):** you land on **In Progress Sets**, the set still
+    shows "1 of 3 coins captured" (the unsaved typing never became a real
+    child). Tap the draft to resume — **verify the fields you typed for coin 2
+    are still there**, not blank. Now tap **Save this coin & add another** for
+    real; verify it becomes a real 2nd child with that data.
+12. **Verify:** the set is now listed/shown as "2 of 3 coins captured". Close
+    the browser tab entirely, reopen `http://localhost:8791/app.html`, go to
+    **In Progress Sets** — the draft is still there (proves durability across
+    sessions).
+13. Tap the draft to resume; verify it reopens at "Coin 3 of 3". Before
+    capturing coin 3, try the **Bug 2 fix**: change the number in the
+    "Expected count [Update]" field next to the top of the screen (e.g. 3 → 4)
+    and tap Update — verify the progress line updates to "Coin 3 of 4".
+    Then capture coin 3 (now 3 of 4) and coin 4 (now 4 of 4) — **verify** that
+    once you've captured 4, the progress line switches to "You've captured 4
+    coins — add another, or mark this set complete?" instead of anything like
+    "Coin 5 of 4". Optionally capture one more (5th) coin and confirm the same
+    message still shows sensibly (no "Coin 6 of 4").
+14. **Verify in OneDrive:** `set.json` now has children (4 or 5, depending on
+    whether you added the extra one) with sequential ids
+    `AY-#####-A/-B/-C/...`, each with `originSetId` = the parent id. If you
+    added child photos, confirm `AY-#####-A_obverse.jpg` etc. exist in the
+    same Staging folder.
 
 ## D. Mark complete
 
@@ -96,9 +123,11 @@ API** behaves the same on your account/OneDrive as the mock did.
 
 ## G. What "confirmed working" means
 
-Add Set is confirmed when: B8–B9, C12–C14, D16, and E19–E20 all check out on
-your real OneDrive against the copy workbook, with no photos ever lost and the
-reserved IDs matching the copy's actual All high-water mark.
+Add Set is confirmed when: B8–B9, C11 (Bug 1 — Pause/resume preserves unsaved
+fields), C13 (Bug 2 — adjusting count + the graceful overflow prompt),
+C12–C14, D16, and E19–E20 all check out on your real OneDrive against the
+copy workbook, with no photos ever lost and the reserved IDs matching the
+copy's actual All high-water mark.
 
 ## H. Going live (separate, later, explicit)
 

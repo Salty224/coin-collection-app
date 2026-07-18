@@ -1425,8 +1425,46 @@ flow that uses it and a durable **CollectionID reservation** module. Built to
 a 3-part spec; all 12 clarifying answers are baked in. **This is large/
 architectural and stays on `claude/add-set-reservation` until Ray's explicit
 merge go-ahead** — do not auto-merge. Verified entirely headless via a mock
-Graph client (57 assertions); the real live-against-a-copy run is Ray's to
+Graph client (77 assertions); the real live-against-a-copy run is Ray's to
 execute (see the numbered checklist committed alongside, `docs/ADD_SET_LIVE_RUN_CHECKLIST.md`).
+
+**Two bugs found during Ray's live copy-workbook run, both fixed and
+re-verified headless (checklist itself passed — B8-B9/C12-C14/D16/E19-E20 all
+confirmed against real OneDrive data; these were refinements on top, not
+architecture changes):**
+- **Bug 1 — Pause used to discard whatever was typed but not yet formally
+  saved.** Fixed via a new `partialChild` field on the draft (distinct from a
+  real `children[]` entry — never counted as captured, never gets a
+  CollectionID). The Pause handler now reads the current form fields
+  (`readChildFormValues()`, identity fields only — photos are in-memory
+  `File`s and can't round-trip through a JSON draft, so they're deliberately
+  not part of this) and persists them before navigating away; `renderChildStep()`
+  restores them into the form on resume (`restoreChildFormValues()`) and
+  clears `partialChild` the moment it's consumed, so a stale partial can't
+  reappear after being shown once. A real save (`addChildToSetDraft()`)
+  always clears any leftover `partialChild` too, since a formal save
+  supersedes it. Pausing a genuinely blank form leaves `partialChild` as
+  `null` rather than persisting an empty object.
+- **Bug 2 — no way to correct `expectedChildCount` after Step 1, and hitting
+  it produced a nonsensical "Coin 4 of 3."** Fixed two ways: (a) an inline
+  "Expected count [Update]" control now sits on the child-capture screen
+  itself, editing the flat `expectedChildCount` for an ungrouped set or the
+  **currently-active sub-group's** own `expectedCount` for a sub-grouped one
+  (`adjustExpectedCount()` — mutates the actual object inside `draft.subGroups`,
+  not a copy, so the persisted write is correct); (b) once captured count
+  reaches or exceeds what's expected, the progress line stops trying to show
+  a fill-in-the-blank "Coin N of M" and instead reads "You've captured N
+  coins — add another, or mark this set complete?" — for a sub-grouped set
+  this triggers once **every** sub-group is full (`allSubGroupsFull()`), not
+  per-group, since there's no single sensible "next group" left to name at
+  that point. `currentSubGroupForNextChild()` now returns `null` (not a
+  last-group fallback) once all groups are full, which is what
+  `allSubGroupsFull()`'s equivalent condition relies on.
+- 20 new headless assertions cover both: unsaved-then-paused fields
+  surviving a resume and then being formally saved correctly, a blank pause
+  not leaving a junk partial, adjusting count mid-capture on both flat and
+  sub-grouped sets, and the graceful overflow message at exactly-met and
+  past-met counts for both set shapes.
 
 **Scope boundary — what the app writes (Q1=b / Q3):** the app NEVER writes the
 Excel workbook. Its only writes are (i) Staging **drafts as JSON files** in

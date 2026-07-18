@@ -2357,6 +2357,11 @@
           <div style="font-size:13px; font-weight:700;" id="addSetChildSetName"></div>
           <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="addSetChildProgress"></div>
           <div style="font-size:11px; color:var(--gold-bright); margin-top:4px;" id="addSetChildReservedId"></div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+            <label for="addSetAdjustCountInput" style="margin:0; font-size:11px; color:var(--text-muted);">Expected count<span id="addSetAdjustCountLabel"></span></label>
+            <input type="number" id="addSetAdjustCountInput" inputmode="numeric" style="width:60px; padding:4px 6px; font-size:12px;">
+            <button type="button" id="addSetAdjustCountBtn" style="padding:4px 10px; font-size:11px; border-radius:6px; border:1px solid var(--case-border); background:var(--bg-elevated); color:var(--gold-bright); cursor:pointer;">Update</button>
+          </div>
         </div>
 
         <div id="addSetSubGroupPickerRow" style="display:none;">
@@ -2945,6 +2950,11 @@
       wholeSetPhoto: step1.wholeSetPhoto || "",
       receiptPhoto: step1.receiptPhoto || "",
       children: [],
+      // In-progress, NOT-yet-confirmed child field values (Pause persists
+      // these so nothing typed is ever lost — see the Pause handler below).
+      // Distinct from a real `children[]` entry: never counted as captured,
+      // never gets a CollectionID, cleared the moment a real save happens.
+      partialChild: null,
       confirmedChildCount: null,
       filesMovedOnPromotion: false,                // Part 3 tracking flag
       createdDate: new Date().toISOString(),
@@ -2988,6 +2998,7 @@
       photos: child.photos || {}
     };
     draft.children.push(record);
+    draft.partialChild = null; // a real save always supersedes any leftover unsaved-field partial
     await writeSetDraft(draft);
     return { draft, child: record };
   }
@@ -7392,10 +7403,42 @@
     document.getElementById("addSetStartBtn").addEventListener("click", startSetCapture);
     document.getElementById("addSetChildSaveBtn").addEventListener("click", saveCurrentChild);
     document.getElementById("addSetChildDoneBtn").addEventListener("click", markCurrentSetComplete);
-    document.getElementById("addSetChildPauseBtn").addEventListener("click", () => {
+    document.getElementById("addSetAdjustCountBtn").addEventListener("click", adjustExpectedCount);
+    // Bug 1 fix: Pause now persists whatever's currently typed into the form
+    // (not yet formally saved as a child) onto the draft before navigating
+    // away, so resume restores it instead of showing a blank form.
+    document.getElementById("addSetChildPauseBtn").addEventListener("click", async () => {
+      if (currentSetDraft) {
+        const values = readChildFormValues();
+        currentSetDraft.partialChild = childFormValuesAreEmpty(values) ? null : values;
+        try { await writeSetDraft(currentSetDraft); } catch (e) { /* best-effort — still let them navigate away */ }
+      }
       showToast("Left as Draft — resume any time from In Progress Sets.");
       navigate("inprogresssets");
     });
+  }
+
+  // Bug 2 fix: lets Ray correct the expected count at any point during
+  // capture, not just Step 1 — edits the current sub-group's count when
+  // sub-grouped, else the flat expectedChildCount.
+  async function adjustExpectedCount() {
+    const draft = currentSetDraft;
+    if (!draft) return;
+    const newCount = Number(document.getElementById("addSetAdjustCountInput").value);
+    if (!newCount || newCount < 0) { showToast("Enter a valid count."); return; }
+    const sub = currentSubGroupForNextChild(draft);
+    if (draft.subGroups && draft.subGroups.length && sub) {
+      sub.expectedCount = newCount; // sub is the actual element inside draft.subGroups — mutates in place
+    } else {
+      draft.expectedChildCount = newCount;
+    }
+    try {
+      await writeSetDraft(draft);
+      showToast("Expected count updated.");
+      renderChildStep();
+    } catch (e) {
+      showToast(writeUnavailableMessage(e));
+    }
   }
 
   function addSubGroupRow(name, count) {
@@ -7477,16 +7520,24 @@
     return "Couldn't save: " + (e && e.message ? e.message : e);
   }
 
-  // Which sub-group the next child belongs to, and how many remain, when the
-  // set is sub-grouped. Children are assigned to the first sub-group that
-  // hasn't hit its own expected count yet.
+  // Which sub-group the next child belongs to, when the set is sub-grouped.
+  // Children are assigned to the first sub-group that hasn't hit its own
+  // expected count yet; null once every sub-group is full (see
+  // allSubGroupsFull below — that's when there's no sensible "next" group
+  // left to assign to).
   function currentSubGroupForNextChild(draft) {
     if (!draft.subGroups || !draft.subGroups.length) return null;
     for (const sg of draft.subGroups) {
       const captured = draft.children.filter(c => c.subGroup === sg.name).length;
       if (captured < sg.expectedCount) return sg;
     }
-    return draft.subGroups[draft.subGroups.length - 1]; // all "full" — extras land in the last group
+    return null;
+  }
+
+  function allSubGroupsFull(draft) {
+    return draft.subGroups.length > 0 && draft.subGroups.every(sg =>
+      draft.children.filter(c => c.subGroup === sg.name).length >= sg.expectedCount
+    );
   }
 
   function renderChildStep() {
@@ -7498,22 +7549,60 @@
     document.getElementById("addSetChildSetName").textContent = draft.setName;
     document.getElementById("addSetChildReservedId").textContent = "Parent " + draft.collectionID + " · next coin " + nextChildCollectionId(draft);
 
+    const hasSubGroups = draft.subGroups && draft.subGroups.length > 0;
     const sub = currentSubGroupForNextChild(draft);
     const pickerRow = document.getElementById("addSetSubGroupPickerRow");
-    if (draft.subGroups && draft.subGroups.length) {
+    const progressEl = document.getElementById("addSetChildProgress");
+    const adjustLabel = document.getElementById("addSetAdjustCountLabel");
+    const adjustInput = document.getElementById("addSetAdjustCountInput");
+    const captured = draft.children.length;
+
+    if (hasSubGroups) {
       pickerRow.style.display = "block";
       const sel = document.getElementById("addSetChildSubGroup");
       sel.innerHTML = draft.subGroups.map(sg => `<option value="${sg.name}">${sg.name}</option>`).join("");
-      if (sub) sel.value = sub.name;
-      const captured = draft.children.filter(c => c.subGroup === (sub ? sub.name : "")).length;
-      document.getElementById("addSetChildProgress").textContent =
-        draft.children.length + " captured · " + (sub ? sub.name + " group: coin " + (captured + 1) + " of " + sub.expectedCount : "");
+      // A restored partial's explicit sub-group choice wins over the computed
+      // default, since it reflects what the user actually had selected.
+      if (draft.partialChild && draft.partialChild.subGroup) sel.value = draft.partialChild.subGroup;
+      else if (sub) sel.value = sub.name;
+
+      if (allSubGroupsFull(draft)) {
+        // Every sub-group has hit its own count — there's no sensible "next
+        // group" to show a fill-in-the-blank count for, so this reads the
+        // same as the flat-set overflow case rather than a nonsensical
+        // "Denver group: coin 3 of 2."
+        progressEl.textContent = "You've captured " + captured + " coin" + (captured === 1 ? "" : "s") + " — add another, or mark this set complete?";
+        adjustLabel.textContent = "";
+        adjustInput.value = draft.subGroups.reduce((s, g) => s + g.expectedCount, 0);
+      } else {
+        const inGroup = draft.children.filter(c => c.subGroup === sub.name).length;
+        progressEl.textContent = captured + " captured · " + sub.name + " group: coin " + (inGroup + 1) + " of " + sub.expectedCount;
+        adjustLabel.textContent = " (" + sub.name + ")";
+        adjustInput.value = sub.expectedCount;
+      }
     } else {
       pickerRow.style.display = "none";
-      const total = draft.expectedChildCount || "?";
-      document.getElementById("addSetChildProgress").textContent = "Coin " + (draft.children.length + 1) + " of " + total;
+      const total = draft.expectedChildCount || 0;
+      if (total > 0 && captured >= total) {
+        progressEl.textContent = "You've captured " + captured + " coin" + (captured === 1 ? "" : "s") + " — add another, or mark this set complete?";
+      } else {
+        progressEl.textContent = "Coin " + (captured + 1) + " of " + (total || "?");
+      }
+      adjustLabel.textContent = "";
+      adjustInput.value = total;
     }
-    clearChildForm();
+
+    // Bug 1 fix: a Pause left in-progress (never formally saved) field
+    // values on the draft — restore them instead of starting blank. Once
+    // shown, they're cleared from the draft (a fresh Pause will re-save
+    // whatever's in the form at that later point).
+    if (draft.partialChild) {
+      restoreChildFormValues(draft.partialChild);
+      draft.partialChild = null;
+      writeSetDraft(draft).catch(() => {}); // best-effort; form already shows the restored values regardless
+    } else {
+      clearChildForm();
+    }
   }
 
   function clearChildForm() {
@@ -7521,6 +7610,35 @@
     document.getElementById("addSetChildDenom").value = "";
     document.getElementById("addSetChildMint").value = "";
     addSetClearPhoto("childObv", "addSetChildObvPreview");
+    addSetClearPhoto("childRev", "addSetChildRevPreview");
+  }
+
+  // Reads the child form's typed/selected FIELD values only — not photos,
+  // which are in-memory Files that can't round-trip through a JSON Staging
+  // draft. Used by Pause to capture whatever's currently in the form.
+  function readChildFormValues() {
+    return {
+      denom: document.getElementById("addSetChildDenom").value,
+      year: document.getElementById("addSetChildYear").value.trim(),
+      mint: document.getElementById("addSetChildMint").value,
+      variety: document.getElementById("addSetChildVariety").value.trim(),
+      grade: document.getElementById("addSetChildGrade").value.trim(),
+      designation: document.getElementById("addSetChildDesignation").value.trim(),
+      subGroup: (currentSetDraft && currentSetDraft.subGroups && currentSetDraft.subGroups.length)
+        ? document.getElementById("addSetChildSubGroup").value : ""
+    };
+  }
+  function childFormValuesAreEmpty(v) {
+    return !v.denom && !v.year && !v.mint && !v.variety && !v.grade && !v.designation;
+  }
+  function restoreChildFormValues(v) {
+    document.getElementById("addSetChildDenom").value = v.denom || "";
+    document.getElementById("addSetChildYear").value = v.year || "";
+    document.getElementById("addSetChildMint").value = v.mint || "";
+    document.getElementById("addSetChildVariety").value = v.variety || "";
+    document.getElementById("addSetChildGrade").value = v.grade || "";
+    document.getElementById("addSetChildDesignation").value = v.designation || "";
+    addSetClearPhoto("childObv", "addSetChildObvPreview"); // photos never persist across a Pause — see readChildFormValues
     addSetClearPhoto("childRev", "addSetChildRevPreview");
   }
 
