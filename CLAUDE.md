@@ -771,6 +771,12 @@ deep-dive, locked in and built):
     per the documented naming convention), used as the link's `href` exactly
     the same "stored value used directly" way `certLink` is, not constructed.
     Row hidden entirely when Receipt is blank, same as every other row here.
+    **This is a real `<a href>` element, but the href never actually
+    resolves to real content** — confirmed via a real click-through (404,
+    both locally and on GitHub Pages): no file has ever existed at that
+    path, and nothing backs it with a real OneDrive fetch (unlike reference
+    images, which do). "Real link" describes the markup, not working
+    behavior — don't read this as a functioning receipt viewer.
   - **Specifications** (new) — Composition, Weight, Diameter, Thickness, Edge,
     No. of Reeds. **Superseded: Composition used to also appear in the
     always-visible key-facts row above** ("intentional overlap," matching how
@@ -1106,12 +1112,17 @@ rendering anything inline.
   yet (see "Add Coin: the core workflow").
 
 ### Medal tab (locked in, supersedes the Medal chip mentioned above)
-Browse is now **five** tabs — `Coins | Medal | Rolls | Sets | Albums`
+Browse is now **five** tabs — `Coins | Sets | Albums | Medals | Rolls`
 (`BROWSE_TABS`) — Medal promoted from a Denomination-style chip inside the
 Coins tab's filter row to its own top-level tab, one path to it, not both.
 Nav placement only, per Ray's explicit framing: medals aren't numismatically
 coins even though they share the CoinID pattern — no underlying data/schema
-change (Denomination="Medal" is still exactly what it was).
+change (Denomination="Medal" is still exactly what it was). **Superseded:
+tab label pluralized "Medal" → "Medals" (to match Coins/Rolls/Sets/Albums)
+and reordered to Coins/Sets/Albums/Medals/Rolls** — label text and array
+order only; the internal tab key stays `"medal"` (singular) throughout,
+`medalTabBaseRows()`/`applyMedalTabFilters()` and everything else below is
+unchanged.
 - **`coinsTabBaseRows()` now also excludes `denom==="Medal"`** (alongside the
   existing Set-bundle/Roll exclusions) and a new `medalTabBaseRows()`
   (`FAKE_COINS.filter(c => c.denom==="Medal")`) feeds a new

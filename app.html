@@ -4323,10 +4323,10 @@
   // nav placement only, no underlying data/schema change.
   const BROWSE_TABS = [
     { key: "coins",  label: "Coins" },
-    { key: "medal",  label: "Medal" },
-    { key: "rolls",  label: "Rolls" },
     { key: "sets",   label: "Sets" },
-    { key: "albums", label: "Albums" }
+    { key: "albums", label: "Albums" },
+    { key: "medal",  label: "Medals" },
+    { key: "rolls",  label: "Rolls" }
   ];
   let activeBrowseTab = "coins";
 
@@ -4922,7 +4922,7 @@
     // to Sets/Rolls too; only the view-toggle sub-element hides.
     document.getElementById("browseViewToggle").classList.toggle("hidden", tab === "sets" || tab === "rolls");
     document.getElementById("browseTitle").textContent =
-      tab === "coins" ? "Coins" : tab === "medal" ? "Medal" : tab === "rolls" ? "Rolls" : "Sets";
+      tab === "coins" ? "Coins" : tab === "medal" ? "Medals" : tab === "rolls" ? "Rolls" : "Sets";
 
     applyActiveBrowseTabFilters();
   }
