@@ -1462,12 +1462,16 @@ on-device-style screenshot; prior suites (badge/hub regression) re-run clean.
   Set). `setChecklistContext = {year, lineage, setId, name}` is carried into
   Add Set: `applyAddSetContext()` shows a 🧩 banner and pre-composes
   `#addSetName` from the DB_Sets row's name (e.g. "1972 United States Proof
-  Set"); the year/SetID/lineage ride **invisibly** onto the draft — **no
-  visible Year/SetID fields were added to Add Set Step 1** (that's a separate,
-  bigger decision, deferred per A2). Context is cleared when leaving Add Set
-  (a `navigate` leaving-guard mirroring the Add Coin one). `buildSetDraft()`
-  gained `year` + `lineage` fields; a checklist `setId` (a real intended SetID
-  from DB_Sets) wins over the product code, and the research note records the
+  Set"); SetID/lineage still ride **invisibly** onto the draft — no visible
+  SetID field exists. **Superseded in part: a visible Year field WAS later
+  added to Add Set Step 1** (see "Structured Year field + child-coin
+  pre-fill" below) — `applyAddSetContext()` now pre-fills that real field
+  from the checklist tile's year instead of passing it through the
+  side-channel this note originally described; SetID/lineage are unaffected
+  and still invisible. Context is cleared when leaving Add Set (a `navigate`
+  leaving-guard mirroring the Add Coin one). `buildSetDraft()` gained `year`
+  + `lineage` fields; a checklist `setId` (a real intended SetID from
+  DB_Sets) wins over the product code, and the research note records the
   checklist linkage instead of "SetID unconfirmed". A plain (non-checklist)
   Add Set is unchanged — blank year/lineage, no banner.
 - **Owned-tile tap → that Set's Browse detail** (dormant until SetID linkage
@@ -1743,7 +1747,62 @@ architecture changes):**
   not part of the saved suite files). The 6 existing suite files (77
   assertions) re-run clean alongside — 105/105 total across everything run
   this session, zero regressions.
-  zero regressions.
+
+**Structured Year field + child-coin pre-fill (BUILT, locked in).** Add Set
+Step 1 had no structured Year — only free-text Set name/description — so
+child-coin capture had nothing to pre-fill from and Year had to be retyped
+by hand on every coin, even for a single-year set. Fixed per Ray's explicit
+scoping (not open for further design questions): every catalogued Mint
+product is tied to exactly one year; only a personal/custom grouping can
+span multiple years — so Year is a required **either/or**, never a third
+"blank" state.
+- **New Step 1 field**: a number input (`#addSetYear`) plus a `Various`
+  checkbox (`#addSetYearVarious`, reusing the existing `.grade-range-toggle`
+  class rather than inventing a new one). Checking Various disables and
+  blanks the number input, so the two states can't both hold a stale value.
+  `readAddSetYear()` returns a specific number, the literal string
+  `"Various"` (same convention the Rolls tab already uses for a mixed-date
+  roll's own `year` field — reused, not reinvented), or `null` if genuinely
+  neither was chosen — `startSetCapture()` blocks submission on `null` via
+  the same `showToast()` validation pattern as the existing "give the set a
+  name" check.
+- **`draft.year` is no longer checklist-only.** It already existed as a
+  draft field (populated only via the Sets-checklist deep-link, see that
+  section below) — now `startSetCapture()` always sources it from
+  `readAddSetYear()` regardless of entry path, so a checklist deep-link and
+  a plain Add Set entry both end up going through the same real form field.
+  `applyAddSetContext()` now pre-fills `#addSetYear` with the checklist
+  tile's year (always a specific number, Various left unchecked) instead of
+  passing it through a side-channel — genuinely simplifies that code path,
+  not just adds to it.
+- **Child pre-fill lives in `clearChildForm()`** (`prefillChildYear()`):
+  a freshly-opened child form (first coin, or right after a save) pre-fills
+  `#addSetChildYear` from `currentSetDraft.year` whenever that's a specific
+  number; `"Various"` or a missing/legacy value (a draft written before this
+  feature existed) leaves it blank, exactly as before. Applies identically
+  regardless of sub-groups — sub-groups split by mint mark, not year, and
+  this doesn't branch on `subGroups` at all. **Deliberately NOT applied**
+  when resuming a Paused `partialChild` — `restoreChildFormValues()` is
+  untouched, since a restored partial represents exactly what Ray had
+  already typed/cleared, which must win over the Step 1 default. Still just
+  a normal editable value either way — a per-coin override is respected and
+  isn't sticky (the next child gets the Step 1 pre-fill again, not the
+  override).
+- Verified headless (19 new assertions, `verify_addset_year.js`): the
+  required either/or block, the Various checkbox's disable/blank behavior,
+  pre-fill on a specific-year set (including re-applying for a second child,
+  not a one-shot), no pre-fill on a Various set, pre-fill applying
+  identically across both sub-groups of a sub-grouped set (including after
+  rolling from one sub-group to the next), a per-coin override being
+  respected and not sticking to later coins, the checklist deep-link
+  pre-filling the new field correctly, and a legacy no-year draft degrading
+  gracefully. Two existing suites (`verify_addset_receipt_pdf.js`,
+  `verify_bug3_photo_pause.js`) needed a Year value added to their own Step 1
+  calls now that it's required — updated, not weakened; one of those
+  (`verify_bug3_photo_pause.js`'s empty-pause test) switched to Various
+  specifically, since a specific-year draft's child form is no longer
+  trivially empty by design. All 8 suites (119 assertions total) re-run
+  clean, zero regressions.
 
 **Scope boundary — what the app writes (Q1=b / Q3):** the app NEVER writes the
 Excel workbook. Its only writes are (i) Staging **drafts as JSON files** in

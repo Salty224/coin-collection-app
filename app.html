@@ -2385,6 +2385,19 @@
         <label for="addSetName">Set name / description</label>
         <input type="text" id="addSetName" placeholder="e.g. 1999 United States Mint Set">
 
+        <!-- Every catalogued Mint product is tied to exactly one year; only a
+             personal/custom grouping (not an official product) can span
+             multiple years — so this is a required either/or, never a third
+             "leave blank" state. Pre-fills from a Sets-checklist deep-link
+             (applyAddSetContext()) as a specific year, never Various. -->
+        <label for="addSetYear">Year</label>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input type="number" id="addSetYear" inputmode="numeric" placeholder="e.g. 1999" style="flex:1;">
+          <label class="grade-range-toggle" style="margin-top:0;">
+            <input type="checkbox" id="addSetYearVarious"> Various
+          </label>
+        </div>
+
         <label for="addSetProductCode">Mint product code (if known)</label>
         <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
         <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
@@ -3063,9 +3076,10 @@
       productCode: step1.productCode || "",
       // A checklist SetID (a real intended SetID from DB_Sets) wins when
       // present; otherwise the product code doubles as SetID when known; else
-      // assigned at reconciliation. `year` is a new draft field, populated only
-      // on the checklist path (blank for a plain Add Set — no visible Year
-      // field was added, per decision A2).
+      // assigned at reconciliation. `year` is a required Step 1 field (see
+      // the structured-Year feature) — always either a specific number or
+      // the literal string "Various", never blank, for every Add Set entry
+      // path (plain or checklist deep-link).
       setId: step1.checklistSetId || step1.productCode || "",
       year: step1.year || "",
       lineage: step1.checklistLineage || "",
@@ -8246,6 +8260,15 @@
       else { note.textContent = "No DB_Sets match — will be resolved at reconciliation."; note.style.color = "var(--text-muted)"; }
     });
 
+    // Year is required either/or: a specific number, or explicitly "Various"
+    // (see the markup comment above) — checking Various disables and blanks
+    // the number input so the two states can't both hold a stale value.
+    document.getElementById("addSetYearVarious").addEventListener("change", (e) => {
+      const yearInput = document.getElementById("addSetYear");
+      yearInput.disabled = e.target.checked;
+      if (e.target.checked) yearInput.value = "";
+    });
+
     document.getElementById("addSetAddSubGroupBtn").addEventListener("click", () => addSubGroupRow());
     document.getElementById("addSetStartBtn").addEventListener("click", startSetCapture);
     document.getElementById("addSetChildSaveBtn").addEventListener("click", saveCurrentChild);
@@ -8334,9 +8357,26 @@
       .filter(sg => sg.name);
   }
 
+  // Year is a required either/or (see the Step 1 markup comment): a specific
+  // number, or the literal string "Various" — the same convention the Rolls
+  // tab already uses for a mixed-date roll's own `year` field, reused here
+  // rather than inventing a second "no specific year" sentinel. Returns null
+  // when NEITHER was chosen (blocks submission in startSetCapture) — that's
+  // the only invalid state; a blank/legacy draft's year is otherwise never
+  // produced by this form.
+  function readAddSetYear() {
+    if (document.getElementById("addSetYearVarious").checked) return "Various";
+    const raw = document.getElementById("addSetYear").value.trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return isNaN(n) ? null : n;
+  }
+
   function showAddSetStep1() {
     currentSetDraft = null;
-    ["addSetName", "addSetProductCode", "addSetExpectedCount"].forEach(id => document.getElementById(id).value = "");
+    ["addSetName", "addSetProductCode", "addSetExpectedCount", "addSetYear"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("addSetYearVarious").checked = false;
+    document.getElementById("addSetYear").disabled = false;
     document.getElementById("addSetMatchNote").textContent = "";
     document.getElementById("addSetSubGroups").innerHTML = "";
     document.getElementById("addSetStep1Note").textContent = "";
@@ -8350,8 +8390,13 @@
   }
 
   // Deep-link pre-fill from a Sets completeness-checklist empty tile (A2):
-  // shows the banner and pre-composes the set name. Year/SetID are NOT visible
-  // form fields — they ride on setChecklistContext straight to the draft.
+  // shows the banner and pre-composes the set name. SetID rides on
+  // setChecklistContext straight to the draft (no visible form field for
+  // it). Year is now a real, visible Step 1 field (see the structured-Year
+  // feature above) — a checklist deep-link always knows a specific year
+  // (every catalogued Mint product is exactly one year), so this pre-fills
+  // the number input directly, Various left unchecked; still a normal
+  // editable field afterward, same as manual entry.
   function applyAddSetContext() {
     const banner = document.getElementById("addSetContextBanner");
     if (!setChecklistContext) { banner.classList.add("hidden"); return; }
@@ -8359,6 +8404,9 @@
       "Adding the missing <strong>" + setChecklistContext.name + "</strong> to your collection";
     banner.classList.remove("hidden");
     document.getElementById("addSetName").value = setChecklistContext.name;
+    document.getElementById("addSetYearVarious").checked = false;
+    document.getElementById("addSetYear").disabled = false;
+    document.getElementById("addSetYear").value = setChecklistContext.year;
   }
 
   function clearAddSetContext() {
@@ -8381,6 +8429,8 @@
   async function startSetCapture() {
     const setName = document.getElementById("addSetName").value.trim();
     if (!setName) { showToast("Give the set a name first."); return; }
+    const yearValue = readAddSetYear();
+    if (yearValue === null) { showToast('Pick a Year, or check "Various."'); return; }
     const productCode = document.getElementById("addSetProductCode").value.trim();
     const expected = Number(document.getElementById("addSetExpectedCount").value) || 0;
     const subGroups = readSubGroups();
@@ -8398,7 +8448,7 @@
         dbSetsMatch: matchDbSetsByProductCode(productCode),
         expectedChildCount: expected, subGroups,
         wholeSetPhoto: wholeName, receiptPhoto: receiptName,
-        year: ctx ? ctx.year : "",
+        year: yearValue,
         checklistSetId: ctx ? ctx.setId : "",
         checklistLineage: ctx ? ctx.lineage : ""
       });
@@ -8507,8 +8557,21 @@
     }
   }
 
+  // Structured-Year pre-fill: a new child form starts with Year pre-filled
+  // from the draft's own Step 1 Year, whenever that's a specific number.
+  // "Various" (or a blank/missing year on a pre-feature legacy draft) leaves
+  // it blank, same as before this feature existed — no pre-fill attempted.
+  // Applies identically regardless of sub-groups (they split by mint mark,
+  // not year) since this doesn't branch on subGroups at all. Still just a
+  // normal editable value afterward — Ray can freely overwrite it per coin.
+  function prefillChildYear(draft) {
+    const y = draft && draft.year;
+    return (y && y !== "Various") ? String(y) : "";
+  }
+
   function clearChildForm() {
-    ["addSetChildYear", "addSetChildVariety", "addSetChildGrade", "addSetChildDesignation"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("addSetChildYear").value = prefillChildYear(currentSetDraft);
+    ["addSetChildVariety", "addSetChildGrade", "addSetChildDesignation"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("addSetChildDenom").value = "";
     document.getElementById("addSetChildMint").value = "";
     addSetClearPhoto("childObv", "addSetChildObvPreview");
