@@ -1305,6 +1305,14 @@ on-device-style screenshot; prior suites (badge/hub regression) re-run clean.
   **label** changed — the underlying `category` DATA value stays `"Mint Set"`,
   so `SET_NAMED_CATEGORIES` (used only by the `Other` list-mode catch-all) is
   unchanged.
+  **Superseded (Ray's follow-up): pill order + labels changed again**, left
+  to right: `All / Uncirculated Sets / Proof Sets / Silver Proof Sets /
+  Commemorative Sets / Other`. Still label-text-only — `lineage`/`test` on
+  each `BROWSE_SET_CATEGORY_CHIPS` entry (the real Lineage/category values
+  driving the checklist and list filters) are unchanged; only the reordering
+  of the array and the displayed strings changed. "Uncirculated Sets" still
+  drives `lineage: "Uncirculated Coin Set"` from the decision above — two
+  separate label passes on the same underlying value.
 - **Complete/Component/Premium sub-filter** (`#setScopeSelect`) reuses the
   Rolls-sort `.rolls-sort-row` `<select>` styling (decision B1), right-aligned
   under the pill row. Shown **only in checklist mode** (hidden for
