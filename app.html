@@ -2402,16 +2402,50 @@
         <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
         <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
 
-        <label for="addSetExpectedCount">Expected coin count (your own count)</label>
-        <input type="number" id="addSetExpectedCount" inputmode="numeric" placeholder="e.g. 8">
+        <!-- Drives the "track individually" default below (defaultTrackIndividually()).
+             Optional itself — "any Category not listed" (including left blank)
+             defaults to NO, same as the three named standard-issue categories. -->
+        <label for="addSetCategory">Category</label>
+        <select id="addSetCategory">
+          <option value="">— select (optional) —</option>
+          <option value="Mint Set">Mint Set</option>
+          <option value="Proof Set">Proof Set</option>
+          <option value="Silver Proof Set">Silver Proof Set</option>
+          <option value="Commemorative">Commemorative</option>
+          <option value="Silver Eagle">Silver Eagle</option>
+          <option value="Reverse Proof Set">Reverse Proof Set</option>
+          <option value="Prestige Set">Prestige Set</option>
+          <option value="Legacy Collection">Legacy Collection</option>
+          <option value="Assembled Set">Assembled Set</option>
+          <option value="Best of the Mint Set">Best of the Mint Set</option>
+          <option value="Other">Other</option>
+        </select>
 
-        <div class="section-label">Sub-groups (optional)</div>
-        <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
-          e.g. "Philadelphia" / "Denver" for a Mint Set. If used, the expected count is
-          per sub-group and each coin belongs to exactly one. Leave empty for a flat set.
+        <!-- Resolved July 18 ProjectPlan item: standard-issue annual sets default
+             to one set-level record; deluxe/commemorative/personal-assembly sets
+             default to per-coin tracking. Always overridable either way. -->
+        <label class="grade-range-toggle" style="margin-top:14px;">
+          <input type="checkbox" id="addSetTrackIndividually"> Track coins individually within this set?
+        </label>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Unchecked: this Set is captured as one set-level record (one photo/cert),
+          same as an existing bare-ID Set row — Step 2's coin-by-coin capture is
+          skipped. Checked: proceed to Step 2 and capture each coin separately, as
+          today.
         </p>
-        <div id="addSetSubGroups"></div>
-        <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
+
+        <div id="addSetIndividualTrackingFields">
+          <label for="addSetExpectedCount">Expected coin count (your own count)</label>
+          <input type="number" id="addSetExpectedCount" inputmode="numeric" placeholder="e.g. 8">
+
+          <div class="section-label">Sub-groups (optional)</div>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+            e.g. "Philadelphia" / "Denver" for a Mint Set. If used, the expected count is
+            per sub-group and each coin belongs to exactly one. Leave empty for a flat set.
+          </p>
+          <div id="addSetSubGroups"></div>
+          <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
+        </div>
 
         <div class="section-label">Photos (optional)</div>
         <div class="photo-box" id="addSetWholeBox">
@@ -3059,6 +3093,7 @@
   // definition (pending, Q9) and the ResearchNote spells out what's still
   // unresolved, same shape as the NGC/PCGS research-queue notes.
   function buildSetDraft(collectionId, step1) {
+    const trackIndividually = step1.trackIndividually !== false; // default true (both real call sites always pass it explicitly)
     const researchLines = ["GSID pending — new release"];
     // A checklist deep-link carries a known intended SetID (and Lineage/year)
     // from DB_Sets, so the SetID is NOT unconfirmed in that case.
@@ -3068,12 +3103,26 @@
       researchLines.push("SetID/product code unconfirmed — verify against Mint catalog");
     }
     if (step1.dbSetsMatch === null && step1.productCode) researchLines.push("Product code entered but no DB_Sets match — confirm at reconciliation");
+    // Resolved July 18 ProjectPlan item (CollectionID Parent-Child Convention
+    // for Sets): a set not tracked individually is a single set-level record,
+    // never a parent expecting -A/-B/-C children — flagged for reconciliation
+    // so an empty children[] here reads as "by design," not "capture stalled."
+    if (!trackIndividually) researchLines.push("Not tracked individually — single set-level record, no child coins expected.");
     return {
       collectionID: collectionId,
       type: "set",
-      status: SET_STATUS.DRAFT,
+      // Not tracked individually has no Step 2 to be "in progress" through —
+      // it completes the instant Step 1 is submitted, same terminal status
+      // Step 2's own "Done" button (markSetDraftComplete) reaches.
+      status: trackIndividually ? SET_STATUS.DRAFT : SET_STATUS.COMPLETE,
       setName: step1.setName || "",
       productCode: step1.productCode || "",
+      category: step1.category || "",
+      // Resolved July 18 ProjectPlan item — see CLAUDE.md "CollectionID
+      // Parent-Child Convention for Sets." Whether this Set captures a
+      // per-coin breakdown (Step 2, -A/-B/-C children joined via
+      // originSetId once promoted) or stays one set-level record.
+      trackIndividually: trackIndividually,
       // A checklist SetID (a real intended SetID from DB_Sets) wins when
       // present; otherwise the product code doubles as SetID when known; else
       // assigned at reconciliation. `year` is a required Step 1 field (see
@@ -3084,8 +3133,8 @@
       year: step1.year || "",
       lineage: step1.checklistLineage || "",
       dbSetsMatch: step1.dbSetsMatch || null,
-      expectedChildCount: Number(step1.expectedChildCount) || 0,
-      subGroups: Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
+      expectedChildCount: trackIndividually ? (Number(step1.expectedChildCount) || 0) : 0,
+      subGroups: trackIndividually && Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
       gsid: "",                                    // empty = pending everywhere (Q9)
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
@@ -3095,8 +3144,10 @@
       // these so nothing typed is ever lost — see the Pause handler below).
       // Distinct from a real `children[]` entry: never counted as captured,
       // never gets a CollectionID, cleared the moment a real save happens.
+      // Only ever populated on a trackIndividually=true draft (Step 2 is the
+      // only place that writes it).
       partialChild: null,
-      confirmedChildCount: null,
+      confirmedChildCount: trackIndividually ? null : 0,
       filesMovedOnPromotion: false,                // Part 3 tracking flag
       // Permanently-dismissed Needs Attention gaps on THIS draft (e.g.
       // "wholeSetPhoto") — real, persisted dismissals (unlike the coin-side
@@ -3294,9 +3345,14 @@
     // aggregation of separately-catalogued member coins. Category is the
     // reliable "is this a Set, and which kind" signal (confirmed against the
     // real workbook), used directly by the Sets tab's category pills. A
-    // future parent/child CollectionID suffix system (AY-#####-Set / -A / -B)
-    // will eventually let a bundle's individual coins be broken out — out of
-    // scope for this restructure, see CLAUDE.md.
+    // future parent/child breakdown will eventually let a bundle's individual
+    // coins be broken out — out of scope for this restructure, see CLAUDE.md.
+    // (Historical note: this was speculatively described elsewhere as an
+    // "AY-#####-Set/-A/-B" CollectionID suffix scheme — that's not how it was
+    // actually built. The real Add Set flow joins children via the explicit
+    // originSetId field below, and plain AY-##### parent IDs — no "-Set"
+    // suffix — are the locked-in convention going forward; see CLAUDE.md "ID
+    // schemes.")
     // setId here matches the Washington Quarter (AY-00012) above — the one
     // demo Set-linkage pair (see CLAUDE.md Issue 3). An individual coin's
     // setId is matched against a bundle row's OWN setId (not its
@@ -8170,6 +8226,58 @@
     return FAKE_DB_SETS.find(s => s.productCode && s.productCode.toLowerCase() === code.trim().toLowerCase()) || null;
   }
 
+  // Resolved July 18 ProjectPlan item (CollectionID Parent-Child Convention
+  // for Sets): whether a Set defaults to per-coin tracking (Step 2) or a
+  // single set-level record, keyed off Category. Standard-issue annual
+  // products default OFF; deluxe/commemorative/personal-assembly products
+  // default ON. Anything not in this list (including a blank/unselected
+  // Category) defaults OFF, per Ray's explicit "any Category not listed:
+  // default NO" — expressed as one Set membership test rather than two
+  // separate enumerated lists, so there's no way for a category to fall
+  // through neither list.
+  const ADD_SET_TRACK_INDIVIDUALLY_DEFAULT_YES = new Set([
+    "Commemorative", "Silver Eagle", "Reverse Proof Set", "Prestige Set",
+    "Legacy Collection", "Assembled Set", "Best of the Mint Set"
+  ]);
+  function defaultTrackIndividually(category) {
+    return ADD_SET_TRACK_INDIVIDUALLY_DEFAULT_YES.has(category);
+  }
+
+  // Maps a Sets-checklist Lineage value onto this form's own Category
+  // vocabulary — same "Uncirculated Coin Set" lineage / "Mint Set" category
+  // data-value split already established by the completeness-checklist
+  // pill rename (label changed, underlying value didn't).
+  function categoryFromLineage(lineage) {
+    if (lineage === "Uncirculated Coin Set") return "Mint Set";
+    return lineage || "";
+  }
+
+  // Two independent "has Ray manually touched this" flags, reset on every
+  // fresh Step 1 entry (showAddSetStep1) — auto-fill (from a product-code
+  // match, a checklist deep-link, or Category driving the track-individually
+  // default) only ever applies BEFORE Ray's own choice, never after, so nothing
+  // auto-fill does can silently stomp a deliberate override.
+  let addSetCategoryTouched = false;
+  let addSetTrackIndividuallyTouched = false;
+
+  function applyAddSetTrackIndividuallyDefault() {
+    if (addSetTrackIndividuallyTouched) return;
+    const category = document.getElementById("addSetCategory").value;
+    document.getElementById("addSetTrackIndividually").checked = defaultTrackIndividually(category);
+    updateAddSetTrackIndividuallyVisibility();
+  }
+
+  // Shows/hides the Expected-count/Sub-groups section (meaningless without
+  // per-coin tracking) and relabels the Start button so it reads correctly
+  // for whichever path submitting Step 1 will actually take.
+  function updateAddSetTrackIndividuallyVisibility() {
+    const trackIndividually = document.getElementById("addSetTrackIndividually").checked;
+    document.getElementById("addSetIndividualTrackingFields").style.display = trackIndividually ? "block" : "none";
+    document.getElementById("addSetStartBtn").textContent = trackIndividually
+      ? "Reserve ID & start capturing coins"
+      : "Reserve ID & save set";
+  }
+
   // Whether a DB_Sets row belongs to the given Lineage — handles the
   // comma-separated dual-lineage SMS rows (decision D).
   function dbSetLineageIncludes(dbSet, lineage) {
@@ -8251,13 +8359,22 @@
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
 
-    // Live DB_Sets match note as the product code is typed.
+    // Live DB_Sets match note as the product code is typed — also auto-fills
+    // Category from the matched row (unless Ray has already picked one
+    // himself), which in turn drives the track-individually default below.
     document.getElementById("addSetProductCode").addEventListener("input", (e) => {
       const note = document.getElementById("addSetMatchNote");
       const m = matchDbSetsByProductCode(e.target.value);
       if (!e.target.value.trim()) { note.textContent = ""; note.style.color = ""; return; }
-      if (m) { note.textContent = "✓ Matched DB_Sets: " + m.name + " (" + m.category + ")"; note.style.color = "var(--gold-bright)"; }
-      else { note.textContent = "No DB_Sets match — will be resolved at reconciliation."; note.style.color = "var(--text-muted)"; }
+      if (m) {
+        note.textContent = "✓ Matched DB_Sets: " + m.name + " (" + m.category + ")"; note.style.color = "var(--gold-bright)";
+        if (!addSetCategoryTouched) {
+          document.getElementById("addSetCategory").value = m.category;
+          applyAddSetTrackIndividuallyDefault();
+        }
+      } else {
+        note.textContent = "No DB_Sets match — will be resolved at reconciliation."; note.style.color = "var(--text-muted)";
+      }
     });
 
     // Year is required either/or: a specific number, or explicitly "Various"
@@ -8267,6 +8384,18 @@
       const yearInput = document.getElementById("addSetYear");
       yearInput.disabled = e.target.checked;
       if (e.target.checked) yearInput.value = "";
+    });
+
+    // Category drives the track-individually default (see
+    // defaultTrackIndividually) — recomputed on every manual Category change
+    // too, same "auto-fill never wins over a real choice" guard.
+    document.getElementById("addSetCategory").addEventListener("change", () => {
+      addSetCategoryTouched = true;
+      applyAddSetTrackIndividuallyDefault();
+    });
+    document.getElementById("addSetTrackIndividually").addEventListener("change", () => {
+      addSetTrackIndividuallyTouched = true;
+      updateAddSetTrackIndividuallyVisibility();
     });
 
     document.getElementById("addSetAddSubGroupBtn").addEventListener("click", () => addSubGroupRow());
@@ -8377,6 +8506,11 @@
     ["addSetName", "addSetProductCode", "addSetExpectedCount", "addSetYear"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
+    document.getElementById("addSetCategory").value = "";
+    addSetCategoryTouched = false;
+    addSetTrackIndividuallyTouched = false;
+    document.getElementById("addSetTrackIndividually").checked = defaultTrackIndividually("");
+    updateAddSetTrackIndividuallyVisibility();
     document.getElementById("addSetMatchNote").textContent = "";
     document.getElementById("addSetSubGroups").innerHTML = "";
     document.getElementById("addSetStep1Note").textContent = "";
@@ -8407,6 +8541,13 @@
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
     document.getElementById("addSetYear").value = setChecklistContext.year;
+    // A checklist deep-link is always a standard-issue annual product (one of
+    // the three Lineages), so Category — and via it, the track-individually
+    // default — pre-fills too, same as Year. Still fully overridable.
+    if (!addSetCategoryTouched) {
+      document.getElementById("addSetCategory").value = categoryFromLineage(setChecklistContext.lineage);
+      applyAddSetTrackIndividuallyDefault();
+    }
   }
 
   function clearAddSetContext() {
@@ -8431,9 +8572,13 @@
     if (!setName) { showToast("Give the set a name first."); return; }
     const yearValue = readAddSetYear();
     if (yearValue === null) { showToast('Pick a Year, or check "Various."'); return; }
+    const trackIndividually = document.getElementById("addSetTrackIndividually").checked;
+    const category = document.getElementById("addSetCategory").value;
     const productCode = document.getElementById("addSetProductCode").value.trim();
-    const expected = Number(document.getElementById("addSetExpectedCount").value) || 0;
-    const subGroups = readSubGroups();
+    // Expected count / sub-groups only mean anything when this Set is going
+    // to Step 2 — meaningless (and hidden) for a single set-level record.
+    const expected = trackIndividually ? (Number(document.getElementById("addSetExpectedCount").value) || 0) : 0;
+    const subGroups = trackIndividually ? readSubGroups() : [];
     const note = document.getElementById("addSetStep1Note");
 
     try {
@@ -8444,7 +8589,7 @@
       const receiptName = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
       const ctx = setChecklistContext; // present only on a checklist deep-link
       const draft = buildSetDraft(collectionId, {
-        setName, productCode,
+        setName, productCode, category, trackIndividually,
         dbSetsMatch: matchDbSetsByProductCode(productCode),
         expectedChildCount: expected, subGroups,
         wholeSetPhoto: wholeName, receiptPhoto: receiptName,
@@ -8455,8 +8600,16 @@
       await writeSetDraft(draft);
       currentSetDraft = draft;
       updateInProgressSetsBadge();
-      showToast("Reserved " + collectionId + " — draft started in Staging.");
-      renderChildStep();
+      if (trackIndividually) {
+        showToast("Reserved " + collectionId + " — draft started in Staging.");
+        renderChildStep();
+      } else {
+        // Resolved July 18 ProjectPlan item: not tracked individually =
+        // Step 2 is skipped entirely, the record is already Complete (see
+        // buildSetDraft) the instant this write succeeds.
+        showToast("Reserved " + collectionId + " — set saved (not tracked coin-by-coin).");
+        navigate("dashboard");
+      }
     } catch (e) {
       note.textContent = "";
       showToast(writeUnavailableMessage(e));

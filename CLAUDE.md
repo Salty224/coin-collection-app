@@ -330,9 +330,21 @@ supersedes every earlier `_receipt.jpg` reference in this file.
   than breaking capture.
 
 ## ID schemes (locked in)
-- CollectionID: `AY-#####` (5-digit). Parent rows get `-Set` suffix; child rows get
-  `-A`/`-B`/etc. **This suffix pattern is reserved exclusively for
-  acquisition/provenance lineage — never repurpose it for anything else.**
+- CollectionID: `AY-#####` (5-digit). Child rows get `-A`/`-B`/etc., joined to
+  their parent via the explicit `originSetId` field, never by parsing the
+  parent ID string. **Superseded — the `-Set` suffix on parent rows is
+  retired going forward** (resolved July 18 ProjectPlan item, "CollectionID
+  Parent-Child Convention for Sets"): a new parent Set ID is always a plain
+  `AY-#####`, whether or not it ever gets children, whether or not it's
+  tracked coin-by-coin at all (see "Track coins individually" toggle under
+  "Add Set + real write layer"). Confirmed nothing in the app depends on the
+  `-Set` suffix being present — grepped the reservation module, the Add Set
+  write layer, and every `FAKE_*` demo array; `reservationIdNumber()`/
+  `collectionIdNumber()` already strip only the `AY-` prefix and ignore any
+  suffix via `parseInt`, and child linkage was already `originSetId`-based,
+  never suffix-parsed. Existing historical rows that already carry a
+  `-Set` suffix are untouched by this — this only governs what the app
+  itself generates going forward.
 - CoinID: custom `C-YYYY-M-DDD-##`. Meant to be unique per DB_Coins row (one row
   per coin type/variant), but **this has only been audited for the ~326 DB_Coins
   rows tied to currently-owned coins, not all ~3,753 rows** — a real duplicate-
@@ -1803,6 +1815,99 @@ span multiple years — so Year is a required **either/or**, never a third
   specifically, since a specific-year draft's child form is no longer
   trivially empty by design. All 8 suites (119 assertions total) re-run
   clean, zero regressions.
+
+**"Track coins individually within this set?" toggle + CollectionID `-Set`
+suffix retirement (BUILT, locked in).** Resolves the July 18 ProjectPlan item
+"CollectionID Parent-Child Convention for Sets." Two parts, shipped together
+since the second is really the consequence of the first.
+- **New Step 1 toggle** (`#addSetTrackIndividually`): whether this Set
+  captures a per-coin breakdown (Step 2, as already built) or completes as
+  one **single set-level record** — same shape as an existing bare-ID owned
+  Set row in the workbook (e.g. `AY-00542`), no `-A/-B/-C` children ever
+  expected. **Default is driven by the new Category field**
+  (`#addSetCategory`, also new this round — Step 1 had no Category selector
+  before): `Mint Set` / `Proof Set` / `Silver Proof Set` default **NO**
+  (`defaultTrackIndividually()`); `Commemorative` / `Silver Eagle` /
+  `Reverse Proof Set` / `Prestige Set` / `Legacy Collection` /
+  `Assembled Set` / `Best of the Mint Set` default **YES**; blank or any
+  other value (including `Other`) defaults **NO** — expressed as a single
+  membership test against the YES set, so there's no way for a category to
+  fall through neither bucket. **Always overridable in either direction** —
+  two independent "touched" flags (`addSetCategoryTouched`,
+  `addSetTrackIndividuallyTouched`), each reset only on a fresh Step 1 entry
+  (`showAddSetStep1()`), make sure auto-fill (Category from a product-code
+  match or a checklist deep-link; the toggle from Category) only ever
+  applies *before* Ray's own choice, never silently overwrites it after.
+- **Category auto-fills from two existing signals**, both already computing
+  a category-shaped value before this round: a matched product code
+  (`matchDbSetsByProductCode()`, already showing `m.category` in the match
+  note) now also sets the dropdown; a Sets-checklist deep-link's `lineage`
+  now maps onto Category too (`categoryFromLineage()` — "Uncirculated Coin
+  Set" lineage → `"Mint Set"` category, same label/value split the
+  completeness-checklist pill rename already established). Both paths are
+  standard-issue-only by construction, so they always land on a default-NO
+  category — correct, not a coincidence.
+- **Unchecked → Step 2 is genuinely skipped, not just hidden.**
+  `startSetCapture()` branches: Expected Count and Sub-groups are read as
+  empty/zero regardless of what's still sitting in those (now-hidden)
+  fields (`#addSetIndividualTrackingFields`, shown/hidden by
+  `updateAddSetTrackIndividuallyVisibility()`, which also relabels the
+  Start button — "Reserve ID & start capturing coins" vs. "Reserve ID &
+  save set"); `renderChildStep()` is never called; the draft is written
+  with `status` set directly to `SET_STATUS.COMPLETE` (the same terminal
+  status Step 2's own "Done" button reaches via `markSetDraftComplete`) and
+  `confirmedChildCount: 0` (never `null`, so a downstream reader can't
+  mistake this for "Step 2 started but never finished"); Ray lands back on
+  the Dashboard, since there's nothing left to do. A `trackIndividually:
+  false` flag is stored on the draft itself, and the research note gains an
+  explicit "Not tracked individually — single set-level record, no child
+  coins expected" line — both purely for the reconciliation team's benefit,
+  so an empty `children[]` on a `Complete` draft reads as "by design," not
+  "capture stalled partway." Falls out of existing hub/dashboard logic for
+  free: never appears in "In Progress Sets" (never enters `Draft` status),
+  correctly appears under the Needs Attention hub's "Waiting on Copilot
+  research" section like any other `Complete` draft, and the promotion
+  file-move loop already tolerates an empty `children[]` (it always did —
+  confirmed by re-reading `plannedPromotionMoves()`, which iterates
+  `draft.children || []`).
+- **`-Set`/`-SET` CollectionID suffix retired going forward.** Grepped the
+  whole file: nothing in the reservation module, the Add Set write layer, or
+  any `FAKE_*` demo data actually generates, parses, or depends on that
+  suffix — `reservationIdNumber()`/`collectionIdNumber()` (two separate but
+  structurally identical helpers, coin-side mockup and Add Set write layer)
+  both strip only the `AY-` prefix and `parseInt` the rest, which silently
+  ignores *any* suffix, `-Set` or otherwise, without special-casing it. Every
+  real parent ID `reserveNextCollectionId()` produces is already a plain
+  `AY-#####` — confirmed nothing needed to change there. Child linkage was
+  already `originSetId`-based, never suffix-parsed (`setChildrenFor()`,
+  `isSetRow()` — keyed on `denom === "Multiple"`, not the ID string). One
+  stale comment (in the old Browse-restructure `FAKE_COINS` seed data)
+  speculatively described a future `AY-#####-Set/-A/-B` suffix scheme that
+  was never actually built that way — corrected in place to point at the
+  real `originSetId` mechanism and the retirement decision, so a future
+  session doesn't mistake it for a still-open design question.
+- **Nothing else in the codebase assumes every Set gets an `-A/-B/-C`
+  child** — this was checked directly, not assumed: `markSetDraftComplete()`
+  never required `children.length > 0`; the promotion move-planner already
+  handled zero children gracefully (needed anyway for the childless-backlog
+  case the older coin-side `FAKE_SET_CHILDREN` mockup already exercised);
+  the Needs Attention hub's Draft/Complete branching keys purely on
+  `status`, never on children count. The only real gap was the missing
+  *path* to reach a childless Complete draft at all (Step 2 was previously
+  mandatory) — that's exactly what this toggle closes.
+- Verified headless (39 new assertions, `verify_addset_track_individually.js`):
+  every named category's default in both directions, blank/`Other`
+  defaulting NO, a manual override in either direction surviving a
+  subsequent Category change, the tracked path behaving exactly as before
+  (Step 2 runs, `status` stays `Draft`), the not-tracked path's full draft
+  shape (`status`, `children`, `expectedChildCount`, `confirmedChildCount`,
+  the research-note line, Step 2 never activating, landing on Dashboard,
+  absence from In Progress Sets), the Expected-Count/Sub-groups section's
+  show/hide plus confirmation that a stray value typed before switching to
+  NO never reaches the saved draft, and both auto-fill paths (checklist
+  deep-link, product-code match) correctly setting Category and thus the
+  default. All 9 suites (158 assertions total) re-run clean, zero
+  regressions.
 
 **Scope boundary — what the app writes (Q1=b / Q3):** the app NEVER writes the
 Excel workbook. Its only writes are (i) Staging **drafts as JSON files** in
