@@ -1500,11 +1500,13 @@ on-device-style screenshot; prior suites (badge/hub regression) re-run clean.
 
 **Decisions made during the build not covered by A–F (flagged, not guessed):**
 - **The checklist honors the shared Year filter but ignores the Missing
-  Photos toggle.** Year filtering a year-indexed completeness grid is natural
-  and consistent with "ANDs with everything" (`yearRowTest` applied to each
-  DB_Sets row's year); Missing Photos is an owned-row photo audit with no
-  meaning for reference tiles, so it's deliberately not applied in checklist
-  mode. Worth a glance to confirm that split is what Ray wants.
+  Photos toggle** (**CONFIRMED by Ray**: stays Year-only by design — Missing
+  Photos remains a Browse-only filter chip, no nag/flag logic added to the
+  checklist; a missing photo is obvious from Browse and gets corrected there,
+  no mandatory tracking needed on the checklist itself). Year filtering a
+  year-indexed completeness grid is natural and consistent with "ANDs with
+  everything" (`yearRowTest` applied to each DB_Sets row's year); Missing
+  Photos is an owned-row photo audit with no meaning for reference tiles.
 - **`OGPPhoto` (the new packaging-photo column on All) was left out entirely**
   (decision F) — announced for a later task, nothing in the checklist needs
   it.
@@ -2262,12 +2264,13 @@ resolved by headless testing):**
 1. Does the "Open workbook in Excel" link actually land in an *editable*
    Excel Online session for the file owner, not a read-only preview? Same
    "needs a real click-through" caveat as the original Task 2 investigation.
-2. Is the sparse `hasObversePhoto`/`hasReversePhoto` demo-field approach
-   (a few rows marked "has a photo" to keep the hub readable) the right call,
-   or would Ray rather see the literal "everything's missing" state and
-   handle hub noise a different way (e.g. capping the list, paginating)?
-Item 3 (badge semantics) is resolved — see "Dashboard badge" above — and
-removed from this list at merge time.
+   **Still open** — needs Ray's own live click-through, not resolvable from
+   this environment.
+Item 2 (sparse `hasObversePhoto`/`hasReversePhoto` demo fields) is
+**CONFIRMED by Ray**: approved as-is — confined to the `FAKE_COINS` demo
+layer, no real-data impact, resolves itself once real photo data lands at
+go-live. Item 3 (badge semantics) is resolved — see "Dashboard badge"
+above. Both removed from this list.
 Verified entirely headless (36 new assertions across two suites — hub
 sections/dismissal/badge math, and the Missing Photos filter/webUrl
 degradation), plus the full 189-assertion prior suite re-run clean — 225/225
