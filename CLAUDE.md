@@ -2902,6 +2902,31 @@ fixes, no conceptual changes, reviewed live on phone and tablet.**
   from an arbitrary scroll position, Spotlight-tap-scrolls-to-case-instead)
   covering both normal and reduce-motion contexts; a 360px full-dashboard
   screenshot and overflow check.
+- **Follow-up, same round: real vertical seam within several drawer faces,
+  root-caused and fixed.** Ray's flag ("some grain on left side of drawers
+  do not align") pointed at a genuine rendering artifact, confirmed by a
+  zoomed screenshot of the drawer stack's left edge — grain lines visibly
+  discontinuous partway across several drawer faces (Albums, Wishlist,
+  Ledger, Acquisitions, Docket; Catalog and Sets looked clean). Diagnosed,
+  not guessed: forced `--grain-dir` to `0deg` on every drawer via a
+  browser-evaluated style override and re-screenshotted the same crop —
+  the seam disappeared completely, isolating the cause to the per-drawer
+  `--grain-dir` angle variation (±1–3deg off horizontal) a prior pass added
+  for grain-direction variety. A `repeating-linear-gradient` painted at a
+  shallow non-cardinal angle across a box much wider than tall has to tile
+  diagonally, and at these box dimensions/DPI the tile boundary itself
+  becomes a visible seam — a real limitation of that technique at this
+  aspect ratio, not a fixable styling tweak. Removed the per-drawer
+  `--grain-dir` overrides entirely; all drawer faces now share the
+  horizontal `0deg` `.cabinet-drawers` already sets, leaving the per-drawer
+  `--wood-hi/mid/lo` tint + `background-position` shift (unaffected, kept
+  as-is) to carry "distinct board" on their own. Re-verified via the same
+  zoomed left-edge crop post-fix: grain lines now run continuous and
+  unbroken across every drawer face. `.wood`'s own internal 4deg/6deg-offset
+  layers (used by the stiles, recess housing, and display case) were left
+  untouched — those contexts are tall-and-narrow or moderate boxes with a
+  near-vertical base grain-dir, which didn't show this artifact in the same
+  screenshots, so there was nothing there to fix.
 
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —

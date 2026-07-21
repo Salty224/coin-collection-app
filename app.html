@@ -556,16 +556,27 @@
   /* Per-drawer figure variation so the stack reads as seven distinct boards,
      not one repeated tile panned around (which is all a background-position
      shift alone can achieve — same tile, different window onto it). Each
-     drawer gets its own small tonal shift AND a slight grain-angle tweak on
-     top of the position offset, so each face reads as its own piece of
-     timber. */
-  .drawer:nth-child(1) .drawer-face { background-position: 0 0; --grain-dir: 1deg; }
-  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --grain-dir: -3deg; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
-  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --grain-dir: 3deg;  --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
-  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --grain-dir: -2deg; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
-  .drawer:nth-child(5) .drawer-face { background-position: 31px 8px; --grain-dir: -1deg; --wood-hi: #a3753b; --wood-mid: #785322; --wood-lo: #4d3215; }
-  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --grain-dir: 2deg;  --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
-  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --grain-dir: -1deg; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
+     drawer gets its own small tonal shift plus the position offset, so each
+     face reads as its own piece of timber.
+     Superseded: this used to also carry a slight per-drawer `--grain-dir`
+     angle tweak (±1–3deg off horizontal) for extra grain variety — Ray
+     spotted a real vertical seam partway across several drawer faces where
+     the grain lines visibly didn't connect. Root cause, confirmed by
+     forcing --grain-dir back to 0deg on every drawer and re-screenshotting
+     (the seam disappeared entirely): a repeating-linear-gradient painted at
+     a shallow non-cardinal angle across a box much wider than it is tall
+     has to tile diagonally, and at these dimensions/DPI the tile boundary
+     itself becomes a visible seam — a rendering artifact of the technique,
+     not a fixable styling choice. All drawer faces now stay at the shared
+     horizontal 0deg .cabinet-drawers already sets; the tonal + position
+     variation below is what carries "distinct board" now, alone. */
+  .drawer:nth-child(1) .drawer-face { background-position: 0 0; }
+  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
+  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
+  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
+  .drawer:nth-child(5) .drawer-face { background-position: 31px 8px; --wood-hi: #a3753b; --wood-mid: #785322; --wood-lo: #4d3215; }
+  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
+  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
 
   /* Brass label plate with the finger-pull cup at the TOP (not below the
      label as in the reference photos — Ray's explicit call). ONE fixed
