@@ -3053,6 +3053,52 @@ explicit request, cosmetic/labeling only, no behavior change).**
   buttons — the hidden per-screen ones, unaffected by this — not the nav
   chrome pair, so nothing needed updating).
 
+**Fourth follow-up: Dashboard title removed, Ledger heading relabeled,
+Sets pills shortened + wrapped (Ray's explicit request, no merge yet —
+this branch is now `main`, since the cabinet nav merge already landed).**
+- **`.cabinet-title` ("Salty's Cabinet" `<h1>` above the display case) is
+  deleted entirely**, markup and CSS both — Ray's ask was specifically to
+  let the display case + drawer stack fit within a phone screen without
+  vertical panning, and the title was the one full-width element not
+  already trimmed by the earlier drawer/case height passes. The page
+  `<title>` tag and the splash screen's own "Salty's Cabinet" `<h1>`
+  (`.splash-title`, a different element) are both untouched — this only
+  removed the Dashboard-level heading.
+- **Ledger page's own `<h2>` heading, "Stats & Value" → "Ledger"** — matches
+  the drawer's own label; the underlying view id (`view-stats`), function
+  names, and every internal "Stats & Value" comment/reference are
+  unchanged, this is a visible-heading-text-only change (same pattern as
+  every other pure relabel in this file).
+- **Sets tab category pills shortened** — `BROWSE_SET_CATEGORY_CHIPS`
+  labels "Uncirculated Sets"/"Proof Sets"/"Silver Proof Sets"/
+  "Commemorative Sets" → "Uncirculated"/"Proof"/"Silver Proof"/
+  "Commemorative" (the word "Sets" dropped from each, since the row itself
+  is already titled "Sets" via the tab — repeating it on every pill was
+  redundant). `lineage`/`test` values driving the checklist/list logic are
+  completely unchanged, label text only.
+- **Even after shortening, six pills still didn't reliably fit one line on
+  a phone width** (measured: 509px of content in a 380px row at 412px
+  viewport) — every other `.filter-row` in the app scrolls horizontally
+  when it overflows, but Ray specifically asked for no side-scrolling here.
+  Rather than shrink padding/font further (fragile, and still not
+  guaranteed to fit every phone), added a scoped
+  `#browseSetsCategoryFilters { flex-wrap: wrap; overflow-x: visible; }`
+  override so just this row wraps to a second line instead — every other
+  `.filter-row` (Denomination, Metal, Commemorative toggle, etc.) keeps its
+  existing horizontal-scroll behavior unchanged, since only this one ID is
+  targeted.
+- Four scratchpad regression scripts (`verify_checklist.js`,
+  `verify_addset_track_individually.js`, `verify_addset_year.js`,
+  `verify_visual.js`) matched Sets pills by their old exact label text
+  (`"Proof Sets"`, `"Uncirculated Sets"`, etc.) — updated to the new short
+  labels, not weakened; same "test scripts follow a real rename" pattern
+  as every prior label change in this file. All 10 suites re-run clean
+  after the update. Verified headless: cabinet-stage height (891.5px) now
+  fits inside a 412×915 viewport with zero vertical overflow; the Sets
+  pill row's `scrollWidth`/`clientWidth` are equal (was 509/380, genuinely
+  overflowing) with zero page-level horizontal overflow; Ledger heading
+  reads "Ledger". Not yet checked on Ray's own device.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

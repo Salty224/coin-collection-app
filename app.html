@@ -311,17 +311,6 @@
     margin: 0 auto;
     padding: 4px 4px 8px;
   }
-  .cabinet-title {
-    text-align: center;
-    font-size: 34px;
-    line-height: 1;
-    margin: 6px 0 18px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    text-shadow: 0 0 22px rgba(201,162,39,0.22);
-  }
 
   /* Shared honey-oak wood surface — darkened a step further per Ray's
      live-device review (still warm amber-brown, NOT flat olive-gold and NOT
@@ -948,6 +937,13 @@
     cursor: pointer;
   }
   .filter-chip.active { color: var(--gold-bright); border-color: var(--gold); }
+
+  /* Sets tab's category row wraps to a second line instead of scrolling
+     horizontally, unlike every other .filter-row in the app — six pills
+     (All/Uncirculated/Proof/Silver Proof/Commemorative/Other) don't reliably
+     fit one line even after shortening their labels, and Ray specifically
+     wants this row visible without side-scrolling. */
+  #browseSetsCategoryFilters { flex-wrap: wrap; overflow-x: visible; }
 
   .filter-chip-divider {
     flex-shrink: 0; width: 1px; align-self: stretch; background: var(--case-border); margin: 0 2px;
@@ -1874,8 +1870,6 @@
       <!-- ============ DASHBOARD (the cabinet) ============ -->
       <section class="view active" id="view-dashboard">
         <div class="cabinet-stage">
-          <h1 class="cabinet-title">Salty's Cabinet</h1>
-
           <div class="banner pending-banner hidden" id="pendingBanner">
             <span class="icon">⏳</span>
             <span class="msg"><strong>1 coin pending review</strong> — saved to Staging, waiting to be reconciled.</span>
@@ -2717,7 +2711,7 @@
       <!-- ============ STATS & VALUE ============ -->
       <section class="view" id="view-stats">
         <button class="back-link" id="statsBackBtn">← Back</button>
-        <h2 class="display" style="margin-top:0;">Stats &amp; Value</h2>
+        <h2 class="display" style="margin-top:0;">Ledger</h2>
 
         <div class="stat-tile-grid">
           <div class="case stat-tile">
@@ -5051,10 +5045,10 @@
   const SET_NAMED_CATEGORIES = ["Proof Set", "Mint Set", "Silver Proof Set"];
   const BROWSE_SET_CATEGORY_CHIPS = [
     { label: "All",                 test: () => true },
-    { label: "Uncirculated Sets",   lineage: "Uncirculated Coin Set" },
-    { label: "Proof Sets",          lineage: "Proof Set" },
-    { label: "Silver Proof Sets",   lineage: "Silver Proof Set" },
-    { label: "Commemorative Sets",  test: c => c.category === "Commemorative" },
+    { label: "Uncirculated",        lineage: "Uncirculated Coin Set" },
+    { label: "Proof",               lineage: "Proof Set" },
+    { label: "Silver Proof",        lineage: "Silver Proof Set" },
+    { label: "Commemorative",       test: c => c.category === "Commemorative" },
     { label: "Other",                test: c => !SET_NAMED_CATEGORIES.includes(c.category) && c.category !== "Commemorative" }
   ];
   // The active Sets-tab pill config (drives list-vs-checklist branching in
