@@ -659,16 +659,18 @@
     width: 28px; height: 26px;
     display: flex; align-items: center; justify-content: center;
     font-family: "Caveat", cursive; font-weight: 700; font-size: 16px;
+    /* line-height: 1 fixes a real vertical mismatch between the font's line
+       box and its glyph metrics. Superseded: an earlier pass also added a
+       letter-spacing/padding-left nudge here, guessing that Caveat's
+       italic slant needed compensating for — that guess was based on this
+       environment's own font rendering and turned out backwards on a real
+       device (Ray, Samsung S25): the padding-left pushed the visible text
+       right within the already-centered box, reading as MORE off-center,
+       not less. Removed — the box was already correctly centered by plain
+       flexbox centering (verified via measurement, equal gaps all four
+       sides originally); no manual compensation is needed or safe to guess
+       across different font-rendering engines. */
     line-height: 1;
-    /* The number's own box is geometrically centered (verified via
-       measurement — equal gaps on all four sides), but Caveat's rightward
-       italic slant puts most of a numeral's visual ink to the right of its
-       own logical center, reading as "sits up-and-left" even though it
-       isn't. This small negative letter-spacing plus a 1px right nudge
-       compensates for the slant rather than fighting the (already-correct)
-       flex centering. */
-    letter-spacing: -0.5px;
-    padding-left: 2px;
     color: #2e2109;
     border-radius: 8px;
     background:
@@ -1687,13 +1689,19 @@
   .flip-frame .coin-photo-frame { margin: 0; width: 210px; height: 210px; }
   .flip-frame .coin-disc { margin: 0; }
   #browseDetailFlipFrame .coin-disc { width: 210px; height: 210px; font-size: 32px; }
-  /* Spotlight-only: the hanging display case should hug its content (coin
-     + corner labels), not carry the same 280px height the flip-frame uses
-     everywhere else (sized generously for Browse detail's own layout,
-     where extra room isn't a problem). 234px comfortably fits the 210px
-     disc plus corner-label clearance without the dead space above/below
-     it a taller frame leaves. */
-  .spotlight .flip-frame { height: 234px; margin-bottom: 0; }
+  /* Superseded: a prior pass shrank this to 234px specifically to trim
+     dead space above/below the coin in the display case. Reverted — on a
+     real device (Ray, Samsung S25) the corner labels visibly overlapped
+     the coin itself, since 234px only leaves 12px of clearance between the
+     frame's own top/bottom edge (where corner labels anchor, `top: 10px`)
+     and the 210px disc's own edge, nowhere near enough for a two-line
+     corner (Type+Denom, or Variety+Designation) to clear before running
+     into the disc. This never showed up in this environment's headless
+     Chromium screenshots at the sizes tested. The full 280px shared by
+     every other flip-frame use (Browse detail, etc.) has no such report
+     against it, so it's the safe, evidence-based value here too — the
+     case is taller again as a direct tradeoff of that clearance. */
+  .spotlight .flip-frame { margin-bottom: 0; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;

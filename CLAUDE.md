@@ -2928,6 +2928,57 @@ fixes, no conceptual changes, reviewed live on phone and tablet.**
   near-vertical base grain-dir, which didn't show this artifact in the same
   screenshots, so there was nothing there to fix.
 
+**Second follow-up, real S25 screenshot from Ray — two more issues, both
+fixed, one a real regression from this round's own height trim.**
+- **Corner labels overlapping the coin — a real regression, caught on
+  Ray's actual phone, never reproduced in this environment's headless
+  screenshots.** This round's `.spotlight .flip-frame { height: 234px }`
+  (trimming dead space above/below the coin) only left 12px between the
+  frame's own top/bottom edge — where corner labels anchor at `top: 10px`
+  — and the 210px disc's own edge. A single-line corner (e.g. "1909-S")
+  is already taller than that; a two-line corner (Type+Denom, e.g.
+  "Lincoln" over "1C") is roughly 55-60px, guaranteeing overlap with the
+  coin, exactly what Ray's screenshot showed. **Reverted to the shared
+  280px** every other flip-frame use (Browse detail, etc.) already relies
+  on with no such report against it — restores the full 35px clearance on
+  each side, evidence-based rather than picking a new arbitrary smaller
+  number that risks reproducing the same bug. The case is taller again as
+  a direct, necessary tradeoff (stage height 903px → 950px — still well
+  below the pre-this-feature 1102px baseline, since the drawer compression
+  and the case's other padding trims are untouched). **This specific
+  "flip-frame height vs. corner-label clearance" relationship is now
+  flagged directly in the CSS comment** so a future pass doesn't
+  re-attempt the same trim blind.
+- **Docket badge still off-center — because the "fix" two rounds ago was
+  itself wrong, not because centering was still broken.** That round's
+  `letter-spacing`/`padding-left` nudge was a guessed compensation for
+  Caveat's italic slant, eyeballed against this environment's own font
+  rendering. On Ray's real device it pushed the number further right, not
+  toward center (`padding-left` inside a `justify-content: center` box
+  shifts the visible content right within the box, exactly matching his
+  "shifted right" report). Removed both properties, kept only
+  `line-height: 1` (a real, non-speculative fix — a line-box/glyph-metric
+  mismatch, not guesswork). Re-verified via measurement across four
+  different digit counts (5/19/20/100) — all come back with equal
+  left/right gaps to well under a pixel, confirming plain flexbox
+  centering was correct all along and needed no manual compensation.
+  **Lesson for future passes**: don't hand-tune a "visual" nudge for a
+  font-rendering perception (slant, glyph weight) based on this
+  environment's own Chromium — font hinting/rendering varies enough across
+  engines that a guessed compensation can just as easily overcorrect on a
+  different device, as it did here.
+- Verified headless: all 10 prior suites re-run clean. Directly
+  re-measured: corner-label-to-disc clearance (35px each side, restored to
+  match the safe 280px default) and fob text centering across four digit
+  counts (all equal-gap). A 360px overflow/screenshot check and a full
+  412px dashboard screenshot both re-confirm no regressions elsewhere.
+  **Both bugs here were real-device-only** — neither reproduced in this
+  environment's headless Chromium at any viewport tested, which is exactly
+  why they slipped through the previous round's own headless verification;
+  worth remembering next time a change trims spacing or hand-tunes a
+  visual alignment; that class of change is the one this environment is
+  least able to catch on its own.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
