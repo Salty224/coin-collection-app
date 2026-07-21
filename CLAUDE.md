@@ -60,6 +60,44 @@ them at once, which an interactive per-question picker doesn't allow for.
   what a given device blocks. If a font ever needs a new weight/family, fetch
   the woff2 from Google Fonts' CSS API once and commit it here rather than
   re-adding a CDN `<link>`.
+- `manifest.json` + `icons/` — PWA install support for `app.html` only (not
+  `index.html`/`stage.html`). See "Installable app (PWA)" below.
+
+## Installable app (PWA) — locked in
+`app.html` links a `manifest.json` (`display: "standalone"`, dark
+background/theme color matching the app's own `--bg`/`--gold` tokens) plus
+`icons/icon-{192,512}.png` (tight-fit) and `icons/icon-maskable-{192,512}.png`
+(content kept within Android's ~80% maskable safe zone) so it can be
+"installed" via Android's home-screen add flow — this is what actually
+removes the browser's own address bar/nav chrome; nothing about how the
+app is loaded/hosted changed otherwise.
+- **Per-device, not automatic.** Standalone/no-chrome display only applies
+  when the app is launched from a home-screen icon added via Chrome/Samsung
+  Internet's "Add to Home screen" (or "Install app") menu action — opening
+  `app.html` in a normal browser tab or from a bookmark always shows the
+  usual browser chrome, manifest present or not. Ray has to do this once per
+  device (phone, tablet) to see the effect; there's no way to force it from
+  the page itself.
+- **Icons are self-generated placeholders** — a simple gold coin-disc
+  monogram ("SC"), rendered once via a local Playwright screenshot script
+  (not committed — one-off tooling, not app code) rather than pulling in an
+  image library or external asset. Matches the app's own coin-disc/drawer-fob
+  gold gradient treatment. Fine as a real icon, not just a stand-in — but if
+  Ray ever wants a different icon (e.g. an actual coin photo or a redesigned
+  mark), just swap the four PNGs in `icons/` and nothing else needs to change.
+- **`start_url`/`scope` are relative (`./app.html`, `./`)**, so this works
+  correctly regardless of whether the repo is served from the GitHub Pages
+  root or a subpath — no hardcoded domain.
+- **`index.html`/`stage.html` are NOT covered by this manifest** — a home
+  screen icon installed from `app.html` only ever launches `app.html`
+  standalone; those two pages still open in a normal browser tab/chrome if
+  visited directly. Extending this to them would be a separate, deliberate
+  decision, not a default.
+- **No service worker** — this is manifest/icons only, for the standalone
+  display mode. No offline caching, no background sync, nothing that would
+  need reasoning about stale-content/update behavior. If offline support is
+  ever wanted, that's a distinct, larger feature decision, not implied by
+  this one.
 
 ## Azure / Entra config
 - Client ID: `bf9aaf28-a5e1-4eed-a006-15f03146693b`

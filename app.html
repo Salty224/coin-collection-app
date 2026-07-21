@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Salty's Cabinet</title>
+<!-- PWA install support (Android "Add to Home screen") — this is what lets
+     the app launch without the browser's address bar/nav chrome. Standalone
+     display only kicks in when launched from a home-screen icon added via
+     this manifest; opening app.html in a normal browser tab/bookmark always
+     shows the usual browser chrome, manifest or not. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0c0e">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
   /* Self-hosted (not the Google Fonts CDN): on some devices — notably seen
      Android tablet vs. PC — the CDN request silently fails or gets blocked by
