@@ -262,7 +262,7 @@
 
   /* ---------- Spotlight ---------- */
   .spotlight {
-    padding: 22px 16px;
+    padding: 22px 16px 14px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -278,19 +278,6 @@
     font-size: 32px;
     transition: opacity 0.3s ease;
   }
-  .spotlight-dots {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-  }
-  .spotlight-dots .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: rgba(201,162,39,0.3);
-    cursor: pointer;
-    border: none;
-    padding: 0;
-  }
-  .spotlight-dots .dot.active { background: var(--gold-bright); }
 
   /* ======================================================================
      CABINET NAVIGATION (Dashboard) — a wood specimen cabinet: a face-on
@@ -319,41 +306,59 @@
     text-shadow: 0 0 22px rgba(201,162,39,0.22);
   }
 
-  /* Shared honey-oak wood surface (warm amber-brown, NOT flat olive-gold and
-     NOT deep mahogany — both were tried before and didn't land). --grain-dir
-     lets a face pick grain direction: the carcass frame runs vertical, drawer
-     faces run horizontal (matching the reference photos). Built from layered
-     gradients only, no image assets — same posture as the Album leather. */
+  /* Shared honey-oak wood surface — darkened a step further per Ray's
+     live-device review (still warm amber-brown, NOT flat olive-gold and NOT
+     deep mahogany — both were tried before and didn't land; this pass just
+     pulls the whole ramp closer to the deeper of his two reference photos).
+     --grain-dir lets a face pick grain direction: the carcass frame runs
+     vertical, drawer faces run horizontal (matching the reference photos).
+     Built from layered gradients only, no image assets — same posture as
+     the Album leather.
+     The ray-fleck layer used to combine hard-edged box-steps running
+     PERPENDICULAR to the grain-line layer's own hard-edged steps under a
+     `multiply` blend — two perpendicular hard-edged repeating patterns at
+     similar periods interference-beat into a visible crosshatch/grid, which
+     is exactly the "rectangular grid artifacting" Ray flagged. Fixed by
+     softening the fleck layer to smooth (interpolated, no hard steps),
+     much lower-opacity highlight-only stops on a longer period that doesn't
+     share a common multiple with the grain-line period, blended `normal`
+     instead of `multiply` (multiply was darkening every crossing into a
+     dark node — the actual visible "grid"). The cathedral/figure layer's
+     stops were also switched from hard px-range steps to single-position
+     stops so adjacent bands interpolate smoothly instead of snapping. */
   .wood {
-    --wood-hi: #cf9a52;
-    --wood-mid: #a06a2c;
-    --wood-lo: #744a1c;
+    --wood-hi: #a9773c;
+    --wood-mid: #7c5423;
+    --wood-lo: #4f3315;
     --grain-dir: 90deg;   /* 90deg = vertical grain; 0deg = horizontal */
     background-color: var(--wood-mid);
     background-image:
-      /* quarter-sawn ray flecks — short lighter shimmer dashes across the grain */
+      /* quarter-sawn ray flecks — soft, irregular shimmer only (no dark
+         accent stop, no hard edges) so it reads as occasional light
+         catching the grain rather than a crosshatch against the grain
+         lines below */
       repeating-linear-gradient(calc(var(--grain-dir) + 90deg),
-        rgba(232,196,132,0.00) 0 5px,
-        rgba(232,196,132,0.22) 5px 6px,
-        rgba(232,196,132,0.00) 6px 9px,
-        rgba(120,78,34,0.14) 9px 10px,
-        rgba(232,196,132,0.00) 10px 17px),
+        rgba(226,188,128,0) 0,
+        rgba(226,188,128,0.08) 15px,
+        rgba(226,188,128,0) 30px,
+        rgba(226,188,128,0) 39px),
       /* fine straight grain lines — irregular spacing reads as real timber */
       repeating-linear-gradient(var(--grain-dir),
-        rgba(60,36,14,0.22) 0 1px,
+        rgba(20,12,4,0.24) 0 1px,
         rgba(0,0,0,0) 1px 2px,
-        rgba(150,98,44,0.12) 2px 3px,
+        rgba(90,58,26,0.12) 2px 3px,
         rgba(0,0,0,0) 3px 6px,
-        rgba(60,36,14,0.14) 6px 7px,
+        rgba(20,12,4,0.16) 6px 7px,
         rgba(0,0,0,0) 7px 12px),
-      /* broad cathedral/flame figure — flowing warm tonal bands */
+      /* broad cathedral/flame figure — flowing warm tonal bands, smoothly
+         interpolated (single-position stops, not hard px-range steps) */
       repeating-linear-gradient(calc(var(--grain-dir) + 6deg),
-        rgba(120,74,32,0.20) 0 11px,
-        rgba(206,158,86,0.12) 11px 26px,
-        rgba(120,74,32,0.16) 26px 40px),
+        rgba(70,44,19,0.22) 0px,
+        rgba(140,102,52,0.10) 20px,
+        rgba(70,44,19,0.18) 40px),
       /* warm base tone, light near the top, deepening downward */
       linear-gradient(180deg, var(--wood-hi), var(--wood-mid) 48%, var(--wood-lo));
-    background-blend-mode: multiply, normal, normal, normal;
+    background-blend-mode: normal, normal, normal, normal;
   }
   .cabinet-drawers { --grain-dir: 0deg; } /* drawer faces: horizontal grain */
 
@@ -388,6 +393,11 @@
   }
   .cabinet-case-glass {
     position: relative;
+    /* Narrower than the full drawer width on purpose — reads as a distinct
+       glazed window set into a wider wood face, not a pane stretched
+       edge-to-edge with the drawers below it. */
+    max-width: min(80%, 260px);
+    margin: 0 auto;
     border-radius: 8px;
     padding: 10px;
     /* dark interior behind glass, plus a diagonal glass sheen on top */
@@ -435,19 +445,26 @@
     display: flex; align-items: center; justify-content: center;
     min-height: 62px;
   }
-  /* per-drawer figure variation so the stack reads as separate boards, not
-     one continuous tiled texture */
-  .drawer:nth-child(2n) .drawer-face { background-position: 0 9px; }
-  .drawer:nth-child(3n) .drawer-face { background-position: 17px 0; }
-  .drawer:nth-child(4n) .drawer-face { background-position: 8px 5px; }
-  .drawer:nth-child(5n) .drawer-face { background-position: 23px 3px; }
+  /* Per-drawer figure variation so the stack reads as seven distinct boards,
+     not one repeated tile panned around (which is all a background-position
+     shift alone can achieve — same tile, different window onto it). Each
+     drawer gets its own small tonal shift AND a slight grain-angle tweak on
+     top of the position offset, so each face reads as its own piece of
+     timber. */
+  .drawer:nth-child(1) .drawer-face { background-position: 0 0; }
+  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --grain-dir: -2deg; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
+  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --grain-dir: 2deg;  --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
+  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
+  .drawer:nth-child(5) .drawer-face { background-position: 31px 8px; --grain-dir: -1deg; --wood-hi: #a3753b; --wood-mid: #785322; --wood-lo: #4d3215; }
+  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --grain-dir: 1deg;  --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
+  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
 
   /* Brass label plate with the finger-pull cup at the TOP (not below the
      label as in the reference photos — Ray's explicit call). */
   .drawer-plate {
     position: relative;
-    min-width: 150px; max-width: 78%;
-    padding: 15px 18px 9px;
+    min-width: 168px; max-width: 80%;
+    padding: 18px 22px 11px;
     border-radius: 3px;
     background:
       linear-gradient(180deg, rgba(255,240,198,0.55), rgba(0,0,0,0) 30%),
@@ -491,9 +508,12 @@
   .drawer-label {
     display: block; text-align: center;
     font-family: "Caveat", cursive; font-weight: 700;
-    font-size: 24px; line-height: 1.05;
-    color: #3a2a10;
-    text-shadow: 0 1px 0 rgba(255,246,214,0.45);
+    font-size: 30px; line-height: 1.05;
+    /* Darkened from #3a2a10 and given a paired highlight/shadow (engraved-
+       label effect) — the previous color read too close to the mid-brass
+       plate tone on a real screen, per Ray's device review. */
+    color: #1c1203;
+    text-shadow: 0 1px 0 rgba(255,246,214,0.5), 0 -1px 1px rgba(0,0,0,0.22);
   }
 
   /* Docket count fob — an ornate brass escutcheon tag hanging off the plate's
@@ -513,9 +533,10 @@
     box-shadow: 0 3px 5px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,248,220,0.7);
     z-index: 3;
   }
-  .drawer-fob::before { /* hanging ring */
-    content: ""; position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
-    width: 9px; height: 9px; border-radius: 50%;
+  .drawer-fob::before { /* hanging ring — sits close against the tag body,
+    not floating detached above it (per Ray's device review) */
+    content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+    width: 8px; height: 8px; border-radius: 50%;
     border: 2px solid #9a7741;
     background: transparent;
     box-shadow: 0 1px 1px rgba(0,0,0,0.4);
@@ -532,20 +553,34 @@
     box-shadow: inset 0 3px 5px rgba(0,0,0,0.3);
   }
 
-  /* Open animation: the face slides out + casts a deeper shadow, then routes.
-     Suppressed under reduce-motion (see the media query below → instant cut). */
-  .drawer.opening { transform: translateY(2px); z-index: 2; }
+  /* Open animation: the face actually travels (translateY), not just a
+     longer shadow-only transition — the original version only animated
+     box-shadow with `transform: translateX(0)` at every keyframe (i.e. no
+     real motion at all), which read as barely-any sense a drawer opened
+     before the screen changed. Closing plays the same travel in reverse
+     when Back/Return to Dashboard lands back on the Dashboard from inside
+     a drawer's own section (see navigate()'s dashboard branch in the JS —
+     it adds/removes .closing on the originating drawer). Both suppressed
+     under reduce-motion (see the media query below → instant cut). */
+  .drawer.opening, .drawer.closing { z-index: 2; }
   .drawer.opening .drawer-face {
-    animation: drawerOpen 260ms ease-out;
+    animation: drawerOpen 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .drawer.closing .drawer-face {
+    animation: drawerClose 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
   }
   @keyframes drawerOpen {
-    0%   { transform: translateX(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -5px 9px rgba(0,0,0,0.32); }
-    55%  { transform: translateX(0); box-shadow: 0 8px 18px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,236,188,0.3); }
-    100% { transform: translateX(0); box-shadow: 0 8px 18px rgba(0,0,0,0.6), inset 0 2px 3px rgba(255,236,188,0.3); }
+    0%   { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
+    60%  { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
+    100% { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
+  }
+  @keyframes drawerClose {
+    0%   { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
+    100% { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .drawer, .drawer.opening { transition: none; transform: none; }
-    .drawer.opening .drawer-face { animation: none; }
+    .drawer, .drawer.opening, .drawer.closing { transition: none; transform: none; }
+    .drawer.opening .drawer-face, .drawer.closing .drawer-face { animation: none; }
   }
 
   /* ---- Wayfinding chrome: exactly two controls, every non-Dashboard screen.
@@ -1523,11 +1558,11 @@
     position: absolute;
     font-family: "Caveat", cursive;
     font-weight: 700;
-    font-size: 25px;
+    font-size: 27px;
     color: rgba(232, 199, 102, 0.85);
     line-height: 1.05;
     pointer-events: none;
-    max-width: 47%;
+    max-width: 50%;
     /* Superseded: this box used to also carry `overflow: hidden` +
        `text-overflow: ellipsis`, plus a padding buffer and extra `right`
        clearance on the tr/br corners, none of which stopped a persistent
@@ -1702,7 +1737,6 @@
                     <span class="sr-only" id="spotlightSR"></span>
                   </div>
                   <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
-                  <div class="spotlight-dots" id="spotlightDots"></div>
                 </div>
               </div>
             </div>
@@ -4087,6 +4121,16 @@
     staging: "needsdbcoins", inprogresssets: "needsdbcoins"
   };
 
+  // Which drawer a screen "belongs to," for the closing-animation on the way
+  // back OUT (see navigate()'s dashboard branch below). Direct drawer views
+  // map to themselves; a sub-flow maps to its SECTION_BACK_TARGET parent
+  // drawer (e.g. addcoin → acquisitions). Deep sub-navigation within a
+  // section (Browse detail, an Add Coin subview, etc.) never calls the
+  // top-level navigate() at all, so lastDrawerView naturally survives
+  // untouched all the way back out to whichever drawer was actually opened.
+  const DRAWER_VIEW_KEYS = new Set(CABINET_DRAWERS.map(d => d.view));
+  let lastDrawerView = null;
+
   document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
@@ -4105,6 +4149,18 @@
     // just landing on a different tab (see CABINET_DRAWERS comment above).
     const targetViewId = viewId === "sets" ? "browse" : viewId;
 
+    // Remember which drawer this screen belongs to, so a later return trip
+    // to the Dashboard knows which drawer to play the closing animation on
+    // (see the dashboard branch below). Only set/overwritten on a real
+    // top-level navigate() call — see DRAWER_VIEW_KEYS comment above.
+    if (viewId !== "dashboard") {
+      if (DRAWER_VIEW_KEYS.has(viewId)) {
+        lastDrawerView = viewId;
+      } else if (SECTION_BACK_TARGET[viewId]) {
+        lastDrawerView = SECTION_BACK_TARGET[viewId];
+      }
+    }
+
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     document.getElementById("view-" + targetViewId).classList.add("active");
 
@@ -4114,6 +4170,24 @@
     // navBackHandler afterward via its own show* function.
     document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
     setNavBack(() => navigate(SECTION_BACK_TARGET[viewId] || "dashboard"));
+
+    // Landing back on the Dashboard from inside a drawer's own section (via
+    // Back or Return to Dashboard, either one — both funnel through this
+    // same navigate("dashboard") call) plays that drawer's closing motion,
+    // the reverse of the open animation, so the drawer visibly shuts rather
+    // than just silently being back at rest. Respects reduce-motion exactly
+    // like the open animation does (skipped entirely, no class ever added).
+    if (viewId === "dashboard" && lastDrawerView) {
+      const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!reduceMotion) {
+        const drawerBtn = document.querySelector('.drawer[data-view="' + lastDrawerView + '"]');
+        if (drawerBtn) {
+          drawerBtn.classList.add("closing");
+          setTimeout(() => drawerBtn.classList.remove("closing"), 300);
+        }
+      }
+      lastDrawerView = null;
+    }
 
     if (viewId === "albums") {
       showAlbumsList();
@@ -4227,7 +4301,7 @@
   }
 
   // Builds the seven drawers into the cabinet. Tapping a drawer plays a brief
-  // open animation (~260ms) then routes; prefers-reduced-motion collapses that
+  // open animation (~320ms) then routes; prefers-reduced-motion collapses that
   // to an instant cut (the CSS suppresses the keyframes, and we skip the JS
   // delay too, so it's genuinely instant, not just visually still).
   function initCabinet() {
@@ -4254,7 +4328,7 @@
       btn.addEventListener("click", () => {
         if (reduceMotion) { navigate(d.view); return; }
         btn.classList.add("opening");
-        setTimeout(() => { btn.classList.remove("opening"); navigate(d.view); }, 260);
+        setTimeout(() => { btn.classList.remove("opening"); navigate(d.view); }, 320);
       });
       drawers.appendChild(btn);
     });
@@ -4524,26 +4598,9 @@
       frame.dataset.side = spotlightSide;
       frame.style.opacity = 1;
     }, 150);
-
-    document.querySelectorAll("#spotlightDots .dot").forEach((d, i) => {
-      d.classList.toggle("active", i === spotlightIndex);
-    });
   }
 
   function initSpotlight() {
-    const dotsContainer = document.getElementById("spotlightDots");
-    spotlightCoins.forEach((_, i) => {
-      const dot = document.createElement("button");
-      dot.className = "dot";
-      dot.addEventListener("click", () => {
-        spotlightIndex = i;
-        spotlightSide = "obverse";
-        renderSpotlight();
-        resetSpotlightTimer();
-      });
-      dotsContainer.appendChild(dot);
-    });
-
     // Click-through: opens whichever coin is showing at the moment of the
     // click (reads spotlightIndex live, not a value captured at init time,
     // since the carousel keeps rotating in the background) — same Browse
@@ -4597,7 +4654,7 @@
         spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
       }
       renderSpotlight();
-    }, 4000);
+    }, 6500);
   }
 
   // ==================================================================

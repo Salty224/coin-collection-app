@@ -2429,6 +2429,88 @@ nav" note above is now itself fully superseded — kept only for history.
   `(N)`→`N` fob change required updating `verify_badge.js`/`verify_regression.js`
   expectations, not an app fix).
 
+**Refinement pass (BUILT, same branch, still held) — 13 polish items from
+Ray's live phone/tablet review, no structural/routing changes:**
+- **Wood darkened** a step further, closer to the deeper of his two
+  reference photos (`--wood-hi/mid/lo` pulled down and desaturated a touch).
+- **Rectangular grid artifacting on the drawer wood, fixed.** Root cause: the
+  ray-fleck layer ran PERPENDICULAR to the grain-line layer, both hard-edged
+  repeating-linear-gradients at similar periods, blended `multiply` — two
+  perpendicular hard-edged patterns at comparable periods interference-beat
+  into a visible crosshatch, and `multiply` darkened every crossing into a
+  visible grid node. Fixed by softening the fleck layer to a smooth,
+  low-opacity highlight-only pattern on a longer, non-matching period,
+  blended `normal` instead of `multiply`; the cathedral-figure layer's
+  stops were also switched from hard px-range steps to single-position
+  stops so bands interpolate instead of snapping.
+  - **Rely on `background-blend-mode: normal` here, not `multiply`, for any
+    future wood-texture layer** — `multiply` against a perpendicular
+    hard-edged pattern is exactly what produced the grid; a future addition
+    that reintroduces multiply-blended perpendicular hard-edged layers will
+    likely reproduce it.
+- **Per-drawer wood variation is real now, not a panned copy of one tile** —
+  the old fix only shifted `background-position` (same tile, different
+  window onto it, so it still read as one repeated texture). Each of the 7
+  drawers now gets its own `--wood-hi/mid/lo` tint plus (on most) a small
+  `--grain-dir` angle offset via explicit `nth-child(1)`–`nth-child(7)`
+  rules, so the stack reads as seven distinct boards.
+- **Display case narrowed** (`.cabinet-case-glass { max-width: min(80%,
+  260px); margin: 0 auto; }`) — reads as a distinct glazed window set into
+  a wider wood face, not a pane stretched to the drawers' own width.
+- **Spotlight carousel dots removed entirely** (HTML element, CSS rules, and
+  the JS that built/toggled them) — auto-rotate only, no manual dot
+  navigation, per Ray's call. The manual flip button (⟲) is unrelated and
+  stays — it's not a "dot," it's the existing tap-to-flip control.
+- **Auto-flip rate slowed** 4000ms → 6500ms (`resetSpotlightTimer()`) — the
+  old rate was too fast to actually read a coin's obverse before it flipped.
+- **Corner-label text bumped** 25px → 27px, `max-width` widened 47% → 50%
+  for headroom given the larger text. This corner has a real prior clipping
+  history (see "Coin-flip corner labels" above) that was never reproduced
+  in this environment — **flagged for Ray's own device confirmation**, not
+  verified here beyond "renders without visible clipping in this sandbox."
+- **Drawer label text bumped** 24px → 30px, color darkened `#3a2a10` →
+  `#1c1203` with a paired highlight/shadow (`text-shadow`) for an engraved-
+  label look — the old color read too close to the mid-brass plate tone on
+  a real screen. **Plate itself grew** (`min-width` 150px → 168px, padding
+  15px/18px/9px → 18px/22px/11px) to comfortably fit the larger text; it's
+  a flex child sized by its own content plus these values, not a fixed box,
+  so it grows automatically with the label.
+- **Drawer open animation now actually travels** (`translateY(0)` →
+  `translateY(13px)` in the `drawerOpen` keyframe) — the original only
+  animated `box-shadow` with `transform: translateX(0)` at every keyframe,
+  i.e. zero real motion, which is exactly why it barely read as "opening."
+  Duration bumped 260ms → 320ms as a side effect of the travel actually
+  needing time to read, not the primary fix; the JS `setTimeout` before
+  `navigate()` fires was updated to match.
+- **New closing animation** (`drawerClose` keyframe, the exact reverse
+  travel/shadow) plays on the originating drawer whenever Back or Return to
+  Dashboard lands back on the Dashboard from inside that drawer's own
+  section — tracked via a new `lastDrawerView` module-level variable, set
+  inside `navigate()` whenever it's called with a `CABINET_DRAWERS`-mapped
+  viewId (direct) or a `SECTION_BACK_TARGET`-mapped child viewId (e.g.
+  `addcoin` → `acquisitions`), and consumed/cleared inside `navigate()`'s
+  own `"dashboard"` branch. Deep sub-navigation within a section (Browse
+  detail, an Add Coin subview, etc.) never calls the top-level `navigate()`
+  at all, so `lastDrawerView` naturally survives untouched all the way back
+  out to whichever drawer was actually opened, however many in-section
+  Back-taps it takes to get there. Respects `prefers-reduced-motion`
+  exactly like the open animation — the JS checks it before ever adding the
+  `.closing` class, so a reduced-motion session never sees the class at all
+  (not just a CSS-suppressed animation on an added-but-inert class).
+- **Docket fob's hanging ring** moved closer to the tag body (`top: -7px` →
+  `top: -4px` on `.drawer-fob::before`, slightly smaller) — it read as
+  floating detached above the tag rather than an integrated part of it.
+- Verified headless: all 9 prior regression suites + `verify_cabinet_nav.js`
+  re-run clean (no assertion changes needed — this pass was pure CSS/JS
+  polish, no routing/structural change). The animation-travel and
+  closing-animation logic were additionally spot-checked directly (mid-
+  animation screenshot showing real drawer displacement + cast-shadow
+  change; `lastDrawerView`/`.closing` class lifecycle asserted programmatically,
+  including the sub-flow → parent-drawer mapping case). **Still needs Ray's
+  real-device pass** — this round was reacting to his phone/tablet review,
+  but the fixes themselves (wood grid, contrast, animation feel) were only
+  re-verified in this environment's headless Chromium, not back on his S25.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
