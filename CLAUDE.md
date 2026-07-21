@@ -2616,6 +2616,88 @@ not a real piece of furniture with depth.**
   360px-viewport horizontal-overflow check (`document.body.scrollWidth <=
   window.innerWidth`, holds both before and after the case-glass fix).
 
+**Third refinement pass (BUILT, same branch, still held) — 6 items,
+including one real structural change (display case decoupled from the
+cabinet frame).**
+- **Display case is now a genuinely separate object, not part of the
+  frame.** Previously `.cabinet-case`/`.cabinet-case-glass` lived INSIDE
+  `.cabinet`/`.cabinet-frame-inner` (the same frame the drawers sit in) —
+  Ray's explicit call this round was that this is conceptually wrong: a
+  display case resting on a cabinet's top surface is a separate piece of
+  furniture, not a merged structural element. `.display-case`/
+  `.display-case-glass` are now siblings of `.cabinet` in `.cabinet-stage`,
+  positioned before it in source order with `margin: 0 auto -7px` (the
+  negative bottom margin pulls it down to visually overlap/rest on
+  `.cabinet-top-cap` rather than floating above it with a gap) and a higher
+  paint order (via `position: relative` with no competing z-index on the
+  cap) so it reads as sitting in front of/on top of the cap, not behind it.
+  `.cabinet-frame-inner` was removed entirely — with the case gone, it had
+  only one remaining child (`.cabinet-drawers`) and added nothing.
+- **Real beveled top cap + base, each wider than the frame.** `.cabinet`
+  itself is now narrower than the full stage (`max-width: 90%`) specifically
+  so `.cabinet-top-cap` and `.cabinet-base-cap` — new standalone sibling
+  elements, `max-width: 96%` — have visible room to protrude past its
+  stiles on both sides, matching the reference cabinet photo's real
+  lipped-top/protruding-base construction (previously `.cabinet-top`/
+  `.cabinet-base` were the same width as the frame they sat inside, so nothing
+  ever read as a distinct cap). This is the concrete case of "narrower
+  drawers are an acceptable tradeoff for correct proportions" Ray
+  pre-authorized this round.
+- **A real regression, caught and fixed before shipping (not by Ray):**
+  moving the display case out to its own object introduced a THIRD stacked
+  padding layer (`.display-case` → `.display-case-glass` → `.spotlight`,
+  where the previous nested-in-the-frame layout only had two:
+  `.cabinet-case` → `.cabinet-case-glass`). On a 360px phone this compounded
+  enough to shrink the flip-frame to ~157px and collide the two top corner
+  labels again ("1889-CC" running into "Morgan") — caught via direct
+  measurement (`getBoundingClientRect()` gap between the TL/TR corner
+  boxes came back negative) plus a screenshot, not assumed. Fixed by
+  trimming the redundant padding at all three layers (`.display-case`
+  10px→8px, `.display-case-glass` 10px→8px, `.spotlight`'s horizontal
+  padding 16px→4px — `.spotlight`'s own padding predates the dedicated
+  case/glass wrapper and is now mostly redundant with theirs) and adding a
+  `min-width: 256px` floor on `.display-case` itself as a hard backstop —
+  re-verified at 360px with a positive 32px gap between the two corner
+  boxes (was −14px) and zero page-level horizontal overflow.
+- **Wood knots removed entirely** (`.drawer:nth-child(3)/(6) .drawer-face::before`
+  and their radial-gradient rules deleted) — Ray's call that they read as a
+  rendering flaw, not real wood. The second, independently-angled grain-line
+  layer from the prior pass (the actual "irregular flow" mechanism) is
+  unchanged and stays.
+- **Brass placards shrunk to fit their text.** `.drawer-plate` padding
+  `18px 22px 11px` → `10px 15px 6px`, `min-width` `168px` → `118px`,
+  `max-width` `80%` → `78%`. Label font-size is unchanged (30px, from the
+  first refinement pass — a real readability fix, not revisited).
+- **Docket fob pushed further right**, now clearly separated from the
+  (now-smaller) plate rather than touching/overlapping its edge —
+  `right: -10px` → `right: -34px` on `.drawer-fob`. Verified via
+  `getBoundingClientRect()` that the fob's right edge stays well inside the
+  drawer's own bounds (no clipping) at 412px.
+- **Open questions carried over from prior passes, still unresolved,
+  still need Ray's own S25/tablet check** — nothing in this round touched
+  either: (1) whether the 13px drawer-open travel distance feels like
+  enough in hand; (2) whether the 27px corner-label text is safe from the
+  single-label edge-clipping history that's bitten this corner before
+  (distinct from the two-labels-colliding bug this round fixed).
+- **New, this round**: the display case's visual "resting on the cap"
+  effect (the −7px overlap + paint-order layering) hasn't been checked on
+  a real device either — it's a CSS-only illusion (no real 3D), and while
+  it reads correctly in this environment's headless Chromium at every
+  viewport tested (360px/412px), whether it convincingly reads as "an
+  object sitting on a surface" rather than "two shapes overlapping" is a
+  genuinely subjective call worth Ray's own eyes.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed (this pass changed the DOM structure around the display case —
+  `.cabinet-frame-inner` removed, `.cabinet-case`/`.cabinet-case-glass`
+  renamed to `.display-case`/`.display-case-glass` and relocated — but
+  `verify_cabinet_nav.js` and every other suite target IDs/behavior, not
+  these specific class names, so nothing needed updating). Additionally
+  spot-checked directly: the corner-label collision bug reproduced via
+  `getBoundingClientRect()` measurement before the fix, re-verified fixed
+  after; a fresh 412px full-dashboard screenshot confirms the display case
+  reads as a distinct object sitting on the cap, with visible top-cap/
+  base-cap protrusion past the drawer stiles on both sides.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

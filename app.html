@@ -262,7 +262,12 @@
 
   /* ---------- Spotlight ---------- */
   .spotlight {
-    padding: 22px 16px 14px;
+    /* Horizontal padding trimmed — .display-case and .display-case-glass
+       (its ancestors, both new this pass) already provide their own
+       framing padding; stacking a third layer on top of theirs is what
+       shrank the flip-frame enough to collide the corner labels (see the
+       .display-case comment above). */
+    padding: 22px 4px 14px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -372,75 +377,102 @@
   }
   .cabinet-drawers { --grain-dir: 0deg; } /* drawer faces: horizontal grain */
 
-  /* The cabinet as a real framed object, not a flat block with drawer-fronts
-     painted on: .cabinet itself carries the wood texture and is padded on
-     three sides (top + both sides — the bottom stays flush since
-     .cabinet-base already reads as the plinth), so that raw padding IS the
-     visible frame — vertical side stiles down both edges, a top rail above
-     the display case, per the reference cabinet photo. Everything else
-     (case, drawers, base) sits inside .cabinet-frame-inner, INSET into that
-     frame rather than spanning the outer edge-to-edge width. */
+  /* The cabinet body: a real framed object, not a flat block with drawer-
+     fronts painted on. .cabinet itself carries the wood texture and is
+     padded on both sides only (no top/bottom padding — the beveled cap and
+     base below are now SEPARATE, wider sibling elements bookending it, not
+     part of this frame's own box), so that side padding IS the visible
+     frame — vertical stiles down both edges, matching the reference
+     cabinet photo. The drawer stack sits INSET into this frame rather than
+     spanning the outer edge-to-edge width. Deliberately narrower than the
+     full stage width (max-width below) so the top/base caps have visible
+     room to protrude past it on both sides — see those two rules. */
   .cabinet {
     position: relative;
-    border-radius: 10px 10px 7px 7px;
-    padding: 15px 15px 0;
+    max-width: 90%;
+    margin: 0 auto;
+    border-radius: 3px;
+    padding: 0 15px;
     box-shadow:
-      0 18px 40px rgba(0,0,0,0.55),
-      0 3px 10px rgba(0,0,0,0.4);
+      0 8px 22px rgba(0,0,0,0.5),
+      0 2px 6px rgba(0,0,0,0.4);
     border: 1px solid rgba(60,38,14,0.7);
+    border-top: none; border-bottom: none;
     overflow: hidden;
   }
-  .cabinet-frame-inner {
-    position: relative;
-  }
-  /* Groove shadow along both inset edges, where the case/drawers meet the
-     frame's stiles — applied to these two directly (not to
-     .cabinet-frame-inner itself) since they're the opaque, full-width
-     elements that actually paint there; a shadow declared on the wrapper
-     would sit behind its own children's backgrounds and never be seen. */
-  .cabinet-case, .cabinet-drawers {
+  /* Groove shadow along both inset edges, where the drawers meet the
+     frame's stiles. */
+  .cabinet-drawers {
     box-shadow:
       inset 6px 0 8px -6px rgba(0,0,0,0.55),
       inset -6px 0 8px -6px rgba(0,0,0,0.55);
   }
-  /* Beveled, lipped top edge — reads as a solid object with real weight. */
-  .cabinet-top {
+  /* Beveled cap + base — each WIDER than .cabinet itself (see max-width
+     above), so the frame reads as having a real top and bottom rather than
+     vertical sides running straight into nothing, matching the reference
+     cabinet's lipped-top/protruding-base construction. Plain gradient bars
+     (not the full layered .wood texture) — same posture .cabinet-top/
+     .cabinet-base used before this pass, just wider and now standalone
+     siblings instead of children inset inside the frame. */
+  .cabinet-top-cap {
+    max-width: 96%;
+    margin: 0 auto;
     height: 20px;
+    border-radius: 8px 8px 3px 3px;
     background:
       linear-gradient(180deg, rgba(255,232,180,0.55), rgba(0,0,0,0) 55%),
-      linear-gradient(180deg, var(--wood-hi), var(--wood-lo));
-    border-bottom: 1px solid rgba(50,30,10,0.6);
-    box-shadow: inset 0 -3px 5px rgba(0,0,0,0.35);
+      linear-gradient(180deg, #a9773c, #4f3315);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 -3px 5px rgba(0,0,0,0.35);
+    border: 1px solid rgba(60,38,14,0.7);
+  }
+  .cabinet-base-cap {
+    max-width: 96%;
+    margin: 0 auto;
+    height: 18px;
+    border-radius: 3px 3px 8px 8px;
+    background:
+      linear-gradient(180deg, rgba(255,232,180,0.35), rgba(0,0,0,0) 40%),
+      linear-gradient(180deg, #7c5423, #4f3315);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 3px 5px rgba(0,0,0,0.3);
+    border: 1px solid rgba(60,38,14,0.7);
   }
 
-  /* ---- Display case (face-on glass, coin as a portrait) ---- */
-  .cabinet-case {
-    margin: 0;
-    padding: 14px;
+  /* ---- Display case: a SEPARATE object resting on the cabinet's top
+     surface (face-on glass, coin as a portrait) — narrower than the
+     cabinet body, layered visually on top of .cabinet-top-cap (the
+     negative margin below pulls it down to overlap/rest on the cap rather
+     than floating with a gap above it), NOT part of the frame/stiles
+     structure above. ---- */
+  .display-case {
+    position: relative;
+    max-width: 74%;
+    /* A hard floor under the percentage — .display-case now stacks its own
+       padding on top of .display-case-glass's AND .spotlight's (three
+       padding layers deep, where the old nested-inside-the-frame layout
+       only had two), which compounded on a 360px phone enough to shrink
+       the flip-frame to ~157px and collide the two top corner labels
+       ("1889-CC" running into "Morgan") — caught via measurement + a real
+       screenshot, not just computed. This floor guarantees the coin/corner
+       labels always get a workable width even when 74% of a narrow stage
+       would not, without giving up "narrower than the cabinet" on any
+       screen wide enough for the percentage to matter. */
+    min-width: 256px;
+    margin: 0 auto -7px;
+    z-index: 2;
+    padding: 8px 8px 13px;
+    border-radius: 8px 8px 4px 4px;
     background:
       linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0) 30%),
-      var(--wood-mid);
-    border-bottom: 3px solid rgba(48,29,10,0.85);
+      linear-gradient(180deg, #a9773c, #7c5423 60%, #4f3315);
+    box-shadow:
+      0 10px 22px rgba(0,0,0,0.5),
+      0 3px 8px rgba(0,0,0,0.4);
+    border: 1px solid rgba(60,38,14,0.7);
   }
-  .cabinet-case-glass {
+  .display-case-glass {
     position: relative;
-    /* A light additional inset on top of the case already sitting inside
-       the cabinet's own frame (see .cabinet/.cabinet-frame-inner above) —
-       reads as a distinct glazed window without compounding two separate
-       narrowing steps into one. A previous pass narrowed this much more
-       aggressively (min(80%, 260px)) BEFORE the frame existed; once the
-       frame's own stiles started contributing their own width reduction
-       too, the two compounded on a narrow phone (~360px) enough to push
-       the flip-frame down to ~215px, at which point the two top corner
-       labels (a longer Type/Denom pair like "1889-CC" / "Morgan") visually
-       collided — confirmed via screenshot, not just computed. The frame is
-       now what satisfies "narrower than the full cabinet width"; this only
-       needs to be a light touch on top of it, not a second full narrowing
-       pass, and must never come at the coin/carousel's expense. */
-    max-width: 94%;
-    margin: 0 auto;
-    border-radius: 8px;
-    padding: 10px;
+    border-radius: 6px;
+    padding: 8px;
     /* dark interior behind glass, plus a diagonal glass sheen on top */
     background:
       linear-gradient(122deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 14%, rgba(255,255,255,0) 30%),
@@ -454,7 +486,7 @@
     overflow: hidden;
   }
   /* Faint horizontal muntin bar so it reads as a glazed case, not a photo. */
-  .cabinet-case-glass::after {
+  .display-case-glass::after {
     content: "";
     position: absolute; left: 6px; right: 6px; top: 50%;
     height: 1px; background: rgba(255,255,255,0.05);
@@ -512,39 +544,15 @@
   .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --grain-dir: 2deg;  --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
   .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --grain-dir: -1deg; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
 
-  /* Occasional small knots, sparingly placed (real quarter-sawn oak isn't
-     covered in them) — a dark core with a couple of fading concentric growth
-     rings, layered as a decorative overlay behind the drawer's brass plate
-     so it reads as part of the grain, not a UI element. */
-  .drawer:nth-child(3) .drawer-face::before,
-  .drawer:nth-child(6) .drawer-face::before {
-    content: "";
-    position: absolute; inset: 0;
-    pointer-events: none;
-    background: radial-gradient(circle at 74% 32%,
-      rgba(25,15,5,0.55) 0%,
-      rgba(25,15,5,0.4) 5%,
-      rgba(110,72,32,0.18) 8%,
-      rgba(25,15,5,0.28) 11%,
-      rgba(110,72,32,0.12) 15%,
-      rgba(0,0,0,0) 21%);
-  }
-  .drawer:nth-child(6) .drawer-face::before {
-    background: radial-gradient(circle at 22% 68%,
-      rgba(25,15,5,0.5) 0%,
-      rgba(25,15,5,0.35) 5%,
-      rgba(110,72,32,0.16) 8%,
-      rgba(25,15,5,0.24) 11%,
-      rgba(110,72,32,0.1) 15%,
-      rgba(0,0,0,0) 20%);
-  }
-
   /* Brass label plate with the finger-pull cup at the TOP (not below the
-     label as in the reference photos — Ray's explicit call). */
+     label as in the reference photos — Ray's explicit call). Sized close to
+     its text, not a large plate with a lot of empty margin — padding
+     pulled back in from an earlier, more generous pass; text size itself
+     is unchanged (that was a real readability fix, not up for revisiting). */
   .drawer-plate {
     position: relative;
-    min-width: 168px; max-width: 80%;
-    padding: 18px 22px 11px;
+    min-width: 118px; max-width: 78%;
+    padding: 10px 15px 6px;
     border-radius: 3px;
     background:
       linear-gradient(180deg, rgba(255,240,198,0.55), rgba(0,0,0,0) 30%),
@@ -596,14 +604,17 @@
     text-shadow: 0 1px 0 rgba(255,246,214,0.5), 0 -1px 1px rgba(0,0,0,0.22);
   }
 
-  /* Docket count fob — a small brass badge sitting beside the plate, roughly
-     at label height, NOT a flat circular UI badge. Hidden when the count is
-     zero. Superseded: this used to hang off the plate's top-right on a
-     ring, styled as an escutcheon tag — Ray's call was to drop the "hanging"
-     framing entirely (no ring) and reposition down/right to sit alongside
-     the label instead of floating above it. */
+  /* Docket count fob — a small brass badge sitting on the wood beside the
+     plate, roughly at label height, NOT a flat circular UI badge and not
+     touching/overlapping the plate itself. Hidden when the count is zero.
+     Superseded twice: originally hung off the plate's top-right on a ring
+     (styled as an escutcheon tag); the ring was dropped and it moved beside
+     the label, but at `right: -10px` it still sat touching/overlapping the
+     (then-larger) plate's edge — pushed further out now that the plate has
+     also shrunk (see .drawer-plate above), so there's a real visible gap
+     between the two. */
   .drawer-fob {
-    position: absolute; top: 58%; right: -10px; transform: translateY(-50%);
+    position: absolute; top: 58%; right: -34px; transform: translateY(-50%);
     width: 28px; height: 26px;
     display: flex; align-items: center; justify-content: center;
     font-family: "Caveat", cursive; font-weight: 700; font-size: 16px;
@@ -617,16 +628,6 @@
     z-index: 3;
   }
   .drawer-fob.hidden { display: none; }
-
-  /* Base molding — a heavier plinth grounding the stack. */
-  .cabinet-base {
-    height: 16px;
-    background:
-      linear-gradient(180deg, rgba(255,232,180,0.35), rgba(0,0,0,0) 40%),
-      linear-gradient(180deg, var(--wood-mid), var(--wood-lo));
-    border-top: 1px solid rgba(50,30,10,0.55);
-    box-shadow: inset 0 3px 5px rgba(0,0,0,0.3);
-  }
 
   /* Open animation: the face actually travels (translateY), not just a
      longer shadow-only transition — the original version only animated
@@ -1803,36 +1804,37 @@
             <button id="pendingReviewBtn">Review</button>
           </div>
 
-          <div class="cabinet wood" id="cabinet">
-            <!-- Frame: the outer .cabinet's own wood shows through as side
-                 stiles + a top rail around this inset panel — everything
-                 below reads as INSET into the frame, not spanning its full
-                 width edge-to-edge. See .cabinet-frame-inner CSS. -->
-            <div class="cabinet-frame-inner">
-              <div class="cabinet-top"></div>
-
-              <!-- Display case: coin viewed face-on, as a portrait behind glass -->
-              <div class="cabinet-case">
-                <div class="cabinet-case-glass">
-                  <div class="spotlight" id="spotlight">
-                    <div class="flip-frame" id="spotlightFlipFrame">
-                      <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
-                      <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
-                      <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
-                      <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
-                      <span class="sr-only" id="spotlightSR"></span>
-                    </div>
-                    <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
-                  </div>
+          <!-- Display case: a SEPARATE object resting on the cabinet's top
+               surface — narrower than the cabinet body, layered on top of
+               it, not merged into its frame/stiles structure. Coin viewed
+               face-on, as a portrait behind glass. -->
+          <div class="display-case">
+            <div class="display-case-glass">
+              <div class="spotlight" id="spotlight">
+                <div class="flip-frame" id="spotlightFlipFrame">
+                  <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
+                  <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
+                  <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
+                  <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
+                  <span class="sr-only" id="spotlightSR"></span>
                 </div>
+                <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
               </div>
-
-              <!-- Seven drawers, injected by initCabinet() in fixed order -->
-              <div class="cabinet-drawers wood" id="cabinetDrawers"></div>
-
-              <div class="cabinet-base"></div>
             </div>
           </div>
+
+          <!-- Cabinet body: beveled top cap + base, each wider than the
+               frame/drawers between them, per the reference photo's real
+               lipped-top/protruding-base construction. -->
+          <div class="cabinet-top-cap"></div>
+          <div class="cabinet wood" id="cabinet">
+            <!-- The outer .cabinet's own wood shows through as side stiles —
+                 the drawer stack sits INSET into this frame, not spanning
+                 its full width edge-to-edge. -->
+            <!-- Seven drawers, injected by initCabinet() in fixed order -->
+            <div class="cabinet-drawers wood" id="cabinetDrawers"></div>
+          </div>
+          <div class="cabinet-base-cap"></div>
         </div>
       </section>
 
