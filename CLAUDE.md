@@ -2364,6 +2364,71 @@ Sets automatically got a Dashboard tile too, the same way Albums always has.
 Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
 tile — it's reachable only via its own tab inside Browse.
 
+### Cabinet navigation redesign (BUILT, held on branch `claude/cabinet-navigation`, NOT merged — awaiting Ray's live-device review)
+The entire persistent-nav model above is **retired** in favor of a
+Dashboard-graphic-driven model. This is architectural/cross-cutting work, so
+per the merge policy it's held on its branch until Ray's explicit go-ahead
+(he wants to live-tune the wood tone / hardware color / handle style /
+display-case shape together first). The old "Superseded: six-item side/bottom
+nav" note above is now itself fully superseded — kept only for history.
+- **No persistent sidebar/bottom nav anywhere** (mobile + desktop) — all of
+  `.side-nav`/`.bottom-nav`/`.nav-btn`/`.topbar`/`.brand-*` markup and CSS
+  removed, plus `NAV_ITEMS`/`buildNavButtons`. Navigation happens entirely
+  through a new Dashboard **wood cabinet graphic**: a face-on display case up
+  top (holding the existing Spotlight carousel, coin viewed portrait/face-on)
+  over **seven drawers**, built by `initCabinet()` from `CABINET_DRAWERS` in
+  fixed order: 1. **Catalog** (→ browse), 2. **Albums**, 3. **Sets**,
+  4. **Wishlist**, 5. **Ledger** (→ stats), 6. **Acquisitions**, 7. **Docket**
+  (→ needsdbcoins, carries the live count fob). Drawer labels are Caveat
+  (handwritten, echoing the coin-flip labels); the count is a hanging
+  brass **fob** (`.drawer-fob`, NOT a flat circular badge), reusing the
+  existing `#needsAttentionBadge` element id so `renderNeedsAttentionHub()`'s
+  count logic drives it unchanged — **but the text is now a plain number
+  (`19`), not the old parenthesized `(19)`** (the fob reads as a physical tag).
+  `updateDocketFob(count)` toggles the fob's `.hidden` by count.
+- **Exactly two controls on every non-Dashboard screen** (`.nav-chrome`,
+  sticky top): **Back** (`#navBackBtn`) = up one level, and **Return to
+  Dashboard** (`#navHomeBtn`) = hard reset to the top. No long-press /
+  quick-jump; max two taps to reach anything. Chrome is hidden only on the
+  Dashboard (`navigate()` toggles `#navChrome.hidden` on `viewId ===
+  "dashboard"`). In-view `.back-link` buttons are hidden via CSS
+  (`.back-link:not(#yearPickerBackBtn)`) — the chrome's Back delegates to
+  them via `navBackHandler`; the year-picker widget's own back button stays.
+- **Shallow up-one-level Back model, NOT a history stack** (Ray's Q2):
+  `navBackHandler` is a mutable module-level fn ref, (re)set at every screen /
+  sub-screen transition via `setNavBack()`. `navigate()` seeds it from
+  `SECTION_BACK_TARGET` (addcoin/addset/batchreceipt → acquisitions;
+  staging/inprogresssets → needsdbcoins; everything else → dashboard), and
+  each `show*` sub-screen overrides it afterward (Browse detail → grid, album
+  book → albums list, wishlist detail → grid, etc.). The Spotlight
+  click-through and Albums filled-slot tap keep their per-origin
+  `browseDetailBackHandler`.
+- **Acquisitions is a 3-choice hub** (Q1) — new `view-acquisitions` with three
+  `.acq-choice` rows (`#acqAddCoinBtn`/`#acqAddSetBtn`/`#acqBatchReceiptBtn`)
+  → addcoin/addset/batchreceipt. The Sets-checklist empty-tile deep-link into
+  Add Set stays as an additional path, unchanged.
+- **Drawer tap plays a ~260ms open animation before navigating**
+  (`.drawer.opening` / `@keyframes drawerOpen`), **respecting
+  `prefers-reduced-motion: reduce`** (instant cut, no delay) — checked once in
+  `initCabinet()`.
+- **Browse's internal structure is completely untouched** — Coins/Rolls/Sets/
+  Albums tabs, Coins default, all filters. `navigate("sets")` still just lands
+  on `#view-browse` with the Sets tab active (no view element of its own).
+- **Aesthetic is a deliberate FIRST PASS, not locked** — warm honey-oak wood
+  (`.wood`, layered CSS gradients w/ `--grain-dir`, same no-image-assets craft
+  as the Album leather texture), brass/copper drawer plates + finger-pulls
+  (pull above the label), face-on glass case. Ray will live-tune wood tone,
+  hardware color, handle style, and case shape together. **Needs a real-device
+  check** (Samsung Internet): wood/brass rendering, drawer-animation feel +
+  reduce-motion behavior, display-case shape. Verified headless only
+  (`verify_cabinet_nav.js`, 41 assertions × normal + reduce-motion contexts +
+  an instant-cut timing check — drawer order/labels/fob, chrome show/hide,
+  all 7 routes, shallow Back per section + sub-screen, Return to Dashboard,
+  Acquisitions hub → 3 destinations + back, Spotlight click-through, Docket
+  fob count/visibility). All prior regression suites re-run clean (the
+  `(N)`→`N` fob change required updating `verify_badge.js`/`verify_regression.js`
+  expectations, not an app fix).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
