@@ -2831,6 +2831,78 @@ than asking for another tuning pass.**
   confirming the tighter size has zero real clipping despite looking
   visually tight; a 360px full-dashboard screenshot and overflow check.
 
+**Sixth refinement pass (BUILT, same branch, still held) — 4 mechanical
+fixes, no conceptual changes, reviewed live on phone and tablet.**
+- **Display case hugs its content.** `.spotlight .flip-frame` gets a
+  Spotlight-only `height: 234px` override (was inheriting the shared
+  `.flip-frame`'s 280px, sized generously for Browse detail's own layout,
+  not for this tighter hanging-frame context); `.spotlight`'s own vertical
+  padding dropped `22px/14px` → `8px/8px`. Case height 374px → 294px.
+  `.display-case`/`.display-case-glass`'s own padding (the frame's actual
+  material thickness) is untouched — only the empty space around the
+  coin/labels was trimmed, not the frame itself.
+- **Drawers compressed** so all seven fit within a reasonable scroll
+  (scrolling to reach lower drawers is expected/fine — the goal was
+  trimming excess height, not eliminating scroll). `.drawer-face` vertical
+  padding `16px` → `9px`, `min-height` `62px` → `46px`, `.drawer-plate`
+  vertical padding `10px/6px` → `8px/5px`. Per-drawer height 81.5px →
+  64.5px; full dashboard stage height (title + case + all 7 drawers)
+  1102px → 795px combined with the case trim above.
+- **Scroll-into-view on Back/Return to Dashboard, before the close
+  animation plays, not after.** Previously `navigate()` always did a flat
+  `window.scrollTo({top:0})` regardless of context — fine for entering a
+  new section, but landing back on the Dashboard after scrolling deep into
+  a section (or after the drawer-height compression above made the stack
+  taller than one screen) could leave the closing drawer off-screen,
+  animating invisibly. `navigate()`'s dashboard branch now calls
+  `scrollIntoView({block:"center", behavior:"auto"})` on the relevant
+  element FIRST, synchronously before adding `.closing` — instant, not
+  smooth, deliberately: an animated scroll has no reliable "done" callback
+  to key the close animation's start off of, so instant scroll removes the
+  timing guesswork entirely rather than guessing a smooth-scroll duration.
+  The final unconditional `scrollTo(top:0)` at the end of `navigate()` is
+  now skipped whenever this targeted scroll already ran (`didTargetedScroll`),
+  so it can't immediately undo the scroll-into-view a moment later.
+- **Spotlight-tap exception, via a new dedicated flag, not reused from
+  `lastDrawerView`.** The Spotlight coin tap calls `navigate("browse")` to
+  show that coin's detail view — structurally indistinguishable from the
+  Catalog drawer opening the same view, since both are `navigate("browse")`
+  calls. A new `spotlightOriginated` flag is set immediately before that
+  one call (Spotlight tap handler only), consumed the moment `navigate()`
+  reads it (cleared same-call, so it can never leak into a later, normal
+  navigation), and flips a stickier `scrollToCaseOnDashboard` flag instead
+  of `lastDrawerView` — so a later Back/Home from that path scrolls to
+  `.display-case` and skips the (nonexistent) drawer-close animation
+  entirely, while a normal Catalog-drawer-originated visit to the same
+  Browse view still closes Catalog correctly. Verified headless in both
+  directions, plus with reduce-motion (scroll still happens; the `.closing`
+  class is correctly never added).
+- **Docket badge number recentered.** Measured first, not guessed:
+  `getBoundingClientRect()` on the number's own text range showed the box
+  was ALREADY perfectly centered (equal gaps all four sides) — the
+  perceived "sits up-and-left" was Caveat's own rightward italic slant
+  putting a numeral's visual ink off-center within an otherwise-correct
+  box, not a flexbox bug. Fixed with `line-height: 1` (removes a small
+  vertical mismatch between the font's line box and its glyph metrics)
+  plus a small `letter-spacing`/`padding-left` compensation for the slant,
+  rather than fighting the alignment properties that were already right.
+- **Open questions carried over, still need Ray's own S25/tablet check**:
+  the 13px drawer-open travel distance; the 27px corner-label text's
+  single-label edge-clipping history (both untouched this round). **New,
+  worth Ray's eyes**: the instant (non-smooth) scroll-into-view behavior on
+  Back/Return to Dashboard — reads correctly in headless Chromium, but
+  scroll snapping without any animation can feel more or less jarring on a
+  real touchscreen than in a desktop browser; worth confirming it doesn't
+  feel abrupt in hand. If it does, the fix would be a capped-duration smooth
+  scroll instead, not a revert.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: before/after case and drawer
+  height measurements; a zoomed fob screenshot before/after the centering
+  fix; two dedicated scroll-behavior scripts (drawer-close-scrolls-into-view
+  from an arbitrary scroll position, Spotlight-tap-scrolls-to-case-instead)
+  covering both normal and reduce-motion contexts; a 360px full-dashboard
+  screenshot and overflow check.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

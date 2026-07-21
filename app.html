@@ -263,11 +263,13 @@
   /* ---------- Spotlight ---------- */
   .spotlight {
     /* Horizontal padding trimmed — .display-case and .display-case-glass
-       (its ancestors, both new this pass) already provide their own
-       framing padding; stacking a third layer on top of theirs is what
-       shrank the flip-frame enough to collide the corner labels (see the
-       .display-case comment above). */
-    padding: 22px 4px 14px;
+       (its ancestors) already provide their own framing padding; stacking
+       a third layer on top of theirs is what shrank the flip-frame enough
+       to collide the corner labels in an earlier pass (see the
+       .display-case comment above). Vertical padding also trimmed — the
+       case should hug its content (coin + corner labels), not carry dead
+       space above/below it. */
+    padding: 8px 4px 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -525,7 +527,11 @@
   .drawer-face {
     position: relative;
     --grain-dir: 0deg;   /* drawer faces run horizontal */
-    padding: 16px 16px;
+    /* Compressed from 16px vertical — with 7 drawers, this is what lets
+       the whole cabinet fit within a reasonable scroll on a phone (some
+       scrolling to reach the lower drawers is fine/expected; the goal was
+       just trimming unnecessary height, not eliminating scroll entirely). */
+    padding: 9px 16px;
     border-radius: 2px;
     /* a groove shadow at the top + a catch-light at the very top edge give
        each drawer physical separation, plus a real outer drop shadow now
@@ -545,7 +551,7 @@
       inset 0 -6px 11px rgba(0,0,0,0.34),
       0 2px 4px rgba(0,0,0,0.45);
     display: flex; align-items: center; justify-content: center;
-    min-height: 62px;
+    min-height: 46px;
   }
   /* Per-drawer figure variation so the stack reads as seven distinct boards,
      not one repeated tile panned around (which is all a background-position
@@ -576,7 +582,7 @@
   .drawer-plate {
     position: relative;
     width: 154px;
-    padding: 10px 15px 6px;
+    padding: 8px 15px 5px;
     border-radius: 3px;
     background:
       linear-gradient(180deg, rgba(255,240,198,0.55), rgba(0,0,0,0) 30%),
@@ -642,6 +648,16 @@
     width: 28px; height: 26px;
     display: flex; align-items: center; justify-content: center;
     font-family: "Caveat", cursive; font-weight: 700; font-size: 16px;
+    line-height: 1;
+    /* The number's own box is geometrically centered (verified via
+       measurement — equal gaps on all four sides), but Caveat's rightward
+       italic slant puts most of a numeral's visual ink to the right of its
+       own logical center, reading as "sits up-and-left" even though it
+       isn't. This small negative letter-spacing plus a 1px right nudge
+       compensates for the slant rather than fighting the (already-correct)
+       flex centering. */
+    letter-spacing: -0.5px;
+    padding-left: 2px;
     color: #2e2109;
     border-radius: 8px;
     background:
@@ -1660,6 +1676,13 @@
   .flip-frame .coin-photo-frame { margin: 0; width: 210px; height: 210px; }
   .flip-frame .coin-disc { margin: 0; }
   #browseDetailFlipFrame .coin-disc { width: 210px; height: 210px; font-size: 32px; }
+  /* Spotlight-only: the hanging display case should hug its content (coin
+     + corner labels), not carry the same 280px height the flip-frame uses
+     everywhere else (sized generously for Browse detail's own layout,
+     where extra room isn't a problem). 234px comfortably fits the 210px
+     disc plus corner-label clearance without the dead space above/below
+     it a taller frame leaves. */
+  .spotlight .flip-frame { height: 234px; margin-bottom: 0; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;
@@ -4243,6 +4266,16 @@
   // untouched all the way back out to whichever drawer was actually opened.
   const DRAWER_VIEW_KEYS = new Set(CABINET_DRAWERS.map(d => d.view));
   let lastDrawerView = null;
+  // The Spotlight coin tap also calls navigate("browse") (to show that
+  // coin's detail view), which would otherwise be indistinguishable from
+  // the Catalog drawer opening the same view — set right before that one
+  // navigate() call, consumed (and cleared) the moment navigate() reads it,
+  // so it never leaks into any later, normal navigation. When true, a
+  // return trip to the Dashboard scrolls to the display case instead of a
+  // drawer (see navigate()'s dashboard branch below) — there's no drawer to
+  // close on this path.
+  let spotlightOriginated = false;
+  let scrollToCaseOnDashboard = false;
 
   document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
@@ -4267,10 +4300,16 @@
     // (see the dashboard branch below). Only set/overwritten on a real
     // top-level navigate() call — see DRAWER_VIEW_KEYS comment above.
     if (viewId !== "dashboard") {
-      if (DRAWER_VIEW_KEYS.has(viewId)) {
+      if (spotlightOriginated) {
+        scrollToCaseOnDashboard = true;
+        lastDrawerView = null;
+        spotlightOriginated = false; // consumed — never leaks past this call
+      } else if (DRAWER_VIEW_KEYS.has(viewId)) {
         lastDrawerView = viewId;
+        scrollToCaseOnDashboard = false;
       } else if (SECTION_BACK_TARGET[viewId]) {
         lastDrawerView = SECTION_BACK_TARGET[viewId];
+        scrollToCaseOnDashboard = false;
       }
     }
 
@@ -4290,16 +4329,32 @@
     // the reverse of the open animation, so the drawer visibly shuts rather
     // than just silently being back at rest. Respects reduce-motion exactly
     // like the open animation does (skipped entirely, no class ever added).
-    if (viewId === "dashboard" && lastDrawerView) {
+    // The page is scrolled to bring the relevant element into view FIRST
+    // (instant, not smooth — deterministic, no timing guesswork about how
+    // long an animated scroll takes before it's safe to start the close
+    // animation), so the close is actually visible rather than happening
+    // off-screen at whatever scroll position the user was at. A coin tap in
+    // Spotlight has no drawer to close, so it scrolls to the display case
+    // instead (see spotlightOriginated/scrollToCaseOnDashboard above).
+    let didTargetedScroll = false;
+    if (viewId === "dashboard" && (lastDrawerView || scrollToCaseOnDashboard)) {
       const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (!reduceMotion) {
+      if (scrollToCaseOnDashboard) {
+        const caseEl = document.querySelector(".display-case");
+        if (caseEl) { caseEl.scrollIntoView({ block: "center", behavior: "auto" }); didTargetedScroll = true; }
+      } else {
         const drawerBtn = document.querySelector('.drawer[data-view="' + lastDrawerView + '"]');
         if (drawerBtn) {
-          drawerBtn.classList.add("closing");
-          setTimeout(() => drawerBtn.classList.remove("closing"), 300);
+          drawerBtn.scrollIntoView({ block: "center", behavior: "auto" });
+          didTargetedScroll = true;
+          if (!reduceMotion) {
+            drawerBtn.classList.add("closing");
+            setTimeout(() => drawerBtn.classList.remove("closing"), 300);
+          }
         }
       }
       lastDrawerView = null;
+      scrollToCaseOnDashboard = false;
     }
 
     if (viewId === "albums") {
@@ -4341,7 +4396,7 @@
     }
 
     previousViewId = viewId;
-    window.scrollTo({ top: 0 });
+    if (!didTargetedScroll) window.scrollTo({ top: 0 });
   }
 
   // ==================================================================
@@ -4726,6 +4781,7 @@
     frame.addEventListener("click", () => {
       const coin = spotlightCoins[spotlightIndex];
       browseDetailBackHandler = () => navigate("dashboard");
+      spotlightOriginated = true; // this navigate("browse") is case-, not drawer-, originated
       navigate("browse");
       showBrowseDetail(coin);
     });
