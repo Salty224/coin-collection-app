@@ -2979,6 +2979,42 @@ fixed, one a real regression from this round's own height trim.**
   visual alignment; that class of change is the one this environment is
   least able to catch on its own.
 
+**Third follow-up: wayfinding chrome button relabel + prominence (Ray's
+explicit request, cosmetic/labeling only, no behavior change).**
+- **"← Back" → "Back"** — arrow glyph removed, text unchanged otherwise.
+- **"Return to Dashboard ⌂" → "Close Drawer"** — house glyph also dropped
+  (not explicitly requested, but kept alongside the arrow removal above for
+  visual consistency between the two buttons, and because a house icon no
+  longer fit the new label). **The underlying behavior is completely
+  unchanged** — this button is still `navigate("dashboard")`, a hard reset
+  to the top from anywhere, same as documented everywhere else in this
+  section (Acquisitions, a Spotlight-originated detail view, etc.) — "Close
+  Drawer" is accurate when the current screen came from opening one of the
+  seven drawers (the common case), but is a label of convenience, not a
+  literal description, on paths that didn't originate from a drawer (e.g.
+  the Spotlight click-through case, which scrolls to the display case
+  instead of a drawer on this same button). Flagging this as a real,
+  deliberate wording tradeoff Ray asked for, not an oversight — if it reads
+  confusingly on a non-drawer path in practice, the fix would be a
+  conditional label rather than reverting the rename.
+- **Both buttons now share one unified, more prominent style** — both were
+  already the same `.nav-chrome button` base rule (only `.home-btn` added
+  `font-weight: 600` before), so making Back "more prominent to match"
+  meant strengthening the shared rule itself, not diverging the two: solid
+  gold-tinted gradient background (was `--bg-elevated` flat), brighter
+  border (`--case-border-bright`, was the dimmer default), bumped
+  `font-weight` 600→700 and padding/font-size up a notch. `.home-btn`'s own
+  now-redundant `font-weight: 600` override was removed since the shared
+  rule already sets 700.
+- Applied identically to the interactive preview artifact (same relabel +
+  styling), rebuilt and republished at the same URL. Verified headless:
+  both buttons render with matching computed `font-weight`/`border-color`
+  after the change (were previously visually mismatched, Back plain and
+  Close Drawer bold), zero page errors, all 10 regression suites re-run
+  clean (label-text assertions elsewhere in the suite target `.back-link`
+  buttons — the hidden per-screen ones, unaffected by this — not the nav
+  chrome pair, so nothing needed updating).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

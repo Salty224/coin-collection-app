@@ -122,7 +122,7 @@
     font-family: inherit;
   }
   /* The per-screen "← Back" links are superseded by the global nav chrome
-     (Back + Return to Dashboard) — hidden so every screen shows exactly two
+     (Back + Close Drawer) — hidden so every screen shows exactly two
      wayfinding controls. Their handlers still exist and remain the source of
      truth for each transition; the chrome's Back delegates to the same
      up-one-level logic via navBackHandler. The year-picker's Back is a widget
@@ -687,7 +687,7 @@
      box-shadow with `transform: translateX(0)` at every keyframe (i.e. no
      real motion at all), which read as barely-any sense a drawer opened
      before the screen changed. Closing plays the same travel in reverse
-     when Back/Return to Dashboard lands back on the Dashboard from inside
+     when Back/Close Drawer lands back on the Dashboard from inside
      a drawer's own section (see navigate()'s dashboard branch in the JS —
      it adds/removes .closing on the originating drawer). Both suppressed
      under reduce-motion (see the media query below → instant cut).
@@ -719,7 +719,9 @@
   }
 
   /* ---- Wayfinding chrome: exactly two controls, every non-Dashboard screen.
-     Back (up one level) + Return to Dashboard. No persistent nav exists. ---- */
+     Back (up one level) + Close Drawer (was "Return to Dashboard" — relabeled
+     per Ray's request; behavior unchanged, still a hard reset to the top).
+     No persistent nav exists. ---- */
   .nav-chrome {
     display: flex; align-items: center; justify-content: space-between;
     gap: 10px; padding: 10px 16px;
@@ -731,12 +733,12 @@
   .nav-chrome.hidden { display: none; }
   .nav-chrome button {
     display: inline-flex; align-items: center; gap: 6px;
-    background: var(--bg-elevated); color: var(--gold-bright);
-    border: 1px solid var(--case-border); border-radius: 8px;
-    padding: 8px 14px; font-size: 13px; font-family: inherit; cursor: pointer;
+    background: linear-gradient(160deg, rgba(201,162,39,0.18), rgba(201,162,39,0.05));
+    color: var(--gold-bright);
+    border: 1px solid var(--case-border-bright); border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
   }
-  .nav-chrome button:hover { border-color: var(--case-border-bright); }
-  .nav-chrome .home-btn { font-weight: 600; }
+  .nav-chrome button:hover { border-color: var(--gold-bright); }
 
   /* Acquisitions hub — three ways to add to the collection. */
   .acq-choice {
@@ -1850,12 +1852,12 @@
   </div>
 
   <div class="main-col">
-    <!-- Wayfinding chrome: exactly two controls (Back + Return to Dashboard),
+    <!-- Wayfinding chrome: exactly two controls (Back + Close Drawer),
          shown on every screen EXCEPT the Dashboard (which is the top level).
          Replaces the removed persistent sidebar/bottom nav. -->
     <div class="nav-chrome hidden" id="navChrome">
-      <button type="button" id="navBackBtn" aria-label="Back">← Back</button>
-      <button type="button" class="home-btn" id="navHomeBtn" aria-label="Return to Dashboard">Return to Dashboard ⌂</button>
+      <button type="button" id="navBackBtn" aria-label="Back">Back</button>
+      <button type="button" class="home-btn" id="navHomeBtn" aria-label="Close Drawer">Close Drawer</button>
     </div>
     <main id="views">
 
@@ -4343,7 +4345,7 @@
     setNavBack(() => navigate(SECTION_BACK_TARGET[viewId] || "dashboard"));
 
     // Landing back on the Dashboard from inside a drawer's own section (via
-    // Back or Return to Dashboard, either one — both funnel through this
+    // Back or Close Drawer, either one — both funnel through this
     // same navigate("dashboard") call) plays that drawer's closing motion,
     // the reverse of the open animation, so the drawer visibly shuts rather
     // than just silently being back at rest. Respects reduce-motion exactly
