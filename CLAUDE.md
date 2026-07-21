@@ -2698,6 +2698,70 @@ cabinet frame).**
   reads as a distinct object sitting on the cap, with visible top-cap/
   base-cap protrusion past the drawer stiles on both sides.
 
+**Fourth refinement pass (BUILT, same branch, still held) — 4 items,
+including one real root-cause bug fix (not a cosmetic patch).**
+- **Display case given real molded depth** — `.display-case` now carries
+  four concentric inset box-shadow rings (alternating light/dark) that read
+  as a carved step-molding profile, plus a `::before` brass pinstripe inset
+  just past them, approximating the reference photo's molded frame/brass
+  trim detail. Padding grew `8px 8px 13px` → `13px 13px 18px` to give the
+  rings room to read clearly without crowding the glass. Explicitly NOT
+  adopting that reference photo's downward-viewing angle — construction/
+  detailing only, per Ray's own framing.
+- **Placards are now one uniform fixed size** (`.drawer-plate { width:
+  214px; }`, replacing the previous pass's `min-width`/`max-width` shrink-
+  to-content approach) — sized to fit "Acquisitions" (the longest label)
+  comfortably; shorter labels sit centered with real visible margin, not
+  hugging their own text. This directly reverses the previous pass's
+  per-plate sizing on Ray's explicit instruction — the two rounds wanted
+  different things (that round: less empty margin around each label; this
+  round: one consistent plate size across all seven), not a contradiction.
+- **Top/bottom bevel now faceted, not a smooth slope** — `.cabinet-top-cap`/
+  `.cabinet-base-cap` switched from a two-stop soft gradient to a 5-band
+  hard-stop gradient (each band a flat color with a sharp edge to the
+  next), reading as a stepped/carved molding profile rather than a simple
+  rounded bevel. Heights grew slightly (20px→26px top, 18px→22px base) to
+  give the extra bands room.
+- **Root-caused the recurring dark grain band, not just patched around
+  it.** Ray's report: a darker band appeared at the same relative spot
+  (near the top) on 5 of 7 drawers, with only Catalog and Sets looking
+  clean — his own suggested fixes were "make it rarer" or "vary its
+  position." Direct visual diagnosis (a full-stack high-res screenshot of
+  all seven drawers side by side) pointed at neither of the per-drawer
+  background-position/grain-angle variables — those already varied
+  per-drawer and didn't correlate with which drawers showed the band.
+  The actual cause: `.drawer-face`'s box-shadow carried a third value,
+  `inset 0 26px 30px rgba(0,0,0,0.10)`, applied IDENTICALLY to every
+  drawer regardless of its own tone/phase — a large-blur positive-offset
+  inset shadow that washes the top portion of a box dark by design. On
+  drawers where this happened to compound with an already-darker base tone
+  or grain phase, it read as an obvious repeating band; on Catalog/Sets it
+  didn't stand out as much, which is why only those two looked "clean" —
+  not because their own wood recipe was different, but because they had
+  less to compound with. Removed entirely (from the resting state AND both
+  keyframes' 0%/100% endpoints, so the animation doesn't flash a different
+  shadow than the resting state) — the drawer-separation cue it was meant
+  to add is already covered by the real 4px gap + darker recess housing
+  from an earlier pass. Verified via a fresh full-stack screenshot: no
+  drawer shows the band anymore, not just the previously-clean two.
+- **Re-verified the 360px corner-label safety margin after this round's
+  padding increases** (the display-case molding needed more room) — gap
+  between the two top corner boxes: 32px → 22px (padding grew, floor
+  stayed the same), still solidly positive, zero page overflow. Worth
+  knowing this margin is shrinking round over round as the case gains
+  detail — if a future pass adds more case padding, re-check this specific
+  measurement rather than assuming it still holds.
+- **Open questions carried over, still unresolved, still need Ray's own
+  S25/tablet check**: the 13px drawer-open travel distance; the 27px
+  corner-label text's single-label edge-clipping history; whether the
+  display case's "resting on the cap" effect reads convincingly on a real
+  screen (all three untouched this round).
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: before/after full-drawer-stack
+  screenshots proving the dark-band diagnosis and fix; a case zoom-in
+  screenshot confirming the molding rings + brass pinstripe render visibly;
+  a 360px measurement re-confirming the corner-label gap stays positive.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

@@ -410,29 +410,38 @@
   /* Beveled cap + base — each WIDER than .cabinet itself (see max-width
      above), so the frame reads as having a real top and bottom rather than
      vertical sides running straight into nothing, matching the reference
-     cabinet's lipped-top/protruding-base construction. Plain gradient bars
-     (not the full layered .wood texture) — same posture .cabinet-top/
-     .cabinet-base used before this pass, just wider and now standalone
-     siblings instead of children inset inside the frame. */
+     cabinet's lipped-top/protruding-base construction. Angular/stepped
+     facets (hard-stop gradient bands, not one smooth slope) for a more
+     ornate, carved-molding profile rather than a simple flat bevel. */
   .cabinet-top-cap {
     max-width: 96%;
     margin: 0 auto;
-    height: 20px;
+    height: 26px;
     border-radius: 8px 8px 3px 3px;
     background:
-      linear-gradient(180deg, rgba(255,232,180,0.55), rgba(0,0,0,0) 55%),
-      linear-gradient(180deg, #a9773c, #4f3315);
+      linear-gradient(180deg, rgba(255,232,180,0.5), rgba(0,0,0,0) 30%),
+      linear-gradient(180deg,
+        #e8c07a 0%, #e8c07a 16%,
+        #a9773c 16%, #a9773c 38%,
+        #7c5423 38%, #7c5423 58%,
+        #5a3c18 58%, #5a3c18 80%,
+        #4f3315 80%, #4f3315 100%);
     box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 -3px 5px rgba(0,0,0,0.35);
     border: 1px solid rgba(60,38,14,0.7);
   }
   .cabinet-base-cap {
     max-width: 96%;
     margin: 0 auto;
-    height: 18px;
+    height: 22px;
     border-radius: 3px 3px 8px 8px;
     background:
-      linear-gradient(180deg, rgba(255,232,180,0.35), rgba(0,0,0,0) 40%),
-      linear-gradient(180deg, #7c5423, #4f3315);
+      linear-gradient(180deg, rgba(255,232,180,0.3), rgba(0,0,0,0) 25%),
+      linear-gradient(180deg,
+        #7c5423 0%, #7c5423 20%,
+        #5a3c18 20%, #5a3c18 42%,
+        #8a6027 42%, #8a6027 64%,
+        #4f3315 64%, #4f3315 84%,
+        #3a2410 84%, #3a2410 100%);
     box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 3px 5px rgba(0,0,0,0.3);
     border: 1px solid rgba(60,38,14,0.7);
   }
@@ -442,7 +451,13 @@
      cabinet body, layered visually on top of .cabinet-top-cap (the
      negative margin below pulls it down to overlap/rest on the cap rather
      than floating with a gap above it), NOT part of the frame/stiles
-     structure above. ---- */
+     structure above. A real display case has a molded/beveled surround
+     with actual depth, not a flat rectangle — concentric inset rings
+     (alternating light/dark) approximate a carved step molding profile,
+     and the ::before brass pinstripe just inside them approximates the
+     brass trim detail from the reference photo (Ray's second reference —
+     construction/detailing only, NOT its downward-viewing angle, which
+     this case deliberately does not adopt). ---- */
   .display-case {
     position: relative;
     max-width: 74%;
@@ -459,15 +474,29 @@
     min-width: 256px;
     margin: 0 auto -7px;
     z-index: 2;
-    padding: 8px 8px 13px;
+    padding: 13px 13px 18px;
     border-radius: 8px 8px 4px 4px;
     background:
       linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0) 30%),
       linear-gradient(180deg, #a9773c, #7c5423 60%, #4f3315);
     box-shadow:
       0 10px 22px rgba(0,0,0,0.5),
-      0 3px 8px rgba(0,0,0,0.4);
+      0 3px 8px rgba(0,0,0,0.4),
+      inset 0 0 0 2px rgba(255,244,206,0.4),
+      inset 0 0 0 4px rgba(50,32,12,0.55),
+      inset 0 0 0 6px rgba(227,197,138,0.35),
+      inset 0 0 0 9px rgba(50,32,12,0.5);
     border: 1px solid rgba(60,38,14,0.7);
+  }
+  /* Brass pinstripe, inset just past the molding rings above. */
+  .display-case::before {
+    content: "";
+    position: absolute;
+    left: 11px; right: 11px; top: 11px; bottom: 11px;
+    border-radius: 5px;
+    border: 1px solid rgba(227,197,138,0.55);
+    box-shadow: inset 0 1px 0 rgba(255,246,214,0.3);
+    pointer-events: none;
   }
   .display-case-glass {
     position: relative;
@@ -521,11 +550,19 @@
     /* a groove shadow at the top + a catch-light at the very top edge give
        each drawer physical separation, plus a real outer drop shadow now
        that a visible gap/recess actually exists below each drawer front to
-       cast it into */
+       cast it into. Superseded: this used to carry a third, large-blur
+       `inset 0 26px 30px rgba(0,0,0,0.10)` wash — applied identically to
+       every drawer regardless of its own wood tone/grain phase, it was the
+       one thing consistently darkening the SAME relative spot (near the
+       top) on every drawer, which is exactly what read as an obvious
+       repeating "dark band" on most of them (Ray's report: 5 of 7 showed
+       it, only the two drawers whose own grain phase happened to counteract
+       it looked clean). Removed — the separation cue it was meant to add is
+       already covered by the real 4px gap + darker recess housing behind
+       the stack (see .cabinet-drawers above). */
     box-shadow:
       inset 0 2px 3px rgba(255,236,188,0.22),
       inset 0 -6px 11px rgba(0,0,0,0.34),
-      inset 0 26px 30px rgba(0,0,0,0.10),
       0 2px 4px rgba(0,0,0,0.45);
     display: flex; align-items: center; justify-content: center;
     min-height: 62px;
@@ -545,13 +582,15 @@
   .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --grain-dir: -1deg; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
 
   /* Brass label plate with the finger-pull cup at the TOP (not below the
-     label as in the reference photos — Ray's explicit call). Sized close to
-     its text, not a large plate with a lot of empty margin — padding
-     pulled back in from an earlier, more generous pass; text size itself
-     is unchanged (that was a real readability fix, not up for revisiting). */
+     label as in the reference photos — Ray's explicit call). ONE fixed
+     size across all seven drawers, not individually shrink-wrapped per
+     label (that was the previous pass's approach — reversed here on Ray's
+     explicit instruction) — sized to fit the longest label ("Acquisitions")
+     comfortably; shorter labels (Sets, Ledger, etc.) center within that
+     same plate with real visible margin around the text. */
   .drawer-plate {
     position: relative;
-    min-width: 118px; max-width: 78%;
+    width: 214px;
     padding: 10px 15px 6px;
     border-radius: 3px;
     background:
@@ -652,13 +691,13 @@
     animation: drawerClose 300ms cubic-bezier(0.65, 0, 0.35, 1);
   }
   @keyframes drawerOpen {
-    0%   { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
+    0%   { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34); }
     60%  { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
     100% { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
   }
   @keyframes drawerClose {
     0%   { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
-    100% { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
+    100% { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34); }
   }
   @media (prefers-reduced-motion: reduce) {
     .drawer, .drawer.opening, .drawer.closing { transition: none; transform: none; }
