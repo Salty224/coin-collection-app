@@ -2364,6 +2364,657 @@ Sets automatically got a Dashboard tile too, the same way Albums always has.
 Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
 tile — it's reachable only via its own tab inside Browse.
 
+### Cabinet navigation redesign (BUILT, held on branch `claude/cabinet-navigation`, NOT merged — awaiting Ray's live-device review)
+The entire persistent-nav model above is **retired** in favor of a
+Dashboard-graphic-driven model. This is architectural/cross-cutting work, so
+per the merge policy it's held on its branch until Ray's explicit go-ahead
+(he wants to live-tune the wood tone / hardware color / handle style /
+display-case shape together first). The old "Superseded: six-item side/bottom
+nav" note above is now itself fully superseded — kept only for history.
+- **No persistent sidebar/bottom nav anywhere** (mobile + desktop) — all of
+  `.side-nav`/`.bottom-nav`/`.nav-btn`/`.topbar`/`.brand-*` markup and CSS
+  removed, plus `NAV_ITEMS`/`buildNavButtons`. Navigation happens entirely
+  through a new Dashboard **wood cabinet graphic**: a face-on display case up
+  top (holding the existing Spotlight carousel, coin viewed portrait/face-on)
+  over **seven drawers**, built by `initCabinet()` from `CABINET_DRAWERS` in
+  fixed order: 1. **Catalog** (→ browse), 2. **Albums**, 3. **Sets**,
+  4. **Wishlist**, 5. **Ledger** (→ stats), 6. **Acquisitions**, 7. **Docket**
+  (→ needsdbcoins, carries the live count fob). Drawer labels are Caveat
+  (handwritten, echoing the coin-flip labels); the count is a hanging
+  brass **fob** (`.drawer-fob`, NOT a flat circular badge), reusing the
+  existing `#needsAttentionBadge` element id so `renderNeedsAttentionHub()`'s
+  count logic drives it unchanged — **but the text is now a plain number
+  (`19`), not the old parenthesized `(19)`** (the fob reads as a physical tag).
+  `updateDocketFob(count)` toggles the fob's `.hidden` by count.
+- **Exactly two controls on every non-Dashboard screen** (`.nav-chrome`,
+  sticky top): **Back** (`#navBackBtn`) = up one level, and **Return to
+  Dashboard** (`#navHomeBtn`) = hard reset to the top. No long-press /
+  quick-jump; max two taps to reach anything. Chrome is hidden only on the
+  Dashboard (`navigate()` toggles `#navChrome.hidden` on `viewId ===
+  "dashboard"`). In-view `.back-link` buttons are hidden via CSS
+  (`.back-link:not(#yearPickerBackBtn)`) — the chrome's Back delegates to
+  them via `navBackHandler`; the year-picker widget's own back button stays.
+- **Shallow up-one-level Back model, NOT a history stack** (Ray's Q2):
+  `navBackHandler` is a mutable module-level fn ref, (re)set at every screen /
+  sub-screen transition via `setNavBack()`. `navigate()` seeds it from
+  `SECTION_BACK_TARGET` (addcoin/addset/batchreceipt → acquisitions;
+  staging/inprogresssets → needsdbcoins; everything else → dashboard), and
+  each `show*` sub-screen overrides it afterward (Browse detail → grid, album
+  book → albums list, wishlist detail → grid, etc.). The Spotlight
+  click-through and Albums filled-slot tap keep their per-origin
+  `browseDetailBackHandler`.
+- **Acquisitions is a 3-choice hub** (Q1) — new `view-acquisitions` with three
+  `.acq-choice` rows (`#acqAddCoinBtn`/`#acqAddSetBtn`/`#acqBatchReceiptBtn`)
+  → addcoin/addset/batchreceipt. The Sets-checklist empty-tile deep-link into
+  Add Set stays as an additional path, unchanged.
+- **Drawer tap plays a ~260ms open animation before navigating**
+  (`.drawer.opening` / `@keyframes drawerOpen`), **respecting
+  `prefers-reduced-motion: reduce`** (instant cut, no delay) — checked once in
+  `initCabinet()`.
+- **Browse's internal structure is completely untouched** — Coins/Rolls/Sets/
+  Albums tabs, Coins default, all filters. `navigate("sets")` still just lands
+  on `#view-browse` with the Sets tab active (no view element of its own).
+- **Aesthetic is a deliberate FIRST PASS, not locked** — warm honey-oak wood
+  (`.wood`, layered CSS gradients w/ `--grain-dir`, same no-image-assets craft
+  as the Album leather texture), brass/copper drawer plates + finger-pulls
+  (pull above the label), face-on glass case. Ray will live-tune wood tone,
+  hardware color, handle style, and case shape together. **Needs a real-device
+  check** (Samsung Internet): wood/brass rendering, drawer-animation feel +
+  reduce-motion behavior, display-case shape. Verified headless only
+  (`verify_cabinet_nav.js`, 41 assertions × normal + reduce-motion contexts +
+  an instant-cut timing check — drawer order/labels/fob, chrome show/hide,
+  all 7 routes, shallow Back per section + sub-screen, Return to Dashboard,
+  Acquisitions hub → 3 destinations + back, Spotlight click-through, Docket
+  fob count/visibility). All prior regression suites re-run clean (the
+  `(N)`→`N` fob change required updating `verify_badge.js`/`verify_regression.js`
+  expectations, not an app fix).
+
+**Refinement pass (BUILT, same branch, still held) — 13 polish items from
+Ray's live phone/tablet review, no structural/routing changes:**
+- **Wood darkened** a step further, closer to the deeper of his two
+  reference photos (`--wood-hi/mid/lo` pulled down and desaturated a touch).
+- **Rectangular grid artifacting on the drawer wood, fixed.** Root cause: the
+  ray-fleck layer ran PERPENDICULAR to the grain-line layer, both hard-edged
+  repeating-linear-gradients at similar periods, blended `multiply` — two
+  perpendicular hard-edged patterns at comparable periods interference-beat
+  into a visible crosshatch, and `multiply` darkened every crossing into a
+  visible grid node. Fixed by softening the fleck layer to a smooth,
+  low-opacity highlight-only pattern on a longer, non-matching period,
+  blended `normal` instead of `multiply`; the cathedral-figure layer's
+  stops were also switched from hard px-range steps to single-position
+  stops so bands interpolate instead of snapping.
+  - **Rely on `background-blend-mode: normal` here, not `multiply`, for any
+    future wood-texture layer** — `multiply` against a perpendicular
+    hard-edged pattern is exactly what produced the grid; a future addition
+    that reintroduces multiply-blended perpendicular hard-edged layers will
+    likely reproduce it.
+- **Per-drawer wood variation is real now, not a panned copy of one tile** —
+  the old fix only shifted `background-position` (same tile, different
+  window onto it, so it still read as one repeated texture). Each of the 7
+  drawers now gets its own `--wood-hi/mid/lo` tint plus (on most) a small
+  `--grain-dir` angle offset via explicit `nth-child(1)`–`nth-child(7)`
+  rules, so the stack reads as seven distinct boards.
+- **Display case narrowed** (`.cabinet-case-glass { max-width: min(80%,
+  260px); margin: 0 auto; }`) — reads as a distinct glazed window set into
+  a wider wood face, not a pane stretched to the drawers' own width.
+- **Spotlight carousel dots removed entirely** (HTML element, CSS rules, and
+  the JS that built/toggled them) — auto-rotate only, no manual dot
+  navigation, per Ray's call. The manual flip button (⟲) is unrelated and
+  stays — it's not a "dot," it's the existing tap-to-flip control.
+- **Auto-flip rate slowed** 4000ms → 6500ms (`resetSpotlightTimer()`) — the
+  old rate was too fast to actually read a coin's obverse before it flipped.
+- **Corner-label text bumped** 25px → 27px, `max-width` widened 47% → 50%
+  for headroom given the larger text. This corner has a real prior clipping
+  history (see "Coin-flip corner labels" above) that was never reproduced
+  in this environment — **flagged for Ray's own device confirmation**, not
+  verified here beyond "renders without visible clipping in this sandbox."
+- **Drawer label text bumped** 24px → 30px, color darkened `#3a2a10` →
+  `#1c1203` with a paired highlight/shadow (`text-shadow`) for an engraved-
+  label look — the old color read too close to the mid-brass plate tone on
+  a real screen. **Plate itself grew** (`min-width` 150px → 168px, padding
+  15px/18px/9px → 18px/22px/11px) to comfortably fit the larger text; it's
+  a flex child sized by its own content plus these values, not a fixed box,
+  so it grows automatically with the label.
+- **Drawer open animation now actually travels** (`translateY(0)` →
+  `translateY(13px)` in the `drawerOpen` keyframe) — the original only
+  animated `box-shadow` with `transform: translateX(0)` at every keyframe,
+  i.e. zero real motion, which is exactly why it barely read as "opening."
+  Duration bumped 260ms → 320ms as a side effect of the travel actually
+  needing time to read, not the primary fix; the JS `setTimeout` before
+  `navigate()` fires was updated to match.
+- **New closing animation** (`drawerClose` keyframe, the exact reverse
+  travel/shadow) plays on the originating drawer whenever Back or Return to
+  Dashboard lands back on the Dashboard from inside that drawer's own
+  section — tracked via a new `lastDrawerView` module-level variable, set
+  inside `navigate()` whenever it's called with a `CABINET_DRAWERS`-mapped
+  viewId (direct) or a `SECTION_BACK_TARGET`-mapped child viewId (e.g.
+  `addcoin` → `acquisitions`), and consumed/cleared inside `navigate()`'s
+  own `"dashboard"` branch. Deep sub-navigation within a section (Browse
+  detail, an Add Coin subview, etc.) never calls the top-level `navigate()`
+  at all, so `lastDrawerView` naturally survives untouched all the way back
+  out to whichever drawer was actually opened, however many in-section
+  Back-taps it takes to get there. Respects `prefers-reduced-motion`
+  exactly like the open animation — the JS checks it before ever adding the
+  `.closing` class, so a reduced-motion session never sees the class at all
+  (not just a CSS-suppressed animation on an added-but-inert class).
+- **Docket fob's hanging ring** moved closer to the tag body (`top: -7px` →
+  `top: -4px` on `.drawer-fob::before`, slightly smaller) — it read as
+  floating detached above the tag rather than an integrated part of it.
+- Verified headless: all 9 prior regression suites + `verify_cabinet_nav.js`
+  re-run clean (no assertion changes needed — this pass was pure CSS/JS
+  polish, no routing/structural change). The animation-travel and
+  closing-animation logic were additionally spot-checked directly (mid-
+  animation screenshot showing real drawer displacement + cast-shadow
+  change; `lastDrawerView`/`.closing` class lifecycle asserted programmatically,
+  including the sub-flow → parent-drawer mapping case). **Still needs Ray's
+  real-device pass** — this round was reacting to his phone/tablet review,
+  but the fixes themselves (wood grid, contrast, animation feel) were only
+  re-verified in this environment's headless Chromium, not back on his S25.
+
+**Second refinement pass (BUILT, same branch, still held) — 7 items, single
+throughline: the cabinet read as a flat block with drawer-fronts painted on,
+not a real piece of furniture with depth.**
+- **Real cabinet frame added (`.cabinet-frame-inner`)** — `.cabinet` itself
+  (already `.wood`-textured) is now padded on three sides (`padding: 15px
+  15px 0` — both sides + top; bottom stays flush since `.cabinet-base`
+  already reads as the plinth), and that raw padding IS the visible frame:
+  vertical side stiles down both edges, a top rail above the display case,
+  per the honey-oak reference photo. Everything else (case, drawers, base)
+  now lives inside `.cabinet-frame-inner`, inset into that frame rather than
+  spanning its outer edge-to-edge width. A groove shadow marks where the
+  case/drawers meet the stiles — **applied directly to `.cabinet-case` and
+  `.cabinet-drawers`, not to `.cabinet-frame-inner` itself** (a real bug
+  caught before shipping: those two are the opaque, full-width elements
+  that actually paint there — an inset shadow declared on the wrapper
+  would sit behind its own children's backgrounds and never be visible at
+  all, since block children span 100% of their parent by default).
+- **Display case narrowing simplified, NOT doubled.** A previous pass had
+  already narrowed `.cabinet-case-glass` on its own (`max-width: min(80%,
+  260px)`) before this frame existed. Once the frame started contributing
+  its own width reduction too, the two narrowing steps compounded on a
+  ~360px-wide phone enough to shrink the flip-frame to ~215px — at which
+  point the two top corner labels (a longer Type/Denom pair, e.g. "1889-CC"
+  / "Morgan") visually collided into each other. **Caught via screenshot at
+  360px, not just computed** — confirmed as a real regression this pass
+  introduced, not a pre-existing gap. Fixed by treating the frame as what
+  satisfies "case narrower than the full cabinet width" and pulling the
+  glass's own separate narrowing back to a light touch on top of it
+  (`max-width: 94%`, down from `min(80%, 260px)`) — re-verified at 360px
+  with zero corner-label overflow and no horizontal page scroll, and the
+  coin/carousel content itself was never resized either time.
+- **Drawer separation is now real, not just a 1px line.** `.drawer` gets a
+  4px `margin-bottom` (was a flush `border-bottom`) so the parent
+  `.cabinet-drawers`' own background shows through as a visible gap between
+  every drawer front. `.cabinet-drawers` sets its own notably darker
+  `--wood-hi/mid/lo` (a recessed "housing" tone, darker than any individual
+  drawer face's own tint) so that gap reads as a genuine shadowed recess
+  behind lighter drawer fronts, not just a thin seam. `.drawer-face` also
+  picked up a real outer drop shadow (`0 2px 4px rgba(0,0,0,0.45)`, on top
+  of its existing inset grooves) now that it has a recess to actually cast
+  it into, plus a subtle `border-radius: 2px` so each panel reads as a
+  distinct physical box.
+- **Open/close travel now plays against that same recess** — no new markup
+  or literal 3D side panels; because the recess is already established at
+  rest, a drawer sliding 13px down into (or out of) that dark gap during
+  the existing open/close keyframes reads as pulling out of a real cavity
+  rather than sliding across a flat surface. The keyframes also ramp in a
+  side inset shadow at the open state (`inset 6px 0 8px -6px`/`inset -6px 0
+  8px -6px rgba(0,0,0,0.4)`, absent at rest) as a further hint of the
+  drawer's own side catching shadow as it pulls toward the viewer.
+- **Animation easing switched from an ease-out-leaning curve
+  (`cubic-bezier(0.22, 0.61, 0.36, 1)`) to a symmetric ease-in-out
+  (`cubic-bezier(0.65, 0, 0.35, 1)`)** on both `drawerOpen` and
+  `drawerClose` — durations (320ms/300ms) are unchanged, only the velocity
+  shape; the old curve had real motion (per the first refinement pass) but
+  still felt abrupt at the start.
+- **Wood grain given irregular flow, not just tonal variation (which the
+  first pass already covered).** A second grain-line `repeating-linear-
+  gradient` layer runs at a shallow independent angle offset
+  (`--grain-dir + 4deg`) and a different period than the first, so within
+  a single drawer the lines gently cross rather than running perfectly
+  parallel. Per-drawer `--grain-dir` offsets were also widened (±1–3deg,
+  up from ±1–2deg) for more variety across the stack. Two small "knot"
+  accents (a dark radial core with fading concentric rings, approximating
+  growth rings) were added sparingly — only on drawers 3 and 6, as `::before`
+  pseudo-elements layered behind the brass plate — since real quarter-sawn
+  oak isn't covered in them; every drawer having one would read as a
+  pattern, not wood. **Deliberately did NOT reach for an SVG turbulence/
+  displacement filter for true curved grain** — that would be a real
+  technique change from the established "layered CSS gradients only, same
+  posture as the Album leather" approach, and this project's own history
+  already flags SVG-filter-class effects as a cross-device rendering risk
+  (Samsung Internet support can be flaky) that can't be verified from this
+  environment. This pass is a CSS-gradient-only approximation; a true
+  wavy-grain pass would be a deliberate follow-up decision, not a default.
+- **Docket fob's hanging ring removed entirely** (not just repositioned —
+  Ray's explicit call this round) and the badge itself moved from hanging
+  above the plate's top-right corner to sitting beside the plate at roughly
+  label height (`top: 58%; right: -10px; transform: translateY(-50%)`,
+  down from `top: -13px; right: 12px`). Shape simplified from the teardrop/
+  escutcheon (`border-radius: 15px.../20px...`) to a plain rounded badge
+  (`border-radius: 8px`) now that there's no ring for it to visually hang
+  from.
+- **Real-device-check flags carried over from the first pass, both still
+  open, neither resolved by anything in this round**: whether the drawer
+  travel distance feels like enough in hand (now 13px, unchanged — the new
+  recess/gap treatment should make the same distance read more
+  convincingly as "pulling out," but the felt distance itself wasn't
+  touched), and whether the 27px corner-label text is safe from the
+  clipping issue that's bitten this corner before (unchanged this round;
+  the 360px overlap bug found and fixed above was a DIFFERENT problem —
+  two labels colliding with each other from a too-narrow frame — not the
+  single-label edge-clipping history this flag refers to). Both need Ray's
+  own S25/tablet confirmation; neither is reproducible from this
+  environment.
+- Verified headless: all 10 prior suites (9 regression + `verify_cabinet_nav.js`)
+  re-run clean, no assertion changes needed. Additionally spot-checked
+  directly: a mid-open-animation screenshot showing the drawer visibly
+  displaced into the new recess with a deeper cast shadow; the 360px
+  corner-label collision bug reproduced via screenshot, then re-verified
+  fixed via both a `scrollWidth`/`clientWidth` overflow check (zero
+  overflowing labels, was one before) and a follow-up screenshot; a
+  360px-viewport horizontal-overflow check (`document.body.scrollWidth <=
+  window.innerWidth`, holds both before and after the case-glass fix).
+
+**Third refinement pass (BUILT, same branch, still held) — 6 items,
+including one real structural change (display case decoupled from the
+cabinet frame).**
+- **Display case is now a genuinely separate object, not part of the
+  frame.** Previously `.cabinet-case`/`.cabinet-case-glass` lived INSIDE
+  `.cabinet`/`.cabinet-frame-inner` (the same frame the drawers sit in) —
+  Ray's explicit call this round was that this is conceptually wrong: a
+  display case resting on a cabinet's top surface is a separate piece of
+  furniture, not a merged structural element. `.display-case`/
+  `.display-case-glass` are now siblings of `.cabinet` in `.cabinet-stage`,
+  positioned before it in source order with `margin: 0 auto -7px` (the
+  negative bottom margin pulls it down to visually overlap/rest on
+  `.cabinet-top-cap` rather than floating above it with a gap) and a higher
+  paint order (via `position: relative` with no competing z-index on the
+  cap) so it reads as sitting in front of/on top of the cap, not behind it.
+  `.cabinet-frame-inner` was removed entirely — with the case gone, it had
+  only one remaining child (`.cabinet-drawers`) and added nothing.
+- **Real beveled top cap + base, each wider than the frame.** `.cabinet`
+  itself is now narrower than the full stage (`max-width: 90%`) specifically
+  so `.cabinet-top-cap` and `.cabinet-base-cap` — new standalone sibling
+  elements, `max-width: 96%` — have visible room to protrude past its
+  stiles on both sides, matching the reference cabinet photo's real
+  lipped-top/protruding-base construction (previously `.cabinet-top`/
+  `.cabinet-base` were the same width as the frame they sat inside, so nothing
+  ever read as a distinct cap). This is the concrete case of "narrower
+  drawers are an acceptable tradeoff for correct proportions" Ray
+  pre-authorized this round.
+- **A real regression, caught and fixed before shipping (not by Ray):**
+  moving the display case out to its own object introduced a THIRD stacked
+  padding layer (`.display-case` → `.display-case-glass` → `.spotlight`,
+  where the previous nested-in-the-frame layout only had two:
+  `.cabinet-case` → `.cabinet-case-glass`). On a 360px phone this compounded
+  enough to shrink the flip-frame to ~157px and collide the two top corner
+  labels again ("1889-CC" running into "Morgan") — caught via direct
+  measurement (`getBoundingClientRect()` gap between the TL/TR corner
+  boxes came back negative) plus a screenshot, not assumed. Fixed by
+  trimming the redundant padding at all three layers (`.display-case`
+  10px→8px, `.display-case-glass` 10px→8px, `.spotlight`'s horizontal
+  padding 16px→4px — `.spotlight`'s own padding predates the dedicated
+  case/glass wrapper and is now mostly redundant with theirs) and adding a
+  `min-width: 256px` floor on `.display-case` itself as a hard backstop —
+  re-verified at 360px with a positive 32px gap between the two corner
+  boxes (was −14px) and zero page-level horizontal overflow.
+- **Wood knots removed entirely** (`.drawer:nth-child(3)/(6) .drawer-face::before`
+  and their radial-gradient rules deleted) — Ray's call that they read as a
+  rendering flaw, not real wood. The second, independently-angled grain-line
+  layer from the prior pass (the actual "irregular flow" mechanism) is
+  unchanged and stays.
+- **Brass placards shrunk to fit their text.** `.drawer-plate` padding
+  `18px 22px 11px` → `10px 15px 6px`, `min-width` `168px` → `118px`,
+  `max-width` `80%` → `78%`. Label font-size is unchanged (30px, from the
+  first refinement pass — a real readability fix, not revisited).
+- **Docket fob pushed further right**, now clearly separated from the
+  (now-smaller) plate rather than touching/overlapping its edge —
+  `right: -10px` → `right: -34px` on `.drawer-fob`. Verified via
+  `getBoundingClientRect()` that the fob's right edge stays well inside the
+  drawer's own bounds (no clipping) at 412px.
+- **Open questions carried over from prior passes, still unresolved,
+  still need Ray's own S25/tablet check** — nothing in this round touched
+  either: (1) whether the 13px drawer-open travel distance feels like
+  enough in hand; (2) whether the 27px corner-label text is safe from the
+  single-label edge-clipping history that's bitten this corner before
+  (distinct from the two-labels-colliding bug this round fixed).
+- **New, this round**: the display case's visual "resting on the cap"
+  effect (the −7px overlap + paint-order layering) hasn't been checked on
+  a real device either — it's a CSS-only illusion (no real 3D), and while
+  it reads correctly in this environment's headless Chromium at every
+  viewport tested (360px/412px), whether it convincingly reads as "an
+  object sitting on a surface" rather than "two shapes overlapping" is a
+  genuinely subjective call worth Ray's own eyes.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed (this pass changed the DOM structure around the display case —
+  `.cabinet-frame-inner` removed, `.cabinet-case`/`.cabinet-case-glass`
+  renamed to `.display-case`/`.display-case-glass` and relocated — but
+  `verify_cabinet_nav.js` and every other suite target IDs/behavior, not
+  these specific class names, so nothing needed updating). Additionally
+  spot-checked directly: the corner-label collision bug reproduced via
+  `getBoundingClientRect()` measurement before the fix, re-verified fixed
+  after; a fresh 412px full-dashboard screenshot confirms the display case
+  reads as a distinct object sitting on the cap, with visible top-cap/
+  base-cap protrusion past the drawer stiles on both sides.
+
+**Fourth refinement pass (BUILT, same branch, still held) — 4 items,
+including one real root-cause bug fix (not a cosmetic patch).**
+- **Display case given real molded depth** — `.display-case` now carries
+  four concentric inset box-shadow rings (alternating light/dark) that read
+  as a carved step-molding profile, plus a `::before` brass pinstripe inset
+  just past them, approximating the reference photo's molded frame/brass
+  trim detail. Padding grew `8px 8px 13px` → `13px 13px 18px` to give the
+  rings room to read clearly without crowding the glass. Explicitly NOT
+  adopting that reference photo's downward-viewing angle — construction/
+  detailing only, per Ray's own framing.
+- **Placards are now one uniform fixed size** (`.drawer-plate { width:
+  214px; }`, replacing the previous pass's `min-width`/`max-width` shrink-
+  to-content approach) — sized to fit "Acquisitions" (the longest label)
+  comfortably; shorter labels sit centered with real visible margin, not
+  hugging their own text. This directly reverses the previous pass's
+  per-plate sizing on Ray's explicit instruction — the two rounds wanted
+  different things (that round: less empty margin around each label; this
+  round: one consistent plate size across all seven), not a contradiction.
+- **Top/bottom bevel now faceted, not a smooth slope** — `.cabinet-top-cap`/
+  `.cabinet-base-cap` switched from a two-stop soft gradient to a 5-band
+  hard-stop gradient (each band a flat color with a sharp edge to the
+  next), reading as a stepped/carved molding profile rather than a simple
+  rounded bevel. Heights grew slightly (20px→26px top, 18px→22px base) to
+  give the extra bands room.
+- **Root-caused the recurring dark grain band, not just patched around
+  it.** Ray's report: a darker band appeared at the same relative spot
+  (near the top) on 5 of 7 drawers, with only Catalog and Sets looking
+  clean — his own suggested fixes were "make it rarer" or "vary its
+  position." Direct visual diagnosis (a full-stack high-res screenshot of
+  all seven drawers side by side) pointed at neither of the per-drawer
+  background-position/grain-angle variables — those already varied
+  per-drawer and didn't correlate with which drawers showed the band.
+  The actual cause: `.drawer-face`'s box-shadow carried a third value,
+  `inset 0 26px 30px rgba(0,0,0,0.10)`, applied IDENTICALLY to every
+  drawer regardless of its own tone/phase — a large-blur positive-offset
+  inset shadow that washes the top portion of a box dark by design. On
+  drawers where this happened to compound with an already-darker base tone
+  or grain phase, it read as an obvious repeating band; on Catalog/Sets it
+  didn't stand out as much, which is why only those two looked "clean" —
+  not because their own wood recipe was different, but because they had
+  less to compound with. Removed entirely (from the resting state AND both
+  keyframes' 0%/100% endpoints, so the animation doesn't flash a different
+  shadow than the resting state) — the drawer-separation cue it was meant
+  to add is already covered by the real 4px gap + darker recess housing
+  from an earlier pass. Verified via a fresh full-stack screenshot: no
+  drawer shows the band anymore, not just the previously-clean two.
+- **Re-verified the 360px corner-label safety margin after this round's
+  padding increases** (the display-case molding needed more room) — gap
+  between the two top corner boxes: 32px → 22px (padding grew, floor
+  stayed the same), still solidly positive, zero page overflow. Worth
+  knowing this margin is shrinking round over round as the case gains
+  detail — if a future pass adds more case padding, re-check this specific
+  measurement rather than assuming it still holds.
+- **Open questions carried over, still unresolved, still need Ray's own
+  S25/tablet check**: the 13px drawer-open travel distance; the 27px
+  corner-label text's single-label edge-clipping history; whether the
+  display case's "resting on the cap" effect reads convincingly on a real
+  screen (all three untouched this round).
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: before/after full-drawer-stack
+  screenshots proving the dark-band diagnosis and fix; a case zoom-in
+  screenshot confirming the molding rings + brass pinstripe render visibly;
+  a 360px measurement re-confirming the corner-label gap stays positive.
+
+**Fifth refinement pass (BUILT, same branch, still held) — 4 items,
+including one approach reversal (display case) Ray called outright rather
+than asking for another tuning pass.**
+- **Display case abandoned "resting on the cabinet top" entirely, now hung
+  like a picture frame above it.** Four straight rounds (molding rings,
+  brass pinstripe, negative-margin overlap + z-index paint-order tricks)
+  never convincingly sold "sitting on a surface" — Ray's call this round
+  was to stop tuning that approach and drop it. `.display-case` no longer
+  overlaps `.cabinet-top-cap` (`margin: 0 auto -7px` → `margin: 0 auto
+  16px`, negative-overlap flipped to a real positive gap) and the
+  elaborate 4-ring inset-shadow molding + separate brass-pinstripe
+  `::before` are both gone — a hanging frame doesn't need surface-contact
+  cues it no longer makes contact with. `z-index: 2` (only ever needed for
+  the paint-order-over-the-cap trick) is gone too.
+- **Case frame now uses the real `.wood` texture, not an approximating
+  flat gradient.** `.display-case` carries the `.wood` class directly (see
+  the HTML) instead of its own hand-matched `linear-gradient` background —
+  same class, same `--wood-hi/mid/lo` values `.cabinet` itself uses, so
+  the frame's wood is now genuinely the same recipe as the cabinet body,
+  not a close approximation of it. `.display-case-glass`'s existing brass
+  border is untouched and is the only "trim" the case has now — sufficient
+  for a picture frame, no separate accent layer needed.
+- **Top/bottom bevel: fixed a real directional bug, not just re-styled
+  it.** The base cap used to shade top-to-bottom in the SAME direction as
+  the top cap (light→dark going down) — which reads as the base sloping
+  UP into the frame above it, backwards from a real flared foot/plinth
+  that slopes AWAY and down. Both caps are now a genuine two-tier hard-
+  stop facet (was a 5-band gradient) with DELIBERATELY OPPOSITE
+  direction: top cap bright at its own outer/top surface, darkening
+  toward the frame below; base cap dark near the frame above it,
+  brightening toward its own outer/bottom edge. `.cabinet-base-cap`'s
+  `border-radius` was also flipped (`3px 3px 8px 8px` → `8px 8px 3px
+  3px`) so the rounding sits near the frame (where a foot flares out of
+  the body) and the sharp edge sits at the true bottom (a flat contact
+  edge, like a real plinth meeting the ground) rather than the reverse.
+- **Placards shrunk back to the tighter of the two sizes this feature has
+  used.** Two rounds ago introduced individually shrink-wrapped plates
+  (~118px floor, "Acquisitions" itself rendering ≈152px under that
+  padding); the round after that kept "one uniform size" but picked a
+  more generous 214px. This round keeps "one uniform size" but reverts to
+  measuring what "Acquisitions" actually needed under the ORIGINAL
+  shrink-wrap padding — 122px of text + 15px/side padding ≈ 152px,
+  rounded to a `width: 154px` floor-to-ceiling fixed size, applied to all
+  seven. Confirmed via `scrollWidth`/`clientWidth` that "Acquisitions"
+  still renders with zero text clipping at this size — it looks visually
+  tight against the plate edges now, which is the correct, intended
+  effect this round (not a bug to loosen back up).
+- **360px corner-label safety margin actually IMPROVED this round** (28px
+  gap, up from 22px last round) — the display case lost its heavy padding
+  along with the abandoned molding, which gave back some of the width the
+  molding had been eating into. Re-verified via the same
+  `getBoundingClientRect()` measurement used in prior rounds, plus a
+  zero-horizontal-overflow check at 360px.
+- **Open questions carried over, still unresolved, still need Ray's own
+  S25/tablet check**: the 13px drawer-open travel distance; the 27px
+  corner-label text's single-label edge-clipping history (untouched this
+  round). The "resting on the cap" open question from prior rounds is
+  RESOLVED by this round's approach change — there's no longer a
+  surface-contact illusion to verify, so that flag is dropped, not carried
+  forward. **New, worth Ray's eyes**: whether the hung-picture-frame gap
+  reads clearly as "hanging above" on a real screen — verified only in
+  this environment's headless Chromium at 360px/412px.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: zoomed screenshots of both
+  caps confirming the two-tier facets read as opposite-direction slopes;
+  a zoomed Acquisitions-plate screenshot plus a text-overflow measurement
+  confirming the tighter size has zero real clipping despite looking
+  visually tight; a 360px full-dashboard screenshot and overflow check.
+
+**Sixth refinement pass (BUILT, same branch, still held) — 4 mechanical
+fixes, no conceptual changes, reviewed live on phone and tablet.**
+- **Display case hugs its content.** `.spotlight .flip-frame` gets a
+  Spotlight-only `height: 234px` override (was inheriting the shared
+  `.flip-frame`'s 280px, sized generously for Browse detail's own layout,
+  not for this tighter hanging-frame context); `.spotlight`'s own vertical
+  padding dropped `22px/14px` → `8px/8px`. Case height 374px → 294px.
+  `.display-case`/`.display-case-glass`'s own padding (the frame's actual
+  material thickness) is untouched — only the empty space around the
+  coin/labels was trimmed, not the frame itself.
+- **Drawers compressed** so all seven fit within a reasonable scroll
+  (scrolling to reach lower drawers is expected/fine — the goal was
+  trimming excess height, not eliminating scroll). `.drawer-face` vertical
+  padding `16px` → `9px`, `min-height` `62px` → `46px`, `.drawer-plate`
+  vertical padding `10px/6px` → `8px/5px`. Per-drawer height 81.5px →
+  64.5px; full dashboard stage height (title + case + all 7 drawers)
+  1102px → 795px combined with the case trim above.
+- **Scroll-into-view on Back/Return to Dashboard, before the close
+  animation plays, not after.** Previously `navigate()` always did a flat
+  `window.scrollTo({top:0})` regardless of context — fine for entering a
+  new section, but landing back on the Dashboard after scrolling deep into
+  a section (or after the drawer-height compression above made the stack
+  taller than one screen) could leave the closing drawer off-screen,
+  animating invisibly. `navigate()`'s dashboard branch now calls
+  `scrollIntoView({block:"center", behavior:"auto"})` on the relevant
+  element FIRST, synchronously before adding `.closing` — instant, not
+  smooth, deliberately: an animated scroll has no reliable "done" callback
+  to key the close animation's start off of, so instant scroll removes the
+  timing guesswork entirely rather than guessing a smooth-scroll duration.
+  The final unconditional `scrollTo(top:0)` at the end of `navigate()` is
+  now skipped whenever this targeted scroll already ran (`didTargetedScroll`),
+  so it can't immediately undo the scroll-into-view a moment later.
+- **Spotlight-tap exception, via a new dedicated flag, not reused from
+  `lastDrawerView`.** The Spotlight coin tap calls `navigate("browse")` to
+  show that coin's detail view — structurally indistinguishable from the
+  Catalog drawer opening the same view, since both are `navigate("browse")`
+  calls. A new `spotlightOriginated` flag is set immediately before that
+  one call (Spotlight tap handler only), consumed the moment `navigate()`
+  reads it (cleared same-call, so it can never leak into a later, normal
+  navigation), and flips a stickier `scrollToCaseOnDashboard` flag instead
+  of `lastDrawerView` — so a later Back/Home from that path scrolls to
+  `.display-case` and skips the (nonexistent) drawer-close animation
+  entirely, while a normal Catalog-drawer-originated visit to the same
+  Browse view still closes Catalog correctly. Verified headless in both
+  directions, plus with reduce-motion (scroll still happens; the `.closing`
+  class is correctly never added).
+- **Docket badge number recentered.** Measured first, not guessed:
+  `getBoundingClientRect()` on the number's own text range showed the box
+  was ALREADY perfectly centered (equal gaps all four sides) — the
+  perceived "sits up-and-left" was Caveat's own rightward italic slant
+  putting a numeral's visual ink off-center within an otherwise-correct
+  box, not a flexbox bug. Fixed with `line-height: 1` (removes a small
+  vertical mismatch between the font's line box and its glyph metrics)
+  plus a small `letter-spacing`/`padding-left` compensation for the slant,
+  rather than fighting the alignment properties that were already right.
+- **Open questions carried over, still need Ray's own S25/tablet check**:
+  the 13px drawer-open travel distance; the 27px corner-label text's
+  single-label edge-clipping history (both untouched this round). **New,
+  worth Ray's eyes**: the instant (non-smooth) scroll-into-view behavior on
+  Back/Return to Dashboard — reads correctly in headless Chromium, but
+  scroll snapping without any animation can feel more or less jarring on a
+  real touchscreen than in a desktop browser; worth confirming it doesn't
+  feel abrupt in hand. If it does, the fix would be a capped-duration smooth
+  scroll instead, not a revert.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: before/after case and drawer
+  height measurements; a zoomed fob screenshot before/after the centering
+  fix; two dedicated scroll-behavior scripts (drawer-close-scrolls-into-view
+  from an arbitrary scroll position, Spotlight-tap-scrolls-to-case-instead)
+  covering both normal and reduce-motion contexts; a 360px full-dashboard
+  screenshot and overflow check.
+- **Follow-up, same round: real vertical seam within several drawer faces,
+  root-caused and fixed.** Ray's flag ("some grain on left side of drawers
+  do not align") pointed at a genuine rendering artifact, confirmed by a
+  zoomed screenshot of the drawer stack's left edge — grain lines visibly
+  discontinuous partway across several drawer faces (Albums, Wishlist,
+  Ledger, Acquisitions, Docket; Catalog and Sets looked clean). Diagnosed,
+  not guessed: forced `--grain-dir` to `0deg` on every drawer via a
+  browser-evaluated style override and re-screenshotted the same crop —
+  the seam disappeared completely, isolating the cause to the per-drawer
+  `--grain-dir` angle variation (±1–3deg off horizontal) a prior pass added
+  for grain-direction variety. A `repeating-linear-gradient` painted at a
+  shallow non-cardinal angle across a box much wider than tall has to tile
+  diagonally, and at these box dimensions/DPI the tile boundary itself
+  becomes a visible seam — a real limitation of that technique at this
+  aspect ratio, not a fixable styling tweak. Removed the per-drawer
+  `--grain-dir` overrides entirely; all drawer faces now share the
+  horizontal `0deg` `.cabinet-drawers` already sets, leaving the per-drawer
+  `--wood-hi/mid/lo` tint + `background-position` shift (unaffected, kept
+  as-is) to carry "distinct board" on their own. Re-verified via the same
+  zoomed left-edge crop post-fix: grain lines now run continuous and
+  unbroken across every drawer face. `.wood`'s own internal 4deg/6deg-offset
+  layers (used by the stiles, recess housing, and display case) were left
+  untouched — those contexts are tall-and-narrow or moderate boxes with a
+  near-vertical base grain-dir, which didn't show this artifact in the same
+  screenshots, so there was nothing there to fix.
+
+**Second follow-up, real S25 screenshot from Ray — two more issues, both
+fixed, one a real regression from this round's own height trim.**
+- **Corner labels overlapping the coin — a real regression, caught on
+  Ray's actual phone, never reproduced in this environment's headless
+  screenshots.** This round's `.spotlight .flip-frame { height: 234px }`
+  (trimming dead space above/below the coin) only left 12px between the
+  frame's own top/bottom edge — where corner labels anchor at `top: 10px`
+  — and the 210px disc's own edge. A single-line corner (e.g. "1909-S")
+  is already taller than that; a two-line corner (Type+Denom, e.g.
+  "Lincoln" over "1C") is roughly 55-60px, guaranteeing overlap with the
+  coin, exactly what Ray's screenshot showed. **Reverted to the shared
+  280px** every other flip-frame use (Browse detail, etc.) already relies
+  on with no such report against it — restores the full 35px clearance on
+  each side, evidence-based rather than picking a new arbitrary smaller
+  number that risks reproducing the same bug. The case is taller again as
+  a direct, necessary tradeoff (stage height 903px → 950px — still well
+  below the pre-this-feature 1102px baseline, since the drawer compression
+  and the case's other padding trims are untouched). **This specific
+  "flip-frame height vs. corner-label clearance" relationship is now
+  flagged directly in the CSS comment** so a future pass doesn't
+  re-attempt the same trim blind.
+- **Docket badge still off-center — because the "fix" two rounds ago was
+  itself wrong, not because centering was still broken.** That round's
+  `letter-spacing`/`padding-left` nudge was a guessed compensation for
+  Caveat's italic slant, eyeballed against this environment's own font
+  rendering. On Ray's real device it pushed the number further right, not
+  toward center (`padding-left` inside a `justify-content: center` box
+  shifts the visible content right within the box, exactly matching his
+  "shifted right" report). Removed both properties, kept only
+  `line-height: 1` (a real, non-speculative fix — a line-box/glyph-metric
+  mismatch, not guesswork). Re-verified via measurement across four
+  different digit counts (5/19/20/100) — all come back with equal
+  left/right gaps to well under a pixel, confirming plain flexbox
+  centering was correct all along and needed no manual compensation.
+  **Lesson for future passes**: don't hand-tune a "visual" nudge for a
+  font-rendering perception (slant, glyph weight) based on this
+  environment's own Chromium — font hinting/rendering varies enough across
+  engines that a guessed compensation can just as easily overcorrect on a
+  different device, as it did here.
+- Verified headless: all 10 prior suites re-run clean. Directly
+  re-measured: corner-label-to-disc clearance (35px each side, restored to
+  match the safe 280px default) and fob text centering across four digit
+  counts (all equal-gap). A 360px overflow/screenshot check and a full
+  412px dashboard screenshot both re-confirm no regressions elsewhere.
+  **Both bugs here were real-device-only** — neither reproduced in this
+  environment's headless Chromium at any viewport tested, which is exactly
+  why they slipped through the previous round's own headless verification;
+  worth remembering next time a change trims spacing or hand-tunes a
+  visual alignment; that class of change is the one this environment is
+  least able to catch on its own.
+
+**Third follow-up: wayfinding chrome button relabel + prominence (Ray's
+explicit request, cosmetic/labeling only, no behavior change).**
+- **"← Back" → "Back"** — arrow glyph removed, text unchanged otherwise.
+- **"Return to Dashboard ⌂" → "Close Drawer"** — house glyph also dropped
+  (not explicitly requested, but kept alongside the arrow removal above for
+  visual consistency between the two buttons, and because a house icon no
+  longer fit the new label). **The underlying behavior is completely
+  unchanged** — this button is still `navigate("dashboard")`, a hard reset
+  to the top from anywhere, same as documented everywhere else in this
+  section (Acquisitions, a Spotlight-originated detail view, etc.) — "Close
+  Drawer" is accurate when the current screen came from opening one of the
+  seven drawers (the common case), but is a label of convenience, not a
+  literal description, on paths that didn't originate from a drawer (e.g.
+  the Spotlight click-through case, which scrolls to the display case
+  instead of a drawer on this same button). Flagging this as a real,
+  deliberate wording tradeoff Ray asked for, not an oversight — if it reads
+  confusingly on a non-drawer path in practice, the fix would be a
+  conditional label rather than reverting the rename.
+- **Both buttons now share one unified, more prominent style** — both were
+  already the same `.nav-chrome button` base rule (only `.home-btn` added
+  `font-weight: 600` before), so making Back "more prominent to match"
+  meant strengthening the shared rule itself, not diverging the two: solid
+  gold-tinted gradient background (was `--bg-elevated` flat), brighter
+  border (`--case-border-bright`, was the dimmer default), bumped
+  `font-weight` 600→700 and padding/font-size up a notch. `.home-btn`'s own
+  now-redundant `font-weight: 600` override was removed since the shared
+  rule already sets 700.
+- Applied identically to the interactive preview artifact (same relabel +
+  styling), rebuilt and republished at the same URL. Verified headless:
+  both buttons render with matching computed `font-weight`/`border-color`
+  after the change (were previously visually mismatched, Back plain and
+  Close Drawer bold), zero page errors, all 10 regression suites re-run
+  clean (label-text assertions elsewhere in the suite target `.back-link`
+  buttons — the hidden per-screen ones, unaffected by this — not the nav
+  chrome pair, so nothing needed updating).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

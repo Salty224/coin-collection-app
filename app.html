@@ -90,45 +90,8 @@
     max-width: 1100px;
     margin: 0 auto;
     min-height: 100vh;
-    padding-bottom: calc(var(--nav-height) + 16px);
+    padding-bottom: 24px;
     position: relative;
-  }
-
-  /* ---------- Header / brand ---------- */
-  .topbar {
-    padding: 26px 16px 20px;
-    border-bottom: 1px solid var(--case-border);
-    background: linear-gradient(180deg, rgba(201,162,39,0.08), transparent);
-  }
-  .brand-mark { display: flex; align-items: center; gap: 14px; }
-  .crest-badge {
-    width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
-    border: 1px solid var(--case-border-bright);
-    background: radial-gradient(circle at 35% 30%, rgba(232,199,102,0.28), rgba(0,0,0,0) 72%);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 24px;
-  }
-  .brand-text h1 {
-    font-size: 32px;
-    margin: 0;
-    line-height: 1;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    text-shadow: 0 0 22px rgba(201,162,39,0.25);
-  }
-  .brand-text .tagline {
-    font-size: 12px;
-    color: var(--text-muted);
-    font-style: italic;
-    margin-top: 4px;
-    display: none;
-  }
-  @media (min-width: 460px) {
-    .brand-text .tagline { display: block; }
   }
 
   /* ---------- Views ---------- */
@@ -158,6 +121,13 @@
     padding: 0 0 14px;
     font-family: inherit;
   }
+  /* The per-screen "← Back" links are superseded by the global nav chrome
+     (Back + Close Drawer) — hidden so every screen shows exactly two
+     wayfinding controls. Their handlers still exist and remain the source of
+     truth for each transition; the chrome's Back delegates to the same
+     up-one-level logic via navBackHandler. The year-picker's Back is a widget
+     control (decade↔year), NOT nav chrome, so it stays visible. */
+  .back-link:not(#yearPickerBackBtn) { display: none; }
 
   /* ---------- Museum-case card ---------- */
   .case {
@@ -292,7 +262,14 @@
 
   /* ---------- Spotlight ---------- */
   .spotlight {
-    padding: 22px 16px;
+    /* Horizontal padding trimmed — .display-case and .display-case-glass
+       (its ancestors) already provide their own framing padding; stacking
+       a third layer on top of theirs is what shrank the flip-frame enough
+       to collide the corner labels in an earlier pass (see the
+       .display-case comment above). Vertical padding also trimmed — the
+       case should hug its content (coin + corner labels), not carry dead
+       space above/below it. */
+    padding: 8px 4px 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -308,36 +285,477 @@
     font-size: 32px;
     transition: opacity 0.3s ease;
   }
-  .spotlight-dots {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-  }
-  .spotlight-dots .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: rgba(201,162,39,0.3);
-    cursor: pointer;
-    border: none;
-    padding: 0;
-  }
-  .spotlight-dots .dot.active { background: var(--gold-bright); }
 
-  /* ---------- Nav tiles (Dashboard) ---------- */
-  .tile-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
+  /* ======================================================================
+     CABINET NAVIGATION (Dashboard) — a wood specimen cabinet: a face-on
+     display case up top (Spotlight coin, viewed as a portrait) over seven
+     drawers. Replaces the old persistent nav + Go-To tile grid entirely.
+     Wood is honey-oak with quarter-sawn ray-fleck figure, built from
+     layered gradients (no image assets, same self-contained posture as the
+     Album leather texture). Hardware is antique brass label plates with a
+     finger-pull cup at the TOP of the plate; labels are handwritten (Caveat,
+     echoing the coin-flip corner labels).
+     ====================================================================== */
+  .cabinet-stage {
+    max-width: 460px;
+    margin: 0 auto;
+    padding: 4px 4px 8px;
   }
-  .nav-tile {
-    padding: 18px 12px;
+  .cabinet-title {
     text-align: center;
-    cursor: pointer;
-    transition: border-color 0.15s ease, transform 0.1s ease;
+    font-size: 34px;
+    line-height: 1;
+    margin: 6px 0 18px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 22px rgba(201,162,39,0.22);
   }
-  .nav-tile:active { transform: scale(0.98); }
-  .nav-tile:hover { border-color: var(--case-border-bright); }
-  .nav-tile .tile-icon { font-size: 26px; display: block; margin-bottom: 8px; }
-  .nav-tile .tile-label { font-size: 14px; font-weight: 600; }
+
+  /* Shared honey-oak wood surface — darkened a step further per Ray's
+     live-device review (still warm amber-brown, NOT flat olive-gold and NOT
+     deep mahogany — both were tried before and didn't land; this pass just
+     pulls the whole ramp closer to the deeper of his two reference photos).
+     --grain-dir lets a face pick grain direction: the carcass frame runs
+     vertical, drawer faces run horizontal (matching the reference photos).
+     Built from layered gradients only, no image assets — same posture as
+     the Album leather.
+     The ray-fleck layer used to combine hard-edged box-steps running
+     PERPENDICULAR to the grain-line layer's own hard-edged steps under a
+     `multiply` blend — two perpendicular hard-edged repeating patterns at
+     similar periods interference-beat into a visible crosshatch/grid, which
+     is exactly the "rectangular grid artifacting" Ray flagged. Fixed by
+     softening the fleck layer to smooth (interpolated, no hard steps),
+     much lower-opacity highlight-only stops on a longer period that doesn't
+     share a common multiple with the grain-line period, blended `normal`
+     instead of `multiply` (multiply was darkening every crossing into a
+     dark node — the actual visible "grid"). The cathedral/figure layer's
+     stops were also switched from hard px-range steps to single-position
+     stops so adjacent bands interpolate smoothly instead of snapping. */
+  .wood {
+    --wood-hi: #a9773c;
+    --wood-mid: #7c5423;
+    --wood-lo: #4f3315;
+    --grain-dir: 90deg;   /* 90deg = vertical grain; 0deg = horizontal */
+    background-color: var(--wood-mid);
+    background-image:
+      /* quarter-sawn ray flecks — soft, irregular shimmer only (no dark
+         accent stop, no hard edges) so it reads as occasional light
+         catching the grain rather than a crosshatch against the grain
+         lines below */
+      repeating-linear-gradient(calc(var(--grain-dir) + 90deg),
+        rgba(226,188,128,0) 0,
+        rgba(226,188,128,0.08) 15px,
+        rgba(226,188,128,0) 30px,
+        rgba(226,188,128,0) 39px),
+      /* fine straight grain lines — irregular spacing reads as real timber */
+      repeating-linear-gradient(var(--grain-dir),
+        rgba(20,12,4,0.24) 0 1px,
+        rgba(0,0,0,0) 1px 2px,
+        rgba(90,58,26,0.12) 2px 3px,
+        rgba(0,0,0,0) 3px 6px,
+        rgba(20,12,4,0.16) 6px 7px,
+        rgba(0,0,0,0) 7px 12px),
+      /* a SECOND grain-line layer at a shallow, independent angle offset and
+         a different period than the first — real grain never runs in
+         perfectly parallel lines the way a single repeating-linear-gradient
+         does on its own; two layers gently crossing at a few degrees reads
+         as the grain wandering/drifting rather than ruled with a straightedge */
+      repeating-linear-gradient(calc(var(--grain-dir) + 4deg),
+        rgba(20,12,4,0.14) 0 1px,
+        rgba(0,0,0,0) 1px 3px,
+        rgba(90,58,26,0.08) 3px 4px,
+        rgba(0,0,0,0) 4px 9px),
+      /* broad cathedral/flame figure — flowing warm tonal bands, smoothly
+         interpolated (single-position stops, not hard px-range steps) */
+      repeating-linear-gradient(calc(var(--grain-dir) + 6deg),
+        rgba(70,44,19,0.22) 0px,
+        rgba(140,102,52,0.10) 20px,
+        rgba(70,44,19,0.18) 40px),
+      /* warm base tone, light near the top, deepening downward */
+      linear-gradient(180deg, var(--wood-hi), var(--wood-mid) 48%, var(--wood-lo));
+    background-blend-mode: normal, normal, normal, normal, normal;
+  }
+  .cabinet-drawers { --grain-dir: 0deg; } /* drawer faces: horizontal grain */
+
+  /* The cabinet body: a real framed object, not a flat block with drawer-
+     fronts painted on. .cabinet itself carries the wood texture and is
+     padded on both sides only (no top/bottom padding — the beveled cap and
+     base below are now SEPARATE, wider sibling elements bookending it, not
+     part of this frame's own box), so that side padding IS the visible
+     frame — vertical stiles down both edges, matching the reference
+     cabinet photo. The drawer stack sits INSET into this frame rather than
+     spanning the outer edge-to-edge width. Deliberately narrower than the
+     full stage width (max-width below) so the top/base caps have visible
+     room to protrude past it on both sides — see those two rules. */
+  .cabinet {
+    position: relative;
+    max-width: 90%;
+    margin: 0 auto;
+    border-radius: 3px;
+    padding: 0 15px;
+    box-shadow:
+      0 8px 22px rgba(0,0,0,0.5),
+      0 2px 6px rgba(0,0,0,0.4);
+    border: 1px solid rgba(60,38,14,0.7);
+    border-top: none; border-bottom: none;
+    overflow: hidden;
+  }
+  /* Groove shadow along both inset edges, where the drawers meet the
+     frame's stiles. */
+  .cabinet-drawers {
+    box-shadow:
+      inset 6px 0 8px -6px rgba(0,0,0,0.55),
+      inset -6px 0 8px -6px rgba(0,0,0,0.55);
+  }
+  /* Beveled cap + base — each WIDER than .cabinet itself (see max-width
+     above), so the frame reads as having a real top and bottom rather than
+     vertical sides running straight into nothing, matching the reference
+     cabinet's lipped-top/protruding-base construction. A genuine two-tier
+     stepped facet (one hard-edged transition, not a smooth slope or a
+     5-band gradient) — and, importantly, the two tiers run in OPPOSITE
+     directions: the top cap reads brightest at its own outer/top surface,
+     darkening toward the frame below it; the base cap reads darkest near
+     the frame above it, brightening toward its own outer/bottom edge.
+     Superseded: an earlier version shaded the base cap with the same
+     top-to-bottom light→dark direction as the top cap, which read as the
+     base sloping UP into the frame instead of flaring away/down from it —
+     the inverted order here is the fix, not just cosmetic variation. */
+  .cabinet-top-cap {
+    max-width: 96%;
+    margin: 0 auto;
+    height: 26px;
+    border-radius: 8px 8px 3px 3px;
+    background:
+      linear-gradient(180deg,
+        #e8c07a 0%, #e8c07a 45%,
+        #6b4620 45%, #6b4620 100%);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 -3px 5px rgba(0,0,0,0.35);
+    border: 1px solid rgba(60,38,14,0.7);
+  }
+  .cabinet-base-cap {
+    max-width: 96%;
+    margin: 0 auto;
+    height: 22px;
+    border-radius: 8px 8px 3px 3px;
+    background:
+      linear-gradient(180deg,
+        #6b4620 0%, #6b4620 55%,
+        #c99a5a 55%, #c99a5a 100%);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 3px 5px rgba(0,0,0,0.3);
+    border: 1px solid rgba(60,38,14,0.7);
+  }
+
+  /* ---- Display case: hung like a picture frame ABOVE the cabinet, not
+     resting on its top surface — a real, visible gap sits between the
+     case's bottom edge and .cabinet-top-cap below, the way a framed
+     picture hangs on a wall above a piece of furniture rather than
+     sitting on it. Superseded: four rounds of molding/shadow/bevel work
+     tried to sell "resting on the cap" and never convincingly did — Ray's
+     call was to abandon that approach entirely rather than keep tuning
+     it. No molding/bevel is needed here anymore since there's no surface
+     contact to sell; this is now a plain, simple frame. It carries the
+     `.wood` class directly (see the HTML) rather than a separate flat
+     gradient approximating the cabinet's tone — same class, same
+     `--wood-hi/mid/lo` values `.cabinet` itself uses, so the frame's wood
+     genuinely matches the cabinet body instead of just resembling it. ---- */
+  .display-case {
+    position: relative;
+    max-width: 74%;
+    /* A hard floor under the percentage — .display-case stacks its own
+       padding on top of .display-case-glass's AND .spotlight's (three
+       padding layers deep), which compounded on a 360px phone enough to
+       shrink the flip-frame and collide the two top corner labels
+       ("1889-CC" running into "Morgan") in an earlier pass — caught via
+       measurement + a real screenshot, not just computed. This floor
+       guarantees the coin/corner labels always get a workable width. */
+    min-width: 256px;
+    margin: 0 auto 16px;
+    padding: 10px;
+    border-radius: 6px;
+    box-shadow:
+      0 10px 20px rgba(0,0,0,0.55),
+      0 2px 6px rgba(0,0,0,0.4),
+      inset 0 1px 0 rgba(255,244,206,0.3);
+    border: 1px solid rgba(60,38,14,0.7);
+  }
+  .display-case-glass {
+    position: relative;
+    border-radius: 6px;
+    padding: 8px;
+    /* dark interior behind glass, plus a diagonal glass sheen on top */
+    background:
+      linear-gradient(122deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 14%, rgba(255,255,255,0) 30%),
+      radial-gradient(120% 90% at 50% 18%, rgba(40,44,54,0.65), rgba(10,11,14,0.92));
+    border: 3px solid;
+    border-image: linear-gradient(160deg, #c39a5e, #8a6a3a) 1;
+    border-color: #a5834b;
+    box-shadow:
+      inset 0 2px 12px rgba(0,0,0,0.7),
+      inset 0 0 0 1px rgba(255,255,255,0.06);
+    overflow: hidden;
+  }
+  /* Faint horizontal muntin bar so it reads as a glazed case, not a photo. */
+  .display-case-glass::after {
+    content: "";
+    position: absolute; left: 6px; right: 6px; top: 50%;
+    height: 1px; background: rgba(255,255,255,0.05);
+    pointer-events: none;
+  }
+
+  /* ---- Drawer stack ---- */
+  /* A visibly darker recessed housing behind the drawer fronts — this is
+     what the reveal gap between drawers (below) and the open/close travel
+     both play against, so a drawer reads as pulling out of a real recessed
+     cavity rather than sliding across one continuous flat surface. */
+  .cabinet-drawers {
+    display: flex; flex-direction: column;
+    --wood-hi: #5f4019;
+    --wood-mid: #402b12;
+    --wood-lo: #29190b;
+  }
+  .drawer {
+    display: block; width: 100%;
+    border: none; padding: 0; margin: 0 0 4px;
+    font-family: inherit; cursor: pointer;
+    background: transparent;
+    position: relative;
+    transition: transform 0.12s ease;
+  }
+  .drawer:last-child { margin-bottom: 0; }
+  .drawer-face {
+    position: relative;
+    --grain-dir: 0deg;   /* drawer faces run horizontal */
+    /* Compressed from 16px vertical — with 7 drawers, this is what lets
+       the whole cabinet fit within a reasonable scroll on a phone (some
+       scrolling to reach the lower drawers is fine/expected; the goal was
+       just trimming unnecessary height, not eliminating scroll entirely). */
+    padding: 9px 16px;
+    border-radius: 2px;
+    /* a groove shadow at the top + a catch-light at the very top edge give
+       each drawer physical separation, plus a real outer drop shadow now
+       that a visible gap/recess actually exists below each drawer front to
+       cast it into. Superseded: this used to carry a third, large-blur
+       `inset 0 26px 30px rgba(0,0,0,0.10)` wash — applied identically to
+       every drawer regardless of its own wood tone/grain phase, it was the
+       one thing consistently darkening the SAME relative spot (near the
+       top) on every drawer, which is exactly what read as an obvious
+       repeating "dark band" on most of them (Ray's report: 5 of 7 showed
+       it, only the two drawers whose own grain phase happened to counteract
+       it looked clean). Removed — the separation cue it was meant to add is
+       already covered by the real 4px gap + darker recess housing behind
+       the stack (see .cabinet-drawers above). */
+    box-shadow:
+      inset 0 2px 3px rgba(255,236,188,0.22),
+      inset 0 -6px 11px rgba(0,0,0,0.34),
+      0 2px 4px rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    min-height: 46px;
+  }
+  /* Per-drawer figure variation so the stack reads as seven distinct boards,
+     not one repeated tile panned around (which is all a background-position
+     shift alone can achieve — same tile, different window onto it). Each
+     drawer gets its own small tonal shift plus the position offset, so each
+     face reads as its own piece of timber.
+     Superseded: this used to also carry a slight per-drawer `--grain-dir`
+     angle tweak (±1–3deg off horizontal) for extra grain variety — Ray
+     spotted a real vertical seam partway across several drawer faces where
+     the grain lines visibly didn't connect. Root cause, confirmed by
+     forcing --grain-dir back to 0deg on every drawer and re-screenshotting
+     (the seam disappeared entirely): a repeating-linear-gradient painted at
+     a shallow non-cardinal angle across a box much wider than it is tall
+     has to tile diagonally, and at these dimensions/DPI the tile boundary
+     itself becomes a visible seam — a rendering artifact of the technique,
+     not a fixable styling choice. All drawer faces now stay at the shared
+     horizontal 0deg .cabinet-drawers already sets; the tonal + position
+     variation below is what carries "distinct board" now, alone. */
+  .drawer:nth-child(1) .drawer-face { background-position: 0 0; }
+  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
+  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
+  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
+  .drawer:nth-child(5) .drawer-face { background-position: 31px 8px; --wood-hi: #a3753b; --wood-mid: #785322; --wood-lo: #4d3215; }
+  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
+  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
+
+  /* Brass label plate with the finger-pull cup at the TOP (not below the
+     label as in the reference photos — Ray's explicit call). ONE fixed
+     size across all seven drawers, not individually shrink-wrapped per
+     label. Superseded once already: an earlier pass sized this per-label
+     (shrink-wrapped to each label's own text, ~118px floor); the pass
+     after that fixed a uniform 214px width but padded it out more
+     generously than the shrink-wrap version had. This round reverts to
+     the ORIGINAL shrink-wrap pass's actual measured size for
+     "Acquisitions" (~152px content + the same 15px/side padding it had
+     then, ≈154px) rather than the more generous 214px — same "one fixed
+     size for all seven" requirement, just the tighter of the two sizes
+     that requirement has been built with so far. */
+  .drawer-plate {
+    position: relative;
+    width: 154px;
+    padding: 8px 15px 5px;
+    border-radius: 3px;
+    background:
+      linear-gradient(180deg, rgba(255,240,198,0.55), rgba(0,0,0,0) 30%),
+      radial-gradient(120% 80% at 50% 20%, rgba(255,236,180,0.35), rgba(0,0,0,0) 55%),
+      linear-gradient(180deg, #d9b877 0%, #c19a5a 40%, #a67e42 62%, #8f6a36 100%);
+    background-color: #bf9856;
+    border: 1px solid #5f4620;
+    box-shadow:
+      0 2px 5px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,244,206,0.75),
+      inset 0 -2px 3px rgba(55,36,12,0.55);
+  }
+  /* corner screws */
+  .drawer-plate::before, .drawer-plate::after {
+    content: ""; position: absolute; width: 4px; height: 4px; border-radius: 50%;
+    top: 5px;
+    background: radial-gradient(circle at 35% 30%, #efe0b0, #7a5c2c);
+    box-shadow: inset 0 0 0 0.5px rgba(60,40,15,0.6);
+  }
+  .drawer-plate::before { left: 6px; }
+  .drawer-plate::after { right: 6px; }
+
+  /* The finger-pull cup, centered at the top edge of the plate. */
+  .drawer-pull {
+    position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+    width: 46px; height: 14px;
+    border-radius: 7px 7px 3px 3px;
+    background: linear-gradient(180deg, #e3c88f, #b8905a 55%, #8a6a3a);
+    border: 1px solid #6f5324;
+    box-shadow:
+      inset 0 1px 0 rgba(255,248,220,0.7),
+      inset 0 -4px 5px rgba(50,32,10,0.7),
+      0 1px 2px rgba(0,0,0,0.4);
+  }
+  /* the dark recess under the cup's lip — where a finger hooks */
+  .drawer-pull::after {
+    content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 5px;
+    border-radius: 0 0 4px 4px;
+    background: linear-gradient(180deg, rgba(30,18,4,0.75), rgba(30,18,4,0.35));
+  }
+  .drawer-label {
+    display: block; text-align: center;
+    font-family: "Caveat", cursive; font-weight: 700;
+    font-size: 30px; line-height: 1.05;
+    /* Darkened from #3a2a10 and given a paired highlight/shadow (engraved-
+       label effect) — the previous color read too close to the mid-brass
+       plate tone on a real screen, per Ray's device review. */
+    color: #1c1203;
+    text-shadow: 0 1px 0 rgba(255,246,214,0.5), 0 -1px 1px rgba(0,0,0,0.22);
+  }
+
+  /* Docket count fob — a small brass badge sitting on the wood beside the
+     plate, roughly at label height, NOT a flat circular UI badge and not
+     touching/overlapping the plate itself. Hidden when the count is zero.
+     Superseded twice: originally hung off the plate's top-right on a ring
+     (styled as an escutcheon tag); the ring was dropped and it moved beside
+     the label, but at `right: -10px` it still sat touching/overlapping the
+     (then-larger) plate's edge — pushed further out now that the plate has
+     also shrunk (see .drawer-plate above), so there's a real visible gap
+     between the two. */
+  .drawer-fob {
+    position: absolute; top: 58%; right: -34px; transform: translateY(-50%);
+    width: 28px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Caveat", cursive; font-weight: 700; font-size: 16px;
+    /* line-height: 1 fixes a real vertical mismatch between the font's line
+       box and its glyph metrics. Superseded: an earlier pass also added a
+       letter-spacing/padding-left nudge here, guessing that Caveat's
+       italic slant needed compensating for — that guess was based on this
+       environment's own font rendering and turned out backwards on a real
+       device (Ray, Samsung S25): the padding-left pushed the visible text
+       right within the already-centered box, reading as MORE off-center,
+       not less. Removed — the box was already correctly centered by plain
+       flexbox centering (verified via measurement, equal gaps all four
+       sides originally); no manual compensation is needed or safe to guess
+       across different font-rendering engines. */
+    line-height: 1;
+    color: #2e2109;
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(255,246,214,0.55), rgba(0,0,0,0) 40%),
+      linear-gradient(180deg, #e3c88a, #b8905a 55%, #916d38);
+    border: 1px solid #6f5324;
+    box-shadow: 0 3px 5px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,248,220,0.7);
+    z-index: 3;
+  }
+  .drawer-fob.hidden { display: none; }
+
+  /* Open animation: the face actually travels (translateY), not just a
+     longer shadow-only transition — the original version only animated
+     box-shadow with `transform: translateX(0)` at every keyframe (i.e. no
+     real motion at all), which read as barely-any sense a drawer opened
+     before the screen changed. Closing plays the same travel in reverse
+     when Back/Close Drawer lands back on the Dashboard from inside
+     a drawer's own section (see navigate()'s dashboard branch in the JS —
+     it adds/removes .closing on the originating drawer). Both suppressed
+     under reduce-motion (see the media query below → instant cut).
+     Eased in AND out (symmetric ease-in-out curve) rather than the old
+     ease-out-leaning curve, which read as an abrupt start — duration is
+     unchanged, only the velocity shape. A side inset shadow ramps in at the
+     open state too (pairs with the drawer-side gap now established by the
+     frame + recess above) — a hint of the drawer's own side catching shadow
+     as it pulls toward the viewer, without needing a literal 3D side panel. */
+  .drawer.opening, .drawer.closing { z-index: 2; }
+  .drawer.opening .drawer-face {
+    animation: drawerOpen 320ms cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  .drawer.closing .drawer-face {
+    animation: drawerClose 300ms cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  @keyframes drawerOpen {
+    0%   { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34); }
+    60%  { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
+    100% { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
+  }
+  @keyframes drawerClose {
+    0%   { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
+    100% { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .drawer.opening, .drawer.closing { transition: none; transform: none; }
+    .drawer.opening .drawer-face, .drawer.closing .drawer-face { animation: none; }
+  }
+
+  /* ---- Wayfinding chrome: exactly two controls, every non-Dashboard screen.
+     Back (up one level) + Close Drawer (was "Return to Dashboard" — relabeled
+     per Ray's request; behavior unchanged, still a hard reset to the top).
+     No persistent nav exists. ---- */
+  .nav-chrome {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--case-border);
+    background: linear-gradient(180deg, rgba(201,162,39,0.06), transparent);
+    position: sticky; top: 0; z-index: 40;
+    backdrop-filter: blur(6px);
+  }
+  .nav-chrome.hidden { display: none; }
+  .nav-chrome button {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: linear-gradient(160deg, rgba(201,162,39,0.18), rgba(201,162,39,0.05));
+    color: var(--gold-bright);
+    border: 1px solid var(--case-border-bright); border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+  }
+  .nav-chrome button:hover { border-color: var(--gold-bright); }
+
+  /* Acquisitions hub — three ways to add to the collection. */
+  .acq-choice {
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 16px; margin-bottom: 12px; cursor: pointer;
+    transition: border-color 0.15s ease;
+  }
+  .acq-choice:hover { border-color: var(--case-border-bright); }
+  .acq-choice .acq-icon {
+    width: 46px; height: 46px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(160deg, rgba(201,162,39,0.22), rgba(201,162,39,0.05));
+    border: 1px solid var(--case-border);
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .acq-choice .acq-name { font-size: 16px; font-weight: 700; }
+  .acq-choice .acq-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .acq-choice .chevron { margin-left: auto; color: var(--text-muted); font-size: 18px; }
 
   /* ---------- Stats & Value ---------- */
   .stat-tile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1273,15 +1691,28 @@
   .flip-frame .coin-photo-frame { margin: 0; width: 210px; height: 210px; }
   .flip-frame .coin-disc { margin: 0; }
   #browseDetailFlipFrame .coin-disc { width: 210px; height: 210px; font-size: 32px; }
+  /* Superseded: a prior pass shrank this to 234px specifically to trim
+     dead space above/below the coin in the display case. Reverted — on a
+     real device (Ray, Samsung S25) the corner labels visibly overlapped
+     the coin itself, since 234px only leaves 12px of clearance between the
+     frame's own top/bottom edge (where corner labels anchor, `top: 10px`)
+     and the 210px disc's own edge, nowhere near enough for a two-line
+     corner (Type+Denom, or Variety+Designation) to clear before running
+     into the disc. This never showed up in this environment's headless
+     Chromium screenshots at the sizes tested. The full 280px shared by
+     every other flip-frame use (Browse detail, etc.) has no such report
+     against it, so it's the safe, evidence-based value here too — the
+     case is taller again as a direct tradeoff of that clearance. */
+  .spotlight .flip-frame { margin-bottom: 0; }
   .flip-label {
     position: absolute;
     font-family: "Caveat", cursive;
     font-weight: 700;
-    font-size: 25px;
+    font-size: 27px;
     color: rgba(232, 199, 102, 0.85);
     line-height: 1.05;
     pointer-events: none;
-    max-width: 47%;
+    max-width: 50%;
     /* Superseded: this box used to also carry `overflow: hidden` +
        `text-overflow: ellipsis`, plus a padding buffer and extra `right`
        clearance on the tr/br corners, none of which stopped a persistent
@@ -1367,7 +1798,7 @@
   /* ---------- Toast ---------- */
   .toast {
     position: fixed;
-    bottom: calc(var(--nav-height) + 16px);
+    bottom: 24px;
     left: 50%;
     transform: translateX(-50%) translateY(10px);
     background: var(--bg-case);
@@ -1385,72 +1816,10 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-  /* ---------- Side nav (hidden until desktop breakpoint) ---------- */
-  .side-nav { display: none; }
-
-  /* ---------- Bottom nav (mobile) ---------- */
-  .bottom-nav {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    height: var(--nav-height);
-    background: var(--bg-elevated);
-    border-top: 1px solid var(--case-border);
-    display: flex;
-    max-width: 1100px;
-    margin: 0 auto;
-    z-index: 40;
-  }
-  .nav-btn {
-    flex: 1;
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    font-size: 10px;
-    cursor: pointer;
-    font-family: inherit;
-  }
-  .nav-btn .nav-icon { font-size: 19px; }
-  .nav-btn.active { color: var(--gold-bright); }
-
-  /* ---------- Desktop / tablet: side nav instead of bottom nav ---------- */
+  /* Persistent sidebar/bottom nav removed entirely — navigation is the
+     Dashboard cabinet plus the two-control wayfinding chrome. */
+  .main-col { min-width: 0; }
   @media (min-width: 860px) {
-    #app { display: flex; padding-bottom: 0; }
-    .topbar { display: none; }
-    .side-nav {
-      display: block;
-      width: 220px;
-      flex-shrink: 0;
-      min-height: 100vh;
-      background: var(--bg-elevated);
-      border-right: 1px solid var(--case-border);
-      padding: 22px 0;
-      position: sticky;
-      top: 0;
-      align-self: flex-start;
-    }
-    .side-nav .brand-mark {
-      padding: 0 20px 20px;
-      border-bottom: 1px solid var(--case-border);
-      margin-bottom: 12px;
-    }
-    .side-nav .brand-text h1 { font-size: 22px; }
-    .side-nav .brand-text .tagline { display: block; font-size: 11px; }
-    .side-nav .crest-badge { width: 40px; height: 40px; font-size: 20px; }
-    .bottom-nav { display: none; }
-    .side-nav .nav-btn {
-      flex-direction: row;
-      justify-content: flex-start;
-      gap: 10px;
-      padding: 12px 20px;
-      font-size: 14px;
-    }
-    .side-nav .nav-btn.active { background: rgba(201,162,39,0.08); border-right: 3px solid var(--gold); }
-    .main-col { flex: 1; min-width: 0; }
     .toast { bottom: 24px; }
   }
 </style>
@@ -1482,57 +1851,59 @@
     </div>
   </div>
 
-  <!-- Mobile header -->
-  <div class="topbar">
-    <div class="brand-mark">
-      <span class="crest-badge">🏛️</span>
-      <div class="brand-text">
-        <h1>Salty's Cabinet</h1>
-        <div class="tagline">A lifetime of coins, in one place</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Desktop / tablet side nav -->
-  <nav class="side-nav" id="sideNav">
-    <div class="brand-mark">
-      <span class="crest-badge">🏛️</span>
-      <div class="brand-text">
-        <h1>Salty's Cabinet</h1>
-        <div class="tagline">A lifetime of coins, in one place</div>
-      </div>
-    </div>
-    <!-- nav buttons injected by JS (shared with bottom nav) -->
-  </nav>
-
   <div class="main-col">
+    <!-- Wayfinding chrome: exactly two controls (Back + Close Drawer),
+         shown on every screen EXCEPT the Dashboard (which is the top level).
+         Replaces the removed persistent sidebar/bottom nav. -->
+    <div class="nav-chrome hidden" id="navChrome">
+      <button type="button" id="navBackBtn" aria-label="Back">Back</button>
+      <button type="button" class="home-btn" id="navHomeBtn" aria-label="Close Drawer">Close Drawer</button>
+    </div>
     <main id="views">
 
-      <!-- ============ DASHBOARD ============ -->
+      <!-- ============ DASHBOARD (the cabinet) ============ -->
       <section class="view active" id="view-dashboard">
+        <div class="cabinet-stage">
+          <h1 class="cabinet-title">Salty's Cabinet</h1>
 
-        <div class="banner pending-banner hidden" id="pendingBanner">
-          <span class="icon">⏳</span>
-          <span class="msg"><strong>1 coin pending review</strong> — saved to Staging, waiting to be reconciled.</span>
-          <button id="pendingReviewBtn">Review</button>
-        </div>
-
-        <div class="section-title">Spotlight</div>
-        <div class="case spotlight" id="spotlight">
-          <div class="flip-frame" id="spotlightFlipFrame">
-            <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
-            <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
-            <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
-            <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
-            <span class="sr-only" id="spotlightSR"></span>
+          <div class="banner pending-banner hidden" id="pendingBanner">
+            <span class="icon">⏳</span>
+            <span class="msg"><strong>1 coin pending review</strong> — saved to Staging, waiting to be reconciled.</span>
+            <button id="pendingReviewBtn">Review</button>
           </div>
-          <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
-          <div class="spotlight-dots" id="spotlightDots"></div>
+
+          <!-- Display case: a SEPARATE object resting on the cabinet's top
+               surface — narrower than the cabinet body, layered on top of
+               it, not merged into its frame/stiles structure. Coin viewed
+               face-on, as a portrait behind glass. -->
+          <div class="display-case wood">
+            <div class="display-case-glass">
+              <div class="spotlight" id="spotlight">
+                <div class="flip-frame" id="spotlightFlipFrame">
+                  <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
+                  <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
+                  <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
+                  <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
+                  <span class="sr-only" id="spotlightSR"></span>
+                </div>
+                <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cabinet body: beveled top cap + base, each wider than the
+               frame/drawers between them, per the reference photo's real
+               lipped-top/protruding-base construction. -->
+          <div class="cabinet-top-cap"></div>
+          <div class="cabinet wood" id="cabinet">
+            <!-- The outer .cabinet's own wood shows through as side stiles —
+                 the drawer stack sits INSET into this frame, not spanning
+                 its full width edge-to-edge. -->
+            <!-- Seven drawers, injected by initCabinet() in fixed order -->
+            <div class="cabinet-drawers wood" id="cabinetDrawers"></div>
+          </div>
+          <div class="cabinet-base-cap"></div>
         </div>
-
-        <div class="section-title">Go To</div>
-        <div class="tile-grid" id="navTiles"></div>
-
       </section>
 
       <!-- ============ BROWSE ============ -->
@@ -2552,11 +2923,29 @@
         <p class="placeholder-note" id="inProgressSetsErrorNote" style="display:none;"></p>
       </section>
 
+      <!-- ============ ACQUISITIONS (hub behind the Acquisitions drawer) ============ -->
+      <section class="view" id="view-acquisitions">
+        <h2 class="display" style="margin-top:0;">Acquisitions</h2>
+        <p style="margin-top:0; font-size:13px; color:var(--text-muted);">Add to the collection.</p>
+        <div class="case acq-choice" id="acqAddCoinBtn">
+          <div class="acq-icon">➕</div>
+          <div><div class="acq-name">Add Coin</div><div class="acq-sub">Log a single coin, cataloged individually.</div></div>
+          <span class="chevron">›</span>
+        </div>
+        <div class="case acq-choice" id="acqAddSetBtn">
+          <div class="acq-icon">🧩</div>
+          <div><div class="acq-name">Add Set</div><div class="acq-sub">Log a bundled Set — Proof/Mint set, commemorative, etc.</div></div>
+          <span class="chevron">›</span>
+        </div>
+        <div class="case acq-choice" id="acqBatchReceiptBtn">
+          <div class="acq-icon">🧾</div>
+          <div><div class="acq-name">Batch Receipt</div><div class="acq-sub">Capture a multi-coin order receipt for later reconciliation.</div></div>
+          <span class="chevron">›</span>
+        </div>
+      </section>
+
     </main>
   </div>
-
-  <!-- Mobile bottom nav -->
-  <nav class="bottom-nav" id="bottomNav"></nav>
 
   <div class="toast" id="toast"></div>
 
@@ -3860,28 +4249,57 @@
   // #view-sets of its own; it's a shortcut into #view-browse with the Sets
   // tab pre-selected (see navigate()'s "sets" special-case below), same
   // underlying content as tapping Browse's own Sets tab.
-  const NAV_ITEMS = [
-    { id: "dashboard", icon: "🏛️", label: "Dashboard" },
-    { id: "browse",    icon: "🔎", label: "Browse" },
-    { id: "albums",    icon: "📔", label: "Albums" },
-    { id: "sets",      icon: "📦", label: "Sets" },
-    { id: "wishlist",  icon: "⭐", label: "Wishlist" },
-    { id: "addcoin",   icon: "➕", label: "Add Coin" }
+  // The seven cabinet drawers, in Ray's exact locked order (bottom drawer
+  // last, deliberately). `view` is the navigate() target each opens.
+  const CABINET_DRAWERS = [
+    { view: "browse",       label: "Catalog" },
+    { view: "albums",       label: "Albums" },
+    { view: "sets",         label: "Sets" },
+    { view: "wishlist",     label: "Wishlist" },
+    { view: "stats",        label: "Ledger" },
+    { view: "acquisitions", label: "Acquisitions" },
+    { view: "needsdbcoins", label: "Docket", fob: true }
   ];
 
-  function buildNavButtons(container) {
-    NAV_ITEMS.forEach(item => {
-      const btn = document.createElement("button");
-      btn.className = "nav-btn";
-      btn.dataset.view = item.id;
-      btn.innerHTML = `<span class="nav-icon">${item.icon}</span><span>${item.label}</span>`;
-      btn.addEventListener("click", () => navigate(item.id));
-      container.appendChild(btn);
-    });
-  }
+  // ---- Wayfinding: exactly two controls on every non-Dashboard screen ----
+  // Back = up one level in the shallow Dashboard→Section→Detail hierarchy
+  // (NOT a full history stack, per Ray's Q2). `navBackHandler` is (re)set at
+  // every screen/sub-screen transition; the chrome's Back button just fires
+  // whatever it currently points at. Return-to-Dashboard is always a hard
+  // reset to the top. Set here as a mutable module-level function ref.
+  let navBackHandler = () => navigate("dashboard");
+  function setNavBack(fn) { navBackHandler = fn; }
 
-  buildNavButtons(document.getElementById("bottomNav"));
-  buildNavButtons(document.getElementById("sideNav"));
+  // Top-level views whose "up one level" is not the Dashboard: the three
+  // Acquisitions sub-flows go back to the Acquisitions hub; the two
+  // Docket-only screens go back to the Docket hub. Everything else → Dashboard.
+  const SECTION_BACK_TARGET = {
+    addcoin: "acquisitions", addset: "acquisitions", batchreceipt: "acquisitions",
+    staging: "needsdbcoins", inprogresssets: "needsdbcoins"
+  };
+
+  // Which drawer a screen "belongs to," for the closing-animation on the way
+  // back OUT (see navigate()'s dashboard branch below). Direct drawer views
+  // map to themselves; a sub-flow maps to its SECTION_BACK_TARGET parent
+  // drawer (e.g. addcoin → acquisitions). Deep sub-navigation within a
+  // section (Browse detail, an Add Coin subview, etc.) never calls the
+  // top-level navigate() at all, so lastDrawerView naturally survives
+  // untouched all the way back out to whichever drawer was actually opened.
+  const DRAWER_VIEW_KEYS = new Set(CABINET_DRAWERS.map(d => d.view));
+  let lastDrawerView = null;
+  // The Spotlight coin tap also calls navigate("browse") (to show that
+  // coin's detail view), which would otherwise be indistinguishable from
+  // the Catalog drawer opening the same view — set right before that one
+  // navigate() call, consumed (and cleared) the moment navigate() reads it,
+  // so it never leaks into any later, normal navigation. When true, a
+  // return trip to the Dashboard scrolls to the display case instead of a
+  // drawer (see navigate()'s dashboard branch below) — there's no drawer to
+  // close on this path.
+  let spotlightOriginated = false;
+  let scrollToCaseOnDashboard = false;
+
+  document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
+  document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
   let previousViewId = null;
 
@@ -3895,12 +4313,70 @@
     }
 
     // "sets" has no view element of its own — same #view-browse as "browse",
-    // just landing on a different tab (see NAV_ITEMS comment above).
+    // just landing on a different tab (see CABINET_DRAWERS comment above).
     const targetViewId = viewId === "sets" ? "browse" : viewId;
+
+    // Remember which drawer this screen belongs to, so a later return trip
+    // to the Dashboard knows which drawer to play the closing animation on
+    // (see the dashboard branch below). Only set/overwritten on a real
+    // top-level navigate() call — see DRAWER_VIEW_KEYS comment above.
+    if (viewId !== "dashboard") {
+      if (spotlightOriginated) {
+        scrollToCaseOnDashboard = true;
+        lastDrawerView = null;
+        spotlightOriginated = false; // consumed — never leaks past this call
+      } else if (DRAWER_VIEW_KEYS.has(viewId)) {
+        lastDrawerView = viewId;
+        scrollToCaseOnDashboard = false;
+      } else if (SECTION_BACK_TARGET[viewId]) {
+        lastDrawerView = SECTION_BACK_TARGET[viewId];
+        scrollToCaseOnDashboard = false;
+      }
+    }
 
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     document.getElementById("view-" + targetViewId).classList.add("active");
-    document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view === viewId));
+
+    // Chrome shows everywhere except the Dashboard (the top level). Back
+    // target defaults to the section rule above; sub-navigation within a
+    // section (browse detail, album book, addcoin subview, etc.) overrides
+    // navBackHandler afterward via its own show* function.
+    document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
+    setNavBack(() => navigate(SECTION_BACK_TARGET[viewId] || "dashboard"));
+
+    // Landing back on the Dashboard from inside a drawer's own section (via
+    // Back or Close Drawer, either one — both funnel through this
+    // same navigate("dashboard") call) plays that drawer's closing motion,
+    // the reverse of the open animation, so the drawer visibly shuts rather
+    // than just silently being back at rest. Respects reduce-motion exactly
+    // like the open animation does (skipped entirely, no class ever added).
+    // The page is scrolled to bring the relevant element into view FIRST
+    // (instant, not smooth — deterministic, no timing guesswork about how
+    // long an animated scroll takes before it's safe to start the close
+    // animation), so the close is actually visible rather than happening
+    // off-screen at whatever scroll position the user was at. A coin tap in
+    // Spotlight has no drawer to close, so it scrolls to the display case
+    // instead (see spotlightOriginated/scrollToCaseOnDashboard above).
+    let didTargetedScroll = false;
+    if (viewId === "dashboard" && (lastDrawerView || scrollToCaseOnDashboard)) {
+      const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (scrollToCaseOnDashboard) {
+        const caseEl = document.querySelector(".display-case");
+        if (caseEl) { caseEl.scrollIntoView({ block: "center", behavior: "auto" }); didTargetedScroll = true; }
+      } else {
+        const drawerBtn = document.querySelector('.drawer[data-view="' + lastDrawerView + '"]');
+        if (drawerBtn) {
+          drawerBtn.scrollIntoView({ block: "center", behavior: "auto" });
+          didTargetedScroll = true;
+          if (!reduceMotion) {
+            drawerBtn.classList.add("closing");
+            setTimeout(() => drawerBtn.classList.remove("closing"), 300);
+          }
+        }
+      }
+      lastDrawerView = null;
+      scrollToCaseOnDashboard = false;
+    }
 
     if (viewId === "albums") {
       showAlbumsList();
@@ -3941,7 +4417,7 @@
     }
 
     previousViewId = viewId;
-    window.scrollTo({ top: 0 });
+    if (!didTargetedScroll) window.scrollTo({ top: 0 });
   }
 
   // ==================================================================
@@ -4002,50 +4478,58 @@
       showToast("Pending-coin reconciliation isn't wired up yet.");
     });
 
-    const tileContainer = document.getElementById("navTiles");
-    NAV_ITEMS.filter(n => n.id !== "dashboard").forEach(item => {
-      const tile = document.createElement("div");
-      tile.className = "case nav-tile";
-      tile.innerHTML = `<span class="tile-icon">${item.icon}</span><span class="tile-label">${item.label}</span>`;
-      tile.addEventListener("click", () => navigate(item.id));
-      tileContainer.appendChild(tile);
-    });
+    initCabinet();
 
-    // Batch Receipt / Needs Attention / Stats used to live in a separate "Quick
-    // Actions" section below the Go-To grid — folded into the same grid instead,
-    // as one flat set of destinations rather than two visually separate tiers.
-    // Staging Review and In Progress Sets no longer get their own tiles —
-    // both screens still exist untouched and are still reachable (via a
-    // link from inside the Needs Attention hub below), they just aren't
-    // separate front-door destinations anymore. Needs Attention's badge now
-    // reflects the consolidated hub's total across both its sections.
-    const EXTRA_DASHBOARD_TILES = [
-      { id: "stats",          icon: "📊",  label: "Stats &amp; Value" },
-      { id: "batchreceipt",   icon: "🧾",  label: "Batch Receipt" },
-      { id: "needsdbcoins",   icon: "🗂️", label: "Needs Attention", badgeId: "needsAttentionBadge" },
-      { id: "addset",         icon: "🧩",  label: "Add Set" }
-    ];
-    EXTRA_DASHBOARD_TILES.forEach(item => {
-      const tile = document.createElement("div");
-      tile.className = "case nav-tile";
-      const badge = item.badgeId ? ` <span class="qa-badge" id="${item.badgeId}"></span>` : "";
-      tile.innerHTML = `<span class="tile-icon">${item.icon}</span><span class="tile-label">${item.label}${badge}</span>`;
-      tile.addEventListener("click", () => navigate(item.id));
-      tileContainer.appendChild(tile);
-    });
-
-    document.getElementById("batchReceiptBackBtn").addEventListener("click", () => navigate("dashboard"));
-    document.getElementById("needsDbCoinsBackBtn").addEventListener("click", () => navigate("dashboard"));
-    document.getElementById("statsBackBtn").addEventListener("click", () => navigate("dashboard"));
-    // Both screens below lost their own dashboard tile — the Needs Attention
-    // hub is their only front-door now, so Back returns there instead of
-    // skipping past it to the Dashboard.
-    document.getElementById("stagingBackBtn").addEventListener("click", () => navigate("needsdbcoins"));
-    document.getElementById("addSetBackBtn").addEventListener("click", () => navigate("dashboard"));
-    document.getElementById("addSetChildrenBackBtn").addEventListener("click", () => navigate("inprogresssets"));
-    document.getElementById("inProgressSetsBackBtn").addEventListener("click", () => navigate("needsdbcoins"));
+    // Acquisitions hub — the three "add to the collection" flows behind the
+    // Acquisitions drawer (Q1 = a: a small hub, not Add Coin alone).
+    document.getElementById("acqAddCoinBtn").addEventListener("click", () => navigate("addcoin"));
+    document.getElementById("acqAddSetBtn").addEventListener("click", () => navigate("addset"));
+    document.getElementById("acqBatchReceiptBtn").addEventListener("click", () => navigate("batchreceipt"));
 
     initSpotlight();
+  }
+
+  // Builds the seven drawers into the cabinet. Tapping a drawer plays a brief
+  // open animation (~320ms) then routes; prefers-reduced-motion collapses that
+  // to an instant cut (the CSS suppresses the keyframes, and we skip the JS
+  // delay too, so it's genuinely instant, not just visually still).
+  function initCabinet() {
+    const drawers = document.getElementById("cabinetDrawers");
+    const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    CABINET_DRAWERS.forEach(d => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "drawer";
+      btn.dataset.view = d.view;
+      // Docket carries the live "needs your action" count as a hanging fob
+      // (never a flat circular UI badge — Ray's call). Kept with the SAME
+      // element id the Needs Attention hub already writes to, so the existing
+      // count logic (renderNeedsAttentionHub) drives it with no change.
+      const fob = d.fob ? `<span class="drawer-fob hidden" id="needsAttentionBadge" aria-label="items needing attention"></span>` : "";
+      btn.innerHTML =
+        `<span class="drawer-face wood">` +
+          `<span class="drawer-plate">` +
+            `<span class="drawer-pull" aria-hidden="true"></span>` +
+            `<span class="drawer-label">${d.label}</span>` +
+            fob +
+          `</span>` +
+        `</span>`;
+      btn.addEventListener("click", () => {
+        if (reduceMotion) { navigate(d.view); return; }
+        btn.classList.add("opening");
+        setTimeout(() => { btn.classList.remove("opening"); navigate(d.view); }, 320);
+      });
+      drawers.appendChild(btn);
+    });
+  }
+
+  // Docket fob visibility. renderNeedsAttentionHub() writes the count text
+  // into #needsAttentionBadge; this shows the fob only when there's a nonzero
+  // count. Called from renderNeedsAttentionHub after it sets the text.
+  function updateDocketFob(count) {
+    const fob = document.getElementById("needsAttentionBadge");
+    if (!fob) return;
+    fob.classList.toggle("hidden", !count);
   }
 
   let spotlightIndex = 0;
@@ -4303,26 +4787,9 @@
       frame.dataset.side = spotlightSide;
       frame.style.opacity = 1;
     }, 150);
-
-    document.querySelectorAll("#spotlightDots .dot").forEach((d, i) => {
-      d.classList.toggle("active", i === spotlightIndex);
-    });
   }
 
   function initSpotlight() {
-    const dotsContainer = document.getElementById("spotlightDots");
-    spotlightCoins.forEach((_, i) => {
-      const dot = document.createElement("button");
-      dot.className = "dot";
-      dot.addEventListener("click", () => {
-        spotlightIndex = i;
-        spotlightSide = "obverse";
-        renderSpotlight();
-        resetSpotlightTimer();
-      });
-      dotsContainer.appendChild(dot);
-    });
-
     // Click-through: opens whichever coin is showing at the moment of the
     // click (reads spotlightIndex live, not a value captured at init time,
     // since the carousel keeps rotating in the background) — same Browse
@@ -4335,6 +4802,7 @@
     frame.addEventListener("click", () => {
       const coin = spotlightCoins[spotlightIndex];
       browseDetailBackHandler = () => navigate("dashboard");
+      spotlightOriginated = true; // this navigate("browse") is case-, not drawer-, originated
       navigate("browse");
       showBrowseDetail(coin);
     });
@@ -4376,7 +4844,7 @@
         spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
       }
       renderSpotlight();
-    }, 4000);
+    }, 6500);
   }
 
   // ==================================================================
@@ -5175,6 +5643,7 @@
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditView").style.display = "none";
     document.getElementById("browseEditSetView").style.display = "none";
+    setNavBack(() => navigate("dashboard")); // grid is the Browse section root
   }
 
   let currentBrowseCoin = null;
@@ -5198,6 +5667,10 @@
     document.getElementById("browseDetailView").style.display = "block";
     document.getElementById("browseEditView").style.display = "none";
     document.getElementById("browseEditSetView").style.display = "none";
+    // Back from a detail follows the same per-origin handler the old in-view
+    // back link used (grid, an album, a parent Set, or the Dashboard for a
+    // Spotlight click-through) — read live via arrow since it's reassigned.
+    setNavBack(() => browseDetailBackHandler());
 
     document.getElementById("browseDetailName").textContent = coin.name;
 
@@ -5642,6 +6115,7 @@
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditView").style.display = "block";
+    setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
     showBrowseObverseEditPhoto();
 
     const gradeFromEl = document.getElementById("browseEditGradeFrom");
@@ -5670,6 +6144,7 @@
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditSetView").style.display = "block";
+    setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit set → detail
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
     document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
@@ -5874,6 +6349,7 @@
   function showAlbumsList() {
     document.getElementById("albumsListView").style.display = "block";
     document.getElementById("albumsDetailView").style.display = "none";
+    setNavBack(() => navigate("dashboard")); // albums list is the section root
   }
 
   // An album "book": cover, then a history/facts page, then the slots grouped
@@ -5982,6 +6458,7 @@
     // width/height from, which isn't possible while it's still display:none.
     document.getElementById("albumsListView").style.display = "none";
     document.getElementById("albumsDetailView").style.display = "block";
+    setNavBack(() => showAlbumsList()); // open album → albums list
     currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index], computeAlbumChunkSize());
     currentPageIndex = pageIndex;
     renderAlbumBook();
@@ -6521,6 +6998,7 @@
     document.getElementById("wishlistDetailView").style.display = "none";
     document.getElementById("wishlistPurchaseView").style.display = "none";
     document.getElementById("wishlistPhotosView").style.display = "none";
+    setNavBack(() => navigate("dashboard")); // wishlist grid is the section root
   }
 
   function showWishlistDetail(item) {
@@ -6542,6 +7020,7 @@
     document.getElementById("wishlistDetailView").style.display = "block";
     document.getElementById("wishlistPurchaseView").style.display = "none";
     document.getElementById("wishlistPhotosView").style.display = "none";
+    setNavBack(() => showWishlistGrid()); // wishlist detail → grid
   }
 
   function showWishlistSubview(which) {
@@ -6549,6 +7028,8 @@
     document.getElementById("wishlistPurchaseView").style.display = which === "purchase" ? "block" : "none";
     document.getElementById("wishlistPhotosView").style.display = which === "photos" ? "block" : "none";
     if (which === null) updateWishlistRowSummaries();
+    // null = back on the detail (→ grid); a subview → back to detail.
+    setNavBack(which === null ? () => showWishlistGrid() : () => showWishlistSubview(null));
     window.scrollTo({ top: 0 });
   }
 
@@ -6705,9 +7186,12 @@
     });
 
     const badge = document.getElementById("needsAttentionBadge");
-    // Badge counts only "Needs your action" — items Ray can actually resolve
+    // Counts only "Needs your action" — items Ray can actually resolve
     // himself — not the research section, which is stuck on Copilot, not him.
-    badge.textContent = actionRows.length ? "(" + actionRows.length + ")" : "";
+    // Rendered as the Docket drawer's hanging fob now (a plain number, not
+    // "(N)", since it's a physical tag on the cabinet, not inline nav text).
+    if (badge) badge.textContent = actionRows.length ? String(actionRows.length) : "";
+    updateDocketFob(actionRows.length);
   }
 
   // ==================================================================
@@ -7390,12 +7874,14 @@
     document.getElementById("addCoinPurchaseView").style.display = "none";
     document.getElementById("addCoinStorageView").style.display = "none";
     updateFormRowSummaries();
+    setNavBack(() => navigate("acquisitions")); // Add Coin's parent is the Acquisitions hub
   }
 
   function showAddCoinSubview(which) {
     document.getElementById("addCoinMainView").style.display = "none";
     document.getElementById("addCoinPurchaseView").style.display = which === "purchase" ? "block" : "none";
     document.getElementById("addCoinStorageView").style.display = which === "storage" ? "block" : "none";
+    setNavBack(() => showAddCoinMain()); // drill-down subview → Add Coin main
     window.scrollTo({ top: 0 });
   }
 
@@ -8647,6 +9133,11 @@
     const draft = currentSetDraft;
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     document.getElementById("view-addset-children").classList.add("active");
+    // This view is swapped in directly (not via navigate), so set the chrome
+    // state here: shown, with Back → the In Progress Sets list (where this
+    // draft lives), matching the prior addSetChildrenBackBtn behavior.
+    document.getElementById("navChrome").classList.remove("hidden");
+    setNavBack(() => navigate("inprogresssets"));
     window.scrollTo({ top: 0 });
 
     document.getElementById("addSetChildSetName").textContent = draft.setName;
