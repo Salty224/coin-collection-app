@@ -2762,6 +2762,75 @@ including one real root-cause bug fix (not a cosmetic patch).**
   screenshot confirming the molding rings + brass pinstripe render visibly;
   a 360px measurement re-confirming the corner-label gap stays positive.
 
+**Fifth refinement pass (BUILT, same branch, still held) — 4 items,
+including one approach reversal (display case) Ray called outright rather
+than asking for another tuning pass.**
+- **Display case abandoned "resting on the cabinet top" entirely, now hung
+  like a picture frame above it.** Four straight rounds (molding rings,
+  brass pinstripe, negative-margin overlap + z-index paint-order tricks)
+  never convincingly sold "sitting on a surface" — Ray's call this round
+  was to stop tuning that approach and drop it. `.display-case` no longer
+  overlaps `.cabinet-top-cap` (`margin: 0 auto -7px` → `margin: 0 auto
+  16px`, negative-overlap flipped to a real positive gap) and the
+  elaborate 4-ring inset-shadow molding + separate brass-pinstripe
+  `::before` are both gone — a hanging frame doesn't need surface-contact
+  cues it no longer makes contact with. `z-index: 2` (only ever needed for
+  the paint-order-over-the-cap trick) is gone too.
+- **Case frame now uses the real `.wood` texture, not an approximating
+  flat gradient.** `.display-case` carries the `.wood` class directly (see
+  the HTML) instead of its own hand-matched `linear-gradient` background —
+  same class, same `--wood-hi/mid/lo` values `.cabinet` itself uses, so
+  the frame's wood is now genuinely the same recipe as the cabinet body,
+  not a close approximation of it. `.display-case-glass`'s existing brass
+  border is untouched and is the only "trim" the case has now — sufficient
+  for a picture frame, no separate accent layer needed.
+- **Top/bottom bevel: fixed a real directional bug, not just re-styled
+  it.** The base cap used to shade top-to-bottom in the SAME direction as
+  the top cap (light→dark going down) — which reads as the base sloping
+  UP into the frame above it, backwards from a real flared foot/plinth
+  that slopes AWAY and down. Both caps are now a genuine two-tier hard-
+  stop facet (was a 5-band gradient) with DELIBERATELY OPPOSITE
+  direction: top cap bright at its own outer/top surface, darkening
+  toward the frame below; base cap dark near the frame above it,
+  brightening toward its own outer/bottom edge. `.cabinet-base-cap`'s
+  `border-radius` was also flipped (`3px 3px 8px 8px` → `8px 8px 3px
+  3px`) so the rounding sits near the frame (where a foot flares out of
+  the body) and the sharp edge sits at the true bottom (a flat contact
+  edge, like a real plinth meeting the ground) rather than the reverse.
+- **Placards shrunk back to the tighter of the two sizes this feature has
+  used.** Two rounds ago introduced individually shrink-wrapped plates
+  (~118px floor, "Acquisitions" itself rendering ≈152px under that
+  padding); the round after that kept "one uniform size" but picked a
+  more generous 214px. This round keeps "one uniform size" but reverts to
+  measuring what "Acquisitions" actually needed under the ORIGINAL
+  shrink-wrap padding — 122px of text + 15px/side padding ≈ 152px,
+  rounded to a `width: 154px` floor-to-ceiling fixed size, applied to all
+  seven. Confirmed via `scrollWidth`/`clientWidth` that "Acquisitions"
+  still renders with zero text clipping at this size — it looks visually
+  tight against the plate edges now, which is the correct, intended
+  effect this round (not a bug to loosen back up).
+- **360px corner-label safety margin actually IMPROVED this round** (28px
+  gap, up from 22px last round) — the display case lost its heavy padding
+  along with the abandoned molding, which gave back some of the width the
+  molding had been eating into. Re-verified via the same
+  `getBoundingClientRect()` measurement used in prior rounds, plus a
+  zero-horizontal-overflow check at 360px.
+- **Open questions carried over, still unresolved, still need Ray's own
+  S25/tablet check**: the 13px drawer-open travel distance; the 27px
+  corner-label text's single-label edge-clipping history (untouched this
+  round). The "resting on the cap" open question from prior rounds is
+  RESOLVED by this round's approach change — there's no longer a
+  surface-contact illusion to verify, so that flag is dropped, not carried
+  forward. **New, worth Ray's eyes**: whether the hung-picture-frame gap
+  reads clearly as "hanging above" on a real screen — verified only in
+  this environment's headless Chromium at 360px/412px.
+- Verified headless: all 10 prior suites re-run clean, no assertion changes
+  needed. Additionally spot-checked directly: zoomed screenshots of both
+  caps confirming the two-tier facets read as opposite-direction slopes;
+  a zoomed Acquisitions-plate screenshot plus a text-overflow measurement
+  confirming the tighter size has zero real clipping despite looking
+  visually tight; a 360px full-dashboard screenshot and overflow check.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

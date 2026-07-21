@@ -410,22 +410,25 @@
   /* Beveled cap + base — each WIDER than .cabinet itself (see max-width
      above), so the frame reads as having a real top and bottom rather than
      vertical sides running straight into nothing, matching the reference
-     cabinet's lipped-top/protruding-base construction. Angular/stepped
-     facets (hard-stop gradient bands, not one smooth slope) for a more
-     ornate, carved-molding profile rather than a simple flat bevel. */
+     cabinet's lipped-top/protruding-base construction. A genuine two-tier
+     stepped facet (one hard-edged transition, not a smooth slope or a
+     5-band gradient) — and, importantly, the two tiers run in OPPOSITE
+     directions: the top cap reads brightest at its own outer/top surface,
+     darkening toward the frame below it; the base cap reads darkest near
+     the frame above it, brightening toward its own outer/bottom edge.
+     Superseded: an earlier version shaded the base cap with the same
+     top-to-bottom light→dark direction as the top cap, which read as the
+     base sloping UP into the frame instead of flaring away/down from it —
+     the inverted order here is the fix, not just cosmetic variation. */
   .cabinet-top-cap {
     max-width: 96%;
     margin: 0 auto;
     height: 26px;
     border-radius: 8px 8px 3px 3px;
     background:
-      linear-gradient(180deg, rgba(255,232,180,0.5), rgba(0,0,0,0) 30%),
       linear-gradient(180deg,
-        #e8c07a 0%, #e8c07a 16%,
-        #a9773c 16%, #a9773c 38%,
-        #7c5423 38%, #7c5423 58%,
-        #5a3c18 58%, #5a3c18 80%,
-        #4f3315 80%, #4f3315 100%);
+        #e8c07a 0%, #e8c07a 45%,
+        #6b4620 45%, #6b4620 100%);
     box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 -3px 5px rgba(0,0,0,0.35);
     border: 1px solid rgba(60,38,14,0.7);
   }
@@ -433,70 +436,47 @@
     max-width: 96%;
     margin: 0 auto;
     height: 22px;
-    border-radius: 3px 3px 8px 8px;
+    border-radius: 8px 8px 3px 3px;
     background:
-      linear-gradient(180deg, rgba(255,232,180,0.3), rgba(0,0,0,0) 25%),
       linear-gradient(180deg,
-        #7c5423 0%, #7c5423 20%,
-        #5a3c18 20%, #5a3c18 42%,
-        #8a6027 42%, #8a6027 64%,
-        #4f3315 64%, #4f3315 84%,
-        #3a2410 84%, #3a2410 100%);
+        #6b4620 0%, #6b4620 55%,
+        #c99a5a 55%, #c99a5a 100%);
     box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 3px 5px rgba(0,0,0,0.3);
     border: 1px solid rgba(60,38,14,0.7);
   }
 
-  /* ---- Display case: a SEPARATE object resting on the cabinet's top
-     surface (face-on glass, coin as a portrait) — narrower than the
-     cabinet body, layered visually on top of .cabinet-top-cap (the
-     negative margin below pulls it down to overlap/rest on the cap rather
-     than floating with a gap above it), NOT part of the frame/stiles
-     structure above. A real display case has a molded/beveled surround
-     with actual depth, not a flat rectangle — concentric inset rings
-     (alternating light/dark) approximate a carved step molding profile,
-     and the ::before brass pinstripe just inside them approximates the
-     brass trim detail from the reference photo (Ray's second reference —
-     construction/detailing only, NOT its downward-viewing angle, which
-     this case deliberately does not adopt). ---- */
+  /* ---- Display case: hung like a picture frame ABOVE the cabinet, not
+     resting on its top surface — a real, visible gap sits between the
+     case's bottom edge and .cabinet-top-cap below, the way a framed
+     picture hangs on a wall above a piece of furniture rather than
+     sitting on it. Superseded: four rounds of molding/shadow/bevel work
+     tried to sell "resting on the cap" and never convincingly did — Ray's
+     call was to abandon that approach entirely rather than keep tuning
+     it. No molding/bevel is needed here anymore since there's no surface
+     contact to sell; this is now a plain, simple frame. It carries the
+     `.wood` class directly (see the HTML) rather than a separate flat
+     gradient approximating the cabinet's tone — same class, same
+     `--wood-hi/mid/lo` values `.cabinet` itself uses, so the frame's wood
+     genuinely matches the cabinet body instead of just resembling it. ---- */
   .display-case {
     position: relative;
     max-width: 74%;
-    /* A hard floor under the percentage — .display-case now stacks its own
+    /* A hard floor under the percentage — .display-case stacks its own
        padding on top of .display-case-glass's AND .spotlight's (three
-       padding layers deep, where the old nested-inside-the-frame layout
-       only had two), which compounded on a 360px phone enough to shrink
-       the flip-frame to ~157px and collide the two top corner labels
-       ("1889-CC" running into "Morgan") — caught via measurement + a real
-       screenshot, not just computed. This floor guarantees the coin/corner
-       labels always get a workable width even when 74% of a narrow stage
-       would not, without giving up "narrower than the cabinet" on any
-       screen wide enough for the percentage to matter. */
+       padding layers deep), which compounded on a 360px phone enough to
+       shrink the flip-frame and collide the two top corner labels
+       ("1889-CC" running into "Morgan") in an earlier pass — caught via
+       measurement + a real screenshot, not just computed. This floor
+       guarantees the coin/corner labels always get a workable width. */
     min-width: 256px;
-    margin: 0 auto -7px;
-    z-index: 2;
-    padding: 13px 13px 18px;
-    border-radius: 8px 8px 4px 4px;
-    background:
-      linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0) 30%),
-      linear-gradient(180deg, #a9773c, #7c5423 60%, #4f3315);
+    margin: 0 auto 16px;
+    padding: 10px;
+    border-radius: 6px;
     box-shadow:
-      0 10px 22px rgba(0,0,0,0.5),
-      0 3px 8px rgba(0,0,0,0.4),
-      inset 0 0 0 2px rgba(255,244,206,0.4),
-      inset 0 0 0 4px rgba(50,32,12,0.55),
-      inset 0 0 0 6px rgba(227,197,138,0.35),
-      inset 0 0 0 9px rgba(50,32,12,0.5);
+      0 10px 20px rgba(0,0,0,0.55),
+      0 2px 6px rgba(0,0,0,0.4),
+      inset 0 1px 0 rgba(255,244,206,0.3);
     border: 1px solid rgba(60,38,14,0.7);
-  }
-  /* Brass pinstripe, inset just past the molding rings above. */
-  .display-case::before {
-    content: "";
-    position: absolute;
-    left: 11px; right: 11px; top: 11px; bottom: 11px;
-    border-radius: 5px;
-    border: 1px solid rgba(227,197,138,0.55);
-    box-shadow: inset 0 1px 0 rgba(255,246,214,0.3);
-    pointer-events: none;
   }
   .display-case-glass {
     position: relative;
@@ -584,13 +564,18 @@
   /* Brass label plate with the finger-pull cup at the TOP (not below the
      label as in the reference photos — Ray's explicit call). ONE fixed
      size across all seven drawers, not individually shrink-wrapped per
-     label (that was the previous pass's approach — reversed here on Ray's
-     explicit instruction) — sized to fit the longest label ("Acquisitions")
-     comfortably; shorter labels (Sets, Ledger, etc.) center within that
-     same plate with real visible margin around the text. */
+     label. Superseded once already: an earlier pass sized this per-label
+     (shrink-wrapped to each label's own text, ~118px floor); the pass
+     after that fixed a uniform 214px width but padded it out more
+     generously than the shrink-wrap version had. This round reverts to
+     the ORIGINAL shrink-wrap pass's actual measured size for
+     "Acquisitions" (~152px content + the same 15px/side padding it had
+     then, ≈154px) rather than the more generous 214px — same "one fixed
+     size for all seven" requirement, just the tighter of the two sizes
+     that requirement has been built with so far. */
   .drawer-plate {
     position: relative;
-    width: 214px;
+    width: 154px;
     padding: 10px 15px 6px;
     border-radius: 3px;
     background:
@@ -1847,7 +1832,7 @@
                surface — narrower than the cabinet body, layered on top of
                it, not merged into its frame/stiles structure. Coin viewed
                face-on, as a portrait behind glass. -->
-          <div class="display-case">
+          <div class="display-case wood">
             <div class="display-case-glass">
               <div class="spotlight" id="spotlight">
                 <div class="flip-frame" id="spotlightFlipFrame">
