@@ -2511,6 +2511,111 @@ Ray's live phone/tablet review, no structural/routing changes:**
   but the fixes themselves (wood grid, contrast, animation feel) were only
   re-verified in this environment's headless Chromium, not back on his S25.
 
+**Second refinement pass (BUILT, same branch, still held) — 7 items, single
+throughline: the cabinet read as a flat block with drawer-fronts painted on,
+not a real piece of furniture with depth.**
+- **Real cabinet frame added (`.cabinet-frame-inner`)** — `.cabinet` itself
+  (already `.wood`-textured) is now padded on three sides (`padding: 15px
+  15px 0` — both sides + top; bottom stays flush since `.cabinet-base`
+  already reads as the plinth), and that raw padding IS the visible frame:
+  vertical side stiles down both edges, a top rail above the display case,
+  per the honey-oak reference photo. Everything else (case, drawers, base)
+  now lives inside `.cabinet-frame-inner`, inset into that frame rather than
+  spanning its outer edge-to-edge width. A groove shadow marks where the
+  case/drawers meet the stiles — **applied directly to `.cabinet-case` and
+  `.cabinet-drawers`, not to `.cabinet-frame-inner` itself** (a real bug
+  caught before shipping: those two are the opaque, full-width elements
+  that actually paint there — an inset shadow declared on the wrapper
+  would sit behind its own children's backgrounds and never be visible at
+  all, since block children span 100% of their parent by default).
+- **Display case narrowing simplified, NOT doubled.** A previous pass had
+  already narrowed `.cabinet-case-glass` on its own (`max-width: min(80%,
+  260px)`) before this frame existed. Once the frame started contributing
+  its own width reduction too, the two narrowing steps compounded on a
+  ~360px-wide phone enough to shrink the flip-frame to ~215px — at which
+  point the two top corner labels (a longer Type/Denom pair, e.g. "1889-CC"
+  / "Morgan") visually collided into each other. **Caught via screenshot at
+  360px, not just computed** — confirmed as a real regression this pass
+  introduced, not a pre-existing gap. Fixed by treating the frame as what
+  satisfies "case narrower than the full cabinet width" and pulling the
+  glass's own separate narrowing back to a light touch on top of it
+  (`max-width: 94%`, down from `min(80%, 260px)`) — re-verified at 360px
+  with zero corner-label overflow and no horizontal page scroll, and the
+  coin/carousel content itself was never resized either time.
+- **Drawer separation is now real, not just a 1px line.** `.drawer` gets a
+  4px `margin-bottom` (was a flush `border-bottom`) so the parent
+  `.cabinet-drawers`' own background shows through as a visible gap between
+  every drawer front. `.cabinet-drawers` sets its own notably darker
+  `--wood-hi/mid/lo` (a recessed "housing" tone, darker than any individual
+  drawer face's own tint) so that gap reads as a genuine shadowed recess
+  behind lighter drawer fronts, not just a thin seam. `.drawer-face` also
+  picked up a real outer drop shadow (`0 2px 4px rgba(0,0,0,0.45)`, on top
+  of its existing inset grooves) now that it has a recess to actually cast
+  it into, plus a subtle `border-radius: 2px` so each panel reads as a
+  distinct physical box.
+- **Open/close travel now plays against that same recess** — no new markup
+  or literal 3D side panels; because the recess is already established at
+  rest, a drawer sliding 13px down into (or out of) that dark gap during
+  the existing open/close keyframes reads as pulling out of a real cavity
+  rather than sliding across a flat surface. The keyframes also ramp in a
+  side inset shadow at the open state (`inset 6px 0 8px -6px`/`inset -6px 0
+  8px -6px rgba(0,0,0,0.4)`, absent at rest) as a further hint of the
+  drawer's own side catching shadow as it pulls toward the viewer.
+- **Animation easing switched from an ease-out-leaning curve
+  (`cubic-bezier(0.22, 0.61, 0.36, 1)`) to a symmetric ease-in-out
+  (`cubic-bezier(0.65, 0, 0.35, 1)`)** on both `drawerOpen` and
+  `drawerClose` — durations (320ms/300ms) are unchanged, only the velocity
+  shape; the old curve had real motion (per the first refinement pass) but
+  still felt abrupt at the start.
+- **Wood grain given irregular flow, not just tonal variation (which the
+  first pass already covered).** A second grain-line `repeating-linear-
+  gradient` layer runs at a shallow independent angle offset
+  (`--grain-dir + 4deg`) and a different period than the first, so within
+  a single drawer the lines gently cross rather than running perfectly
+  parallel. Per-drawer `--grain-dir` offsets were also widened (±1–3deg,
+  up from ±1–2deg) for more variety across the stack. Two small "knot"
+  accents (a dark radial core with fading concentric rings, approximating
+  growth rings) were added sparingly — only on drawers 3 and 6, as `::before`
+  pseudo-elements layered behind the brass plate — since real quarter-sawn
+  oak isn't covered in them; every drawer having one would read as a
+  pattern, not wood. **Deliberately did NOT reach for an SVG turbulence/
+  displacement filter for true curved grain** — that would be a real
+  technique change from the established "layered CSS gradients only, same
+  posture as the Album leather" approach, and this project's own history
+  already flags SVG-filter-class effects as a cross-device rendering risk
+  (Samsung Internet support can be flaky) that can't be verified from this
+  environment. This pass is a CSS-gradient-only approximation; a true
+  wavy-grain pass would be a deliberate follow-up decision, not a default.
+- **Docket fob's hanging ring removed entirely** (not just repositioned —
+  Ray's explicit call this round) and the badge itself moved from hanging
+  above the plate's top-right corner to sitting beside the plate at roughly
+  label height (`top: 58%; right: -10px; transform: translateY(-50%)`,
+  down from `top: -13px; right: 12px`). Shape simplified from the teardrop/
+  escutcheon (`border-radius: 15px.../20px...`) to a plain rounded badge
+  (`border-radius: 8px`) now that there's no ring for it to visually hang
+  from.
+- **Real-device-check flags carried over from the first pass, both still
+  open, neither resolved by anything in this round**: whether the drawer
+  travel distance feels like enough in hand (now 13px, unchanged — the new
+  recess/gap treatment should make the same distance read more
+  convincingly as "pulling out," but the felt distance itself wasn't
+  touched), and whether the 27px corner-label text is safe from the
+  clipping issue that's bitten this corner before (unchanged this round;
+  the 360px overlap bug found and fixed above was a DIFFERENT problem —
+  two labels colliding with each other from a too-narrow frame — not the
+  single-label edge-clipping history this flag refers to). Both need Ray's
+  own S25/tablet confirmation; neither is reproducible from this
+  environment.
+- Verified headless: all 10 prior suites (9 regression + `verify_cabinet_nav.js`)
+  re-run clean, no assertion changes needed. Additionally spot-checked
+  directly: a mid-open-animation screenshot showing the drawer visibly
+  displaced into the new recess with a deeper cast shadow; the 360px
+  corner-label collision bug reproduced via screenshot, then re-verified
+  fixed via both a `scrollWidth`/`clientWidth` overflow check (zero
+  overflowing labels, was one before) and a follow-up screenshot; a
+  360px-viewport horizontal-overflow check (`document.body.scrollWidth <=
+  window.innerWidth`, holds both before and after the case-glass fix).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

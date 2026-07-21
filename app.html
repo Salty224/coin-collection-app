@@ -350,6 +350,16 @@
         rgba(0,0,0,0) 3px 6px,
         rgba(20,12,4,0.16) 6px 7px,
         rgba(0,0,0,0) 7px 12px),
+      /* a SECOND grain-line layer at a shallow, independent angle offset and
+         a different period than the first — real grain never runs in
+         perfectly parallel lines the way a single repeating-linear-gradient
+         does on its own; two layers gently crossing at a few degrees reads
+         as the grain wandering/drifting rather than ruled with a straightedge */
+      repeating-linear-gradient(calc(var(--grain-dir) + 4deg),
+        rgba(20,12,4,0.14) 0 1px,
+        rgba(0,0,0,0) 1px 3px,
+        rgba(90,58,26,0.08) 3px 4px,
+        rgba(0,0,0,0) 4px 9px),
       /* broad cathedral/flame figure — flowing warm tonal bands, smoothly
          interpolated (single-position stops, not hard px-range steps) */
       repeating-linear-gradient(calc(var(--grain-dir) + 6deg),
@@ -358,19 +368,40 @@
         rgba(70,44,19,0.18) 40px),
       /* warm base tone, light near the top, deepening downward */
       linear-gradient(180deg, var(--wood-hi), var(--wood-mid) 48%, var(--wood-lo));
-    background-blend-mode: normal, normal, normal, normal;
+    background-blend-mode: normal, normal, normal, normal, normal;
   }
   .cabinet-drawers { --grain-dir: 0deg; } /* drawer faces: horizontal grain */
 
+  /* The cabinet as a real framed object, not a flat block with drawer-fronts
+     painted on: .cabinet itself carries the wood texture and is padded on
+     three sides (top + both sides — the bottom stays flush since
+     .cabinet-base already reads as the plinth), so that raw padding IS the
+     visible frame — vertical side stiles down both edges, a top rail above
+     the display case, per the reference cabinet photo. Everything else
+     (case, drawers, base) sits inside .cabinet-frame-inner, INSET into that
+     frame rather than spanning the outer edge-to-edge width. */
   .cabinet {
     position: relative;
     border-radius: 10px 10px 7px 7px;
-    padding: 0;
+    padding: 15px 15px 0;
     box-shadow:
       0 18px 40px rgba(0,0,0,0.55),
       0 3px 10px rgba(0,0,0,0.4);
     border: 1px solid rgba(60,38,14,0.7);
     overflow: hidden;
+  }
+  .cabinet-frame-inner {
+    position: relative;
+  }
+  /* Groove shadow along both inset edges, where the case/drawers meet the
+     frame's stiles — applied to these two directly (not to
+     .cabinet-frame-inner itself) since they're the opaque, full-width
+     elements that actually paint there; a shadow declared on the wrapper
+     would sit behind its own children's backgrounds and never be seen. */
+  .cabinet-case, .cabinet-drawers {
+    box-shadow:
+      inset 6px 0 8px -6px rgba(0,0,0,0.55),
+      inset -6px 0 8px -6px rgba(0,0,0,0.55);
   }
   /* Beveled, lipped top edge — reads as a solid object with real weight. */
   .cabinet-top {
@@ -393,10 +424,20 @@
   }
   .cabinet-case-glass {
     position: relative;
-    /* Narrower than the full drawer width on purpose — reads as a distinct
-       glazed window set into a wider wood face, not a pane stretched
-       edge-to-edge with the drawers below it. */
-    max-width: min(80%, 260px);
+    /* A light additional inset on top of the case already sitting inside
+       the cabinet's own frame (see .cabinet/.cabinet-frame-inner above) —
+       reads as a distinct glazed window without compounding two separate
+       narrowing steps into one. A previous pass narrowed this much more
+       aggressively (min(80%, 260px)) BEFORE the frame existed; once the
+       frame's own stiles started contributing their own width reduction
+       too, the two compounded on a narrow phone (~360px) enough to push
+       the flip-frame down to ~215px, at which point the two top corner
+       labels (a longer Type/Denom pair like "1889-CC" / "Morgan") visually
+       collided — confirmed via screenshot, not just computed. The frame is
+       now what satisfies "narrower than the full cabinet width"; this only
+       needs to be a light touch on top of it, not a second full narrowing
+       pass, and must never come at the coin/carousel's expense. */
+    max-width: 94%;
     margin: 0 auto;
     border-radius: 8px;
     padding: 10px;
@@ -421,27 +462,39 @@
   }
 
   /* ---- Drawer stack ---- */
-  .cabinet-drawers { display: flex; flex-direction: column; }
+  /* A visibly darker recessed housing behind the drawer fronts — this is
+     what the reveal gap between drawers (below) and the open/close travel
+     both play against, so a drawer reads as pulling out of a real recessed
+     cavity rather than sliding across one continuous flat surface. */
+  .cabinet-drawers {
+    display: flex; flex-direction: column;
+    --wood-hi: #5f4019;
+    --wood-mid: #402b12;
+    --wood-lo: #29190b;
+  }
   .drawer {
     display: block; width: 100%;
-    border: none; padding: 0; margin: 0;
+    border: none; padding: 0; margin: 0 0 4px;
     font-family: inherit; cursor: pointer;
     background: transparent;
-    border-bottom: 1px solid rgba(44,27,9,0.85);
     position: relative;
     transition: transform 0.12s ease;
   }
-  .drawer:last-child { border-bottom: none; }
+  .drawer:last-child { margin-bottom: 0; }
   .drawer-face {
     position: relative;
     --grain-dir: 0deg;   /* drawer faces run horizontal */
     padding: 16px 16px;
+    border-radius: 2px;
     /* a groove shadow at the top + a catch-light at the very top edge give
-       each drawer physical separation from the one above it */
+       each drawer physical separation, plus a real outer drop shadow now
+       that a visible gap/recess actually exists below each drawer front to
+       cast it into */
     box-shadow:
       inset 0 2px 3px rgba(255,236,188,0.22),
       inset 0 -6px 11px rgba(0,0,0,0.34),
-      inset 0 26px 30px rgba(0,0,0,0.10);
+      inset 0 26px 30px rgba(0,0,0,0.10),
+      0 2px 4px rgba(0,0,0,0.45);
     display: flex; align-items: center; justify-content: center;
     min-height: 62px;
   }
@@ -451,13 +504,40 @@
      drawer gets its own small tonal shift AND a slight grain-angle tweak on
      top of the position offset, so each face reads as its own piece of
      timber. */
-  .drawer:nth-child(1) .drawer-face { background-position: 0 0; }
-  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --grain-dir: -2deg; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
-  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --grain-dir: 2deg;  --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
-  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
+  .drawer:nth-child(1) .drawer-face { background-position: 0 0; --grain-dir: 1deg; }
+  .drawer:nth-child(2) .drawer-face { background-position: 9px 14px; --grain-dir: -3deg; --wood-hi: #b3813f; --wood-mid: #815a26; --wood-lo: #563819; }
+  .drawer:nth-child(3) .drawer-face { background-position: 24px 4px; --grain-dir: 3deg;  --wood-hi: #9f703a; --wood-mid: #744e21; --wood-lo: #4a3013; }
+  .drawer:nth-child(4) .drawer-face { background-position: 13px 21px; --grain-dir: -2deg; --wood-hi: #ac7c3e; --wood-mid: #7d5825; --wood-lo: #513416; }
   .drawer:nth-child(5) .drawer-face { background-position: 31px 8px; --grain-dir: -1deg; --wood-hi: #a3753b; --wood-mid: #785322; --wood-lo: #4d3215; }
-  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --grain-dir: 1deg;  --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
-  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
+  .drawer:nth-child(6) .drawer-face { background-position: 5px 26px; --grain-dir: 2deg;  --wood-hi: #ad7e41; --wood-mid: #825c28; --wood-lo: #573a1a; }
+  .drawer:nth-child(7) .drawer-face { background-position: 19px 12px; --grain-dir: -1deg; --wood-hi: #9e6f39; --wood-mid: #714c20; --wood-lo: #482e12; }
+
+  /* Occasional small knots, sparingly placed (real quarter-sawn oak isn't
+     covered in them) — a dark core with a couple of fading concentric growth
+     rings, layered as a decorative overlay behind the drawer's brass plate
+     so it reads as part of the grain, not a UI element. */
+  .drawer:nth-child(3) .drawer-face::before,
+  .drawer:nth-child(6) .drawer-face::before {
+    content: "";
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 74% 32%,
+      rgba(25,15,5,0.55) 0%,
+      rgba(25,15,5,0.4) 5%,
+      rgba(110,72,32,0.18) 8%,
+      rgba(25,15,5,0.28) 11%,
+      rgba(110,72,32,0.12) 15%,
+      rgba(0,0,0,0) 21%);
+  }
+  .drawer:nth-child(6) .drawer-face::before {
+    background: radial-gradient(circle at 22% 68%,
+      rgba(25,15,5,0.5) 0%,
+      rgba(25,15,5,0.35) 5%,
+      rgba(110,72,32,0.16) 8%,
+      rgba(25,15,5,0.24) 11%,
+      rgba(110,72,32,0.1) 15%,
+      rgba(0,0,0,0) 20%);
+  }
 
   /* Brass label plate with the finger-pull cup at the TOP (not below the
      label as in the reference photos — Ray's explicit call). */
@@ -516,30 +596,25 @@
     text-shadow: 0 1px 0 rgba(255,246,214,0.5), 0 -1px 1px rgba(0,0,0,0.22);
   }
 
-  /* Docket count fob — an ornate brass escutcheon tag hanging off the plate's
-     top-right, NOT a flat circular UI badge. Hidden when the count is zero. */
+  /* Docket count fob — a small brass badge sitting beside the plate, roughly
+     at label height, NOT a flat circular UI badge. Hidden when the count is
+     zero. Superseded: this used to hang off the plate's top-right on a
+     ring, styled as an escutcheon tag — Ray's call was to drop the "hanging"
+     framing entirely (no ring) and reposition down/right to sit alongside
+     the label instead of floating above it. */
   .drawer-fob {
-    position: absolute; top: -13px; right: 12px;
-    width: 30px; height: 40px;
+    position: absolute; top: 58%; right: -10px; transform: translateY(-50%);
+    width: 28px; height: 26px;
     display: flex; align-items: center; justify-content: center;
-    font-family: "Caveat", cursive; font-weight: 700; font-size: 17px;
+    font-family: "Caveat", cursive; font-weight: 700; font-size: 16px;
     color: #2e2109;
-    /* teardrop/escutcheon: rounded top, pointed base */
-    border-radius: 15px 15px 15px 15px / 20px 20px 26px 26px;
+    border-radius: 8px;
     background:
       linear-gradient(180deg, rgba(255,246,214,0.55), rgba(0,0,0,0) 40%),
       linear-gradient(180deg, #e3c88a, #b8905a 55%, #916d38);
     border: 1px solid #6f5324;
     box-shadow: 0 3px 5px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,248,220,0.7);
     z-index: 3;
-  }
-  .drawer-fob::before { /* hanging ring — sits close against the tag body,
-    not floating detached above it (per Ray's device review) */
-    content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
-    width: 8px; height: 8px; border-radius: 50%;
-    border: 2px solid #9a7741;
-    background: transparent;
-    box-shadow: 0 1px 1px rgba(0,0,0,0.4);
   }
   .drawer-fob.hidden { display: none; }
 
@@ -561,21 +636,27 @@
      when Back/Return to Dashboard lands back on the Dashboard from inside
      a drawer's own section (see navigate()'s dashboard branch in the JS —
      it adds/removes .closing on the originating drawer). Both suppressed
-     under reduce-motion (see the media query below → instant cut). */
+     under reduce-motion (see the media query below → instant cut).
+     Eased in AND out (symmetric ease-in-out curve) rather than the old
+     ease-out-leaning curve, which read as an abrupt start — duration is
+     unchanged, only the velocity shape. A side inset shadow ramps in at the
+     open state too (pairs with the drawer-side gap now established by the
+     frame + recess above) — a hint of the drawer's own side catching shadow
+     as it pulls toward the viewer, without needing a literal 3D side panel. */
   .drawer.opening, .drawer.closing { z-index: 2; }
   .drawer.opening .drawer-face {
-    animation: drawerOpen 320ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation: drawerOpen 320ms cubic-bezier(0.65, 0, 0.35, 1);
   }
   .drawer.closing .drawer-face {
-    animation: drawerClose 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation: drawerClose 300ms cubic-bezier(0.65, 0, 0.35, 1);
   }
   @keyframes drawerOpen {
     0%   { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
-    60%  { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
-    100% { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
+    60%  { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
+    100% { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
   }
   @keyframes drawerClose {
-    0%   { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3); }
+    0%   { transform: translateY(13px); box-shadow: 0 14px 26px rgba(0,0,0,0.65), inset 0 2px 3px rgba(255,236,188,0.3), inset 6px 0 8px -6px rgba(0,0,0,0.4), inset -6px 0 8px -6px rgba(0,0,0,0.4); }
     100% { transform: translateY(0); box-shadow: inset 0 2px 3px rgba(255,236,188,0.22), inset 0 -6px 11px rgba(0,0,0,0.34), inset 0 26px 30px rgba(0,0,0,0.10); }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -1723,28 +1804,34 @@
           </div>
 
           <div class="cabinet wood" id="cabinet">
-            <div class="cabinet-top"></div>
+            <!-- Frame: the outer .cabinet's own wood shows through as side
+                 stiles + a top rail around this inset panel — everything
+                 below reads as INSET into the frame, not spanning its full
+                 width edge-to-edge. See .cabinet-frame-inner CSS. -->
+            <div class="cabinet-frame-inner">
+              <div class="cabinet-top"></div>
 
-            <!-- Display case: coin viewed face-on, as a portrait behind glass -->
-            <div class="cabinet-case">
-              <div class="cabinet-case-glass">
-                <div class="spotlight" id="spotlight">
-                  <div class="flip-frame" id="spotlightFlipFrame">
-                    <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
-                    <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
-                    <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
-                    <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
-                    <span class="sr-only" id="spotlightSR"></span>
+              <!-- Display case: coin viewed face-on, as a portrait behind glass -->
+              <div class="cabinet-case">
+                <div class="cabinet-case-glass">
+                  <div class="spotlight" id="spotlight">
+                    <div class="flip-frame" id="spotlightFlipFrame">
+                      <span class="flip-label tl" id="spotlightTL" aria-hidden="true"></span>
+                      <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
+                      <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
+                      <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
+                      <span class="sr-only" id="spotlightSR"></span>
+                    </div>
+                    <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
                   </div>
-                  <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
                 </div>
               </div>
+
+              <!-- Seven drawers, injected by initCabinet() in fixed order -->
+              <div class="cabinet-drawers wood" id="cabinetDrawers"></div>
+
+              <div class="cabinet-base"></div>
             </div>
-
-            <!-- Seven drawers, injected by initCabinet() in fixed order -->
-            <div class="cabinet-drawers wood" id="cabinetDrawers"></div>
-
-            <div class="cabinet-base"></div>
           </div>
         </div>
       </section>
