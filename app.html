@@ -3239,6 +3239,248 @@
   }
 
   // ==================================================================
+  // LIVE NAV DATA (read-only) — real Graph API reads powering the Catalog/
+  // Medal/Rolls tabs and the Sets tab's list mode + completeness checklist,
+  // instead of FAKE_COINS/FAKE_DB_SETS. Display-only: no write path is
+  // touched or added by this feature, and it does not use the write layer's
+  // own gated MSAL instance/token below — a deliberately separate, narrower
+  // instance, same "don't couple independently-flagged features" reasoning
+  // as Reference Images vs. the Add Set write layer.
+  //   - GET only, exactly like Reference Images (fetchWorkbookSheetRows is
+  //     the only function that calls fetch() against Graph for this
+  //     feature, and it hardcodes method: "GET").
+  //   - Files.Read scope only (not Files.ReadWrite) — this feature never
+  //     writes anything, so it never needs the write layer's broader scope.
+  //   - Reads the REAL production workbook directly (not a `_Testing`
+  //     copy) — safe because a read-only GET can't corrupt anything, the
+  //     same reasoning that already lets Reference Images read straight
+  //     from `CoinCollection/ReferenceImages/` on the live drive. This is
+  //     different from the Add Set write layer, which uses a `_Testing`
+  //     copy specifically because IT writes.
+  //   - redirectUri is the same LOCAL DEV TESTING URI as every other real
+  //     Graph feature in this file (http://localhost:8791/app.html) — no
+  //     production redirect URI exists yet, so ENABLE_LIVE_NAV_DATA stays
+  //     false in production for the same reason ENABLE_REFERENCE_IMAGES
+  //     does (see that flag's comment above for the exact incident this
+  //     guards against and the re-enable steps — identical here).
+  //   - Scope is intentionally narrow: only the nav/browse entry points
+  //     this session was already working on (Catalog, Medal, Rolls, and
+  //     the Sets tab) read from this. Browse detail's own supplementary
+  //     lookups (Purchase Details, Specifications, etc. — FAKE_COIN_DETAILS/
+  //     FAKE_METAL_CONTENT/FAKE_SET_CHILDREN/FAKE_SET_FACTS), Albums,
+  //     Wishlist, Ledger/Stats, Spotlight/Dashboard, and every Add Coin/
+  //     Add Set flow are UNCHANGED and stay on FAKE_* data — swapping those
+  //     over is explicitly a separate, not-yet-scoped task.
+  // ==================================================================
+
+  const ENABLE_LIVE_NAV_DATA = false; // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
+
+  const liveNavMsalConfig = {
+    auth: {
+      clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
+      authority: "https://login.microsoftonline.com/consumers",
+      redirectUri: "http://localhost:8791/app.html"
+    },
+    cache: { cacheLocation: "localStorage" }
+  };
+  // Same "skip constructing MSAL at all when disabled" reasoning as the
+  // other two gated features — no dormant PublicClientApplication instance
+  // sitting around when this is off.
+  const liveNavMsalInstance = (ENABLE_LIVE_NAV_DATA && typeof msal !== "undefined")
+    ? new msal.PublicClientApplication(liveNavMsalConfig)
+    : null;
+  const LIVE_NAV_SCOPES = ["Files.Read"];
+
+  if (liveNavMsalInstance) {
+    liveNavMsalInstance.handleRedirectPromise().catch(err => {
+      console.warn("Live nav data sign-in redirect error:", err);
+    });
+  } else if (ENABLE_LIVE_NAV_DATA) {
+    console.warn("MSAL failed to load — Catalog/Rolls/Sets will show demo data only.");
+  }
+
+  // Same silent-then-redirect pattern as getReferenceImageToken()/getToken().
+  // Called lazily off the first Browse render that wants live data (see
+  // ensureLiveNavDataFetch() below), not from an explicit Sign In button.
+  async function getLiveNavToken() {
+    if (!liveNavMsalInstance) return null; // MSAL didn't load — see the guard above
+    const account = liveNavMsalInstance.getAllAccounts()[0];
+    try {
+      const result = await liveNavMsalInstance.acquireTokenSilent({ scopes: LIVE_NAV_SCOPES, account });
+      return result.accessToken;
+    } catch (e) {
+      liveNavMsalInstance.acquireTokenRedirect({ scopes: LIVE_NAV_SCOPES });
+      return null;
+    }
+  }
+
+  // The real production workbook, read directly (see the safety-posture
+  // comment above for why this is safe without a _Testing copy).
+  const LIVE_NAV_WORKBOOK_PATH = "CoinCollection/CoinCollection (AI).xlsx";
+
+  // GETs a worksheet's full used range and returns an array of plain
+  // objects keyed by the header row's own text (trimmed) — no assumptions
+  // about which columns exist beyond what's actually in row 1. Returns
+  // null (not []) when there's no token yet (mid sign-in-redirect, signed
+  // out) so the caller can tell "no answer yet" apart from "sheet is
+  // genuinely empty" and avoid caching a false empty result — same
+  // { attempted } reasoning fetchReferenceImageBlob() already uses.
+  async function fetchWorkbookSheetRows(sheet) {
+    const token = await getLiveNavToken();
+    if (!token) return null;
+    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+      LIVE_NAV_WORKBOOK_PATH.split("/").map(encodeURIComponent).join("/") +
+      ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
+    try {
+      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) {
+        console.warn("Live nav data: sheet read failed", sheet, res.status);
+        return null; // transient/permission error — worth retrying later, don't cache
+      }
+      const data = await res.json();
+      const values = data.values || [];
+      if (values.length < 2) return []; // header row only (or truly empty) — a real, cacheable answer
+      const headers = values[0].map(h => String(h == null ? "" : h).trim());
+      return values.slice(1).map(r => {
+        const obj = {};
+        headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
+        return obj;
+      });
+    } catch (e) {
+      console.warn("Live nav data fetch error:", sheet, e.message);
+      return null;
+    }
+  }
+
+  // Defensive header lookup. A handful of fields this feature needs have a
+  // CONFIRMED exact real column name (CollectionID, Denomination, Year,
+  // MintMark, SerNo — "Workbook naming conventions" in CLAUDE.md: no spaces
+  // in any header). Others this feature also wants have NOT been confirmed
+  // against the real sheet by this task (a single display-name column, a
+  // live estimated-value column, OriginSetID) — those get a short list of
+  // reasonable candidate spellings tried in order, falling back to a blank
+  // string rather than throwing when none match. See the "real-data
+  // quirks" note in CLAUDE.md for what was actually observed once this
+  // ran against real data.
+  function colVal(row, ...candidates) {
+    for (const c of candidates) {
+      if (row[c] !== undefined && row[c] !== null && row[c] !== "") return row[c];
+    }
+    return "";
+  }
+
+  // Maps one raw All-sheet row into the same shape FAKE_COINS rows already
+  // use, so every existing nav function (coinsTabBaseRows, browseFilterTest,
+  // metalCategoryFor, browseSearchTest, sortCoinsTabRows, etc.) keeps
+  // working completely unchanged against either source — the row SHAPE is
+  // the contract, not which array it came from.
+  function mapWorkbookRowToCoin(row) {
+    const yearRaw = colVal(row, "Year");
+    const yearNum = Number(yearRaw);
+    return {
+      id: String(colVal(row, "CollectionID")),
+      name: String(colVal(row, "Description")),
+      denom: String(colVal(row, "Denomination")),
+      // A mixed-date Roll's Year is the literal string "Various" (see
+      // CLAUDE.md) — never coerced to a number, same convention FAKE_COINS
+      // already follows for its own "Various" demo row.
+      year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
+      mint: String(colVal(row, "MintMark")),
+      grade: String(colVal(row, "Grade")),
+      gradeSource: String(colVal(row, "GradeSource")),
+      serNo: String(colVal(row, "SerNo")),
+      certLink: String(colVal(row, "CertLink")),
+      category: String(colVal(row, "Category")),
+      rollId: String(colVal(row, "RollID")),
+      originSetId: String(colVal(row, "OriginSetID")),
+      setId: String(colVal(row, "SetID")),
+      designation: String(colVal(row, "Designation")),
+      storageLocation: String(colVal(row, "StorageLocation")),
+      container: String(colVal(row, "Container")),
+      variety: String(colVal(row, "Variety")),
+      cost: Number(colVal(row, "Cost")) || 0,
+      // No single confirmed "live estimated value" column name — SpotValue
+      // is documented as "not live yet (formula pending)". Tries a few
+      // reasonable candidates; blank/0 (not an error) if none are populated,
+      // same as every other sparse real column this app already tolerates.
+      value: Number(colVal(row, "Value", "EstValue", "SpotValue")) || 0,
+      // No direct real-photo-presence column — approximated from whether
+      // the Obverse/Reverse filename cells are populated, per the documented
+      // "Obverse/Reverse hold whichever filename is currently displayed"
+      // convention. A coin whose photo exists but isn't yet reflected in
+      // these columns would read as "no photo" here — an accepted
+      // approximation, not a bug, same class of tradeoff as everywhere else
+      // in this app that infers presence from a filename field.
+      hasObversePhoto: !!colVal(row, "Obverse"),
+      hasReversePhoto: !!colVal(row, "Reverse")
+    };
+  }
+
+  // Maps one raw DB_Sets row into FAKE_DB_SETS's shape. tileLabel has no
+  // real-column equivalent — left blank, which is already handled
+  // gracefully (renderSetChecklist falls back to row.name when tileLabel
+  // is falsy).
+  function mapWorkbookRowToDbSet(row) {
+    const yearRaw = colVal(row, "Year");
+    const yearNum = Number(yearRaw);
+    return {
+      year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
+      lineage: String(colVal(row, "Lineage")),
+      setScope: String(colVal(row, "SetScope")),
+      setId: String(colVal(row, "SetID")),
+      name: String(colVal(row, "Name", "SetName")),
+      category: String(colVal(row, "Category")) || String(colVal(row, "Lineage")),
+      productCode: String(colVal(row, "ProductCode"))
+    };
+  }
+
+  // null = not loaded yet (every consumer falls back to FAKE_*); a loaded
+  // array is cached for the rest of the session (no auto-refresh — same
+  // "fetched at most once per session" posture as Reference Images).
+  let LIVE_COINS = null;
+  let LIVE_DB_SETS = null;
+  let liveNavDataFetchPromise = null;
+
+  // The single swap point every nav function reads through — this is what
+  // keeps the blast radius of this feature to a short, auditable list of
+  // call sites (see CLAUDE.md for the exact list) instead of touching
+  // FAKE_COINS/FAKE_DB_SETS references throughout the whole file.
+  function activeCoins() { return LIVE_COINS || FAKE_COINS; }
+  function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
+
+  // Lazy and dedup'd, safe to call as often as needed (mirrors
+  // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
+  // REAL answer lands for both (not just "no token yet"), re-renders
+  // whichever Browse tab is currently on screen so the swap is visible
+  // without requiring a manual refresh.
+  function ensureLiveNavDataFetch() {
+    if (!ENABLE_LIVE_NAV_DATA) return Promise.resolve(false);
+    if (LIVE_COINS && LIVE_DB_SETS) return Promise.resolve(true); // already loaded this session
+    if (liveNavDataFetchPromise) return liveNavDataFetchPromise;
+    liveNavDataFetchPromise = Promise.all([
+      fetchWorkbookSheetRows("All"),
+      fetchWorkbookSheetRows("DB_Sets")
+    ]).then(([allRows, dbSetsRows]) => {
+      liveNavDataFetchPromise = null;
+      if (allRows === null || dbSetsRows === null) return false; // no real answer yet — don't cache, retry on next call
+      // A stray blank sheet row (no CollectionID) is never a real owned
+      // coin; a DB_Sets row with no Lineage is out of this feature's scope
+      // entirely (Commemorative/one-off/Album reference rows — the exact
+      // same filter dbSetLineageIncludes()'s callers already imply).
+      LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id);
+      LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
+      const activeView = document.querySelector(".view.active");
+      if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
+      return true;
+    }).catch(err => {
+      liveNavDataFetchPromise = null;
+      console.warn("Live nav data fetch error:", err.message);
+      return false;
+    });
+    return liveNavDataFetchPromise;
+  }
+
+  // ==================================================================
   // ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
   // (real first-write infrastructure for this file — see CLAUDE.md
   // "Add Set / CollectionID reservation (write layer)"). Everything is
@@ -5327,12 +5569,14 @@
     // tab again (see BROWSE_FILTER_CHIPS), not a separate tab, so the Catalog
     // page owns them. Still excludes Set-bundle rows (Denomination="Multiple")
     // and Roll rows (RollID populated), which have their own destinations.
-    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId);
+    // Reads through activeCoins() — live All-sheet data once loaded (see
+    // "Live Nav Data" above), FAKE_COINS otherwise.
+    return activeCoins().filter(c => c.denom !== "Multiple" && !c.rollId);
   }
 
   // Medal tab's base row-set — the mirror image of the exclusion above.
   function medalTabBaseRows() {
-    return FAKE_COINS.filter(c => c.denom === "Medal");
+    return activeCoins().filter(c => c.denom === "Medal");
   }
 
   // Same blank/Philadelphia, D, S, CC, O, W order as the Mint Mark dropdown
@@ -5389,7 +5633,7 @@
       // List mode (All/Commemorative/Other): original owned-rows behaviour,
       // untouched. Hide the scope dropdown.
       scopeRow.style.display = "none";
-      const rows = FAKE_COINS.filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
+      const rows = activeCoins().filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
         .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
       renderSetsGrid(rows);
     }
@@ -5410,7 +5654,7 @@
     grid.innerHTML = "";
     document.getElementById("browseEmptyMsg").classList.add("hidden");
 
-    const rows = FAKE_DB_SETS
+    const rows = activeDbSets()
       .filter(s => s.setScope === scope && dbSetLineageIncludes(s, lineage))
       .filter(s => yearRowTest({ year: s.year }))
       .sort((a, b) => a.year - b.year);
@@ -5508,7 +5752,7 @@
   }
 
   function applyRollsTabFilters() {
-    const base = FAKE_COINS.filter(c => !!c.rollId);
+    const base = activeCoins().filter(c => !!c.rollId);
     const rows = base
       .filter(rollsDenomTest).filter(rollsMetalTest).filter(yearRowTest)
       .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
@@ -5606,6 +5850,13 @@
       navigate("albums");
       return;
     }
+    // Lazy trigger for the live-data fetch (see "Live Nav Data" above) — a
+    // no-op when disabled/already loaded/already in flight. The FIRST call
+    // on a given session still renders FAKE_* synchronously below (this
+    // never blocks); if/when a real answer lands, the fetch itself
+    // re-applies whichever tab is on screen at that moment.
+    ensureLiveNavDataFetch();
+
     activeBrowseTab = tab;
     updateBrowseTabsUI();
 
@@ -9026,10 +9277,12 @@
   }
 
   // The owned Set-bundle row (if any) whose SetID links to a checklist tile.
-  // Resolves to none today since SetID linkage isn't populated yet.
+  // Resolves to none today (demo or live) since real SetID linkage isn't
+  // populated yet on the actual workbook either — see the "real-data
+  // quirks" note in CLAUDE.md.
   function ownedSetForSetId(setId) {
     if (!setId) return null;
-    return FAKE_COINS.find(c => c.denom === "Multiple" && c.setId && c.setId === setId) || null;
+    return activeCoins().find(c => c.denom === "Multiple" && c.setId && c.setId === setId) || null;
   }
 
   let currentSetDraft = null;                 // the draft being captured/resumed

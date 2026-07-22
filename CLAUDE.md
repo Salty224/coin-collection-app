@@ -3652,6 +3652,137 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
   photos only ever governed the cream/navy/die-cut *look*, never the
   interaction/motion.
 
+### Live nav data (read-only) — held on branch `claude/live-nav-data`, NOT merged
+Real, GET-only Graph API reads now power the Catalog/Medal/Rolls tabs and the
+Sets tab (both list mode and the completeness checklist) — instead of
+`FAKE_COINS`/`FAKE_DB_SETS` — when enabled. **Display-only: no write path is
+touched or added.** This is architectural (a new real-Graph read layer + its
+own MSAL instance), so per the merge policy it stays held on its branch
+pending Ray's explicit go-ahead, same standing as the cabinet navigation
+redesign.
+
+**Sheets/ranges read:** the real `All` sheet and the real `DB_Sets` sheet, in
+full (`usedRange(valuesOnly=true)`), from the **live production workbook**
+(`CoinCollection/CoinCollection (AI).xlsx`) — not a `_Testing` copy. This is
+safe without the write layer's copy-target convention because a read-only GET
+can't corrupt anything, the same reasoning that already lets the Reference
+Images feature read directly from `CoinCollection/ReferenceImages/` on the
+live drive (see that section below) — the `_Testing` copy convention exists
+specifically to protect against writes, which this feature never does.
+
+**Safety posture — deliberately its own thing, not reusing the write layer's
+gate:** `ENABLE_LIVE_NAV_DATA` (default `false`, localhost-dev only, same
+re-enable steps as `ENABLE_REFERENCE_IMAGES`), its own `liveNavMsalInstance`
+(narrow `Files.Read` scope only — this feature never writes, so it never
+needs the write layer's `Files.ReadWrite`), same `http://localhost:8791/
+app.html` redirect URI as every other real-Graph feature in this file (no
+production URI exists yet for any of them). Constructed only when both the
+flag is on and MSAL loaded — no dormant auth instance sitting around
+otherwise, same pattern as the other two gated features. `getLiveNavToken()`
+mirrors `getReferenceImageToken()` exactly (silent-then-redirect, called
+lazily off the first Browse render that wants it — `showBrowseTab()` calls
+`ensureLiveNavDataFetch()` at its top — never from an explicit Sign In
+button).
+
+**Blast radius — the exact list of call sites swapped, and nothing else:**
+`coinsTabBaseRows()`, `medalTabBaseRows()`, `applyRollsTabFilters()`,
+`applySetsTabFilters()`'s list-mode branch, `renderSetChecklist()`, and
+`ownedSetForSetId()` — each changed from reading `FAKE_COINS`/`FAKE_DB_SETS`
+directly to reading through two new accessor functions, `activeCoins()`/
+`activeDbSets()`, which return the live-fetched array once loaded or fall
+back to the `FAKE_*` array otherwise. This is the ONLY mechanism — no other
+`FAKE_COINS`/`FAKE_DB_SETS` reference in the file was touched. Explicitly
+UNCHANGED and still 100% on demo data: Browse detail's own supplementary
+lookups (`FAKE_COIN_DETAILS`/`FAKE_METAL_CONTENT`/`FAKE_SET_CHILDREN`/
+`FAKE_SET_FACTS` — Purchase Details, Specifications, Notes & Facts, child-Set
+flips), Albums, Wishlist, Ledger/Stats, Spotlight/Dashboard, every Add Coin/
+Add Set flow, and `matchDbSetsByProductCode()` (Add Set's own DB_Sets lookup).
+A side effect worth knowing, not a bug: tapping into a live coin's Browse
+detail view will correctly show its own real core fields (from the live row
+itself) but its accordions will render empty/hidden for that CollectionID
+(no `FAKE_COIN_DETAILS` entry exists for a real ID) — that's the *existing*
+"hidden when blank" behavior working correctly, not a new failure mode.
+
+**Row-shape mapping (`mapWorkbookRowToCoin`/`mapWorkbookRowToDbSet`):** each
+raw sheet row (a plain object keyed by its own header-row text) is mapped
+into the exact same field shape `FAKE_COINS`/`FAKE_DB_SETS` rows already use,
+so every existing nav function (`browseFilterTest`, `metalCategoryFor`,
+`browseSearchTest`, `sortCoinsTabRows`, `dbSetLineageIncludes`, etc.) keeps
+working completely unchanged against either source — the row *shape* is the
+real contract, not which array it came from. `colVal(row, ...candidates)` is
+a defensive header lookup: some fields have a CONFIRMED exact real column
+name (`CollectionID`, `Denomination`, `Year`, `MintMark`, `SerNo` — "Workbook
+naming conventions" above); others this feature also wants have NOT been
+confirmed against the real sheet by this task (a single display-name column,
+a live estimated-value column, `OriginSetID`) — those try a short list of
+reasonable candidate spellings, falling back to blank/0 rather than throwing
+when none match.
+
+**Real-data quirks this needs to handle gracefully (anticipated, not yet
+confirmed against a live pull — flagged for Ray's own live-run, same
+"needs a real click-through" caveat as every other real-Graph feature in
+this file):**
+- **No single confirmed "display name" column.** The real `All` sheet has
+  `Description` and `Variety` as separate fields (per "Add Coin field
+  layout" above); `FAKE_COINS.name` is a combined mockup convenience string.
+  `mapWorkbookRowToCoin` uses `Description` alone for `name` — matches the
+  documented intent ("Description is the series/design name") but is a
+  narrower value than some `FAKE_COINS` demo rows' `name` (e.g. "Morgan
+  Dollar" vs. whatever the real Description text actually is for that row).
+- **No live estimated-value column confirmed.** `SpotValue` is documented
+  elsewhere as "not live yet (formula pending)" — `colVal` tries
+  `Value`/`EstValue`/`SpotValue` in order and defaults to 0 if none are
+  populated, same as every other sparse real column this app already
+  tolerates (Weight/Diameter/etc. in Specifications).
+- **`OriginSetID` as a real column name is unconfirmed.** CLAUDE.md's own
+  multi-coin Set display section describes `originSetId` only in the
+  context of the `FAKE_COINS`/`FAKE_SET_CHILDREN` mockup, not as a
+  confirmed live workbook header. If the real column doesn't exist yet (or
+  is spelled differently), the field simply comes back blank — already
+  handled gracefully (`setChildrenFor()` returns `[]` for any coin with no
+  `originSetId`, exactly the same as a childless demo Set today).
+- **`SetID` linkage is documented as sparse (~28/386 real rows) and DB_Sets
+  SetID linkage for the checklist "isn't populated yet" at all** — per the
+  "Sets tab: completeness checklist" section below, every checklist tile
+  will likely still show unowned/hollow against live data, exactly like the
+  demo data does today. This is expected, pre-existing, and NOT something
+  this task fixes — a separate future data-reconciliation project already
+  tracked elsewhere in this file/ParkingLot.
+- **Photo-presence is approximated from filename-column truthiness**
+  (`hasObversePhoto`/`hasReversePhoto` from whether `Obverse`/`Reverse` are
+  populated), not a real "does a file actually exist at this path" check —
+  same class of approximation the app already makes elsewhere, not a new
+  gap introduced here.
+- **A blank/malformed row never throws.** A stray fully-blank sheet row (no
+  `CollectionID`) maps to an empty `id` and is filtered out
+  (`ensureLiveNavDataFetch` drops any mapped coin with no `id`, and any
+  mapped DB_Sets row with no `Lineage`); every other field defaults to `""`/
+  `0`/`false` rather than `undefined`/`NaN`, verified directly (see below).
+
+**Verified headless** (`verify_live_nav_data.js`, 26 assertions, all pass;
+full 11-suite regression re-run clean alongside it): the feature is
+completely inert by default (no dormant MSAL instance, `getLiveNavToken()`
+never redirects, `ensureLiveNavDataFetch()` is a no-op, `activeCoins()`/
+`activeDbSets()` return the `FAKE_*` arrays); `colVal()`'s candidate
+fallback; `mapWorkbookRowToCoin()`/`mapWorkbookRowToDbSet()` against a
+normal row, a "Various"-year Roll row (stays a string, never `NaN`), a fully
+blank optional-fields row (no throw, sane defaults), a row using the
+`SpotValue` fallback instead of `Value`, and a no-`CollectionID` row (empty,
+filterable `id`); a dual-lineage (comma-separated) DB_Sets row still works
+with `dbSetLineageIncludes()` after mapping; and — the real end-to-end
+check — setting `LIVE_COINS`/`LIVE_DB_SETS` directly (standing in for a real
+fetch resolving, since the actual Graph/MSAL network calls can't be
+exercised from this environment) and confirming `coinsTabBaseRows()`,
+`medalTabBaseRows()`, the Rolls page's actual rendered grid, and
+`ownedSetForSetId()` all genuinely read through the live data, then
+confirming the fallback correctly restores once the live data is cleared.
+**No live OneDrive session was available this session** — the real
+Graph/MSAL flow (first-load sign-in redirect, real column names, real data
+shape) needs Ray's own live-run to confirm, consistent with the "needs a
+real click-through" caveat already attached to every other real-Graph
+feature in this file (Reference Images, the Add Set write layer, the
+workbook web-link).
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
