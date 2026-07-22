@@ -3202,6 +3202,37 @@ plumbing are untouched — see the retain-plumbing note below).
   reads All/Platinum/Gold/Silver/Copper/Zinc/Clad/Other. All 10 regression
   suites re-run clean (no test referenced the old label or dropdown).
 
+**Seventh follow-up: Metal filter multi-select + per-page Year filter (Ray's
+explicit request).**
+- **Metal filter is now multi-select** (Catalog + Rolls), OR-combining
+  exactly like Denomination — superseding the long-standing "Metal is
+  single-select" lock-in noted throughout the Metal-filter sections above.
+  Both pages hold a `Set` of selected category keys
+  (`browseSelectedMetalKeys` / `rollsSelectedMetalKeys`, empty = "All") and
+  `browseMetalTest()`/`rollsMetalTest()` became functions that OR the
+  selected chips' tests. "All" clears the set; tapping a category toggles it.
+  The whole metal group still ANDs with Denomination/Commemorative/Year. The
+  constituent-composition toast now fires only when a chip is being turned
+  ON (not off). `updateMetalChipsUI(containerId, selectedKeys)` is a shared
+  helper for both rows' active-state rendering.
+- **Year filter is now per-page** — it no longer carries over between the
+  Catalog and Rolls pages (Ray's call). Superseded the earlier "Year state
+  is shared/global across Coins/Rolls/Sets" model. Replaced the two global
+  `yearFilterBegin`/`yearFilterEnd` vars with a per-tab store
+  (`yearFilterByTab[activeBrowseTab] = {begin,end}`); `currentYearFilter()`
+  returns the active tab's own state, and `yearRowTest()`, the Year overlay
+  (open/apply/clear), and `updateYearFilterButtonUI()` all read/write through
+  it. `showBrowseTab()` refreshes the Year button on every tab switch so it
+  reflects the newly-active tab's own year. Sets keeps its own independent
+  year too (falls out of the per-tab model for free). `resetBrowseFilters()`
+  (external Browse entry) clears every tab's year. NOTE: the input element
+  IDs `#yearFilterBegin`/`#yearFilterEnd` are unrelated (the overlay's number
+  inputs) and unchanged — only the JS state vars were replaced.
+- Verified headless: Catalog Silver+Copper both active → grid = silver-OR-
+  copper rows (11, matching the predicate); Catalog Year=1916 while Rolls
+  shows no year, Rolls Year=1964 → 1 roll, returning to Catalog still shows
+  1916; external Browse entry clears both. All 10 regression suites clean.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

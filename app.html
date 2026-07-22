@@ -5026,15 +5026,27 @@
   const BROWSE_METAL_CHIPS = [
     // "All" (not "All Metals") — the metal names that follow already make it
     // clear this row is about metal, so the shorter label is enough.
-    { label: "All", test: () => true },
+    { key: "all", label: "All", isAll: true, test: () => true },
     ...METAL_CATEGORIES.map(cat => ({
+      key: cat,
       label: cat,
       test: cat === "Other"
         ? c => { const m = metalCategoryFor(c); return !m || m === "Other"; }
         : c => metalCategoryFor(c) === cat
     }))
   ];
-  let browseMetalTest = BROWSE_METAL_CHIPS[0].test;
+  // Metal is multi-select now (like Denomination — Ray's call), so it's a
+  // Set of selected category keys rather than one active test. Empty = "All".
+  // Selected keys OR together, and the whole group ANDs with Denomination/
+  // Commemorative/Year, same as before.
+  let browseSelectedMetalKeys = new Set();
+  function browseMetalTest(coin) {
+    if (browseSelectedMetalKeys.size === 0) return true;
+    return [...browseSelectedMetalKeys].some(key => {
+      const chip = BROWSE_METAL_CHIPS.find(m => m.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
 
   // Sets tab: Category pills. Two kinds of pill now coexist on this one
   // single-select row:
@@ -5198,28 +5210,41 @@
   // into #browseTabRow itself, see initBrowse()). Free-text Begin/End Year,
   // not preset range pills: Begin alone means "exactly this year"; Begin+End
   // means an inclusive range. null/null means no filter is active.
-  let yearFilterBegin = null;
-  let yearFilterEnd = null;
+  // Year filter is PER-PAGE now (Ray's call — it should NOT carry over
+  // between the Catalog and Rolls pages, and vice versa). Each tab keeps its
+  // own begin/end; currentYearFilter() returns the active tab's own state.
+  // (Sets keeps its own too, falling out of the same per-tab model for free.)
+  const yearFilterByTab = {
+    coins: { begin: null, end: null },
+    medal: { begin: null, end: null },
+    rolls: { begin: null, end: null },
+    sets:  { begin: null, end: null }
+  };
+  function currentYearFilter() {
+    return yearFilterByTab[activeBrowseTab] || yearFilterByTab.coins;
+  }
 
   // A row with no real single year (a mixed-date Roll carries the literal
   // string "Various", see CLAUDE.md Roll cards) can't be tested against a
   // specific year/range — excluded whenever the filter is active, same
   // reasoning rollYearNumber() already uses for Rolls-tab sorting.
   function yearRowTest(coin) {
-    if (yearFilterBegin === null) return true;
+    const yf = currentYearFilter();
+    if (yf.begin === null) return true;
     const year = Number(coin.year);
     if (isNaN(year)) return false;
-    if (yearFilterEnd === null) return year === yearFilterBegin;
-    return year >= yearFilterBegin && year <= yearFilterEnd;
+    if (yf.end === null) return year === yf.begin;
+    return year >= yf.begin && year <= yf.end;
   }
 
   function updateYearFilterButtonUI() {
     const btn = document.getElementById("browseYearFilterBtn");
-    const active = yearFilterBegin !== null;
+    const yf = currentYearFilter();
+    const active = yf.begin !== null;
     btn.classList.toggle("active", active);
     btn.textContent = !active ? "Year"
-      : yearFilterEnd === null ? "Year: " + yearFilterBegin
-      : "Year: " + yearFilterBegin + "–" + yearFilterEnd;
+      : yf.end === null ? "Year: " + yf.begin
+      : "Year: " + yf.begin + "–" + yf.end;
   }
 
   function applyActiveBrowseTabFilters() {
@@ -5401,12 +5426,20 @@
   // browseMetalTest) so switching between the two pages doesn't cross-wire
   // filters, and so Rolls needs no "Medals" chip.
   let rollsSelectedDenomKeys = new Set();
-  let rollsMetalTest = BROWSE_METAL_CHIPS[0].test;
+  let rollsSelectedMetalKeys = new Set();
 
   function rollsDenomTest(coin) {
     if (rollsSelectedDenomKeys.size === 0) return true;
     return [...rollsSelectedDenomKeys].some(key => {
       const chip = BROWSE_FILTER_CHIPS.find(f => f.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
+
+  function rollsMetalTest(coin) {
+    if (rollsSelectedMetalKeys.size === 0) return true;
+    return [...rollsSelectedMetalKeys].some(key => {
+      const chip = BROWSE_METAL_CHIPS.find(m => m.key === key);
       return chip && chip.test && chip.test(coin);
     });
   }
@@ -5427,6 +5460,17 @@
       chip.classList.toggle("active", key === "all"
         ? rollsSelectedDenomKeys.size === 0
         : rollsSelectedDenomKeys.has(key));
+    });
+  }
+
+  // Multi-select metal chips (Catalog + Rolls) reflect their own Set — "All"
+  // active exactly when nothing else is selected, same pattern as Denomination.
+  function updateMetalChipsUI(containerId, selectedKeys) {
+    document.querySelectorAll("#" + containerId + " .filter-chip").forEach(chip => {
+      const key = chip.dataset.key;
+      chip.classList.toggle("active", key === "all"
+        ? selectedKeys.size === 0
+        : selectedKeys.has(key));
     });
   }
 
@@ -5463,13 +5507,13 @@
     const commemorativeChip = document.getElementById("browseCommemorativeFilterBtn");
     if (commemorativeChip) commemorativeChip.classList.remove("active");
 
-    browseMetalTest = BROWSE_METAL_CHIPS[0].test;
-    document.querySelectorAll("#browseMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
+    browseSelectedMetalKeys.clear();
+    updateMetalChipsUI("browseMetalFilters", browseSelectedMetalKeys);
 
     rollsSelectedDenomKeys.clear();
     updateRollsFilterChipsUI();
-    rollsMetalTest = BROWSE_METAL_CHIPS[0].test;
-    document.querySelectorAll("#rollsMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
+    rollsSelectedMetalKeys.clear();
+    updateMetalChipsUI("rollsMetalFilters", rollsSelectedMetalKeys);
 
     activeSetCategoryChip = BROWSE_SET_CATEGORY_CHIPS[0];
     browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
@@ -5480,8 +5524,8 @@
     if (setScopeRowEl) setScopeRowEl.style.display = "none";
     document.querySelectorAll("#browseSetsCategoryFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
 
-    yearFilterBegin = null;
-    yearFilterEnd = null;
+    // Clear every tab's own year filter (external Browse entry resets all).
+    Object.values(yearFilterByTab).forEach(yf => { yf.begin = null; yf.end = null; });
     updateYearFilterButtonUI();
   }
 
@@ -5525,6 +5569,10 @@
     document.getElementById("browseRollsFilterBtn").classList.toggle("hidden", !showCatalogTools);
     document.getElementById("browseTitle").textContent =
       tab === "coins" ? "Catalog" : tab === "medal" ? "Medals" : tab === "rolls" ? "Rolls" : "Sets";
+
+    // Year filter is per-page — refresh the Year button to reflect the newly
+    // active tab's own year state (it may differ from the tab we left).
+    updateYearFilterButtonUI();
 
     applyActiveBrowseTabFilters();
   }
@@ -5575,27 +5623,31 @@
     });
 
     const metalRow = document.getElementById("browseMetalFilters");
-    let firstMetalChip = null;
     BROWSE_METAL_CHIPS.forEach(m => {
       const chip = document.createElement("button");
-      chip.className = "filter-chip" + (!firstMetalChip ? " active" : "");
+      chip.className = "filter-chip" + (m.isAll ? " active" : "");
       chip.textContent = m.label;
+      chip.dataset.key = m.key;
       // Supplementary constituent-compositions info per bucket — a native
       // title attribute covers desktop hover for free; tapping the pill
-      // (which already selects it as the filter) also surfaces the same
-      // text via the existing toast mechanism, since hover doesn't reach
-      // touch devices (Samsung Internet included).
+      // also surfaces the same text via the existing toast mechanism, since
+      // hover doesn't reach touch devices (Samsung Internet included).
       const info = METAL_CATEGORY_INFO[m.label];
       if (info) chip.title = info;
       chip.addEventListener("click", () => {
-        document.querySelectorAll("#browseMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
-        browseMetalTest = m.test;
+        // Multi-select, like Denomination: "All" clears, others toggle.
+        if (m.isAll) {
+          browseSelectedMetalKeys.clear();
+        } else if (browseSelectedMetalKeys.has(m.key)) {
+          browseSelectedMetalKeys.delete(m.key);
+        } else {
+          browseSelectedMetalKeys.add(m.key);
+        }
+        updateMetalChipsUI("browseMetalFilters", browseSelectedMetalKeys);
         applyCoinsTabFilters();
-        if (info) showToast(m.label + ": " + info);
+        if (info && browseSelectedMetalKeys.has(m.key)) showToast(m.label + ": " + info);
       });
       metalRow.appendChild(chip);
-      if (!firstMetalChip) firstMetalChip = chip;
     });
 
     const setCategoryRow = document.getElementById("browseSetsCategoryFilters");
@@ -5637,7 +5689,7 @@
     // Rolls page: its own Denomination pill row (no "Medals" chip — rolls
     // are never medals) + its own Metal pill row, both mirroring the Catalog
     // page's pills but with independent state (rollsSelectedDenomKeys /
-    // rollsMetalTest). Replaced the old sort dropdown.
+    // rollsSelectedMetalKeys). Replaced the old sort dropdown.
     const rollsFilterRow = document.getElementById("rollsFilters");
     BROWSE_FILTER_CHIPS.filter(f => f.key !== "Medal").forEach(f => {
       const chip = document.createElement("button");
@@ -5659,30 +5711,36 @@
     });
 
     const rollsMetalRow = document.getElementById("rollsMetalFilters");
-    let firstRollsMetalChip = null;
     BROWSE_METAL_CHIPS.forEach(m => {
       const chip = document.createElement("button");
-      chip.className = "filter-chip" + (!firstRollsMetalChip ? " active" : "");
+      chip.className = "filter-chip" + (m.isAll ? " active" : "");
       chip.textContent = m.label;
+      chip.dataset.key = m.key;
       const info = METAL_CATEGORY_INFO[m.label];
       if (info) chip.title = info;
       chip.addEventListener("click", () => {
-        document.querySelectorAll("#rollsMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
-        chip.classList.add("active");
-        rollsMetalTest = m.test;
+        // Multi-select, like the Catalog page's metal row.
+        if (m.isAll) {
+          rollsSelectedMetalKeys.clear();
+        } else if (rollsSelectedMetalKeys.has(m.key)) {
+          rollsSelectedMetalKeys.delete(m.key);
+        } else {
+          rollsSelectedMetalKeys.add(m.key);
+        }
+        updateMetalChipsUI("rollsMetalFilters", rollsSelectedMetalKeys);
         applyRollsTabFilters();
-        if (info) showToast(m.label + ": " + info);
+        if (info && rollsSelectedMetalKeys.has(m.key)) showToast(m.label + ": " + info);
       });
       rollsMetalRow.appendChild(chip);
-      if (!firstRollsMetalChip) firstRollsMetalChip = chip;
     });
 
     const yearFilterOverlay = document.getElementById("yearFilterOverlay");
     const yearFilterBeginInput = document.getElementById("yearFilterBegin");
     const yearFilterEndInput = document.getElementById("yearFilterEnd");
     document.getElementById("browseYearFilterBtn").addEventListener("click", () => {
-      yearFilterBeginInput.value = yearFilterBegin === null ? "" : yearFilterBegin;
-      yearFilterEndInput.value = yearFilterEnd === null ? "" : yearFilterEnd;
+      const yf = currentYearFilter();
+      yearFilterBeginInput.value = yf.begin === null ? "" : yf.begin;
+      yearFilterEndInput.value = yf.end === null ? "" : yf.end;
       yearFilterOverlay.classList.remove("hidden");
     });
     document.getElementById("yearFilterApplyBtn").addEventListener("click", () => {
@@ -5698,15 +5756,18 @@
         showToast("End Year can't be before Begin Year.");
         return;
       }
-      yearFilterBegin = begin;
-      yearFilterEnd = end;
+      // Writes to the ACTIVE tab's own year state only (per-page filter).
+      const yf = currentYearFilter();
+      yf.begin = begin;
+      yf.end = end;
       updateYearFilterButtonUI();
       yearFilterOverlay.classList.add("hidden");
       applyActiveBrowseTabFilters();
     });
     document.getElementById("yearFilterClearBtn").addEventListener("click", () => {
-      yearFilterBegin = null;
-      yearFilterEnd = null;
+      const yf = currentYearFilter();
+      yf.begin = null;
+      yf.end = null;
       updateYearFilterButtonUI();
       yearFilterOverlay.classList.add("hidden");
       applyActiveBrowseTabFilters();
