@@ -3718,70 +3718,91 @@ a live estimated-value column, `OriginSetID`) — those try a short list of
 reasonable candidate spellings, falling back to blank/0 rather than throwing
 when none match.
 
-**Real-data quirks this needs to handle gracefully (anticipated, not yet
-confirmed against a live pull — flagged for Ray's own live-run, same
-"needs a real click-through" caveat as every other real-Graph feature in
-this file):**
-- **No single confirmed "display name" column.** The real `All` sheet has
-  `Description` and `Variety` as separate fields (per "Add Coin field
-  layout" above); `FAKE_COINS.name` is a combined mockup convenience string.
-  `mapWorkbookRowToCoin` uses `Description` alone for `name` — matches the
-  documented intent ("Description is the series/design name") but is a
-  narrower value than some `FAKE_COINS` demo rows' `name` (e.g. "Morgan
-  Dollar" vs. whatever the real Description text actually is for that row).
-- **No live estimated-value column confirmed.** `SpotValue` is documented
-  elsewhere as "not live yet (formula pending)" — `colVal` tries
-  `Value`/`EstValue`/`SpotValue` in order and defaults to 0 if none are
-  populated, same as every other sparse real column this app already
-  tolerates (Weight/Diameter/etc. in Specifications).
-- **`OriginSetID` as a real column name is unconfirmed.** CLAUDE.md's own
-  multi-coin Set display section describes `originSetId` only in the
-  context of the `FAKE_COINS`/`FAKE_SET_CHILDREN` mockup, not as a
-  confirmed live workbook header. If the real column doesn't exist yet (or
-  is spelled differently), the field simply comes back blank — already
-  handled gracefully (`setChildrenFor()` returns `[]` for any coin with no
-  `originSetId`, exactly the same as a childless demo Set today).
-- **`SetID` linkage is documented as sparse (~28/386 real rows) and DB_Sets
-  SetID linkage for the checklist "isn't populated yet" at all** — per the
-  "Sets tab: completeness checklist" section below, every checklist tile
-  will likely still show unowned/hollow against live data, exactly like the
-  demo data does today. This is expected, pre-existing, and NOT something
-  this task fixes — a separate future data-reconciliation project already
+**Column names — CONFIRMED against the real workbook (Ray, direct column
+check, not guessed), superseding the original guesses this feature shipped
+with:**
+- **All sheet, `name`**: `Description` — confirmed correct as originally
+  built, no separate name column exists.
+- **All sheet, `value`**: `Value` first, `SpotValue` as fallback. **There is
+  no `EstValue` column** — that was a wrong guess, dropped from the
+  candidate list entirely (a row with only `EstValue` populated now
+  correctly defaults to 0, verified directly).
+- **All sheet, `originSetId`**: `OriginSetID` **does exist** — column 47,
+  appended at the end of the sheet. `colVal()`'s lookup is already an
+  exact, case-sensitive property match by construction, so no code change
+  was needed here — confirmed correct as originally built. The "might be
+  missing/misspelled" caveat this section used to carry no longer applies.
+- **DB_Sets sheet, `name`**: `Description` (not `Name`/`SetName`, which
+  don't exist as headers on this sheet — `mapWorkbookRowToDbSet` originally
+  guessed those and was **corrected** to `Description` first, with
+  `Name`/`SetName` kept only as harmless extra fallback candidates). Full
+  confirmed current DB_Sets headers, for reference: `SetID`, `GSID`,
+  `ProductOption`, `ItemNumber`, `Year`, `MintMark`, `Description`,
+  `Variety`, `Coins`, `FaceValue`, `Composition`, `Key/Notable`, `Mintage`,
+  `Notes`, `MfgProductID`, `ContainerName`, `Lineage`, `SetScope`.
+- **DB_Sets sheet has no `Category` column at all** — `category` always
+  derives from `Lineage` now (previously an "in case it exists" guess with
+  a `Category`-first fallback; simplified to a permanent fact about this
+  sheet, not a guess anymore). `productCode` still has no confirmed real
+  equivalent (`ProductOption`/`ItemNumber` are the closest real columns,
+  unconfirmed) — left as a harmless miss since nothing in this branch's
+  swapped call sites reads it; `matchDbSetsByProductCode()` (Add Set's own
+  lookup) reads `FAKE_DB_SETS` directly and is untouched/out of scope.
+
+**Still-open, real, pre-existing data gaps (not column-naming bugs — these
+were already known, not something this task fixes):**
+- **`SetID` linkage is sparse (~28/386 real rows) and DB_Sets-side SetID
+  linkage for the checklist "isn't populated yet" at all** — per the "Sets
+  tab: completeness checklist" section below, every checklist tile will
+  likely still show unowned/hollow against live data, exactly like the demo
+  data does today. A separate future data-reconciliation project, already
   tracked elsewhere in this file/ParkingLot.
 - **Photo-presence is approximated from filename-column truthiness**
   (`hasObversePhoto`/`hasReversePhoto` from whether `Obverse`/`Reverse` are
   populated), not a real "does a file actually exist at this path" check —
-  same class of approximation the app already makes elsewhere, not a new
-  gap introduced here.
+  same class of approximation the app already makes elsewhere.
 - **A blank/malformed row never throws.** A stray fully-blank sheet row (no
   `CollectionID`) maps to an empty `id` and is filtered out
   (`ensureLiveNavDataFetch` drops any mapped coin with no `id`, and any
   mapped DB_Sets row with no `Lineage`); every other field defaults to `""`/
   `0`/`false` rather than `undefined`/`NaN`, verified directly (see below).
 
-**Verified headless** (`verify_live_nav_data.js`, 26 assertions, all pass;
+**New, flagged but NOT acted on:** the live workbook now also has a
+standalone **"Sets" tab** (`Status`, `Year`, `Variety`, `Description`,
+`Lineage`, `SetID`, `FilledBy`) that didn't exist when this branch was
+built. Nothing in this feature reads it — deliberately untouched per Ray's
+explicit instruction ("don't touch anything for it now"). Worth keeping in
+mind once real data is actually live: this new tab may turn out to be a
+better/more-populated source for the Sets completeness checklist's ownership
+signal than the sparse `All.SetID` linkage described above — but that's a
+separate scoping decision for a future task, not assumed or acted on here.
+
+**Verified headless** (`verify_live_nav_data.js`, 28 assertions, all pass;
 full 11-suite regression re-run clean alongside it): the feature is
 completely inert by default (no dormant MSAL instance, `getLiveNavToken()`
 never redirects, `ensureLiveNavDataFetch()` is a no-op, `activeCoins()`/
 `activeDbSets()` return the `FAKE_*` arrays); `colVal()`'s candidate
 fallback; `mapWorkbookRowToCoin()`/`mapWorkbookRowToDbSet()` against a
 normal row, a "Various"-year Roll row (stays a string, never `NaN`), a fully
-blank optional-fields row (no throw, sane defaults), a row using the
-`SpotValue` fallback instead of `Value`, and a no-`CollectionID` row (empty,
-filterable `id`); a dual-lineage (comma-separated) DB_Sets row still works
-with `dbSetLineageIncludes()` after mapping; and — the real end-to-end
-check — setting `LIVE_COINS`/`LIVE_DB_SETS` directly (standing in for a real
-fetch resolving, since the actual Graph/MSAL network calls can't be
-exercised from this environment) and confirming `coinsTabBaseRows()`,
-`medalTabBaseRows()`, the Rolls page's actual rendered grid, and
-`ownedSetForSetId()` all genuinely read through the live data, then
-confirming the fallback correctly restores once the live data is cleared.
-**No live OneDrive session was available this session** — the real
-Graph/MSAL flow (first-load sign-in redirect, real column names, real data
-shape) needs Ray's own live-run to confirm, consistent with the "needs a
-real click-through" caveat already attached to every other real-Graph
-feature in this file (Reference Images, the Add Set write layer, the
-workbook web-link).
+blank optional-fields row (no throw, sane defaults), the confirmed
+`Value`→`SpotValue` fallback order, confirmation that a lone `EstValue`
+value is correctly ignored (defaults to 0), the confirmed exact-header
+`OriginSetID` read, and a no-`CollectionID` row (empty, filterable `id`); a
+dual-lineage (comma-separated) DB_Sets row mapped via the confirmed
+`Description`-based name still works with `dbSetLineageIncludes()`; and —
+the real end-to-end check — setting `LIVE_COINS`/`LIVE_DB_SETS` directly
+(standing in for a real fetch resolving, since the actual Graph/MSAL network
+calls can't be exercised from this environment) and confirming
+`coinsTabBaseRows()`, `medalTabBaseRows()`, the Rolls page's actual rendered
+grid, and `ownedSetForSetId()` all genuinely read through the live data,
+then confirming the fallback correctly restores once the live data is
+cleared. **No live OneDrive session was available this session** — the
+column names above were confirmed by Ray reading the real workbook directly
+(not by this environment fetching it), so the remaining unverified piece is
+the actual Graph/MSAL network flow itself (first-load sign-in redirect,
+real response shape) — same "needs a real click-through" caveat already
+attached to every other real-Graph feature in this file (Reference Images,
+the Add Set write layer, the workbook web-link).
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back

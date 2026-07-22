@@ -3379,6 +3379,8 @@
     const yearNum = Number(yearRaw);
     return {
       id: String(colVal(row, "CollectionID")),
+      // Confirmed against the real workbook (Ray, direct column check) —
+      // Description is the display name, no separate name column exists.
       name: String(colVal(row, "Description")),
       denom: String(colVal(row, "Denomination")),
       // A mixed-date Roll's Year is the literal string "Various" (see
@@ -3392,6 +3394,9 @@
       certLink: String(colVal(row, "CertLink")),
       category: String(colVal(row, "Category")),
       rollId: String(colVal(row, "RollID")),
+      // Confirmed against the real workbook — OriginSetID exists (column 47,
+      // appended at the end of All), exact case-sensitive header match, no
+      // fallback candidates needed.
       originSetId: String(colVal(row, "OriginSetID")),
       setId: String(colVal(row, "SetID")),
       designation: String(colVal(row, "Designation")),
@@ -3399,11 +3404,12 @@
       container: String(colVal(row, "Container")),
       variety: String(colVal(row, "Variety")),
       cost: Number(colVal(row, "Cost")) || 0,
-      // No single confirmed "live estimated value" column name — SpotValue
-      // is documented as "not live yet (formula pending)". Tries a few
-      // reasonable candidates; blank/0 (not an error) if none are populated,
-      // same as every other sparse real column this app already tolerates.
-      value: Number(colVal(row, "Value", "EstValue", "SpotValue")) || 0,
+      // Confirmed against the real workbook: Value first, SpotValue as
+      // fallback (SpotValue's formula is "not live yet" per CLAUDE.md, so
+      // it's often blank — Value is the real populated column today). There
+      // is no EstValue column — dropped from the candidate list; it was a
+      // guess that turned out wrong.
+      value: Number(colVal(row, "Value", "SpotValue")) || 0,
       // No direct real-photo-presence column — approximated from whether
       // the Obverse/Reverse filename cells are populated, per the documented
       // "Obverse/Reverse hold whichever filename is currently displayed"
@@ -3420,6 +3426,23 @@
   // real-column equivalent — left blank, which is already handled
   // gracefully (renderSetChecklist falls back to row.name when tileLabel
   // is falsy).
+  //
+  // Confirmed against the real workbook (Ray, direct column check) — full
+  // current DB_Sets headers: SetID, GSID, ProductOption, ItemNumber, Year,
+  // MintMark, Description, Variety, Coins, FaceValue, Composition,
+  // Key/Notable, Mintage, Notes, MfgProductID, ContainerName, Lineage,
+  // SetScope. Two corrections from this feature's original guess:
+  //   - name comes from Description (same column the All sheet uses for a
+  //     coin's own display name) — "Name"/"SetName" don't exist as headers
+  //     here, kept only as harmless extra fallback candidates.
+  //   - there is no Category column on DB_Sets at all — category always
+  //     falls back to Lineage now (previously an "in case it exists"
+  //     guess; now a confirmed, permanent fact about this sheet).
+  //   - productCode has no confirmed real equivalent either (ProductOption/
+  //     ItemNumber are the closest real columns, unconfirmed) — left as a
+  //     harmless miss since nothing in this branch's swapped call sites
+  //     reads it; matchDbSetsByProductCode() (Add Set's own lookup) reads
+  //     FAKE_DB_SETS directly and is untouched/out of scope.
   function mapWorkbookRowToDbSet(row) {
     const yearRaw = colVal(row, "Year");
     const yearNum = Number(yearRaw);
@@ -3428,8 +3451,8 @@
       lineage: String(colVal(row, "Lineage")),
       setScope: String(colVal(row, "SetScope")),
       setId: String(colVal(row, "SetID")),
-      name: String(colVal(row, "Name", "SetName")),
-      category: String(colVal(row, "Category")) || String(colVal(row, "Lineage")),
+      name: String(colVal(row, "Description", "Name", "SetName")),
+      category: String(colVal(row, "Lineage")),
       productCode: String(colVal(row, "ProductCode"))
     };
   }
