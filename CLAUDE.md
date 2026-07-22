@@ -3269,6 +3269,49 @@ explicit request).**
   ("Showing X of 17"), Rolls icon renders + navigates + hides on the Rolls
   page, count hidden on Sets, zero horizontal overflow.
 
+**Ninth follow-up: plain Rolls glyph, search box repositioned, Back-button
+bug fix (Ray's explicit request + a real bug he found).**
+- **Rolls icon glyph: 🪙 → ◉** — the emoji rendered in full color regardless
+  of button styling, standing out from the monochrome ▦/☰ view-toggle icons
+  next to it. `◉` (Geometric Shapes block, no default emoji presentation)
+  renders in the button's own `currentColor` like the other two, so all
+  three now read as one consistent icon set. `title`/`aria-label` "Rolls"
+  unchanged — still the only textual cue, since the icon itself is now
+  fully abstract.
+- **Search box moved onto the title row, right-justified, smaller.** Pulled
+  `#browseSearchInput` out of `#browseCoinsHeader` (its own row above the
+  Denomination pills) into a new `.browse-header-row` flex container shared
+  with `#browseTitle` — `justify-content: space-between` puts the title left
+  and search right. Width capped narrow (`flex: 0 1 130px`, was full-width),
+  padding/font-size reduced (`6px 10px`/12px, was `10px 14px`/14px).
+  Placeholder shortened "Search by ID, year, or name…" → "Search…" to fit
+  the narrower box (the fuller description moved to `aria-label` only, so
+  screen readers still get it). Since the input no longer lives inside
+  `#browseCoinsHeader`, its show/hide is now set directly in
+  `showBrowseTab()` (`.hidden` class, new `.browse-search.hidden` rule) —
+  same Catalog/Medal-only condition as before, just applied to the element
+  directly instead of inheriting from its old parent's display toggle.
+- **Real bug, found and fixed: Back stopped working after Rolls → Catalog.**
+  Ray's report: navigate Catalog → Rolls (via the icon) → Back (correctly
+  returns to Catalog) → Back again — expected the Dashboard, got nothing.
+  Root cause: the Rolls icon's click handler did
+  `setNavBack(() => showBrowseTab("coins"))` and never re-armed `navBack`
+  afterward — so once back on Catalog, `navBack` was STILL "go to coins,"
+  and tapping Back again just re-ran that (already there, so it looked like
+  Back had silently stopped working) instead of falling through to
+  `navigate("dashboard")`, which is what Catalog-as-section-root should do
+  (same rule `showBrowseGrid()`'s own `setNavBack` already documents).
+  Fixed: the handler now re-arms `navBack` to the Dashboard the moment it
+  lands back on Catalog — `setNavBack(() => { showBrowseTab("coins");
+  setNavBack(() => navigate("dashboard")); })`. A new regression assertion
+  in `verify_medal_tab.js` covers the exact repro (Catalog → Rolls → Back →
+  Back → must reach Dashboard) so this can't silently regress again.
+- Verified headless: Rolls glyph reads `◉`; search box sits on the title row
+  (same top offset as `#browseTitle`, right-aligned, 130px wide) and still
+  filters correctly from its new position; the full Catalog→Rolls→Back→Back
+  sequence now reaches the Dashboard on the second tap (was stuck on
+  Catalog). All 10 suites re-run clean (18/18 in `verify_medal_tab.js`).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

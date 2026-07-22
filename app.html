@@ -897,14 +897,22 @@
   .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
   .view-toggle-btn.hidden { display: none; }
 
+  /* Shares the page-title row with #browseTitle, right-justified — the
+     title takes whatever space it needs, the search box takes the rest
+     (capped narrow, since it doesn't need to be wide to be usable). */
+  .browse-header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; margin-bottom: 12px;
+  }
   .browse-search {
-    width: 100%; box-sizing: border-box; margin-bottom: 12px;
-    padding: 10px 14px; border-radius: 10px;
+    flex: 0 1 130px; min-width: 90px; box-sizing: border-box;
+    padding: 6px 10px; border-radius: 8px;
     border: 1px solid var(--case-border); background: var(--bg-case);
-    color: var(--text); font-family: inherit; font-size: 14px;
+    color: var(--text); font-family: inherit; font-size: 12px;
   }
   .browse-search::placeholder { color: var(--text-muted); }
   .browse-search:focus { outline: none; border-color: var(--gold); }
+  .browse-search.hidden { display: none; }
 
   .browse-result-count {
     font-size: 12px; color: var(--text-muted); margin-bottom: 8px; min-height: 15px;
@@ -1933,7 +1941,16 @@
       <!-- ============ BROWSE ============ -->
       <section class="view" id="view-browse">
         <div id="browseGridView">
-          <h2 class="display" style="margin-top:0;" id="browseTitle">Catalog</h2>
+          <div class="browse-header-row">
+            <h2 class="display" style="margin:0;" id="browseTitle">Catalog</h2>
+            <!-- Catalog search — matches CollectionID, year, name/series,
+                 denomination or mint mark; ANDs with the pill filters.
+                 Shares the title row (right-justified); Catalog/Medal only —
+                 visibility toggled directly in showBrowseTab() since it now
+                 lives outside #browseCoinsHeader. -->
+            <input type="search" id="browseSearchInput" class="browse-search"
+                   placeholder="Search…" aria-label="Search the catalog by ID, year, or name">
+          </div>
           <!-- Top-level tab row retired — primary navigation is at the cabinet
                (Dashboard) level now. Each cabinet drawer routes straight to the
                right in-page tab, so the row is kept in the DOM (empty, hidden)
@@ -1941,10 +1958,6 @@
           <div class="filter-row" id="browseTabRow" style="display:none;"></div>
 
           <div id="browseCoinsHeader">
-            <!-- Catalog search — matches CollectionID, year, name/series,
-                 denomination or mint mark; ANDs with the pill filters. -->
-            <input type="search" id="browseSearchInput" class="browse-search"
-                   placeholder="Search by ID, year, or name…" aria-label="Search the catalog">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
           </div>
@@ -1986,8 +1999,11 @@
             <div style="display:flex; gap:8px; align-items:center;">
               <!-- Rolls is an icon button (not a drawer — the cabinet's crowded
                    and rolls are few/rarely visited), styled like the view-toggle
-                   icons. Catalog-only; switches to the unique Rolls page. -->
-              <button type="button" class="view-toggle-btn" id="browseRollsFilterBtn" aria-label="Rolls" title="Rolls">🪙</button>
+                   icons. Catalog-only; switches to the unique Rolls page. Plain
+                   geometric glyph (◉, not the 🪙 emoji) so it renders in the
+                   same muted/gold currentColor as ▦/☰ instead of forcing full
+                   color like an emoji does — matches the icon set's look. -->
+              <button type="button" class="view-toggle-btn" id="browseRollsFilterBtn" aria-label="Rolls" title="Rolls">◉</button>
               <div class="view-toggle" id="browseViewToggle">
                 <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
                 <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
@@ -5604,6 +5620,9 @@
     // (a single denomination value, already the tab itself).
     document.getElementById("browseCoinsHeader").style.display = (tab === "coins" || tab === "medal") ? "block" : "none";
     document.getElementById("browseFilters").style.display = tab === "coins" ? "flex" : "none";
+    // Search box now lives in the title row (not #browseCoinsHeader), so its
+    // visibility is set directly here alongside the header block above.
+    document.getElementById("browseSearchInput").classList.toggle("hidden", !(tab === "coins" || tab === "medal"));
     document.getElementById("browseSetsHeader").style.display = tab === "sets" ? "block" : "none";
     document.getElementById("browseRollsHeader").style.display = tab === "rolls" ? "block" : "none";
     // Grid/List toggle applies to Coins'/Medal's .coin-disc cards — Sets and
@@ -5680,9 +5699,17 @@
     // unique Rolls list page. Back returns to the Catalog grid rather than
     // the Dashboard, so it isn't a one-way trip (Rolls has no cabinet drawer
     // of its own — reachable only from here).
+    // BUG FIX: the Back-from-Rolls handler must re-arm navBack to the
+    // Dashboard once it lands back on Catalog — Catalog is the section root,
+    // same as showBrowseGrid()'s own setNavBack call. Without this, a SECOND
+    // Back tap (now sitting on Catalog) just re-ran "go to coins" again —
+    // already there, so it looked like Back had silently stopped working.
     document.getElementById("browseRollsFilterBtn").addEventListener("click", () => {
       showBrowseTab("rolls");
-      setNavBack(() => showBrowseTab("coins"));
+      setNavBack(() => {
+        showBrowseTab("coins");
+        setNavBack(() => navigate("dashboard"));
+      });
     });
 
     const metalRow = document.getElementById("browseMetalFilters");
