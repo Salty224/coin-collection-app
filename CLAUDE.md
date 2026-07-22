@@ -3099,6 +3099,79 @@ this branch is now `main`, since the cabinet nav merge already landed).**
   overflowing) with zero page-level horizontal overflow; Ledger heading
   reads "Ledger". Not yet checked on Ray's own device.
 
+**Fifth follow-up: Browse tab row retired, filters restructured (Ray's
+explicit request — primary navigation is at the cabinet level now, so the
+in-page top-level tab row is redundant).** This supersedes the whole
+"Browse: navigation restructure"/"Medal tab"/"Missing Photos filter"
+apparatus at the UI level (the underlying data model and tab-switching
+plumbing are untouched — see the retain-plumbing note below).
+- **Top-level Browse tab row (Coins/Sets/Albums/Medals/Rolls) removed from
+  the UI entirely.** `#browseTabRow` is kept in the DOM but hidden and never
+  populated; `BROWSE_TABS`/`activeBrowseTab`/`showBrowseTab()` are all
+  retained as internal plumbing (Ray's "retain plumbing as you see fit").
+  Sets and Albums are each reachable via their own cabinet drawer, so
+  nothing is lost; Coins is the Catalog drawer; Medals and Rolls are
+  relocated (below).
+- **Page heading "Coins" → "Catalog"** (matches the Catalog drawer label).
+  `showBrowseTab()` sets the title to "Catalog" for the coins tab.
+- **Medal is a Denomination chip again, last in the row** — reverses the
+  "Medals is its own top-level tab" phase (which itself had reversed an
+  even-earlier "Medal is a Denomination chip" phase; we're back to that).
+  Ray's framing: "treat it like a denomination." `coinsTabBaseRows()` now
+  INCLUDES `denom==="Medal"` rows (was excluding them), a `{key:"Medal",
+  label:"Medals"}` chip is appended to `BROWSE_FILTER_CHIPS`, and it
+  OR-combines with the other denomination chips and ANDs with Metal/
+  Commemorative exactly like any denomination. The medal-tab code path
+  (`medalTabBaseRows`/`applyMedalTabFilters`, the `activeBrowseTab==="medal"`
+  branch) is now dead-but-harmless (unreachable, since the tab row is gone)
+  — left in place rather than ripped out, per retain-plumbing.
+- **Bottom toolbar row is now Year / Commemorative / Rolls.** Commemorative
+  moved out of its own `#browseCommemorativeRow` (deleted) into the toolbar
+  as a static button (`#browseCommemorativeFilterBtn`); Rolls is a NEW nav
+  pill (`#browseRollsFilterBtn`) — not a filter, it switches to the unique
+  Rolls list page (`showBrowseTab("rolls")`) and sets Back to return to the
+  Catalog grid (`setNavBack(() => showBrowseTab("coins"))`) so it isn't a
+  one-way trip (Rolls has no cabinet drawer of its own — reachable only from
+  here). Both the Commemorative and Rolls chips are Catalog-only (hidden on
+  Sets/Rolls via `.filter-chip.hidden`, a new global rule); the Year chip
+  stays on every tab.
+- **"Missing Photos" Browse filter retired entirely.** Ray's call: missing-
+  photo tracking already lives in the Docket (the Needs Attention hub lists
+  each otherwise-complete record missing a photo as a dismissible row —
+  `coinMissingPhoto()`, unchanged), so the standing Browse filter is
+  redundant. The `#browseMissingPhotoFilterBtn` button, its listener, and
+  its reset line are removed; `browseMissingPhotoOnly` stays declared
+  (always `false`) so the `!browseMissingPhotoOnly || coinMissingPhoto(c)`
+  terms in the various `apply*Filters()` functions stay harmless no-ops
+  rather than needing every one edited. `coinMissingPhoto()` itself is kept
+  (still used by the Docket).
+- **Sets page: tab row + Missing Photos gone; category pills + scope
+  dropdown + Year kept.** The category/lineage pill row (All/Uncirculated/
+  Proof/Silver Proof/Commemorative/Other) and the Complete/Component/Premium
+  scope dropdown are the Sets page's own filters (Ray: "those are
+  effectively filtering the sets like metal or denominations do for coins")
+  — untouched. Year stays (a real filter). The completeness-checklist
+  feature is fully intact.
+- **Catalog grid coin-flip corner-label font bumped 11px → 14px** (Ray's
+  request) — `.coin-card .flip-frame-mini .flip-label`. The JS last-word
+  shortening (`renderTypeDenomCorner`, measured via `scrollWidth`/
+  `clientWidth`) still guards the one long field (series/type name). One
+  single-word type name ("Washington") spills ~3px past its box into the
+  empty corner space at the new size — not a clip (flip-labels have no
+  `overflow:hidden`, per the corner-label history above) and not colliding
+  with the coin; within accepted tolerance. `.set-child-grid`'s mini-flips
+  are a separate rule, unchanged (Ray specified the Catalog page).
+- **`verify_medal_tab.js` rewritten** to assert the new design (Medal as a
+  Denomination chip, tab row gone, toolbar = Year/Commemorative/Rolls,
+  Missing Photos gone, Rolls-pill→page→Back-to-Catalog) rather than the
+  retired medal-as-tab behavior — following a real design change, not
+  weakened. All 10 suites re-run clean.
+- **Not yet checked on Ray's own device** — verified headless (412×915):
+  Catalog title, Medals chip present + narrows to medal rows, Commemorative
+  ANDs with Medals, Rolls pill→Rolls page→Back→Catalog, Sets page pills
+  intact with no Missing Photos, zero horizontal overflow, bigger flip font
+  renders without clipping.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

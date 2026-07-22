@@ -818,7 +818,11 @@
     justify-content: center;
   }
   .coin-card .flip-frame-mini .coin-disc { margin: 0; }
-  .coin-card .flip-frame-mini .flip-label { font-size: 11px; max-width: 46%; }
+  /* Corner-label font on the Catalog/Coins grid cards — bumped 11px -> 14px
+     per Ray's request; the JS last-word shortening (renderTypeDenomCorner,
+     measured via scrollWidth/clientWidth) still guards the one long field
+     (series/type name), so a bigger font can't produce unbounded overflow. */
+  .coin-card .flip-frame-mini .flip-label { font-size: 14px; max-width: 46%; }
 
   .coin-grid:not(.list-view) .coin-card .coin-card-text,
   .coin-grid:not(.list-view) .coin-card .grade-badge {
@@ -937,6 +941,7 @@
     cursor: pointer;
   }
   .filter-chip.active { color: var(--gold-bright); border-color: var(--gold); }
+  .filter-chip.hidden { display: none; }
 
   /* Sets tab's category row wraps to a second line instead of scrolling
      horizontally, unlike every other .filter-row in the app — six pills
@@ -1913,13 +1918,16 @@
       <!-- ============ BROWSE ============ -->
       <section class="view" id="view-browse">
         <div id="browseGridView">
-          <h2 class="display" style="margin-top:0;" id="browseTitle">Coins</h2>
-          <div class="filter-row" id="browseTabRow"></div>
+          <h2 class="display" style="margin-top:0;" id="browseTitle">Catalog</h2>
+          <!-- Top-level tab row retired — primary navigation is at the cabinet
+               (Dashboard) level now. Each cabinet drawer routes straight to the
+               right in-page tab, so the row is kept in the DOM (empty, hidden)
+               to preserve the tab-switching plumbing without rendering any UI. -->
+          <div class="filter-row" id="browseTabRow" style="display:none;"></div>
 
           <div id="browseCoinsHeader">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
-            <div class="filter-row" id="browseCommemorativeRow" style="margin-top:6px;"></div>
           </div>
 
           <div id="browseSetsHeader" style="display:none;">
@@ -1956,9 +1964,10 @@
                reasoning as before, just now scoped to the toggle itself
                rather than hiding this whole row). -->
           <div class="browse-toolbar" id="browseToolbarRow">
-            <div style="display:flex; gap:8px;">
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
-              <button type="button" class="filter-chip" id="browseMissingPhotoFilterBtn">Missing Photos</button>
+              <button type="button" class="filter-chip" id="browseCommemorativeFilterBtn">Commemorative</button>
+              <button type="button" class="filter-chip" id="browseRollsFilterBtn">Rolls</button>
             </div>
             <div class="view-toggle" id="browseViewToggle">
               <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
@@ -4883,6 +4892,12 @@
   // Medal is ALSO gone from this row (superseded again) — it's now its own
   // top-level Browse tab (see BROWSE_TABS above), same reasoning as Sets:
   // one path to it, not both.
+  // Medal is back in this OR-group as the last chip (superseded the
+  // brief "Medals is its own top-level tab" phase) — Ray's call is to treat
+  // it exactly like a denomination now that the top-level tab row is gone.
+  // "All" includes medals (they're in coinsTabBaseRows now); tapping "Medals"
+  // narrows to them; Metal/Commemorative still AND against it, same as any
+  // denomination.
   const BROWSE_FILTER_CHIPS = [
     { key: "all",   label: "All", isAll: true },
     { key: "1C",    label: "Cents",    test: c => c.denom === "1C" },
@@ -4890,7 +4905,8 @@
     { key: "10C",   label: "Dimes",    test: c => c.denom === "10C" },
     { key: "25C",   label: "Quarters", test: c => c.denom === "25C" },
     { key: "50C",   label: "Halves",   test: c => c.denom === "50C" },
-    { key: "$1",    label: "Dollars",  test: c => c.denom === "$1" }
+    { key: "$1",    label: "Dollars",  test: c => c.denom === "$1" },
+    { key: "Medal", label: "Medals",   test: c => c.denom === "Medal" }
   ];
 
   // Empty set = "All" (no filter). Populated with chip keys as the user
@@ -5222,7 +5238,11 @@
   // Coins never double-shows them and a row never appears in more than one
   // tab.
   function coinsTabBaseRows() {
-    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId && c.denom !== "Medal");
+    // Medal rows are now INCLUDED here — Medal is a Denomination chip in this
+    // tab again (see BROWSE_FILTER_CHIPS), not a separate tab, so the Catalog
+    // page owns them. Still excludes Set-bundle rows (Denomination="Multiple")
+    // and Roll rows (RollID populated), which have their own destinations.
+    return FAKE_COINS.filter(c => c.denom !== "Multiple" && !c.rollId);
   }
 
   // Medal tab's base row-set — the mirror image of the exclusion above.
@@ -5409,7 +5429,7 @@
     updateBrowseFilterChipsUI();
 
     browseCommemorativeOnly = false;
-    const commemorativeChip = document.querySelector("#browseCommemorativeRow .filter-chip");
+    const commemorativeChip = document.getElementById("browseCommemorativeFilterBtn");
     if (commemorativeChip) commemorativeChip.classList.remove("active");
 
     browseMetalTest = BROWSE_METAL_CHIPS[0].test;
@@ -5427,9 +5447,6 @@
     yearFilterBegin = null;
     yearFilterEnd = null;
     updateYearFilterButtonUI();
-
-    browseMissingPhotoOnly = false;
-    document.getElementById("browseMissingPhotoFilterBtn").classList.remove("active");
   }
 
   // Switches Browse between its three in-place tabs (Coins/Rolls/Sets) —
@@ -5463,22 +5480,24 @@
     // tabs regardless — it also carries the Year filter chip, which applies
     // to Sets/Rolls too; only the view-toggle sub-element hides.
     document.getElementById("browseViewToggle").classList.toggle("hidden", tab === "sets" || tab === "rolls");
+    // Commemorative filter + the Rolls nav pill belong to the Catalog (coins)
+    // view only — hidden on Sets (its own category row filters it) and on
+    // Rolls (Commemorative doesn't apply to a roll; the Rolls pill would just
+    // point at the page you're already on). The Year chip stays on every tab.
+    const showCatalogTools = (tab === "coins" || tab === "medal");
+    document.getElementById("browseCommemorativeFilterBtn").classList.toggle("hidden", !showCatalogTools);
+    document.getElementById("browseRollsFilterBtn").classList.toggle("hidden", !showCatalogTools);
     document.getElementById("browseTitle").textContent =
-      tab === "coins" ? "Coins" : tab === "medal" ? "Medals" : tab === "rolls" ? "Rolls" : "Sets";
+      tab === "coins" ? "Catalog" : tab === "medal" ? "Medals" : tab === "rolls" ? "Rolls" : "Sets";
 
     applyActiveBrowseTabFilters();
   }
 
   function initBrowse() {
-    const tabRow = document.getElementById("browseTabRow");
-    BROWSE_TABS.forEach(t => {
-      const btn = document.createElement("button");
-      btn.className = "filter-chip browse-tab" + (t.key === "coins" ? " active" : "");
-      btn.textContent = t.label;
-      btn.dataset.key = t.key;
-      btn.addEventListener("click", () => showBrowseTab(t.key));
-      tabRow.appendChild(btn);
-    });
+    // Top-level tab row intentionally not populated — the row is hidden and
+    // navigation now happens at the cabinet level (each drawer routes to the
+    // right tab via navigate()/showBrowseTab). The BROWSE_TABS list is kept
+    // for the internal tab-switching plumbing, just not rendered as chips.
 
     const filterRow = document.getElementById("browseFilters");
     BROWSE_FILTER_CHIPS.forEach(f => {
@@ -5500,16 +5519,24 @@
       filterRow.appendChild(chip);
     });
 
-    const commemorativeRow = document.getElementById("browseCommemorativeRow");
-    const commemorativeChip = document.createElement("button");
-    commemorativeChip.className = "filter-chip";
-    commemorativeChip.textContent = "Commemorative";
+    // Commemorative now lives in the bottom toolbar row (alongside Year and
+    // Rolls) rather than its own row — a static button in the markup, wired
+    // here. Same independent-boolean-toggle behavior as before.
+    const commemorativeChip = document.getElementById("browseCommemorativeFilterBtn");
     commemorativeChip.addEventListener("click", () => {
       browseCommemorativeOnly = !browseCommemorativeOnly;
       commemorativeChip.classList.toggle("active", browseCommemorativeOnly);
-      applyCoinsTabFilters();
+      applyActiveBrowseTabFilters();
     });
-    commemorativeRow.appendChild(commemorativeChip);
+
+    // Rolls is a nav pill in the toolbar (not a filter) — it switches to the
+    // unique Rolls list page. Back returns to the Catalog grid rather than
+    // the Dashboard, so it isn't a one-way trip (Rolls has no cabinet drawer
+    // of its own — reachable only from here).
+    document.getElementById("browseRollsFilterBtn").addEventListener("click", () => {
+      showBrowseTab("rolls");
+      setNavBack(() => showBrowseTab("coins"));
+    });
 
     const metalRow = document.getElementById("browseMetalFilters");
     let firstMetalChip = null;
@@ -5611,13 +5638,12 @@
       applyActiveBrowseTabFilters();
     });
 
-    // Standing Missing Photos audit filter — a plain boolean toggle sharing
-    // the Year chip's row, same "shared across Coins/Rolls/Sets" placement.
-    document.getElementById("browseMissingPhotoFilterBtn").addEventListener("click", (e) => {
-      browseMissingPhotoOnly = !browseMissingPhotoOnly;
-      e.target.classList.toggle("active", browseMissingPhotoOnly);
-      applyActiveBrowseTabFilters();
-    });
+    // The standing "Missing Photos" Browse filter was retired — missing-photo
+    // tracking lives in the Docket (Needs Attention hub) instead, which
+    // already lists each otherwise-complete record missing a photo as a
+    // dismissible row. browseMissingPhotoOnly stays defined (always false)
+    // so the harmless filter terms in the apply*Filters functions are no-ops
+    // rather than requiring every one of them to be edited.
 
     showBrowseTab("coins");
 
