@@ -3172,6 +3172,36 @@ plumbing are untouched — see the retain-plumbing note below).
   intact with no Missing Photos, zero horizontal overflow, bigger flip font
   renders without clipping.
 
+**Sixth follow-up: Rolls page filter pills, Metal pill relabel/reorder
+(Ray's explicit request).**
+- **Rolls page sort dropdown removed, replaced with filter pills.** The old
+  `#rollsSortSelect` (Year/Denomination/Value/Name sort) is gone. In its
+  place, the Rolls page now has its own **Denomination pill row**
+  (`#rollsFilters` — All/Cents/Nickels/Dimes/Quarters/Halves/Dollars, NO
+  Medals chip since a roll is never a medal) and **Metal pill row**
+  (`#rollsMetalFilters` — same 7-category set as Catalog), mirroring the
+  Catalog page. Denomination multi-selects (OR); Metal is single-select;
+  both AND with the shared Year filter. Independent state
+  (`rollsSelectedDenomKeys`/`rollsMetalTest`) kept SEPARATE from the Catalog
+  page's own filter state so switching between the two pages never
+  cross-wires filters. `sortRollRows()` still runs with a fixed default
+  order (`rollsSortKey = "year-desc"`, no longer user-changeable) so the
+  list has a stable order; the variable/function are retained, just the UI
+  control is gone. Reset in `resetBrowseFilters()` alongside the Catalog
+  filters.
+- **Metal pill "All Metals" → "All"** (Catalog and Rolls both — same shared
+  `BROWSE_METAL_CHIPS`) — the metal names that follow already make the row's
+  purpose clear, so the shorter label is enough.
+- **Metal order: Platinum now before Gold** — `METAL_CATEGORIES` reordered
+  to `["Platinum","Gold","Silver","Copper","Zinc","Clad","Other"]` (rarest/
+  most-valuable first, Ray's call). `METAL_CATEGORY_INFO` is keyed by label,
+  so the reorder doesn't affect the per-pill hover/tap constituent info.
+- Verified headless (412×915): Rolls page has no sort dropdown, shows both
+  pill rows, filters correctly (3 demo rolls → Quarters=1, Silver=3, Gold=0
+  with the empty-state message), zero horizontal overflow; Catalog metal row
+  reads All/Platinum/Gold/Silver/Copper/Zinc/Clad/Other. All 10 regression
+  suites re-run clean (no test referenced the old label or dropdown).
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to

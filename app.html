@@ -1945,15 +1945,11 @@
           </div>
 
           <div id="browseRollsHeader" style="display:none;">
-            <div class="rolls-sort-row">
-              <select id="rollsSortSelect" aria-label="Sort Rolls">
-                <option value="year-desc">Year (Newest First)</option>
-                <option value="year-asc">Year (Oldest First)</option>
-                <option value="denom">Denomination</option>
-                <option value="value-desc">Value (High to Low)</option>
-                <option value="name">Name (A-Z)</option>
-              </select>
-            </div>
+            <!-- Rolls filter pills — Denomination + Metal, mirroring the
+                 Catalog page. Their own independent state (rolls aren't coins
+                 and have no Medals chip). Replaced the old sort dropdown. -->
+            <div class="filter-row" id="rollsFilters"></div>
+            <div class="filter-row" id="rollsMetalFilters" style="margin-top:6px;"></div>
           </div>
 
           <!-- Toolbar row, always present for Coins/Rolls/Sets (Albums never
@@ -5025,9 +5021,12 @@
   // blank/Other interchangeably until a separate research pass backfills
   // MetalCategory — an unset category has to land somewhere or it's
   // unreachable via any pill.
-  const METAL_CATEGORIES = ["Gold", "Silver", "Platinum", "Copper", "Zinc", "Clad", "Other"];
+  // Platinum listed before Gold (Ray's call — rarest/most-valuable first).
+  const METAL_CATEGORIES = ["Platinum", "Gold", "Silver", "Copper", "Zinc", "Clad", "Other"];
   const BROWSE_METAL_CHIPS = [
-    { label: "All Metals", test: () => true },
+    // "All" (not "All Metals") — the metal names that follow already make it
+    // clear this row is about metal, so the shorter label is enough.
+    { label: "All", test: () => true },
     ...METAL_CATEGORIES.map(cat => ({
       label: cat,
       test: cat === "Other"
@@ -5364,7 +5363,10 @@
     });
   }
 
-  let rollsSortKey = "year-desc"; // persists across tab switches, same as browseViewMode
+  // Fixed default sort order for the Rolls list (Year, newest first). The
+  // user-facing sort dropdown was removed in favour of filter pills; this
+  // stays as the single stable order sortRollRows() applies.
+  let rollsSortKey = "year-desc";
 
   // A mixed-date roll carries the literal string "Various" as its year (see
   // CLAUDE.md Roll cards) — not a real date to sort by. Non-numeric years
@@ -5393,10 +5395,39 @@
     return sorted;
   }
 
+  // Rolls page filters — Denomination (multi-select OR) + Metal (single-
+  // select), their own independent state, mirroring the Catalog page. Kept
+  // separate from the Catalog filter state (browseSelectedFilterKeys/
+  // browseMetalTest) so switching between the two pages doesn't cross-wire
+  // filters, and so Rolls needs no "Medals" chip.
+  let rollsSelectedDenomKeys = new Set();
+  let rollsMetalTest = BROWSE_METAL_CHIPS[0].test;
+
+  function rollsDenomTest(coin) {
+    if (rollsSelectedDenomKeys.size === 0) return true;
+    return [...rollsSelectedDenomKeys].some(key => {
+      const chip = BROWSE_FILTER_CHIPS.find(f => f.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
+
   function applyRollsTabFilters() {
-    const rows = FAKE_COINS.filter(c => !!c.rollId).filter(yearRowTest)
+    const rows = FAKE_COINS.filter(c => !!c.rollId)
+      .filter(rollsDenomTest).filter(rollsMetalTest).filter(yearRowTest)
       .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
+    // Default display order is Year (newest first); the user-facing sort
+    // control was removed in favour of the filter pills, but a stable,
+    // sensible default order is still applied.
     renderRollsGrid(sortRollRows(rows));
+  }
+
+  function updateRollsFilterChipsUI() {
+    document.querySelectorAll("#rollsFilters .filter-chip").forEach(chip => {
+      const key = chip.dataset.key;
+      chip.classList.toggle("active", key === "all"
+        ? rollsSelectedDenomKeys.size === 0
+        : rollsSelectedDenomKeys.has(key));
+    });
   }
 
   // Reflects browseSelectedFilterKeys onto the Coins-tab Denomination/Medal
@@ -5434,6 +5465,11 @@
 
     browseMetalTest = BROWSE_METAL_CHIPS[0].test;
     document.querySelectorAll("#browseMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
+
+    rollsSelectedDenomKeys.clear();
+    updateRollsFilterChipsUI();
+    rollsMetalTest = BROWSE_METAL_CHIPS[0].test;
+    document.querySelectorAll("#rollsMetalFilters .filter-chip").forEach((chip, i) => chip.classList.toggle("active", i === 0));
 
     activeSetCategoryChip = BROWSE_SET_CATEGORY_CHIPS[0];
     browseSetCategoryTest = BROWSE_SET_CATEGORY_CHIPS[0].test;
@@ -5598,9 +5634,47 @@
       document.getElementById("browseGrid").classList.add("list-view");
     });
 
-    document.getElementById("rollsSortSelect").addEventListener("change", (e) => {
-      rollsSortKey = e.target.value;
-      applyRollsTabFilters();
+    // Rolls page: its own Denomination pill row (no "Medals" chip — rolls
+    // are never medals) + its own Metal pill row, both mirroring the Catalog
+    // page's pills but with independent state (rollsSelectedDenomKeys /
+    // rollsMetalTest). Replaced the old sort dropdown.
+    const rollsFilterRow = document.getElementById("rollsFilters");
+    BROWSE_FILTER_CHIPS.filter(f => f.key !== "Medal").forEach(f => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (f.isAll ? " active" : "");
+      chip.textContent = f.label;
+      chip.dataset.key = f.key;
+      chip.addEventListener("click", () => {
+        if (f.isAll) {
+          rollsSelectedDenomKeys.clear();
+        } else if (rollsSelectedDenomKeys.has(f.key)) {
+          rollsSelectedDenomKeys.delete(f.key);
+        } else {
+          rollsSelectedDenomKeys.add(f.key);
+        }
+        updateRollsFilterChipsUI();
+        applyRollsTabFilters();
+      });
+      rollsFilterRow.appendChild(chip);
+    });
+
+    const rollsMetalRow = document.getElementById("rollsMetalFilters");
+    let firstRollsMetalChip = null;
+    BROWSE_METAL_CHIPS.forEach(m => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (!firstRollsMetalChip ? " active" : "");
+      chip.textContent = m.label;
+      const info = METAL_CATEGORY_INFO[m.label];
+      if (info) chip.title = info;
+      chip.addEventListener("click", () => {
+        document.querySelectorAll("#rollsMetalFilters .filter-chip").forEach(c => c.classList.remove("active"));
+        chip.classList.add("active");
+        rollsMetalTest = m.test;
+        applyRollsTabFilters();
+        if (info) showToast(m.label + ": " + info);
+      });
+      rollsMetalRow.appendChild(chip);
+      if (!firstRollsMetalChip) firstRollsMetalChip = chip;
     });
 
     const yearFilterOverlay = document.getElementById("yearFilterOverlay");
