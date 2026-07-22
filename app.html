@@ -895,6 +895,21 @@
     background: var(--bg-case); color: var(--text-muted); font-size: 15px; cursor: pointer;
   }
   .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
+  .view-toggle-btn.hidden { display: none; }
+
+  .browse-search {
+    width: 100%; box-sizing: border-box; margin-bottom: 12px;
+    padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--case-border); background: var(--bg-case);
+    color: var(--text); font-family: inherit; font-size: 14px;
+  }
+  .browse-search::placeholder { color: var(--text-muted); }
+  .browse-search:focus { outline: none; border-color: var(--gold); }
+
+  .browse-result-count {
+    font-size: 12px; color: var(--text-muted); margin-bottom: 8px; min-height: 15px;
+  }
+  .browse-result-count.hidden { display: none; }
 
   /* Sets tab (see CLAUDE.md "Carried forward" — Issue 1 fix): its .album-card
      cards were inheriting .coin-grid's multi-column layout and rendering
@@ -1926,6 +1941,10 @@
           <div class="filter-row" id="browseTabRow" style="display:none;"></div>
 
           <div id="browseCoinsHeader">
+            <!-- Catalog search — matches CollectionID, year, name/series,
+                 denomination or mint mark; ANDs with the pill filters. -->
+            <input type="search" id="browseSearchInput" class="browse-search"
+                   placeholder="Search by ID, year, or name…" aria-label="Search the catalog">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
           </div>
@@ -1963,14 +1982,20 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
               <button type="button" class="filter-chip" id="browseCommemorativeFilterBtn">Commemorative</button>
-              <button type="button" class="filter-chip" id="browseRollsFilterBtn">Rolls</button>
             </div>
-            <div class="view-toggle" id="browseViewToggle">
-              <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
-              <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <!-- Rolls is an icon button (not a drawer — the cabinet's crowded
+                   and rolls are few/rarely visited), styled like the view-toggle
+                   icons. Catalog-only; switches to the unique Rolls page. -->
+              <button type="button" class="view-toggle-btn" id="browseRollsFilterBtn" aria-label="Rolls" title="Rolls">🪙</button>
+              <div class="view-toggle" id="browseViewToggle">
+                <button type="button" class="view-toggle-btn active" id="browseGridViewBtn" aria-label="Grid view" title="Grid view">▦</button>
+                <button type="button" class="view-toggle-btn" id="browseListViewBtn" aria-label="List view" title="List view">☰</button>
+              </div>
             </div>
           </div>
 
+          <div class="browse-result-count" id="browseResultCount"></div>
           <div class="coin-grid" id="browseGrid"></div>
           <div class="browse-empty hidden" id="browseEmptyMsg">No coins match this filter.</div>
         </div>
@@ -4917,6 +4942,26 @@
     });
   }
 
+  // Free-text Catalog search — ANDs with the pill filters. Matches (case-
+  // insensitive substring) against CollectionID, name/series, year,
+  // denomination, mint mark, variety, and grade — the fields a person is
+  // most likely to type. Empty query matches everything.
+  let browseSearchQuery = "";
+  function browseSearchTest(coin) {
+    const q = browseSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return [coin.id, coin.name, coin.year, coin.denom, coin.mint, coin.variety, coin.grade]
+      .some(v => v != null && String(v).toLowerCase().includes(q));
+  }
+
+  // "Showing X of Y" line above the grid. Hidden entirely on the Sets tab
+  // (its checklist/list split makes a single owned-count misleading).
+  function setBrowseResultCount(shown, total) {
+    const el = document.getElementById("browseResultCount");
+    el.classList.remove("hidden");
+    el.textContent = "Showing " + shown + " of " + total;
+  }
+
   // Independent boolean toggle, ANDs against Denomination/Medal + Metal on
   // the Coins tab — Category and Denomination are different fields, so
   // "Dollars + Commemorative" is a real, meaningful combination (unlike on
@@ -5293,11 +5338,13 @@
   }
 
   function applyCoinsTabFilters() {
-    const filtered = coinsTabBaseRows().filter(c =>
+    const base = coinsTabBaseRows();
+    const filtered = base.filter(c =>
       browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") &&
-      yearRowTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
+      yearRowTest(c) && browseSearchTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
     );
     renderBrowseGrid(sortCoinsTabRows(filtered));
+    setBrowseResultCount(filtered.length, base.length);
   }
 
   // Medal tab — same coin-disc card treatment as Coins (renderBrowseGrid),
@@ -5445,13 +5492,15 @@
   }
 
   function applyRollsTabFilters() {
-    const rows = FAKE_COINS.filter(c => !!c.rollId)
+    const base = FAKE_COINS.filter(c => !!c.rollId);
+    const rows = base
       .filter(rollsDenomTest).filter(rollsMetalTest).filter(yearRowTest)
       .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
     // Default display order is Year (newest first); the user-facing sort
     // control was removed in favour of the filter pills, but a stable,
     // sensible default order is still applied.
     renderRollsGrid(sortRollRows(rows));
+    setBrowseResultCount(rows.length, base.length);
   }
 
   function updateRollsFilterChipsUI() {
@@ -5500,6 +5549,10 @@
   // or rollsSortKey — those are display preferences, not filters, and
   // weren't part of this fix.
   function resetBrowseFilters() {
+    browseSearchQuery = "";
+    const searchInput = document.getElementById("browseSearchInput");
+    if (searchInput) searchInput.value = "";
+
     browseSelectedFilterKeys.clear();
     updateBrowseFilterChipsUI();
 
@@ -5574,6 +5627,10 @@
     // active tab's own year state (it may differ from the tab we left).
     updateYearFilterButtonUI();
 
+    // Result count shows on Catalog/Rolls (grids of owned rows); hidden on
+    // Sets, whose checklist/list split makes a single owned-count misleading.
+    document.getElementById("browseResultCount").classList.toggle("hidden", tab === "sets");
+
     applyActiveBrowseTabFilters();
   }
 
@@ -5582,6 +5639,12 @@
     // navigation now happens at the cabinet level (each drawer routes to the
     // right tab via navigate()/showBrowseTab). The BROWSE_TABS list is kept
     // for the internal tab-switching plumbing, just not rendered as chips.
+
+    // Catalog search box — live-filters as you type, ANDing with the pills.
+    document.getElementById("browseSearchInput").addEventListener("input", (e) => {
+      browseSearchQuery = e.target.value;
+      applyCoinsTabFilters();
+    });
 
     const filterRow = document.getElementById("browseFilters");
     BROWSE_FILTER_CHIPS.forEach(f => {

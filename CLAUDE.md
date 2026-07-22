@@ -3233,6 +3233,42 @@ explicit request).**
   shows no year, Rolls Year=1964 → 1 roll, returning to Catalog still shows
   1916; external Browse entry clears both. All 10 regression suites clean.
 
+**Eighth follow-up: Catalog search, result count, Rolls-as-icon (Ray's
+explicit request).**
+- **Catalog search box** (`#browseSearchInput`, inside `#browseCoinsHeader`
+  so it's Catalog-only, hidden on Sets/Rolls automatically). Live-filters as
+  you type via `browseSearchTest()` — case-insensitive substring against
+  CollectionID, name/series, year, denomination, mint mark, variety, and
+  grade. ANDs with the pill filters (added as another term in
+  `applyCoinsTabFilters()`). Cleared by `resetBrowseFilters()` (external
+  Browse entry). Search is Catalog-only for now (Rolls has few rows and no
+  search; Sets has its own category model) — an easy add elsewhere later if
+  wanted.
+- **Result count** ("Showing X of Y", `#browseResultCount`) above the grid —
+  `setBrowseResultCount(shown, total)` where total is that tab's full base
+  row-set. Updated in `applyCoinsTabFilters()` and `applyRollsTabFilters()`;
+  **hidden on the Sets tab** (its checklist/list split makes a single owned-
+  count misleading — toggled in `showBrowseTab()`).
+- **Rolls is now an icon button, not a text pill** — Ray's call: a dedicated
+  cabinet drawer felt like too much for a rarely-visited, low-count section,
+  so it's a small 🪙 icon (the app's established roll glyph) styled like the
+  grid/list view-toggle icons, sitting just left of them in the toolbar's
+  right group. Same id (`#browseRollsFilterBtn`), same behavior as the old
+  pill (Catalog-only via `showCatalogTools`; switches to the unique Rolls
+  page; Back → Catalog). `title`/`aria-label` "Rolls" cover the
+  discoverability gap of an icon with no text. Needed a new
+  `.view-toggle-btn.hidden { display:none }` rule so it hides on Sets/Rolls
+  like the old `.filter-chip` did. The toolbar left group is now just
+  Year + Commemorative.
+- `verify_medal_tab.js` updated: the old "toolbar shows Year/Commemorative/
+  Rolls chips" assertion is now "Year/Commemorative chips + Rolls is a
+  separate icon button," plus new assertions for the search box and result
+  count. All 10 suites clean (17/17 in that suite).
+- Verified headless (412×915): search by name ("morgan"→1) and by ID
+  ("AY-00003"→1), search ANDs with a denomination pill, count tracks
+  ("Showing X of 17"), Rolls icon renders + navigates + hides on the Rolls
+  page, count hidden on Sets, zero horizontal overflow.
+
 ### Initial splash screen (framework only, locked in)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
