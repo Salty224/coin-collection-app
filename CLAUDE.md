@@ -2037,6 +2037,107 @@ modules, the three views + `initAddSet` controller, `FAKE_DB_SETS`, and the two
 dashboard tiles. The coin-side in-memory reservation/Staging-Review mockup is
 completely untouched (Q8).
 
+**Step 1 field reorder + product-code-driven auto-populate + year-less Name
+(small-fixes follow-up, locked in).** Product code moved to be the FIRST
+field (most reliable identifier when Ray buys directly from the Mint — should
+drive the fields below it, not be a late optional aside), followed by Name,
+Year, Category — same order top to bottom now.
+- **`matchDbSetsByProductCode()` is now live-data-aware** — previously
+  `FAKE_DB_SETS`-only (explicitly out of scope when live-nav-data was built).
+  Now reads through `activeDbSets()` and checks THREE possible fields per
+  row: the two real, confirmed DB_Sets columns (`ItemNumber`, `ProductOption`
+  — via `mapWorkbookRowToDbSet`, live data only) or `FAKE_DB_SETS`'s own
+  single mock `productCode` field (demo data only, unchanged) — whichever is
+  populated on that row. Today's demo codes (`1999RG`, `2021RC`) keep
+  matching unchanged; a live row becomes matchable once
+  `ENABLE_LIVE_NAV_DATA` is on. `mapWorkbookRowToDbSet()` gained `itemNumber`/
+  `productOption` fields; the old unconfirmed `productCode` guess field was
+  dropped from the live mapper (real column names superseded it).
+  **Bug caught and fixed while widening this**: the product-code match path
+  used to set Category directly from a matched row's raw `.category` field
+  (`= String(colVal(row, "Lineage"))` on a live row) instead of running it
+  through `categoryFromLineage()` — harmless on demo data (whose `productCode`
+  rows already store a pre-translated category string) but would have set
+  Category to `"Uncirculated Coin Set"` on a real match, a value with no
+  matching `<option>` in the dropdown (silently resets to blank). Now uses
+  `categoryFromLineage(m.lineage)`, consistent with every other auto-fill
+  path on this form.
+- **A miss is non-blocking** (expected for a brand-new, not-yet-catalogued
+  Mint product) — Ray can keep entering everything by hand; the note reads
+  "Not found in catalog — may be a new release, continue entering manually."
+- **On a match: Name, Year, AND Category all auto-fill**, each independently
+  gated by its own touched flag (`addSetNameTouched`/`addSetYearTouched`,
+  new — same mechanism `addSetCategoryTouched` already established: set only
+  by that field's own genuine `input`/`change` listener, never by a
+  programmatic auto-fill `.value =` set, which never dispatches an event).
+  A manual edit to any one of the three always wins over a later
+  product-code match touching that same field — the other two can still
+  auto-fill independently.
+- **Name field is now year-less — holds a set TYPE, never one entry per
+  year** (`dbSetTypeName()`): strips a DB_Sets row's own leading year off its
+  Description using the row's real, separately-confirmed `Year` column —
+  not a blind regex over the text — so a row with no such leading-year
+  prefix (a rare non-annual product) passes through unchanged
+  (`dbSetTypeName(s) === s.name` for those). The Name datalist
+  (`populateAddSetNameOptions()`) now dedupes on this type name instead of
+  the raw dated Description — supersedes the original one-entry-per-year
+  list (~438 raw rows against real data, too granular to scan) with a
+  deduplicated set-type list (~100 entries against real data, per Ray's own
+  audit — "United States Mint Proof Set", "United States Mint Uncirculated
+  Coin Set", "Best of the Mint Set," etc.). Free text still always works.
+- **Category auto-fill logic changed to match (item 4)**, since Name no
+  longer carries the year: `updateAddSetCategoryFromNameYear()`, called on
+  every genuine Name or Year/Various change. When Year is a specific number,
+  matches STRUCTURALLY — `s.year === yearValue && dbSetTypeName(s) ===
+  typedName` — against every DB_Sets row, rather than reconstructing and
+  re-matching a `"{Year} {Name}"` string; functionally identical for the
+  normal case (every annual product's Description literally is
+  `"{Year} {Type}"`) but avoids any assumption about exact spacing/
+  punctuation in the real Description text. When Year is "Various"/unset,
+  only a genuinely year-less Description (the rare non-annual product) can
+  match a bare Name directly — never guesses which year's row an annual
+  product's own type name should resolve to. Still exact-match only, no
+  fuzzy matching (Ray's standing call).
+- **Stored/displayed `draft.setName` recomposes `"{Year} {Name}"`**
+  (`composeSetName()`) at save time — the Name FIELD is year-less, but the
+  Docket, In Progress Sets, and the child-capture header all read
+  `draft.setName` directly and don't separately show `draft.year` next to
+  it, so the stored string stays the rich, year-prefixed label those
+  screens already expect. A "Various"/unset year has nothing sensible to
+  prefix, so it's left as just the Name in that case.
+  `resumeSetDraftAtStep1()` uses the inverse (`typeNameFromDraft()`, via the
+  draft's own real `year` field, not text-parsing) to correctly repopulate
+  the now-year-less Name field regardless of when the draft was originally
+  created.
+- **Checklist deep-link (`applyAddSetContext()`) now also marks Name/Year
+  touched** after pre-filling them, alongside its existing Category
+  auto-fill — a deep-link from a specific known checklist slot is a
+  stronger, more deliberate signal than a code lookup, so it shouldn't get
+  silently overwritten by a product code entered afterward (Ray's explicit
+  call). Its own banner sentence ("Adding the missing X") still shows the
+  full dated name (more informative as a one-off message); only the Name
+  FIELD itself gets the stripped type, via `dbSetTypeName()` against the
+  checklist tile's own `{name, year}` shape.
+- Verified headless (Playwright, no committed suite files — this project's
+  established scratchpad-script convention): field order; datalist dedup
+  (10 entries against the small `FAKE_DB_SETS` mockup, none year-prefixed);
+  a product-code match auto-filling Name/Year/Category together; a manual
+  Name edit surviving a subsequent different product-code match while Year
+  (left untouched in that same test) still auto-filled independently — both
+  correct per the per-field touched-flag design, not a bug; the non-blocking
+  "not found" note; Category resolving from Name+Year both when Name is
+  entered first and when Year changes after (recompute-on-either-field);
+  the Various branch leaving Category blank for an annual-type name (no
+  crash, no wrong guess); `composeSetName()`'s two branches; and
+  `resumeSetDraftAtStep1()` correctly recovering a year-less Name from a
+  synthetic composed-`setName` draft. Not verified: any real live-OneDrive
+  click-through (product-code match against real `ItemNumber`/
+  `ProductOption` data, the ~100-entry datalist against the real ~438-row
+  DB_Sets sheet) — same "needs a real session" caveat as the rest of
+  live-nav-data; Ray's own audit of the real Description column ("confirmed
+  clean, no messy edge cases") is what this was built against, not an
+  independent re-verification from this environment.
+
 ### Grader dropdown + grader-agnostic cert linking (locked in)
 A **Grader** dropdown (Add Coin, above the label-entry field; sourced from
 `Lookup_Graders` — `PCGS`/`NGC`/`ANACS`/`ICG`/`CAC`) sits above the PCGS Label

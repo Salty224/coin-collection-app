@@ -2808,6 +2808,17 @@
           <span class="msg" id="addSetContextMsg"></span>
         </div>
 
+        <!-- Moved to be the FIRST field (small-fixes follow-up): the most
+             reliable identifier when Ray buys directly from the Mint, and
+             it drives Name/Year/Category below rather than being a late
+             optional aside — see the input listener in initAddSet(). -->
+        <label for="addSetProductCode">Mint product code (if known)</label>
+        <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
+        <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
+
+        <!-- Year-less: offers/holds a set TYPE ("United States Mint Proof
+             Set"), never a specific year — Year is its own field directly
+             below. See dbSetTypeName()/populateAddSetNameOptions(). -->
         <label for="addSetName">Set name / description</label>
         <input type="text" id="addSetName" placeholder="e.g. United States Mint Set" list="addSetNameOptions">
         <datalist id="addSetNameOptions"></datalist>
@@ -2816,7 +2827,7 @@
              personal/custom grouping (not an official product) can span
              multiple years — so this is a required either/or, never a third
              "leave blank" state. Pre-fills from a Sets-checklist deep-link
-             (applyAddSetContext()) as a specific year, never Various. -->
+             (applyAddSetContext()) or a product-code match, never Various. -->
         <label for="addSetYear">Year</label>
         <div style="display:flex; gap:10px; align-items:center;">
           <input type="number" id="addSetYear" inputmode="numeric" placeholder="e.g. 1999" style="flex:1;">
@@ -2824,10 +2835,6 @@
             <input type="checkbox" id="addSetYearVarious"> Various
           </label>
         </div>
-
-        <label for="addSetProductCode">Mint product code (if known)</label>
-        <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
-        <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
 
         <!-- Drives the "track individually" default below (defaultTrackIndividually()).
              Optional itself — "any Category not listed" (including left blank)
@@ -3449,11 +3456,13 @@
   //   - there is no Category column on DB_Sets at all — category always
   //     falls back to Lineage now (previously an "in case it exists"
   //     guess; now a confirmed, permanent fact about this sheet).
-  //   - productCode has no confirmed real equivalent either (ProductOption/
-  //     ItemNumber are the closest real columns, unconfirmed) — left as a
-  //     harmless miss since nothing in this branch's swapped call sites
-  //     reads it; matchDbSetsByProductCode() (Add Set's own lookup) reads
-  //     FAKE_DB_SETS directly and is untouched/out of scope.
+  //   - productCode's real equivalent is CONFIRMED now (Add Set small-fixes
+  //     follow-up): ItemNumber and ProductOption are both real columns —
+  //     matchDbSetsByProductCode() now reads through activeDbSets() and
+  //     checks both, alongside the mock's own single productCode field
+  //     (FAKE_DB_SETS demo rows never populate itemNumber/productOption, so
+  //     this stays a harmless no-op on demo data and today's demo codes
+  //     keep matching unchanged).
   function mapWorkbookRowToDbSet(row) {
     const yearRaw = colVal(row, "Year");
     const yearNum = Number(yearRaw);
@@ -3464,7 +3473,8 @@
       setId: String(colVal(row, "SetID")),
       name: String(colVal(row, "Description", "Name", "SetName")),
       category: String(colVal(row, "Lineage")),
-      productCode: String(colVal(row, "ProductCode"))
+      itemNumber: String(colVal(row, "ItemNumber")),
+      productOption: String(colVal(row, "ProductOption"))
     };
   }
 
@@ -9336,9 +9346,66 @@
     return out;
   })();
 
+  // Checks a typed product code against whichever of the three possible
+  // fields is actually populated on a given row: the two real, confirmed
+  // DB_Sets columns (ItemNumber, ProductOption — live data only, via
+  // mapWorkbookRowToDbSet) or FAKE_DB_SETS's own single mock productCode
+  // field (demo data only) — so today's demo codes (1999RG, 2021RC) keep
+  // matching unchanged while live data becomes real once ENABLE_LIVE_NAV_DATA
+  // is on. Reads through activeDbSets(), the same live-or-demo swap point
+  // the rest of Sets nav already uses (previously FAKE_DB_SETS-only —
+  // widened per Ray's explicit go-ahead).
   function matchDbSetsByProductCode(code) {
-    if (!code) return null;
-    return FAKE_DB_SETS.find(s => s.productCode && s.productCode.toLowerCase() === code.trim().toLowerCase()) || null;
+    const trimmed = (code || "").trim().toLowerCase();
+    if (!trimmed) return null;
+    return activeDbSets().find(s =>
+      (s.itemNumber && s.itemNumber.toLowerCase() === trimmed) ||
+      (s.productOption && s.productOption.toLowerCase() === trimmed) ||
+      (s.productCode && s.productCode.toLowerCase() === trimmed)
+    ) || null;
+  }
+
+  // Strips a DB_Sets row's own leading year off its Description, using the
+  // row's real, separately-confirmed Year column rather than a blind regex
+  // over the text — so the Name field only ever deals in set TYPES
+  // ("United States Mint Proof Set"), never one entry per year. A row whose
+  // Description has no such leading-year prefix (a rare non-annual product)
+  // passes through unchanged: dbSetTypeName(s) === s.name for those, which
+  // is exactly what makes the Year-is-Various/blank category-match branch
+  // below correct with no special-casing needed.
+  function dbSetTypeName(dbSet) {
+    const year = dbSet.year;
+    const name = dbSet.name || "";
+    if (typeof year === "number") {
+      const prefix = year + " ";
+      if (name.indexOf(prefix) === 0) return name.slice(prefix.length);
+    }
+    return name;
+  }
+
+  // The Name field itself is year-less, but the STORED/displayed
+  // draft.setName recomposes "{Year} {Name}" so the Docket, In Progress
+  // Sets, and the child-capture header keep reading naturally (none of
+  // those separately show draft.year next to a bare type name). A
+  // "Various"/unset year has nothing sensible to prefix, so it's left as
+  // just the Name in that case.
+  function composeSetName(name, year) {
+    const trimmed = (name || "").trim();
+    return (typeof year === "number") ? (year + " " + trimmed).trim() : trimmed;
+  }
+
+  // Inverse of composeSetName — recovers the year-less type name from an
+  // existing draft's stored setName, using the draft's OWN real year field
+  // (not a text-parsing guess) so resumeSetDraftAtStep1() can repopulate the
+  // now-year-less Name field correctly regardless of when the draft was
+  // originally created.
+  function typeNameFromDraft(draft) {
+    const name = draft.setName || "";
+    if (typeof draft.year === "number") {
+      const prefix = draft.year + " ";
+      if (name.indexOf(prefix) === 0) return name.slice(prefix.length);
+    }
+    return name;
   }
 
   // Resolved July 18 ProjectPlan item (CollectionID Parent-Child Convention
@@ -9367,13 +9434,50 @@
     return lineage || "";
   }
 
-  // Two independent "has Ray manually touched this" flags, reset on every
+  // Four independent "has Ray manually touched this" flags, reset on every
   // fresh Step 1 entry (showAddSetStep1) — auto-fill (from a product-code
-  // match, a checklist deep-link, or Category driving the track-individually
-  // default) only ever applies BEFORE Ray's own choice, never after, so nothing
-  // auto-fill does can silently stomp a deliberate override.
+  // match, a checklist deep-link, a DB_Sets Name match, or Category driving
+  // the track-individually default) only ever applies BEFORE Ray's own
+  // choice, never after, so nothing auto-fill does can silently stomp a
+  // deliberate override. Name/Year are new (small-fixes follow-up) — a
+  // product-code match can now auto-fill them too, so they need the same
+  // guard Category already had. Set by each field's own genuine "input"/
+  // "change" listener only — an auto-fill path sets `.value` directly
+  // without dispatching an event, so it never trips these on its own (same
+  // "programmatic sets don't fire native events" mechanism the Category
+  // guard already relied on).
   let addSetCategoryTouched = false;
   let addSetTrackIndividuallyTouched = false;
+  let addSetNameTouched = false;
+  let addSetYearTouched = false;
+
+  // Recomputes Category from the current Name+Year (item 4, small-fixes
+  // follow-up) — called whenever either field changes. When Year is a
+  // specific number, matches structurally (year + dbSetTypeName) against
+  // every DB_Sets row rather than reconstructing and re-matching a
+  // "{Year} {Name}" string — functionally identical for the normal case
+  // (every annual product's Description literally is "{Year} {Type}") but
+  // avoids any assumption about exact spacing/punctuation in Description
+  // text. When Year is "Various"/unset, only a genuinely year-less
+  // Description (dbSetTypeName(s) === s.name, the rare non-annual product)
+  // can match a bare Name directly — never guesses which year's row an
+  // annual product's own type name should resolve to.
+  function updateAddSetCategoryFromNameYear() {
+    if (addSetCategoryTouched) return;
+    const typedName = document.getElementById("addSetName").value.trim();
+    if (!typedName) return;
+    const yearValue = readAddSetYear();
+    let match;
+    if (typeof yearValue === "number") {
+      match = activeDbSets().find(s => s.year === yearValue && dbSetTypeName(s).toLowerCase() === typedName.toLowerCase());
+    } else {
+      match = activeDbSets().find(s => s.name && s.name.toLowerCase() === typedName.toLowerCase());
+    }
+    if (match && match.lineage) {
+      document.getElementById("addSetCategory").value = categoryFromLineage(match.lineage);
+      applyAddSetTrackIndividuallyDefault();
+    }
+  }
 
   function applyAddSetTrackIndividuallyDefault() {
     if (addSetTrackIndividuallyTouched) return;
@@ -9465,21 +9569,22 @@
     clearReceiptPdfIndicator(previewId, null);
   }
 
-  // Free-text autocomplete for the Set name field, sourced from known
-  // DB_Sets Description values (live when loaded, FAKE_DB_SETS otherwise —
-  // same activeDbSets() swap point as the rest of Sets nav). Verbatim,
-  // deduped — never rewritten/stripped (Description is a real, looked-up
-  // value, not something this app derives — see "Series-level reference
-  // images" in CLAUDE.md for why that matters). Free text always still
-  // works; this is suggestions only, not a hard-select control. Re-called
-  // from showAddSetStep1() on every entry so it reflects live data that
-  // finished loading after the page's initial load, not just whatever was
-  // available at initAddSet() time.
+  // Free-text autocomplete for the Set name field, deduplicated to set
+  // TYPES via dbSetTypeName() (small-fixes follow-up — supersedes the
+  // original one-entry-per-year list, which showed all ~438 raw DB_Sets
+  // Description values and was too granular to scan). Sourced from known
+  // DB_Sets rows (live when loaded, FAKE_DB_SETS otherwise — same
+  // activeDbSets() swap point as the rest of Sets nav). Free text always
+  // still works; this is suggestions only, not a hard-select control.
+  // Re-called from showAddSetStep1() on every entry so it reflects live
+  // data that finished loading after the page's initial load, not just
+  // whatever was available at initAddSet() time.
   function populateAddSetNameOptions() {
     const seen = new Set();
     const options = [];
     activeDbSets().forEach(s => {
-      if (s.name && !seen.has(s.name)) { seen.add(s.name); options.push(s.name); }
+      const typeName = dbSetTypeName(s);
+      if (typeName && !seen.has(typeName)) { seen.add(typeName); options.push(typeName); }
     });
     document.getElementById("addSetNameOptions").innerHTML =
       options.map(name => `<option value="${name.replace(/"/g, "&quot;")}"></option>`).join("");
@@ -9498,51 +9603,62 @@
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
 
-    // Category is frequently redundant with what's already implied by the
-    // Name/Description entered above — when the typed value exactly matches
-    // (case-insensitive) a known DB_Sets Description, auto-fill Category
-    // from that row's Lineage, same categoryFromLineage() mapping the
-    // Sets-checklist deep-link already uses below. Exact-match only,
-    // deliberately no fuzzy/partial matching (Ray's explicit call) — a
-    // silently wrong auto-fill from a fuzzy match is worse than leaving
-    // Category blank for manual entry. Same addSetCategoryTouched guard as
-    // every other auto-fill source here — never overrides a manual pick.
-    document.getElementById("addSetName").addEventListener("input", (e) => {
-      if (addSetCategoryTouched) return;
-      const typed = e.target.value.trim().toLowerCase();
-      if (!typed) return;
-      const match = activeDbSets().find(s => s.name && s.name.toLowerCase() === typed);
-      if (match && match.lineage) {
-        document.getElementById("addSetCategory").value = categoryFromLineage(match.lineage);
-        applyAddSetTrackIndividuallyDefault();
-      }
+    // Name and Year each recompute Category (item 4) on every genuine edit
+    // — see updateAddSetCategoryFromNameYear(). Setting addSetNameTouched/
+    // addSetYearTouched here (their own real "input"/"change" listener) is
+    // what lets a later product-code match know NOT to overwrite a value
+    // Ray already typed himself.
+    document.getElementById("addSetName").addEventListener("input", () => {
+      addSetNameTouched = true;
+      updateAddSetCategoryFromNameYear();
     });
 
-    // Live DB_Sets match note as the product code is typed — also auto-fills
-    // Category from the matched row (unless Ray has already picked one
-    // himself), which in turn drives the track-individually default below.
+    // Product code is now the FIRST field (item 1) and the primary
+    // auto-populate source (item 2): a match fills Name/Year/Category, each
+    // respecting that field's own touched flag so a manual edit (or an
+    // earlier checklist deep-link — see applyAddSetContext()) always wins.
+    // A miss is expected/non-blocking (a brand-new, not-yet-catalogued Mint
+    // product) — shown as a plain note, not an error.
     document.getElementById("addSetProductCode").addEventListener("input", (e) => {
       const note = document.getElementById("addSetMatchNote");
-      const m = matchDbSetsByProductCode(e.target.value);
-      if (!e.target.value.trim()) { note.textContent = ""; note.style.color = ""; return; }
+      const code = e.target.value.trim();
+      if (!code) { note.textContent = ""; note.style.color = ""; return; }
+      const m = matchDbSetsByProductCode(code);
       if (m) {
-        note.textContent = "✓ Matched DB_Sets: " + m.name + " (" + m.category + ")"; note.style.color = "var(--gold-bright)";
+        note.textContent = "✓ Matched DB_Sets: " + m.name + " (" + categoryFromLineage(m.lineage) + ")";
+        note.style.color = "var(--gold-bright)";
+        if (!addSetNameTouched) {
+          document.getElementById("addSetName").value = dbSetTypeName(m);
+        }
+        if (!addSetYearTouched && typeof m.year === "number") {
+          document.getElementById("addSetYearVarious").checked = false;
+          document.getElementById("addSetYear").disabled = false;
+          document.getElementById("addSetYear").value = m.year;
+        }
         if (!addSetCategoryTouched) {
-          document.getElementById("addSetCategory").value = m.category;
+          document.getElementById("addSetCategory").value = categoryFromLineage(m.lineage);
           applyAddSetTrackIndividuallyDefault();
         }
       } else {
-        note.textContent = "No DB_Sets match — will be resolved at reconciliation."; note.style.color = "var(--text-muted)";
+        note.textContent = "Not found in catalog — may be a new release, continue entering manually.";
+        note.style.color = "var(--text-muted)";
       }
     });
 
     // Year is required either/or: a specific number, or explicitly "Various"
     // (see the markup comment above) — checking Various disables and blanks
     // the number input so the two states can't both hold a stale value.
+    // Also a genuine Ray-driven edit — touches Year and recomputes Category.
+    document.getElementById("addSetYear").addEventListener("input", () => {
+      addSetYearTouched = true;
+      updateAddSetCategoryFromNameYear();
+    });
     document.getElementById("addSetYearVarious").addEventListener("change", (e) => {
       const yearInput = document.getElementById("addSetYear");
       yearInput.disabled = e.target.checked;
       if (e.target.checked) yearInput.value = "";
+      addSetYearTouched = true;
+      updateAddSetCategoryFromNameYear();
     });
 
     // Category drives the track-individually default (see
@@ -9669,6 +9785,8 @@
     document.getElementById("addSetCategory").value = "";
     addSetCategoryTouched = false;
     addSetTrackIndividuallyTouched = false;
+    addSetNameTouched = false;
+    addSetYearTouched = false;
     document.getElementById("addSetTrackIndividually").checked = defaultTrackIndividually("");
     // Re-enable, in case a previous visit was a resumeSetDraftAtStep1() call
     // that locked these against editing (see that function) — a fresh Step 1
@@ -9709,7 +9827,10 @@
     lastDrawerView = "needsdbcoins"; // Docket-originated, not Acquisitions — closes the right drawer on the way back to Dashboard
     setNavBack(() => navigate("needsdbcoins"));
 
-    document.getElementById("addSetName").value = draft.setName || "";
+    // Name is stored year-composed (composeSetName) — typeNameFromDraft()
+    // recovers just the type for the now-year-less Name field, using the
+    // draft's own real year rather than parsing.
+    document.getElementById("addSetName").value = typeNameFromDraft(draft);
     if (draft.year === "Various") {
       document.getElementById("addSetYearVarious").checked = true;
       document.getElementById("addSetYear").value = "";
@@ -9722,6 +9843,8 @@
     document.getElementById("addSetProductCode").value = draft.productCode || "";
     document.getElementById("addSetCategory").value = draft.category || "";
     addSetCategoryTouched = true; // a real known value — never auto-derive over it
+    addSetNameTouched = true;     // ditto — a later product-code entry shouldn't overwrite either
+    addSetYearTouched = true;
 
     document.getElementById("addSetTrackIndividually").checked = !!draft.trackIndividually;
     addSetTrackIndividuallyTouched = true;
@@ -9758,10 +9881,20 @@
     document.getElementById("addSetContextMsg").innerHTML =
       "Adding the missing <strong>" + setChecklistContext.name + "</strong> to your collection";
     banner.classList.remove("hidden");
-    document.getElementById("addSetName").value = setChecklistContext.name;
+    // The banner sentence above keeps the full dated name (more informative
+    // as a one-off message); the Name FIELD itself is year-less, so it gets
+    // just the type — reuse dbSetTypeName() against the checklist tile's own
+    // {name, year} shape.
+    document.getElementById("addSetName").value = dbSetTypeName({ name: setChecklistContext.name, year: setChecklistContext.year });
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
     document.getElementById("addSetYear").value = setChecklistContext.year;
+    // A deep-link from a specific known checklist slot is a stronger,
+    // more deliberate signal than a code lookup — Name/Year shouldn't get
+    // silently overwritten by a product code entered afterward (Ray's
+    // explicit call), same reasoning resumeSetDraftAtStep1() already applies.
+    addSetNameTouched = true;
+    addSetYearTouched = true;
     // A checklist deep-link is always a standard-issue annual product (one of
     // the three Lineages), so Category — and via it, the track-individually
     // default — pre-fills too, same as Year. Still fully overridable.
@@ -9789,10 +9922,14 @@
   }
 
   async function startSetCapture() {
-    const setName = document.getElementById("addSetName").value.trim();
-    if (!setName) { showToast("Give the set a name first."); return; }
+    const typedName = document.getElementById("addSetName").value.trim();
+    if (!typedName) { showToast("Give the set a name first."); return; }
     const yearValue = readAddSetYear();
     if (yearValue === null) { showToast('Pick a Year, or check "Various."'); return; }
+    // The Name field itself is year-less; the STORED/displayed setName
+    // recomposes "{Year} {Name}" (composeSetName) so the Docket, In
+    // Progress Sets, and the child-capture header keep reading naturally.
+    const setName = composeSetName(typedName, yearValue);
     const trackIndividually = document.getElementById("addSetTrackIndividually").checked;
     const category = document.getElementById("addSetCategory").value;
     const productCode = document.getElementById("addSetProductCode").value.trim();
