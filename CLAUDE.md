@@ -3652,14 +3652,21 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
   photos only ever governed the cream/navy/die-cut *look*, never the
   interaction/motion.
 
-### Live nav data (read-only) — held on branch `claude/live-nav-data`, NOT merged
+### Live nav data (read-only) — BUILT and merged to main
 Real, GET-only Graph API reads now power the Catalog/Medal/Rolls tabs and the
 Sets tab (both list mode and the completeness checklist) — instead of
 `FAKE_COINS`/`FAKE_DB_SETS` — when enabled. **Display-only: no write path is
-touched or added.** This is architectural (a new real-Graph read layer + its
-own MSAL instance), so per the merge policy it stays held on its branch
-pending Ray's explicit go-ahead, same standing as the cabinet navigation
-redesign.
+touched or added.**
+**Merge status correction:** this section previously read "held on branch
+`claude/live-nav-data`, NOT merged" — that was stale doc text, not a stale
+git state. Ray ran the full live click-through checklist himself against the
+real OneDrive `_Testing` copy workbook (auth, Catalog/Rolls/Sets rendering
+real data correctly, clean fallback to demo data on flag-off) and it was
+merged to main that same session; only this section's header text hadn't
+been updated to say so. Same standing as every other "held pending review"
+item once Ray actually signs off — **main is the source of truth for this
+feature**, same as the Add Set write layer's own merge-status correction
+below.
 
 **Sheets/ranges read:** the real `All` sheet and the real `DB_Sets` sheet, in
 full (`usedRange(valuesOnly=true)`), from the **live production workbook**
@@ -3803,6 +3810,51 @@ the actual Graph/MSAL network flow itself (first-load sign-in redirect,
 real response shape) — same "needs a real click-through" caveat already
 attached to every other real-Graph feature in this file (Reference Images,
 the Add Set write layer, the workbook web-link).
+
+**Extended (small-fixes batch): real Metal filter via a DB_Coins/
+Lookup_MetalContent join.** The Catalog/Rolls Metal pills previously did
+nothing real — `metalCategoryFor()` only ever read the sparse, hand-authored
+`FAKE_METAL_CONTENT` mockup lookup by CollectionID, with zero connection to
+any real workbook column, for either demo or live coins. Root cause
+confirmed against the real workbook (Ray): there's no direct Composition
+field on `All`, and `DB_Coins.Composition` itself is too granular/messy to
+filter on directly (22 distinct raw values — `"90% Silver"`, `"90% Silver,
+10% Copper"`, `"35% Silver"`, `".999 Fine Silver"`, etc.). The real,
+pre-bucketed join already exists in the workbook: `All.CoinID ->
+DB_Coins.CoinID -> DB_Coins.MetalContentType -> Lookup_MetalContent.CoinType
+-> Lookup_MetalContent.MetalCategory` (exactly 7 clean values: Silver, Gold,
+Platinum, Copper, Clad, Zinc, Other — Palladium is deliberately bucketed
+under Other per an existing note in `Lookup_MetalContent`, not a gap).
+- `ensureLiveNavDataFetch()` now also reads `DB_Coins` and
+  `Lookup_MetalContent` (four sheets fetched in parallel: `All`, `DB_Sets`,
+  `DB_Coins`, `Lookup_MetalContent`) — same `Files.Read` scope, same
+  `ENABLE_LIVE_NAV_DATA` gate, still `false`/localhost-only by default (no
+  production redirect URI exists for this feature, unchanged). Built under
+  the existing gate rather than held for separate review — it's an
+  incremental extension of an already-reviewed/merged read pattern, not new
+  architecture, and stays exposure-free in production either way.
+- Neither new sheet gets its own `LIVE_*` cache or `activeX()` accessor —
+  they exist only to build two lookup maps (`CoinID -> MetalContentType`,
+  `MetalContentType (as CoinType) -> MetalCategory`) at fetch time, which are
+  then used once to stamp a real `metalCategory` field onto each mapped
+  `LIVE_COINS` row and discarded. `mapWorkbookRowToCoin()` also gained a
+  `coinId` field (`All.CoinID`, same confirmed-header convention as
+  `CollectionID`/`Denomination`/`Year`/`MintMark`/`SerNo`) as the join key.
+- `metalCategoryFor(coin)` now checks `coin.metalCategory` first (set only
+  on live-fetched coins) before falling back to the `FAKE_METAL_CONTENT`
+  mockup — so demo-mode behavior is completely unchanged, and a live coin's
+  Metal pill filtering is now real.
+- A coin with no `MetalContentType` match (or a broken link anywhere in the
+  chain) gets a blank `metalCategory` — the existing Metal filter's "Other"
+  pill test already treats blank the same as an explicit `"Other"`
+  (`!m || m === "Other"`), so this falls under Other automatically. Confirmed
+  with Ray as the expected behavior — no new fallback logic was needed.
+- Not verified against a real OneDrive session this task (no live session
+  available) — same "needs a real click-through" caveat as the rest of this
+  feature. `DB_Coins.CoinID`/`MetalContentType` and
+  `Lookup_MetalContent.CoinType`/`MetalCategory` column names were given
+  directly by Ray as confirmed against the real workbook, not independently
+  re-verified from this environment.
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back

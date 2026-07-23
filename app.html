@@ -1238,6 +1238,11 @@
     font-size: var(--slot-disc-font, 11px);
   }
   .slot-cell .slot-label { font-size: 12px; font-weight: 600; text-align: center; }
+  /* Mintage under the year, matching the convention most printed coin
+     albums use — shown for every slot (filled or want), since it's a fact
+     about the date/mintmark itself, not the owned specimen. */
+  .slot-cell .slot-mintage { font-size: 9px; color: var(--text-muted); text-align: center; margin-top: -2px; }
+  .slot-cell.littleton-slot .slot-mintage { color: #1c2b5e; opacity: 0.75; }
   .slot-cell .slot-meta { font-size: 10px; color: var(--text-muted); text-align: center; }
   /* Key-date-only variety line (e.g. "VDB" under "1909") — distinct from the
      dropped .slot-meta description line above; real folders print this only
@@ -2721,7 +2726,7 @@
       <!-- ============ NEEDS ATTENTION (consolidated hub) ============ -->
       <section class="view" id="view-needsdbcoins">
         <button class="back-link" id="needsDbCoinsBackBtn">← Back</button>
-        <h2 class="display" style="margin-top:0;">Needs Attention</h2>
+        <h2 class="display" style="margin-top:0;">Docket</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
           Where any discrepancy gets identified, worked, and tracked — unfinished entries,
           gaps only you can resolve, and anything sitting with Copilot for research.
@@ -2804,7 +2809,8 @@
         </div>
 
         <label for="addSetName">Set name / description</label>
-        <input type="text" id="addSetName" placeholder="e.g. 1999 United States Mint Set">
+        <input type="text" id="addSetName" placeholder="e.g. United States Mint Set" list="addSetNameOptions">
+        <datalist id="addSetNameOptions"></datalist>
 
         <!-- Every catalogued Mint product is tied to exactly one year; only a
              personal/custom grouping (not an official product) can span
@@ -3379,6 +3385,11 @@
     const yearNum = Number(yearRaw);
     return {
       id: String(colVal(row, "CollectionID")),
+      // The DB_Coins join key for the live Metal filter (see
+      // ensureLiveNavDataFetch's metalCategory join) — CoinID follows the
+      // same no-spaces exact-header convention as CollectionID/Denomination/
+      // Year/MintMark/SerNo.
+      coinId: String(colVal(row, "CoinID")),
       // Confirmed against the real workbook (Ray, direct column check) —
       // Description is the display name, no separate name column exists.
       name: String(colVal(row, "Description")),
@@ -3482,15 +3493,50 @@
     if (liveNavDataFetchPromise) return liveNavDataFetchPromise;
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
-      fetchWorkbookSheetRows("DB_Sets")
-    ]).then(([allRows, dbSetsRows]) => {
+      fetchWorkbookSheetRows("DB_Sets"),
+      // Read alongside All/DB_Sets for the Metal filter's real join (item 3
+      // small-fixes batch): All.CoinID -> DB_Coins.CoinID ->
+      // DB_Coins.MetalContentType -> Lookup_MetalContent.CoinType ->
+      // Lookup_MetalContent.MetalCategory. DB_Coins.Composition itself is
+      // too granular/messy to filter on directly (22+ raw variants like
+      // "90% Silver", "35% Silver", ".999 Fine Silver") — MetalCategory is
+      // the clean, pre-bucketed 7-value field this filter actually needs.
+      // Neither sheet gets its own LIVE_* cache or activeX() accessor — they
+      // exist only to build the join below, nothing else in the app reads
+      // them (yet).
+      fetchWorkbookSheetRows("DB_Coins"),
+      fetchWorkbookSheetRows("Lookup_MetalContent")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows]) => {
       liveNavDataFetchPromise = null;
-      if (allRows === null || dbSetsRows === null) return false; // no real answer yet — don't cache, retry on next call
+      // no real answer yet for any of the four — don't cache, retry on next call
+      if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null) return false;
       // A stray blank sheet row (no CollectionID) is never a real owned
       // coin; a DB_Sets row with no Lineage is out of this feature's scope
       // entirely (Commemorative/one-off/Album reference rows — the exact
       // same filter dbSetLineageIncludes()'s callers already imply).
-      LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id);
+      const coinIdToContentType = {};
+      dbCoinsRows.forEach(row => {
+        const coinId = colVal(row, "CoinID");
+        const contentType = colVal(row, "MetalContentType");
+        if (coinId && contentType) coinIdToContentType[coinId] = contentType;
+      });
+      const contentTypeToCategory = {};
+      metalContentRows.forEach(row => {
+        const coinType = colVal(row, "CoinType");
+        const category = colVal(row, "MetalCategory");
+        if (coinType && category) contentTypeToCategory[coinType] = category;
+      });
+      LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id).map(coin => {
+        // A coin with no MetalContentType match (or a broken link anywhere
+        // in the chain) gets a blank metalCategory — metalCategoryFor()'s
+        // caller (the Metal filter's "Other" pill test) already treats
+        // blank the same as an explicit "Other", so this falls under Other
+        // rather than becoming unreachable by any pill. Confirmed
+        // expected/no-op, not a new fallback to build.
+        const contentType = coinIdToContentType[coin.coinId];
+        coin.metalCategory = contentType ? (contentTypeToCategory[contentType] || "") : "";
+        return coin;
+      });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
       const activeView = document.querySelector(".view.active");
       if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
@@ -5318,6 +5364,13 @@
   }
 
   function metalCategoryFor(coin) {
+    // A live-nav-data coin (see ensureLiveNavDataFetch) carries its own real
+    // metalCategory, computed via the All.CoinID -> DB_Coins.CoinID ->
+    // MetalContentType -> Lookup_MetalContent.CoinType -> MetalCategory join
+    // — that always wins over the sparse FAKE_METAL_CONTENT mockup lookup,
+    // which only ever applies to demo FAKE_COINS rows (no real coin object
+    // ever has this property set).
+    if (coin.metalCategory !== undefined && coin.metalCategory !== null) return coin.metalCategory;
     return metalContentFor(coin).metalCategory || "";
   }
 
@@ -6785,11 +6838,17 @@
   let albumContext = null; // { albumName, slotLabel } when arriving at Add Coin via an open slot
 
   // Denomination filter for the albums picker list — additive to whatever
-  // Albums already did, nothing else about it changes. Each album already
-  // carries its own top-level `denom` field (every album is inherently
-  // single-denomination — see FAKE_ALBUMS), so this just filters on that
-  // existing field rather than deriving anything new. Same multi-select-OR
-  // interaction as the Coins tab's Denomination row for consistency.
+  // Albums already did, nothing else about it changes. Each album carries
+  // its own top-level `denom` field, so this filters on that existing field
+  // rather than deriving anything new. Same multi-select-OR interaction as
+  // the Coins tab's Denomination row for consistency.
+  //
+  // "Other" catch-all (small-fixes batch): not every album is guaranteed
+  // single-denomination (a mixed-denomination album has no real code among
+  // the six named ones, and would otherwise be unreachable by any pill) —
+  // same blank/unmatched-falls-under-Other convention the Metal filter's own
+  // Other pill already established.
+  const ALBUMS_DENOM_CODES = new Set(["1C", "5C", "10C", "25C", "50C", "$1"]);
   const ALBUMS_DENOM_CHIPS = [
     { key: "all", label: "All", isAll: true },
     { key: "1C",  label: "Cents" },
@@ -6797,12 +6856,15 @@
     { key: "10C", label: "Dimes" },
     { key: "25C", label: "Quarters" },
     { key: "50C", label: "Halves" },
-    { key: "$1",  label: "Dollars" }
+    { key: "$1",  label: "Dollars" },
+    { key: "other", label: "Other", isOther: true }
   ];
   let albumsSelectedDenoms = new Set();
 
   function albumsFilterTest(album) {
-    return albumsSelectedDenoms.size === 0 || albumsSelectedDenoms.has(album.denom);
+    if (albumsSelectedDenoms.size === 0) return true;
+    if (albumsSelectedDenoms.has("other") && !ALBUMS_DENOM_CODES.has(album.denom)) return true;
+    return albumsSelectedDenoms.has(album.denom);
   }
 
   function updateAlbumsFilterChipsUI() {
@@ -6997,6 +7059,23 @@
     openAlbumAtPage(index, 0);
   }
 
+  // Mintage figure under the year (item 5b, small-fixes batch) — matches
+  // the convention most printed coin albums use. Sourced from
+  // DB_Coins.Mintage via the slot's own CoinID, the same disambiguation key
+  // CLAUDE.md already establishes for telling apart two slots that share
+  // the same Year+MintMark (not DB_Sets.Mintage, which is the Set-*bundle*
+  // aggregate figure, not a per-date/mintmark one). Mockup-only for this
+  // batch, per Ray's explicit scope call — reads FAKE_DB_COINS directly,
+  // same as the rest of Albums (which isn't wired to any live data yet);
+  // every FAKE_ALBUMS slot already carries a real `coinId` matching a
+  // FAKE_DB_COINS row, so no schema change was needed. Shown regardless of
+  // whether the slot is filled — mintage is printed on a real album page
+  // for the date itself, not tied to ownership.
+  function slotMintage(slot) {
+    const dbCoin = FAKE_DB_COINS.find(c => c.coinId === slot.coinId);
+    return (dbCoin && dbCoin.mintage != null) ? dbCoin.mintage : null;
+  }
+
   function renderSlotCell(slot, side, album) {
     const filled = !!slot.filledBy;
     // Keyed off the SLOT's own description, not the filled coin's — FAKE_COINS
@@ -7059,6 +7138,9 @@
     // series name, not about hiding a distinguishing variety.
     const varietyLine = (slot.keyDate && slotVariety(slot)) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
 
+    const mintage = slotMintage(slot);
+    const mintageLine = mintage != null ? `<div class="slot-mintage">Mintage ${mintage.toLocaleString()}</div>` : "";
+
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
         <div class="slot-disc-wrap">
@@ -7066,6 +7148,7 @@
           ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
         </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
+        ${mintageLine}
         ${varietyLine}
         ${metaLine}
       </div>
@@ -7658,6 +7741,20 @@
     FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
       actionRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
+        // Jumps straight to Edit Coin, scrolled to the Obverse photo slot, so
+        // Ray can take/upload the photo immediately instead of just being
+        // told about the gap. Same per-origin browseDetailBackHandler
+        // pattern Spotlight's click-through already uses — Back from Detail
+        // returns here (Docket), not Browse's own grid.
+        onClick: () => {
+          browseDetailBackHandler = () => navigate("needsdbcoins");
+          lastDrawerView = "needsdbcoins"; // Docket-originated, not Catalog — closes the right drawer on the way back to Dashboard
+          navigate("browse");
+          showBrowseDetail(coin);
+          showBrowseEditView(coin);
+          const box = document.getElementById("browseEditObversePhotoBox");
+          if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
+        },
         onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
       });
     });
@@ -7668,6 +7765,9 @@
       if (draft.wholeSetPhoto || draft.dismissedGaps.includes("wholeSetPhoto")) return;
       actionRows.push({
         html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">Missing whole-set photo — ${draft.collectionID}</div>`,
+        // Resumes this draft's own Step 1 (not Step 2 — the whole-set photo
+        // field lives in Step 1), landing scrolled to the photo box.
+        onClick: () => resumeSetDraftAtStep1(draft),
         onDismiss: async () => { await dismissSetDraftGap(draft.collectionID, "wholeSetPhoto"); renderNeedsAttentionHub(); }
       });
     });
@@ -9365,16 +9465,58 @@
     clearReceiptPdfIndicator(previewId, null);
   }
 
+  // Free-text autocomplete for the Set name field, sourced from known
+  // DB_Sets Description values (live when loaded, FAKE_DB_SETS otherwise —
+  // same activeDbSets() swap point as the rest of Sets nav). Verbatim,
+  // deduped — never rewritten/stripped (Description is a real, looked-up
+  // value, not something this app derives — see "Series-level reference
+  // images" in CLAUDE.md for why that matters). Free text always still
+  // works; this is suggestions only, not a hard-select control. Re-called
+  // from showAddSetStep1() on every entry so it reflects live data that
+  // finished loading after the page's initial load, not just whatever was
+  // available at initAddSet() time.
+  function populateAddSetNameOptions() {
+    const seen = new Set();
+    const options = [];
+    activeDbSets().forEach(s => {
+      if (s.name && !seen.has(s.name)) { seen.add(s.name); options.push(s.name); }
+    });
+    document.getElementById("addSetNameOptions").innerHTML =
+      options.map(name => `<option value="${name.replace(/"/g, "&quot;")}"></option>`).join("");
+  }
+
   function initAddSet() {
     // Populate the child denomination dropdown from the same coded list Add Coin uses.
     const denomSel = document.getElementById("addSetChildDenom");
     denomSel.innerHTML = `<option value="">— select —</option>` +
       Object.keys(DENOM_LABELS).map(code => `<option value="${code}">${code} — ${DENOM_LABELS[code]}</option>`).join("");
 
+    populateAddSetNameOptions();
+
     wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput");
     wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
+
+    // Category is frequently redundant with what's already implied by the
+    // Name/Description entered above — when the typed value exactly matches
+    // (case-insensitive) a known DB_Sets Description, auto-fill Category
+    // from that row's Lineage, same categoryFromLineage() mapping the
+    // Sets-checklist deep-link already uses below. Exact-match only,
+    // deliberately no fuzzy/partial matching (Ray's explicit call) — a
+    // silently wrong auto-fill from a fuzzy match is worse than leaving
+    // Category blank for manual entry. Same addSetCategoryTouched guard as
+    // every other auto-fill source here — never overrides a manual pick.
+    document.getElementById("addSetName").addEventListener("input", (e) => {
+      if (addSetCategoryTouched) return;
+      const typed = e.target.value.trim().toLowerCase();
+      if (!typed) return;
+      const match = activeDbSets().find(s => s.name && s.name.toLowerCase() === typed);
+      if (match && match.lineage) {
+        document.getElementById("addSetCategory").value = categoryFromLineage(match.lineage);
+        applyAddSetTrackIndividuallyDefault();
+      }
+    });
 
     // Live DB_Sets match note as the product code is typed — also auto-fills
     // Category from the matched row (unless Ray has already picked one
@@ -9520,6 +9662,7 @@
 
   function showAddSetStep1() {
     currentSetDraft = null;
+    populateAddSetNameOptions(); // refresh in case live DB_Sets data finished loading since initAddSet()
     ["addSetName", "addSetProductCode", "addSetExpectedCount", "addSetYear"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
@@ -9527,6 +9670,12 @@
     addSetCategoryTouched = false;
     addSetTrackIndividuallyTouched = false;
     document.getElementById("addSetTrackIndividually").checked = defaultTrackIndividually("");
+    // Re-enable, in case a previous visit was a resumeSetDraftAtStep1() call
+    // that locked these against editing (see that function) — a fresh Step 1
+    // entry always starts fully editable.
+    document.getElementById("addSetTrackIndividually").disabled = false;
+    document.getElementById("addSetExpectedCount").disabled = false;
+    document.getElementById("addSetAddSubGroupBtn").disabled = false;
     updateAddSetTrackIndividuallyVisibility();
     document.getElementById("addSetMatchNote").textContent = "";
     document.getElementById("addSetSubGroups").innerHTML = "";
@@ -9538,6 +9687,61 @@
     // null setChecklistContext — that survives navigate so applyAddSetContext
     // can read it; it's cleared only when actually leaving Add Set.
     document.getElementById("addSetContextBanner").classList.add("hidden");
+  }
+
+  // Resumes an EXISTING Set draft's Step 1 form — used by the Docket's
+  // "Missing whole-set photo" row (see renderNeedsAttentionHub) so Ray can
+  // attach the photo without re-entering everything else. Reuses the normal
+  // Step 1 screen (navigate("addset") resets it fresh via showAddSetStep1()
+  // above), then re-populates it from the existing draft and points
+  // startSetCapture() at update-in-place mode by setting currentSetDraft —
+  // no new CollectionID is reserved.
+  //
+  // Deliberately does NOT let this path change trackIndividually/Expected
+  // count/sub-groups — those define the shape of an already-in-progress
+  // Step 2 capture (sub-group names, child count), and editing them here
+  // could silently orphan already-captured children. Those fields are shown
+  // (so the screen reflects the real draft, not a blank lie) but locked;
+  // everything else on Step 1 (name, year, product code, category, both
+  // photos) is genuinely editable and saved.
+  function resumeSetDraftAtStep1(draft) {
+    navigate("addset");
+    lastDrawerView = "needsdbcoins"; // Docket-originated, not Acquisitions — closes the right drawer on the way back to Dashboard
+    setNavBack(() => navigate("needsdbcoins"));
+
+    document.getElementById("addSetName").value = draft.setName || "";
+    if (draft.year === "Various") {
+      document.getElementById("addSetYearVarious").checked = true;
+      document.getElementById("addSetYear").value = "";
+      document.getElementById("addSetYear").disabled = true;
+    } else {
+      document.getElementById("addSetYearVarious").checked = false;
+      document.getElementById("addSetYear").disabled = false;
+      document.getElementById("addSetYear").value = draft.year || "";
+    }
+    document.getElementById("addSetProductCode").value = draft.productCode || "";
+    document.getElementById("addSetCategory").value = draft.category || "";
+    addSetCategoryTouched = true; // a real known value — never auto-derive over it
+
+    document.getElementById("addSetTrackIndividually").checked = !!draft.trackIndividually;
+    addSetTrackIndividuallyTouched = true;
+    updateAddSetTrackIndividuallyVisibility();
+    document.getElementById("addSetExpectedCount").value = draft.expectedChildCount || "";
+    (draft.subGroups || []).forEach(sg => addSubGroupRow(sg.name, sg.expectedCount));
+    document.getElementById("addSetTrackIndividually").disabled = true;
+    document.getElementById("addSetExpectedCount").disabled = true;
+    document.getElementById("addSetAddSubGroupBtn").disabled = true;
+    document.querySelectorAll("#addSetSubGroups .sg-name, #addSetSubGroups .sg-count, #addSetSubGroups .sg-remove")
+      .forEach(el => el.disabled = true);
+
+    document.getElementById("addSetStartBtn").textContent = "Save changes";
+    document.getElementById("addSetStep1Note").textContent =
+      "Resuming " + draft.collectionID + " — attach the missing whole-set photo below, then Save.";
+
+    currentSetDraft = draft; // tells startSetCapture() to update this draft in place, not reserve a new ID
+
+    const box = document.getElementById("addSetWholeBox");
+    if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
   // Deep-link pre-fill from a Sets completeness-checklist empty tile (A2):
@@ -9598,7 +9802,37 @@
     const subGroups = trackIndividually ? readSubGroups() : [];
     const note = document.getElementById("addSetStep1Note");
 
+    // Resuming an existing draft (resumeSetDraftAtStep1() sets this before
+    // this function ever runs) edits that draft's own Step 1 fields in
+    // place instead of reserving a new CollectionID.
+    const resumingDraft = currentSetDraft;
+
     try {
+      if (resumingDraft) {
+        note.textContent = "Saving…";
+        const collectionId = resumingDraft.collectionID;
+        // A newly-picked file always wins; otherwise keep whatever the
+        // draft already had (uploadDraftPhoto returns "" when no new file
+        // was picked, which would otherwise blank out an existing photo).
+        const wholeName = (await uploadDraftPhoto(collectionId, "whole", "set.jpg")) || resumingDraft.wholeSetPhoto;
+        const receiptName = (await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt)) || resumingDraft.receiptPhoto;
+        resumingDraft.setName = setName;
+        resumingDraft.productCode = productCode;
+        resumingDraft.category = category;
+        resumingDraft.year = yearValue;
+        resumingDraft.wholeSetPhoto = wholeName;
+        resumingDraft.receiptPhoto = receiptName;
+        await writeSetDraft(resumingDraft);
+        currentSetDraft = resumingDraft;
+        showToast("Saved.");
+        if (resumingDraft.trackIndividually) {
+          renderChildStep();
+        } else {
+          navigate("needsdbcoins");
+        }
+        return;
+      }
+
       note.textContent = "Reserving CollectionID…";
       const collectionId = await reserveNextCollectionId();
       // Photos first (so their filenames land in the draft record), then the draft.
