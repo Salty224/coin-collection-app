@@ -725,43 +725,115 @@ the same corner mapping:
   exists) — it's Ray's own preference, matching the price-sticker placement
   he sees at his local coin shop.
 
-### Tap-to-flip (locked in)
-Every flip-frame a saved coin renders in now carries a small dedicated ⟲
-icon (`.flip-toggle-btn`, bottom-center of the frame) that flips that one
-card between obverse/reverse in place — before this, "flip" was only ever
-the visual/naming metaphor (the flip-frame, the corner labels styled like a
-2x2 flip) with no way for Ray to actually trigger it himself outside
-Spotlight's own automatic rotation.
-- **Deliberately a separate tap target from the frame's own navigate-on-tap
-  handler** (`stopPropagation()` on the icon's click) — every flip-frame
-  already opens a coin's Browse detail view on tap (grid cards, Set child
-  flips, Spotlight, a filled Album slot), so flipping and navigating can
-  never be the same gesture without one stepping on the other.
-- **Only the disc's image and its `.reverse-face` mirror styling change on
-  flip — corner labels never do.** This isn't new behavior, just newly
-  reachable by hand: corner labels describe the coin itself (year/mint,
-  series+denom, grade), not which face is currently showing, per "Coin-flip
-  corner labels" above — `applyFlipCorners()` isn't re-run on flip.
-- **Applies to**: Browse grid cards (mini), Browse detail's single flip,
-  Set child mini-flips, and Spotlight. Each of the first three owns private
-  `side` state via closure (`attachFlipToggle()`); Spotlight instead drives
-  its existing shared `spotlightSide`/`renderSpotlight()` mechanism directly
-  (wired once in `initSpotlight()`) so the auto-rotate timer and the manual
-  button never disagree about which face is showing — clicking it resets
-  the timer so a manual flip isn't immediately undone by the next tick.
-- **Browse detail's single flip-frame is a persistent, reused DOM element**
-  (unlike grid/Set-child cards, which are fully rebuilt each render) — every
-  `showBrowseDetail()` call removes any previous coin's flip-toggle button
-  before attaching a fresh one bound to the new coin, or they'd accumulate
-  across coin views.
-- **Deliberately NOT added to individual Album slot cells** — Albums already
-  has its own, different mechanism for viewing a coin's reverse: the
-  page-flip book turns to a dedicated Reverse page for the whole slot group
-  (see "Albums: page-flip book" below). Adding a second, per-slot flip
-  control there would both clutter an already-dense grid (up to 6 slots a
-  row) and fight with the reason that dedicated Reverse pages exist at all.
-  A filled slot's own coin is still reachable there (tap it → its Browse
-  detail view), which now carries the same flip icon as any other coin.
+### Tap-to-flip (superseded — see "Coin-flip interaction redesign" below)
+Every flip-frame a saved coin rendered in used to carry a small dedicated ⟲
+icon (`.flip-toggle-btn`, bottom-center of the frame, via a shared
+`attachFlipToggle()` helper) that flipped that one card between obverse/
+reverse in place. **This entire mechanism — the icon, `attachFlipToggle()`,
+and its CSS — is gone**, replaced by three separate, context-specific
+treatments (auto-cycle, a global per-view toggle, or whole-card tap/swipe/
+click) with no icon anywhere. Kept here only for history; see the current
+design below.
+
+### Coin-flip interaction redesign (locked in)
+Replaces the single flip-icon pattern above everywhere it existed, with
+three different treatments depending on where a coin renders — a small
+icon made sense as one generic mechanism, but reading real usage patterns
+per view (an unattended auto-rotating card, a dense grid of many cards, one
+focused detail card) called for three different interactions instead of one
+compromise. `attachFlipToggle()` had exactly three callers before this
+(Browse grid cards, Browse detail's single flip, Set child mini-flips) —
+all three are gone; a new shared `wireSideToggle()` helper replaces two of
+them (see below).
+- **Dashboard Spotlight**: no manual flip control at all anymore. Auto-cycle
+  only — obverse → pause → reverse → pause → advance to the next coin,
+  paced by `SPOTLIGHT_DWELL_MS` (13000ms, ~2x the original hardcoded
+  6500ms; a named, tunable constant since the exact pacing is meant to be
+  tuned after seeing it live, not guessed here). **Swipe left/right on the
+  card manually advances to the next/previous coin** — same touchstart/
+  touchend + 50px-threshold convention the Album page-flip book already
+  uses — resetting the new coin to its own obverse and restarting the
+  auto-advance timer from zero (fast-forwards to a fresh cycle rather than
+  fighting the auto-play). **Tap-to-navigate into Browse detail is
+  unchanged** and coexists with swipe via a `spotlightSwiped` guard flag: a
+  real swipe sets it briefly so the `click` event most touch browsers still
+  dispatch after a drag-like touch sequence doesn't also open the coin's
+  detail view for that same gesture.
+- **Catalog (Coins/Medal tab)**: cards show one side only, no per-card flip
+  — a single global **Obverse/Reverse toggle** (`catalogSide`, two
+  `.filter-chip` buttons in the toolbar, `#browseSideToggle`) flips every
+  visible card at once, applied in `renderBrowseGrid()`. **Hidden on the
+  Rolls and Sets tabs** — checked against the actual code before building
+  this: neither tab renders any coin-disc/flip surface today (Rolls and
+  Sets both render plain icon+text list rows, `renderRollsGrid`/
+  `renderSetsGrid`), so the toggle would be inert there. This mirrors the
+  Grid/List view toggle's own existing precedent, which already hides
+  itself on those same two tabs for the identical reason (confirmed with
+  Ray before building, not assumed). **Resets to Obverse on external
+  Catalog entry** (`resetBrowseFilters()`), same "not persisted across
+  navigation" rule every other Catalog filter already follows — switching
+  between Coins/Rolls/Sets tabs internally does NOT reset it (also
+  consistent with every other Catalog filter).
+- **Individual coin/roll/childless-Set detail view** (`showBrowseDetail()`'s
+  single-flip branch): the entire flip-frame is the trigger, no icon.
+  Exactly one gesture is bound per device, decided once at startup via
+  `IS_COARSE_POINTER` (`matchMedia("(pointer: coarse)")`, same "check once,
+  device capability doesn't change mid-session" posture
+  `prefers-reduced-motion` already uses elsewhere in this file) —
+  deliberately either/or, not both at once, since binding both risks a real
+  device firing a touch-derived `click` AND a separate touch handler for
+  one interaction. **Coarse (touch)**: a single `touchend` handler covers
+  BOTH tap and swipe as the same action (flip) — no distance threshold
+  needed since they're not distinguished here, unlike Spotlight. A
+  mostly-vertical drag (`|deltaY| > 20 && |deltaY| > |deltaX|`) is treated
+  as an attempted page scroll through the card and does NOT flip — a
+  defensive addition beyond the literal spec, to stop an incidental
+  vertical scroll gesture that happens to start on the card from misfiring
+  a flip. **Fine (mouse/trackpad)**: a plain `click` flips it. Resets to
+  Obverse every time `showBrowseDetail()` renders this branch, so opening
+  any detail view always starts on the front.
+- **A multi-child Set's own detail view** (the OTHER `showBrowseDetail()`
+  branch, when `setChildrenFor(coin).length > 0`): resolves a real
+  ambiguity flagged before building — this view's child mini-flip cards are
+  simultaneously "a detail view" (item 3's territory) and "a grid of cards
+  that each navigate elsewhere on tap" (item 2's territory), and item 3's
+  literal whole-card-flips-on-tap rule would have broken the existing
+  tap-to-open-a-child's-own-detail-view navigation. **Resolved (Ray's
+  call): no per-card flip capability at all — instead a global Obverse/
+  Reverse toggle** (`setChildrenSide`, `#browseDetailChildSideToggle`, same
+  `wireSideToggle()` mechanism as Catalog's) that flips every child
+  mini-card in that Set together, at once. Tapping a child card still
+  navigates to that child's own full detail view, completely unchanged.
+  Also resets to Obverse every time this branch renders.
+- **`wireSideToggle(obvBtnId, revBtnId, setSide, onChange)`** is the one
+  shared mechanism behind BOTH global toggles above (Catalog's and the
+  Set-children view's) — wired once per pair of buttons, returns an
+  `activate(side)` function so the caller can also sync the chip UI when
+  the state is reset from elsewhere (external Catalog entry; a fresh
+  `showBrowseDetail()` render). Reuses `.filter-chip`/`.filter-chip.active`
+  styling directly rather than inventing a new button style, for visual
+  consistency with the Year/Commemorative chips already in the same
+  Catalog toolbar.
+- **Deliberately NOT added to individual Album slot cells** — unchanged
+  from the prior design: Albums already has its own, different mechanism
+  for viewing a coin's reverse (the page-flip book turns to a dedicated
+  Reverse page for the whole slot group — see "Albums: page-flip book"
+  below); a filled slot's own coin is still reachable there (tap it → its
+  Browse detail view), which now uses the new whole-card gesture like any
+  other coin's detail view.
+- Verified headless (Playwright, touch and mouse device contexts): no
+  `.flip-toggle-btn`/icon renders anywhere; Spotlight's swipe advances the
+  index and resets to obverse, and a swipe correctly suppresses the
+  following click-to-navigate while a plain tap still navigates; the
+  Catalog toggle flips all visible cards, is hidden on Rolls/Sets and
+  visible again on Coins, persists across an internal tab switch, and
+  resets on external re-entry; the single-detail flip-frame responds to tap
+  AND swipe on a coarse-pointer context and to click on a fine-pointer
+  context, a vertical drag does NOT flip, and it resets to obverse on
+  re-entry; the Set-children toggle flips every child card together with no
+  per-card icon, and tapping a child card still navigates to its own detail
+  view. Full nav smoke-check (Docket/Catalog/Albums/Sets/Dashboard) confirms
+  nothing else regressed.
 
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card

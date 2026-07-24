@@ -896,6 +896,11 @@
   }
   .view-toggle-btn.active { color: var(--gold-bright); border-color: var(--gold); }
   .view-toggle-btn.hidden { display: none; }
+  /* Global Obverse/Reverse card-side toggle (coin-flip interaction redesign)
+     — reuses .filter-chip styling for its two buttons; this just wraps them
+     so the pair can be shown/hidden as one unit. */
+  .browse-side-toggle { display: flex; gap: 4px; }
+  .browse-side-toggle.hidden { display: none; }
 
   /* Shares the page-title row with #browseTitle, right-justified — the
      title takes whatever space it needs, the search box takes the rest
@@ -1782,40 +1787,17 @@
     white-space: nowrap;
   }
 
-  /* Tap-to-flip: a small dedicated icon, distinct from the flip-frame's own
-     navigate-on-tap target, so flipping to the reverse and opening a coin's
-     detail view are never the same gesture. Sits bottom-center, clear of the
-     corner labels (which anchor to the frame's own left/right edges) and of
-     the two full corners a coin's identity actually needs. Corner labels
-     never change on flip (they describe the coin, not which face is
-     showing, per "Coin-flip corner labels") — only the disc's image and its
-     reverse-face mirror styling do. */
-  .flip-toggle-btn {
-    position: absolute;
-    bottom: 4px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 2;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    border: 1px solid var(--case-border);
-    background: rgba(0,0,0,0.55);
-    color: var(--gold-bright);
-    font-size: 16px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  .flip-toggle-btn:hover { border-color: var(--gold); }
-  .flip-toggle-btn.mini {
-    width: 18px;
-    height: 18px;
-    font-size: 10px;
-    bottom: 1px;
-  }
+  /* Superseded (coin-flip interaction redesign): the per-card flip icon
+     (.flip-toggle-btn) is gone everywhere it appeared — Spotlight now
+     auto-cycles obverse/reverse on its own; Catalog cards show one side at a
+     time, flipped all together via a global toggle; a single coin/set/roll
+     detail view flips via tapping/clicking/swiping the whole card; a
+     multi-child Set's own detail view flips all its child cards together via
+     its own global toggle, same mechanism as Catalog's. See
+     wireSideToggle()/renderSpotlight()/showBrowseDetail() below. Corner
+     labels still never change on flip (they describe the coin, not which
+     face is showing, per "Coin-flip corner labels") — only the disc's image
+     and its reverse-face mirror styling do. */
 
   /* Standard visually-hidden pattern: keeps the same info readable to screen
      readers without duplicating it as an on-screen text block (the corner
@@ -2000,6 +1982,15 @@
             <div style="display:flex; gap:8px; flex-wrap:wrap;">
               <button type="button" class="filter-chip" id="browseYearFilterBtn">Year</button>
               <button type="button" class="filter-chip" id="browseCommemorativeFilterBtn">Commemorative</button>
+              <!-- Global card-side toggle (coin-flip interaction redesign) —
+                   flips every visible card at once between Obverse/Reverse;
+                   no per-card flip anymore. Coins/Medal only — Rolls/Sets
+                   show no coin imagery at all today, same reasoning the
+                   Grid/List toggle already hides on those two tabs for. -->
+              <div class="browse-side-toggle" id="browseSideToggle">
+                <button type="button" class="filter-chip active" id="browseSideObverseBtn">Obverse</button>
+                <button type="button" class="filter-chip" id="browseSideReverseBtn">Reverse</button>
+              </div>
             </div>
             <div style="display:flex; gap:8px; align-items:center;">
               <!-- Rolls is an icon button (not a drawer — the cabinet's crowded
@@ -2033,6 +2024,14 @@
             <div class="coin-disc" id="browseDetailDisc" aria-hidden="true"></div>
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
+          </div>
+          <!-- Global card-side toggle for a multi-child Set's own detail
+               view (coin-flip interaction redesign) — flips every child
+               mini-card together, no per-card flip. Shown/hidden alongside
+               browseDetailChildFlips in showBrowseDetail(). -->
+          <div class="browse-side-toggle hidden" id="browseDetailChildSideToggle" style="margin-bottom:10px;">
+            <button type="button" class="filter-chip active" id="browseDetailChildObverseBtn">Obverse</button>
+            <button type="button" class="filter-chip" id="browseDetailChildReverseBtn">Reverse</button>
           </div>
           <!-- Multi-coin Set display: a Set with linked child coins (via
                originSetId) renders each child's own mini-flip here INSTEAD of
@@ -4907,6 +4906,18 @@
   let spotlightSide = "obverse"; // auto-rotation flips this coin's own faces before advancing to the next coin
   let spotlightTimer;
   const spotlightCoins = FAKE_COINS.slice(0, 5);
+  // Per-side dwell (coin-flip interaction redesign) — how long each face
+  // shows before the auto-cycle advances (obverse -> pause -> reverse ->
+  // pause -> next coin). ~2x the original hardcoded 6500ms; a tunable
+  // constant since the exact value is meant to be tuned after seeing it
+  // live, same "named constant, not a magic number" posture as
+  // SPLASH_SIMULATED_DELAY_MS elsewhere in this file.
+  const SPOTLIGHT_DWELL_MS = 13000;
+  // Guards the Spotlight frame's tap-to-navigate handler from also firing
+  // right after a swipe — a real swipe (see initSpotlight()) sets this
+  // briefly so the click event most touch browsers still dispatch after a
+  // drag-like touch sequence doesn't ALSO open the coin's detail view.
+  let spotlightSwiped = false;
 
   // coin.name is stored as "{Series} {Denomination word}" (e.g. "Mercury Dime",
   // "Franklin Half Dollar") — strip the denomination word so the top-right
@@ -5045,32 +5056,25 @@
     }
   }
 
-  // Tap-to-flip: attaches a small dedicated icon to a flip-frame that toggles
-  // its disc between obverse/reverse in place — image + reverse-face mirror
-  // styling only, since corner labels describe the coin, not which face is
-  // showing (see applyFlipCorners()), and never change on flip. Deliberately
-  // a separate tap target from the frame's own navigate-on-tap handler
-  // (stopPropagation on click) so flipping and opening a coin's detail view
-  // are never the same gesture. Each call owns its own "side" state via
-  // closure — safe to call fresh on every render since the frame itself is
-  // rebuilt (Browse grid, Set child flips) or explicitly cleared first
-  // (Browse detail's single persistent flip-frame — see showBrowseDetail()).
-  function attachFlipToggle(frameEl, discEl, coin, opts) {
-    const mini = !!(opts && opts.mini);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "flip-toggle-btn" + (mini ? " mini" : "");
-    btn.setAttribute("aria-label", "Flip to see the other side");
-    btn.title = "Flip";
-    btn.textContent = "⟲";
-    let side = "obverse";
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      side = side === "obverse" ? "reverse" : "obverse";
-      applyDiscContent(discEl, coin, side);
-      discEl.classList.toggle("reverse-face", side === "reverse");
-    });
-    frameEl.appendChild(btn);
+  // Shared two-chip Obverse/Reverse toggle (coin-flip interaction redesign)
+  // — the same underlying control used in two places that each flip a whole
+  // GROUP of cards together at once: Catalog's global card-side toggle, and
+  // a multi-child Set's own detail view toggle (its child mini-flips flip as
+  // one group, not per-card). Wired once; the caller supplies its own state
+  // setter and a callback to re-render whatever the toggle affects. Returns
+  // an `activate(side)` function so the caller can also sync the chip UI
+  // when the state is reset from elsewhere (e.g. leaving/re-entering the view).
+  function wireSideToggle(obvBtnId, revBtnId, setSide, onChange) {
+    const obvBtn = document.getElementById(obvBtnId);
+    const revBtn = document.getElementById(revBtnId);
+    function activate(side) {
+      obvBtn.classList.toggle("active", side === "obverse");
+      revBtn.classList.toggle("active", side === "reverse");
+    }
+    obvBtn.addEventListener("click", () => { setSide("obverse"); activate("obverse"); onChange(); });
+    revBtn.addEventListener("click", () => { setSide("reverse"); activate("reverse"); onChange(); });
+    activate("obverse");
+    return activate;
   }
 
   function applyRealReferenceImage(discEl, url) {
@@ -5167,10 +5171,12 @@
     // detail view as clicking a coin from Browse itself. Back returns to the
     // Dashboard, not Browse's own grid, since that's where this click
     // actually originated (same per-origin browseDetailBackHandler pattern
-    // used by Albums' filled-slot tap).
+    // used by Albums' filled-slot tap). A real swipe (below) sets
+    // spotlightSwiped first so this doesn't also fire for that same gesture.
     const frame = document.getElementById("spotlightFlipFrame");
     frame.style.cursor = "pointer";
     frame.addEventListener("click", () => {
+      if (spotlightSwiped) { spotlightSwiped = false; return; }
       const coin = spotlightCoins[spotlightIndex];
       browseDetailBackHandler = () => navigate("dashboard");
       spotlightOriginated = true; // this navigate("browse") is case-, not drawer-, originated
@@ -5178,26 +5184,28 @@
       showBrowseDetail(coin);
     });
 
-    // Manual flip, alongside the existing auto-rotate timer — reuses the
-    // exact same spotlightSide/renderSpotlight() mechanism the timer already
-    // drives (not the generic attachFlipToggle() helper other flip-frames
-    // use, which tracks its own private side state; Spotlight's side is
-    // shared/global so the auto-rotate and the manual button never disagree
-    // about which face is currently showing). Resets the timer so a manual
-    // flip doesn't get immediately undone by the next tick.
-    const flipBtn = document.createElement("button");
-    flipBtn.type = "button";
-    flipBtn.className = "flip-toggle-btn";
-    flipBtn.setAttribute("aria-label", "Flip to see the other side");
-    flipBtn.title = "Flip";
-    flipBtn.textContent = "⟲";
-    flipBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      spotlightSide = spotlightSide === "obverse" ? "reverse" : "obverse";
+    // Manual swipe left/right (coin-flip interaction redesign) — advances to
+    // the next/previous coin, resetting IT to its own obverse and restarting
+    // the auto-advance timer from zero, rather than fighting the auto-play.
+    // Same touchstart/touchend + 50px-threshold convention the Album
+    // page-flip book already uses elsewhere in this file. There's no manual
+    // flip button anymore — Spotlight's only interactions now are swipe
+    // (advance) and tap (navigate to detail).
+    let touchStartX = null;
+    frame.addEventListener("touchstart", (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    frame.addEventListener("touchend", (e) => {
+      if (touchStartX === null) return;
+      const deltaX = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(deltaX) < 50) return;
+      spotlightSwiped = true;
+      spotlightIndex = deltaX < 0
+        ? (spotlightIndex + 1) % spotlightCoins.length
+        : (spotlightIndex - 1 + spotlightCoins.length) % spotlightCoins.length;
+      spotlightSide = "obverse";
       renderSpotlight();
       resetSpotlightTimer();
     });
-    frame.appendChild(flipBtn);
 
     renderSpotlight();
     resetSpotlightTimer();
@@ -5215,7 +5223,7 @@
         spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
       }
       renderSpotlight();
-    }, 6500);
+    }, SPOTLIGHT_DWELL_MS);
   }
 
   // ==================================================================
@@ -5480,6 +5488,19 @@
 
   let browseViewMode = "grid"; // "grid" | "list" — persists across filter changes
 
+  // Catalog's global card-side toggle (coin-flip interaction redesign) —
+  // one shared state for every visible card, not a per-card flip. Only the
+  // Coins/Medal tab actually renders coin discs (Rolls/Sets are plain icon
+  // rows), so this is only ever read by renderBrowseGrid() below; reset to
+  // "obverse" on external Catalog entry (resetBrowseFilters()), same
+  // "not persisted across navigation" rule as every other Catalog filter.
+  let catalogSide = "obverse";
+  // Set by initBrowse() to the activate() function wireSideToggle() returns,
+  // so resetBrowseFilters() can sync the chip UI when it resets catalogSide
+  // from elsewhere (a plain module-level assignment alone wouldn't touch the
+  // DOM). Null until initBrowse() runs once at startup.
+  let setBrowseSideUI = null;
+
   function renderBrowseGrid(coins) {
     const grid = document.getElementById("browseGrid");
     grid.classList.toggle("list-view", browseViewMode === "list");
@@ -5509,9 +5530,10 @@
         showBrowseDetail(coin);
       });
       grid.appendChild(card);
-      applyDiscContent(card.querySelector(".coin-disc"), coin);
-      sizeCoinElement(card.querySelector(".coin-disc"), coin.denom, 64, 11);
-      attachFlipToggle(card.querySelector(".flip-frame-mini"), card.querySelector(".coin-disc"), coin, { mini: true });
+      const disc = card.querySelector(".coin-disc");
+      applyDiscContent(disc, coin, catalogSide);
+      disc.classList.toggle("reverse-face", catalogSide === "reverse");
+      sizeCoinElement(disc, coin.denom, 64, 11);
       // Series/type name restored here (top-right, stacked over the denom
       // code) via the same renderTypeDenomCorner() the full flip-frame uses —
       // reused specifically because it already carries the last-word
@@ -5926,6 +5948,11 @@
     // Clear every tab's own year filter (external Browse entry resets all).
     Object.values(yearFilterByTab).forEach(yf => { yf.begin = null; yf.end = null; });
     updateYearFilterButtonUI();
+
+    // Global card-side toggle also resets to Obverse on external entry, same
+    // "not persisted across navigation" rule as every filter above.
+    catalogSide = "obverse";
+    if (setBrowseSideUI) setBrowseSideUI("obverse");
   }
 
   // Switches Browse between its three in-place tabs (Coins/Rolls/Sets) —
@@ -5976,6 +6003,9 @@
     const showCatalogTools = (tab === "coins" || tab === "medal");
     document.getElementById("browseCommemorativeFilterBtn").classList.toggle("hidden", !showCatalogTools);
     document.getElementById("browseRollsFilterBtn").classList.toggle("hidden", !showCatalogTools);
+    // Global card-side toggle — same Coins/Medal-only visibility as the
+    // Grid/List toggle, since Rolls/Sets render no coin imagery to flip.
+    document.getElementById("browseSideToggle").classList.toggle("hidden", !showCatalogTools);
     document.getElementById("browseTitle").textContent =
       tab === "coins" ? "Catalog" : tab === "medal" ? "Medals" : tab === "rolls" ? "Rolls" : "Sets";
 
@@ -6113,6 +6143,50 @@
       document.getElementById("browseGrid").classList.add("list-view");
     });
 
+    // Global card-side toggle — flips every visible Catalog card at once
+    // (see catalogSide/renderBrowseGrid()); re-renders whichever tab is
+    // active (only Coins/Medal ever actually shows the button, but
+    // applyActiveBrowseTabFilters() is a safe no-op-equivalent otherwise).
+    setBrowseSideUI = wireSideToggle("browseSideObverseBtn", "browseSideReverseBtn",
+      (side) => { catalogSide = side; }, applyActiveBrowseTabFilters);
+
+    // Same shared toggle mechanism, for a multi-child Set's own detail view
+    // (all its child mini-cards flip together, no per-card flip).
+    setChildSideUI = wireSideToggle("browseDetailChildObverseBtn", "browseDetailChildReverseBtn",
+      (side) => { setChildrenSide = side; }, applyBrowseDetailChildSide);
+
+    // Single coin/roll/childless-Set detail view: the WHOLE flip-frame is
+    // the trigger (item 3, coin-flip interaction redesign) — no visible
+    // icon. Wired once here (not per-render) since #browseDetailFlipFrame is
+    // a persistent element reused across every showBrowseDetail() call;
+    // applyBrowseDetailSide() reads currentBrowseCoin/browseDetailSide live.
+    // Exactly one gesture is bound, per IS_COARSE_POINTER, not both — see
+    // that constant's own comment for why.
+    const singleFlipFrame = document.getElementById("browseDetailFlipFrame");
+    if (IS_COARSE_POINTER) {
+      let touchStartX = null, touchStartY = null;
+      singleFlipFrame.addEventListener("touchstart", (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      singleFlipFrame.addEventListener("touchend", (e) => {
+        if (touchStartX === null) return;
+        const deltaX = e.changedTouches[0].clientX - touchStartX;
+        const deltaY = e.changedTouches[0].clientY - touchStartY;
+        touchStartX = null; touchStartY = null;
+        // A mostly-vertical drag reads as an attempted page scroll through
+        // the card, not a flip gesture — skip so scrolling past the
+        // flip-frame never accidentally flips it. Anything else (a plain
+        // tap, near-zero movement, or a real horizontal swipe) flips —
+        // tap and swipe are the SAME action here, unlike Spotlight, so one
+        // touchend handler covers both without a distance threshold.
+        if (Math.abs(deltaY) > 20 && Math.abs(deltaY) > Math.abs(deltaX)) return;
+        toggleBrowseDetailSide();
+      });
+    } else {
+      singleFlipFrame.addEventListener("click", () => toggleBrowseDetailSide());
+    }
+
     // Rolls page: its own Denomination pill row (no "Medals" chip — rolls
     // are never medals) + its own Metal pill row, both mirroring the Catalog
     // page's pills but with independent state (rollsSelectedDenomKeys /
@@ -6244,6 +6318,54 @@
   // on the album instead of losing the user's place in Browse.
   let browseDetailBackHandler = showBrowseGrid;
 
+  // Computed once — device pointer capability doesn't change mid-session in
+  // practice, same "check once at startup" posture prefers-reduced-motion
+  // already uses elsewhere in this file. Decides which gesture flips the
+  // single coin/roll/childless-Set detail card (item 3, coin-flip
+  // interaction redesign): a coarse (touch) primary pointer flips on
+  // tap/swipe; a fine (mouse/trackpad) primary pointer flips on click. This
+  // is deliberately either/or, not both at once — supporting both
+  // simultaneously on the same element risks a real device firing both a
+  // touch-derived click AND a separate touch handler for one interaction.
+  const IS_COARSE_POINTER = window.matchMedia("(pointer: coarse)").matches;
+
+  // Single coin/roll/childless-Set detail view's own flip state — reset to
+  // "obverse" every time showBrowseDetail() renders that branch, so opening
+  // any detail view always starts on the front. The trigger listener is
+  // attached ONCE (initBrowse(), below) rather than re-bound on every
+  // render, since #browseDetailFlipFrame is a persistent element reused
+  // across calls — same module-level-state pattern Spotlight already uses
+  // for its own persistent frame.
+  let browseDetailSide = "obverse";
+
+  function applyBrowseDetailSide() {
+    if (!currentBrowseCoin) return;
+    const disc = document.getElementById("browseDetailDisc");
+    applyDiscContent(disc, currentBrowseCoin, browseDetailSide);
+    disc.classList.toggle("reverse-face", browseDetailSide === "reverse");
+  }
+
+  function toggleBrowseDetailSide() {
+    // A Set-with-children swaps the child grid in for this same frame (see
+    // showBrowseDetail()) and hides it — nothing to flip while that's active.
+    if (document.getElementById("browseDetailFlipFrame").style.display === "none") return;
+    browseDetailSide = browseDetailSide === "obverse" ? "reverse" : "obverse";
+    applyBrowseDetailSide();
+  }
+
+  // A multi-child Set's own detail view flips ALL its child mini-cards
+  // together via one shared toggle (no per-card flip there — Ray's explicit
+  // call), same wireSideToggle() mechanism Catalog's global toggle uses.
+  // Reset to "obverse" every time showBrowseDetail() renders a
+  // Set-with-children, same "always starts on the front" rule as above.
+  let setChildrenSide = "obverse";
+  let setChildSideUI = null; // activate() from wireSideToggle(), set in initBrowse()
+
+  function applyBrowseDetailChildSide() {
+    if (!currentBrowseCoin) return;
+    renderSetChildFlips(currentBrowseCoin, setChildrenFor(currentBrowseCoin));
+  }
+
   // A Set's child coins (multi-coin display) — keyed by the parent's
   // originSetId in FAKE_SET_CHILDREN. Returns [] for non-Sets, Sets with no
   // originSetId, and Sets whose breakdown isn't populated yet (the childless
@@ -6268,6 +6390,7 @@
 
     const singleFlip = document.getElementById("browseDetailFlipFrame");
     const childGrid = document.getElementById("browseDetailChildFlips");
+    const childToggle = document.getElementById("browseDetailChildSideToggle");
     const children = setChildrenFor(coin);
 
     if (children.length) {
@@ -6278,8 +6401,13 @@
       // exact stale-measurement case its own comment warns about).
       singleFlip.style.display = "none";
       document.getElementById("browseDetailCombinedBadge").classList.add("hidden");
+      // Always starts on Obverse when entering (or re-entering) this Set's
+      // detail view — setChildSideUI syncs the toggle chips to match.
+      setChildrenSide = "obverse";
+      if (setChildSideUI) setChildSideUI("obverse");
       renderSetChildFlips(coin, children);
       childGrid.classList.remove("hidden");
+      childToggle.classList.remove("hidden");
       // Keep the screen-reader summary meaningful even though the visible
       // corner labels (populated by applyFlipCorners) are skipped here.
       document.getElementById("browseDetailSR").textContent =
@@ -6292,18 +6420,16 @@
       // and wrongly trigger the one-word shortening fallback.
       childGrid.classList.add("hidden");
       childGrid.innerHTML = "";
+      childToggle.classList.add("hidden");
       singleFlip.style.display = "";
-      const disc = document.getElementById("browseDetailDisc");
-      applyDiscContent(disc, coin);
-      sizeCoinElement(disc, coin.denom, 210, 32);
+      // Always starts on Obverse when entering (or re-entering) any detail
+      // view — the flip trigger itself (click or tap/swipe, wired once in
+      // initBrowse() via IS_COARSE_POINTER) reads currentBrowseCoin/
+      // browseDetailSide live, so nothing needs re-binding here.
+      browseDetailSide = "obverse";
+      sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
+      applyBrowseDetailSide();
       applyFlipCorners("browseDetail", coin);
-      // singleFlip is a persistent element reused across every showBrowseDetail()
-      // call (unlike Browse grid/Set child cards, which are rebuilt from scratch
-      // each render) — clear out the previous coin's flip-toggle button before
-      // attaching a fresh one bound to this coin, or they'd accumulate.
-      const oldToggle = singleFlip.querySelector(".flip-toggle-btn");
-      if (oldToggle) oldToggle.remove();
-      attachFlipToggle(singleFlip, disc, coin, { mini: false });
     }
 
     renderBrowseDetailPanel(coin);
@@ -6318,7 +6444,9 @@
   // set. Tapping a child opens that child's own full detail view, with Back
   // returning to this Set (same per-origin back-handler pattern Albums'
   // filled-slot tap uses) — and the Set's own Back target is captured and
-  // restored so it still returns to the grid afterward.
+  // restored so it still returns to the grid afterward. No per-card flip —
+  // every child shows setChildrenSide, flipped all together via the shared
+  // toggle above this grid (coin-flip interaction redesign).
   function renderSetChildFlips(parentSet, children) {
     const grid = document.getElementById("browseDetailChildFlips");
     grid.innerHTML = "";
@@ -6345,9 +6473,10 @@
         window.scrollTo({ top: 0 });
       });
       grid.appendChild(card);
-      applyDiscContent(card.querySelector(".coin-disc"), child);
-      sizeCoinElement(card.querySelector(".coin-disc"), child.denom, 64, 11);
-      attachFlipToggle(card.querySelector(".flip-frame-mini"), card.querySelector(".coin-disc"), child, { mini: true });
+      const disc = card.querySelector(".coin-disc");
+      applyDiscContent(disc, child, setChildrenSide);
+      disc.classList.toggle("reverse-face", setChildrenSide === "reverse");
+      sizeCoinElement(disc, child.denom, 64, 11);
     });
   }
 
