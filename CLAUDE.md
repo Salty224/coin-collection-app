@@ -835,6 +835,96 @@ them (see below).
   view. Full nav smoke-check (Docket/Catalog/Albums/Sets/Dashboard) confirms
   nothing else regressed.
 
+### Photo Gallery & two-stage crop pipeline (BUILT, held on branch `claude/photo-gallery-crop`, NOT merged)
+A general per-coin / per-Set **photo gallery** replacing the old rigid
+"obverse/reverse/additional" fixed slots, plus a **two-stage crop pipeline**
+(rectangular background crop → derived circle crop). Architectural/cross-
+cutting, so per the merge policy it's **held on its branch pending Ray's
+explicit go-ahead** — same standing as the cabinet-nav and Add-Set builds
+when they were first landed. Ray asked the full clarifying-question round
+before build; the eight answered decisions (1a scope … 7 all-four entry
+points, plus flat files / `_combined` naming / OGP-on-coins) are all baked in.
+- **Scope is mockup (decision 1a)** — like every other coin-side Save, nothing
+  here writes OneDrive. Captured photos live as in-browser blob URLs in
+  `galleryStore` for the session (gone on reload); the naming/storage
+  convention is documented for the future write layer, exactly as the
+  crop-commit naming already is. The two crop TOOLS are real and work
+  in-browser.
+- **Data model (decision 2): one flat typed array per coin/Set** —
+  `gallery: [{ type, url, rawUrl?, circleUrl?, caption, filename, rawFilename? }]`,
+  no fixed slots. `GALLERY_TYPES` is the controlled vocabulary; each type
+  carries `suffix`/`flipSource`/`retainRaw`/`aspect`/`scope`. Accessors:
+  `galleryFor(id)` (lazily deep-clones the `FAKE_GALLERIES` sparse seed so
+  capture/remove never mutate the seed), `addGalleryEntry` (single-instance
+  types replace in place; only `other` repeats), `removeGalleryEntry`. The two
+  flip sources (`obverse`/`reverse`) ARE gallery entries but are captured via
+  the dedicated flip slots and excluded from the gallery widget's picker/grid
+  (managed there, not in the widget).
+- **Type → filename map**: `slab_combined` → **`_combined`** (matches the 5
+  existing real `{CollectionID}_combined.jpg` Photo3 files — decision 2, NOT
+  `_slab_combined`, so nothing needs renaming). Flip sources →
+  `_{side}_original.png` (raw, retained) + `_{side}_cropped.png` (background-
+  cropped, the circle-crop input) per the locked-in `_original`/`_cropped`
+  convention. Gallery-only types → a single `{suffix}.png`; `other` gets a
+  1-based index. Set whole-set front/back → plain `_obverse.png`/`_reverse.png`
+  (gallery-only, single copy — they don't feed a circle). **Flat, no
+  subfolders** (decision 1), same as every other photo convention.
+- **`ogp` is valid on coin rows too** (decision 3) — a Mint-boxed coin can
+  carry an OGP photo; the single array imposes no row-type restriction, only
+  the picker's `scope` decides which types it lists by default.
+- **Stage 1 background crop (`openBgCrop`/`initBgCrop`)** — new, hand-rolled
+  canvas + pointer events (no library, per the no-CDN posture). Draggable/
+  resizable crop box (8 handles; edge handles hidden when square-locked),
+  aspect-lock toggle (square default for flip sources, free for gallery-only —
+  decision 3), EXIF-oriented first via the existing `loadOrientedImageCanvas`,
+  bakes the selected region to a blob via an `onComplete` callback.
+- **Stage 2 circle** reuses the EXISTING `openPhotoAdjust` circle adjuster,
+  now generalized to a callback mode (`openPhotoAdjust(source, { onComplete })`)
+  alongside its legacy positional-target-ID mode — the legacy Add Coin/Browse
+  Edit slot writes are unchanged. The circle is **re-derived at display time**
+  (decision 3), never a stored asset; `runCropPipeline` chains raw → Stage 1 →
+  (flip sources only) Stage 2, producing the gallery entry.
+- **Raw retention: flip sources only** (decision 4) — `retainRaw:true` for
+  obverse/reverse (`rawUrl`/`_original.png`); gallery-only types keep the
+  single background-cropped copy.
+- **Reusable capture widget (`initGalleryCapture`)** dropped into ALL FOUR
+  flows (decision 7): Add Coin, Browse Edit, Add Set, Edit Set. "Add photo" →
+  scope-filtered type picker → pipeline → thumbnail with caption + remove. Add
+  Coin/Add Set have no CollectionID until save, so they key off temp-draft ids
+  (`ADDCOIN_GALLERY_ID`/`ADDSET_GALLERY_ID`); Browse Edit/Edit Set use the real
+  `currentBrowseCoin.id` and re-render on open. **The old fixed "Additional
+  Photo" slot is retired** (its role is now the gallery's `other` type) — its
+  markup + wiring were removed from Add Coin and Browse Edit (Wishlist keeps
+  its own Additional slot, unchanged — not an owned-coin gallery). Add Coin/
+  Browse Edit obverse/reverse now run the full two-stage pipeline (bg-crop →
+  circle) and register gallery entries; Wishlist's stay legacy circle-only.
+- **Display**: coin detail shows a **"View all photos (N)"** button when the
+  gallery has entries beyond the two flip sources → opens a shared viewer
+  overlay (`openGalleryViewer`). Set detail shows a **thumbnail strip region
+  at the top** (OGP/whole-set/COA — the Set's own gallery; children are the
+  separate child-flip grid, NOT part of the Set gallery), each thumb opening
+  the viewer. `applyGalleryDetailAffordance()` branches on `isSetRow`.
+- **Retrofit (decision 5): the old Set `_set.jpg` whole-set photo is left
+  unmapped** — no auto-migration; Ray re-captures into the typed slots
+  deliberately. The legacy Add Set "Whole-set photo" box is untouched.
+- **Out of scope, as briefed**: the slab cert/serial as searchable/structured
+  data (a `caption` field exists on every entry for it, but nothing searches
+  it); Rolls (no gallery/crop changes).
+- **Verified headless** (Playwright): the pure helpers (type→filename map incl.
+  `_combined`, flip `_original`/`_cropped` pair, `other` indexing, set
+  whole-set single-copy, seed-clone mutation-safety, single-instance replace,
+  add/remove); the end-to-end pipeline with a real synthetic PNG upload
+  (obverse → bg-crop square-locked → circle adjuster → entry with url/rawUrl/
+  circleUrl + slot preview/dot updated; slab_combined → bg-crop free-aspect →
+  no circle → gallery-only entry, no raw; remove); the Set detail strip (4
+  seeded thumbs, coin button hidden), the coin "View all photos (2)" button →
+  viewer, a coin with no extras hiding the button, the widget in all flows, and
+  the scope-filtered picker (coin scope = 5 types, excludes flip sources +
+  whole-set). Full nav + detail/edit smoke clean, zero console errors.
+  **Not verified**: real device (Samsung Internet) pointer-drag feel on the new
+  crop box; any real OneDrive write (mockup — none exists). Held for Ray's
+  live review before merge.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus

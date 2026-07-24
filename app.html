@@ -1672,6 +1672,100 @@
     border: none; color: #241c05; font-weight: 700;
   }
 
+  /* ---- Stage 1 background crop (rectangular, hand-rolled) — trims raw
+     upload down to just the subject before it enters a gallery. Reuses the
+     .photo-adjust-overlay backdrop; the panel is wider to fit a rectangular
+     stage. A draggable/resizable crop box with 8 handles sits over the image;
+     the area outside the box is dimmed. Aspect-lock toggle keeps the box
+     square (flip sources) or free-form (gallery-only images). */
+  .bg-crop-panel {
+    background: var(--bg-case); border: 1px solid var(--case-border-bright);
+    border-radius: 14px; padding: 18px; max-width: 420px; width: 100%; text-align: center;
+  }
+  .bg-crop-stage {
+    position: relative; margin: 0 auto 12px; background: #000; overflow: hidden;
+    border: 1px solid var(--case-border); touch-action: none; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bg-crop-stage img { display: block; max-width: 100%; max-height: 100%; pointer-events: none; user-select: none; }
+  /* Four dim panels around the crop box (top/right/bottom/left) rather than a
+     single overlay with a punched hole, so the selected region stays fully
+     bright with no compositing tricks. */
+  .bg-crop-shade { position: absolute; background: rgba(0,0,0,0.55); pointer-events: none; }
+  .bg-crop-box {
+    position: absolute; border: 1px solid var(--gold-bright);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.5); cursor: move; touch-action: none;
+  }
+  .bg-crop-handle {
+    position: absolute; width: 16px; height: 16px; background: var(--gold-bright);
+    border: 1px solid #241c05; border-radius: 3px; touch-action: none;
+  }
+  .bg-crop-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
+  .bg-crop-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
+  .bg-crop-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+  .bg-crop-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+  .bg-crop-handle.n { top: -8px; left: 50%; margin-left: -8px; cursor: ns-resize; }
+  .bg-crop-handle.s { bottom: -8px; left: 50%; margin-left: -8px; cursor: ns-resize; }
+  .bg-crop-handle.w { left: -8px; top: 50%; margin-top: -8px; cursor: ew-resize; }
+  .bg-crop-handle.e { right: -8px; top: 50%; margin-top: -8px; cursor: ew-resize; }
+  .bg-crop-aspect-row {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
+  }
+
+  /* ---- Reusable gallery-capture widget (Add Coin / Browse Edit / Add Set /
+     Edit Set). An "Add photo" control opens a type picker, then the crop
+     pipeline; captured photos render as thumbnails with a caption field and a
+     remove button. */
+  .gallery-capture { margin-top: 14px; }
+  .gallery-capture .gc-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .gc-thumb {
+    width: 88px; position: relative; text-align: center;
+  }
+  .gc-thumb .gc-img {
+    width: 88px; height: 88px; border-radius: 8px; border: 1px solid var(--case-border);
+    background: #000 center/cover no-repeat; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: var(--text-muted); overflow: hidden;
+  }
+  .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+  .gc-thumb .gc-caption {
+    width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
+    border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+  }
+  .gc-thumb .gc-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
+  }
+  .gc-add-btn {
+    padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: transparent; color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  /* Type picker — a small menu of the types valid for the current scope. */
+  .gallery-type-picker { max-width: 300px; }
+  .gtp-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 14px; }
+  .gtp-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+    font-family: inherit; font-size: 13px; cursor: pointer; text-align: left;
+  }
+  .gtp-item:hover { border-color: var(--gold); }
+  .gtp-item .gtp-icon { font-size: 17px; }
+
+  /* ---- Gallery display: a read-only strip of thumbnails (Set detail region
+     + a shared viewer overlay), reusing the .gc-img tile look. */
+  .gallery-strip { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 4px 0 12px; }
+  .gallery-strip .gc-thumb { cursor: pointer; }
+  .gallery-view-btn {
+    display: inline-flex; align-items: center; gap: 6px; margin: 10px auto 0;
+    padding: 8px 16px; border-radius: 20px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 6px; }
+  .gallery-viewer-grid .gv-cell { width: 130px; text-align: center; }
+  .gallery-viewer-grid .gc-img { width: 130px; height: 130px; }
+  .gallery-viewer-grid .gv-cap { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
   /* Year picker — decade grid, then a small grid of years within it, so
      picking a year never means scrolling one giant list. Typing still works. */
   .year-field-row { display: flex; gap: 8px; }
@@ -2018,6 +2112,11 @@
             <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
           </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
+          <!-- Set detail gallery region (OGP / whole-set front-back / COA
+               front-back) — shown at the top for a Set row, above its flip /
+               child grid. Hidden for individual coins (they use the "View all
+               photos" button below instead). JS-populated in showBrowseDetail(). -->
+          <div class="gallery-strip hidden" id="browseDetailGalleryRegion"></div>
           <div class="case flip-frame" id="browseDetailFlipFrame">
             <span class="flip-label tl" id="browseDetailTL" aria-hidden="true"></span>
             <span class="flip-label tr" id="browseDetailTR" aria-hidden="true"></span>
@@ -2040,6 +2139,13 @@
                for them. JS-populated in showBrowseDetail(). -->
           <div class="set-child-grid hidden" id="browseDetailChildFlips" aria-label="Coins in this set"></div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
+
+          <!-- Coin "View all photos" affordance — shown for an individual coin
+               when its gallery holds photos beyond the two flip sources. Opens
+               the full gallery viewer. JS-toggled in showBrowseDetail(). -->
+          <div style="text-align:center;">
+            <button type="button" class="gallery-view-btn hidden" id="browseDetailGalleryBtn">🖼️ View all photos</button>
+          </div>
 
           <div class="case detail-panel" id="browseDetailPanel">
             <!-- Superseded: Edit used to live in the top action row next to
@@ -2168,20 +2274,9 @@
           <label>Container</label>
           <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
 
-          <div class="photo-box" style="margin-top:14px;">
-            <div class="name">🖼️ Additional Photo</div>
-            <div class="coin-photo-frame" id="browseEditAdditionalFrame">
-              <span class="placeholder-icon" id="browseEditAdditionalPlaceholder">🖼️</span>
-              <img id="browseEditAdditionalPreview">
-            </div>
-            <div class="photo-btns">
-              <button type="button" id="browseEditAdditionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="browseEditAdditionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="browseEditAdditionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="browseEditAdditionalCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="browseEditAdditionalLibraryInput" accept="image/*">
-          </div>
+          <!-- General photo gallery (slab/COA/box/other) — supersedes the old
+               fixed Additional Photo slot. -->
+          <div class="gallery-capture" id="browseEditGallery"></div>
 
           <div class="photo-box" style="margin-top:14px; max-width:220px;">
             <div class="name">🧾 Receipt Photo</div>
@@ -2234,6 +2329,9 @@
 
           <label>Vendor / Seller</label>
           <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <!-- Set photo gallery — OGP/box, whole-set front/back, COA front/back. -->
+          <div class="gallery-capture" id="editSetGallery"></div>
 
           <div class="photo-box" style="margin-top:14px; max-width:220px;">
             <div class="name">🧾 Receipt Photo</div>
@@ -2461,6 +2559,11 @@
             <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
+          <!-- General photo gallery (slab/COA/box/other) — supersedes the old
+               fixed "Additional Photo" slot. Obverse/Reverse above are the two
+               special flip sources; everything else lives here. -->
+          <div class="gallery-capture" id="addCoinGallery"></div>
+
           <div class="section-label" style="margin-top:0;">Grading Service (optional)</div>
           <label>Grader</label>
           <select id="addCoinGrader">
@@ -2675,20 +2778,8 @@
             <option value="">— not part of an album —</option>
           </select>
 
-          <div class="photo-box" style="margin-top:14px;">
-            <div class="name">🖼️ Additional Photo</div>
-            <div class="coin-photo-frame" id="additionalFrame">
-              <span class="placeholder-icon" id="additionalPlaceholder">🖼️</span>
-              <img id="additionalPreview">
-            </div>
-            <div class="photo-btns">
-              <button type="button" id="additionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="additionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="additionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="additionalLibraryInput" accept="image/*">
-          </div>
+          <!-- The old "Additional Photo" slot here is superseded by the Photo
+               Gallery on the Add Coin main view (its "Other" type). -->
 
           <button class="save-btn" id="storageDoneBtn">Done</button>
         </div>
@@ -2902,6 +2993,12 @@
           <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
         </div>
 
+        <!-- Set photo gallery — OGP/box, whole-set front/back, COA front/back.
+             The legacy "Whole-set photo" box above is intentionally left as-is
+             (unmapped) — deliberate re-capture into these typed slots, no
+             auto-migration (Q5). -->
+        <div class="gallery-capture" id="addSetGallery"></div>
+
         <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
         <p class="placeholder-note" id="addSetStep1Note"></p>
       </section>
@@ -3030,6 +3127,65 @@
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 1 background crop — trims a raw upload to just the subject before
+       it enters a gallery. Rectangular crop box, aspect-lock toggle. For
+       obverse/reverse this feeds the existing circle adjuster (Stage 2). -->
+  <div class="photo-adjust-overlay hidden" id="bgCropOverlay">
+    <div class="bg-crop-panel">
+      <div class="photo-adjust-title" id="bgCropTitle">Crop Photo</div>
+      <div class="bg-crop-stage" id="bgCropStage">
+        <img id="bgCropImg" draggable="false" alt="">
+        <div class="bg-crop-shade" id="bgCropShadeTop"></div>
+        <div class="bg-crop-shade" id="bgCropShadeBottom"></div>
+        <div class="bg-crop-shade" id="bgCropShadeLeft"></div>
+        <div class="bg-crop-shade" id="bgCropShadeRight"></div>
+        <div class="bg-crop-box" id="bgCropBox">
+          <div class="bg-crop-handle nw" data-h="nw"></div>
+          <div class="bg-crop-handle ne" data-h="ne"></div>
+          <div class="bg-crop-handle sw" data-h="sw"></div>
+          <div class="bg-crop-handle se" data-h="se"></div>
+          <div class="bg-crop-handle n" data-h="n"></div>
+          <div class="bg-crop-handle s" data-h="s"></div>
+          <div class="bg-crop-handle w" data-h="w"></div>
+          <div class="bg-crop-handle e" data-h="e"></div>
+        </div>
+      </div>
+      <label class="bg-crop-aspect-row" id="bgCropAspectRow">
+        <input type="checkbox" id="bgCropAspectLock"> Lock to square
+      </label>
+      <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background.</div>
+      <div class="photo-adjust-btns">
+        <button type="button" id="bgCropCancelBtn">Cancel</button>
+        <button type="button" id="bgCropUseBtn">Use Crop</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gallery photo type picker — shown before capture so the photo lands
+       under the right gallery type (obverse, slab, COA, OGP, …). -->
+  <div class="photo-adjust-overlay hidden" id="galleryTypePickerOverlay">
+    <div class="photo-adjust-panel gallery-type-picker">
+      <div class="photo-adjust-title">What kind of photo?</div>
+      <div class="gtp-list" id="galleryTypePickerList"></div>
+      <div class="photo-adjust-btns">
+        <button type="button" id="galleryTypePickerCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full gallery viewer (lightbox grid) — every photo on a coin/Set with
+       type labels + captions. Opened from the detail-view "View all photos"
+       affordance and the Set gallery region. -->
+  <div class="photo-adjust-overlay hidden" id="galleryViewerOverlay">
+    <div class="photo-adjust-panel" style="max-width:460px;">
+      <div class="photo-adjust-title" id="galleryViewerTitle">Photos</div>
+      <div class="gallery-viewer-grid" id="galleryViewerGrid"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="galleryViewerCloseBtn">Close</button>
       </div>
     </div>
   </div>
@@ -4261,6 +4417,156 @@
   // structure — combined obverse/reverse handling). The saved-coin flip views fall
   // back to flagging this rather than showing a blank face.
   const COMBINED_PHOTO_COIN_IDS = ["AY-00007"];
+
+  // ==================================================================
+  // PHOTO GALLERY & CROP PIPELINE (mockup) — a general per-coin / per-Set
+  // photo gallery, replacing the old rigid "obverse/reverse/additional"
+  // fixed slots. Each gallery is a single flat array of typed entries; the
+  // flip card still derives from the obverse/reverse entries specifically,
+  // but everything else (slab combined shot, COA front/back, OGP box, any
+  // other photo) coexists in the same array with no fixed count or shape.
+  //
+  // SCOPE: mockup only — like every other coin-side Save in this app, nothing
+  // here writes to OneDrive. Captured photos live as in-browser blob URLs in
+  // galleryStore for the session and are gone on reload; the naming/storage
+  // convention below is documented for the future write layer to implement
+  // against, exactly the way the crop-commit naming already is (see CLAUDE.md
+  // "OneDrive folder structure"). The two-stage crop tools themselves ARE real
+  // and work in-browser.
+  //
+  // Controlled type vocabulary. Each type carries:
+  //   suffix     — the {CollectionID}{suffix}.png filename the future write
+  //                layer would store (flat, no subfolder — same as every other
+  //                photo convention in the project). NOTE slab_combined maps to
+  //                the EXISTING "_combined" convention (5 real coins already use
+  //                {CollectionID}_combined.jpg in Photo3), NOT "_slab_combined",
+  //                so no existing file needs renaming.
+  //   flipSource — obverse/reverse only: these two feed the flip-card circle
+  //                crop (Stage 2). The circle is re-derived at display time
+  //                from the background-cropped rectangle, never stored as its
+  //                own asset.
+  //   retainRaw  — keep the true pre-background-crop upload as {CollectionID}
+  //                {suffix}_raw... — only the flip sources do (matches the
+  //                already-locked-in _original/_cropped convention: raw =
+  //                _original, background-cropped = _cropped). Gallery-only
+  //                types keep a single stored copy.
+  //   aspect     — Stage-1 background-crop aspect: "square" locked for flip
+  //                sources (gives the circle adjuster a clean square), "free"
+  //                for gallery-only images (slab/COA/OGP are arbitrary shapes).
+  //   scope      — which capture pickers surface this type by default ("coin",
+  //                "set", or "both"). Purely which picker lists it — the single
+  //                array imposes no row-type restriction (a coin CAN carry an
+  //                OGP box photo, e.g. a Mint-boxed American Eagle).
+  const GALLERY_TYPES = [
+    { key: "obverse",           label: "Obverse (front)",   icon: "🪙", suffix: "_obverse",      flipSource: true,  retainRaw: true,  aspect: "square", scope: "both" },
+    { key: "reverse",           label: "Reverse (back)",    icon: "🪙", suffix: "_reverse",      flipSource: true,  retainRaw: true,  aspect: "square", scope: "both" },
+    { key: "slab_combined",     label: "Slab / flip (both sides + cert)", icon: "🔲", suffix: "_combined", flipSource: false, retainRaw: false, aspect: "free",   scope: "coin" },
+    { key: "coa_obverse",       label: "COA front",         icon: "📜", suffix: "_coa_obverse", flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
+    { key: "coa_reverse",       label: "COA back",          icon: "📜", suffix: "_coa_reverse", flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
+    { key: "ogp",               label: "OGP / box",         icon: "📦", suffix: "_ogp",         flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
+    { key: "whole_set_obverse", label: "Whole set — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   scope: "set" },
+    { key: "whole_set_reverse", label: "Whole set — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   scope: "set" },
+    { key: "other",             label: "Other photo",       icon: "🖼️", suffix: "_photo",        flipSource: false, retainRaw: false, aspect: "free",   scope: "both" }
+  ];
+  function galleryTypeDef(key) { return GALLERY_TYPES.find(t => t.key === key) || null; }
+
+  // The single-instance types (at most one per gallery) — the two flip
+  // sources, plus the set-level singletons that name a specific slot. "other"
+  // (and, deliberately, nothing else) may repeat. A capture of a
+  // single-instance type replaces any existing entry of that same type.
+  const GALLERY_SINGLE_INSTANCE = new Set([
+    "obverse", "reverse", "slab_combined", "coa_obverse", "coa_reverse",
+    "ogp", "whole_set_obverse", "whole_set_reverse"
+  ]);
+
+  // Notional stored filename(s) for an entry — documentation/testing only in
+  // this mockup (nothing is written). Flip sources follow the locked-in
+  // _original (raw) / _cropped (background-cropped, the circle-crop input)
+  // pair; gallery-only types are a single {suffix}.png. "other" can repeat, so
+  // it gets a 1-based index to stay unique.
+  function galleryFilenameFor(collectionId, type, indexAmongType) {
+    const def = galleryTypeDef(type);
+    if (!def) return null;
+    const n = (type === "other" && indexAmongType != null) ? "_" + (indexAmongType + 1) : "";
+    if (def.flipSource) {
+      return {
+        cropped: collectionId + def.suffix + "_cropped.png",
+        raw:     collectionId + def.suffix + "_original.png"
+      };
+    }
+    return { cropped: collectionId + def.suffix + n + ".png" };
+  }
+
+  // Sparse demo seed, same by-CollectionID convention as FAKE_COIN_DETAILS/
+  // FAKE_METAL_CONTENT — a few coins/Sets carry gallery entries so the display
+  // side is testable. url:null means "a real file would be here" — rendered as
+  // a labeled placeholder tile (no coin in this mockup has a real persisted
+  // photo, exactly as everywhere else). Captured-this-session entries carry a
+  // real blob url instead.
+  const FAKE_GALLERIES = {
+    // A slabbed Morgan: the combined slab shot + a COA front, beyond its
+    // obverse/reverse (which the flip card already covers).
+    "AY-00001": [
+      { type: "slab_combined", url: null, caption: "PCGS slab — both sides + cert 12345678" },
+      { type: "coa_obverse",   url: null, caption: "" }
+    ],
+    // A commemorative dollar shipped in Mint packaging with a certificate.
+    "AY-00014": [
+      { type: "ogp",         url: null, caption: "Original Mint box" },
+      { type: "coa_obverse", url: null, caption: "" },
+      { type: "coa_reverse", url: null, caption: "" }
+    ],
+    // The 1986 Statue of Liberty 3-coin Set (a Set-bundle row) — OGP + whole-set
+    // front/back + COA, its own gallery (children are shown via the child grid,
+    // NOT part of this gallery).
+    "AY-00022": [
+      { type: "ogp",                url: null, caption: "Presentation case" },
+      { type: "whole_set_obverse",  url: null, caption: "" },
+      { type: "whole_set_reverse",  url: null, caption: "" },
+      { type: "coa_obverse",        url: null, caption: "Certificate of Authenticity" }
+    ]
+  };
+
+  // Mutable per-session store, seeded lazily (deep-cloned) from FAKE_GALLERIES
+  // on first access so capture/remove never mutate the demo seed. galleryFor()
+  // is the single accessor every display + capture path reads through.
+  const galleryStore = {};
+  function galleryFor(collectionId) {
+    if (!galleryStore[collectionId]) {
+      const seed = FAKE_GALLERIES[collectionId];
+      galleryStore[collectionId] = seed ? seed.map(e => Object.assign({}, e)) : [];
+    }
+    return galleryStore[collectionId];
+  }
+  function addGalleryEntry(collectionId, entry) {
+    const list = galleryFor(collectionId);
+    if (GALLERY_SINGLE_INSTANCE.has(entry.type)) {
+      // Single-instance type replaces any existing entry of the same type
+      // (re-capturing an obverse supersedes the old one), preserving position.
+      const at = list.findIndex(e => e.type === entry.type);
+      if (at >= 0) { list[at] = entry; return; }
+    }
+    list.push(entry);
+  }
+  function removeGalleryEntry(collectionId, index) {
+    const list = galleryFor(collectionId);
+    if (index >= 0 && index < list.length) list.splice(index, 1);
+  }
+  // The obverse/reverse entry for a coin, if captured this session — lets the
+  // flip card prefer a real captured photo over the series reference-image
+  // fallback once photo persistence exists (today always null-url in the seed,
+  // so this is future-facing; the flip render is unchanged when it's absent).
+  function galleryFlipEntry(collectionId, side) {
+    return galleryFor(collectionId).find(e => e.type === side && e.url) || null;
+  }
+
+  // Add Coin / Add Set have no assigned CollectionID until save, so their
+  // in-progress galleries key off a stable temp-draft id. A real write layer
+  // would reconcile these entries to the assigned CollectionID at save time.
+  // Cleared when the respective form resets (see resetGalleryDraft calls).
+  const ADDCOIN_GALLERY_ID = "__addcoin_draft__";
+  const ADDSET_GALLERY_ID = "__addset_draft__";
+  function resetGalleryDraft(tempKey) { galleryStore[tempKey] = []; }
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
   // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
@@ -6432,7 +6738,42 @@
       applyFlipCorners("browseDetail", coin);
     }
 
+    applyGalleryDetailAffordance(coin);
     renderBrowseDetailPanel(coin);
+  }
+
+  // Detail-view gallery affordance (Photo Gallery feature):
+  //   - Set row: a thumbnail strip at the top (OGP / whole-set / COA — its own
+  //     gallery entries), each opening the full viewer. Children are NOT part
+  //     of this — they're the child-flip grid, shown separately below.
+  //   - Individual coin/roll: a "View all photos" button, shown only when the
+  //     gallery holds photos beyond the two flip sources (obverse/reverse).
+  function applyGalleryDetailAffordance(coin) {
+    const region = document.getElementById("browseDetailGalleryRegion");
+    const btn = document.getElementById("browseDetailGalleryBtn");
+    const list = galleryFor(coin.id);
+    if (isSetRow(coin)) {
+      btn.classList.add("hidden");
+      if (list.length) {
+        renderGalleryStrip(region, coin.id, () => openGalleryViewer(coin.id, coin.name + " — photos"));
+        region.classList.remove("hidden");
+      } else {
+        region.innerHTML = "";
+        region.classList.add("hidden");
+      }
+    } else {
+      region.classList.add("hidden");
+      region.innerHTML = "";
+      const extras = list.filter(e => e.type !== "obverse" && e.type !== "reverse").length;
+      if (extras > 0) {
+        btn.textContent = "🖼️ View all photos (" + list.length + ")";
+        btn.classList.remove("hidden");
+        btn.onclick = () => openGalleryViewer(coin.id, coin.name + " — photos");
+      } else {
+        btn.classList.add("hidden");
+        btn.onclick = null;
+      }
+    }
   }
 
   // Builds the clickable child-coin mini-flip grid for a multi-coin Set.
@@ -6853,6 +7194,10 @@
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
     certInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Refresh the gallery widget for THIS coin (the target id changed).
+    const gEl = document.getElementById("browseEditGallery");
+    if (gEl && gEl._galleryRender) gEl._galleryRender();
   }
 
   // Edit Set — Storage/Container, Value, and Purchase Details for a
@@ -6875,13 +7220,18 @@
     document.getElementById("editSetShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
     document.getElementById("editSetPurchaseDate").value = details.purchaseDate || "";
     document.getElementById("editSetVendor").value = details.vendor || "";
+
+    const gEl = document.getElementById("editSetGallery");
+    if (gEl && gEl._galleryRender) gEl._galleryRender();
   }
 
   function initBrowseEdit() {
-    wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn");
-    wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn");
-    wireMockPhotoSlot("browseEditAdditionalPreview", "browseEditAdditionalPlaceholder", "browseEditAdditionalCameraBtn", "browseEditAdditionalLibraryBtn", "browseEditAdditionalCameraInput", "browseEditAdditionalLibraryInput", "browseEditAdditionalFrame", null, "browseEditAdditionalAdjustBtn");
+    const browseEditGalleryId = () => currentBrowseCoin && currentBrowseCoin.id;
+    wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn", "obverse", browseEditGalleryId);
+    wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn", "reverse", browseEditGalleryId);
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+    // General gallery (slab/COA/box/other) replacing the old Additional slot.
+    initGalleryCapture("browseEditGallery", browseEditGalleryId, "coin");
 
     document.getElementById("browseEditShowObverseBtn").addEventListener("click", showBrowseObverseEditPhoto);
     document.getElementById("browseEditShowReverseBtn").addEventListener("click", showBrowseReverseEditPhoto);
@@ -6931,6 +7281,7 @@
   // write layer exists yet for either form.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+    initGalleryCapture("editSetGallery", () => currentBrowseCoin && currentBrowseCoin.id, "set");
 
     document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
       document.getElementById("browseEditSetView").style.display = "none";
@@ -8417,18 +8768,30 @@
   // Receipt photos stay a plain rectangular preview, no adjuster needed there.
   // ==================================================================
 
-  let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId }
+  let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, + EITHER target*Id (legacy) OR onComplete (callback) }
   const slotFiles = {}; // frameId -> original File, so "reopen adjuster" can re-crop the same photo
 
-  async function openPhotoAdjust(file, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
+  // Two call modes, kept backward-compatible:
+  //   LEGACY (positional): openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId)
+  //     — bakes the circle straight into those DOM elements. Used by the
+  //       existing Add Coin / Browse Edit obverse/reverse slots.
+  //   CALLBACK (object):   openPhotoAdjust(source, { onComplete })
+  //     — hands the baked circle blob to onComplete instead of touching the
+  //       DOM. Used by the new gallery crop pipeline (Stage 2). `source` may
+  //       be a File OR a Blob (e.g. the Stage-1 background-cropped rectangle).
+  async function openPhotoAdjust(source, optsOrPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
     const overlay = document.getElementById("photoAdjustOverlay");
     const img = document.getElementById("photoAdjustImg");
     const circleSize = 240;
+    const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
     img.onload = () => {
       photoAdjustState = {
         naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
         zoom: 1, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
-        circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
+        circleSize,
+        onComplete: callbackMode ? optsOrPreviewId.onComplete : null,
+        targetPreviewId: callbackMode ? null : optsOrPreviewId,
+        targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
       };
       recomputePhotoAdjustBaseScale();
       document.getElementById("photoAdjustZoom").value = 100;
@@ -8439,7 +8802,7 @@
     // preview and the final canvas bake (which draws from this same <img>)
     // then work from already-correct pixels, with no dependency on canvas
     // drawImage() honoring EXIF (it never does).
-    const orientedCanvas = await loadOrientedImageCanvas(file);
+    const orientedCanvas = await loadOrientedImageCanvas(source);
     img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
     overlay.classList.remove("hidden");
   }
@@ -8553,6 +8916,15 @@
       ctx.restore();
 
       canvas.toBlob((blob) => {
+        // Callback mode (new gallery pipeline): hand the baked circle blob off
+        // and let the caller decide what to do with it — no DOM writes here.
+        if (s.onComplete) {
+          const cb = s.onComplete;
+          closePhotoAdjust();
+          cb(blob);
+          return;
+        }
+        // Legacy mode: bake straight into the slot's own preview/frame/dot.
         const url = URL.createObjectURL(blob);
         const preview = document.getElementById(s.targetPreviewId);
         preview.src = url;
@@ -8571,10 +8943,412 @@
   }
 
   // ==================================================================
+  // STAGE 1 — BACKGROUND CROP (rectangular, hand-rolled). Trims a raw upload
+  // down to just the subject. Draggable/resizable crop box over the oriented
+  // image; aspect-lock toggle (square for flip sources, free otherwise).
+  // Bakes the selected region to a blob and hands it to onComplete. No
+  // library — same self-contained canvas+pointer approach as the circle
+  // adjuster above (this project's no-external-CDN posture).
+  // ==================================================================
+
+  let bgCropState = null; // { dispW, dispH, naturalW, naturalH, box:{left,top,right,bottom}, aspectLock, onComplete }
+  const BG_CROP_MIN = 32;   // smallest crop box, display px
+  const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds
+
+  async function openBgCrop(source, opts) {
+    opts = opts || {};
+    const overlay = document.getElementById("bgCropOverlay");
+    const img = document.getElementById("bgCropImg");
+    const stage = document.getElementById("bgCropStage");
+    document.getElementById("bgCropTitle").textContent = opts.title || "Crop Photo";
+    const oriented = await loadOrientedImageCanvas(source);
+    const nW = oriented.width, nH = oriented.height;
+    const scale = Math.min(BG_CROP_MAX_DISP_W / nW, BG_CROP_MAX_DISP_H / nH, 1);
+    const dispW = Math.round(nW * scale), dispH = Math.round(nH * scale);
+    stage.style.width = dispW + "px";
+    stage.style.height = dispH + "px";
+    img.src = oriented.toDataURL("image/jpeg", 0.95);
+
+    const aspectLock = !!opts.aspectLock;
+    document.getElementById("bgCropAspectLock").checked = aspectLock;
+
+    // Initial box: 80% inset, squared and centered if locked.
+    let left = dispW * 0.1, top = dispH * 0.1, right = dispW * 0.9, bottom = dispH * 0.9;
+    if (aspectLock) {
+      const side = Math.min(right - left, bottom - top);
+      const cx = dispW / 2, cy = dispH / 2;
+      left = cx - side / 2; right = cx + side / 2; top = cy - side / 2; bottom = cy + side / 2;
+    }
+    bgCropState = {
+      dispW, dispH, naturalW: nW, naturalH: nH,
+      box: { left, top, right, bottom }, aspectLock, onComplete: opts.onComplete || null
+    };
+    document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
+    renderBgCrop();
+    overlay.classList.remove("hidden");
+  }
+
+  function closeBgCrop() {
+    document.getElementById("bgCropOverlay").classList.add("hidden");
+    bgCropState = null;
+  }
+
+  function renderBgCrop() {
+    const s = bgCropState;
+    if (!s) return;
+    const b = s.box;
+    const w = b.right - b.left, h = b.bottom - b.top;
+    const box = document.getElementById("bgCropBox");
+    box.style.left = b.left + "px"; box.style.top = b.top + "px";
+    box.style.width = w + "px"; box.style.height = h + "px";
+    // With aspect lock, only corner handles make sense (an edge drag can't keep
+    // square without ambiguity) — hide the four edge handles while locked.
+    box.querySelectorAll('.bg-crop-handle.n, .bg-crop-handle.s, .bg-crop-handle.w, .bg-crop-handle.e')
+      .forEach(el => el.style.display = s.aspectLock ? "none" : "block");
+    // Four dim panels around the box.
+    const setShade = (id, x, y, ww, hh) => {
+      const el = document.getElementById(id);
+      el.style.left = x + "px"; el.style.top = y + "px";
+      el.style.width = Math.max(0, ww) + "px"; el.style.height = Math.max(0, hh) + "px";
+    };
+    setShade("bgCropShadeTop", 0, 0, s.dispW, b.top);
+    setShade("bgCropShadeBottom", 0, b.bottom, s.dispW, s.dispH - b.bottom);
+    setShade("bgCropShadeLeft", 0, b.top, b.left, h);
+    setShade("bgCropShadeRight", b.right, b.top, s.dispW - b.right, h);
+  }
+
+  function clampBgBox() {
+    const s = bgCropState, b = s.box;
+    b.left = Math.max(0, Math.min(b.left, b.right - BG_CROP_MIN));
+    b.top = Math.max(0, Math.min(b.top, b.bottom - BG_CROP_MIN));
+    b.right = Math.min(s.dispW, Math.max(b.right, b.left + BG_CROP_MIN));
+    b.bottom = Math.min(s.dispH, Math.max(b.bottom, b.top + BG_CROP_MIN));
+  }
+
+  function initBgCrop() {
+    const stage = document.getElementById("bgCropStage");
+    const box = document.getElementById("bgCropBox");
+    let drag = null; // { mode: "move"|handle, startX, startY, orig box }
+
+    function startDrag(e, mode) {
+      if (!bgCropState) return;
+      e.preventDefault();
+      drag = { mode, startX: e.clientX, startY: e.clientY, orig: Object.assign({}, bgCropState.box) };
+      stage.setPointerCapture(e.pointerId);
+    }
+    box.addEventListener("pointerdown", (e) => {
+      // A handle press is caught here too (bubbles) — dataset.h distinguishes.
+      const h = e.target.dataset ? e.target.dataset.h : null;
+      startDrag(e, h || "move");
+      e.stopPropagation();
+    });
+    stage.addEventListener("pointermove", (e) => {
+      if (!drag || !bgCropState) return;
+      const s = bgCropState, b = s.box, o = drag.orig;
+      const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+      if (drag.mode === "move") {
+        const w = o.right - o.left, h = o.bottom - o.top;
+        let nl = o.left + dx, nt = o.top + dy;
+        nl = Math.max(0, Math.min(nl, s.dispW - w));
+        nt = Math.max(0, Math.min(nt, s.dispH - h));
+        b.left = nl; b.top = nt; b.right = nl + w; b.bottom = nt + h;
+      } else if (s.aspectLock) {
+        // Corner resize, square, anchored at the opposite corner.
+        const m = drag.mode;
+        const anchorX = (m === "se" || m === "ne") ? o.left : o.right;
+        const anchorY = (m === "se" || m === "sw") ? o.top : o.bottom;
+        const px = Math.max(0, Math.min(s.dispW, (m === "se" || m === "ne") ? o.right + dx : o.left + dx));
+        const py = Math.max(0, Math.min(s.dispH, (m === "se" || m === "sw") ? o.bottom + dy : o.top + dy));
+        let side = Math.max(Math.abs(px - anchorX), Math.abs(py - anchorY), BG_CROP_MIN);
+        // clamp side so the square stays inside the stage from the anchor
+        const maxRight = (m === "se" || m === "ne") ? s.dispW - anchorX : anchorX;
+        const maxDown = (m === "se" || m === "sw") ? s.dispH - anchorY : anchorY;
+        side = Math.min(side, maxRight, maxDown);
+        b.left = (m === "se" || m === "ne") ? anchorX : anchorX - side;
+        b.right = (m === "se" || m === "ne") ? anchorX + side : anchorX;
+        b.top = (m === "se" || m === "sw") ? anchorY : anchorY - side;
+        b.bottom = (m === "se" || m === "sw") ? anchorY + side : anchorY;
+      } else {
+        // Free resize — move only the edges this handle controls.
+        const m = drag.mode;
+        if (m.includes("w")) b.left = o.left + dx;
+        if (m.includes("e")) b.right = o.right + dx;
+        if (m.includes("n")) b.top = o.top + dy;
+        if (m.includes("s")) b.bottom = o.bottom + dy;
+        clampBgBox();
+      }
+      renderBgCrop();
+    });
+    const endDrag = () => { drag = null; };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+
+    document.getElementById("bgCropAspectLock").addEventListener("change", (e) => {
+      if (!bgCropState) return;
+      bgCropState.aspectLock = e.target.checked;
+      document.getElementById("bgCropBox").classList.toggle("locked", e.target.checked);
+      if (e.target.checked) {
+        // Snap current box to a centered square that fits inside it.
+        const b = bgCropState.box;
+        const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2;
+        const side = Math.min(b.right - b.left, b.bottom - b.top);
+        b.left = cx - side / 2; b.right = cx + side / 2; b.top = cy - side / 2; b.bottom = cy + side / 2;
+        clampBgBox();
+      }
+      renderBgCrop();
+    });
+
+    document.getElementById("bgCropCancelBtn").addEventListener("click", closeBgCrop);
+    document.getElementById("bgCropUseBtn").addEventListener("click", () => {
+      const s = bgCropState;
+      if (!s) return;
+      const b = s.box;
+      const sx = s.naturalW / s.dispW, sy = s.naturalH / s.dispH;
+      const srcX = Math.round(b.left * sx), srcY = Math.round(b.top * sy);
+      const srcW = Math.round((b.right - b.left) * sx), srcH = Math.round((b.bottom - b.top) * sy);
+      // Cap output long edge to bound memory; preserve the crop's own aspect.
+      const cap = 1400;
+      const longEdge = Math.max(srcW, srcH);
+      const outScale = longEdge > cap ? cap / longEdge : 1;
+      const outW = Math.max(1, Math.round(srcW * outScale)), outH = Math.max(1, Math.round(srcH * outScale));
+      const canvas = document.createElement("canvas");
+      canvas.width = outW; canvas.height = outH;
+      canvas.getContext("2d").drawImage(document.getElementById("bgCropImg"), srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+      canvas.toBlob((blob) => {
+        const cb = s.onComplete;
+        closeBgCrop();
+        if (cb) cb(blob);
+      }, "image/jpeg", 0.92);
+    });
+  }
+
+  // ==================================================================
+  // CROP PIPELINE ORCHESTRATOR — chains the two stages for one captured
+  // photo and produces a gallery entry. onEntry(entry) is called with the
+  // finished { type, url, rawUrl?, caption, filename, rawFilename? }.
+  //   raw upload -> Stage 1 background crop (aspect per type) -> clean
+  //   rectangle (the gallery asset). For flip sources (obverse/reverse) the
+  //   rectangle then feeds Stage 2 (the existing circle adjuster) so the coin
+  //   also gets a framed flip-card circle; the circle itself is display-only
+  //   and NOT a stored asset (re-derived at display time). Flip sources also
+  //   retain the true pre-crop raw (rawUrl / _original.png); gallery-only
+  //   types keep the single cropped copy.
+  // Mockup: url/rawUrl are in-browser blob URLs; filename/rawFilename are the
+  // notional names the future write layer would use (nothing is written).
+  function runCropPipeline(file, type, collectionId, onEntry) {
+    const def = galleryTypeDef(type);
+    if (!def) return;
+    const rawUrl = def.retainRaw ? URL.createObjectURL(file) : null;
+    // index among same-type entries, for "other" filename uniqueness
+    const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
+    const names = galleryFilenameFor(collectionId, type, indexAmongType);
+    openBgCrop(file, {
+      title: "Crop — " + def.label,
+      aspectLock: def.aspect === "square",
+      onComplete: (rectBlob) => {
+        const rectUrl = URL.createObjectURL(rectBlob);
+        // circleBlob is a session-only display convenience for flip sources
+        // (updates the capture slot's own circular preview) — it is NOT a
+        // stored asset; the flip card re-derives the circle from the stored
+        // rectangle. Null for gallery-only types.
+        const finish = (circleBlob) => onEntry({
+          type, url: rectUrl, rawUrl,
+          circleUrl: circleBlob ? URL.createObjectURL(circleBlob) : null,
+          caption: "",
+          filename: names.cropped,
+          rawFilename: names.raw || null
+        });
+        if (def.flipSource) {
+          // Stage 2: frame the flip-card circle from the clean rectangle.
+          openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob) });
+        } else {
+          finish(null);
+        }
+      }
+    });
+  }
+
+  // ==================================================================
+  // GALLERY CAPTURE WIDGET — one reusable component dropped into all four
+  // capture flows (Add Coin, Browse Edit, Add Set, Edit Set). "Add photo"
+  // opens the type picker, then the crop pipeline; captured photos render as
+  // thumbnails with a caption field and a remove button. Bound to a target
+  // CollectionID via a getter (Add Coin/Add Set use a stable temp-draft key
+  // since no ID is assigned until save — a real write layer would reconcile
+  // it to the assigned CollectionID at save time).
+  // ==================================================================
+
+  // Rendered thumbnail tile for one entry. url present -> the captured blob;
+  // url null (demo seed) -> a labeled placeholder tile, same "no real photo
+  // persisted yet" convention as the rest of the app.
+  function galleryThumbInner(entry) {
+    const def = galleryTypeDef(entry.type);
+    const icon = def ? def.icon : "🖼️";
+    const imgStyle = entry.url ? ` style="background-image:url('${entry.url}')"` : "";
+    return `<div class="gc-img"${imgStyle}>${entry.url ? "" : icon}</div>`;
+  }
+
+  // A shared pending-pick callback for the type picker overlay.
+  let galleryTypePickPending = null;
+  function openGalleryTypePicker(scope, onPick) {
+    galleryTypePickPending = onPick;
+    const list = document.getElementById("galleryTypePickerList");
+    list.innerHTML = "";
+    // Flip sources (obverse/reverse) are captured via the dedicated flip
+    // slots above the widget, never the gallery picker — exclude them here.
+    GALLERY_TYPES.filter(t => !t.flipSource && (t.scope === "both" || t.scope === scope)).forEach(t => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gtp-item";
+      btn.innerHTML = `<span class="gtp-icon">${t.icon}</span><span>${t.label}</span>`;
+      btn.addEventListener("click", () => {
+        document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+        const cb = galleryTypePickPending;
+        galleryTypePickPending = null;
+        if (cb) cb(t.key);
+      });
+      list.appendChild(btn);
+    });
+    document.getElementById("galleryTypePickerOverlay").classList.remove("hidden");
+  }
+
+  function initGalleryTypePicker() {
+    document.getElementById("galleryTypePickerCancelBtn").addEventListener("click", () => {
+      document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+      galleryTypePickPending = null;
+    });
+  }
+
+  // sectionId: a container div. getTargetId(): returns the CollectionID (or
+  // temp-draft key) whose gallery this widget edits. scope: "coin" | "set".
+  function initGalleryCapture(sectionId, getTargetId, scope) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.innerHTML = `
+      <div class="section-label" style="margin-top:0;">Photo Gallery (optional)</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
+        Any photos beyond the flip card — slab/COA/box shots, extra angles. Each is
+        cropped to remove background before it's saved.
+      </p>
+      <div class="gc-grid" data-role="grid"></div>
+      <button type="button" class="gc-add-btn" data-role="add">＋ Add photo</button>
+      <input type="file" accept="image/*" data-role="file" style="display:none;">
+    `;
+    const grid = section.querySelector('[data-role="grid"]');
+    const fileInput = section.querySelector('[data-role="file"]');
+    let pendingType = null;
+
+    function render() {
+      const id = getTargetId();
+      const list = id ? galleryFor(id) : [];
+      grid.innerHTML = "";
+      list.forEach((entry, index) => {
+        const def = galleryTypeDef(entry.type);
+        // Flip sources live in the same gallery array but are managed by the
+        // dedicated obverse/reverse slots above — don't show/remove them here.
+        if (def && def.flipSource) return;
+        const thumb = document.createElement("div");
+        thumb.className = "gc-thumb";
+        thumb.innerHTML = `
+          <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+          ${galleryThumbInner(entry)}
+          <div class="gc-type">${def ? def.label : entry.type}</div>
+          <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        `;
+        thumb.querySelector(".gc-remove").addEventListener("click", () => {
+          removeGalleryEntry(id, index);
+          render();
+        });
+        thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+        grid.appendChild(thumb);
+      });
+    }
+
+    section.querySelector('[data-role="add"]').addEventListener("click", () => {
+      openGalleryTypePicker(scope, (typeKey) => {
+        pendingType = typeKey;
+        fileInput.value = ""; // allow re-picking the same file
+        fileInput.click();
+      });
+    });
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (!file || !pendingType) return;
+      const id = getTargetId();
+      const type = pendingType;
+      pendingType = null;
+      runCropPipeline(file, type, id, (entry) => {
+        addGalleryEntry(id, entry);
+        render();
+      });
+    });
+
+    // Expose a re-render hook so a flow can refresh the widget when its target
+    // changes (e.g. Browse Edit opening a different coin).
+    section._galleryRender = render;
+    render();
+  }
+
+  // ==================================================================
+  // GALLERY DISPLAY (read-only) — a thumbnail strip (Set detail region) and
+  // a full viewer overlay, both reused across coin and Set detail views.
+  // ==================================================================
+
+  // Renders a read-only strip of gallery thumbnails into containerEl. Each
+  // thumb opens the full viewer on click. Returns the number rendered.
+  function renderGalleryStrip(containerEl, collectionId, onThumbClick) {
+    const list = galleryFor(collectionId);
+    containerEl.innerHTML = "";
+    list.forEach((entry, index) => {
+      const def = galleryTypeDef(entry.type);
+      const thumb = document.createElement("div");
+      thumb.className = "gc-thumb";
+      thumb.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${def ? def.label : entry.type}</div>`;
+      thumb.addEventListener("click", () => onThumbClick(index));
+      containerEl.appendChild(thumb);
+    });
+    return list.length;
+  }
+
+  let galleryViewerId = null;
+  function openGalleryViewer(collectionId, title) {
+    galleryViewerId = collectionId;
+    document.getElementById("galleryViewerTitle").textContent = title || "Photos";
+    const grid = document.getElementById("galleryViewerGrid");
+    const list = galleryFor(collectionId);
+    grid.innerHTML = "";
+    if (!list.length) {
+      grid.innerHTML = `<p style="font-size:13px; color:var(--text-muted);">No photos yet.</p>`;
+    } else {
+      list.forEach(entry => {
+        const def = galleryTypeDef(entry.type);
+        const cell = document.createElement("div");
+        cell.className = "gv-cell";
+        const cap = [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
+        cell.innerHTML = `${galleryThumbInner(entry)}<div class="gv-cap">${cap}</div>`;
+        grid.appendChild(cell);
+      });
+    }
+    document.getElementById("galleryViewerOverlay").classList.remove("hidden");
+  }
+  function initGalleryViewer() {
+    document.getElementById("galleryViewerCloseBtn").addEventListener("click", () => {
+      document.getElementById("galleryViewerOverlay").classList.add("hidden");
+      galleryViewerId = null;
+    });
+  }
+
+  // ==================================================================
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
-  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId) {
+  // galleryType/getGalleryId (optional): when set, this frame slot is a flip
+  // source (obverse/reverse) and runs the full two-stage pipeline —
+  // background crop then circle — writing the framed circle into the slot's
+  // own preview AND registering the background-cropped rectangle as a gallery
+  // entry of that type. When absent, the slot keeps its legacy circle-only
+  // behavior (Wishlist's obverse/reverse, which aren't owned-coin galleries).
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId, galleryType, getGalleryId) {
     const preview = document.getElementById(previewId);
     const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
@@ -8588,8 +9362,29 @@
     cameraBtn.addEventListener("click", () => cameraInput.click());
     libraryBtn.addEventListener("click", () => libraryInput.click());
 
+    // Applies a baked circle blob URL to this slot's own DOM (preview/frame/
+    // dot/adjust button) — the same writes the legacy circle path made.
+    function applyCirclePreview(circleUrl) {
+      if (!circleUrl) return;
+      preview.src = circleUrl;
+      preview.style.display = "block";
+      if (placeholder) placeholder.style.display = "none";
+      if (frame) frame.classList.add("has-photo");
+      if (dot) dot.classList.add("filled");
+      if (adjustBtn) adjustBtn.style.display = "flex";
+    }
+
     async function handleFile(file) {
-      if (frameId) {
+      if (frameId && galleryType && getGalleryId) {
+        // Flip source — two-stage pipeline, updates the slot preview and
+        // registers the rectangle as an obverse/reverse gallery entry.
+        slotFiles[frameId] = file;
+        const id = getGalleryId();
+        runCropPipeline(file, galleryType, id, (entry) => {
+          addGalleryEntry(id, entry);
+          applyCirclePreview(entry.circleUrl);
+        });
+      } else if (frameId) {
         // Circular coin photo — crop/zoom/pan before it becomes the preview.
         slotFiles[frameId] = file;
         openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
@@ -8628,7 +9423,16 @@
       adjustBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         const file = slotFiles[frameId];
-        if (file) openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
+        if (!file) return;
+        if (galleryType && getGalleryId) {
+          const id = getGalleryId();
+          runCropPipeline(file, galleryType, id, (entry) => {
+            addGalleryEntry(id, entry);
+            applyCirclePreview(entry.circleUrl);
+          });
+        } else {
+          openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
+        }
       });
     }
   }
@@ -9152,10 +9956,14 @@
   }
 
   function initAddCoin() {
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn");
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn");
+    // Obverse/Reverse are the flip sources — routed through the two-stage
+    // pipeline (background crop -> circle) and registered as gallery entries.
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID);
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID);
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
-    wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput", "additionalFrame", null, "additionalAdjustBtn");
+    // The old fixed "Additional Photo" slot is superseded by the gallery
+    // widget (its role is now the gallery's "Other" type).
+    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin");
     refreshVarietyOptions();
 
     document.getElementById("purchaseInfoRow").addEventListener("click", () => showAddCoinSubview("purchase"));
@@ -9732,6 +10540,10 @@
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
 
+    // Set photo gallery (OGP / whole-set front-back / COA front-back). Targets
+    // the resumed draft's own CollectionID when resuming, else the temp key.
+    initGalleryCapture("addSetGallery", () => currentSetDraft ? currentSetDraft.collectionID : ADDSET_GALLERY_ID, "set");
+
     // Name and Year each recompute Category (item 4) on every genuine edit
     // — see updateAddSetCategoryFromNameYear(). Setting addSetNameTouched/
     // addSetYearTouched here (their own real "input"/"change" listener) is
@@ -9929,6 +10741,10 @@
     document.getElementById("addSetStep1Note").textContent = "";
     addSetClearPhoto("whole", "addSetWholePreview");
     addSetClearPhoto("receipt", "addSetReceiptPreview");
+    // Fresh entry starts with an empty Set gallery draft (temp key).
+    resetGalleryDraft(ADDSET_GALLERY_ID);
+    const asg = document.getElementById("addSetGallery");
+    if (asg && asg._galleryRender) asg._galleryRender();
     // Banner hidden by default; applyAddSetContext() (called right AFTER
     // navigate on the checklist path) re-shows/fills it. Deliberately does NOT
     // null setChecklistContext — that survives navigate so applyAddSetContext
@@ -9991,6 +10807,11 @@
       "Resuming " + draft.collectionID + " — attach the missing whole-set photo below, then Save.";
 
     currentSetDraft = draft; // tells startSetCapture() to update this draft in place, not reserve a new ID
+
+    // Re-render the gallery now that the widget targets this resumed draft's
+    // own CollectionID (showAddSetStep1 rendered it against the temp key).
+    const asg = document.getElementById("addSetGallery");
+    if (asg && asg._galleryRender) asg._galleryRender();
 
     const box = document.getElementById("addSetWholeBox");
     if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
@@ -10426,6 +11247,9 @@
   initAlbums();
   initWishlist();
   initPhotoAdjuster();
+  initBgCrop();
+  initGalleryTypePicker();
+  initGalleryViewer();
   initGradingHelp();
   initAddCoin();
   initAddSet();
