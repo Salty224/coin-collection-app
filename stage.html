@@ -3042,12 +3042,12 @@
 
         <!-- Set photos & documents — ONE collapsed accordion (progressive
              disclosure: this taxonomy is far too much to show expanded on a
-             phone). Holds the package/OGP pair, a flat Set's own front/back
-             pair (its implicit default sub-group), the open-ended COA list,
-             and the Receipt. Receipt lives here deliberately: it isn't a
-             "photo" in the taxonomy sense (PDF-wrapped, never cropped) but it
-             IS a Set-level document, and pulling it out as a special case
-             would defeat the point of collapsing this block. -->
+             phone). Holds the package/OGP pair, the whole-set front/back pair,
+             and the open-ended COA list.
+             Superseded: the Receipt briefly lived here too, on the reasoning
+             that it's a Set-level document. It now lives in the Purchase Info
+             drill-down instead, matching Add Coin — a receipt belongs with the
+             purchase it documents. Moved, not duplicated. -->
         <div class="detail-accordion" id="addSetDocsAccordion">
           <button type="button" class="accordion-header" id="addSetDocsHeader" aria-expanded="false">
             <span>📦 Set photos &amp; documents</span>
@@ -3064,17 +3064,6 @@
             <!-- Open-ended COA list (multi-page certificates) + any other
                  Set-level photo, via the reusable gallery widget. -->
             <div class="gallery-capture" id="addSetGallery"></div>
-
-            <div class="photo-box" id="addSetReceiptBox" style="margin-top:14px;">
-              <div class="name">🧾 Receipt photo (optional)</div>
-              <img id="addSetReceiptPreview">
-              <div class="photo-btns">
-                <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              </div>
-              <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
-              <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
-            </div>
           </div>
         </div>
 
@@ -3101,6 +3090,27 @@
 
           <label>Vendor / Seller</label>
           <input type="text" id="addSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <!-- Receipt lives HERE, alongside the purchase fields, exactly as
+               Add Coin's own Purchase Info subview does. Superseded: it was
+               briefly inside the Set photos & documents accordion (on the
+               reasoning that it's a Set-level document) — but matching Add
+               Coin's placement wins, since a receipt belongs with what it
+               documents. It is NOT duplicated: this is its single home. -->
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <!-- No placeholder-icon element here, unlike Add Coin's: Add Set's
+                 slots are wired by wireAddSetPhotoSlot(), which passes a null
+                 placeholderId and so would never hide one — it'd sit stuck
+                 above the photo. -->
+            <div class="name">🧾 Receipt Photo</div>
+            <img id="addSetReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
+          </div>
 
           <button class="save-btn" id="addSetPurchaseDoneBtn">Done</button>
         </div>
