@@ -2924,6 +2924,9 @@
 
       <!-- ============ ADD SET — Step 1 (set-level basics) ============ -->
       <section class="view" id="view-addset">
+        <!-- Main Step 1 content; the Purchase Info / Storage drill-downs below
+             replace this in place, exactly as Add Coin's subviews do. -->
+        <div id="addSetStep1Main">
         <button class="back-link" id="addSetBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Add Set</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
@@ -3015,6 +3018,28 @@
           <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
         </div>
 
+        <!-- Purchase Info / Storage drill-downs — same replace-the-screen
+             pattern (and the same field set + labels) Add Coin uses, so
+             adding a Set feels like adding a coin rather than a thinner
+             separate form. Field labels deliberately match Edit Set's
+             existing ones so the create and edit forms agree. -->
+        <div class="case form-row" id="addSetPurchaseInfoRow">
+          <span class="fr-icon">💵</span>
+          <div class="fr-info">
+            <div class="fr-title">Purchase Info</div>
+            <div class="fr-summary" id="addSetPurchaseInfoSummary">Tap to add price, seller, shipping</div>
+          </div>
+          <span class="chevron">›</span>
+        </div>
+        <div class="case form-row" id="addSetStorageRow">
+          <span class="fr-icon">🗄️</span>
+          <div class="fr-info">
+            <div class="fr-title">Storage</div>
+            <div class="fr-summary" id="addSetStorageSummary">Tap to add storage location or container</div>
+          </div>
+          <span class="chevron">›</span>
+        </div>
+
         <!-- Set photos & documents — ONE collapsed accordion (progressive
              disclosure: this taxonomy is far too much to show expanded on a
              phone). Holds the package/OGP pair, a flat Set's own front/back
@@ -3055,6 +3080,46 @@
 
         <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
         <p class="placeholder-note" id="addSetStep1Note"></p>
+        </div><!-- /addSetStep1Main -->
+
+        <!-- Purchase Info drill-down. Same fields/labels as Add Coin's own
+             Purchase Info subview and as Edit Set, so create and edit agree.
+             Receipt is deliberately NOT duplicated here — it already lives in
+             the Set photos & documents accordion on the main view. -->
+        <div class="case form-card" id="addSetPurchaseView" style="display:none;">
+          <button class="back-link" id="addSetPurchaseBackBtn" style="padding-top:0;">← Back</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" id="addSetCost" placeholder="e.g. 450.00">
+
+          <label>Shipping Cost</label>
+          <input type="number" step="0.01" id="addSetShippingCost" placeholder="e.g. 12.50">
+
+          <label>Purchase Date</label>
+          <input type="date" id="addSetPurchaseDate">
+
+          <label>Vendor / Seller</label>
+          <input type="text" id="addSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <button class="save-btn" id="addSetPurchaseDoneBtn">Done</button>
+        </div>
+
+        <!-- Storage drill-down. Storage Location + Container, matching Edit
+             Set. No "Assign to Album" — that's a coin-level concept; a Set
+             bundle isn't placed in an album slot. -->
+        <div class="case form-card" id="addSetStorageView" style="display:none;">
+          <button class="back-link" id="addSetStorageBackBtn" style="padding-top:0;">← Back</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage</div>
+
+          <label>Storage Location</label>
+          <input type="text" id="addSetStorageLocation" placeholder="e.g. Safe, Box 2">
+
+          <label>Container</label>
+          <input type="text" id="addSetContainer" placeholder="e.g. display case, original Mint packaging">
+
+          <button class="save-btn" id="addSetStorageDoneBtn">Done</button>
+        </div>
       </section>
 
       <!-- ============ ADD SET — Step 2 (children, one at a time) ============ -->
@@ -4132,7 +4197,16 @@
       lineage: step1.checklistLineage || "",
       dbSetsMatch: step1.dbSetsMatch || null,
       expectedChildCount: trackIndividually ? (Number(step1.expectedChildCount) || 0) : 0,
-      subGroups: trackIndividually && Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
+      subGroups: trackIndividually && Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{id, name, expectedCount}]
+      // Purchase + storage, captured on Step 1's drill-downs. Same field names
+      // Edit Set / FAKE_COIN_DETAILS already use, so a promoted Set's row and
+      // its edit form line up without translation.
+      cost: step1.cost != null ? step1.cost : null,
+      shippingCost: step1.shippingCost != null ? step1.shippingCost : null,
+      purchaseDate: step1.purchaseDate || "",
+      vendor: step1.vendor || "",
+      storageLocation: step1.storageLocation || "",
+      container: step1.container || "",
       gsid: "",                                    // empty = pending everywhere (Q9)
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
@@ -11121,6 +11195,15 @@
     });
 
     document.getElementById("addSetAddSubGroupBtn").addEventListener("click", () => addSubGroupRow());
+
+    // Purchase Info / Storage drill-downs — same replace-the-screen pattern as
+    // Add Coin's, including refreshing the row summaries on the way back.
+    document.getElementById("addSetPurchaseInfoRow").addEventListener("click", () => showAddSetSubview("purchase"));
+    document.getElementById("addSetStorageRow").addEventListener("click", () => showAddSetSubview("storage"));
+    document.getElementById("addSetPurchaseBackBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetStorageBackBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetPurchaseDoneBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetStorageDoneBtn").addEventListener("click", showAddSetStep1Main);
     document.getElementById("addSetStartBtn").addEventListener("click", startSetCapture);
     document.getElementById("addSetChildSaveBtn").addEventListener("click", saveCurrentChild);
     document.getElementById("addSetChildDoneBtn").addEventListener("click", markCurrentSetComplete);
@@ -11260,9 +11343,68 @@
     return isNaN(n) ? null : n;
   }
 
+  // Add Set's Purchase Info / Storage drill-downs — mirrors Add Coin's
+  // showAddCoinMain()/showAddCoinSubview() pair, including the shallow
+  // up-one-level Back target while a subview is open.
+  function showAddSetStep1Main() {
+    document.getElementById("addSetStep1Main").style.display = "block";
+    document.getElementById("addSetPurchaseView").style.display = "none";
+    document.getElementById("addSetStorageView").style.display = "none";
+    updateAddSetRowSummaries();
+    setNavBack(() => navigate("acquisitions")); // Add Set's parent is the Acquisitions hub
+  }
+
+  function showAddSetSubview(which) {
+    document.getElementById("addSetStep1Main").style.display = "none";
+    document.getElementById("addSetPurchaseView").style.display = which === "purchase" ? "block" : "none";
+    document.getElementById("addSetStorageView").style.display = which === "storage" ? "block" : "none";
+    setNavBack(() => showAddSetStep1Main()); // subview → Step 1 main
+    window.scrollTo({ top: 0 });
+  }
+
+  // One-line summaries on the collapsed rows, same shape as Add Coin's.
+  function updateAddSetRowSummaries() {
+    const price = document.getElementById("addSetCost").value;
+    const shipping = document.getElementById("addSetShippingCost").value;
+    const vendor = document.getElementById("addSetVendor").value;
+    const purchaseParts = [];
+    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (vendor) purchaseParts.push(vendor);
+    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
+    document.getElementById("addSetPurchaseInfoSummary").textContent =
+      purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
+
+    const loc = document.getElementById("addSetStorageLocation").value;
+    const container = document.getElementById("addSetContainer").value;
+    const storageParts = [];
+    if (loc) storageParts.push(loc);
+    if (container) storageParts.push(container);
+    document.getElementById("addSetStorageSummary").textContent =
+      storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or container";
+  }
+
+  // The Step-1 purchase/storage field values, as stored on the draft.
+  function readAddSetPurchaseStorage() {
+    const num = (id) => {
+      const v = document.getElementById(id).value;
+      return v === "" ? null : (Number(v) || 0);
+    };
+    return {
+      cost: num("addSetCost"),
+      shippingCost: num("addSetShippingCost"),
+      purchaseDate: document.getElementById("addSetPurchaseDate").value || "",
+      vendor: document.getElementById("addSetVendor").value.trim(),
+      storageLocation: document.getElementById("addSetStorageLocation").value.trim(),
+      container: document.getElementById("addSetContainer").value.trim()
+    };
+  }
+
   function showAddSetStep1() {
     currentSetDraft = null;
     populateAddSetNameOptions(); // refresh in case live DB_Sets data finished loading since initAddSet()
+    showAddSetStep1Main(); // always land on the main view, never a stale subview
+    ["addSetCost", "addSetShippingCost", "addSetPurchaseDate", "addSetVendor",
+     "addSetStorageLocation", "addSetContainer"].forEach(id => document.getElementById(id).value = "");
     ["addSetName", "addSetProductCode", "addSetExpectedCount", "addSetYear"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
@@ -11297,6 +11439,7 @@
     // null setChecklistContext — that survives navigate so applyAddSetContext
     // can read it; it's cleared only when actually leaving Add Set.
     document.getElementById("addSetContextBanner").classList.add("hidden");
+    updateAddSetRowSummaries(); // reflect the cleared purchase/storage fields
   }
 
   // Resumes an EXISTING Set draft's Step 1 form — used by the Docket's
@@ -11335,6 +11478,16 @@
     document.getElementById("addSetProductCode").value = draft.productCode || "";
     document.getElementById("addSetCategory").value = draft.category || "";
     addSetCategoryTouched = true; // a real known value — never auto-derive over it
+
+    // Purchase + storage (absent on drafts created before these fields existed —
+    // they just restore blank, no migration needed).
+    document.getElementById("addSetCost").value = draft.cost != null ? draft.cost : "";
+    document.getElementById("addSetShippingCost").value = draft.shippingCost != null ? draft.shippingCost : "";
+    document.getElementById("addSetPurchaseDate").value = draft.purchaseDate || "";
+    document.getElementById("addSetVendor").value = draft.vendor || "";
+    document.getElementById("addSetStorageLocation").value = draft.storageLocation || "";
+    document.getElementById("addSetContainer").value = draft.container || "";
+    updateAddSetRowSummaries();
     addSetNameTouched = true;     // ditto — a later product-code entry shouldn't overwrite either
     addSetYearTouched = true;
 
@@ -11464,6 +11617,7 @@
         resumingDraft.year = yearValue;
         resumingDraft.wholeSetPhoto = wholeName;
         resumingDraft.receiptPhoto = receiptName;
+        Object.assign(resumingDraft, readAddSetPurchaseStorage());
         await writeSetDraft(resumingDraft);
         currentSetDraft = resumingDraft;
         showToast("Saved.");
@@ -11488,7 +11642,8 @@
         wholeSetPhoto: wholeName, receiptPhoto: receiptName,
         year: yearValue,
         checklistSetId: ctx ? ctx.setId : "",
-        checklistLineage: ctx ? ctx.lineage : ""
+        checklistLineage: ctx ? ctx.lineage : "",
+        ...readAddSetPurchaseStorage()
       });
       await writeSetDraft(draft);
       currentSetDraft = draft;
