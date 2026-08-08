@@ -1712,6 +1712,7 @@
     display: flex; align-items: center; justify-content: center; gap: 8px;
     font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
   }
+  #bgCropStraighten { width: 100%; margin-bottom: 12px; }
 
   /* ---- Reusable gallery-capture widget (Add Coin / Browse Edit / Add Set /
      Edit Set). An "Add photo" control opens a type picker, then the crop
@@ -3157,7 +3158,18 @@
       <label class="bg-crop-aspect-row" id="bgCropAspectRow">
         <input type="checkbox" id="bgCropAspectLock"> Lock to square
       </label>
-      <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background.</div>
+      <!-- Rotation — same control set as the circle adjuster (two 90° quick
+           rotates + a ±45° straighten slider), ported here because EVERY
+           photo type passes through this stage, whereas the circle adjuster
+           only ever runs for coin obverse/reverse. Without this a whole-set/
+           COA/slab photo taken sideways had no way to be corrected in-app. -->
+      <div class="photo-adjust-rotate-row">
+        <button type="button" id="bgCropRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
+        <button type="button" id="bgCropRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
+      </div>
+      <label class="photo-adjust-zoom-label" for="bgCropStraighten">Straighten</label>
+      <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="1">
+      <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background. Rotate or straighten if it came out sideways or tilted.</div>
       <div class="photo-adjust-btns">
         <button type="button" id="bgCropCancelBtn">Cancel</button>
         <button type="button" id="bgCropUseBtn">Use Crop</button>
@@ -8951,40 +8963,110 @@
   // adjuster above (this project's no-external-CDN posture).
   // ==================================================================
 
-  let bgCropState = null; // { dispW, dispH, naturalW, naturalH, box:{left,top,right,bottom}, aspectLock, onComplete }
+  let bgCropState = null; // { baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, onComplete }
   const BG_CROP_MIN = 32;   // smallest crop box, display px
   const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds
+  // The EXIF-oriented source is capped to this long edge before any rotation
+  // work, so a re-bake on every straighten-slider tick stays fast on a phone.
+  // Final output caps at 1400 anyway (see the Use Crop handler), so this
+  // costs no meaningful quality.
+  const BG_CROP_BASE_MAX = 1600;
+
+  // Rotation is applied by RE-BAKING the source into an upright canvas rather
+  // than CSS-transforming the displayed image. That's deliberate: the crop box
+  // math (drag/resize/clamp/shade + the final pixel mapping) all assumes the
+  // displayed image is axis-aligned, so baking keeps every one of those paths
+  // untouched and correct. The alternative — transforming the <img> — would
+  // mean re-deriving box coordinates through a rotation matrix everywhere.
+  function bakeRotatedWorkCanvas(baseCanvas, quickDeg, fineDeg) {
+    const rad = ((quickDeg + fineDeg) * Math.PI) / 180;
+    const bw = baseCanvas.width, bh = baseCanvas.height;
+    // Bounding box of the rotated image.
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const outW = Math.max(1, Math.round(bw * cos + bh * sin));
+    const outH = Math.max(1, Math.round(bw * sin + bh * cos));
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    ctx.translate(outW / 2, outH / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(baseCanvas, -bw / 2, -bh / 2);
+    return c;
+  }
+
+  // Recomputes the work canvas + stage size after a rotation change.
+  // preserveBox: proportionally rescale the existing crop box into the new
+  // dimensions (used for the straighten slider, where dims change only
+  // slightly and losing framing every tick would be jarring). When false the
+  // box resets to the default inset (used for 90° quick rotates, where the
+  // aspect fundamentally flips and preserving framing is meaningless).
+  function refreshBgCropSource(preserveBox) {
+    const s = bgCropState;
+    if (!s) return;
+    const oldW = s.dispW, oldH = s.dispH;
+    const work = bakeRotatedWorkCanvas(s.baseCanvas, s.rotateQuick, s.rotateFine);
+    s.workCanvas = work;
+    s.naturalW = work.width; s.naturalH = work.height;
+    const scale = Math.min(BG_CROP_MAX_DISP_W / work.width, BG_CROP_MAX_DISP_H / work.height, 1);
+    s.dispW = Math.round(work.width * scale);
+    s.dispH = Math.round(work.height * scale);
+    const stage = document.getElementById("bgCropStage");
+    stage.style.width = s.dispW + "px";
+    stage.style.height = s.dispH + "px";
+    document.getElementById("bgCropImg").src = work.toDataURL("image/jpeg", 0.95);
+    if (preserveBox && oldW > 0 && oldH > 0) {
+      const fx = s.dispW / oldW, fy = s.dispH / oldH;
+      s.box.left *= fx; s.box.right *= fx;
+      s.box.top *= fy; s.box.bottom *= fy;
+      clampBgBox();
+    } else {
+      resetBgCropBox();
+    }
+    renderBgCrop();
+  }
+
+  // Default framing: 80% inset, squared and centered when aspect-locked.
+  function resetBgCropBox() {
+    const s = bgCropState;
+    let left = s.dispW * 0.1, top = s.dispH * 0.1, right = s.dispW * 0.9, bottom = s.dispH * 0.9;
+    if (s.aspectLock) {
+      const side = Math.min(right - left, bottom - top);
+      const cx = s.dispW / 2, cy = s.dispH / 2;
+      left = cx - side / 2; right = cx + side / 2; top = cy - side / 2; bottom = cy + side / 2;
+    }
+    s.box = { left, top, right, bottom };
+  }
 
   async function openBgCrop(source, opts) {
     opts = opts || {};
     const overlay = document.getElementById("bgCropOverlay");
-    const img = document.getElementById("bgCropImg");
-    const stage = document.getElementById("bgCropStage");
     document.getElementById("bgCropTitle").textContent = opts.title || "Crop Photo";
     const oriented = await loadOrientedImageCanvas(source);
-    const nW = oriented.width, nH = oriented.height;
-    const scale = Math.min(BG_CROP_MAX_DISP_W / nW, BG_CROP_MAX_DISP_H / nH, 1);
-    const dispW = Math.round(nW * scale), dispH = Math.round(nH * scale);
-    stage.style.width = dispW + "px";
-    stage.style.height = dispH + "px";
-    img.src = oriented.toDataURL("image/jpeg", 0.95);
+    // Cap the working source once, up front (see BG_CROP_BASE_MAX).
+    let baseCanvas = oriented;
+    const longEdge = Math.max(oriented.width, oriented.height);
+    if (longEdge > BG_CROP_BASE_MAX) {
+      const k = BG_CROP_BASE_MAX / longEdge;
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(oriented.width * k));
+      c.height = Math.max(1, Math.round(oriented.height * k));
+      c.getContext("2d").drawImage(oriented, 0, 0, c.width, c.height);
+      baseCanvas = c;
+    }
 
     const aspectLock = !!opts.aspectLock;
     document.getElementById("bgCropAspectLock").checked = aspectLock;
+    document.getElementById("bgCropStraighten").value = 0;
 
-    // Initial box: 80% inset, squared and centered if locked.
-    let left = dispW * 0.1, top = dispH * 0.1, right = dispW * 0.9, bottom = dispH * 0.9;
-    if (aspectLock) {
-      const side = Math.min(right - left, bottom - top);
-      const cx = dispW / 2, cy = dispH / 2;
-      left = cx - side / 2; right = cx + side / 2; top = cy - side / 2; bottom = cy + side / 2;
-    }
     bgCropState = {
-      dispW, dispH, naturalW: nW, naturalH: nH,
-      box: { left, top, right, bottom }, aspectLock, onComplete: opts.onComplete || null
+      baseCanvas, workCanvas: baseCanvas,
+      dispW: 0, dispH: 0, naturalW: baseCanvas.width, naturalH: baseCanvas.height,
+      box: { left: 0, top: 0, right: 0, bottom: 0 },
+      aspectLock, rotateQuick: 0, rotateFine: 0,
+      onComplete: opts.onComplete || null
     };
     document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
-    renderBgCrop();
+    refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
     overlay.classList.remove("hidden");
   }
 
@@ -9098,6 +9180,30 @@
       renderBgCrop();
     });
 
+    // --- Rotation. Quick 90° resets the crop box (aspect flips); the
+    // straighten slider preserves it proportionally. Slider re-bakes are
+    // rAF-throttled so dragging stays smooth — the base source is already
+    // capped (BG_CROP_BASE_MAX) to keep each bake cheap.
+    function quickRotate(deltaDeg) {
+      if (!bgCropState) return;
+      bgCropState.rotateQuick = ((bgCropState.rotateQuick + deltaDeg) % 360 + 360) % 360;
+      refreshBgCropSource(false);
+    }
+    document.getElementById("bgCropRotateLeftBtn").addEventListener("click", () => quickRotate(-90));
+    document.getElementById("bgCropRotateRightBtn").addEventListener("click", () => quickRotate(90));
+
+    let straightenPending = false;
+    document.getElementById("bgCropStraighten").addEventListener("input", (e) => {
+      if (!bgCropState) return;
+      bgCropState.rotateFine = Number(e.target.value);
+      if (straightenPending) return;
+      straightenPending = true;
+      requestAnimationFrame(() => {
+        straightenPending = false;
+        if (bgCropState) refreshBgCropSource(true);
+      });
+    });
+
     document.getElementById("bgCropCancelBtn").addEventListener("click", closeBgCrop);
     document.getElementById("bgCropUseBtn").addEventListener("click", () => {
       const s = bgCropState;
@@ -9113,7 +9219,11 @@
       const outW = Math.max(1, Math.round(srcW * outScale)), outH = Math.max(1, Math.round(srcH * outScale));
       const canvas = document.createElement("canvas");
       canvas.width = outW; canvas.height = outH;
-      canvas.getContext("2d").drawImage(document.getElementById("bgCropImg"), srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+      // Draw from the work CANVAS, not the <img>: the img's src is a data URL
+      // set asynchronously by refreshBgCropSource(), so reading it here raced
+      // against its own load (and would silently produce a blank/stale crop
+      // right after a rotation). The canvas is always immediately correct.
+      canvas.getContext("2d").drawImage(s.workCanvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
       canvas.toBlob((blob) => {
         const cb = s.onComplete;
         closeBgCrop();
@@ -10462,7 +10572,20 @@
   // isReceipt: only Add Set's "receipt" slot auto-wraps to PDF — "whole"
   // (the whole-set packaging photo) is not a receipt and stays a plain image,
   // untouched by this.
-  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, isReceipt) {
+  // cropAspect (optional): "square" | "free" — when set, this slot's captured
+  // photo runs through the Stage-1 background crop (which also carries the
+  // rotate/straighten controls) before it becomes the preview AND before it's
+  // stored for upload.
+  //
+  // BUG FIX (found in live tablet testing): every non-receipt slot here used
+  // to write `preview.src` straight from the raw capture and store the raw
+  // File, never calling the crop pipeline at all — so Add Set's whole-set
+  // photo could not be cropped or rotated, despite the gallery widget being
+  // present elsewhere on the same screen. The widget and these pre-existing
+  // slots were simply two different code paths; only the widget was wired up.
+  // Receipts deliberately stay uncropped (they're PDF-wrapped document scans —
+  // a long-standing decision, see CLAUDE.md "Receipt photos auto-convert to PDF").
+  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, isReceipt, cropAspect) {
     const preview = document.getElementById(previewId);
     const cam = document.getElementById(cameraInputId);
     const lib = document.getElementById(libraryInputId);
@@ -10474,6 +10597,24 @@
         addSetPhotoFiles[key] = prepared.blob;
         addSetPhotoFilenames[key] = prepared.filename;
         showReceiptPdfIndicator(previewId, null, prepared.filename);
+        return;
+      }
+      if (cropAspect) {
+        // Crop-enabled slot: Stage 1 (background crop + rotate/straighten).
+        // Returns early WITHOUT decoding here — openBgCrop does its own
+        // EXIF-oriented decode, so decoding first would just do it twice.
+        // The CROPPED blob is what gets stored for upload; uploadDraftPhoto/
+        // graph().uploadFile are Blob-safe (they never assumed a real File),
+        // so the crop genuinely persists rather than being preview-only.
+        openBgCrop(file, {
+          title: "Crop photo",
+          aspectLock: cropAspect === "square",
+          onComplete: (croppedBlob) => {
+            addSetPhotoFiles[key] = croppedBlob;
+            preview.src = URL.createObjectURL(croppedBlob);
+            preview.style.display = "block";
+          }
+        });
         return;
       }
       const canvas = await loadOrientedImageCanvas(file);
@@ -10535,10 +10676,12 @@
 
     populateAddSetNameOptions();
 
-    wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput");
+    // "free" for the whole-set package shot (arbitrary shape); "square" for the
+    // Step 2 per-coin obverse/reverse, which are flip-card sources.
+    wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput", false, "free");
     wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
-    wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
-    wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
+    wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput", false, "square");
+    wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput", false, "square");
 
     // Set photo gallery (OGP / whole-set front-back / COA front-back). Targets
     // the resumed draft's own CollectionID when resuming, else the temp key.
