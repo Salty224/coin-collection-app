@@ -2196,6 +2196,7 @@
                  — Share stays up top. Routes to Edit Coin or Edit Set
                  depending on the row's own denom (see the click handler). -->
             <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+              <button type="button" class="edit-btn" id="browseDetailManagePhotosBtn" style="margin-right:8px;">📷 Manage photos</button>
               <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
             </div>
             <!-- Key facts, always visible (each row hides itself when blank). -->
@@ -3248,6 +3249,27 @@
         <div id="inProgressSetsContainer"></div>
         <p class="placeholder-note" id="inProgressSetsEmptyNote" style="display:none;">No Sets in progress right now.</p>
         <p class="placeholder-note" id="inProgressSetsErrorNote" style="display:none;"></p>
+      </section>
+
+      <!-- ============ MANAGE PHOTOS ============
+           One screen for adding OR replacing any photo, any type, any tier,
+           on an EXISTING record — Draft, Complete-pending-research, or fully
+           Promoted. Reached from three surfaces (see openManagePhotos):
+             - Browse detail, for a Promoted coin OR Set
+             - an In Progress Sets row, for a Draft
+             - a Docket photo-gap row, for Complete-pending-research
+           Sections are accordions, all collapsed by default (this taxonomy is
+           far too much to show expanded on a phone), and vary by record type.
+           JS-rendered by renderManagePhotos(). -->
+      <section class="view" id="view-managephotos">
+        <button class="back-link" id="managePhotosBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;">Manage Photos</h2>
+        <div class="case" style="padding:12px 16px; margin-bottom:14px;">
+          <div style="font-size:13px; font-weight:700;" id="managePhotosName"></div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="managePhotosMeta"></div>
+        </div>
+        <div id="managePhotosSections"></div>
+        <p class="placeholder-note">Photos are held for this session only — no OneDrive write happens yet.</p>
       </section>
 
       <!-- ============ ACQUISITIONS (hub behind the Acquisitions drawer) ============ -->
@@ -5237,7 +5259,7 @@
   // Docket-only screens go back to the Docket hub. Everything else → Dashboard.
   const SECTION_BACK_TARGET = {
     addcoin: "acquisitions", addset: "acquisitions", batchreceipt: "acquisitions",
-    staging: "needsdbcoins", inprogresssets: "needsdbcoins"
+    staging: "needsdbcoins", inprogresssets: "needsdbcoins", managephotos: "dashboard"
   };
 
   // Which drawer a screen "belongs to," for the closing-animation on the way
@@ -5261,6 +5283,7 @@
   let scrollToCaseOnDashboard = false;
 
   document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
+  document.getElementById("managePhotosBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
   let previousViewId = null;
@@ -6883,6 +6906,25 @@
       } else {
         showBrowseEditView(currentBrowseCoin);
       }
+    });
+
+    // Manage Photos entry point #1 — a Promoted row, coin OR Set (both need
+    // it: a coin has slab/reference photos of its own, not just Sets).
+    document.getElementById("browseDetailManagePhotosBtn").addEventListener("click", () => {
+      const coin = currentBrowseCoin;
+      if (!coin) return;
+      const isSet = isSetRow(coin);
+      const parent = !isSet ? resolveChildParentSet(coin) : null;
+      openManagePhotos({
+        id: coin.id,
+        name: coin.name,
+        meta: coin.id + (isSet ? " · Set" : ""),
+        kind: isSet ? "set" : "coin",
+        originSetId: coin.originSetId || "",
+        parentSetId: parent ? parent.id : "",
+        parentSetName: parent ? parent.name : "",
+        backTo: () => showBrowseDetail(coin)
+      });
     });
     document.getElementById("browseDetailShareBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
@@ -8517,19 +8559,23 @@
     FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
       actionRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
-        // Jumps straight to Edit Coin, scrolled to the Obverse photo slot, so
-        // Ray can take/upload the photo immediately instead of just being
-        // told about the gap. Same per-origin browseDetailBackHandler
-        // pattern Spotlight's click-through already uses — Back from Detail
-        // returns here (Docket), not Browse's own grid.
+        // This row's flagged gap IS a photo gap, so it routes to Manage
+        // Photos — more direct than the old jump into Edit Coin scrolled to
+        // the obverse slot, and it can now REPLACE as well as fill. Rows
+        // flagging a non-photo gap (none exist yet — see the note in
+        // renderNeedsAttentionHub) must keep their own routing; each row
+        // already carries its own onClick, so there's no shared branch to
+        // get wrong.
         onClick: () => {
-          browseDetailBackHandler = () => navigate("needsdbcoins");
-          lastDrawerView = "needsdbcoins"; // Docket-originated, not Catalog — closes the right drawer on the way back to Dashboard
-          navigate("browse");
-          showBrowseDetail(coin);
-          showBrowseEditView(coin);
-          const box = document.getElementById("browseEditObversePhotoBox");
-          if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
+          const parent = resolveChildParentSet(coin);
+          openManagePhotos({
+            id: coin.id, name: coin.name, meta: coin.id,
+            kind: "coin",
+            originSetId: coin.originSetId || "",
+            parentSetId: parent ? parent.id : "",
+            parentSetName: parent ? parent.name : "",
+            backTo: () => navigate("needsdbcoins")
+          });
         },
         onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
       });
@@ -8541,9 +8587,18 @@
       if (draft.wholeSetPhoto || draft.dismissedGaps.includes("wholeSetPhoto")) return;
       actionRows.push({
         html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">Missing whole-set photo — ${draft.collectionID}</div>`,
-        // Resumes this draft's own Step 1 (not Step 2 — the whole-set photo
-        // field lives in Step 1), landing scrolled to the photo box.
-        onClick: () => resumeSetDraftAtStep1(draft),
+        // Also a photo gap, so also routes to Manage Photos rather than
+        // re-entering Step 1 — which matters most for a Complete-pending-
+        // research Set, whose only prior route in was Step 1's resume flow
+        // (and which locks tracking/count fields on the way).
+        onClick: () => openManagePhotos({
+          id: draft.collectionID,
+          name: draft.setName || draft.collectionID,
+          meta: draft.collectionID + " · " + draft.status,
+          kind: "set",
+          draft,
+          backTo: () => navigate("needsdbcoins")
+        }),
         onDismiss: async () => { await dismissSetDraftGap(draft.collectionID, "wholeSetPhoto"); renderNeedsAttentionHub(); }
       });
     });
@@ -9896,6 +9951,274 @@
       title: "Reference photos",
       description: "Images downloaded from PCGS, GreatCollections and similar — for comparison, not photos of this specific coin."
     });
+  }
+
+  // ==================================================================
+  // MANAGE PHOTOS — add or REPLACE any photo on an existing record, at any
+  // status. Generalizes the Docket's existing "fill a gap" routing to also
+  // cover "replace what's already there".
+  //
+  // managePhotosCtx describes what's being edited, independent of where it
+  // came from:
+  //   { id, name, meta, kind: "coin"|"set", draft?, backTo }
+  // `draft` is present for a Draft / Complete-pending-research Set (so
+  // sub-group rows can be read off it); a Promoted Set has no draft, and
+  // falls back to whatever sub-group photos its gallery already carries.
+  // ==================================================================
+
+  let managePhotosCtx = null;
+
+  function openManagePhotos(ctx) {
+    managePhotosCtx = ctx;
+    navigate("managephotos");
+    setNavBack(ctx.backTo || (() => navigate("dashboard")));
+    document.getElementById("managePhotosName").textContent = ctx.name || ctx.id || "";
+    document.getElementById("managePhotosMeta").textContent = ctx.meta || "";
+    renderManagePhotos();
+  }
+
+  // One collapsed accordion section. bodyBuilder(bodyEl) fills it lazily on
+  // first expand, and is re-run on every re-render so counts/thumbs stay live.
+  function appendManageSection(host, title, countText, bodyBuilder, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "detail-accordion";
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "accordion-header";
+    const startOpen = !!(opts && opts.open);
+    header.setAttribute("aria-expanded", String(startOpen));
+    header.innerHTML = `<span>${title}</span><span style="display:flex; align-items:center; gap:8px;">` +
+      `<span style="font-size:11px; color:var(--text-muted);">${countText || ""}</span>` +
+      `<span class="accordion-chevron">›</span></span>`;
+    const body = document.createElement("div");
+    body.className = "accordion-body" + (startOpen ? "" : " hidden");
+    header.addEventListener("click", () => {
+      const open = body.classList.toggle("hidden") === false;
+      header.setAttribute("aria-expanded", String(open));
+      if (open) { body.innerHTML = ""; bodyBuilder(body); }
+    });
+    if (startOpen) bodyBuilder(body);
+    wrap.appendChild(header);
+    wrap.appendChild(body);
+    host.appendChild(wrap);
+    return { wrap, header, body };
+  }
+
+  // A labelled pair block (obverse/reverse style) inside Manage Photos.
+  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId) {
+    if (label) {
+      const h = document.createElement("div");
+      h.style.cssText = "font-size:12px; font-weight:600; color:var(--text-muted); margin:4px 0 6px;";
+      h.textContent = label;
+      body.appendChild(h);
+    }
+    if (hint) {
+      const p = document.createElement("p");
+      p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
+      p.textContent = hint;
+      body.appendChild(p);
+    }
+    const pair = document.createElement("div");
+    pair.className = "sg-photo-pair";
+    typeKeys.forEach((typeKey, i) => {
+      pair.appendChild(buildPhotoPairSlot({
+        typeKey, targetId, subGroupId,
+        label: i === 0 ? "Front" : "Back",
+        onChange: () => renderManagePhotos()
+      }));
+    });
+    body.appendChild(pair);
+  }
+
+  // An open-ended (repeatable) type rendered as a strip of existing photos
+  // plus camera/library add buttons.
+  function manageOpenEndedBlock(body, typeKey, targetId, hint) {
+    const def = galleryTypeDef(typeKey);
+    if (hint) {
+      const p = document.createElement("p");
+      p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
+      p.textContent = hint;
+      body.appendChild(p);
+    }
+    const grid = document.createElement("div");
+    grid.className = "gc-grid";
+    galleryFor(targetId).forEach((entry, index) => {
+      if (entry.type !== typeKey) return;
+      const thumb = document.createElement("div");
+      thumb.className = "gc-thumb";
+      thumb.innerHTML = `
+        <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+        ${galleryThumbInner(entry)}
+        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+      `;
+      thumb.querySelector(".gc-remove").addEventListener("click", () => {
+        removeGalleryEntry(targetId, index);
+        renderManagePhotos();
+      });
+      thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+      grid.appendChild(thumb);
+    });
+    body.appendChild(grid);
+
+    const row = document.createElement("div");
+    row.className = "gc-add-row";
+    row.style.marginTop = "10px";
+    row.innerHTML = `
+      <button type="button" class="gc-add-btn" data-role="cam-btn">📷 Take photo</button>
+      <button type="button" class="gc-add-btn" data-role="lib-btn">🖼️ Choose photo</button>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
+    `;
+    const cam = row.querySelector('[data-role="cam"]');
+    const lib = row.querySelector('[data-role="lib"]');
+    row.querySelector('[data-role="cam-btn"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
+    row.querySelector('[data-role="lib-btn"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
+    const handle = (input) => {
+      const f = input.files[0];
+      if (!f) return;
+      runCropPipeline(f, typeKey, targetId, (entry) => {
+        addGalleryEntry(targetId, entry);
+        renderManagePhotos();
+      });
+    };
+    cam.addEventListener("change", () => handle(cam));
+    lib.addEventListener("change", () => handle(lib));
+    body.appendChild(row);
+  }
+
+  function manageCount(targetId, predicate) {
+    const n = galleryFor(targetId).filter(predicate).length;
+    return n ? n + " photo" + (n === 1 ? "" : "s") : "";
+  }
+
+  function renderManagePhotos() {
+    const ctx = managePhotosCtx;
+    const host = document.getElementById("managePhotosSections");
+    if (!ctx || !host) return;
+    // Preserve which sections were open across a re-render (a capture
+    // re-renders the whole screen, and collapsing everything underfoot would
+    // be jarring).
+    const openTitles = new Set(
+      [...host.querySelectorAll('.accordion-header[aria-expanded="true"] > span:first-child')]
+        .map(s => s.textContent));
+    host.innerHTML = "";
+    const id = ctx.id;
+
+    if (ctx.kind === "coin") {
+      appendManageSection(host, "🪙 Coin — obverse &amp; reverse",
+        manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
+        (body) => managePairBlock(body, null,
+          "The flip-card photos. Cropped square, then framed into the circle.",
+          ["obverse", "reverse"], id, null),
+        { open: openTitles.has("🪙 Coin — obverse &amp; reverse") });
+
+      appendManageSection(host, "🔲 Slab photos",
+        manageCount(id, e => e.type.indexOf("slab_") === 0),
+        (body) => managePairBlock(body, null,
+          "The graded holder itself, front and back.",
+          ["slab_obverse", "slab_reverse"], id, null),
+        { open: openTitles.has("🔲 Slab photos") });
+
+      appendManageSection(host, "🔗 Reference photos",
+        manageCount(id, e => e.type === "reference"),
+        (body) => manageOpenEndedBlock(body, "reference", id,
+          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin."),
+        { open: openTitles.has("🔗 Reference photos") });
+
+      appendManageSection(host, "🖼️ Other photos",
+        manageCount(id, e => e.type === "other"),
+        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin."),
+        { open: openTitles.has("🖼️ Other photos") });
+
+      // A child coin's COA belongs to its parent Set — read-only link, no slot.
+      const parent = ctx.parentSetId ? { id: ctx.parentSetId, name: ctx.parentSetName } : null;
+      if (parent) {
+        const holder = document.createElement("div");
+        renderParentCoaReadThrough(holder, parent.id, parent.name);
+        if (holder.innerHTML.trim()) host.appendChild(holder);
+      }
+      return;
+    }
+
+    // --- Set ---
+    appendManageSection(host, "📦 Package / OGP",
+      manageCount(id, e => e.type.indexOf("ogp_") === 0),
+      (body) => managePairBlock(body, null,
+        "The packaging itself — box, folder or envelope exterior.",
+        ["ogp_obverse", "ogp_reverse"], id, null),
+      { open: openTitles.has("📦 Package / OGP") });
+
+    appendManageSection(host, "🖼️ Whole set — front &amp; back",
+      manageCount(id, e => isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID),
+      (body) => managePairBlock(body, null,
+        "The complete set as received. Independent of sub-groups.",
+        SUBGROUP_PAIR, id, DEFAULT_SUBGROUP_ID),
+      { open: openTitles.has("🖼️ Whole set — front &amp; back") });
+
+    // One sub-section per sub-group. Read off the draft when there is one;
+    // otherwise fall back to whatever sub-group ids the gallery already has
+    // (a Promoted Set has no draft to read).
+    const subGroups = (ctx.draft && ctx.draft.subGroups && ctx.draft.subGroups.length)
+      ? ctx.draft.subGroups
+      : [...new Set(galleryFor(id).filter(isSubGroupEntry)
+          .map(e => e.subGroupId || DEFAULT_SUBGROUP_ID)
+          .filter(sg => sg !== DEFAULT_SUBGROUP_ID))].map(sg => ({ id: sg, name: sg }));
+    if (subGroups.length) {
+      appendManageSection(host, "🧩 Sub-groups",
+        subGroups.length + " group" + (subGroups.length === 1 ? "" : "s"),
+        (body) => {
+          subGroups.forEach(sg => {
+            managePairBlock(body, sg.name || "Sub-group",
+              null, SUBGROUP_PAIR, id, sg.id);
+          });
+        },
+        { open: openTitles.has("🧩 Sub-groups") });
+    }
+
+    appendManageSection(host, "📜 COA / certificates",
+      manageCount(id, e => e.type === "coa"),
+      (body) => manageOpenEndedBlock(body, "coa", id,
+        "Add one photo per page or side — label each one (e.g. \"page 1\")."),
+      { open: openTitles.has("📜 COA / certificates") });
+
+    appendManageSection(host, "🖼️ Other photos",
+      manageCount(id, e => e.type === "other"),
+      (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this Set."),
+      { open: openTitles.has("🖼️ Other photos") });
+
+    // Coins in this Set — each drills into its own Manage Photos.
+    const children = (ctx.draft && ctx.draft.children) ? ctx.draft.children
+      : setChildrenFor({ id, denom: "Multiple", originSetId: ctx.originSetId });
+    if (children && children.length) {
+      appendManageSection(host, "🪙 Coins in this Set",
+        children.length + " coin" + (children.length === 1 ? "" : "s"),
+        (body) => {
+          children.forEach(child => {
+            const row = document.createElement("div");
+            row.className = "case album-card";
+            row.style.cursor = "pointer";
+            const childName = child.name || [child.year, child.mint].filter(Boolean).join("-") || child.id;
+            row.innerHTML = `
+              <div class="album-card-icon">🪙</div>
+              <div class="album-card-info">
+                <div class="album-card-name">${childName}</div>
+                <div class="roll-card-meta">${child.id}${galleryFor(child.id).length ? " · " + galleryFor(child.id).length + " photo(s)" : ""}</div>
+              </div>
+              <span class="chevron">›</span>
+            `;
+            row.addEventListener("click", () => {
+              const back = managePhotosCtx;
+              openManagePhotos({
+                id: child.id, name: childName, meta: child.id + " · in " + (ctx.name || "this Set"),
+                kind: "coin", parentSetId: id, parentSetName: ctx.name,
+                backTo: () => openManagePhotos(back)
+              });
+            });
+            body.appendChild(row);
+          });
+        },
+        { open: openTitles.has("🪙 Coins in this Set") });
+    }
   }
 
   function initSubGroupPhotoSheet() {
@@ -12129,8 +12452,23 @@
           <div class="wish-notes">${draft.children.length} of ${total || "?"} coins captured</div>
           <div class="wish-date">Started ${(draft.createdDate || "").slice(0, 10)}</div>
         </div>
+        <button type="button" class="staging-btn" data-role="photos">📷 Photos</button>
         <span class="chevron">›</span>
       `;
+      // Row body still resumes capture (unchanged); the 📷 button is Manage
+      // Photos entry point #2 — a Draft, which otherwise has no way to reach
+      // add/replace outside the capture flow.
+      item.querySelector('[data-role="photos"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        openManagePhotos({
+          id: draft.collectionID,
+          name: draft.setName || "(unnamed set)",
+          meta: draft.collectionID + " · Draft",
+          kind: "set",
+          draft,
+          backTo: () => navigate("inprogresssets")
+        });
+      });
       item.addEventListener("click", () => { currentSetDraft = draft; renderChildStep(); });
       container.appendChild(item);
     });
