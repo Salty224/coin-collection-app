@@ -5288,6 +5288,20 @@
 
   let previousViewId = null;
 
+  // Swap which view element is showing WITHOUT running navigate()'s
+  // section-level side effects (filter resets, drawer-close bookkeeping,
+  // scroll). Used when returning from a screen that was opened on top of a
+  // sub-view the user was already inside — e.g. Back out of Manage Photos to
+  // the Browse detail view it was opened from: navigate("browse") would work
+  // but would also call resetBrowseFilters(), silently clearing whatever the
+  // user had filtered to before they tapped "Manage photos". The caller is
+  // responsible for re-rendering its own sub-view and setting navBack after.
+  function activateViewOnly(viewId) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + viewId).classList.add("active");
+    document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
+  }
+
   function navigate(viewId) {
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
@@ -6923,7 +6937,11 @@
         originSetId: coin.originSetId || "",
         parentSetId: parent ? parent.id : "",
         parentSetName: parent ? parent.name : "",
-        backTo: () => showBrowseDetail(coin)
+        // showBrowseDetail() alone only re-renders inside #view-browse — it
+        // never changes which view is active, so on its own Back would leave
+        // the user stranded on Manage Photos. activateViewOnly() puts them
+        // back on Browse without resetting their filters.
+        backTo: () => { activateViewOnly("browse"); showBrowseDetail(coin); }
       });
     });
     document.getElementById("browseDetailShareBtn").addEventListener("click", () => {
