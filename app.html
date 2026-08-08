@@ -1779,6 +1779,7 @@
     border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
     font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
   }
+  .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .gc-add-btn {
     padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
     background: transparent; color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
@@ -3191,6 +3192,44 @@
         <input type="text" id="addSetChildGrade" placeholder="e.g. MS-67 — optional">
         <label for="addSetChildDesignation">Designation</label>
         <input type="text" id="addSetChildDesignation" placeholder="e.g. FB, DCAM — optional">
+
+        <!-- Coin-tier extras, extended IN PLACE on this one-at-a-time card
+             rather than as a new screen. Both collapsed by default — the
+             obverse/reverse pair above stays the primary capture. -->
+        <div class="detail-accordion" id="addSetChildSlabAccordion">
+          <button type="button" class="accordion-header" id="addSetChildSlabHeader" aria-expanded="false">
+            <span>🔲 Slab photos</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetChildSlabCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetChildSlabBody">
+            <p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">
+              The graded holder itself, front and back — the back is where the
+              grading company's cert/serial number usually is.
+            </p>
+            <div class="sg-photo-pair" id="addSetChildSlabPair"></div>
+          </div>
+        </div>
+
+        <div class="detail-accordion" id="addSetChildRefAccordion">
+          <button type="button" class="accordion-header" id="addSetChildRefHeader" aria-expanded="false">
+            <span>🔗 Reference photos</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetChildRefCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetChildRefBody">
+            <div class="gallery-capture" id="addSetChildRefGallery"></div>
+          </div>
+        </div>
+
+        <!-- A coin captured as a child of a Set has no COA slot of its own —
+             the certificate belongs to the parent Set. This links through to
+             it read-only (resolved live, nothing copied onto the child). -->
+        <div id="addSetChildCoaLink"></div>
 
         <button class="save-btn" id="addSetChildSaveBtn">Save this coin &amp; add another</button>
         <button type="button" class="save-btn" id="addSetChildDoneBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:10px;">Done — mark set complete (pending research)</button>
@@ -9543,13 +9582,17 @@
 
   // A shared pending-pick callback for the type picker overlay.
   let galleryTypePickPending = null;
-  function openGalleryTypePicker(scope, onPick) {
+  // allowedTypes (optional): restrict to these exact keys instead of the
+  // scope-based default list.
+  function openGalleryTypePicker(scope, onPick, allowedTypes) {
     galleryTypePickPending = onPick;
     const list = document.getElementById("galleryTypePickerList");
     list.innerHTML = "";
     // Flip sources (obverse/reverse) are captured via the dedicated flip
     // slots above the widget, never the gallery picker — exclude them here.
-    GALLERY_TYPES.filter(t => !t.flipSource && (t.scope === "both" || t.scope === scope)).forEach(t => {
+    GALLERY_TYPES.filter(t => allowedTypes
+      ? allowedTypes.includes(t.key)
+      : (!t.flipSource && (t.scope === "both" || t.scope === scope))).forEach(t => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "gtp-item";
@@ -9742,6 +9785,119 @@
     el.textContent = n ? n + " photo" + (n === 1 ? "" : "s") : "";
   }
 
+  // ==================================================================
+  // CHILD -> PARENT COA READ-THROUGH. A coin captured as a child of a Set
+  // gets NO COA slot of its own — the certificate belongs to the parent Set,
+  // which is where the real information lives. This renders the parent's COA
+  // photos read-only into `hostEl`, resolved LIVE from the parent's gallery
+  // (nothing is copied onto the child), so it keeps working after the child
+  // is eventually promoted to its own standalone row — originSetId still
+  // resolves then.
+  //
+  // parentId may be a draft's CollectionID (during Step 2 capture) or a
+  // promoted parent Set's row id (from Manage Photos / detail views).
+  // Renders nothing at all when there's no parent or the parent has no COA.
+  // ==================================================================
+  function renderParentCoaReadThrough(hostEl, parentId, parentName) {
+    if (!hostEl) return 0;
+    hostEl.innerHTML = "";
+    if (!parentId) return 0;
+    const coa = galleryFor(parentId).filter(e => e.type === "coa");
+    if (!coa.length) return 0;
+    const wrap = document.createElement("div");
+    wrap.className = "case";
+    wrap.style.cssText = "padding:12px; margin-top:14px;";
+    wrap.innerHTML = `
+      <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:4px;">
+        📜 COA — from parent Set
+      </div>
+      <p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">
+        ${parentName ? parentName + " · " : ""}${coa.length} photo${coa.length === 1 ? "" : "s"} —
+        the certificate belongs to the Set, so it's managed there, not on this coin.
+      </p>
+      <div class="gallery-strip" data-role="coa-strip"></div>
+    `;
+    const strip = wrap.querySelector('[data-role="coa-strip"]');
+    coa.forEach(entry => {
+      const t = document.createElement("div");
+      t.className = "gc-thumb";
+      t.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${entry.caption || "COA"}</div>`;
+      t.addEventListener("click", () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
+      strip.appendChild(t);
+    });
+    hostEl.appendChild(wrap);
+    return coa.length;
+  }
+
+  // ==================================================================
+  // ADD SET STEP 2 — coin-tier extras on the per-coin card (slab pair,
+  // reference photos, parent-COA read-through). The child's photos are keyed
+  // by ITS OWN CollectionID, which nextChildCollectionId() holds stable for
+  // as long as this one child-capture form stays open — the same property the
+  // existing obverse/reverse Pause/resume handling already relies on.
+  // ==================================================================
+
+  const ADDSET_CHILD_SLAB_PAIR = ["slab_obverse", "slab_reverse"];
+
+  function addSetChildGalleryTargetId() {
+    return currentSetDraft ? nextChildCollectionId(currentSetDraft) : null;
+  }
+
+  function renderAddSetChildExtras() {
+    const targetId = addSetChildGalleryTargetId();
+    const pair = document.getElementById("addSetChildSlabPair");
+    if (pair) {
+      pair.innerHTML = "";
+      if (targetId) {
+        ADDSET_CHILD_SLAB_PAIR.forEach((typeKey, i) => {
+          pair.appendChild(buildPhotoPairSlot({
+            typeKey, targetId, subGroupId: null,
+            label: i === 0 ? "Front" : "Back",
+            onChange: () => renderAddSetChildExtras()
+          }));
+        });
+      }
+    }
+    // Counts on the collapsed headers.
+    const list = targetId ? galleryFor(targetId) : [];
+    const slabCount = list.filter(e => e.type.indexOf("slab_") === 0).length;
+    const refCount = list.filter(e => e.type === "reference").length;
+    const slabEl = document.getElementById("addSetChildSlabCount");
+    if (slabEl) slabEl.textContent = slabCount ? slabCount + " photo" + (slabCount === 1 ? "" : "s") : "";
+    const refEl = document.getElementById("addSetChildRefCount");
+    if (refEl) refEl.textContent = refCount ? refCount + " photo" + (refCount === 1 ? "" : "s") : "";
+
+    const refGallery = document.getElementById("addSetChildRefGallery");
+    if (refGallery && refGallery._galleryRender) refGallery._galleryRender();
+
+    renderParentCoaReadThrough(
+      document.getElementById("addSetChildCoaLink"),
+      currentSetDraft ? currentSetDraft.collectionID : null,
+      currentSetDraft ? currentSetDraft.setName : ""
+    );
+  }
+
+  function initAddSetChildExtras() {
+    const wireAcc = (headerId, bodyId) => {
+      const h = document.getElementById(headerId), b = document.getElementById(bodyId);
+      if (!h || !b) return;
+      h.addEventListener("click", () => {
+        const open = b.classList.toggle("hidden") === false;
+        h.setAttribute("aria-expanded", String(open));
+        if (open) renderAddSetChildExtras();
+      });
+    };
+    wireAcc("addSetChildSlabHeader", "addSetChildSlabBody");
+    wireAcc("addSetChildRefHeader", "addSetChildRefBody");
+    // Reference photos only — a single allowed type, so the type picker is
+    // skipped and the camera/library buttons act directly.
+    initGalleryCapture("addSetChildRefGallery", addSetChildGalleryTargetId, "coin", {
+      types: ["reference"],
+      title: "Reference photos",
+      description: "Images downloaded from PCGS, GreatCollections and similar — for comparison, not photos of this specific coin."
+    });
+  }
+
   function initSubGroupPhotoSheet() {
     document.getElementById("subGroupPhotoDoneBtn").addEventListener("click", () => {
       document.getElementById("subGroupPhotoOverlay").classList.add("hidden");
@@ -9768,15 +9924,30 @@
     const title = opts.title || "Photo Gallery (optional)";
     const description = opts.description ||
       "Any photos beyond the flip card — slab/COA/box shots, extra angles. Each is cropped to remove background before it's saved.";
+    // TWO add buttons — camera and library — not one generic "Add photo" with
+    // a lone file input. Same Samsung Internet requirement as every other
+    // photo slot in the app: it skips the native chooser, so a single input
+    // gives no route to the camera. (This widget shipped with that defect,
+    // matching the one just fixed on the pair slots.)
     section.innerHTML = `
       <div class="section-label" style="margin-top:0;">${title}</div>
       <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
       <div class="gc-grid" data-role="grid"></div>
-      <button type="button" class="gc-add-btn" data-role="add">＋ Add photo</button>
-      <input type="file" accept="image/*" data-role="file" style="display:none;">
+      <div class="gc-add-row">
+        <button type="button" class="gc-add-btn" data-role="add-cam">📷 Take photo</button>
+        <button type="button" class="gc-add-btn" data-role="add-lib">🖼️ Choose photo</button>
+      </div>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
     `;
     const grid = section.querySelector('[data-role="grid"]');
-    const fileInput = section.querySelector('[data-role="file"]');
+    const camInput = section.querySelector('[data-role="cam"]');
+    const libInput = section.querySelector('[data-role="lib"]');
+    // opts.types (optional): restrict the picker to these type keys instead of
+    // everything in `scope`. With exactly one allowed type the picker is
+    // skipped entirely — there's nothing to choose (e.g. a Reference-photos-
+    // only section).
+    const allowedTypes = Array.isArray(opts.types) && opts.types.length ? opts.types : null;
     let pendingType = null;
 
     function render() {
@@ -9805,15 +9976,22 @@
       });
     }
 
-    section.querySelector('[data-role="add"]').addEventListener("click", () => {
-      openGalleryTypePicker(scope, (typeKey) => {
+    // Each add button remembers WHICH input to open once the type is chosen,
+    // so the camera/library choice survives the type picker in between.
+    function startAdd(input) {
+      const go = (typeKey) => {
         pendingType = typeKey;
-        fileInput.value = ""; // allow re-picking the same file
-        fileInput.click();
-      });
-    });
-    fileInput.addEventListener("change", () => {
-      const file = fileInput.files[0];
+        input.value = ""; // allow re-picking the same file
+        input.click();
+      };
+      if (allowedTypes && allowedTypes.length === 1) { go(allowedTypes[0]); return; }
+      openGalleryTypePicker(scope, go, allowedTypes);
+    }
+    section.querySelector('[data-role="add-cam"]').addEventListener("click", () => startAdd(camInput));
+    section.querySelector('[data-role="add-lib"]').addEventListener("click", () => startAdd(libInput));
+
+    const handleAdd = (input) => {
+      const file = input.files[0];
       if (!file || !pendingType) return;
       const id = getTargetId();
       const type = pendingType;
@@ -9822,7 +10000,9 @@
         addGalleryEntry(id, entry);
         render();
       });
-    });
+    };
+    camInput.addEventListener("change", () => handleAdd(camInput));
+    libInput.addEventListener("change", () => handleAdd(libInput));
 
     // Expose a re-render hook so a flow can refresh the widget when its target
     // changes (e.g. Browse Edit opening a different coin).
@@ -11768,8 +11948,9 @@
       draft.partialChild = null;
       writeSetDraft(draft).catch(() => {}); // best-effort; form already shows the restored values regardless
       restorePartialChildPhotos(draft.collectionID, restoredPhotos).catch(() => {}); // Bug 3 fix — fire-and-forget, best-effort
+      renderAddSetChildExtras(); // point slab/reference/COA at this child + parent
     } else {
-      clearChildForm();
+      clearChildForm(); // itself re-renders the extras
     }
   }
 
@@ -11792,6 +11973,17 @@
     document.getElementById("addSetChildMint").value = "";
     addSetClearPhoto("childObv", "addSetChildObvPreview");
     addSetClearPhoto("childRev", "addSetChildRevPreview");
+    // Collapse the coin-tier extras and re-point them at the NEXT child's own
+    // CollectionID (the previous child's photos stay under its own id).
+    ["addSetChildSlabBody", "addSetChildRefBody"].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.classList.add("hidden");
+    });
+    ["addSetChildSlabHeader", "addSetChildRefHeader"].forEach(id => {
+      const h = document.getElementById(id);
+      if (h) h.setAttribute("aria-expanded", "false");
+    });
+    renderAddSetChildExtras();
   }
 
   // Reads the child form's typed/selected FIELD values only. Photos are
@@ -11970,6 +12162,7 @@
   initBgCrop();
   initGalleryTypePicker();
   initSubGroupPhotoSheet();
+  initAddSetChildExtras();
   initGalleryViewer();
   initGradingHelp();
   initAddCoin();
