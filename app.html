@@ -1720,6 +1720,35 @@
   }
   #bgCropStraighten { width: 100%; margin-bottom: 12px; }
 
+  /* ---- Sub-group photo chip (on each sub-group row) + its focused sheet.
+     The chip keeps the row one compact line regardless of how many
+     sub-groups exist, so N sub-groups just scroll rather than needing a
+     drill-down screen; the sheet gives capture full width when opened. */
+  .sg-photos-btn {
+    margin-top: 6px; padding: 5px 12px; border-radius: 14px;
+    border: 1px dashed var(--case-border); background: transparent;
+    color: var(--text-muted); font-family: inherit; font-size: 11px; cursor: pointer;
+  }
+  .sg-photos-btn.has-photos { border-style: solid; border-color: var(--gold); color: var(--gold-bright); }
+  /* Side-by-side on anything roomy; stacks under ~360px of panel width. */
+  .sg-photo-pair { display: flex; gap: 10px; }
+  .sg-photo-pair .sg-photo-slot { flex: 1; text-align: center; }
+  .sg-photo-pair .sg-photo-img {
+    width: 100%; height: 120px; object-fit: contain; border-radius: 8px;
+    border: 1px solid var(--case-border); background: var(--bg-elevated); display: block;
+  }
+  .sg-photo-pair .sg-photo-empty {
+    width: 100%; height: 120px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: rgba(255,255,255,0.015); display: flex; align-items: center; justify-content: center;
+    font-size: 24px; opacity: 0.45;
+  }
+  .sg-photo-pair .sg-photo-label { font-size: 11px; color: var(--text-muted); margin: 6px 0 4px; }
+  .sg-photo-pair .sg-photo-actions { display: flex; gap: 6px; justify-content: center; }
+  .sg-photo-pair .sg-photo-actions button {
+    padding: 5px 9px; border-radius: 6px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--text-muted); font-family: inherit; font-size: 14px; cursor: pointer;
+  }
+
   /* ---- Reusable gallery-capture widget (Add Coin / Browse Edit / Add Set /
      Edit Set). An "Add photo" control opens a type picker, then the crop
      pipeline; captured photos render as thumbnails with a caption field and a
@@ -2978,33 +3007,43 @@
           <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
         </div>
 
-        <div class="section-label">Photos (optional)</div>
-        <div class="photo-box" id="addSetWholeBox">
-          <div class="name">📦 Whole-set photo (optional)</div>
-          <img id="addSetWholePreview">
-          <div class="photo-btns">
-            <button type="button" id="addSetWholeCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-            <button type="button" id="addSetWholeLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-          </div>
-          <input type="file" id="addSetWholeCameraInput" accept="image/*" capture="environment">
-          <input type="file" id="addSetWholeLibraryInput" accept="image/*">
-        </div>
-        <div class="photo-box" id="addSetReceiptBox" style="margin-top:10px;">
-          <div class="name">🧾 Receipt photo (optional)</div>
-          <img id="addSetReceiptPreview">
-          <div class="photo-btns">
-            <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-            <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-          </div>
-          <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
-          <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
-        </div>
+        <!-- Set photos & documents — ONE collapsed accordion (progressive
+             disclosure: this taxonomy is far too much to show expanded on a
+             phone). Holds the package/OGP pair, a flat Set's own front/back
+             pair (its implicit default sub-group), the open-ended COA list,
+             and the Receipt. Receipt lives here deliberately: it isn't a
+             "photo" in the taxonomy sense (PDF-wrapped, never cropped) but it
+             IS a Set-level document, and pulling it out as a special case
+             would defeat the point of collapsing this block. -->
+        <div class="detail-accordion" id="addSetDocsAccordion">
+          <button type="button" class="accordion-header" id="addSetDocsHeader" aria-expanded="false">
+            <span>📦 Set photos &amp; documents</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetDocsCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetDocsBody">
+            <!-- Package exterior (OGP) pair + flat-Set front/back pair, both
+                 JS-rendered by renderAddSetDocs(). -->
+            <div id="addSetDocsSlots"></div>
 
-        <!-- Set photo gallery — OGP/box, whole-set front/back, COA front/back.
-             The legacy "Whole-set photo" box above is intentionally left as-is
-             (unmapped) — deliberate re-capture into these typed slots, no
-             auto-migration (Q5). -->
-        <div class="gallery-capture" id="addSetGallery"></div>
+            <!-- Open-ended COA list (multi-page certificates) + any other
+                 Set-level photo, via the reusable gallery widget. -->
+            <div class="gallery-capture" id="addSetGallery"></div>
+
+            <div class="photo-box" id="addSetReceiptBox" style="margin-top:14px;">
+              <div class="name">🧾 Receipt photo (optional)</div>
+              <img id="addSetReceiptPreview">
+              <div class="photo-btns">
+                <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+              </div>
+              <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
+              <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
+            </div>
+          </div>
+        </div>
 
         <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
         <p class="placeholder-note" id="addSetStep1Note"></p>
@@ -3179,6 +3218,24 @@
       <div class="photo-adjust-btns">
         <button type="button" id="bgCropCancelBtn">Cancel</button>
         <button type="button" id="bgCropUseBtn">Use Crop</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-group photo sheet — the obverse/reverse pair for ONE sub-group
+       (the sealed/bundled group as a whole, distinct from the per-coin photos
+       captured later in Step 2). Opened from a sub-group row's 📷 chip, so
+       capture stays contextual to the row while the row itself stays one
+       compact line regardless of how many sub-groups exist. -->
+  <div class="photo-adjust-overlay hidden" id="subGroupPhotoOverlay">
+    <div class="photo-adjust-panel" style="max-width:360px;">
+      <div class="photo-adjust-title" id="subGroupPhotoTitle">Sub-group photos</div>
+      <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
+        The sealed group as a whole — not the individual coins inside it.
+      </p>
+      <div class="sg-photo-pair" id="subGroupPhotoPair"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="subGroupPhotoDoneBtn">Done</button>
       </div>
     </div>
   </div>
@@ -4455,63 +4512,116 @@
   // Controlled type vocabulary. Each type carries:
   //   suffix     — the {CollectionID}{suffix}.png filename the future write
   //                layer would store (flat, no subfolder — same as every other
-  //                photo convention in the project). NOTE slab_combined maps to
-  //                the EXISTING "_combined" convention (5 real coins already use
-  //                {CollectionID}_combined.jpg in Photo3), NOT "_slab_combined",
-  //                so no existing file needs renaming.
-  //   flipSource — obverse/reverse only: these two feed the flip-card circle
-  //                crop (Stage 2). The circle is re-derived at display time
-  //                from the background-cropped rectangle, never stored as its
-  //                own asset.
-  //   retainRaw  — keep the true pre-background-crop upload as {CollectionID}
-  //                {suffix}_raw... — only the flip sources do (matches the
-  //                already-locked-in _original/_cropped convention: raw =
-  //                _original, background-cropped = _cropped). Gallery-only
-  //                types keep a single stored copy.
+  //                photo convention in the project).
+  //   flipSource — coin obverse/reverse only: these two feed the flip-card
+  //                circle crop (Stage 2). The circle is re-derived at display
+  //                time from the background-cropped rectangle, never stored as
+  //                its own asset.
+  //   retainRaw  — keep the true pre-background-crop upload alongside the
+  //                cropped one — only the flip sources do (matches the
+  //                already-locked-in convention: raw = _original,
+  //                background-cropped = _cropped). Everything else keeps a
+  //                single stored copy.
   //   aspect     — Stage-1 background-crop aspect: "square" locked for flip
   //                sources (gives the circle adjuster a clean square), "free"
-  //                for gallery-only images (slab/COA/OGP are arbitrary shapes).
-  //   scope      — which capture pickers surface this type by default ("coin",
-  //                "set", or "both"). Purely which picker lists it — the single
-  //                array imposes no row-type restriction (a coin CAN carry an
-  //                OGP box photo, e.g. a Mint-boxed American Eagle).
+  //                for everything else (slab/COA/OGP are arbitrary shapes).
+  //   repeatable — true = any number of these, each user-labeled via `caption`
+  //                (COA pages, reference photos, misc). false = one per record,
+  //                or one per SUB-GROUP for the subgroup_* pair.
+  //   tier       — "coin" | "set" | "subgroup". Drives which capture surface
+  //                offers it and how it's grouped in Manage Photos.
+  //   scope      — which capture pickers surface it ("coin" | "set" | "both").
+  //                A coin CAN carry an OGP photo (a Mint-boxed American Eagle),
+  //                so ogp_* is "both" — the single array imposes no row-type
+  //                restriction, this only drives default picker contents.
+  //
+  // TAXONOMY REVISION (supersedes the first cut of this feature):
+  //   - OGP and "whole set" were two separate types documenting the same
+  //     physical thing (the packaging) — merged into the ogp_* pair. This also
+  //     resolved a latent filename collision: the old whole_set_obverse used
+  //     suffix "_obverse", identical to the coin flip source's.
+  //   - Slab was a single "both sides + cert" combined image; it's now a true
+  //     front/back pair, because you physically cannot photograph both sides
+  //     of a slab at once. The 5 existing {CollectionID}_combined.jpg files
+  //     are deliberately NOT renamed — see the legacy-data note below.
+  //   - COA was a fixed front/back pair; it's now open-ended + labeled, since
+  //     real certificates run to multiple pages.
+  //   - Reference photos (PCGS/GreatCollections downloads) are new.
+  //   - The sub-group tier is new — see SUB-GROUP PHOTOS below.
+  //
+  // LEGACY DATA NOTE (pre-existing, deliberately NOT addressed here): some
+  // existing coins' Obverse/Reverse columns already hold SLAB photos rather
+  // than raw coin photos, and 5 coins hold a combined slab shot as
+  // {CollectionID}_combined.jpg in Photo3. Both are data-overload artifacts
+  // predating this feature. Re-pointing those files into the new slab_* type
+  // is a separate future database-cleanup pass, not part of this build.
   const GALLERY_TYPES = [
-    { key: "obverse",           label: "Obverse (front)",   icon: "🪙", suffix: "_obverse",      flipSource: true,  retainRaw: true,  aspect: "square", scope: "both" },
-    { key: "reverse",           label: "Reverse (back)",    icon: "🪙", suffix: "_reverse",      flipSource: true,  retainRaw: true,  aspect: "square", scope: "both" },
-    { key: "slab_combined",     label: "Slab / flip (both sides + cert)", icon: "🔲", suffix: "_combined", flipSource: false, retainRaw: false, aspect: "free",   scope: "coin" },
-    { key: "coa_obverse",       label: "COA front",         icon: "📜", suffix: "_coa_obverse", flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
-    { key: "coa_reverse",       label: "COA back",          icon: "📜", suffix: "_coa_reverse", flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
-    { key: "ogp",               label: "OGP / box",         icon: "📦", suffix: "_ogp",         flipSource: false, retainRaw: false, aspect: "free",   scope: "both" },
-    { key: "whole_set_obverse", label: "Whole set — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   scope: "set" },
-    { key: "whole_set_reverse", label: "Whole set — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   scope: "set" },
-    { key: "other",             label: "Other photo",       icon: "🖼️", suffix: "_photo",        flipSource: false, retainRaw: false, aspect: "free",   scope: "both" }
+    // --- Coin tier ---
+    { key: "obverse",          label: "Obverse (front)",  icon: "🪙", suffix: "_obverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "reverse",          label: "Reverse (back)",   icon: "🪙", suffix: "_reverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "slab_obverse",     label: "Slab — front",     icon: "🔲", suffix: "_slab_obverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
+    { key: "slab_reverse",     label: "Slab — back",      icon: "🔲", suffix: "_slab_reverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
+    { key: "reference",        label: "Reference photo",  icon: "🔗", suffix: "_ref",           flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "coin", scope: "coin" },
+    // --- Set tier ---
+    { key: "ogp_obverse",      label: "Package (OGP) — front", icon: "📦", suffix: "_ogp_obverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
+    { key: "ogp_reverse",      label: "Package (OGP) — back",  icon: "📦", suffix: "_ogp_reverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
+    { key: "coa",              label: "COA / certificate", icon: "📜", suffix: "_coa",          flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" },
+    // --- Sub-group tier (see SUB-GROUP PHOTOS below) ---
+    { key: "subgroup_obverse", label: "Sub-group — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
+    { key: "subgroup_reverse", label: "Sub-group — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
+    // --- Any tier ---
+    { key: "other",            label: "Other photo",      icon: "🖼️", suffix: "_photo",         flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" }
   ];
   function galleryTypeDef(key) { return GALLERY_TYPES.find(t => t.key === key) || null; }
 
-  // The single-instance types (at most one per gallery) — the two flip
-  // sources, plus the set-level singletons that name a specific slot. "other"
-  // (and, deliberately, nothing else) may repeat. A capture of a
-  // single-instance type replaces any existing entry of that same type.
-  const GALLERY_SINGLE_INSTANCE = new Set([
-    "obverse", "reverse", "slab_combined", "coa_obverse", "coa_reverse",
-    "ogp", "whole_set_obverse", "whole_set_reverse"
-  ]);
+  // SUB-GROUP PHOTOS: a Set's sub-groups (e.g. "Philadelphia"/"Denver" cello
+  // packs in a Mint Set) each get their own obverse/reverse pair showing that
+  // sealed bundle as a whole — distinct from the per-coin obverse/reverse
+  // captured later in Step 2 for each individual coin inside it, and distinct
+  // from the ogp_* package exterior.
+  //
+  // A FLAT Set (no sub-groups defined) is treated as one IMPLICIT default
+  // sub-group, so its "whole set front/back" pair uses this exact same
+  // mechanism rather than a parallel concept. That implicit group's id is
+  // DEFAULT_SUBGROUP_ID; nothing in the UI ever says "default sub-group" —
+  // a flat Set just shows a normal obverse/reverse pair.
+  const DEFAULT_SUBGROUP_ID = "__default__";
 
-  // Notional stored filename(s) for an entry — documentation/testing only in
-  // this mockup (nothing is written). Flip sources follow the locked-in
-  // _original (raw) / _cropped (background-cropped, the circle-crop input)
-  // pair; gallery-only types are a single {suffix}.png. "other" can repeat, so
-  // it gets a 1-based index to stay unique.
-  function galleryFilenameFor(collectionId, type, indexAmongType) {
+  // Sub-group ids are STABLE and generated at row-creation time, so renaming
+  // "Philadelphia" -> "Phila" or reordering rows never re-points photos, and
+  // deleting one sub-group can't take another's photos with it. (Before this,
+  // sub-groups were identified only by array position + free-text name.)
+  let subGroupIdSeq = 0;
+  function nextSubGroupId() { return "sg" + (++subGroupIdSeq); }
+
+  // Whether an entry belongs to a given sub-group. Only subgroup_* entries
+  // carry a subGroupId; everything else ignores it entirely.
+  function isSubGroupEntry(entry) {
+    const def = galleryTypeDef(entry.type);
+    return !!(def && def.tier === "subgroup");
+  }
+
+  // Notional stored filename(s) — documentation/testing only in this mockup
+  // (nothing is written). Flip sources get the locked-in _original (raw) /
+  // _cropped (background-cropped) pair; everything else is a single file.
+  // Repeatable types get a 1-based index to stay unique. Sub-group photos are
+  // namespaced by their sub-group id, EXCEPT the implicit default (a flat
+  // Set), which keeps the plain {CollectionID}_obverse.png / _reverse.png
+  // convention — unambiguous because a Set row has no coin-tier flip sources.
+  function galleryFilenameFor(collectionId, type, indexAmongType, subGroupId) {
     const def = galleryTypeDef(type);
     if (!def) return null;
-    const n = (type === "other" && indexAmongType != null) ? "_" + (indexAmongType + 1) : "";
     if (def.flipSource) {
       return {
         cropped: collectionId + def.suffix + "_cropped.png",
         raw:     collectionId + def.suffix + "_original.png"
       };
     }
+    if (def.tier === "subgroup") {
+      const ns = (!subGroupId || subGroupId === DEFAULT_SUBGROUP_ID) ? "" : "_" + subGroupId;
+      return { cropped: collectionId + ns + def.suffix + ".png" };
+    }
+    const n = (def.repeatable && indexAmongType != null) ? "_" + (indexAmongType + 1) : "";
     return { cropped: collectionId + def.suffix + n + ".png" };
   }
 
@@ -4522,26 +4632,27 @@
   // photo, exactly as everywhere else). Captured-this-session entries carry a
   // real blob url instead.
   const FAKE_GALLERIES = {
-    // A slabbed Morgan: the combined slab shot + a COA front, beyond its
+    // A slabbed Morgan: a real slab front/back pair + a COA page, beyond its
     // obverse/reverse (which the flip card already covers).
     "AY-00001": [
-      { type: "slab_combined", url: null, caption: "PCGS slab — both sides + cert 12345678" },
-      { type: "coa_obverse",   url: null, caption: "" }
+      { type: "slab_obverse", url: null, caption: "PCGS slab — cert 12345678" },
+      { type: "slab_reverse", url: null, caption: "" },
+      { type: "coa",          url: null, caption: "" }
     ],
-    // A commemorative dollar shipped in Mint packaging with a certificate.
+    // A commemorative dollar shipped in Mint packaging with a 2-page certificate.
     "AY-00014": [
-      { type: "ogp",         url: null, caption: "Original Mint box" },
-      { type: "coa_obverse", url: null, caption: "" },
-      { type: "coa_reverse", url: null, caption: "" }
+      { type: "ogp_obverse", url: null, caption: "Original Mint box" },
+      { type: "coa",         url: null, caption: "Page 1" },
+      { type: "coa",         url: null, caption: "Page 2" }
     ],
-    // The 1986 Statue of Liberty 3-coin Set (a Set-bundle row) — OGP + whole-set
-    // front/back + COA, its own gallery (children are shown via the child grid,
-    // NOT part of this gallery).
+    // The 1986 Statue of Liberty 3-coin Set (a Set-bundle row) — package
+    // exterior + a flat Set's implicit-default sub-group pair + COA. Children
+    // are shown via the child grid, NOT part of this gallery.
     "AY-00022": [
-      { type: "ogp",                url: null, caption: "Presentation case" },
-      { type: "whole_set_obverse",  url: null, caption: "" },
-      { type: "whole_set_reverse",  url: null, caption: "" },
-      { type: "coa_obverse",        url: null, caption: "Certificate of Authenticity" }
+      { type: "ogp_obverse",      url: null, caption: "Presentation case" },
+      { type: "subgroup_obverse", url: null, caption: "", subGroupId: DEFAULT_SUBGROUP_ID },
+      { type: "subgroup_reverse", url: null, caption: "", subGroupId: DEFAULT_SUBGROUP_ID },
+      { type: "coa",              url: null, caption: "Certificate of Authenticity" }
     ]
   };
 
@@ -4558,10 +4669,15 @@
   }
   function addGalleryEntry(collectionId, entry) {
     const list = galleryFor(collectionId);
-    if (GALLERY_SINGLE_INSTANCE.has(entry.type)) {
-      // Single-instance type replaces any existing entry of the same type
-      // (re-capturing an obverse supersedes the old one), preserving position.
-      const at = list.findIndex(e => e.type === entry.type);
+    const def = galleryTypeDef(entry.type);
+    if (def && !def.repeatable) {
+      // Single-instance: a re-capture supersedes the existing one, preserving
+      // position. For the sub-group tier that uniqueness is PER SUB-GROUP —
+      // capturing Denver's obverse must not replace Philadelphia's.
+      const at = list.findIndex(e =>
+        e.type === entry.type &&
+        (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (entry.subGroupId || DEFAULT_SUBGROUP_ID))
+      );
       if (at >= 0) { list[at] = entry; return; }
     }
     list.push(entry);
@@ -4569,6 +4685,27 @@
   function removeGalleryEntry(collectionId, index) {
     const list = galleryFor(collectionId);
     if (index >= 0 && index < list.length) list.splice(index, 1);
+  }
+
+  // Entries belonging to one sub-group (its own obverse/reverse pair only).
+  function galleryEntriesForSubGroup(collectionId, subGroupId) {
+    const want = subGroupId || DEFAULT_SUBGROUP_ID;
+    return galleryFor(collectionId).filter(e =>
+      isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === want);
+  }
+
+  // Deleting a sub-group removes ONLY that sub-group's own obverse/reverse
+  // pair. It must never cascade to the photos of coins captured under it —
+  // and structurally cannot: a child coin's photos live in ITS OWN gallery,
+  // keyed by the child's CollectionID, not in the parent Set's array this
+  // touches. Child photos are only ever removed by deleting the coin record.
+  function removeSubGroupPhotos(collectionId, subGroupId) {
+    const want = subGroupId || DEFAULT_SUBGROUP_ID;
+    const list = galleryFor(collectionId);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const e = list[i];
+      if (isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === want) list.splice(i, 1);
+    }
   }
   // The obverse/reverse entry for a coin, if captured this session — lets the
   // flip card prefer a real captured photo over the series reference-image
@@ -9251,13 +9388,16 @@
   //   types keep the single cropped copy.
   // Mockup: url/rawUrl are in-browser blob URLs; filename/rawFilename are the
   // notional names the future write layer would use (nothing is written).
-  function runCropPipeline(file, type, collectionId, onEntry) {
+  // subGroupId (optional): only meaningful for the subgroup_* tier — namespaces
+  // the photo to one sub-group so each sub-group keeps its own obverse/reverse
+  // pair. Omitted/null means the implicit default (a flat Set).
+  function runCropPipeline(file, type, collectionId, onEntry, subGroupId) {
     const def = galleryTypeDef(type);
     if (!def) return;
     const rawUrl = def.retainRaw ? URL.createObjectURL(file) : null;
-    // index among same-type entries, for "other" filename uniqueness
+    // index among same-type entries, for repeatable-type filename uniqueness
     const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
-    const names = galleryFilenameFor(collectionId, type, indexAmongType);
+    const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
     openBgCrop(file, {
       title: "Crop — " + def.label,
       aspectLock: def.aspect === "square",
@@ -9270,9 +9410,14 @@
         const finish = (circleBlob) => onEntry({
           type, url: rectUrl, rawUrl,
           circleUrl: circleBlob ? URL.createObjectURL(circleBlob) : null,
+          // The cropped Blob itself, not just its display URL — the (gated,
+          // real) Add Set write path uploads Blobs, so a caller that feeds
+          // that path needs the bytes, not a blob: URL it can't upload.
+          blob: rectBlob,
           caption: "",
           filename: names.cropped,
-          rawFilename: names.raw || null
+          rawFilename: names.raw || null,
+          subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
         });
         if (def.flipSource) {
           // Stage 2: frame the flip-card circle from the clean rectangle.
@@ -9328,6 +9473,186 @@
     document.getElementById("galleryTypePickerOverlay").classList.remove("hidden");
   }
 
+  // ==================================================================
+  // SUB-GROUP PHOTO SHEET — the obverse/reverse pair for ONE sub-group.
+  // Also serves a flat Set's implicit default sub-group (DEFAULT_SUBGROUP_ID),
+  // which is how "whole set front/back" is captured without a parallel
+  // concept — see SUB-GROUP PHOTOS in the taxonomy block.
+  // ==================================================================
+
+  let subGroupSheetId = null;   // which sub-group the open sheet is editing
+  const SUBGROUP_PAIR = ["subgroup_obverse", "subgroup_reverse"];
+
+  function openSubGroupPhotoSheet(sgId, titleOverride) {
+    subGroupSheetId = sgId || DEFAULT_SUBGROUP_ID;
+    const row = document.querySelector('#addSetSubGroups .subgroup-row[data-sg-id="' + subGroupSheetId + '"]');
+    const name = row ? (row.querySelector(".sg-name").value.trim() || "Sub-group") : null;
+    document.getElementById("subGroupPhotoTitle").textContent =
+      titleOverride || (name ? name + " — photos" : "Set photos");
+    renderSubGroupPhotoSheet();
+    document.getElementById("subGroupPhotoOverlay").classList.remove("hidden");
+  }
+
+  function renderSubGroupPhotoSheet() {
+    const pair = document.getElementById("subGroupPhotoPair");
+    const targetId = addSetGalleryTargetId();
+    pair.innerHTML = "";
+    SUBGROUP_PAIR.forEach(typeKey => {
+      const def = galleryTypeDef(typeKey);
+      const list = galleryFor(targetId);
+      const idx = list.findIndex(e =>
+        e.type === typeKey && (e.subGroupId || DEFAULT_SUBGROUP_ID) === subGroupSheetId);
+      const entry = idx >= 0 ? list[idx] : null;
+      const slot = document.createElement("div");
+      slot.className = "sg-photo-slot";
+      const face = entry
+        ? (entry.url
+            ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
+            : `<div class="sg-photo-empty">${def.icon}</div>`)
+        : `<div class="sg-photo-empty">＋</div>`;
+      slot.innerHTML = `
+        ${face}
+        <div class="sg-photo-label">${typeKey === "subgroup_obverse" ? "Front" : "Back"}</div>
+        <div class="sg-photo-actions">
+          <button type="button" data-act="pick" title="${entry ? "Replace photo" : "Add photo"}">${entry ? "🔄" : "＋"}</button>
+          ${entry ? `<button type="button" data-act="remove" title="Remove photo">🗑️</button>` : ""}
+        </div>
+        <input type="file" accept="image/*" style="display:none;">
+      `;
+      const fileInput = slot.querySelector('input[type="file"]');
+      slot.querySelector('[data-act="pick"]').addEventListener("click", () => {
+        fileInput.value = "";
+        fileInput.click();
+      });
+      fileInput.addEventListener("change", () => {
+        const f = fileInput.files[0];
+        if (!f) return;
+        runCropPipeline(f, typeKey, targetId, (newEntry) => {
+          addGalleryEntry(targetId, newEntry);
+          renderSubGroupPhotoSheet();
+          updateSubGroupPhotoChip(subGroupSheetId);
+        }, subGroupSheetId);
+      });
+      const rm = slot.querySelector('[data-act="remove"]');
+      if (rm) rm.addEventListener("click", () => {
+        removeGalleryEntry(targetId, idx);
+        renderSubGroupPhotoSheet();
+        updateSubGroupPhotoChip(subGroupSheetId);
+      });
+      pair.appendChild(slot);
+    });
+  }
+
+  // ==================================================================
+  // ADD SET — "Set photos & documents" accordion body (§B). Renders the
+  // package/OGP pair, plus (for a FLAT Set only) that Set's own front/back
+  // pair — which is its implicit default sub-group, captured through the
+  // exact same mechanism a named sub-group uses. A sub-grouped Set shows no
+  // flat pair: each sub-group carries its own, via its row's 📷 chip.
+  // ==================================================================
+
+  const ADDSET_OGP_PAIR = ["ogp_obverse", "ogp_reverse"];
+
+  function renderAddSetDocs() {
+    const host = document.getElementById("addSetDocsSlots");
+    if (!host) return;
+    const targetId = addSetGalleryTargetId();
+    const hasSubGroups = document.querySelectorAll("#addSetSubGroups .subgroup-row").length > 0;
+    host.innerHTML = "";
+
+    const pairBlock = (label, hint, typeKeys, subGroupId) => {
+      const wrap = document.createElement("div");
+      wrap.style.marginBottom = "14px";
+      wrap.innerHTML = `<div class="name" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">${label}</div>` +
+        (hint ? `<p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">${hint}</p>` : "") +
+        `<div class="sg-photo-pair"></div>`;
+      const pair = wrap.querySelector(".sg-photo-pair");
+      typeKeys.forEach((typeKey, i) => {
+        const def = galleryTypeDef(typeKey);
+        const list = galleryFor(targetId);
+        const idx = list.findIndex(e => e.type === typeKey &&
+          (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (subGroupId || DEFAULT_SUBGROUP_ID)));
+        const entry = idx >= 0 ? list[idx] : null;
+        const slot = document.createElement("div");
+        slot.className = "sg-photo-slot";
+        const face = entry && entry.url
+          ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
+          : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
+        slot.innerHTML = `
+          ${face}
+          <div class="sg-photo-label">${i === 0 ? "Front" : "Back"}</div>
+          <div class="sg-photo-actions">
+            <button type="button" data-act="pick" title="${entry ? "Replace photo" : "Add photo"}">${entry ? "🔄" : "＋"}</button>
+            ${entry ? `<button type="button" data-act="remove" title="Remove photo">🗑️</button>` : ""}
+          </div>
+          <input type="file" accept="image/*" style="display:none;">
+        `;
+        const fi = slot.querySelector('input[type="file"]');
+        slot.querySelector('[data-act="pick"]').addEventListener("click", () => { fi.value = ""; fi.click(); });
+        fi.addEventListener("change", () => {
+          const f = fi.files[0];
+          if (!f) return;
+          runCropPipeline(f, typeKey, targetId, (newEntry) => {
+            addGalleryEntry(targetId, newEntry);
+            // Keep the REAL (gated) write path fed: draft.wholeSetPhoto is what
+            // startSetCapture uploads to Staging and plannedPromotionMoves
+            // relocates to {parent}_set.jpg, and what the Docket's missing-
+            // whole-set-photo gap checks. The package front is the natural
+            // stand-in for that single legacy slot, so mirroring it here keeps
+            // upload/promotion/Docket working unchanged while the UI moves to
+            // the new taxonomy. (The legacy _set.jpg convention itself is
+            // deliberately not migrated — see CLAUDE.md decision 5.)
+            if (typeKey === "ogp_obverse") addSetPhotoFiles["whole"] = newEntry.blob || null;
+            renderAddSetDocs();
+            updateAddSetDocsCount();
+          }, subGroupId);
+        });
+        const rm = slot.querySelector('[data-act="remove"]');
+        if (rm) rm.addEventListener("click", () => {
+          removeGalleryEntry(targetId, idx);
+          if (typeKey === "ogp_obverse") addSetPhotoFiles["whole"] = null;
+          renderAddSetDocs();
+          updateAddSetDocsCount();
+        });
+        pair.appendChild(slot);
+      });
+      return wrap;
+    };
+
+    host.appendChild(pairBlock(
+      "📦 Package / OGP",
+      "The packaging itself — box, folder or envelope exterior.",
+      ADDSET_OGP_PAIR, null));
+
+    if (!hasSubGroups) {
+      host.appendChild(pairBlock(
+        "🖼️ Whole set — front & back",
+        "The set itself as one unit. (Define sub-groups above to photograph each pack separately instead.)",
+        SUBGROUP_PAIR, DEFAULT_SUBGROUP_ID));
+    }
+    updateAddSetDocsCount();
+  }
+
+  // Count badge on the collapsed accordion header, so the section still tells
+  // you whether anything's in there without expanding it.
+  function updateAddSetDocsCount() {
+    const el = document.getElementById("addSetDocsCount");
+    if (!el) return;
+    const list = galleryFor(addSetGalleryTargetId());
+    const n = list.filter(e => {
+      const def = galleryTypeDef(e.type);
+      return def && (def.tier === "set" || def.tier === "subgroup");
+    }).length;
+    el.textContent = n ? n + " photo" + (n === 1 ? "" : "s") : "";
+  }
+
+  function initSubGroupPhotoSheet() {
+    document.getElementById("subGroupPhotoDoneBtn").addEventListener("click", () => {
+      document.getElementById("subGroupPhotoOverlay").classList.add("hidden");
+      subGroupSheetId = null;
+    });
+  }
+
   function initGalleryTypePicker() {
     document.getElementById("galleryTypePickerCancelBtn").addEventListener("click", () => {
       document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
@@ -9337,15 +9662,19 @@
 
   // sectionId: a container div. getTargetId(): returns the CollectionID (or
   // temp-draft key) whose gallery this widget edits. scope: "coin" | "set".
-  function initGalleryCapture(sectionId, getTargetId, scope) {
+  // opts (optional): { title, description } — lets a host screen give the
+  // widget context-appropriate copy (a Set's is about certificates/documents,
+  // a coin's about slab & reference shots) instead of one generic heading.
+  function initGalleryCapture(sectionId, getTargetId, scope, opts) {
     const section = document.getElementById(sectionId);
     if (!section) return;
+    opts = opts || {};
+    const title = opts.title || "Photo Gallery (optional)";
+    const description = opts.description ||
+      "Any photos beyond the flip card — slab/COA/box shots, extra angles. Each is cropped to remove background before it's saved.";
     section.innerHTML = `
-      <div class="section-label" style="margin-top:0;">Photo Gallery (optional)</div>
-      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
-        Any photos beyond the flip card — slab/COA/box shots, extra angles. Each is
-        cropped to remove background before it's saved.
-      </p>
+      <div class="section-label" style="margin-top:0;">${title}</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
       <div class="gc-grid" data-role="grid"></div>
       <button type="button" class="gc-add-btn" data-role="add">＋ Add photo</button>
       <input type="file" accept="image/*" data-role="file" style="display:none;">
@@ -10682,16 +11011,32 @@
 
     populateAddSetNameOptions();
 
-    // "free" for the whole-set package shot (arbitrary shape); "square" for the
-    // Step 2 per-coin obverse/reverse, which are flip-card sources.
-    wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput", false, "free");
+    // The legacy standalone "whole-set photo" slot is gone — that role is now
+    // the package/OGP pair plus (for a flat Set) the implicit-default
+    // sub-group pair, both rendered by renderAddSetDocs() inside the
+    // Set-documents accordion. "square" for the Step 2 per-coin
+    // obverse/reverse, which are flip-card sources.
     wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput", false, "square");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput", false, "square");
 
-    // Set photo gallery (OGP / whole-set front-back / COA front-back). Targets
-    // the resumed draft's own CollectionID when resuming, else the temp key.
-    initGalleryCapture("addSetGallery", () => currentSetDraft ? currentSetDraft.collectionID : ADDSET_GALLERY_ID, "set");
+    // Set-documents accordion: collapsed by default, toggles like the Browse
+    // detail accordions. Its body holds renderAddSetDocs()'s pairs + the
+    // open-ended COA/other gallery widget + the Receipt.
+    const docsHeader = document.getElementById("addSetDocsHeader");
+    const docsBody = document.getElementById("addSetDocsBody");
+    docsHeader.addEventListener("click", () => {
+      const nowOpen = docsBody.classList.toggle("hidden") === false;
+      docsHeader.setAttribute("aria-expanded", String(nowOpen));
+      if (nowOpen) renderAddSetDocs();
+    });
+
+    // Open-ended COA / other Set-level photos. Targets the resumed draft's own
+    // CollectionID when resuming, else the temp key.
+    initGalleryCapture("addSetGallery", addSetGalleryTargetId, "set", {
+      title: "Certificates &amp; other documents",
+      description: "COA pages (add as many as the certificate has) and any other Set-level photo. Each is cropped to remove background before it's saved."
+    });
 
     // Name and Year each recompute Category (item 4) on every genuine edit
     // — see updateAddSetCategoryFromNameYear(). Setting addSetNameTouched/
@@ -10831,24 +11176,66 @@
     }
   }
 
-  function addSubGroupRow(name, count) {
+  // A sub-group row carries a STABLE id (data-sg-id) generated once at
+  // creation and preserved by readSubGroups(), so renaming or reordering never
+  // re-points its photos. `id` is passed when restoring an existing draft's
+  // rows; omitted for a brand-new row.
+  function addSubGroupRow(name, count, id) {
     const container = document.getElementById("addSetSubGroups");
+    const sgId = id || nextSubGroupId();
     const row = document.createElement("div");
     row.className = "subgroup-row";
-    row.style.cssText = "display:flex; gap:8px; margin-top:8px; align-items:center;";
+    row.dataset.sgId = sgId;
+    row.style.cssText = "margin-top:8px;";
     row.innerHTML = `
-      <input type="text" class="sg-name" placeholder="Sub-group name" style="flex:2;" value="${name || ""}">
-      <input type="number" class="sg-count" placeholder="count" inputmode="numeric" style="flex:1;" value="${count != null ? count : ""}">
-      <button type="button" class="sg-remove" style="background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" class="sg-name" placeholder="Sub-group name" style="flex:2;" value="${(name || "").replace(/"/g, "&quot;")}">
+        <input type="number" class="sg-count" placeholder="count" inputmode="numeric" style="flex:1;" value="${count != null ? count : ""}">
+        <button type="button" class="sg-remove" style="background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      </div>
+      <button type="button" class="sg-photos-btn" data-sg-id="${sgId}">📷 Add photos</button>
     `;
-    row.querySelector(".sg-remove").addEventListener("click", () => row.remove());
+    row.querySelector(".sg-remove").addEventListener("click", () => {
+      // Removes ONLY this sub-group's own obverse/reverse pair — never the
+      // photos of coins captured under it (those live in each child coin's
+      // own gallery; see removeSubGroupPhotos).
+      removeSubGroupPhotos(addSetGalleryTargetId(), sgId);
+      row.remove();
+      renderAddSetDocs();
+    });
+    row.querySelector(".sg-photos-btn").addEventListener("click", () => openSubGroupPhotoSheet(sgId));
     container.appendChild(row);
+    updateSubGroupPhotoChip(sgId);
+    // A flat Set shows its own front/back pair; a sub-grouped one doesn't
+    // (each sub-group carries its own) — so the docs section must re-render
+    // whenever sub-group rows appear or disappear.
+    renderAddSetDocs();
   }
 
   function readSubGroups() {
     return [...document.querySelectorAll("#addSetSubGroups .subgroup-row")]
-      .map(r => ({ name: r.querySelector(".sg-name").value.trim(), expectedCount: Number(r.querySelector(".sg-count").value) || 0 }))
+      .map(r => ({
+        id: r.dataset.sgId,
+        name: r.querySelector(".sg-name").value.trim(),
+        expectedCount: Number(r.querySelector(".sg-count").value) || 0
+      }))
       .filter(sg => sg.name);
+  }
+
+  // Which gallery the Add Set screen's photos belong to — the resumed draft's
+  // real CollectionID when resuming, else the temp draft key (no ID is
+  // reserved until Step 1 is submitted).
+  function addSetGalleryTargetId() {
+    return currentSetDraft ? currentSetDraft.collectionID : ADDSET_GALLERY_ID;
+  }
+
+  // The per-row chip reflects how many of that sub-group's 2 photos exist.
+  function updateSubGroupPhotoChip(sgId) {
+    const btn = document.querySelector('#addSetSubGroups .sg-photos-btn[data-sg-id="' + sgId + '"]');
+    if (!btn) return;
+    const n = galleryEntriesForSubGroup(addSetGalleryTargetId(), sgId).length;
+    btn.textContent = n ? "📷 " + n + " photo" + (n === 1 ? "" : "s") : "📷 Add photos";
+    btn.classList.toggle("has-photos", n > 0);
   }
 
   // Year is a required either/or (see the Step 1 markup comment): a specific
@@ -10888,12 +11275,16 @@
     document.getElementById("addSetMatchNote").textContent = "";
     document.getElementById("addSetSubGroups").innerHTML = "";
     document.getElementById("addSetStep1Note").textContent = "";
-    addSetClearPhoto("whole", "addSetWholePreview");
+    addSetPhotoFiles["whole"] = null; // legacy write-path slot, now fed by the OGP front capture
     addSetClearPhoto("receipt", "addSetReceiptPreview");
-    // Fresh entry starts with an empty Set gallery draft (temp key).
+    // Fresh entry starts with an empty Set gallery draft (temp key), a
+    // collapsed docs accordion, and freshly-numbered sub-group ids.
     resetGalleryDraft(ADDSET_GALLERY_ID);
     const asg = document.getElementById("addSetGallery");
     if (asg && asg._galleryRender) asg._galleryRender();
+    document.getElementById("addSetDocsBody").classList.add("hidden");
+    document.getElementById("addSetDocsHeader").setAttribute("aria-expanded", "false");
+    renderAddSetDocs();
     // Banner hidden by default; applyAddSetContext() (called right AFTER
     // navigate on the checklist path) re-shows/fills it. Deliberately does NOT
     // null setChecklistContext — that survives navigate so applyAddSetContext
@@ -10944,7 +11335,9 @@
     addSetTrackIndividuallyTouched = true;
     updateAddSetTrackIndividuallyVisibility();
     document.getElementById("addSetExpectedCount").value = draft.expectedChildCount || "";
-    (draft.subGroups || []).forEach(sg => addSubGroupRow(sg.name, sg.expectedCount));
+    // Pass each sub-group's STORED id through, so a resumed draft's rows keep
+    // pointing at their own already-captured photos (a fresh id would orphan them).
+    (draft.subGroups || []).forEach(sg => addSubGroupRow(sg.name, sg.expectedCount, sg.id));
     document.getElementById("addSetTrackIndividually").disabled = true;
     document.getElementById("addSetExpectedCount").disabled = true;
     document.getElementById("addSetAddSubGroupBtn").disabled = true;
@@ -10962,8 +11355,14 @@
     const asg = document.getElementById("addSetGallery");
     if (asg && asg._galleryRender) asg._galleryRender();
 
-    const box = document.getElementById("addSetWholeBox");
-    if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
+    // Resuming to fill a photo gap — expand the docs accordion (rather than
+    // landing on a collapsed section with nothing visible) and scroll to it.
+    const docsBody = document.getElementById("addSetDocsBody");
+    docsBody.classList.remove("hidden");
+    document.getElementById("addSetDocsHeader").setAttribute("aria-expanded", "true");
+    renderAddSetDocs();
+    const acc = document.getElementById("addSetDocsAccordion");
+    if (acc) acc.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
   // Deep-link pre-fill from a Sets completeness-checklist empty tile (A2):
@@ -11398,6 +11797,7 @@
   initPhotoAdjuster();
   initBgCrop();
   initGalleryTypePicker();
+  initSubGroupPhotoSheet();
   initGalleryViewer();
   initGradingHelp();
   initAddCoin();
