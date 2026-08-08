@@ -1440,7 +1440,13 @@
     margin-bottom: 10px;
   }
   .photo-box img {
-    width: 100%; height: 96px; object-fit: cover; border-radius: 8px;
+    /* object-fit: contain (not cover) so a preview always shows the FULL
+       uploaded image, letterboxed on whichever axis is shorter, rather than
+       forcing every photo into a fixed wide/short box and cropping the top
+       and bottom off anything taller than that — the bug this was fixed for.
+       180px (up from the old 96px) gives a contained image enough room to
+       actually read; the box's own background fills the letterbox bars. */
+    width: 100%; height: 180px; object-fit: contain; border-radius: 8px;
     border: 1px solid var(--case-border); display: none; margin-bottom: 10px; background: var(--bg-elevated);
   }
   /* Small, quiet icon buttons — the coin is the focal point, not the controls. */
@@ -2975,7 +2981,7 @@
         <div class="section-label">Photos (optional)</div>
         <div class="photo-box" id="addSetWholeBox">
           <div class="name">📦 Whole-set photo (optional)</div>
-          <img id="addSetWholePreview" style="width:100%; max-height:160px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+          <img id="addSetWholePreview">
           <div class="photo-btns">
             <button type="button" id="addSetWholeCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
             <button type="button" id="addSetWholeLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
@@ -2985,7 +2991,7 @@
         </div>
         <div class="photo-box" id="addSetReceiptBox" style="margin-top:10px;">
           <div class="name">🧾 Receipt photo (optional)</div>
-          <img id="addSetReceiptPreview" style="width:100%; max-height:160px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+          <img id="addSetReceiptPreview">
           <div class="photo-btns">
             <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
             <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
@@ -3027,7 +3033,7 @@
         <div class="photo-row" style="display:flex; gap:10px;">
           <div class="photo-box" style="flex:1;">
             <div class="name">Obverse</div>
-            <img id="addSetChildObvPreview" style="width:100%; height:100px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+            <img id="addSetChildObvPreview">
             <div class="photo-btns">
               <button type="button" id="addSetChildObvCameraBtn">📷</button>
               <button type="button" id="addSetChildObvLibraryBtn">🖼️</button>
@@ -3037,7 +3043,7 @@
           </div>
           <div class="photo-box" style="flex:1;">
             <div class="name">Reverse</div>
-            <img id="addSetChildRevPreview" style="width:100%; height:100px; object-fit:cover; border-radius:8px; display:none; margin-bottom:6px;">
+            <img id="addSetChildRevPreview">
             <div class="photo-btns">
               <button type="button" id="addSetChildRevCameraBtn">📷</button>
               <button type="button" id="addSetChildRevLibraryBtn">🖼️</button>
