@@ -1639,6 +1639,12 @@
     z-index: 200; padding: 20px;
   }
   .photo-adjust-overlay.hidden { display: none; }
+  /* The two CROP overlays can be opened FROM another overlay (the sub-group
+     photo sheet stays open behind them, so you land back on it after
+     cropping). Every .photo-adjust-overlay shares z-index 200, so without
+     this the later-in-DOM sheet paints over the crop tool and swallows its
+     clicks — the tool looks frozen. Lift both crop stages above the rest. */
+  #bgCropOverlay, #photoAdjustOverlay { z-index: 210; }
   .photo-adjust-panel {
     background: var(--bg-case); border: 1px solid var(--case-border-bright);
     border-radius: 14px; padding: 20px; max-width: 320px; width: 100%; text-align: center;
@@ -3002,6 +3008,8 @@
           <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
             e.g. "Philadelphia" / "Denver" for a Mint Set. If used, the expected count is
             per sub-group and each coin belongs to exactly one. Leave empty for a flat set.
+            Each sub-group can carry its own front/back photos — separate from the
+            whole-set photos in Set photos &amp; documents below.
           </p>
           <div id="addSetSubGroups"></div>
           <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
@@ -9483,6 +9491,65 @@
   let subGroupSheetId = null;   // which sub-group the open sheet is editing
   const SUBGROUP_PAIR = ["subgroup_obverse", "subgroup_reverse"];
 
+  // ------------------------------------------------------------------
+  // SHARED photo-pair slot renderer — used by BOTH the Set-documents pairs
+  // (package/OGP, whole-set) and the sub-group sheet, which previously built
+  // near-identical markup twice.
+  //
+  // Carries the standard 📷 Camera / 🖼️ Library button PAIRING every other
+  // photo slot in this app uses. That pairing is a hard requirement, not a
+  // style choice: Samsung Internet skips the native chooser dialog, so a
+  // single file input gives no way to reach the camera at all (see CLAUDE.md
+  // "Add Coin: the core workflow"). All three of these new slots shipped
+  // file-picker-only, which is exactly that bug.
+  //
+  // opts: { typeKey, targetId, subGroupId, label, onChange }
+  function buildPhotoPairSlot(opts) {
+    const { typeKey, targetId, subGroupId, label, onChange } = opts;
+    const def = galleryTypeDef(typeKey);
+    const list = galleryFor(targetId);
+    const idx = list.findIndex(e => e.type === typeKey &&
+      (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (subGroupId || DEFAULT_SUBGROUP_ID)));
+    const entry = idx >= 0 ? list[idx] : null;
+
+    const slot = document.createElement("div");
+    slot.className = "sg-photo-slot";
+    const face = entry && entry.url
+      ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
+      : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
+    slot.innerHTML = `
+      ${face}
+      <div class="sg-photo-label">${label}</div>
+      <div class="sg-photo-actions">
+        <button type="button" data-act="camera" aria-label="Take photo with camera" title="Camera">📷</button>
+        <button type="button" data-act="library" aria-label="Choose photo from library" title="Library">🖼️</button>
+        ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
+      </div>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
+    `;
+    const cam = slot.querySelector('[data-role="cam"]');
+    const lib = slot.querySelector('[data-role="lib"]');
+    slot.querySelector('[data-act="camera"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
+    slot.querySelector('[data-act="library"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
+    const handle = (input) => {
+      const f = input.files[0];
+      if (!f) return;
+      runCropPipeline(f, typeKey, targetId, (newEntry) => {
+        addGalleryEntry(targetId, newEntry);
+        if (onChange) onChange(newEntry, typeKey);
+      }, subGroupId);
+    };
+    cam.addEventListener("change", () => handle(cam));
+    lib.addEventListener("change", () => handle(lib));
+    const rm = slot.querySelector('[data-act="remove"]');
+    if (rm) rm.addEventListener("click", () => {
+      removeGalleryEntry(targetId, idx);
+      if (onChange) onChange(null, typeKey);
+    });
+    return slot;
+  }
+
   function openSubGroupPhotoSheet(sgId, titleOverride) {
     subGroupSheetId = sgId || DEFAULT_SUBGROUP_ID;
     const row = document.querySelector('#addSetSubGroups .subgroup-row[data-sg-id="' + subGroupSheetId + '"]');
@@ -9497,58 +9564,34 @@
     const pair = document.getElementById("subGroupPhotoPair");
     const targetId = addSetGalleryTargetId();
     pair.innerHTML = "";
-    SUBGROUP_PAIR.forEach(typeKey => {
-      const def = galleryTypeDef(typeKey);
-      const list = galleryFor(targetId);
-      const idx = list.findIndex(e =>
-        e.type === typeKey && (e.subGroupId || DEFAULT_SUBGROUP_ID) === subGroupSheetId);
-      const entry = idx >= 0 ? list[idx] : null;
-      const slot = document.createElement("div");
-      slot.className = "sg-photo-slot";
-      const face = entry
-        ? (entry.url
-            ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
-            : `<div class="sg-photo-empty">${def.icon}</div>`)
-        : `<div class="sg-photo-empty">＋</div>`;
-      slot.innerHTML = `
-        ${face}
-        <div class="sg-photo-label">${typeKey === "subgroup_obverse" ? "Front" : "Back"}</div>
-        <div class="sg-photo-actions">
-          <button type="button" data-act="pick" title="${entry ? "Replace photo" : "Add photo"}">${entry ? "🔄" : "＋"}</button>
-          ${entry ? `<button type="button" data-act="remove" title="Remove photo">🗑️</button>` : ""}
-        </div>
-        <input type="file" accept="image/*" style="display:none;">
-      `;
-      const fileInput = slot.querySelector('input[type="file"]');
-      slot.querySelector('[data-act="pick"]').addEventListener("click", () => {
-        fileInput.value = "";
-        fileInput.click();
-      });
-      fileInput.addEventListener("change", () => {
-        const f = fileInput.files[0];
-        if (!f) return;
-        runCropPipeline(f, typeKey, targetId, (newEntry) => {
-          addGalleryEntry(targetId, newEntry);
+    SUBGROUP_PAIR.forEach((typeKey, i) => {
+      pair.appendChild(buildPhotoPairSlot({
+        typeKey, targetId, subGroupId: subGroupSheetId,
+        label: i === 0 ? "Front" : "Back",
+        onChange: () => {
           renderSubGroupPhotoSheet();
           updateSubGroupPhotoChip(subGroupSheetId);
-        }, subGroupSheetId);
-      });
-      const rm = slot.querySelector('[data-act="remove"]');
-      if (rm) rm.addEventListener("click", () => {
-        removeGalleryEntry(targetId, idx);
-        renderSubGroupPhotoSheet();
-        updateSubGroupPhotoChip(subGroupSheetId);
-      });
-      pair.appendChild(slot);
+        }
+      }));
     });
   }
 
   // ==================================================================
   // ADD SET — "Set photos & documents" accordion body (§B). Renders the
-  // package/OGP pair, plus (for a FLAT Set only) that Set's own front/back
-  // pair — which is its implicit default sub-group, captured through the
-  // exact same mechanism a named sub-group uses. A sub-grouped Set shows no
-  // flat pair: each sub-group carries its own, via its row's 📷 chip.
+  // package/OGP pair and the whole-set pair.
+  //
+  // Both are ALWAYS shown, independent of whether sub-groups exist. These
+  // document three genuinely different, independently-optional things:
+  //   - package/OGP     — the box/folder/envelope exterior
+  //   - whole set       — the complete set as received, front & back
+  //   - each sub-group  — one sealed pack (Philadelphia, Denver, …), captured
+  //                       from its own row's 📷 chip, NOT here
+  // Superseded: the whole-set pair used to hide as soon as a sub-group was
+  // defined, on the reading that sub-groups replaced it. They don't — Ray
+  // wants to document the complete set AND its individual packs. The
+  // "implicit default sub-group" is still how the whole-set pair is stored
+  // (same mechanism, DEFAULT_SUBGROUP_ID), it just isn't conditional on the
+  // sub-group list any more.
   // ==================================================================
 
   const ADDSET_OGP_PAIR = ["ogp_obverse", "ogp_reverse"];
@@ -9557,7 +9600,6 @@
     const host = document.getElementById("addSetDocsSlots");
     if (!host) return;
     const targetId = addSetGalleryTargetId();
-    const hasSubGroups = document.querySelectorAll("#addSetSubGroups .subgroup-row").length > 0;
     host.innerHTML = "";
 
     const pairBlock = (label, hint, typeKeys, subGroupId) => {
@@ -9568,32 +9610,10 @@
         `<div class="sg-photo-pair"></div>`;
       const pair = wrap.querySelector(".sg-photo-pair");
       typeKeys.forEach((typeKey, i) => {
-        const def = galleryTypeDef(typeKey);
-        const list = galleryFor(targetId);
-        const idx = list.findIndex(e => e.type === typeKey &&
-          (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (subGroupId || DEFAULT_SUBGROUP_ID)));
-        const entry = idx >= 0 ? list[idx] : null;
-        const slot = document.createElement("div");
-        slot.className = "sg-photo-slot";
-        const face = entry && entry.url
-          ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
-          : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
-        slot.innerHTML = `
-          ${face}
-          <div class="sg-photo-label">${i === 0 ? "Front" : "Back"}</div>
-          <div class="sg-photo-actions">
-            <button type="button" data-act="pick" title="${entry ? "Replace photo" : "Add photo"}">${entry ? "🔄" : "＋"}</button>
-            ${entry ? `<button type="button" data-act="remove" title="Remove photo">🗑️</button>` : ""}
-          </div>
-          <input type="file" accept="image/*" style="display:none;">
-        `;
-        const fi = slot.querySelector('input[type="file"]');
-        slot.querySelector('[data-act="pick"]').addEventListener("click", () => { fi.value = ""; fi.click(); });
-        fi.addEventListener("change", () => {
-          const f = fi.files[0];
-          if (!f) return;
-          runCropPipeline(f, typeKey, targetId, (newEntry) => {
-            addGalleryEntry(targetId, newEntry);
+        pair.appendChild(buildPhotoPairSlot({
+          typeKey, targetId, subGroupId,
+          label: i === 0 ? "Front" : "Back",
+          onChange: (newEntry, changedType) => {
             // Keep the REAL (gated) write path fed: draft.wholeSetPhoto is what
             // startSetCapture uploads to Staging and plannedPromotionMoves
             // relocates to {parent}_set.jpg, and what the Docket's missing-
@@ -9602,19 +9622,12 @@
             // upload/promotion/Docket working unchanged while the UI moves to
             // the new taxonomy. (The legacy _set.jpg convention itself is
             // deliberately not migrated — see CLAUDE.md decision 5.)
-            if (typeKey === "ogp_obverse") addSetPhotoFiles["whole"] = newEntry.blob || null;
+            if (changedType === "ogp_obverse") {
+              addSetPhotoFiles["whole"] = newEntry ? (newEntry.blob || null) : null;
+            }
             renderAddSetDocs();
-            updateAddSetDocsCount();
-          }, subGroupId);
-        });
-        const rm = slot.querySelector('[data-act="remove"]');
-        if (rm) rm.addEventListener("click", () => {
-          removeGalleryEntry(targetId, idx);
-          if (typeKey === "ogp_obverse") addSetPhotoFiles["whole"] = null;
-          renderAddSetDocs();
-          updateAddSetDocsCount();
-        });
-        pair.appendChild(slot);
+          }
+        }));
       });
       return wrap;
     };
@@ -9624,12 +9637,11 @@
       "The packaging itself — box, folder or envelope exterior.",
       ADDSET_OGP_PAIR, null));
 
-    if (!hasSubGroups) {
-      host.appendChild(pairBlock(
-        "🖼️ Whole set — front & back",
-        "The set itself as one unit. (Define sub-groups above to photograph each pack separately instead.)",
-        SUBGROUP_PAIR, DEFAULT_SUBGROUP_ID));
-    }
+    host.appendChild(pairBlock(
+      "🖼️ Whole set — front &amp; back",
+      "The complete set as received. Optional, and independent of sub-groups — each sub-group has its own photos on its row above.",
+      SUBGROUP_PAIR, DEFAULT_SUBGROUP_ID));
+
     updateAddSetDocsCount();
   }
 
@@ -11201,15 +11213,10 @@
       // own gallery; see removeSubGroupPhotos).
       removeSubGroupPhotos(addSetGalleryTargetId(), sgId);
       row.remove();
-      renderAddSetDocs();
     });
     row.querySelector(".sg-photos-btn").addEventListener("click", () => openSubGroupPhotoSheet(sgId));
     container.appendChild(row);
     updateSubGroupPhotoChip(sgId);
-    // A flat Set shows its own front/back pair; a sub-grouped one doesn't
-    // (each sub-group carries its own) — so the docs section must re-render
-    // whenever sub-group rows appear or disappear.
-    renderAddSetDocs();
   }
 
   function readSubGroups() {
