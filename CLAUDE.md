@@ -1323,7 +1323,7 @@ hidden.
   (73 assertions across 4 scripts) re-run clean alongside it, and the full
   set re-ran clean again against the merged main tree post-merge.
 
-### Detail/Edit accordion redesign (BUILT, held on branch `claude/detail-edit-accordion-redesign`, NOT merged — awaiting Ray's real-device sign-off)
+### Detail/Edit accordion redesign (BUILT and merged to main)
 Browse detail (Coin AND Set) and Edit Coin / Edit Set are now one unified
 accordion structure. Detail is **flip card + Edit button + accordions only** —
 every bare key-facts row that used to float above the fold is gone, folded
@@ -1503,10 +1503,22 @@ photos-drill-down round trip), not weakening.
 **Not verified: any real device.** Headless Chromium at the two required
 viewport sizes is not Samsung Internet — that's the pass being held for.
 
-**Held on its branch, NOT merged** — awaiting Ray's real-device sign-off, same
-standing as the photo-gallery-crop and photo-consolidation branches before it.
+**Merge status correction: merged to main via PR #2, without the real-device
+sign-off this branch was explicitly being held for.** This section originally
+read "held, NOT merged, awaiting Ray's real-device sign-off" — that was the
+plan, but isn't what happened. `git push` prints GitHub's standard
+create-a-PR link on every new-branch push regardless of intent; Ray opened
+that link and merged the resulting PR directly on GitHub before any Samsung
+Internet pass on this specific branch (unlike the photo-gallery-crop and
+photo-consolidation branches before it, both of which were confirmed
+device-tested first). Not something Claude Code did — no PR was opened or
+merged from this session. Content-verified live on `main` (`RECORD_SECTIONS`
+present, syntax-clean); nothing else about the build below needed correcting,
+only this status line. A real-device check is still worth doing now, after
+the fact, if it hasn't happened separately.
 
-**Addendum (same branch, still held) — 2 items.**
+**Addendum (same branch as originally built, now folded into the main-branch
+history above) — 2 items.**
 
 **1. Notes & Fun Fact are now editable** in both Edit Coin and Edit Set,
 inside the Notes & Facts accordion (read-only in the first pass was a
@@ -1578,7 +1590,8 @@ when there's no whole-set photo, a named sub-group refusing to stand in, and
 an individual coin left unaffected. **All 6 suites re-run clean together:
 200 assertions, zero failures, zero page/console errors.**
 
-**Second addendum (same branch, still held): Share repositioned.** Used to be
+**Second addendum (same branch, now merged along with everything above):
+Share repositioned.** Used to be
 a standalone pill floating in the top action row above the flip card,
 alongside Back. Moved to match Wishlist's own title/Share row layout
 (`#view-wishlist`'s grid view — `<h2>` left, Share right, one flex row,
