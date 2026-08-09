@@ -1067,6 +1067,36 @@ Phone and tablet screenshots reviewed for both a coin and a Set record.
   none survived into this session. The nav smoke check above is a
   substitute, not an equivalent; if a full regression matters before merge,
   those suites need rebuilding.
+- **Merged to main on Ray's real-device sign-off** — both a tablet and a
+  Samsung Internet phone pass came back clean, including the crop pipeline
+  itself: a photo cropped through Stage 1/Stage 2 updates the slot/thumbnail
+  immediately in-session. (Not seeing it again after leaving/reloading is
+  the expected mockup limitation until the write layer exists — not a bug.)
+  Ray explicitly accepted the 92-assertion suite above as sufficient
+  coverage for this merge rather than holding for the fuller rebuild below.
+
+**Tracked follow-up (not started): rebuild the fuller regression suite.**
+Sized as its own task, not a quick pass — real gaps beyond what
+`verify_gallery_full.js` covers today, some needing substantive rewriting
+(not just re-running) since the taxonomy changed underneath them
+(`slab_combined` → a true pair, OGP merge):
+- The crop pipeline actually completing end-to-end — today's suite opens
+  Stage 1 and checks its controls exist, but doesn't drive a capture all the
+  way through Stage 2 to a finished entry with `url`/`rawUrl`/`circleUrl`
+  and a live slot-preview update.
+- The "View all photos (N)" viewer button + viewer overlay on coin detail.
+- The Set detail thumbnail strip rendering real thumbs.
+- The scope-filtered picker (coin scope = 5 types, excluding flip sources +
+  whole-set).
+- The capture widget wired into every flow it touches (Add Coin, Browse
+  Edit), not just Add Set.
+- Sub-group add/rename/reorder in the Add Set UI, confirming stable IDs
+  survive a rename.
+- Bug 1/Bug 2's original specific repros (Pause/resume photo persistence,
+  the rotation race) — verified when built, but the repro scripts
+  themselves didn't survive into later sessions.
+Rough sizing given when asked: on the order of 60–100 additional
+assertions, roughly half-day-to-day scale, not mechanical re-scaffolding.
 
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
