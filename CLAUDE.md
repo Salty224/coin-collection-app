@@ -1459,10 +1459,22 @@ forms.
 the accordion name), "Storage & Album" → "Storage". **Rename only** — every
 field including Assign to Album and Additional photo stays exactly as it was;
 no functional removal. Browse/Edit's "Location" → "Storage" is the same
-accordion rename covered above. **Deliberately NOT renamed: Wishlist's and Add
-Set's own "Purchase Info" sections** — the spec scoped this to Add Coin, so
-those two still say "Purchase Info" and are now inconsistent with Add Coin.
-Worth a follow-up decision rather than assuming.
+accordion rename covered above.
+**Resolved (merged directly to main): Wishlist and Add Set followed.** The gap
+flagged here — those two still saying "Purchase Info," inconsistent with Add
+Coin/Browse/Edit — was a real follow-up, not left open. Same rename, same
+"label only" boundary: Wishlist's detail-view row, its Purchase drill-down
+heading, and its save-toast wording; Add Set's Step 1 row and its own
+Purchase drill-down heading. Every element id (`wishlistPurchaseRow`,
+`addSetPurchaseInfoRow`/`addSetPurchaseInfoSummary`/`addSetPurchaseView`, etc.)
+is untouched — confirmed via headless assertion, not just by construction —
+and no field/behavior changed. Two pre-existing, general (not Wishlist/Add-
+Set-specific) code comments describing the old pre-accordion-redesign Browse
+detail panel and the `FAKE_COIN_DETAILS` lookup still say "Purchase Info" —
+left alone as out of this rename's scope (comments, not a rendered label);
+harmless if a future session updates them in passing. Verified headless (12
+new assertions) plus all 7 prior suites re-run clean alongside it — 256
+assertions total, zero failures.
 
 **Two real bugs found and fixed during this build** (neither pre-existing
 behavior anyone had hit):
