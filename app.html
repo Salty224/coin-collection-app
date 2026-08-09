@@ -8508,11 +8508,35 @@
   // max-width) — a single verified measurement plus known local constants,
   // rather than stacking multiple unverified assumptions the way the
   // original hardcoded 6-column/64px layout did.
+  //
+  // BUG FIX (wide-viewport disc clipping, locked in): the spread-mode branch
+  // used to compute rowWidth as (containerWidth - gap) / 2 with NO cap at
+  // PAGE_MAX_WIDTH — but .album-page ALWAYS carries a real CSS
+  // `max-width: 460px` (see .album-page and the .book-turn-slot comment
+  // right above it explaining the same cap exists there for the same
+  // reason), spread mode included. Past ~936px container width (i.e. real
+  // browser widths well short of "desktop" — 1024px reproduced it too, not
+  // just 1440/1920), that half-width exceeds 460px, so the CSS silently caps
+  // the page's RENDERED width while this function kept reporting the larger,
+  // uncapped figure as "available." computeAlbumGridLayout() then sized
+  // columns/discs for space that didn't actually exist, and since a
+  // .coin-disc is a fixed-pixel element (width: var(--slot-disc-size)) that
+  // does not shrink to fit a narrower grid cell, the last disc in a row
+  // simply overflowed past the page's true right edge instead of wrapping or
+  // shrinking. Confirmed via direct measurement before this fix: at a 1440px
+  // viewport the JS assumed 488px of page width while the real CSS-capped
+  // page only had 460px (422px of that as actual content width) — a 66px
+  // overshoot, reproduced visually as the last disc ("1911-D" on Lincoln
+  // Cents) clipping off the page edge. The real, root-cause fix is simply
+  // applying the SAME cap the non-spread branch already had — both branches
+  // must agree with the one CSS rule that actually governs the page's
+  // rendered width, not add a clip/overflow:hidden workaround that would
+  // hide discs instead of sizing them correctly.
   function albumPageContentWidth(spread) {
     const container = document.getElementById("albumsDetailContainer");
     const containerWidth = container ? container.getBoundingClientRect().width : 380;
     const BOOK_PAGES_GAP = 16, PAGE_PADDING = 36, PAGE_BORDER = 2, PAGE_MAX_WIDTH = 460;
-    const rowWidth = spread ? (containerWidth - BOOK_PAGES_GAP) / 2 : Math.min(PAGE_MAX_WIDTH, containerWidth);
+    const rowWidth = Math.min(PAGE_MAX_WIDTH, spread ? (containerWidth - BOOK_PAGES_GAP) / 2 : containerWidth);
     return Math.max(200, rowWidth - PAGE_PADDING - PAGE_BORDER);
   }
 

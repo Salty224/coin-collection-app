@@ -4510,6 +4510,34 @@ per-slot photo yet.)
   to live here are done, not deferred, as of this feature. The very first
   version of this feature paired pages naively (`[i, i+1]`) regardless of
   content — that's superseded by the sheet-accurate pairing above.
+- **Bug fix, merged directly to main (small/isolated, no branch held):
+  wide-viewport disc clipping in spread (two-page) mode.** Ray's real-device
+  report: the last disc in a row (e.g. "1911-D" on Lincoln Cents) got cut off
+  at the page's right edge at desktop widths — confirmed fine at tablet
+  (1024×768) and phone (412×915). Root cause was in `albumPageContentWidth()`:
+  its spread-mode branch computed available width as `(containerWidth - gap)
+  / 2` with **no cap at `PAGE_MAX_WIDTH` (460px)**, while `.album-page` itself
+  always carries a real CSS `max-width: 460px` — spread mode included (the
+  non-spread branch already applied this same cap; spread's never did). Past
+  roughly 936px container width, that half-width exceeds 460px, so the CSS
+  silently capped the page's rendered width while this function kept
+  reporting the larger, uncapped figure as "available." `computeAlbumGridLayout()`
+  then sized columns/discs for space that didn't actually exist — and since a
+  `.coin-disc` is a fixed-pixel element (`width: var(--slot-disc-size)`) that
+  doesn't shrink to fit a narrower real cell, the overflow showed up exactly
+  as reported: the last disc in a row spilling past the page's true edge
+  instead of wrapping. Confirmed via direct measurement before the fix: at a
+  1440px viewport the function assumed 488px of page content width while the
+  CSS-capped page really only had 422px — a 66px overshoot. **Fixed at the
+  actual root cause** (both branches now apply the same `Math.min(PAGE_MAX_WIDTH,
+  …)` the non-spread branch always had), not by adding `overflow:hidden` or
+  similar — a disc-hiding workaround was explicitly ruled out. Verified via a
+  broad viewport sweep (412 through 2560px, including the exact 936px
+  boundary where the bug first turns on) confirming no disc or grid ever
+  overflows its own page and no page-level horizontal scroll appears at any
+  width; the three specifically-required widths (412/1024/1440) all
+  re-screenshotted clean. All prior regression suites re-run clean alongside
+  it — this was a pure layout-math fix, no markup/behavior otherwise changed.
 
 ### Littleton folder visual style (locked in)
 Every album currently gets a distinct cosmetic treatment from the rest of the
