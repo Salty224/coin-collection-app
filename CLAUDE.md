@@ -1424,9 +1424,10 @@ the parallelism question).
 - Read-only by design, no inputs added: Specifications fields, Album/Set
   linkage chips, Error (entry-time only, never persisted), Category (Sets-tab
   grid card only).
-- **Notes / Fun Fact were NOT made editable** — they weren't on the
-  editability list and weren't on the read-only list either. Left read-only
-  rather than widening scope unilaterally; flagged for a future pass.
+- **Notes / Fun Fact — superseded by the addendum below: they ARE editable
+  now.** They were left read-only in the first pass because they appeared on
+  neither the editability list nor the read-only list; Ray confirmed
+  afterwards.
 
 **Save is still a stub, but now a SESSION-ONLY one (Ray's explicit call).**
 `applyEditsToRecord()` writes the edited values onto the in-memory
@@ -1504,6 +1505,78 @@ viewport sizes is not Samsung Internet — that's the pass being held for.
 
 **Held on its branch, NOT merged** — awaiting Ray's real-device sign-off, same
 standing as the photo-gallery-crop and photo-consolidation branches before it.
+
+**Addendum (same branch, still held) — 2 items.**
+
+**1. Notes & Fun Fact are now editable** in both Edit Coin and Edit Set,
+inside the Notes & Facts accordion (read-only in the first pass was a
+placeholder pending this decision, now confirmed). Both are `<textarea>`s
+prefilled from `FAKE_COIN_DETAILS` and written back by the same session-only
+in-memory Save the rest of this pass uses — no OneDrive write.
+- **The Set-level facts group stays READ-ONLY** above the two textareas on
+  Edit Set (Coins in Set is derived from the linked children; Face Value and
+  Mintage are catalog figures — none of them specimen data). Extracted into
+  `setDetailsFactsRows()` so the detail page and Edit Set's own facts block
+  render identical rows.
+- `notesAndFactsHtml()` still exists and is still what the DETAIL page uses;
+  only the Edit side switched to real inputs.
+
+**2. A Set's flip card now shows its own whole-set / OGP photo** instead of
+the generic gold "Multiple" placeholder, falling back to the placeholder only
+when no such photo exists.
+- **Answering the "already wired or genuinely missing?" question directly:
+  genuinely missing, but with a half-built foundation.** `galleryFlipEntry(
+  collectionId, side)` already existed — written during the Aug 8 photo
+  taxonomy build as future-facing infrastructure for the COIN case
+  (obverse/reverse) — with **zero call sites**, so nothing could ever trigger
+  it. For the SET case (whole-set/OGP) there was no helper and no wiring at
+  all. `applyDiscContent()` only ever consulted the series reference-image
+  lookup and then fell through to the year-text placeholder; `circleUrl` (the
+  framed circle a capture produces) was only ever read by the Edit form's own
+  slot preview, never by a flip card.
+- **New `setFlipPhotoUrl(coin, side)`**, wired as tier 0 in
+  `applyDiscContent()`: whole-set pair first (the set itself as received),
+  then the OGP pair (its packaging exterior), then the existing behavior.
+  Side-aware — obverse and reverse each look for their own half of the pair.
+- **Only the IMPLICIT DEFAULT sub-group counts as "the whole set."** A named
+  sub-group is one sealed pack inside the set (Philadelphia, Denver…), not
+  the set, and must never stand in for the whole thing — asserted.
+- **Gated on a real `url`.** The `FAKE_GALLERIES` seed uses `url: null` to
+  mean "a real file would be here," which has nothing displayable, so seeded
+  entries correctly fall through to the placeholder rather than painting a
+  broken image. This is why `AY-00022` — which *has* ogp + whole-set entries
+  — still shows the placeholder in the demo.
+- **New `applyDiscOwnPhoto()` rather than reusing `applyRealReferenceImage()`**:
+  the latter adds the `.reference-image` class (muted/dashed treatment) and a
+  tooltip saying it is explicitly NOT a photo of this coin — both wrong for
+  the record's own captured photo.
+- **Applies to ALL Set rows, not just multi-child ones.** The request named
+  the multi-child case (that's the one whose flip card just changed), but the
+  same rule is obviously right for a childless Set with a photo, and scoping
+  it to child-count would have been arbitrary. Flagged as a deliberate call.
+- **Individual coins are deliberately NOT routed through this** — that's
+  `galleryFlipEntry()`'s territory, still unwired. Wiring it would mean
+  deciding whether a coin's own captured photo outranks its series reference
+  image, which is a real decision nobody has made. Asserted that a coin's
+  flip card is unchanged by this item.
+- **`AY-00025` ("2026 Best-of-Mint 5-Coin Proof Set") state, since it was
+  named as the record to verify against: it has NO gallery entries at all** —
+  it isn't in `FAKE_GALLERIES`. So it correctly shows the placeholder until a
+  photo is actually captured. To see this work on a device: open it → Edit →
+  Photos → Whole set — front & back → capture. The headless suite drives
+  exactly that path end-to-end.
+
+**Verified headless — 50 new assertions across both required viewports**
+(`verify_addendum.js`, 25 × 2): both textareas real and prefilled in each
+form, edits saving in-memory and round-tripping visibly onto the detail page,
+Set-level facts staying input-free; and for the flip card — `AY-00025`'s
+no-photo baseline, seeded `url:null` entries correctly not counting, a real
+capture through the actual Edit Set UI then appearing on the flip card with
+the year text cleared, the correct tooltip and no `.reference-image` class,
+reverse falling back to the placeholder when only a front exists, OGP used
+when there's no whole-set photo, a named sub-group refusing to stand in, and
+an individual coin left unaffected. **All 6 suites re-run clean together:
+200 assertions, zero failures, zero page/console errors.**
 
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card

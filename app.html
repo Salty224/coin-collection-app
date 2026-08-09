@@ -2373,15 +2373,19 @@
             </div>
           </div>
 
-          <!-- 4. NOTES & FACTS — read-only this round (Fun Fact / Notes were
-               not on the field-editability list; flagged for a future pass
-               rather than widened unilaterally). -->
+          <!-- 4. NOTES & FACTS — Fun Fact and Notes are editable (confirmed
+               after the first pass, where they were read-only placeholders
+               pending that decision). -->
           <div class="detail-accordion">
             <button type="button" class="accordion-header" id="editCoinNotesHeader" aria-expanded="false">
               <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="editCoinNotesBody">
-              <div id="browseEditNotesRows"></div>
+              <label>Fun Fact</label>
+              <textarea id="browseEditFunFact" placeholder="Something notable about this coin or its series"></textarea>
+
+              <label>Notes</label>
+              <textarea id="browseEditNotes" placeholder="Anything else worth remembering about this specimen"></textarea>
             </div>
           </div>
 
@@ -2511,14 +2515,24 @@
             </div>
           </div>
 
-          <!-- 4. NOTES & FACTS — read-only this round (includes the Set
-               Details facts group: coin count, face value, mintage). -->
+          <!-- 4. NOTES & FACTS — Fun Fact and Notes editable; the Set
+               Details facts group (coin count, face value, mintage) stays
+               read-only above them. -->
           <div class="detail-accordion">
             <button type="button" class="accordion-header" id="editSetNotesHeader" aria-expanded="false">
               <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="editSetNotesBody">
-              <div id="editSetNotesRows"></div>
+              <!-- Set-level facts stay READ-ONLY: coin count is derived from
+                   the linked children, face value/mintage are catalog
+                   figures — none of them specimen data. -->
+              <div id="editSetFactsRows"></div>
+
+              <label>Fun Fact</label>
+              <textarea id="editSetFunFact" placeholder="Something notable about this set"></textarea>
+
+              <label>Notes</label>
+              <textarea id="editSetNotes" placeholder="Anything else worth remembering about this set"></textarea>
             </div>
           </div>
 
@@ -5036,6 +5050,31 @@
     return galleryFor(collectionId).find(e => e.type === side && e.url) || null;
   }
 
+  // The Set-tier equivalent, and unlike galleryFlipEntry() above this one IS
+  // wired up (see applyDiscContent): a Set bundle has no obverse/reverse of
+  // its own, so its flip card falls back to a photo OF the set — the
+  // whole-set pair first (the set itself as received), then the OGP pair
+  // (its packaging exterior) — before the generic gold placeholder.
+  //
+  // Only the IMPLICIT DEFAULT sub-group counts as "the whole set". A named
+  // sub-group is one sealed pack inside the set (Philadelphia, Denver…), not
+  // the set, so it must never stand in for the whole thing.
+  //
+  // Gated on a real `url`: the FAKE_GALLERIES seed uses `url: null` to mean
+  // "a real file would be here", which has nothing displayable, so those
+  // correctly fall through to the placeholder.
+  function setFlipPhotoUrl(coin, side) {
+    if (!isSetRow(coin)) return null;
+    const reverse = side === "reverse";
+    const list = galleryFor(coin.id);
+    const whole = list.find(e =>
+      e.type === (reverse ? "subgroup_reverse" : "subgroup_obverse") &&
+      (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID && e.url);
+    if (whole) return whole.url;
+    const ogp = list.find(e => e.type === (reverse ? "ogp_reverse" : "ogp_obverse") && e.url);
+    return ogp ? ogp.url : null;
+  }
+
   // Add Coin / Add Set have no assigned CollectionID until save, so their
   // in-progress galleries key off a stable temp-draft id. A real write layer
   // would reconcile these entries to the assigned CollectionID at save time.
@@ -5840,6 +5879,18 @@
     const seriesKey = referenceSeriesKey(coin);
     discEl.classList.remove("reference-image");
     discEl.style.backgroundImage = "";
+    // Tier 0 for a Set bundle: its own whole-set/OGP photo, if one has been
+    // captured. A Set has no obverse/reverse of its own and no series
+    // reference image to fall back on, so without this its flip card is
+    // always the generic gold "Multiple" placeholder no matter how many
+    // photos it has. Individual coins are deliberately NOT routed through
+    // here — see galleryFlipEntry() above, which is the coin-side equivalent
+    // and is still unwired pending its own decision.
+    const setPhoto = setFlipPhotoUrl(coin, side);
+    if (setPhoto) {
+      applyDiscOwnPhoto(discEl, setPhoto, "Photo of this set");
+      return;
+    }
     if (hasReferenceImage(coin, side)) {
       applyRealReferenceImage(discEl, getCachedReferenceImageUrl(seriesKey, side));
     } else {
@@ -5872,6 +5923,17 @@
     revBtn.addEventListener("click", () => { setSide("reverse"); activate("reverse"); onChange(); });
     activate("obverse");
     return activate;
+  }
+
+  // A real photo OF this record, painted into the disc. Separate from
+  // applyRealReferenceImage() on purpose: that one adds the .reference-image
+  // class (muted/dashed treatment) and a tooltip saying it is NOT a photo of
+  // this specific coin — both wrong for the record's own captured photo.
+  function applyDiscOwnPhoto(discEl, url, title) {
+    discEl.textContent = "";
+    discEl.style.backgroundImage = `url("${url}")`;
+    discEl.style.backgroundSize = "cover";
+    discEl.title = title || "";
   }
 
   function applyRealReferenceImage(discEl, url) {
@@ -7660,17 +7722,25 @@
 
   // Notes & Facts body HTML, including the Set Details facts group for a
   // Set. Shared by detail and Edit, same reason as specificationRows().
+  // Set-level facts (coin count DERIVED from the linked children, face value,
+  // mintage) — read-only in every context, including Edit Set: a count that's
+  // computed and catalog figures aren't specimen data. Extracted so the
+  // detail page and Edit Set's own facts block render the identical rows.
+  function setDetailsFactsRows(coin) {
+    if (!isSetRow(coin)) return [];
+    const setFacts = FAKE_SET_FACTS[coin.id] || {};
+    const childCount = setChildrenFor(coin).length;
+    const rows = [];
+    if (childCount) rows.push(["Coins in Set", String(childCount)]);
+    if (setFacts.faceValue) rows.push(["Face Value", setFacts.faceValue]);
+    if (setFacts.mintage != null) rows.push(["Mintage", setFacts.mintage.toLocaleString()]);
+    return rows;
+  }
+
   function notesAndFactsHtml(coin, details) {
     let html = "";
-    if (isSetRow(coin)) {
-      const setFacts = FAKE_SET_FACTS[coin.id] || {};
-      const childCount = setChildrenFor(coin).length;
-      const setRows = [];
-      if (childCount) setRows.push(["Coins in Set", String(childCount)]);
-      if (setFacts.faceValue) setRows.push(["Face Value", setFacts.faceValue]);
-      if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
-      if (setRows.length) html += detailRowsHtml(setRows);
-    }
+    const factRows = setDetailsFactsRows(coin);
+    if (factRows.length) html += detailRowsHtml(factRows);
     if (details.funFact) html += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
     if (details.notes) html += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
     return html;
@@ -7776,10 +7846,14 @@
     // --- Photos: the one real photo-editing surface for this coin.
     renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin));
 
-    // --- Specifications / Notes & Facts: read-only, same markup as detail.
+    // --- Specifications: read-only, same markup as detail.
     const specRows = specificationRows(coin);
     fillReadOnlySection("browseEditSpecsRows", specRows.length ? detailRowsHtml(specRows) : "");
-    fillReadOnlySection("browseEditNotesRows", notesAndFactsHtml(coin, details));
+
+    // --- Notes & Facts: Fun Fact and Notes are editable (a coin has no
+    // Set-level facts block). Both live in FAKE_COIN_DETAILS.
+    document.getElementById("browseEditFunFact").value = details.funFact || "";
+    document.getElementById("browseEditNotes").value = details.notes || "";
 
     // --- Purchase Details: cost lives on the row itself, the rest in the
     // FAKE_COIN_DETAILS sparse lookup — same split Edit Set already used.
@@ -7826,8 +7900,12 @@
       document.getElementById("browseEditSetView").style.display = "none";
     });
 
-    // --- Notes & Facts: read-only, same markup as detail.
-    fillReadOnlySection("editSetNotesRows", notesAndFactsHtml(coin, details));
+    // --- Notes & Facts: the Set-level facts block stays read-only; Fun Fact
+    // and Notes are editable, same as Edit Coin.
+    const factRows = setDetailsFactsRows(coin);
+    fillReadOnlySection("editSetFactsRows", factRows.length ? detailRowsHtml(factRows) : "");
+    document.getElementById("editSetFunFact").value = details.funFact || "";
+    document.getElementById("editSetNotes").value = details.notes || "";
 
     // --- Purchase Details
     document.getElementById("editSetCost").value = coin.cost != null ? coin.cost : "";
@@ -7974,7 +8052,9 @@
           details: {
             shippingCost: numOrUndefined(document.getElementById("browseEditShippingCost").value),
             vendor: document.getElementById("browseEditVendor").value.trim(),
-            purchaseDate: document.getElementById("browseEditPurchaseDate").value
+            purchaseDate: document.getElementById("browseEditPurchaseDate").value,
+            funFact: document.getElementById("browseEditFunFact").value.trim(),
+            notes: document.getElementById("browseEditNotes").value.trim()
           }
         });
         const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
@@ -8017,7 +8097,9 @@
         details: {
           shippingCost: numOrUndefined(document.getElementById("editSetShippingCost").value),
           vendor: document.getElementById("editSetVendor").value.trim(),
-          purchaseDate: document.getElementById("editSetPurchaseDate").value
+          purchaseDate: document.getElementById("editSetPurchaseDate").value,
+          funFact: document.getElementById("editSetFunFact").value.trim(),
+          notes: document.getElementById("editSetNotes").value.trim()
         }
       });
       showToast("Updated " + coin.id + " for this session only — not saved to OneDrive.");
