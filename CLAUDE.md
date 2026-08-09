@@ -1098,7 +1098,16 @@ Sized as its own task, not a quick pass — real gaps beyond what
 Rough sizing given when asked: on the order of 60–100 additional
 assertions, roughly half-day-to-day scale, not mechanical re-scaffolding.
 
-### Photo touchpoint consolidation (BUILT, held on branch `claude/browse-detail-photo-consolidation`, NOT merged — awaiting Ray's real-device Obverse/Reverse capture/crop/rotate/save verification)
+### Photo touchpoint consolidation (BUILT and merged to main)
+**Merged following Ray's real-device sign-off** — both rounds (Obverse/
+Reverse capture, Stage 1/2 crop, rotate/straighten, the Adjust button; then
+separately the Receipt-as-Photos-pill fold-in) confirmed working on Ray's
+own hardware, same real-device-verification bar the photo-gallery-crop
+branch was held to before its own merge. `claude/browse-detail-photo-
+consolidation` has no commits of its own that aren't now in main's
+history — main is the source of truth for this feature going forward, same
+standing note as every other merged-after-holding branch in this file.
+
 Browse detail (both Coin and Set) used to scatter photo access across four
 places — a "View all photos (N)" pill / gallery strip above the flip card, a
 standalone "📷 Manage photos" button next to Edit, Edit Coin's own separate
@@ -1254,17 +1263,18 @@ duplication."
   with all its sections and independently-open-able accordions; a full
   8-route nav smoke test plus a 360px overflow check both came back clean.
   Zero page/console errors (aside from the pre-existing, unrelated MSAL
-  jsdelivr CDN block this sandboxed environment always shows). **Not
-  verified**: any real device — this is exactly the real-device pass being
-  held for.
+  jsdelivr CDN block this sandboxed environment always shows). **Real-device
+  pass since confirmed by Ray** — Obverse/Reverse capture, crop, rotate, and
+  the Adjust button all verified working on his own hardware; see the
+  merge-status correction at the top of this section.
 - **Note for the still-open "rebuild the fuller photo-gallery regression
   suite" tracked item above**: its "View all photos (N) viewer button" line
   is now stale (that button no longer exists — Additional Photos is the
   viewer entry point instead); worth rewording when that suite is actually
   rebuilt rather than treated as a still-accurate target.
 
-**Follow-up (same branch, still held): Receipt folded into the Photos area
-as its own pill, both forms.** Receipt used to sit as a bare, un-collapsed
+**Follow-up (same branch, merged with everything above): Receipt folded
+into the Photos area as its own pill, both forms.** Receipt used to sit as a bare, un-collapsed
 photo-box lower in each form (after Container on Edit Coin; right after the
 Purchase Details fields on Edit Set) — now it's a same-styled accordion
 ("🧾 Receipt", collapsed by default) positioned directly under the Photos
@@ -1310,7 +1320,8 @@ hidden.
   image-to-PDF capture still populates `receiptFiles` correctly in both
   forms, and the standalone Manage Photos screen confirmed to have NO
   Receipt section (scope boundary holds). All prior suites for this branch
-  (73 assertions across 4 scripts) re-run clean alongside it.
+  (73 assertions across 4 scripts) re-run clean alongside it, and the full
+  set re-ran clean again against the merged main tree post-merge.
 
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
