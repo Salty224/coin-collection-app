@@ -1578,6 +1578,23 @@ when there's no whole-set photo, a named sub-group refusing to stand in, and
 an individual coin left unaffected. **All 6 suites re-run clean together:
 200 assertions, zero failures, zero page/console errors.**
 
+**Second addendum (same branch, still held): Share repositioned.** Used to be
+a standalone pill floating in the top action row above the flip card,
+alongside Back. Moved to match Wishlist's own title/Share row layout
+(`#view-wishlist`'s grid view — `<h2>` left, Share right, one flex row,
+`justify-content: space-between`) — right-aligned next to the record's
+title/heading instead of floating separately above the image. Applies to
+both Coin and Set detail (one shared header, so one change covers both).
+Back stays its own row above, unaffected (`.back-link` is hidden by CSS
+regardless — the cabinet-nav chrome's own Back button is what's actually
+visible/functional; unrelated pre-existing behavior, not touched here).
+**No behavior change** — same `browseDetailShareBtn` id, same click handler,
+same `shareContent()` call; markup position only. Verified headless (18
+assertions, both viewports): title+Share share one flex row, Share sits
+right of the title, Back sits above the row, no horizontal overflow with a
+long two-line Set title (`AY-00022`), and Share still fires `shareContent()`
+with the coin's info. All 6 prior suites re-run clean alongside it.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus

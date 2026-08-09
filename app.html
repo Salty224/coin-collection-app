@@ -2164,11 +2164,17 @@
         </div>
 
         <div id="browseDetailView" style="display:none;">
+          <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Back</button>
+          <!-- Share repositioned (locked in) — used to float as its own pill
+               above the flip card, in the same row as Back. Now matches
+               Wishlist's layout (#view-wishlist's own title/Share row):
+               right-aligned next to the record's title, not floating
+               separately above the image. Applies to both Coin and Set
+               detail — this is the one shared header for both. -->
           <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-            <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Back</button>
+            <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
             <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
           </div>
-          <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
                button layered on it. The Set gallery region that used to sit
