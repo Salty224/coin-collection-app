@@ -1323,6 +1323,278 @@ hidden.
   (73 assertions across 4 scripts) re-run clean alongside it, and the full
   set re-ran clean again against the merged main tree post-merge.
 
+### Detail/Edit accordion redesign (BUILT, held on branch `claude/detail-edit-accordion-redesign`, NOT merged — awaiting Ray's real-device sign-off)
+Browse detail (Coin AND Set) and Edit Coin / Edit Set are now one unified
+accordion structure. Detail is **flip card + Edit button + accordions only** —
+every bare key-facts row that used to float above the fold is gone, folded
+into a section. Coin and Set pages are structurally identical wherever a
+section applies to both, and each Edit form mirrors that record's own detail
+page section-for-section. **UI/structure only — no OneDrive write layer was
+added** (see the Save note below).
+
+**Locked section order (`RECORD_SECTIONS`, one constant both sides read so
+they can't drift):**
+- Coin: `Overview, Photos, Specifications, Notes & Facts, Purchase Details, Storage`
+- Set: `Overview, Photos, Coins in this Set, Notes & Facts, Purchase Details, Storage`
+
+Position 3 is the only difference — Specifications is coin-only (a bundle has
+no single composition/weight/diameter), Coins in this Set is Set-only.
+**Overview defaults OPEN, everything else collapsed** — with the key facts
+moved inside it, an all-collapsed page would show nothing but the flip card.
+
+- **New Overview accordion** carries what used to be bare rows plus the
+  identity fields: Year(+MintMark), Denomination, Variety, Grade, Designation
+  (coin) / Year, Description (Set); Cert + link; **Value** (moved here — see
+  below); and the "Belongs to" linkage chips.
+- **Value moved out of the old key-facts area into Overview** for both Coin
+  and Set. **Purchase Details is NOT renamed** and stays scoped purely to the
+  transaction (Cost, Shipping, Seller, Purchase Date, Receipt).
+- **All three linkage chips moved into Overview together** — Album
+  (`resolveCoinAlbumLink`), Set-by-`setId` (`resolveCoinSetLink`), and
+  parent-Set-by-`originSetId` (`resolveChildParentSet`). `renderDetailLinkage()`
+  became `renderLinkageChipsInto(hostEl, coin)` (retargetable, returns a chip
+  count) so detail and both Edit forms render the identical chips.
+- **Album chip gained a slot sub-line.** `resolveCoinAlbumLink()` now also
+  returns the MATCHED SLOT, so the chip shows e.g. `1909 slot` as small text
+  under the album name. Deliberately keeps the existing two-line pill visual
+  rather than switching to a different literal label format. **First match
+  wins, one chip** — a coin can legitimately fill more than one slot (demo:
+  `AY-00004` fills two Lincoln Cents slots); resolving multi-slot membership
+  properly is explicitly out of scope for this pass.
+- **GradeSource display bug fixed.** GradeSource has been set-able via Edit
+  Coin for a long time but was never displayed anywhere on a saved coin (the
+  flip corner shows `coin.grade` alone; the combined format only existed on
+  Add Coin's live-entry preview). Overview now shows `MS-64 (PCGS)` via
+  `gradeWithSourceText()`.
+- **Child mini-flip grid + its shared Obverse/Reverse toggle are RETIRED**
+  (Ray's explicit confirmation). A multi-child Set used to hide its own flip
+  card and render a grid of child mini-flips in its place; now every Set shows
+  the same single generic "Multiple" flip a childless Set always did. That's
+  what makes Coin and Set structurally identical. `renderSetChildFlips()`,
+  `setChildrenSide`, `setChildSideUI`, `applyBrowseDetailChildSide()` and the
+  toggle markup are all gone. `setChildrenFor()` is very much still used — it
+  feeds the new accordion.
+- **New "Coins in this Set" accordion (Set only)** — identity list ONLY: name,
+  identity (`year-mint · denom · variety`), grade, value. **Explicitly no
+  photos at this level**; a child's photos are reachable only by drilling into
+  that child's own detail page. Tapping a row opens the child's detail view
+  with Back returning to the parent Set (the same per-origin back-handler
+  pattern the retired flip cards used). `buildSetChildRow()` is shared by
+  detail and Edit Set so the two lists are literally the same code.
+  - **This supersedes and REMOVES the narrower "Coins in this Set" row that
+    used to live inside Edit Set's Photos section** (which drilled straight
+    into a child's Manage Photos). `renderManagePhotosInto()` gained a
+    `showSetChildren` option, and Edit Set passes `false` — one path to a
+    child, not two. **The STANDALONE Manage Photos screen (In Progress Sets /
+    Docket entry points) still shows that row and is unaffected** — it's the
+    default.
+  - Consequence: **`returnToEditSetView()` is now dead and was removed.** It
+    existed only so the Edit-Set→child-photos→back round trip could preserve
+    unsaved form state; that path no longer exists (the new accordion
+    navigates away to a detail page instead). `onReturnHere` itself stays —
+    the standalone screen's own wrapper still uses it.
+- **Specifications stays READ-ONLY even inside Edit Coin** — catalog-derived
+  facts about the coin TYPE, not this specimen. Zero edit inputs, asserted.
+  **Rolls now get the Specifications section too**: Composition used to be
+  promoted to an always-visible key fact for Rolls only (melt value hinges on
+  it) and that bare row is gone, so skipping the section would have silently
+  lost the field. A roll's other spec fields simply have no data and hide
+  themselves.
+- **Set Details facts (coin count, face value, mintage) folded into Notes &
+  Facts** rather than staying a separate accordion — the locked order has no
+  separate Set Details entry.
+
+**Field editability — closing the parity gap (Edit Coin):** Year, MintMark,
+Denomination, Description, Variety (none of which had ANY edit surface before
+— they only ever appeared on flip corners), Value, Cost, Shipping,
+Seller/Vendor, Purchase Date. Edit Set additionally gained editable **Year and
+Description** so both Overviews have editable identity fields (Ray's call on
+the parallelism question).
+- Denomination dropdown = the six standard codes + `Medal`, excluding
+  `Multiple` (a `Multiple` row is a Set bundle and routes to Edit Set, so it
+  can never be the value there).
+- MintMark reuses Add Coin's existing dropdown options.
+- **Variety is a plain text input** — deliberately NOT Add Coin's
+  context-filtered dropdown, whose filtering exists to drive entry-time
+  confidence/Staging routing that has no meaning for an already-saved coin.
+- **No Description auto-fill in Edit Coin** — Add Coin auto-fills from
+  Year+Denomination; doing that here would silently overwrite a curated
+  Description on an existing catalogued coin.
+- Year is a plain input (no decade drill-down picker).
+- Read-only by design, no inputs added: Specifications fields, Album/Set
+  linkage chips, Error (entry-time only, never persisted), Category (Sets-tab
+  grid card only).
+- **Notes / Fun Fact — superseded by the addendum below: they ARE editable
+  now.** They were left read-only in the first pass because they appeared on
+  neither the editability list nor the read-only list; Ray confirmed
+  afterwards.
+
+**Save is still a stub, but now a SESSION-ONLY one (Ray's explicit call).**
+`applyEditsToRecord()` writes the edited values onto the in-memory
+`FAKE_COINS` row and `FAKE_COIN_DETAILS` entry (created on demand), then
+returns to the detail page so the edit round-trips visibly. **Zero OneDrive
+writes; everything resets on reload** — the same posture the crop tool's
+session-only blob URLs already have. This exists specifically so a real-device
+review isn't testing against something that looks broken by design (edit,
+save, go back, see the old value). Field homes follow the existing split
+exactly: identity/grade/value/cost/storage on the row itself,
+shippingCost/vendor/purchaseDate in `FAKE_COIN_DETAILS`. `numOrUndefined()`
+keeps a blanked numeric field from writing `NaN` over a good value. The
+Designation re-resolution check is unchanged — an ambiguous DB_Coins match
+still surfaces the shared "pick one" list rather than auto-resolving.
+
+**Edit forms are STATIC markup, not JS-generated.** Their accordion shells and
+fields live in HTML so the complex widgets (grade dropdown + Other, cert badge
++ link button, grading-help, designation ambiguous panel, the Manage-Photos
+host, the Receipt pill) keep stable IDs and stay wired once at init rather
+than being rebuilt per render. Structural parity with detail is guaranteed by
+both sides reading `RECORD_SECTIONS`, and by the read-only sections
+(Specifications, Notes & Facts, Coins in this Set) rendering through the same
+shared helpers detail uses (`specificationRows()`, `notesAndFactsHtml()`,
+`buildSetChildRow()`, `detailRowsHtml()`). `wireStaticAccordionToggle()`
+(added by the Aug 9 receipt work) now wires every section accordion in both
+forms.
+
+**Naming cleanup (Add Coin):** "Purchase Info" → "Purchase Details" (matching
+the accordion name), "Storage & Album" → "Storage". **Rename only** — every
+field including Assign to Album and Additional photo stays exactly as it was;
+no functional removal. Browse/Edit's "Location" → "Storage" is the same
+accordion rename covered above. **Deliberately NOT renamed: Wishlist's and Add
+Set's own "Purchase Info" sections** — the spec scoped this to Add Coin, so
+those two still say "Purchase Info" and are now inconsistent with Add Coin.
+Worth a follow-up decision rather than assuming.
+
+**Two real bugs found and fixed during this build** (neither pre-existing
+behavior anyone had hit):
+- **`class="hidden"` on a plain div does nothing in this file.** There is NO
+  global `.hidden` rule — every `.hidden` is scoped to its own component
+  (`.detail-row.hidden`, `.accordion-body.hidden`, …). The new Belongs-to
+  wrapper in both Edit forms relied on a bare `class="hidden"` and so rendered
+  an empty "BELONGS TO" heading on any record with no linkage. Caught in a
+  screenshot, fixed with a scoped `.edit-linkage-wrap.hidden` rule, and a
+  regression assertion added. **Worth remembering for any future
+  hide-by-class work in this file.**
+- **`.detail-row` had no `gap`**, which only became visible once Overview
+  started carrying genuinely long values (a Set's Description is a full
+  product name) — the wrapping value butted straight against its own label.
+  Added `gap: 12px`, `flex-shrink: 0` on the label and right-aligned the
+  value. Verified at 12px with no page overflow.
+
+**Verified headless — 150 assertions, all passing, zero page/console errors**
+(aside from the pre-existing MSAL jsdelivr CDN block this sandbox always
+shows). New suite `verify_accordion_redesign.js` runs its 50 assertions at
+BOTH required viewports (412×915 phone, 1024×768 tablet) = 100, covering:
+exact section order for all four screens; every bare key-facts row and the
+linkage block gone from the DOM; Overview open / rest collapsed on both detail
+and Edit; Overview carrying Value/Cert/Denomination and `MS-64 (PCGS)`; the
+album chip's slot sub-line; child grid + side toggle gone with the single flip
+card shown instead; Coins-in-this-Set showing 3 identity rows with zero
+discs/flip-frames and real grade+value, drilling through to a child and Back
+returning to the parent; every new Edit Coin field present and correctly
+prefilled from both data sources; the Denomination option set; Specifications
+having zero inputs inside Edit; linkage chips read-only in Edit AND genuinely
+hidden when absent; a real save round-tripping onto the detail page; Edit Set's
+Year/Description prefill; the old Coins-in-this-Set row gone from Edit Set's
+Photos while the standalone screen keeps it; the Add Coin renames with Assign
+to Album still intact; and no horizontal overflow. The four prior suites
+(50 assertions) re-run clean alongside it — two needed updating to follow real
+renames ("Additional Photos" → "Photos"; the superseded Edit-Set
+photos-drill-down round trip), not weakening.
+**Not verified: any real device.** Headless Chromium at the two required
+viewport sizes is not Samsung Internet — that's the pass being held for.
+
+**Held on its branch, NOT merged** — awaiting Ray's real-device sign-off, same
+standing as the photo-gallery-crop and photo-consolidation branches before it.
+
+**Addendum (same branch, still held) — 2 items.**
+
+**1. Notes & Fun Fact are now editable** in both Edit Coin and Edit Set,
+inside the Notes & Facts accordion (read-only in the first pass was a
+placeholder pending this decision, now confirmed). Both are `<textarea>`s
+prefilled from `FAKE_COIN_DETAILS` and written back by the same session-only
+in-memory Save the rest of this pass uses — no OneDrive write.
+- **The Set-level facts group stays READ-ONLY** above the two textareas on
+  Edit Set (Coins in Set is derived from the linked children; Face Value and
+  Mintage are catalog figures — none of them specimen data). Extracted into
+  `setDetailsFactsRows()` so the detail page and Edit Set's own facts block
+  render identical rows.
+- `notesAndFactsHtml()` still exists and is still what the DETAIL page uses;
+  only the Edit side switched to real inputs.
+
+**2. A Set's flip card now shows its own whole-set / OGP photo** instead of
+the generic gold "Multiple" placeholder, falling back to the placeholder only
+when no such photo exists.
+- **Answering the "already wired or genuinely missing?" question directly:
+  genuinely missing, but with a half-built foundation.** `galleryFlipEntry(
+  collectionId, side)` already existed — written during the Aug 8 photo
+  taxonomy build as future-facing infrastructure for the COIN case
+  (obverse/reverse) — with **zero call sites**, so nothing could ever trigger
+  it. For the SET case (whole-set/OGP) there was no helper and no wiring at
+  all. `applyDiscContent()` only ever consulted the series reference-image
+  lookup and then fell through to the year-text placeholder; `circleUrl` (the
+  framed circle a capture produces) was only ever read by the Edit form's own
+  slot preview, never by a flip card.
+- **New `setFlipPhotoUrl(coin, side)`**, wired as tier 0 in
+  `applyDiscContent()`: whole-set pair first (the set itself as received),
+  then the OGP pair (its packaging exterior), then the existing behavior.
+  Side-aware — obverse and reverse each look for their own half of the pair.
+- **Only the IMPLICIT DEFAULT sub-group counts as "the whole set."** A named
+  sub-group is one sealed pack inside the set (Philadelphia, Denver…), not
+  the set, and must never stand in for the whole thing — asserted.
+- **Gated on a real `url`.** The `FAKE_GALLERIES` seed uses `url: null` to
+  mean "a real file would be here," which has nothing displayable, so seeded
+  entries correctly fall through to the placeholder rather than painting a
+  broken image. This is why `AY-00022` — which *has* ogp + whole-set entries
+  — still shows the placeholder in the demo.
+- **New `applyDiscOwnPhoto()` rather than reusing `applyRealReferenceImage()`**:
+  the latter adds the `.reference-image` class (muted/dashed treatment) and a
+  tooltip saying it is explicitly NOT a photo of this coin — both wrong for
+  the record's own captured photo.
+- **Applies to ALL Set rows, not just multi-child ones.** The request named
+  the multi-child case (that's the one whose flip card just changed), but the
+  same rule is obviously right for a childless Set with a photo, and scoping
+  it to child-count would have been arbitrary. Flagged as a deliberate call.
+- **Individual coins are deliberately NOT routed through this** — that's
+  `galleryFlipEntry()`'s territory, still unwired. Wiring it would mean
+  deciding whether a coin's own captured photo outranks its series reference
+  image, which is a real decision nobody has made. Asserted that a coin's
+  flip card is unchanged by this item.
+- **`AY-00025` ("2026 Best-of-Mint 5-Coin Proof Set") state, since it was
+  named as the record to verify against: it has NO gallery entries at all** —
+  it isn't in `FAKE_GALLERIES`. So it correctly shows the placeholder until a
+  photo is actually captured. To see this work on a device: open it → Edit →
+  Photos → Whole set — front & back → capture. The headless suite drives
+  exactly that path end-to-end.
+
+**Verified headless — 50 new assertions across both required viewports**
+(`verify_addendum.js`, 25 × 2): both textareas real and prefilled in each
+form, edits saving in-memory and round-tripping visibly onto the detail page,
+Set-level facts staying input-free; and for the flip card — `AY-00025`'s
+no-photo baseline, seeded `url:null` entries correctly not counting, a real
+capture through the actual Edit Set UI then appearing on the flip card with
+the year text cleared, the correct tooltip and no `.reference-image` class,
+reverse falling back to the placeholder when only a front exists, OGP used
+when there's no whole-set photo, a named sub-group refusing to stand in, and
+an individual coin left unaffected. **All 6 suites re-run clean together:
+200 assertions, zero failures, zero page/console errors.**
+
+**Second addendum (same branch, still held): Share repositioned.** Used to be
+a standalone pill floating in the top action row above the flip card,
+alongside Back. Moved to match Wishlist's own title/Share row layout
+(`#view-wishlist`'s grid view — `<h2>` left, Share right, one flex row,
+`justify-content: space-between`) — right-aligned next to the record's
+title/heading instead of floating separately above the image. Applies to
+both Coin and Set detail (one shared header, so one change covers both).
+Back stays its own row above, unaffected (`.back-link` is hidden by CSS
+regardless — the cabinet-nav chrome's own Back button is what's actually
+visible/functional; unrelated pre-existing behavior, not touched here).
+**No behavior change** — same `browseDetailShareBtn` id, same click handler,
+same `shareContent()` call; markup position only. Verified headless (18
+assertions, both viewports): title+Share share one flex row, Share sits
+right of the title, Back sits above the row, no horizontal overflow with a
+long two-line Set title (`AY-00022`), and Share still fires `shareContent()`
+with the coin's info. All 6 prior suites re-run clean alongside it.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
