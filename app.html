@@ -1482,7 +1482,7 @@
   }
   textarea { resize: vertical; min-height: 60px; }
 
-  /* Drill-down rows on the Add Coin main view (Purchase Info / Storage & Album) */
+  /* Drill-down rows on the Add Coin main view (Purchase Details / Storage) */
   .form-row {
     display: flex;
     align-items: center;
@@ -1535,14 +1535,20 @@
   .detail-panel { margin-top: 14px; padding: 16px; }
   .detail-row {
     display: flex; justify-content: space-between; align-items: baseline;
+    /* gap matters now that Overview carries genuinely long values (a Set's
+       Description is a full product name) — without it a wrapping value
+       butts straight up against its own label. The label also refuses to
+       shrink so it can't be squeezed to nothing. */
+    gap: 12px;
     padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .detail-row:last-of-type { border-bottom: none; }
   .detail-row.hidden { display: none; }
   .detail-label {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);
+    flex-shrink: 0;
   }
-  .detail-value { font-size: 14px; font-weight: 600; color: var(--text); }
+  .detail-value { font-size: 14px; font-weight: 600; color: var(--text); text-align: right; }
   .detail-block { margin-top: 14px; }
   .detail-block.hidden { display: none; }
   .detail-block .detail-label { margin-bottom: 6px; }
@@ -1600,8 +1606,16 @@
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--text-muted); display: block;
   }
-  .linkage-chip .linkage-name { font-weight: 600; color: var(--text); }
+  .linkage-chip .linkage-name { font-weight: 600; color: var(--text); display: block; }
+  /* Which album slot the coin fills, under the album name — an extra data
+     point on the existing two-line pill, not a different label format. */
+  .linkage-chip .linkage-sub { font-size: 11px; color: var(--text-muted); display: block; }
   .linkage-chip .linkage-arrow { flex-shrink: 0; color: var(--text-muted); font-size: 16px; }
+  /* The Belongs-to wrapper inside an Edit form's Overview. NOTE: this file
+     has no GLOBAL .hidden rule — every .hidden is scoped to its own
+     component — so a bare class="hidden" on a plain div does nothing. This
+     rule is what actually hides it when a record has no linkage. */
+  .edit-linkage-wrap.hidden { display: none; }
 
   /* Flags that the disc above is standing in for an uncropped combined
      obverse/reverse photo (Photo3/Photo4), not a normal single-face shot. */
@@ -2170,20 +2184,16 @@
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
-          <!-- Global card-side toggle for a multi-child Set's own detail
-               view (coin-flip interaction redesign) — flips every child
-               mini-card together, no per-card flip. Shown/hidden alongside
-               browseDetailChildFlips in showBrowseDetail(). -->
-          <div class="browse-side-toggle hidden" id="browseDetailChildSideToggle" style="margin-bottom:10px;">
-            <button type="button" class="filter-chip active" id="browseDetailChildObverseBtn">Obverse</button>
-            <button type="button" class="filter-chip" id="browseDetailChildReverseBtn">Reverse</button>
-          </div>
-          <!-- Multi-coin Set display: a Set with linked child coins (via
-               originSetId) renders each child's own mini-flip here INSTEAD of
-               the single generic "Multiple" flip above. Childless Sets and
-               individual coins keep the single flip; this grid stays hidden
-               for them. JS-populated in showBrowseDetail(). -->
-          <div class="set-child-grid hidden" id="browseDetailChildFlips" aria-label="Coins in this set"></div>
+          <!-- Retired by the accordion redesign (locked in): a multi-child
+               Set used to hide its own flip card and render a grid of child
+               mini-flips here instead, with a shared Obverse/Reverse toggle
+               above it. Both are gone — every Set now shows the same single
+               generic "Multiple" flip card a childless Set always did, and
+               the new "Coins in this Set" accordion (identity list only, no
+               photos — a child's photos are reachable by drilling into that
+               child's own detail page) supersedes what the grid was doing.
+               This is what makes Coin and Set detail structurally
+               identical. -->
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
           <div class="case detail-panel" id="browseDetailPanel">
@@ -2200,203 +2210,355 @@
             <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
               <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
             </div>
-            <!-- Key facts, always visible (each row hides itself when blank). -->
-            <div class="detail-row hidden" id="detailValueRow">
-              <span class="detail-label">Value</span>
-              <span class="detail-value" id="detailValueText"></span>
-            </div>
-            <!-- Grade is intentionally NOT repeated here — it's already shown
-                 on the flip's bottom-left corner (see applyFlipCorners()); a
-                 second copy in this row would just be a duplicate. -->
-            <!-- Cert number, moved in here from its own standalone badge — a
-                 real link when CertLink is populated (using that stored URL
-                 directly, never a URL constructed from the cert number),
-                 plain text otherwise. -->
-            <div class="detail-row hidden" id="detailCertRow">
-              <span class="detail-label">Cert</span>
-              <span class="detail-value" id="detailCertText"></span>
-            </div>
-            <div class="detail-row hidden" id="detailStorageRow">
-              <span class="detail-label">Storage</span>
-              <span class="detail-value" id="detailStorageText"></span>
-            </div>
-            <!-- Composition lives in the Specifications accordion only for a
-                 normal coin — no longer duplicated up here (see
-                 renderDetailAccordions()). Rolls are the one exception: a
-                 roll's melt/junk-silver value hinges on composition, so it's
-                 promoted to always-visible here instead of buried in a
-                 collapsed accordion (see renderBrowseDetailPanel(), gated on
-                 isRollRow()). -->
-            <div class="detail-row hidden" id="detailCompositionRow">
-              <span class="detail-label">Composition</span>
-              <span class="detail-value" id="detailCompositionText"></span>
-            </div>
-
-            <!-- Album / Set linkage — always visible when any link exists,
-                 whole section omitted otherwise. JS-populated. -->
-            <div class="detail-linkage hidden" id="detailLinkage">
-              <div class="detail-label">Belongs to</div>
-              <div class="linkage-chips" id="detailLinkageChips"></div>
-            </div>
-
-            <!-- Denser groups behind inline accordions (JS-populated). Each
-                 accordion is omitted entirely when it has no data. -->
+            <!-- Accordion redesign (locked in): detail is now flip card +
+                 Edit button + accordions ONLY. Every bare key-facts row that
+                 used to float here (Value, Cert, Storage, Roll Composition)
+                 and the "Belongs to" linkage block have all moved INTO
+                 accordions — Value/Cert/linkage into the new Overview
+                 section, Storage into the renamed Storage section,
+                 Composition into Specifications. Coin and Set detail pages
+                 are structurally identical now, section for section, in the
+                 order defined by RECORD_SECTIONS. JS-populated by
+                 renderDetailAccordions(); each section is omitted entirely
+                 when it has no data (Edit, by contrast, always renders all
+                 of them — you need somewhere to add data into). -->
             <div id="detailAccordions"></div>
           </div>
         </div>
 
+        <!-- EDIT COIN — accordion redesign (locked in). Mirrors this
+             record's own detail page section-for-section, in the
+             RECORD_SECTIONS order (Overview, Photos, Specifications,
+             Notes & Facts, Purchase Details, Storage); the difference is
+             that fields here are editable inputs rather than read-only
+             rows. Two sections stay read-only BY DESIGN even in Edit:
+             Specifications (catalog-derived facts about the coin TYPE, not
+             this specimen) and the Belongs-to linkage chips (computed).
+             Unlike detail, Edit always renders ALL sections even when
+             empty — you need somewhere to add data into.
+             Save remains a placeholder stub: it updates the in-memory
+             FAKE_COINS/FAKE_COIN_DETAILS row so edits round-trip visibly
+             within the session, but writes nothing to OneDrive and is lost
+             on reload (same posture as the crop tool's session-only
+             blobs). -->
         <div class="case form-card" id="browseEditView" style="display:none;">
           <button class="back-link" id="browseEditBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Coin</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
-            Only what the app can safely write directly: Grade, GradeSource, Cert/Type
-            Number, Designation, Storage Location, Container, and photos. Everything
-            else (album/slot re-matching, cost allocation, new catalog research) stays
-            a chat + Copilot task.
+            Specifications and album/Set linkage are read-only (catalog-derived and
+            computed). Album/slot re-matching, cost allocation and new catalog
+            research stay a chat + Copilot task.
           </p>
 
-          <!-- Photo consolidation (locked in): this embeds the same
-               Manage-Photos section list (renderManagePhotosInto()) the
-               standalone Manage Photos screen uses — Obverse/Reverse is one
-               of those sections now, not a separate top-of-form toggle, and
-               the old flat "add photo, pick a type" picker is gone too.
-               Edit Coin is the one real photo-editing surface for a coin;
-               there's no other path to the same fields anymore. Populated
-               in showBrowseEditView(). Receipt (below) is a SEPARATE static
-               accordion, not part of renderManagePhotosInto()'s own section
-               list — it never belonged to the gallery/crop-pipeline system
-               (galleryFor/GALLERY_TYPES) to begin with, it's the distinct
-               PDF-auto-wrap mechanism (receiptFiles registry,
-               prepareReceiptFile()) — and renderManagePhotosInto() is shared
-               with the standalone Manage Photos screen (In Progress Sets /
-               Docket entry points), which has no Receipt concept at all.
-               Folding it in here only, as its own pill, keeps that shared
-               function untouched. -->
-          <div class="section-label" style="margin-top:0;">📷 Photos</div>
-          <div id="browseEditPhotosSections"></div>
-          <div class="detail-accordion" id="browseEditReceiptAccordion" style="margin-top:8px;">
-            <button type="button" class="accordion-header" id="browseEditReceiptAccordionHeader" aria-expanded="false">
-              <span>🧾 Receipt</span>
-              <span class="accordion-chevron">›</span>
+          <!-- 1. OVERVIEW (defaults open) -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinOverviewHeader" aria-expanded="true">
+              <span>Overview</span><span class="accordion-chevron">›</span>
             </button>
-            <div class="accordion-body hidden" id="browseEditReceiptAccordionBody">
-              <div class="photo-box" style="margin-top:10px; max-width:220px;">
-                <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
-                <img id="browseEditReceiptPreview">
-                <div class="photo-btns">
-                  <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                </div>
-                <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
+            <div class="accordion-body" id="editCoinOverviewBody">
+              <label>Year</label>
+              <input type="number" id="browseEditYear" placeholder="e.g. 1916">
+
+              <label>Mint Mark</label>
+              <select id="browseEditMintMark">
+                <option value="">— none (Philadelphia) —</option>
+                <option value="D">D — Denver</option>
+                <option value="S">S — San Francisco</option>
+                <option value="CC">CC — Carson City</option>
+                <option value="O">O — New Orleans</option>
+                <option value="W">W — West Point</option>
+              </select>
+
+              <!-- Standard six codes + Medal. "Multiple" is deliberately absent:
+                   a Denomination="Multiple" row is a Set bundle and routes to
+                   Edit Set instead, so it can never be the value here. -->
+              <label>Denomination</label>
+              <select id="browseEditDenomination">
+                <option value="">— select —</option>
+                <option value="1C">1C — Cent</option>
+                <option value="5C">5C — Nickel</option>
+                <option value="10C">10C — Dime</option>
+                <option value="25C">25C — Quarter</option>
+                <option value="50C">50C — Half Dollar</option>
+                <option value="$1">$1 — Dollar</option>
+                <option value="Medal">Medal</option>
+              </select>
+
+              <!-- No auto-fill from Year+Denomination here (unlike Add Coin):
+                   silently overwriting a curated Description on an existing
+                   catalogued coin would lose real data. -->
+              <label>Description</label>
+              <input type="text" id="browseEditDescription" placeholder="e.g. Mercury (Winged Liberty)">
+
+              <!-- Plain input, deliberately NOT Add Coin's context-filtered
+                   variety dropdown: that filtering exists to drive Add Coin's
+                   confidence/Staging routing, which is an entry-time concept
+                   with no meaning for an already-saved coin. -->
+              <label>Variety</label>
+              <input type="text" id="browseEditVariety" placeholder="e.g. Type 2, Micro S — optional">
+
+              <div style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="margin:0;">Grade</label>
+                <button type="button" class="cert-link-btn small" id="browseEditGradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
+              </div>
+              <select id="browseEditGradeFrom"></select>
+              <input type="text" id="browseEditGradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
+
+              <label>GradeSource</label>
+              <select id="browseEditGradeSource"></select>
+
+              <label>Cert / Type Number</label>
+              <div class="cert-badge-row">
+                <input type="text" class="cert-badge-input" id="browseEditCertTypeNumber" placeholder="cert #">
+                <a href="#" target="_blank" rel="noopener" class="cert-link-btn small hidden" id="browseEditCertLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
+              </div>
+
+              <label>Designation</label>
+              <input type="text" id="browseEditDesignation" placeholder="e.g. FBL, DDO — optional">
+              <div class="case hidden" id="designationAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
+                <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one before saving</div>
+                <div id="designationAmbiguousList"></div>
+              </div>
+
+              <label>Value</label>
+              <input type="number" step="0.01" id="browseEditValue" placeholder="e.g. 850.00">
+
+              <!-- Read-only computed linkage chips, same as detail. -->
+              <div id="browseEditLinkageWrap" class="edit-linkage-wrap hidden">
+                <div class="detail-label" style="margin-top:12px;">Belongs to</div>
+                <div id="browseEditLinkageChips"></div>
               </div>
             </div>
           </div>
 
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <label style="margin:0;">Grade</label>
-            <button type="button" class="cert-link-btn small" id="browseEditGradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
+          <!-- 2. PHOTOS — the embedded Manage-Photos section list plus the
+               Receipt pill (Receipt is a sibling pill inside this section,
+               NOT part of renderManagePhotosInto()'s own list, which is
+               shared with the standalone Manage Photos screen and has no
+               Receipt concept). -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinPhotosHeader" aria-expanded="false">
+              <span>Photos</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editCoinPhotosBody">
+              <div id="browseEditPhotosSections"></div>
+              <div class="detail-accordion" id="browseEditReceiptAccordion" style="margin-top:8px;">
+                <button type="button" class="accordion-header" id="browseEditReceiptAccordionHeader" aria-expanded="false">
+                  <span>🧾 Receipt</span>
+                  <span class="accordion-chevron">›</span>
+                </button>
+                <div class="accordion-body hidden" id="browseEditReceiptAccordionBody">
+                  <div class="photo-box" style="margin-top:10px; max-width:220px;">
+                    <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
+                    <img id="browseEditReceiptPreview">
+                    <div class="photo-btns">
+                      <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                      <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                    </div>
+                    <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
+                    <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <select id="browseEditGradeFrom"></select>
-          <input type="text" id="browseEditGradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
 
-          <label>GradeSource</label>
-          <select id="browseEditGradeSource"></select>
-
-          <label>Cert / Type Number</label>
-          <div class="cert-badge-row">
-            <input type="text" class="cert-badge-input" id="browseEditCertTypeNumber" placeholder="cert #">
-            <a href="#" target="_blank" rel="noopener" class="cert-link-btn small hidden" id="browseEditCertLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
+          <!-- 3. SPECIFICATIONS — read-only by design even here. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinSpecsHeader" aria-expanded="false">
+              <span>Specifications</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editCoinSpecsBody">
+              <div id="browseEditSpecsRows"></div>
+            </div>
           </div>
 
-          <label>Designation</label>
-          <input type="text" id="browseEditDesignation" placeholder="e.g. FBL, DDO — optional">
-          <div class="case hidden" id="designationAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
-            <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one before saving</div>
-            <div id="designationAmbiguousList"></div>
+          <!-- 4. NOTES & FACTS — read-only this round (Fun Fact / Notes were
+               not on the field-editability list; flagged for a future pass
+               rather than widened unilaterally). -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinNotesHeader" aria-expanded="false">
+              <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editCoinNotesBody">
+              <div id="browseEditNotesRows"></div>
+            </div>
           </div>
 
-          <label>Storage Location</label>
-          <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
+          <!-- 5. PURCHASE DETAILS — the transaction only. Value is NOT here
+               (it lives in Overview). Same field set Edit Set already had. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinPurchaseHeader" aria-expanded="false">
+              <span>Purchase Details</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editCoinPurchaseBody">
+              <label>Purchase Price</label>
+              <input type="number" step="0.01" id="browseEditCost" placeholder="e.g. 450.00">
 
-          <label>Container</label>
-          <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
+              <label>Shipping Cost</label>
+              <input type="number" step="0.01" id="browseEditShippingCost" placeholder="e.g. 12.50">
+
+              <label>Vendor / Seller</label>
+              <input type="text" id="browseEditVendor" placeholder="e.g. eBay seller, local shop name">
+
+              <label>Purchase Date</label>
+              <input type="date" id="browseEditPurchaseDate">
+            </div>
+          </div>
+
+          <!-- 6. STORAGE (renamed from "Location") -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editCoinStorageHeader" aria-expanded="false">
+              <span>Storage</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editCoinStorageBody">
+              <label>Storage Location</label>
+              <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
+
+              <label>Container</label>
+              <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
+            </div>
+          </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
-          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
+          <div class="placeholder-note">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
 
-        <!-- Edit Set — a Set-bundle row (Denomination="Multiple") is a
-             fundamentally different kind of row from an individual coin, so
-             it gets its own edit form rather than reusing Edit Coin's
-             Grade/GradeSource/Cert/Designation/photo-capture fields, none of
-             which apply to a bundle. Coin-membership editing (adding/
-             removing individual coins from a Set) is intentionally NOT here
-             — see CLAUDE.md. -->
+        <!-- EDIT SET — accordion redesign (locked in). Mirrors a Set's own
+             detail page section-for-section, in the RECORD_SECTIONS order
+             (Overview, Photos, Coins in this Set, Notes & Facts, Purchase
+             Details, Storage). Structurally identical to Edit Coin; the only
+             differences are which section sits at position 3 (Coins in this
+             Set here, Specifications there — a bundle has no single
+             composition/weight/diameter) and the Overview field set (a
+             bundle has no Grade/GradeSource/Designation).
+             Coin-membership editing (adding/removing coins from a Set) is
+             still intentionally NOT here — see CLAUDE.md. Save is the same
+             session-only in-memory stub Edit Coin uses. -->
         <div class="case form-card" id="browseEditSetView" style="display:none;">
           <button class="back-link" id="browseEditSetBackBtn" style="padding-top:0;">← Back</button>
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Edit Set</div>
           <p style="margin-top:0; font-size:12px; color:var(--text-muted);">
-            Storage, Container, Value, and Purchase Details for this Set as a whole.
             Adding or removing individual coins from this Set isn't supported here yet.
+            Album/Set linkage is read-only (computed).
           </p>
 
-          <label>Storage Location</label>
-          <input type="text" id="editSetStorageLocation" placeholder="e.g. Safe, Box 2">
-
-          <label>Container</label>
-          <input type="text" id="editSetContainer" placeholder="e.g. display case, original Mint packaging">
-
-          <label>Value</label>
-          <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
-
-          <label>Purchase Price</label>
-          <input type="number" step="0.01" id="editSetCost" placeholder="e.g. 450.00">
-
-          <label>Shipping Cost</label>
-          <input type="number" step="0.01" id="editSetShippingCost" placeholder="e.g. 12.50">
-
-          <label>Purchase Date</label>
-          <input type="date" id="editSetPurchaseDate">
-
-          <label>Vendor / Seller</label>
-          <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
-
-          <!-- Photo consolidation (locked in): embeds the same Manage-Photos
-               section list (renderManagePhotosInto()) the standalone Manage
-               Photos screen uses — OGP, whole-set, sub-groups, COA, other,
-               and the "Coins in this Set" drill-down. Supersedes the old
-               flat "add photo, pick a type" picker. Populated in
-               showBrowseEditSetView(). Receipt (below) is a SEPARATE static
-               accordion, not part of renderManagePhotosInto()'s own section
-               list — same reasoning as Edit Coin's own Receipt accordion
-               (see its comment): it's the distinct PDF-auto-wrap mechanism,
-               not a gallery/GALLERY_TYPES entry, and renderManagePhotosInto()
-               is shared with the standalone Manage Photos screen, which has
-               no Receipt concept. -->
-          <div class="section-label">📷 Photos</div>
-          <div id="editSetPhotosSections"></div>
-          <div class="detail-accordion" id="editSetReceiptAccordion" style="margin-top:8px;">
-            <button type="button" class="accordion-header" id="editSetReceiptAccordionHeader" aria-expanded="false">
-              <span>🧾 Receipt</span>
-              <span class="accordion-chevron">›</span>
+          <!-- 1. OVERVIEW (defaults open) -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetOverviewHeader" aria-expanded="true">
+              <span>Overview</span><span class="accordion-chevron">›</span>
             </button>
-            <div class="accordion-body hidden" id="editSetReceiptAccordionBody">
-              <div class="photo-box" style="margin-top:10px; max-width:220px;">
-                <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
-                <img id="editSetReceiptPreview">
-                <div class="photo-btns">
-                  <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                </div>
-                <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
+            <div class="accordion-body" id="editSetOverviewBody">
+              <label>Year</label>
+              <input type="number" id="editSetYearField" placeholder="e.g. 2021">
+
+              <label>Description</label>
+              <input type="text" id="editSetDescription" placeholder="e.g. 2021 Silver Proof Set">
+
+              <label>Value</label>
+              <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
+
+              <!-- Read-only computed linkage chips, same as detail. -->
+              <div id="editSetLinkageWrap" class="edit-linkage-wrap hidden">
+                <div class="detail-label" style="margin-top:12px;">Belongs to</div>
+                <div id="editSetLinkageChips"></div>
               </div>
             </div>
           </div>
 
+          <!-- 2. PHOTOS — embedded Manage-Photos section list + Receipt pill.
+               NOTE: renderManagePhotosInto()'s own "Coins in this Set" row
+               (which drilled straight into a child's photos) is suppressed
+               here — the new top-level "Coins in this Set" accordion below is
+               the single path to a child now, so keeping both would leave two
+               competing routes to the same place. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetPhotosHeader" aria-expanded="false">
+              <span>Photos</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetPhotosBody">
+              <div id="editSetPhotosSections"></div>
+              <div class="detail-accordion" id="editSetReceiptAccordion" style="margin-top:8px;">
+                <button type="button" class="accordion-header" id="editSetReceiptAccordionHeader" aria-expanded="false">
+                  <span>🧾 Receipt</span>
+                  <span class="accordion-chevron">›</span>
+                </button>
+                <div class="accordion-body hidden" id="editSetReceiptAccordionBody">
+                  <div class="photo-box" style="margin-top:10px; max-width:220px;">
+                    <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
+                    <img id="editSetReceiptPreview">
+                    <div class="photo-btns">
+                      <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                      <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                    </div>
+                    <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
+                    <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. COINS IN THIS SET — identity list, same as detail (tapping a
+               row drills into that child's own detail page). Read-only:
+               membership editing is out of scope. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetChildrenHeader" aria-expanded="false">
+              <span>Coins in this Set</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetChildrenBody">
+              <div id="editSetChildrenRows"></div>
+            </div>
+          </div>
+
+          <!-- 4. NOTES & FACTS — read-only this round (includes the Set
+               Details facts group: coin count, face value, mintage). -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetNotesHeader" aria-expanded="false">
+              <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetNotesBody">
+              <div id="editSetNotesRows"></div>
+            </div>
+          </div>
+
+          <!-- 5. PURCHASE DETAILS — the transaction only; Value lives in
+               Overview now, not here. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetPurchaseHeader" aria-expanded="false">
+              <span>Purchase Details</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetPurchaseBody">
+              <label>Purchase Price</label>
+              <input type="number" step="0.01" id="editSetCost" placeholder="e.g. 450.00">
+
+              <label>Shipping Cost</label>
+              <input type="number" step="0.01" id="editSetShippingCost" placeholder="e.g. 12.50">
+
+              <label>Vendor / Seller</label>
+              <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+              <label>Purchase Date</label>
+              <input type="date" id="editSetPurchaseDate">
+            </div>
+          </div>
+
+          <!-- 6. STORAGE (renamed from "Location") -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="editSetStorageHeader" aria-expanded="false">
+              <span>Storage</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetStorageBody">
+              <label>Storage Location</label>
+              <input type="text" id="editSetStorageLocation" placeholder="e.g. Safe, Box 2">
+
+              <label>Container</label>
+              <input type="text" id="editSetContainer" placeholder="e.g. display case, original Mint packaging">
+            </div>
+          </div>
+
           <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
-          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
+          <div class="placeholder-note">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
       </section>
 
@@ -2754,7 +2916,7 @@
           <div class="case form-row" id="purchaseInfoRow">
             <span class="fr-icon">💵</span>
             <div class="fr-info">
-              <div class="fr-title">Purchase Info</div>
+              <div class="fr-title">Purchase Details</div>
               <div class="fr-summary" id="purchaseInfoSummary">Tap to add price, seller, shipping</div>
             </div>
             <span class="chevron">›</span>
@@ -2763,7 +2925,7 @@
           <div class="case form-row" id="storageAlbumRow">
             <span class="fr-icon">📦</span>
             <div class="fr-info">
-              <div class="fr-title">Storage &amp; Album</div>
+              <div class="fr-title">Storage</div>
               <div class="fr-summary" id="storageAlbumSummary">Tap to add storage location or assign an album</div>
             </div>
             <span class="chevron">›</span>
@@ -2784,7 +2946,7 @@
 
         <div class="case form-card" id="addCoinPurchaseView" style="display:none;">
           <button class="back-link" id="purchaseBackBtn" style="padding-top:0;">← Back</button>
-          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Details</div>
 
           <label>Purchase Price</label>
           <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
@@ -2815,7 +2977,7 @@
 
         <div class="case form-card" id="addCoinStorageView" style="display:none;">
           <button class="back-link" id="storageBackBtn" style="padding-top:0;">← Back</button>
-          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage &amp; Album</div>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage</div>
 
           <label>Storage Location</label>
           <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A">
@@ -6785,10 +6947,9 @@
     setBrowseSideUI = wireSideToggle("browseSideObverseBtn", "browseSideReverseBtn",
       (side) => { catalogSide = side; }, applyActiveBrowseTabFilters);
 
-    // Same shared toggle mechanism, for a multi-child Set's own detail view
-    // (all its child mini-cards flip together, no per-card flip).
-    setChildSideUI = wireSideToggle("browseDetailChildObverseBtn", "browseDetailChildReverseBtn",
-      (side) => { setChildrenSide = side; }, applyBrowseDetailChildSide);
+    // (The multi-child Set's shared Obverse/Reverse toggle that used to be
+    // wired here is retired — see showBrowseDetail(). Catalog's own global
+    // toggle above is unaffected and still uses wireSideToggle().)
 
     // Single coin/roll/childless-Set detail view: the WHOLE flip-frame is
     // the trigger (item 3, coin-flip interaction redesign) — no visible
@@ -6993,18 +7154,9 @@
     applyBrowseDetailSide();
   }
 
-  // A multi-child Set's own detail view flips ALL its child mini-cards
-  // together via one shared toggle (no per-card flip there — Ray's explicit
-  // call), same wireSideToggle() mechanism Catalog's global toggle uses.
-  // Reset to "obverse" every time showBrowseDetail() renders a
-  // Set-with-children, same "always starts on the front" rule as above.
-  let setChildrenSide = "obverse";
-  let setChildSideUI = null; // activate() from wireSideToggle(), set in initBrowse()
-
-  function applyBrowseDetailChildSide() {
-    if (!currentBrowseCoin) return;
-    renderSetChildFlips(currentBrowseCoin, setChildrenFor(currentBrowseCoin));
-  }
+  // (setChildrenSide / setChildSideUI / applyBrowseDetailChildSide lived
+  // here — all retired with the child mini-flip grid. setChildrenFor() below
+  // is very much still used: it feeds the "Coins in this Set" accordion.)
 
   // A Set's child coins (multi-coin display) — keyed by the parent's
   // originSetId in FAKE_SET_CHILDREN. Returns [] for non-Sets, Sets with no
@@ -7028,142 +7180,48 @@
 
     document.getElementById("browseDetailName").textContent = coin.name;
 
-    const singleFlip = document.getElementById("browseDetailFlipFrame");
-    const childGrid = document.getElementById("browseDetailChildFlips");
-    const childToggle = document.getElementById("browseDetailChildSideToggle");
-    const children = setChildrenFor(coin);
-
-    if (children.length) {
-      // Multi-coin Set: render each child's own mini-flip instead of the
-      // single generic "Multiple" flip. The single flip and its combined-
-      // photo badge are hidden; skip applyFlipCorners entirely (it measures
-      // #browseDetailDisc, which is now inside a display:none subtree — the
-      // exact stale-measurement case its own comment warns about).
-      singleFlip.style.display = "none";
-      document.getElementById("browseDetailCombinedBadge").classList.add("hidden");
-      // Always starts on Obverse when entering (or re-entering) this Set's
-      // detail view — setChildSideUI syncs the toggle chips to match.
-      setChildrenSide = "obverse";
-      if (setChildSideUI) setChildSideUI("obverse");
-      renderSetChildFlips(coin, children);
-      childGrid.classList.remove("hidden");
-      childToggle.classList.remove("hidden");
-      // Keep the screen-reader summary meaningful even though the visible
-      // corner labels (populated by applyFlipCorners) are skipped here.
-      document.getElementById("browseDetailSR").textContent =
-        coin.name + " — a set of " + children.length + " coins (" + coin.id + ").";
-    } else {
-      // Individual coin, or a Set with no linked children — unchanged
-      // single-flip behavior. Visibility must be set before applyFlipCorners:
-      // its corner-overflow measurement (scrollWidth vs. clientWidth) reads as
-      // 0/0 on a display:none subtree, which would always look "overflowing"
-      // and wrongly trigger the one-word shortening fallback.
-      childGrid.classList.add("hidden");
-      childGrid.innerHTML = "";
-      childToggle.classList.add("hidden");
-      singleFlip.style.display = "";
-      // Always starts on Obverse when entering (or re-entering) any detail
-      // view — the flip trigger itself (click or tap/swipe, wired once in
-      // initBrowse() via IS_COARSE_POINTER) reads currentBrowseCoin/
-      // browseDetailSide live, so nothing needs re-binding here.
-      browseDetailSide = "obverse";
-      sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
-      applyBrowseDetailSide();
-      applyFlipCorners("browseDetail", coin);
-    }
+    // ONE flip-card path for every record now (accordion redesign, locked
+    // in). A multi-child Set used to branch here and replace its own flip
+    // with a grid of child mini-flips — that's retired; a Set shows the same
+    // single generic "Multiple" flip a childless Set always did, and its
+    // children are listed in the "Coins in this Set" accordion instead.
+    // Visibility must be set before applyFlipCorners: its corner-overflow
+    // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a
+    // display:none subtree, which would always look "overflowing" and
+    // wrongly trigger the one-word shortening fallback.
+    document.getElementById("browseDetailFlipFrame").style.display = "";
+    // Always starts on Obverse when entering (or re-entering) any detail
+    // view — the flip trigger itself (click or tap/swipe, wired once in
+    // initBrowse() via IS_COARSE_POINTER) reads currentBrowseCoin/
+    // browseDetailSide live, so nothing needs re-binding here.
+    browseDetailSide = "obverse";
+    sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
+    applyBrowseDetailSide();
+    applyFlipCorners("browseDetail", coin);
 
     renderBrowseDetailPanel(coin);
   }
 
-  // Builds the clickable child-coin mini-flip grid for a multi-coin Set.
-  // Each child reuses the same .flip-frame-mini markup the Browse grid cards
-  // use — no name caption, matching every other flip-frame-mini in the app
-  // (Browse grid cards show only the flip + corner labels; the full name is
-  // only ever revealed by tapping into a coin's own detail view) — so a coin
-  // reads as the same coin whether spotlighted, browsed, or shown inside its
-  // set. Tapping a child opens that child's own full detail view, with Back
-  // returning to this Set (same per-origin back-handler pattern Albums'
-  // filled-slot tap uses) — and the Set's own Back target is captured and
-  // restored so it still returns to the grid afterward. No per-card flip —
-  // every child shows setChildrenSide, flipped all together via the shared
-  // toggle above this grid (coin-flip interaction redesign).
-  function renderSetChildFlips(parentSet, children) {
-    const grid = document.getElementById("browseDetailChildFlips");
-    grid.innerHTML = "";
-    children.forEach(child => {
-      const yearMint = child.year + (child.mint ? "-" + child.mint : "");
-      const card = document.createElement("div");
-      card.className = "case set-child-flip";
-      card.dataset.childId = child.id;
-      card.innerHTML = `
-        <div class="flip-frame-mini">
-          <span class="flip-label tl">${yearMint}</span>
-          <span class="flip-label tr">${child.denom || ""}</span>
-          <div class="coin-disc"></div>
-          <span class="flip-label bl">${child.grade || ""}</span>
-        </div>
-      `;
-      card.addEventListener("click", () => {
-        const setBackHandler = browseDetailBackHandler;
-        browseDetailBackHandler = () => {
-          showBrowseDetail(parentSet);
-          browseDetailBackHandler = setBackHandler;
-        };
-        showBrowseDetail(child);
-        window.scrollTo({ top: 0 });
-      });
-      grid.appendChild(card);
-      const disc = card.querySelector(".coin-disc");
-      applyDiscContent(disc, child, setChildrenSide);
-      disc.classList.toggle("reverse-face", setChildrenSide === "reverse");
-      sizeCoinElement(disc, child.denom, 64, 11);
-    });
-  }
+  // (renderSetChildFlips() lived here — the child mini-flip grid for a
+  // multi-coin Set, retired by the accordion redesign. Its job is now done
+  // by the "Coins in this Set" accordion in renderDetailAccordions(),
+  // which lists children as identity rows with no photos; a child's photos
+  // are reachable by drilling into that child's own detail page. The
+  // per-origin back-handler pattern it used is preserved there verbatim.)
 
-  // Issue 3 — the comprehensive coin deep-dive panel below the flip. Structure:
-  //   1. Always-visible key facts (Value / Grade / Cert / Storage / Composition) —
-  //      each row hides itself when blank.
-  //   2. "Belongs to" linkage — Album and/or Set the coin is part of, as real
-  //      clickable chips; the whole section is omitted when there's neither.
-  //   3. Denser groups (Purchase Details, Specifications, Notes & Facts,
-  //      Photos) behind inline accordions — each accordion omitted entirely
-  //      when it has no data.
-  // This loosely mirrors the All sheet's column groups ("Sale" is deliberately
-  // skipped — no sold/deaccessioned concept exists in this app's data model).
+  // The record deep-dive panel below the flip card. Superseded structure:
+  // this used to be "always-visible key facts + a Belongs-to linkage block +
+  // a few accordions." It's now accordions ONLY, in the RECORD_SECTIONS
+  // order — see renderDetailAccordions(). ("Sale" is still deliberately
+  // skipped — no sold/deaccessioned concept exists in this data model.)
   // Sparse by design: most placeholder coins only fill in a few of these,
   // same convention as FAKE_COIN_DETAILS / gradeSource / serNo elsewhere.
   function renderBrowseDetailPanel(coin) {
-    const details = FAKE_COIN_DETAILS[coin.id] || {};
-
-    setDetailRow("detailValueRow", "detailValueText", coin.value ? "$" + coin.value.toLocaleString() : "");
-
-    // Cert number, moved in from its own standalone badge — a real link only
-    // when CertLink itself is populated (a stored URL, All/DB_Coins schema
-    // field), never a URL constructed from the cert number the way the old
-    // badge did via buildCertLookupUrl(). Plain text when there's a cert
-    // number but no CertLink on file; row hidden entirely with no cert
-    // number at all. (NGC's own cert-lookup page may bot-check the visitor
-    // after the link opens — expected, outside the app's control.)
-    const certRow = document.getElementById("detailCertRow");
-    if (coin.serNo) {
-      document.getElementById("detailCertText").innerHTML = coin.certLink
-        ? `<a href="${coin.certLink}" target="_blank" rel="noopener">${coin.serNo} 🔗</a>`
-        : coin.serNo;
-      certRow.classList.remove("hidden");
-    } else {
-      certRow.classList.add("hidden");
-    }
-
-    setDetailRow("detailStorageRow", "detailStorageText", coin.storageLocation || "");
-
-    // Composition is promoted to an always-visible key fact for Rolls only
-    // (melt/junk-silver value hinges on it, and a roll otherwise gets much
-    // less detail than an individual coin) — every other coin still shows it
-    // solely inside the collapsed Specifications accordion, unchanged.
-    setDetailRow("detailCompositionRow", "detailCompositionText", isRollRow(coin) ? compositionTextFor(coin) : "");
-
-    renderDetailLinkage(coin);
-    renderDetailAccordions(coin, details);
+    // Every bare key-facts row this function used to populate (Value, Cert,
+    // Storage, Roll Composition) and the standalone linkage block are gone —
+    // all of it now lives inside accordions (accordion redesign, locked in).
+    // renderDetailAccordions() is the whole panel.
+    renderDetailAccordions(coin, FAKE_COIN_DETAILS[coin.id] || {});
   }
 
   // A Roll is any owned row with a populated RollID — a normal single
@@ -7174,8 +7232,9 @@
     return !!coin.rollId;
   }
 
-  // Shared by the Composition key fact (Rolls only, see above) and the
-  // Specifications accordion below, so the two never drift out of sync.
+  // Feeds the Specifications accordion's Composition row (for every coin
+  // including Rolls now — the Roll-only always-visible Composition key fact
+  // this used to also serve was removed with the rest of the bare rows).
   function compositionTextFor(coin) {
     const metals = metalContentFor(coin);
     const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
@@ -7185,24 +7244,20 @@
       .join(" · ");
   }
 
-  function setDetailRow(rowId, textId, value) {
-    const row = document.getElementById(rowId);
-    if (value) {
-      document.getElementById(textId).textContent = value;
-      row.classList.remove("hidden");
-    } else {
-      row.classList.add("hidden");
-    }
-  }
-
   // Album linkage: the coin fills a slot somewhere in Albums (Albums.FilledBy
   // === this CollectionID). Returns the album's index + name, or null. 268
   // real album slots have FilledBy populated, so this resolves for most album
   // coins.
+  // Also returns the MATCHED SLOT so the chip can show which slot the coin
+  // fills (its year). A coin can legitimately fill more than one slot in an
+  // album (demo: AY-00004 fills two Lincoln Cents slots) — first match wins,
+  // one chip, carrying forward the pre-existing behavior unchanged; properly
+  // resolving multi-slot membership is deliberately out of scope this pass.
   function resolveCoinAlbumLink(coin) {
     for (let i = 0; i < FAKE_ALBUMS.length; i++) {
-      if (FAKE_ALBUMS[i].slots.some(s => s.filledBy === coin.id)) {
-        return { albumIndex: i, albumName: FAKE_ALBUMS[i].name };
+      const slot = FAKE_ALBUMS[i].slots.find(s => s.filledBy === coin.id);
+      if (slot) {
+        return { albumIndex: i, albumName: FAKE_ALBUMS[i].name, slot };
       }
     }
     return null;
@@ -7242,28 +7297,39 @@
     return FAKE_COINS.find(c => c.denom === "Multiple" && c.originSetId === coin.originSetId) || null;
   }
 
-  function renderDetailLinkage(coin) {
-    const section = document.getElementById("detailLinkage");
-    const chips = document.getElementById("detailLinkageChips");
+  // Renders the "Belongs to" chips into ANY host element — all three chip
+  // kinds together (Album, Set-by-setId, parent-Set-by-originSetId), which
+  // the accordion redesign moves out of their old standalone block above the
+  // fold and into the Overview accordion, on BOTH the detail page and Edit
+  // (read-only in Edit — these are computed/linkage fields, never directly
+  // editable; see CLAUDE.md). Returns how many chips were rendered so the
+  // caller can decide whether the surrounding group is worth showing.
+  function renderLinkageChipsInto(hostEl, coin) {
     const album = resolveCoinAlbumLink(coin);
     const set = resolveCoinSetLink(coin);
     const parentSet = resolveChildParentSet(coin);
+    hostEl.innerHTML = "";
+    if (!album && !set && !parentSet) return 0;
 
-    if (!album && !set && !parentSet) {
-      section.classList.add("hidden");
-      chips.innerHTML = "";
-      return;
-    }
+    const chips = document.createElement("div");
+    chips.className = "linkage-chips";
+    hostEl.appendChild(chips);
 
-    chips.innerHTML = "";
     if (album) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "linkage-chip";
+      // Which slot the coin fills is shown as a small sub-line under the
+      // album name, keeping the existing two-line pill visual rather than
+      // switching to a different literal label format.
+      const slotYear = album.slot && album.slot.year != null ? String(album.slot.year) : "";
+      const slotMint = album.slot && album.slot.mintMark ? "-" + album.slot.mintMark : "";
       btn.innerHTML =
         `<span class="linkage-icon">📔</span>` +
         `<span class="linkage-text"><span class="linkage-kind">Album</span>` +
-        `<span class="linkage-name">${album.albumName}</span></span>` +
+        `<span class="linkage-name">${album.albumName}</span>` +
+        (slotYear ? `<span class="linkage-sub">${slotYear}${slotMint} slot</span>` : "") +
+        `</span>` +
         `<span class="linkage-arrow">›</span>`;
       btn.addEventListener("click", () => openAlbumFromLink(album.albumIndex));
       chips.appendChild(btn);
@@ -7295,9 +7361,8 @@
         `<span class="linkage-text"><span class="linkage-kind">Set</span>` +
         `<span class="linkage-name">${parentSet.name}</span></span>` +
         `<span class="linkage-arrow">›</span>`;
-      // Navigates to the parent Set's own detail view (which re-renders its
-      // child-flip grid). Back returns to the grid — same as the setId set
-      // chip above.
+      // Navigates to the parent Set's own detail view. Back returns to the
+      // grid — same as the setId set chip above.
       btn.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
         showBrowseDetail(parentSet);
@@ -7305,7 +7370,7 @@
       });
       chips.appendChild(btn);
     }
-    section.classList.remove("hidden");
+    return chips.children.length;
   }
 
   // Opens an album at its normal starting page (the cover), same as tapping it
@@ -7317,121 +7382,117 @@
     openAlbumAtPage(albumIndex, 0);
   }
 
+  // ==================================================================
+  // RECORD ACCORDIONS (accordion redesign, locked in)
+  //
+  // Detail and Edit render the SAME six sections in the SAME order for a
+  // given record — that structural parity is the whole point of this
+  // redesign, so the order lives in one constant both sides read rather
+  // than being written out twice and allowed to drift.
+  //
+  //   Coin: Overview, Photos, Specifications, Notes & Facts,
+  //         Purchase Details, Storage
+  //   Set:  Overview, Photos, Coins in this Set, Notes & Facts,
+  //         Purchase Details, Storage
+  //
+  // Position 3 is the only one that differs — Specifications is coin-only
+  // (a bundle has no single composition/weight/diameter), Coins in this Set
+  // is Set-only. Everything else is section-for-section identical.
+  //
+  // Overview defaults OPEN, everything else collapsed: the bare key-facts
+  // rows that used to sit above the fold now live inside Overview, so
+  // leaving it collapsed would mean a detail page showing nothing but the
+  // flip card.
+  // ==================================================================
+  const RECORD_SECTIONS = {
+    OVERVIEW: "Overview",
+    PHOTOS: "Photos",
+    SPECIFICATIONS: "Specifications",
+    SET_CHILDREN: "Coins in this Set",
+    NOTES: "Notes & Facts",
+    PURCHASE: "Purchase Details",
+    STORAGE: "Storage"
+  };
+
+  function detailRowsHtml(rows) {
+    return rows.map(([label, value]) =>
+      `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
+    ).join("");
+  }
+
+  // Year + MintMark as one identity string ("1889-CC"), the same shorthand
+  // the flip's own top-left corner uses.
+  function yearMintText(coin) {
+    return String(coin.year || "") + (coin.mint ? "-" + coin.mint : "");
+  }
+
+  // Grade with its source in parentheses — "MS-64 (PCGS)". GradeSource has
+  // been set-able via Edit Coin for a long time but was never displayed
+  // anywhere on a saved coin (the flip corner shows coin.grade alone); this
+  // is the fix, matching how Add Coin's own live preview already pairs them.
+  function gradeWithSourceText(coin) {
+    if (!coin.grade) return "";
+    return coin.grade + (coin.gradeSource ? " (" + coin.gradeSource + ")" : "");
+  }
+
+  // Cert number as a real link when CertLink is populated (a stored URL,
+  // All/DB_Coins schema field) — never a URL constructed from the cert
+  // number. Plain text when there's a cert number but no CertLink on file.
+  function certDisplayHtml(coin) {
+    if (!coin.serNo) return "";
+    return coin.certLink
+      ? `<a href="${coin.certLink}" target="_blank" rel="noopener">${coin.serNo} 🔗</a>`
+      : coin.serNo;
+  }
+
   function renderDetailAccordions(coin, details) {
     const container = document.getElementById("detailAccordions");
     container.innerHTML = "";
+    const isSet = isSetRow(coin);
 
-    // --- Purchase Details (Financial group) — Total leads, with Cost and
-    // Shipping listed underneath it as the two components that sum to it
-    // (inverse of the old Cost/Shipping/Total order). Each row still only
-    // shows when its own data exists, independent of the others.
-    const purchaseRows = [];
-    if (coin.cost && details.shippingCost != null) {
-      purchaseRows.push(["Total", "$" + (coin.cost + details.shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    // --- 1. Overview — repeats the flip card's identity info, plus the
+    // grade/cert/value facts that used to float above the fold as bare rows,
+    // plus the "Belongs to" linkage chips that used to be their own block.
+    // Defaults open (see RECORD_SECTIONS comment).
+    const overviewRows = [];
+    if (coin.year) overviewRows.push(["Year", yearMintText(coin)]);
+    if (isSet) {
+      if (coin.name) overviewRows.push(["Description", coin.name]);
+    } else {
+      if (coin.denom) overviewRows.push(["Denomination", coin.denom]);
+      if (coin.variety) overviewRows.push(["Variety", coin.variety]);
+      const gradeText = gradeWithSourceText(coin);
+      if (gradeText) overviewRows.push(["Grade", gradeText]);
+      if (coin.designation) overviewRows.push(["Designation", coin.designation]);
     }
-    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
-    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
-    if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
-    if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
-    // details.receipt holds the actual stored path directly (same
-    // stored-value-used-directly pattern as coin.certLink above) — a real
-    // link when populated, row omitted entirely when blank (same hide/show
-    // rule as every other Purchase Details row).
-    if (details.receipt) {
-      purchaseRows.push(["Receipt", `<a href="${details.receipt}" target="_blank" rel="noopener">On file 🔗</a>`]);
-    }
-    if (purchaseRows.length) {
-      appendAccordion(container, "Purchase Details", purchaseRows.map(([label, value]) =>
-        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
-      ).join(""));
-    }
+    const certHtml = certDisplayHtml(coin);
+    if (certHtml) overviewRows.push(["Cert", certHtml]);
+    if (coin.value) overviewRows.push(["Value", "$" + coin.value.toLocaleString()]);
 
-    // --- Location (Storage Location + Container) — additive, not a move:
-    // Storage Location already shows in the always-visible key facts above,
-    // and stays there; this section exists for Container (a real, separate
-    // All-sheet field from StorageLocation) plus a repeated Storage Location
-    // so the two read together as one physical-location fact group. Applies
-    // to both individual coins and Sets; hidden entirely when neither field
-    // has data, same convention as every other accordion here.
-    const locationRows = [];
-    if (coin.storageLocation) locationRows.push(["Storage Location", coin.storageLocation]);
-    if (coin.container) locationRows.push(["Container", coin.container]);
-    if (locationRows.length) {
-      appendAccordion(container, "Location", locationRows.map(([label, value]) =>
-        `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
-      ).join(""));
-    }
-
-    // --- Specifications (Coin Details group) — Composition plus
-    // Weight/Diameter/Thickness/Edge/No. of Reeds. ReedCount only ever
-    // applies to a reeded edge — a plain-edge coin simply won't have it set.
-    // All sourced from the same FAKE_METAL_CONTENT sparse lookup.
-    // Skipped entirely for Rolls: a roll needs much less overall detail than
-    // an individual coin, and Composition (the one field that actually
-    // matters for a roll — melt/junk-silver value) is already promoted to
-    // an always-visible key fact above instead of buried in here; the
-    // remaining fields (Weight/Diameter/etc.) describe a single coin, not a
-    // roll of ~20, so they're not roll-meaningful without an aggregation
-    // this app doesn't do.
-    if (!isRollRow(coin)) {
-      const specs = metalContentFor(coin);
-      const specRows = [];
-      const composition = compositionTextFor(coin);
-      if (composition) specRows.push(["Composition", composition]);
-      if (specs.weight != null) specRows.push(["Weight", specs.weight + " g"]);
-      if (specs.diameterMm != null) specRows.push(["Diameter", specs.diameterMm + " mm"]);
-      if (specs.thicknessMm != null) specRows.push(["Thickness", specs.thicknessMm + " mm"]);
-      if (specs.edge) specRows.push(["Edge", specs.edge]);
-      if (specs.reedCount != null) specRows.push(["No. of Reeds", String(specs.reedCount)]);
-      if (specRows.length) {
-        appendAccordion(container, "Specifications", specRows.map(([label, value]) =>
-          `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
-        ).join(""));
+    // Linkage chips are appended as real DOM (they carry click handlers), so
+    // Overview always renders when there are chips even if every row above
+    // happened to be blank.
+    const linkageProbe = document.createElement("div");
+    const chipCount = renderLinkageChipsInto(linkageProbe, coin);
+    if (overviewRows.length || chipCount) {
+      const acc = appendAccordion(container, RECORD_SECTIONS.OVERVIEW,
+        detailRowsHtml(overviewRows), { open: true });
+      if (chipCount) {
+        const label = document.createElement("div");
+        label.className = "detail-label";
+        label.style.marginTop = "12px";
+        label.textContent = "Belongs to";
+        acc.body.appendChild(label);
+        acc.body.appendChild(linkageProbe);
       }
     }
 
-    // --- Set Details (Set-level facts group, per Q4) — Set-bundle rows only.
-    // A bundle has no single composition/weight/diameter, so instead of a
-    // coin's Specifications (which reads FAKE_METAL_CONTENT a Set has no entry
-    // in, so it renders nothing for a Set anyway) this shows Set-level facts:
-    // coin count DERIVED from the linked children, plus face value / mintage
-    // from FAKE_SET_FACTS. Each row hides when its data is absent, and the
-    // whole group is omitted for a Set with no facts at all (the childless
-    // backlog Sets) — same sparse pattern as everything else here.
-    if (isSetRow(coin)) {
-      const setFacts = FAKE_SET_FACTS[coin.id] || {};
-      const childCount = setChildrenFor(coin).length;
-      const setRows = [];
-      if (childCount) setRows.push(["Coins in Set", String(childCount)]);
-      if (setFacts.faceValue) setRows.push(["Face Value", setFacts.faceValue]);
-      if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
-      if (setRows.length) {
-        appendAccordion(container, "Set Details", setRows.map(([label, value]) =>
-          `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`
-        ).join(""));
-      }
-    }
-
-    // --- Notes & Facts ---
-    let notesHtml = "";
-    if (details.funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
-    if (details.notes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
-    if (notesHtml) appendAccordion(container, "Notes & Facts", notesHtml);
-
-    // --- Additional Photos — the one place to view this record's fuller
-    // photo set (photo touchpoint consolidation, locked in). Absorbs the
-    // "View all photos" pill (coin) / gallery strip (Set) that used to sit
-    // above the flip card — both are gone now, per CLAUDE.md. Reads the
-    // real gallery (galleryFor()), not the older pre-gallery-system
-    // additionalPhotos demo field this section used to show (that field is
-    // superseded, same as every other fixed-slot precursor to the gallery
-    // system). Applies identically to coins and Sets — a Set's gallery
-    // never contains obverse/reverse entries, so the filter is a no-op
-    // there. Each thumbnail opens the same full-screen viewer the removed
-    // pill/strip used to.
+    // --- 2. Photos — the record's fuller photo set (the flip card already
+    // covers obverse/reverse, so those are filtered out). Each thumbnail
+    // opens the full-screen viewer. Omitted when there's nothing extra.
     const galleryExtras = galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse");
     if (galleryExtras.length) {
-      const acc = appendAccordion(container, "Additional Photos", "");
+      const acc = appendAccordion(container, RECORD_SECTIONS.PHOTOS, "");
       const strip = document.createElement("div");
       strip.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; padding-top:10px;";
       galleryExtras.forEach(entry => {
@@ -7444,6 +7505,93 @@
         strip.appendChild(thumb);
       });
       acc.body.appendChild(strip);
+    }
+
+    // --- 3a. Specifications (coin only) — catalog-derived facts from the
+    // FAKE_METAL_CONTENT lookup. Read-only everywhere, including inside Edit
+    // Coin: these describe the coin TYPE, not this specimen.
+    // Rolls now get this section too. They used to be skipped here because
+    // Composition was promoted to an always-visible key fact above the fold
+    // for them (melt/junk-silver value hinges on it) — that bare row no
+    // longer exists, so skipping the section would lose the field entirely.
+    // A roll's other spec fields simply have no data and hide themselves.
+    if (!isSet) {
+      const specs = metalContentFor(coin);
+      const specRows = [];
+      const composition = compositionTextFor(coin);
+      if (composition) specRows.push(["Composition", composition]);
+      if (specs.weight != null) specRows.push(["Weight", specs.weight + " g"]);
+      if (specs.diameterMm != null) specRows.push(["Diameter", specs.diameterMm + " mm"]);
+      if (specs.thicknessMm != null) specRows.push(["Thickness", specs.thicknessMm + " mm"]);
+      if (specs.edge) specRows.push(["Edge", specs.edge]);
+      if (specs.reedCount != null) specRows.push(["No. of Reeds", String(specs.reedCount)]);
+      if (specRows.length) {
+        appendAccordion(container, RECORD_SECTIONS.SPECIFICATIONS, detailRowsHtml(specRows));
+      }
+    }
+
+    // --- 3b. Coins in this Set (Set only) — identity list ONLY. Explicitly
+    // no photos at this level: a child's photos are reachable by drilling
+    // into that child's own detail page. Supersedes the child mini-flip grid
+    // that used to sit above the fold (retired — see the markup comment).
+    if (isSet) {
+      const children = setChildrenFor(coin);
+      if (children.length) {
+        const acc = appendAccordion(container, RECORD_SECTIONS.SET_CHILDREN, "");
+        // Same shared row builder Edit Set's own copy of this section uses,
+        // so the two lists are literally identical.
+        children.forEach(child => acc.body.appendChild(buildSetChildRow(child, coin)));
+      }
+    }
+
+    // --- 4. Notes & Facts. For a Set this also carries the Set Details
+    // facts group (coin count derived from the linked children, face value,
+    // mintage) — folded in here rather than kept as its own accordion, since
+    // the locked section order has no separate Set Details entry.
+    let notesHtml = "";
+    if (isSet) {
+      const setFacts = FAKE_SET_FACTS[coin.id] || {};
+      const childCount = setChildrenFor(coin).length;
+      const setRows = [];
+      if (childCount) setRows.push(["Coins in Set", String(childCount)]);
+      if (setFacts.faceValue) setRows.push(["Face Value", setFacts.faceValue]);
+      if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
+      if (setRows.length) notesHtml += detailRowsHtml(setRows);
+    }
+    if (details.funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
+    if (details.notes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
+    if (notesHtml) appendAccordion(container, RECORD_SECTIONS.NOTES, notesHtml);
+
+    // --- 5. Purchase Details — the transaction only. Total leads, with Cost
+    // and Shipping listed underneath as the two components that sum to it.
+    // Value deliberately does NOT live here (it moved to Overview) — this
+    // section stays scoped purely to what was paid.
+    const purchaseRows = [];
+    if (coin.cost && details.shippingCost != null) {
+      purchaseRows.push(["Total", "$" + (coin.cost + details.shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    }
+    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
+    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
+    if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
+    // details.receipt holds the actual stored path directly (same
+    // stored-value-used-directly pattern as coin.certLink) — a real link
+    // when populated, row omitted entirely when blank.
+    if (details.receipt) {
+      purchaseRows.push(["Receipt", `<a href="${details.receipt}" target="_blank" rel="noopener">On file 🔗</a>`]);
+    }
+    if (purchaseRows.length) {
+      appendAccordion(container, RECORD_SECTIONS.PURCHASE, detailRowsHtml(purchaseRows));
+    }
+
+    // --- 6. Storage (renamed from "Location") — Storage Location and
+    // Container. Storage Location no longer also appears as a bare key fact
+    // above the fold; this section is now its only home.
+    const storageRows = [];
+    if (coin.storageLocation) storageRows.push(["Storage Location", coin.storageLocation]);
+    if (coin.container) storageRows.push(["Container", coin.container]);
+    if (storageRows.length) {
+      appendAccordion(container, RECORD_SECTIONS.STORAGE, detailRowsHtml(storageRows));
     }
   }
 
@@ -7482,11 +7630,132 @@
   // Obverse/Reverse, rather than a separate dedicated toggle+adjuster block.
   // ==================================================================
 
+  // Fills a read-only rows host inside an Edit form (Specifications, Notes &
+  // Facts) with the SAME markup the detail page renders — the point of the
+  // accordion redesign is that Edit is structurally the detail page with
+  // editable fields, so the read-only sections must look identical rather
+  // than being rebuilt in a second style. Shows a muted "nothing on file"
+  // line instead of collapsing, because Edit always renders every section.
+  function fillReadOnlySection(hostId, html) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = html ||
+      `<p style="font-size:12px; color:var(--text-muted); margin:8px 0 0;">Nothing on file.</p>`;
+  }
+
+  // Specifications rows for a coin (catalog-derived, read-only everywhere).
+  // Shared by detail and Edit so the two can't drift.
+  function specificationRows(coin) {
+    const specs = metalContentFor(coin);
+    const rows = [];
+    const composition = compositionTextFor(coin);
+    if (composition) rows.push(["Composition", composition]);
+    if (specs.weight != null) rows.push(["Weight", specs.weight + " g"]);
+    if (specs.diameterMm != null) rows.push(["Diameter", specs.diameterMm + " mm"]);
+    if (specs.thicknessMm != null) rows.push(["Thickness", specs.thicknessMm + " mm"]);
+    if (specs.edge) rows.push(["Edge", specs.edge]);
+    if (specs.reedCount != null) rows.push(["No. of Reeds", String(specs.reedCount)]);
+    return rows;
+  }
+
+  // Notes & Facts body HTML, including the Set Details facts group for a
+  // Set. Shared by detail and Edit, same reason as specificationRows().
+  function notesAndFactsHtml(coin, details) {
+    let html = "";
+    if (isSetRow(coin)) {
+      const setFacts = FAKE_SET_FACTS[coin.id] || {};
+      const childCount = setChildrenFor(coin).length;
+      const setRows = [];
+      if (childCount) setRows.push(["Coins in Set", String(childCount)]);
+      if (setFacts.faceValue) setRows.push(["Face Value", setFacts.faceValue]);
+      if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
+      if (setRows.length) html += detailRowsHtml(setRows);
+    }
+    if (details.funFact) html += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
+    if (details.notes) html += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
+    return html;
+  }
+
+  // Renders the identity-only child list into a host, with each row drilling
+  // through to that child's own detail page. Shared by the detail page's
+  // "Coins in this Set" accordion and Edit Set's own copy of it, so the two
+  // are literally the same list. onBeforeNavigate lets Edit Set set the
+  // return path up correctly before leaving.
+  function renderSetChildRowsInto(hostId, parentSet, onBeforeNavigate) {
+    const host = document.getElementById(hostId);
+    if (!host) return 0;
+    const children = setChildrenFor(parentSet);
+    host.innerHTML = "";
+    if (!children.length) {
+      host.innerHTML = `<p style="font-size:12px; color:var(--text-muted); margin:8px 0 0;">No coins linked to this Set yet.</p>`;
+      return 0;
+    }
+    children.forEach(child => {
+      host.appendChild(buildSetChildRow(child, parentSet, onBeforeNavigate));
+    });
+    return children.length;
+  }
+
+  // One child row: name + identity (year/mint · denom · variety) + grade and
+  // value. Explicitly NO photo — a child's photos are only reachable after
+  // drilling into that child's own detail page.
+  function buildSetChildRow(child, parentSet, onBeforeNavigate) {
+    const row = document.createElement("div");
+    row.className = "case album-card";
+    row.style.cssText = "cursor:pointer; margin-top:8px;";
+    const identity = [yearMintText(child), child.denom, child.variety].filter(Boolean).join(" · ");
+    const facts = [child.grade, child.value ? "$" + child.value.toLocaleString() : ""].filter(Boolean).join(" · ");
+    row.innerHTML = `
+      <div class="album-card-icon">🪙</div>
+      <div class="album-card-info">
+        <div class="album-card-name">${child.name || identity}</div>
+        <div class="roll-card-meta">${[identity, facts].filter(Boolean).join(" — ")}</div>
+      </div>
+      <span class="chevron">›</span>
+    `;
+    // Back from the child returns to the parent Set, and the parent's own
+    // Back target is captured and restored so it still goes wherever it
+    // originally came from — same per-origin back-handler pattern the
+    // retired child-flip cards used, and that Albums' filled-slot tap uses.
+    row.addEventListener("click", () => {
+      if (onBeforeNavigate) onBeforeNavigate();
+      const setBackHandler = browseDetailBackHandler;
+      browseDetailBackHandler = () => {
+        showBrowseDetail(parentSet);
+        browseDetailBackHandler = setBackHandler;
+      };
+      showBrowseDetail(child);
+      window.scrollTo({ top: 0 });
+    });
+    return row;
+  }
+
+  // Populates the read-only "Belongs to" chips inside an Edit form's
+  // Overview, hiding the whole wrapper when there's no linkage at all.
+  function fillEditLinkage(wrapId, chipsHostId, coin) {
+    const wrap = document.getElementById(wrapId);
+    const host = document.getElementById(chipsHostId);
+    if (!wrap || !host) return;
+    const count = renderLinkageChipsInto(host, coin);
+    wrap.classList.toggle("hidden", count === 0);
+  }
+
   function showBrowseEditView(coin) {
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditView").style.display = "block";
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
+
+    const details = FAKE_COIN_DETAILS[coin.id] || {};
+
+    // --- Overview: identity fields are editable now (they had no edit
+    // surface at all before this redesign — they only ever appeared on the
+    // flip card's corners).
+    document.getElementById("browseEditYear").value = coin.year != null ? coin.year : "";
+    document.getElementById("browseEditMintMark").value = coin.mint || "";
+    document.getElementById("browseEditDenomination").value = coin.denom || "";
+    document.getElementById("browseEditDescription").value = coin.description || coin.name || "";
+    document.getElementById("browseEditVariety").value = coin.variety || "";
 
     const gradeFromEl = document.getElementById("browseEditGradeFrom");
     const hasGradeOption = Array.from(gradeFromEl.options).some(o => o.value === coin.grade);
@@ -7496,27 +7765,39 @@
 
     document.getElementById("browseEditGradeSource").value = coin.gradeSource || "";
     document.getElementById("browseEditDesignation").value = coin.designation || "";
-    document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
-    document.getElementById("browseEditContainer").value = coin.container || "";
+    document.getElementById("browseEditValue").value = coin.value != null ? coin.value : "";
 
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
     certInput.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // The one real photo-editing surface for this coin — obverse/reverse,
-    // slab, reference, other, plus a parent-Set COA read-through if this is
-    // a Set child. Re-renders fresh for THIS coin every time Edit opens.
+    fillEditLinkage("browseEditLinkageWrap", "browseEditLinkageChips", coin);
+
+    // --- Photos: the one real photo-editing surface for this coin.
     renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin));
+
+    // --- Specifications / Notes & Facts: read-only, same markup as detail.
+    const specRows = specificationRows(coin);
+    fillReadOnlySection("browseEditSpecsRows", specRows.length ? detailRowsHtml(specRows) : "");
+    fillReadOnlySection("browseEditNotesRows", notesAndFactsHtml(coin, details));
+
+    // --- Purchase Details: cost lives on the row itself, the rest in the
+    // FAKE_COIN_DETAILS sparse lookup — same split Edit Set already used.
+    document.getElementById("browseEditCost").value = coin.cost != null ? coin.cost : "";
+    document.getElementById("browseEditShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
+    document.getElementById("browseEditVendor").value = details.vendor || "";
+    document.getElementById("browseEditPurchaseDate").value = details.purchaseDate || "";
+
+    // --- Storage
+    document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
+    document.getElementById("browseEditContainer").value = coin.container || "";
   }
 
-  // Edit Set — Storage/Container, Value, Purchase Details, and (photo
-  // touchpoint consolidation, locked in) the one real photo-editing surface
-  // for a Set-bundle row: OGP, whole-set, sub-groups, COA, other, and the
-  // "Coins in this Set" drill-down — for a Denomination="Multiple" bundle
-  // row. Purchase Details fields come from the same FAKE_COIN_DETAILS sparse
-  // lookup renderDetailAccordions() already reads (cost lives on the row
-  // itself, same as an individual coin). Coin-membership editing is
-  // intentionally not part of this form — see CLAUDE.md.
+  // Edit Set — the same six-section structure as a Set's own detail page.
+  // Purchase Details fields come from the same FAKE_COIN_DETAILS sparse
+  // lookup renderDetailAccordions() reads (cost lives on the row itself,
+  // same as an individual coin). Coin-membership editing is intentionally
+  // not part of this form — see CLAUDE.md.
   function showBrowseEditSetView(coin) {
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
@@ -7524,55 +7805,112 @@
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit set → detail
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
-    document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
-    document.getElementById("editSetContainer").value = coin.container || "";
+
+    // --- Overview
+    document.getElementById("editSetYearField").value = coin.year != null ? coin.year : "";
+    document.getElementById("editSetDescription").value = coin.name || "";
     document.getElementById("editSetValue").value = coin.value != null ? coin.value : "";
+    fillEditLinkage("editSetLinkageWrap", "editSetLinkageChips", coin);
+
+    // --- Photos. The Manage-Photos list's OWN "Coins in this Set" row is
+    // suppressed here (showSetChildren:false) — the top-level Coins in this
+    // Set accordion below is the single path to a child now.
+    renderManagePhotosInto("editSetPhotosSections", buildManagePhotosCtx(coin), {
+      showSetChildren: false
+    });
+
+    // --- Coins in this Set (identity list, drills into the child's detail
+    // page). Leaving Edit Set for a child's detail page is a real navigation
+    // away from this form, so hide the form first.
+    renderSetChildRowsInto("editSetChildrenRows", coin, () => {
+      document.getElementById("browseEditSetView").style.display = "none";
+    });
+
+    // --- Notes & Facts: read-only, same markup as detail.
+    fillReadOnlySection("editSetNotesRows", notesAndFactsHtml(coin, details));
+
+    // --- Purchase Details
     document.getElementById("editSetCost").value = coin.cost != null ? coin.cost : "";
     document.getElementById("editSetShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
-    document.getElementById("editSetPurchaseDate").value = details.purchaseDate || "";
     document.getElementById("editSetVendor").value = details.vendor || "";
+    document.getElementById("editSetPurchaseDate").value = details.purchaseDate || "";
 
-    renderManagePhotosInto("editSetPhotosSections", buildManagePhotosCtx(coin), {
-      // "Coins in this Set" drills a child's photos into the standalone
-      // Manage Photos screen; returning from there should land back on
-      // THIS Edit Set screen (without re-populating the fields above and
-      // losing anything Ray was mid-typing), not reset to Browse detail.
-      onReturnHere: () => returnToEditSetView()
-    });
+    // --- Storage
+    document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
+    document.getElementById("editSetContainer").value = coin.container || "";
   }
 
-  // Restores the Edit Set screen's visibility only — deliberately does NOT
-  // call showBrowseEditSetView() again, which would re-populate every field
-  // from the coin record and blow away anything typed but not yet "saved"
-  // (nothing here writes to OneDrive yet anyway, so there's no real save to
-  // lose — but the in-progress form state itself shouldn't vanish just from
-  // drilling into a child's photos and coming back).
-  function returnToEditSetView() {
-    document.getElementById("browseDetailView").style.display = "none";
-    document.getElementById("browseEditView").style.display = "none";
-    document.getElementById("browseEditSetView").style.display = "block";
-    setNavBack(() => showBrowseDetail(currentBrowseCoin));
-  }
+  // (returnToEditSetView() lived here. It existed so that drilling from Edit
+  // Set's Photos section into a child's Manage Photos could come back to Edit
+  // Set without wiping unsaved form state. The accordion redesign removed
+  // that path entirely — Edit Set's Photos section no longer carries a
+  // "Coins in this Set" row (showSetChildren:false); the new top-level Coins
+  // in this Set accordion drills to the child's own DETAIL page instead,
+  // which is a real navigation away from the form, not a round trip. Nothing
+  // returns to Edit Set in place anymore, so the helper had no callers left.
+  // renderManagePhotosInto()'s onReturnHere option is still used — by the
+  // standalone Manage Photos screen's own wrapper.)
 
   // Wires a static (already-in-HTML, not JS-built) accordion's open/collapse
   // toggle — the same visual behavior appendAccordion()/appendManageSection()
-  // give their own dynamically-built accordions, for the one static
-  // accordion in this file (Receipt, folded into Edit Coin/Edit Set's Photos
-  // area). Kept separate from those two rather than forcing Receipt through
-  // either — it isn't gallery/GALLERY_TYPES data (no re-render-on-photo-
-  // change need) and isn't shared with the standalone Manage Photos screen,
-  // so it doesn't belong inside renderManagePhotosInto()'s own bookkeeping.
+  // give their own dynamically-built accordions. Used for every section
+  // accordion in Edit Coin / Edit Set (they're static markup so their
+  // complex widgets — grade dropdown, cert badge, photo hosts — keep stable
+  // IDs and stay wired once at init, rather than being rebuilt per render).
   function wireStaticAccordionToggle(headerId, bodyId) {
     const header = document.getElementById(headerId);
     const body = document.getElementById(bodyId);
+    if (!header || !body) return;
     header.addEventListener("click", () => {
       const open = body.classList.toggle("hidden") === false;
       header.setAttribute("aria-expanded", String(open));
     });
   }
 
+  // Applies edited values onto the in-memory record. NOT a OneDrive write —
+  // this is deliberately session-only (lost on reload), the same posture the
+  // crop tool's blob URLs already have. It exists so an edit visibly
+  // round-trips back to the detail page during a device review instead of
+  // silently appearing to do nothing; the real write layer is a separate
+  // future dispatch and nothing here anticipates its shape.
+  //
+  // Field homes follow the existing split exactly: identity/grade/value/
+  // cost/storage live on the row itself, while shippingCost/vendor/
+  // purchaseDate live in the FAKE_COIN_DETAILS sparse lookup keyed by
+  // CollectionID (created on demand if this record had no entry yet).
+  function applyEditsToRecord(coin, values) {
+    Object.keys(values.row).forEach(key => {
+      const v = values.row[key];
+      if (v !== undefined) coin[key] = v;
+    });
+    const details = FAKE_COIN_DETAILS[coin.id] || (FAKE_COIN_DETAILS[coin.id] = {});
+    Object.keys(values.details).forEach(key => {
+      const v = values.details[key];
+      if (v !== undefined) details[key] = v;
+    });
+  }
+
+  // "" -> undefined (leave alone), otherwise a real number. Keeps a blanked
+  // field from writing NaN over a good value.
+  function numOrUndefined(raw) {
+    const s = String(raw == null ? "" : raw).trim();
+    if (!s) return undefined;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : undefined;
+  }
+
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+
+    // One toggle per section accordion, plus the nested Receipt pill inside
+    // Photos. Wired once — these are static markup, so their IDs are stable
+    // across every showBrowseEditView() render.
+    wireStaticAccordionToggle("editCoinOverviewHeader", "editCoinOverviewBody");
+    wireStaticAccordionToggle("editCoinPhotosHeader", "editCoinPhotosBody");
+    wireStaticAccordionToggle("editCoinSpecsHeader", "editCoinSpecsBody");
+    wireStaticAccordionToggle("editCoinNotesHeader", "editCoinNotesBody");
+    wireStaticAccordionToggle("editCoinPurchaseHeader", "editCoinPurchaseBody");
+    wireStaticAccordionToggle("editCoinStorageHeader", "editCoinStorageBody");
     wireStaticAccordionToggle("browseEditReceiptAccordionHeader", "browseEditReceiptAccordionBody");
 
     buildGradeOptions(document.getElementById("browseEditGradeFrom"), true);
@@ -7607,19 +7945,56 @@
 
     document.getElementById("browseEditSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
-      const coinId = currentBrowseCoin.id;
-      const editedCoin = { ...currentBrowseCoin, designation: document.getElementById("browseEditDesignation").value };
-      checkDesignationReresolution(editedCoin, (resolvedRow) => {
+      const coin = currentBrowseCoin;
+      const gradeSel = document.getElementById("browseEditGradeFrom").value;
+      const grade = gradeSel === "__other__"
+        ? document.getElementById("browseEditGradeOther").value.trim()
+        : gradeSel;
+      const designation = document.getElementById("browseEditDesignation").value.trim();
+
+      // Designation re-resolution is unchanged — an ambiguous DB_Coins match
+      // still surfaces the shared "pick one" list rather than auto-resolving.
+      checkDesignationReresolution({ ...coin, designation }, (resolvedRow) => {
+        applyEditsToRecord(coin, {
+          row: {
+            year: numOrUndefined(document.getElementById("browseEditYear").value),
+            mint: document.getElementById("browseEditMintMark").value,
+            denom: document.getElementById("browseEditDenomination").value,
+            description: document.getElementById("browseEditDescription").value.trim(),
+            variety: document.getElementById("browseEditVariety").value.trim(),
+            grade,
+            gradeSource: document.getElementById("browseEditGradeSource").value,
+            serNo: document.getElementById("browseEditCertTypeNumber").value.trim(),
+            designation,
+            value: numOrUndefined(document.getElementById("browseEditValue").value),
+            cost: numOrUndefined(document.getElementById("browseEditCost").value),
+            storageLocation: document.getElementById("browseEditStorageLocation").value.trim(),
+            container: document.getElementById("browseEditContainer").value.trim()
+          },
+          details: {
+            shippingCost: numOrUndefined(document.getElementById("browseEditShippingCost").value),
+            vendor: document.getElementById("browseEditVendor").value.trim(),
+            purchaseDate: document.getElementById("browseEditPurchaseDate").value
+          }
+        });
         const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
-        showToast("Placeholder only — edits to " + coinId + " aren't saved yet." + linkMsg);
+        showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg);
+        showBrowseDetail(coin);
       });
     });
   }
 
-  // Same non-functional Save stub pattern as Edit Coin — no live OneDrive
-  // write layer exists yet for either form.
+  // Same session-only in-memory Save as Edit Coin — no OneDrive write layer
+  // exists for either form yet.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+
+    wireStaticAccordionToggle("editSetOverviewHeader", "editSetOverviewBody");
+    wireStaticAccordionToggle("editSetPhotosHeader", "editSetPhotosBody");
+    wireStaticAccordionToggle("editSetChildrenHeader", "editSetChildrenBody");
+    wireStaticAccordionToggle("editSetNotesHeader", "editSetNotesBody");
+    wireStaticAccordionToggle("editSetPurchaseHeader", "editSetPurchaseBody");
+    wireStaticAccordionToggle("editSetStorageHeader", "editSetStorageBody");
     wireStaticAccordionToggle("editSetReceiptAccordionHeader", "editSetReceiptAccordionBody");
 
     document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
@@ -7629,7 +8004,24 @@
 
     document.getElementById("browseEditSetSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
-      showToast("Placeholder only — edits to " + currentBrowseCoin.id + " aren't saved yet.");
+      const coin = currentBrowseCoin;
+      applyEditsToRecord(coin, {
+        row: {
+          year: numOrUndefined(document.getElementById("editSetYearField").value),
+          name: document.getElementById("editSetDescription").value.trim(),
+          value: numOrUndefined(document.getElementById("editSetValue").value),
+          cost: numOrUndefined(document.getElementById("editSetCost").value),
+          storageLocation: document.getElementById("editSetStorageLocation").value.trim(),
+          container: document.getElementById("editSetContainer").value.trim()
+        },
+        details: {
+          shippingCost: numOrUndefined(document.getElementById("editSetShippingCost").value),
+          vendor: document.getElementById("editSetVendor").value.trim(),
+          purchaseDate: document.getElementById("editSetPurchaseDate").value
+        }
+      });
+      showToast("Updated " + coin.id + " for this session only — not saved to OneDrive.");
+      showBrowseDetail(coin);
     });
   }
 
@@ -10268,9 +10660,18 @@
     // photos is its own Edit Coin, but this row is a quick jump-in from the
     // parent Set without leaving Edit Set's own in-progress fields behind —
     // returnHere() is what gets back to THIS render, embedded or standalone).
+    //
+    // options.showSetChildren === false suppresses this block entirely.
+    // Edit Set passes that: the accordion redesign gives it a real top-level
+    // "Coins in this Set" section, so leaving this one in place too would
+    // mean two competing routes to the same child from one screen. The
+    // STANDALONE Manage Photos screen (In Progress Sets / Docket entry
+    // points) has no such section and still wants this row, so it stays the
+    // default.
+    const showSetChildren = options.showSetChildren !== false;
     const children = (ctx.draft && ctx.draft.children) ? ctx.draft.children
       : setChildrenFor({ id, denom: "Multiple", originSetId: ctx.originSetId });
-    if (children && children.length) {
+    if (showSetChildren && children && children.length) {
       appendManageSection(host, "🪙 Coins in this Set",
         children.length + " coin" + (children.length === 1 ? "" : "s"),
         (body) => {
@@ -10562,7 +10963,7 @@
   }
 
   // ==================================================================
-  // ADD COIN — main view + two drill-down subviews (Purchase Info, Storage & Album)
+  // ADD COIN — main view + two drill-down subviews (Purchase Details, Storage)
   // ==================================================================
 
   function showAddCoinMain() {
