@@ -2262,9 +2262,36 @@
                the old flat "add photo, pick a type" picker is gone too.
                Edit Coin is the one real photo-editing surface for a coin;
                there's no other path to the same fields anymore. Populated
-               in showBrowseEditView(). -->
+               in showBrowseEditView(). Receipt (below) is a SEPARATE static
+               accordion, not part of renderManagePhotosInto()'s own section
+               list — it never belonged to the gallery/crop-pipeline system
+               (galleryFor/GALLERY_TYPES) to begin with, it's the distinct
+               PDF-auto-wrap mechanism (receiptFiles registry,
+               prepareReceiptFile()) — and renderManagePhotosInto() is shared
+               with the standalone Manage Photos screen (In Progress Sets /
+               Docket entry points), which has no Receipt concept at all.
+               Folding it in here only, as its own pill, keeps that shared
+               function untouched. -->
           <div class="section-label" style="margin-top:0;">📷 Photos</div>
           <div id="browseEditPhotosSections"></div>
+          <div class="detail-accordion" id="browseEditReceiptAccordion" style="margin-top:8px;">
+            <button type="button" class="accordion-header" id="browseEditReceiptAccordionHeader" aria-expanded="false">
+              <span>🧾 Receipt</span>
+              <span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="browseEditReceiptAccordionBody">
+              <div class="photo-box" style="margin-top:10px; max-width:220px;">
+                <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
+                <img id="browseEditReceiptPreview">
+                <div class="photo-btns">
+                  <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                  <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                </div>
+                <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
+              </div>
+            </div>
+          </div>
 
           <div style="display:flex; align-items:center; justify-content:space-between;">
             <label style="margin:0;">Grade</label>
@@ -2294,18 +2321,6 @@
 
           <label>Container</label>
           <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
-
-          <div class="photo-box" style="margin-top:14px; max-width:220px;">
-            <div class="name">🧾 Receipt Photo</div>
-            <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
-            <img id="browseEditReceiptPreview">
-            <div class="photo-btns">
-              <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-            </div>
-            <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
-          </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
           <div class="placeholder-note">Layout preview only — no OneDrive write happens yet. A real save would set Reviewed back to unchecked.</div>
@@ -2352,20 +2367,32 @@
                Photos screen uses — OGP, whole-set, sub-groups, COA, other,
                and the "Coins in this Set" drill-down. Supersedes the old
                flat "add photo, pick a type" picker. Populated in
-               showBrowseEditSetView(). -->
+               showBrowseEditSetView(). Receipt (below) is a SEPARATE static
+               accordion, not part of renderManagePhotosInto()'s own section
+               list — same reasoning as Edit Coin's own Receipt accordion
+               (see its comment): it's the distinct PDF-auto-wrap mechanism,
+               not a gallery/GALLERY_TYPES entry, and renderManagePhotosInto()
+               is shared with the standalone Manage Photos screen, which has
+               no Receipt concept. -->
           <div class="section-label">📷 Photos</div>
           <div id="editSetPhotosSections"></div>
-
-          <div class="photo-box" style="margin-top:14px; max-width:220px;">
-            <div class="name">🧾 Receipt Photo</div>
-            <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
-            <img id="editSetReceiptPreview">
-            <div class="photo-btns">
-              <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+          <div class="detail-accordion" id="editSetReceiptAccordion" style="margin-top:8px;">
+            <button type="button" class="accordion-header" id="editSetReceiptAccordionHeader" aria-expanded="false">
+              <span>🧾 Receipt</span>
+              <span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="editSetReceiptAccordionBody">
+              <div class="photo-box" style="margin-top:10px; max-width:220px;">
+                <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
+                <img id="editSetReceiptPreview">
+                <div class="photo-btns">
+                  <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                  <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                </div>
+                <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
+              </div>
             </div>
-            <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
 
           <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
@@ -7527,8 +7554,26 @@
     setNavBack(() => showBrowseDetail(currentBrowseCoin));
   }
 
+  // Wires a static (already-in-HTML, not JS-built) accordion's open/collapse
+  // toggle — the same visual behavior appendAccordion()/appendManageSection()
+  // give their own dynamically-built accordions, for the one static
+  // accordion in this file (Receipt, folded into Edit Coin/Edit Set's Photos
+  // area). Kept separate from those two rather than forcing Receipt through
+  // either — it isn't gallery/GALLERY_TYPES data (no re-render-on-photo-
+  // change need) and isn't shared with the standalone Manage Photos screen,
+  // so it doesn't belong inside renderManagePhotosInto()'s own bookkeeping.
+  function wireStaticAccordionToggle(headerId, bodyId) {
+    const header = document.getElementById(headerId);
+    const body = document.getElementById(bodyId);
+    header.addEventListener("click", () => {
+      const open = body.classList.toggle("hidden") === false;
+      header.setAttribute("aria-expanded", String(open));
+    });
+  }
+
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+    wireStaticAccordionToggle("browseEditReceiptAccordionHeader", "browseEditReceiptAccordionBody");
 
     buildGradeOptions(document.getElementById("browseEditGradeFrom"), true);
     document.getElementById("browseEditGradeFrom").insertBefore(
@@ -7575,6 +7620,7 @@
   // write layer exists yet for either form.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+    wireStaticAccordionToggle("editSetReceiptAccordionHeader", "editSetReceiptAccordionBody");
 
     document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
       document.getElementById("browseEditSetView").style.display = "none";

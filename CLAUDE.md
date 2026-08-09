@@ -1263,6 +1263,55 @@ duplication."
   viewer entry point instead); worth rewording when that suite is actually
   rebuilt rather than treated as a still-accurate target.
 
+**Follow-up (same branch, still held): Receipt folded into the Photos area
+as its own pill, both forms.** Receipt used to sit as a bare, un-collapsed
+photo-box lower in each form (after Container on Edit Coin; right after the
+Purchase Details fields on Edit Set) — now it's a same-styled accordion
+("🧾 Receipt", collapsed by default) positioned directly under the Photos
+section, alongside Obverse/Reverse/Slab/Reference/Other (Edit Coin) and
+OGP/Whole set/Sub-groups/COA/Other (Edit Set). No duplicate capture path
+remains — the old bare photo-box is removed from both forms, not just
+hidden.
+- **Deliberately NOT folded into `renderManagePhotosInto()`'s own section
+  list — a separate, sibling static accordion instead.** Receipt was never
+  part of the gallery/crop-pipeline system (`galleryFor`/`GALLERY_TYPES`) to
+  begin with; it's the distinct PDF-auto-wrap mechanism (`receiptFiles`
+  registry, `prepareReceiptFile()`, see "Receipt photos auto-convert to
+  PDF") — no cropping, no `runCropPipeline`. And `renderManagePhotosInto()`
+  is SHARED with the standalone Manage Photos screen (the In Progress Sets
+  and Docket entry points), which has no Receipt concept at all and must
+  stay untouched. Folding Receipt into that shared function would have
+  leaked a Receipt pill into those two unrelated entry points; keeping it
+  as a separate, hand-built accordion (`wireStaticAccordionToggle()`, a
+  small new shared toggle helper — the same open/collapse visual behavior
+  `appendAccordion()`/`appendManageSection()` give their own dynamically-
+  built accordions, but for a STATIC, already-in-HTML one instead) avoids
+  that entirely.
+- Wired once in `initBrowseEdit()`/`initBrowseEditSet()` (alongside the
+  existing, unchanged `wireMockPhotoSlot()` receipt call), not rebuilt on
+  every `showBrowseEditView()`/`showBrowseEditSetView()` re-render — Receipt
+  state lives in `receiptFiles`, not the gallery array, so it doesn't need
+  the same rebuild-on-every-photo-change cycle the Manage-Photos sections
+  do. The underlying capture mechanism (camera/library → EXIF-oriented
+  preview → lossless PDF wrap, or byte-for-byte pass-through for an
+  already-PDF pick) is completely unchanged — this task only moved where
+  the widget sits, not how it works.
+- **Pre-existing, unrelated-to-this-task quirk, unchanged by this move**:
+  the receipt preview isn't reset when Edit opens for a different coin
+  (nothing ever explicitly cleared `browseEditReceiptPreview` between
+  coins) — but since Edit's Save is still a stub and `receiptFiles` was
+  already documented as "ready-but-unconsumed" (no real write layer reads
+  it for Edit Coin/Edit Set), this has no functional consequence today, the
+  same as before this move. Not fixed here — out of scope, flagging so a
+  future real-write-layer pass knows to check it.
+- Verified headless (19 new assertions): accordion exists and sits directly
+  after the Photos host in both forms, starts collapsed, opens on click, no
+  leftover Receipt widget in the old spot in either form, a real
+  image-to-PDF capture still populates `receiptFiles` correctly in both
+  forms, and the standalone Manage Photos screen confirmed to have NO
+  Receipt section (scope boundary holds). All prior suites for this branch
+  (73 assertions across 4 scripts) re-run clean alongside it.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
