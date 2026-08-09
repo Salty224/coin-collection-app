@@ -1098,6 +1098,220 @@ Sized as its own task, not a quick pass — real gaps beyond what
 Rough sizing given when asked: on the order of 60–100 additional
 assertions, roughly half-day-to-day scale, not mechanical re-scaffolding.
 
+### Photo touchpoint consolidation (BUILT, held on branch `claude/browse-detail-photo-consolidation`, NOT merged — awaiting Ray's real-device Obverse/Reverse capture/crop/rotate/save verification)
+Browse detail (both Coin and Set) used to scatter photo access across four
+places — a "View all photos (N)" pill / gallery strip above the flip card, a
+standalone "📷 Manage photos" button next to Edit, Edit Coin's own separate
+Obverse/Reverse toggle+capture block, and both Edit forms' own flat "add
+photo, pick a type" picker. Consolidated to one real photo-editing surface
+per record, at Ray's explicit request (Option A — replace, not add
+alongside): "leaving Edit Coin's toggle and Manage Photos both able to touch
+the same slab photo isn't real consolidation, it's just co-located
+duplication."
+- **Top image area is flip-card only, no controls layered on it** — the
+  coin's "View all photos" pill and the Set's gallery strip (both sat above/
+  below the flip) are removed entirely, not just hidden.
+- **"Manage photos" is no longer a standalone button.** Edit is the single
+  entry point for changing anything about a record, including photos.
+- **Edit Coin and Edit Set now embed the real Manage-Photos section list**
+  (`renderManagePhotosInto(hostId, ctx, options)`, generalized from the
+  standalone screen's original `renderManagePhotos()` — see below) directly
+  in the form, in place of their old simpler widgets:
+  - Edit Coin: the old dedicated Obverse/Reverse toggle+frame+adjust block
+    and the flat gallery picker are both gone. Obverse/Reverse is now one of
+    the embedded sections (`🪙 Coin — obverse & reverse`), alongside Slab,
+    Reference, Other, and (for a Set child) the parent-Set COA read-through
+    — exactly the standalone screen's coin-branch section list.
+  - Edit Set: the flat gallery picker is gone, replaced by the same
+    Set-branch section list (OGP, Whole set, Sub-groups, COA, Other, and
+    "Coins in this Set").
+  - `initBrowseEdit()`/`initBrowseEditSet()` no longer wire the removed
+    widgets; `showBrowseEditView(coin)`/`showBrowseEditSetView(coin)` call
+    `renderManagePhotosInto()` fresh each time Edit opens for that coin.
+- **`renderManagePhotosInto(hostId, ctx, options)` replaces the old
+  hardcoded `renderManagePhotos()`** as the real section-list renderer —
+  retargetable to any host element/ctx, which is what lets the exact same
+  code serve three places (standalone Manage Photos, embedded Edit Coin,
+  embedded Edit Set) instead of forking it. `renderManagePhotos()` is now a
+  thin wrapper (`renderManagePhotosInto("managePhotosSections",
+  managePhotosCtx, {...})`) preserving the standalone screen's original
+  behavior — **still the reachable target for the other two Manage Photos
+  entry points that this task did NOT touch** (the In Progress Sets
+  per-row 📷 Photos button, and Docket photo-gap rows both still call
+  `openManagePhotos()` exactly as before). `managePairBlock()`/
+  `manageOpenEndedBlock()` now take a `render` callback (threaded through
+  from `renderManagePhotosInto()`) instead of calling the old function name
+  directly, so a photo add/remove/caption-edit re-renders whichever host
+  it's actually in.
+- **`buildManagePhotosCtx(coin)`** is the one place that builds the `{ id,
+  name, meta, kind, originSetId, parentSetId, parentSetName }` shape
+  `renderManagePhotosInto()` expects — extracted from the old standalone
+  button's click handler (now removed) so Edit Coin/Edit Set build it the
+  same way.
+- **"Coins in this Set" (inside Edit Set's embedded photos) still drills a
+  child coin into the STANDALONE Manage Photos screen, not that child's own
+  Edit Coin.** Considered routing it straight to the child's Edit Coin
+  instead (truer to "single source of truth"), but `showBrowseEditView()`'s
+  gallery target is keyed off the module-level `currentBrowseCoin` (an
+  existing invariant every other caller relies on — Edit is only ever
+  reached today from Browse Detail's own Edit button, which always passes
+  `currentBrowseCoin`), and reassigning that global mid-flow to jump into a
+  child's Edit Coin — then correctly back out to the parent's Edit Set,
+  without breaking that invariant for every other caller — is real
+  navigation-state surgery, not a mechanical rename. Flagged as
+  out-of-scope-for-this-pass rather than guessed at; kept the existing
+  standalone-screen drill-down behavior instead, fixed only to return
+  correctly to an EMBEDDED Edit Set (see `returnHere`/`onReturnHere` below)
+  rather than always falling back to the standalone screen's own re-open.
+- **`onReturnHere` (an option on `renderManagePhotosInto`) is how the "Coins
+  in this Set" row's Back gets to WHATEVER is hosting that render** — the
+  standalone screen's own wrapper defaults it to `() => openManagePhotos(
+  managePhotosCtx)` (identical to the prior behavior); Edit Set's embedded
+  call passes `() => returnToEditSetView()` instead. **`returnToEditSetView()`
+  is a new helper that restores Edit Set's visibility WITHOUT re-running
+  `showBrowseEditSetView()`** — re-running it would re-populate every field
+  from the coin record and silently discard anything Ray had typed but not
+  yet "saved" (there's no real save yet either way — see below — but the
+  in-progress form state itself shouldn't vanish just from a photo
+  drill-down and back). Verified directly: typing into Storage Location,
+  drilling into a child's photos, and returning preserves the typed value.
+- **Additional Photos (bottom of the detail page) absorbs "view all
+  photos"** — its old data source, a pre-gallery-system `FAKE_COIN_DETAILS
+  .additionalPhotos` demo field (superseded, same as every other fixed-slot
+  precursor to the real gallery system — only 2 demo rows ever had it),
+  is replaced with the real gallery (`galleryFor(coin.id)`, filtered to
+  exclude the coin's own obverse/reverse flip-source entries so it doesn't
+  just repeat the flip card). Each thumbnail opens the same full-screen
+  viewer (`openGalleryViewer`) the removed pill/strip used to open. Applies
+  identically to coins and Sets — a Set's gallery never contains obverse/
+  reverse entries, so the filter is a no-op there.
+- **Real bug found and fixed while testing this (pre-existing, not
+  introduced by this task): sections whose title contains an `&amp;` HTML
+  entity never preserved their open/collapsed state across a re-render.**
+  `appendManageSection()`'s open-state check compares against
+  `header.textContent`, which the browser always returns HTML-decoded (a
+  real `&`), while the two affected section titles ("🪙 Coin — obverse &
+  reverse", "🖼️ Whole set — front & back") were being checked against the
+  literal, still-entity-encoded string `"...&amp;..."` — a check that could
+  never match. Net effect: those two sections silently collapsed on EVERY
+  re-render, including the one that fires right after a photo is captured
+  — so capturing an obverse photo, for example, would immediately snap the
+  section shut. This existed in the original standalone Manage Photos
+  screen too (not introduced here) but was never caught, because nothing
+  before this drove a real capture end-to-end through it — this is exactly
+  the gap the still-open "rebuild the fuller regression suite" item above
+  already flagged ("today's suite opens Stage 1... but doesn't drive a
+  capture all the way through Stage 2 to a finished entry"). Fixed by
+  comparing against the decoded string instead; both affected `open:` checks
+  updated. Caught and fixed via headless end-to-end capture testing this
+  session, not by inspection.
+- **`buildPhotoPairSlot()` gained a real "Adjust" (⤢) capability it never
+  had before**, closing what would otherwise have been a genuine regression
+  for Edit Coin's obverse/reverse: the OLD dedicated toggle block (removed
+  by this task) always let Ray reopen the crop adjuster on the same already-
+  captured photo without retaking it; the shared pair-slot component this
+  task now routes obverse/reverse through (previously only used for OGP/
+  slab/whole-set/sub-group pairs, none of which retain a raw original) had
+  no equivalent — camera/library (retake) and remove were the only actions.
+  Fixed by adding an Adjust button, shown only when the type retains a raw
+  original AND a photo already exists (`def.retainRaw && entry.rawUrl`) —
+  true only for obverse/reverse among every current caller of this shared
+  component, confirmed by checking all four call sites, so the other three
+  (sub-group pairs, Add Set's OGP pair, Add Set Step 2's child slab pair)
+  are completely unaffected. Clicking it re-fetches a real Blob from the
+  stored raw `blob:` URL (`fetch(rawUrl).then(r => r.blob())` — a `blob:`
+  URL's underlying Blob is exactly what `fetch()` returns for it, and
+  `runCropPipeline`/`loadOrientedImageCanvas` already work from any Blob,
+  not just a `File`) and reruns the full two-stage pipeline from scratch on
+  it, same as the old dedicated block did. This also means the STANDALONE
+  Manage Photos screen's own obverse/reverse section gains this capability
+  for the first time too (it never had it before this task) — a net
+  improvement, not just parity.
+- **Scope is still mockup, unchanged by this task** — Edit's Save button
+  remains the existing placeholder stub (`"Placeholder only — edits to
+  {id} aren't saved yet."`); nothing here adds or changes any OneDrive
+  write behavior. This was a pure UI/navigation consolidation.
+- **Held on its own branch, not auto-merged, per Ray's explicit instruction**
+  — this touches Obverse/Reverse capture, the most-used photo control in the
+  app, so it needs a real-device pass (crop, rotate, save) on Ray's own
+  hardware before merging, same standing as the photo-gallery-crop branch's
+  own real-device sign-off before it merged.
+- **Verified headless** (Playwright, scratchpad scripts — not committed,
+  same "scripts live in per-session scratchpads" convention as the rest of
+  this project's regression history): top-area pill/strip/button all
+  removed from the DOM for both a coin (AY-00001) and a Set (AY-00022);
+  Additional Photos renders real gallery thumbnails and opens the viewer;
+  Edit Coin's embedded Photos section shows Obverse/Reverse + Slab +
+  Reference + Other, with the old toggle/gallery elements gone from the DOM;
+  Edit Set's embedded Photos section shows OGP + Whole set + COA + Coins-in-
+  this-Set, with the old gallery element gone; a full real capture through
+  both crop stages (Stage 1 background crop → Stage 2 circle) produces a
+  gallery entry with a working Adjust button, and Adjust correctly reopens
+  Stage 1 on the same photo and replaces the entry in place (no duplicate);
+  drilling from Edit Set into a child's photos and back preserves an
+  unsaved field and returns to Edit Set (not Browse detail); the standalone
+  Manage Photos screen (entry points #2/#3's target) still opens correctly
+  with all its sections and independently-open-able accordions; a full
+  8-route nav smoke test plus a 360px overflow check both came back clean.
+  Zero page/console errors (aside from the pre-existing, unrelated MSAL
+  jsdelivr CDN block this sandboxed environment always shows). **Not
+  verified**: any real device — this is exactly the real-device pass being
+  held for.
+- **Note for the still-open "rebuild the fuller photo-gallery regression
+  suite" tracked item above**: its "View all photos (N) viewer button" line
+  is now stale (that button no longer exists — Additional Photos is the
+  viewer entry point instead); worth rewording when that suite is actually
+  rebuilt rather than treated as a still-accurate target.
+
+**Follow-up (same branch, still held): Receipt folded into the Photos area
+as its own pill, both forms.** Receipt used to sit as a bare, un-collapsed
+photo-box lower in each form (after Container on Edit Coin; right after the
+Purchase Details fields on Edit Set) — now it's a same-styled accordion
+("🧾 Receipt", collapsed by default) positioned directly under the Photos
+section, alongside Obverse/Reverse/Slab/Reference/Other (Edit Coin) and
+OGP/Whole set/Sub-groups/COA/Other (Edit Set). No duplicate capture path
+remains — the old bare photo-box is removed from both forms, not just
+hidden.
+- **Deliberately NOT folded into `renderManagePhotosInto()`'s own section
+  list — a separate, sibling static accordion instead.** Receipt was never
+  part of the gallery/crop-pipeline system (`galleryFor`/`GALLERY_TYPES`) to
+  begin with; it's the distinct PDF-auto-wrap mechanism (`receiptFiles`
+  registry, `prepareReceiptFile()`, see "Receipt photos auto-convert to
+  PDF") — no cropping, no `runCropPipeline`. And `renderManagePhotosInto()`
+  is SHARED with the standalone Manage Photos screen (the In Progress Sets
+  and Docket entry points), which has no Receipt concept at all and must
+  stay untouched. Folding Receipt into that shared function would have
+  leaked a Receipt pill into those two unrelated entry points; keeping it
+  as a separate, hand-built accordion (`wireStaticAccordionToggle()`, a
+  small new shared toggle helper — the same open/collapse visual behavior
+  `appendAccordion()`/`appendManageSection()` give their own dynamically-
+  built accordions, but for a STATIC, already-in-HTML one instead) avoids
+  that entirely.
+- Wired once in `initBrowseEdit()`/`initBrowseEditSet()` (alongside the
+  existing, unchanged `wireMockPhotoSlot()` receipt call), not rebuilt on
+  every `showBrowseEditView()`/`showBrowseEditSetView()` re-render — Receipt
+  state lives in `receiptFiles`, not the gallery array, so it doesn't need
+  the same rebuild-on-every-photo-change cycle the Manage-Photos sections
+  do. The underlying capture mechanism (camera/library → EXIF-oriented
+  preview → lossless PDF wrap, or byte-for-byte pass-through for an
+  already-PDF pick) is completely unchanged — this task only moved where
+  the widget sits, not how it works.
+- **Pre-existing, unrelated-to-this-task quirk, unchanged by this move**:
+  the receipt preview isn't reset when Edit opens for a different coin
+  (nothing ever explicitly cleared `browseEditReceiptPreview` between
+  coins) — but since Edit's Save is still a stub and `receiptFiles` was
+  already documented as "ready-but-unconsumed" (no real write layer reads
+  it for Edit Coin/Edit Set), this has no functional consequence today, the
+  same as before this move. Not fixed here — out of scope, flagging so a
+  future real-write-layer pass knows to check it.
+- Verified headless (19 new assertions): accordion exists and sits directly
+  after the Photos host in both forms, starts collapsed, opens on click, no
+  leftover Receipt widget in the old spot in either form, a real
+  image-to-PDF capture still populates `receiptFiles` correctly in both
+  forms, and the standalone Manage Photos screen confirmed to have NO
+  Receipt section (scope boundary holds). All prior suites for this branch
+  (73 assertions across 4 scripts) re-run clean alongside it.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus
