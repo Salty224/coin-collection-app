@@ -5864,10 +5864,12 @@
     document.getElementById("gradingHelpOverlay").classList.remove("hidden");
   }
 
-  // Owned-photo-first, reference-image-second, blank-placeholder-third. This
-  // mockup never has a persisted real owned photo to check (see "What NOT to
-  // build" / crop-is-display-only), so in practice it's always tier 2 or 3
-  // here — real usage would check for an actual Obverse/Reverse file first.
+  // Owned-photo-first, reference-image-second, blank-placeholder-third. An
+  // individual coin's own captured Obverse/Reverse photo (galleryFlipEntry)
+  // always wins over its series reference image, same priority rule as the
+  // Set-bundle case just below — resolved independently per side, so a coin
+  // with a real obverse photo but no reverse yet still falls through to the
+  // reference image (or blank placeholder) for reverse on its own.
   //
   // side defaults to "obverse" since most call sites only ever show one face;
   // Spotlight (the one place that flips) passes spotlightSide explicitly.
@@ -5885,13 +5887,22 @@
     const seriesKey = referenceSeriesKey(coin);
     discEl.classList.remove("reference-image");
     discEl.style.backgroundImage = "";
-    // Tier 0 for a Set bundle: its own whole-set/OGP photo, if one has been
+    // Tier 0a: this exact coin's own captured photo, if any. Mutually
+    // exclusive with the Set-bundle tier just below by construction —
+    // galleryFlipEntry() only ever matches "obverse"/"reverse" gallery
+    // entries, which a Set row never has (Sets use the subgroup/ogp types
+    // setFlipPhotoUrl() checks instead), so order between the two doesn't
+    // matter in practice.
+    const ownPhoto = galleryFlipEntry(coin.id, side);
+    if (ownPhoto) {
+      applyDiscOwnPhoto(discEl, ownPhoto.url, "Photo of this coin");
+      return;
+    }
+    // Tier 0b for a Set bundle: its own whole-set/OGP photo, if one has been
     // captured. A Set has no obverse/reverse of its own and no series
     // reference image to fall back on, so without this its flip card is
     // always the generic gold "Multiple" placeholder no matter how many
-    // photos it has. Individual coins are deliberately NOT routed through
-    // here — see galleryFlipEntry() above, which is the coin-side equivalent
-    // and is still unwired pending its own decision.
+    // photos it has.
     const setPhoto = setFlipPhotoUrl(coin, side);
     if (setPhoto) {
       applyDiscOwnPhoto(discEl, setPhoto, "Photo of this set");
@@ -8403,15 +8414,21 @@
     // resolves; it picks up the cached image on the album's next render/
     // reopen, same as this app's other computed-once-at-open-time choices
     // (e.g. album page chunk sizing).
+    // Owned-photo-first, same priority rule as applyDiscContent() — a filled
+    // slot's own coin's real captured photo (galleryFlipEntry, keyed by the
+    // slot's own filledBy CollectionID) always wins over the generic series
+    // reference image. Resolved independently per side, same as elsewhere.
+    const ownEntry = filled ? galleryFlipEntry(slot.filledBy, side) : null;
     const referenceCoin = filled ? { description: slotDescription(slot) } : null;
-    const useReference = referenceCoin && hasReferenceImage(referenceCoin, side);
+    const useReference = !ownEntry && referenceCoin && hasReferenceImage(referenceCoin, side);
     const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(referenceCoin), side) : null;
+    const photoUrl = ownEntry ? ownEntry.url : referenceUrl;
     const isLittleton = album && album.folderStyle === "littleton";
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
     if (filled && side === "reverse") discClasses.push("reverse-face");
     if (useReference) discClasses.push("reference-image");
-    const discStyleAttr = referenceUrl ? ` style="background-image:url('${referenceUrl}');background-size:cover;"` : "";
+    const discStyleAttr = photoUrl ? ` style="background-image:url('${photoUrl}');background-size:cover;"` : "";
 
     let discContent;
     if (isLittleton) {
@@ -8423,14 +8440,14 @@
       // genuinely empty/unowned hole rather than looking identical to it.
       discClasses.push("die-cut");
       if (filled) {
-        discContent = referenceUrl ? "" : "🪙";
-        if (!useReference) discClasses.push("photo-pending");
+        discContent = photoUrl ? "" : "🪙";
+        if (!photoUrl) discClasses.push("photo-pending");
       } else {
         discContent = "";
         discClasses.push("die-cut-empty");
       }
     } else {
-      discContent = filled ? (referenceUrl ? "" : (useReference ? "🪙" : slot.year)) : "?";
+      discContent = filled ? (photoUrl ? "" : slot.year) : "?";
     }
 
     // Real Littleton folders print only date + mintmark under each hole, no

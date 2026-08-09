@@ -1578,11 +1578,13 @@ when no such photo exists.
   the multi-child case (that's the one whose flip card just changed), but the
   same rule is obviously right for a childless Set with a photo, and scoping
   it to child-count would have been arbitrary. Flagged as a deliberate call.
-- **Individual coins are deliberately NOT routed through this** — that's
-  `galleryFlipEntry()`'s territory, still unwired. Wiring it would mean
-  deciding whether a coin's own captured photo outranks its series reference
-  image, which is a real decision nobody has made. Asserted that a coin's
-  flip card is unchanged by this item.
+- **Individual coins were deliberately NOT routed through this at the time**
+  — that's `galleryFlipEntry()`'s territory, left unwired here since wiring
+  it meant deciding whether a coin's own captured photo outranks its series
+  reference image, a decision nobody had made yet. Asserted (at the time)
+  that a coin's flip card was unchanged by this item. **Superseded by the
+  coin-level flip photo priority follow-up below** — that decision has since
+  been made (yes) and `galleryFlipEntry()` is now wired the same way.
 - **`AY-00025` ("2026 Best-of-Mint 5-Coin Proof Set") state, since it was
   named as the record to verify against: it has NO gallery entries at all** —
   it isn't in `FAKE_GALLERIES`. So it correctly shows the placeholder until a
@@ -1601,6 +1603,60 @@ reverse falling back to the placeholder when only a front exists, OGP used
 when there's no whole-set photo, a named sub-group refusing to stand in, and
 an individual coin left unaffected. **All 6 suites re-run clean together:
 200 assertions, zero failures, zero page/console errors.**
+
+**Follow-up (separate task, committed directly to main): coin-level flip
+photo priority wired in too.** The decision the addendum above explicitly
+left open — "wiring it would mean deciding whether a coin's own captured
+photo outranks its series reference image" — is now made: **yes**, same
+priority rule as the Set case. `galleryFlipEntry(coin.id, side)` is now a
+new tier 0a in `applyDiscContent()`, ahead of the Set tier (`setFlipPhotoUrl`,
+tier 0b) and the series reference-image fallback — the two tiers are
+mutually exclusive by construction (`galleryFlipEntry` only ever matches
+`"obverse"`/`"reverse"` gallery entries, which a Set row never has), so their
+relative order doesn't matter in practice. Uses the same `applyDiscOwnPhoto()`
+helper as the Set case, with its own tooltip ("Photo of this coin"). Resolved
+independently per side — a coin with a real obverse photo but no reverse yet
+still falls through to the reference image (or placeholder) for reverse on
+its own.
+- **`renderSlotCell()` (Albums' page-flip book) gets the identical priority
+  chain**, keyed off the slot's own `filledBy` CollectionID — a filled slot's
+  own coin's real photo now wins there too, ahead of the slot's series
+  reference-image lookup. This surface is a string-templated render, not a
+  live `applyDiscContent()` element reference, so it inherits the same
+  "picks up a cache upgrade on next render/reopen, not live" tradeoff the
+  reference-image tier already had there — unchanged by this addition.
+- **Every other surface a coin's flip renders on (Browse grid, Browse
+  detail, Spotlight) already routes through `applyDiscContent()`**, so no
+  other call site needed touching — the Set-side multi-child mini-flip grid
+  named in the original request no longer exists as its own surface either
+  (superseded by the accordion redesign above, which collapsed a multi-child
+  Set's display down to its own single flip card + a "Coins in this Set" list
+  with no per-child discs at all — that list already shows real grade/value
+  text, no photo tier to wire).
+- Verified headless (`verify_coin_flip_photo_priority.js`, 17 assertions):
+  `galleryFlipEntry`/`applyDiscOwnPhoto` behave as expected in isolation;
+  `applyDiscContent()` obverse uses the seeded own photo (no
+  `reference-image` class, correct tooltip) while reverse (no own photo
+  seeded) does NOT inherit it; Browse grid, Browse detail, and Spotlight all
+  show the own photo for the seeded coin; `renderSlotCell()` shows it on a
+  filled slot's obverse and not on its un-seeded reverse; and an unrelated
+  coin with no gallery entry never picks up another coin's photo. (Reference-
+  image-tier assertions from the original addendum's own suite don't
+  reproduce here the same way — `ENABLE_REFERENCE_IMAGES` is a hardcoded
+  `false` in this environment, same as always, so proving the coin tier
+  doesn't clobber the reference-image tier isn't directly testable
+  end-to-end here; side-independence — reverse not inheriting obverse's own
+  photo — is what's actually verified instead, which is the property this
+  task cared about.) `verify_addendum.js`'s own now-superseded "coin
+  unaffected" assertion was updated to assert the coin DOES now show its own
+  photo, following this real design decision rather than weakening the
+  suite. All 9 suites (verify_accordion_redesign, verify_addendum,
+  verify_album_grid_overflow, verify_nav_smoke, verify_obverse_capture_adjust,
+  verify_photo_consolidation, verify_purchase_details_rename,
+  verify_standalone_manage_photos, verify_coin_flip_photo_priority) re-run
+  clean together, zero failures, zero page/console errors.
+- **Not verified: any real device** — same standing caveat as everything
+  else in this feature area (headless Chromium only).
 
 **Second addendum (same branch, now merged along with everything above):
 Share repositioned.** Used to be
