@@ -835,6 +835,269 @@ them (see below).
   view. Full nav smoke-check (Docket/Catalog/Albums/Sets/Dashboard) confirms
   nothing else regressed.
 
+### Photo Gallery, two-stage crop pipeline & Manage Photos (BUILT, held on branch `claude/photo-gallery-crop`, NOT merged)
+A general per-record **photo gallery** replacing the old rigid "obverse/
+reverse/additional" fixed slots, a **two-stage crop pipeline** (rectangular
+background crop → derived circle crop), a **sub-group photo tier** for Sets,
+and a dedicated **Manage Photos** screen for add/replace on any record at any
+status. Architectural/cross-cutting, so per the merge policy it's **held on
+its branch pending Ray's explicit go-ahead** — reviewed as one whole, not
+piecemeal, even though it landed as several commits.
+- **Scope is still mockup** — like every other coin-side Save, nothing here
+  writes OneDrive. Captured photos live as in-browser blob URLs in
+  `galleryStore` for the session (gone on reload); the naming/storage
+  convention is documented for the future write layer, exactly as the
+  crop-commit naming already is. The two crop TOOLS are real and work
+  in-browser. The one exception is Add Set's own already-gated
+  (`ENABLE_SET_WRITE_LAYER`) whole-set/receipt path — see the OGP coupling
+  note below, which was deliberately preserved rather than broken.
+
+#### Data model
+- **One flat typed array per coin/Set**: `gallery: [{ type, url, rawUrl?,
+  circleUrl?, caption, subGroupId?, filename, rawFilename? }]`, no fixed
+  slots. `GALLERY_TYPES` is the controlled vocabulary; each type carries
+  `suffix` / `flipSource` / `retainRaw` / `aspect` / `repeatable` / `tier` /
+  `scope`. Accessors: `galleryFor(id)` (lazily deep-clones the
+  `FAKE_GALLERIES` sparse seed so capture/remove never mutate the seed),
+  `addGalleryEntry` (single-instance types replace in place; only
+  `repeatable` types accumulate), `removeGalleryEntry`,
+  `galleryEntriesForSubGroup`, `removeSubGroupPhotos`.
+- **Revised taxonomy (supersedes the first build's type list):**
+  - `obverse` / `reverse` — the coin's own flip sources. Square-locked,
+    `retainRaw: true`, `scope: "coin"`. The only types that run Stage 2.
+  - `slab_obverse` / `slab_reverse` — a **true front/back pair**, not the
+    earlier single `slab_combined`. Free aspect, no raw retention.
+  - `ogp_obverse` / `ogp_reverse` — packaging. **The earlier separate "OGP"
+    and "whole-set" types were merged into this one pair**; valid on coin
+    rows as well as Sets (`scope: "both"`), since a Mint-boxed single coin
+    has packaging too.
+  - `coa` — open-ended (`repeatable`), each entry carrying its own free-text
+    `caption` label, so a multi-page certificate is N entries, not a fixed
+    two.
+  - `reference` — open-ended, coin-scoped. New this round: a reference/
+    comparison shot (an auction listing photo, a Red Book page, a
+    look-alike) kept alongside the coin without pretending to be the coin.
+  - `subgroup_obverse` / `subgroup_reverse` — the new **sub-group tier**
+    (`tier: "subgroup"`), a front/back pair per sub-group of a Set.
+  - `other` — open-ended catch-all (the retired fixed "Additional Photo"
+    slot's role).
+- **Sub-group tier, and the implicit default.** A Set captured with named
+  sub-groups (e.g. Philadelphia / Denver) gets one obverse/reverse pair per
+  sub-group. A **flat Set with no sub-groups still gets exactly one pair**,
+  stored against a `DEFAULT_SUBGROUP_ID` sentinel — that's what the UI shows
+  as the plain "Whole set — front & back" block. Filenames namespace only a
+  *named* sub-group (`{id}_{sg}_obverse.png`); the implicit default adds no
+  namespace (`{id}_obverse.png`), so a flat Set's whole-set photo keeps the
+  filename it always had.
+  - **The whole-set pair and sub-groups are two independent optional
+    things, not alternatives.** An early version of this tier hid the
+    whole-set pair once any sub-group existed — that was wrong (Ray's
+    correction from a live tablet test) and is fixed: a Set can have both.
+  - **Sub-group IDs are stable (`data-sg-id`)**, generated once and never
+    derived from the sub-group's name or index, so renaming or reordering
+    sub-groups never re-points existing photos.
+  - **Deleting a sub-group removes ONLY that sub-group's own obverse/
+    reverse pair** — never Set-level photos (OGP/COA/other), and
+    **structurally cannot cascade to the photos of coins captured under
+    it**: a child coin's photos live in its own gallery keyed by the
+    child's CollectionID, not in the parent Set's array `removeSubGroupPhotos()`
+    touches. Explicitly required by Ray, explicitly asserted in the suite.
+- **No filename collision between tiers.** A coin's flip sources are
+  `scope: "coin"`, so a Set row can never produce `{id}_obverse_cropped.png`
+  from a coin flip AND `{id}_obverse.png` from its default sub-group pair
+  meaning two different things — the coin flip always carries the
+  `_cropped`/`_original` suffix, the sub-group pair never does.
+
+#### Crop pipeline
+- **Stage 1 background crop (`openBgCrop`/`initBgCrop`)** — hand-rolled
+  canvas + pointer events (no library, per the no-CDN posture). Draggable/
+  resizable crop box (8 handles; edge handles hidden when square-locked),
+  aspect-lock toggle (square default for flip sources, free for everything
+  else), EXIF-oriented first via the existing `loadOrientedImageCanvas`,
+  bakes the selected region to a blob via an `onComplete` callback.
+- **Rotation in Stage 1 (added after a live tablet test found it missing).**
+  Two 90° quick-rotate buttons (`#bgCropRotateLeftBtn`/`#bgCropRotateRightBtn`)
+  plus a ±45° `#bgCropStraighten` slider, mirroring the circle adjuster's
+  own controls. **Implemented by re-baking the source into a new upright
+  canvas (`bakeRotatedWorkCanvas`), not by CSS-transforming the preview** —
+  a transform would leave the crop box's math fighting a rotated coordinate
+  space; re-baking keeps the box axis-aligned and the crop arithmetic
+  unchanged. `refreshBgCropSource()` rebuilds the work canvas, stage size,
+  and box on every rotation change.
+  - **The final crop reads `bgCropState.workCanvas`, never the `<img>`.**
+    A latent race was found and fixed here: the preview `<img>`'s `src` is
+    set asynchronously from a data URL, so cropping immediately after a
+    rotation could read a blank or stale image.
+- **Stage 2 circle** reuses the EXISTING `openPhotoAdjust` circle adjuster,
+  generalized to a callback mode (`openPhotoAdjust(source, { onComplete })`)
+  alongside its legacy positional-target-ID mode — the legacy Add Coin/
+  Browse Edit slot writes are unchanged. The circle is **re-derived at
+  display time**, never a stored asset; `runCropPipeline(file, type,
+  collectionId, onEntry, subGroupId)` chains raw → Stage 1 → (flip sources
+  only) Stage 2, producing the gallery entry.
+- **Overlay stacking.** `#bgCropOverlay` and `#photoAdjustOverlay` sit at
+  `z-index: 210`, above the sub-group/type sheets at `200`. Both were `200`
+  originally and the sheet, being later in the DOM, covered the crop tool
+  and swallowed its clicks — it read as "the app froze." Caught here before
+  it reached a device; keep any future sheet below 210.
+
+#### Capture UI
+- **`buildPhotoPairSlot(opts)` is the one shared pair-slot renderer** (face,
+  label, 📷 / 🖼️ / 🗑️ actions) used by OGP, whole-set/sub-group, and slab
+  blocks. It exists because the same defect — a single file input with no
+  camera route — was found independently in three places. **Samsung
+  Internet skips the native chooser dialog**, so every capture surface needs
+  a real paired 📷 Camera (`capture="environment"`) and 🖼️ Library input,
+  not one combined button. `initGalleryCapture`'s own widget had the same
+  defect and was fixed the same way.
+- **Progressive disclosure, mobile-first: nothing defaults expanded.** Every
+  photo group is a collapsed accordion; per-row chips open a focused sheet
+  rather than expanding inline. This applies to Add Coin, Add Set Step 1 and
+  Step 2, and Manage Photos alike.
+- **Add Set Step 2 (per-coin card)** gained the coin's slab pair and
+  reference photos as their own collapsed accordions, so a slabbed child is
+  captured fully without leaving the set-capture flow.
+- **A child coin reads through to its parent Set's COA**
+  (`renderParentCoaReadThrough(hostEl, parentId, parentName)`) — resolved
+  **live** from the parent's gallery at render time; nothing is copied onto
+  the child. Because the link is `originSetId`, it keeps working after
+  promotion, which was the explicit requirement.
+
+#### Manage Photos screen
+A dedicated `view-managephotos` for adding/replacing photos on **any record
+at any status** — the original capture flows are no longer the only way in.
+`openManagePhotos(ctx)` / `renderManagePhotos()`, with `ctx = { id, name,
+meta, kind:"coin"|"set", draft?, backTo, parentSetId?, parentSetName?,
+originSetId? }`.
+- **Coin records**: obverse & reverse, slab pair, reference photos, other,
+  plus the parent-Set COA read-through when the coin is a Set child.
+- **Set records**: OGP pair, whole-set pair, sub-group pairs, COA, other,
+  and a **"Coins in this Set"** list that drills into each child's own
+  Manage Photos screen and back.
+- **Sections are collapsed accordions and open sections survive a
+  re-render** (adding or removing a photo re-renders; the section you were
+  working in stays open).
+- **Three entry points**: (1) a "📷 Manage photos" button on Browse detail —
+  **for both coins and Sets**; (2) a per-row 📷 Photos button on In Progress
+  Sets, passing the draft; (3) Docket photo-gap rows, which now route here
+  instead of to Edit Coin / a Step 1 resume. **The Docket tracks gap kind by
+  construction** (four distinct row-building sites, no shared branch), so
+  this routing carries no mis-route risk for future non-photo gap types —
+  confirmed by reading the code, not assumed.
+- **`activateViewOnly(viewId)`** was added for the Back path: the Browse-
+  detail entry's `backTo` originally called `showBrowseDetail(coin)` alone,
+  which only re-renders inside `#view-browse` and never changes the active
+  view — Back left the user stranded on Manage Photos. Using
+  `navigate("browse")` would have worked but would also fire
+  `resetBrowseFilters()`, silently clearing the user's filters.
+  `activateViewOnly()` swaps the active view without navigate()'s
+  section-level side effects. **Use it for any future screen opened on top
+  of a sub-view the user was already inside.**
+
+#### Add Set: purchase info + storage
+Add Set Step 1 gained the fields Add Coin already had — Cost
+(`#addSetCost`), Shipping (`#addSetShippingCost`), Seller/Vendor
+(`#addSetVendor`), Purchase Date (`#addSetPurchaseDate`), Storage Location
+(`#addSetStorageLocation`), Container (`#addSetContainer`) — using **Edit
+Set's existing field set and labels** rather than inventing new ones, so the
+two Set forms agree. Same drill-down pattern as Add Coin (a Purchase Info
+row opening `#addSetPurchaseView`, not an inline accordion).
+- **Receipt capture lives inside the Purchase Info drill-down**, matching
+  Add Coin — it was briefly placed in the Set photos/documents accordion and
+  was **moved, not duplicated**, on Ray's call. Add Coin's placeholder-icon
+  markup was deliberately NOT copied across: `wireAddSetPhotoSlot` passes a
+  `null` placeholderId, so the icon would have been stuck permanently
+  visible.
+- **The real (gated) write path was preserved when the legacy whole-set slot
+  was retired**: capturing OGP front mirrors its blob into
+  `addSetPhotoFiles["whole"]`, so `draft.wholeSetPhoto`, the Staging upload,
+  `plannedPromotionMoves()`, and the Docket's whole-set gap check all keep
+  working unchanged. Ray explicitly confirmed OGP-front is the right
+  semantic match for the old whole-set photo.
+
+#### Known legacy data, NOT fixed here (separate future cleanup)
+Both flagged by Ray, both deliberately out of scope for this feature:
+- **Some existing coins' `Obverse`/`Reverse` columns already hold slab
+  photos**, not raw coin photos — confirmed by inspecting the real
+  CoinPhotos folder. A pre-existing data overload, not something this build
+  touches. Those files should be renamed/re-pointed into the new
+  `slab_obverse`/`slab_reverse` types in a future database cleanup pass.
+- **Five real coins carry a `{CollectionID}_combined.jpg` in the Photo3
+  column.** The first version of this feature deliberately named its type's
+  suffix `_combined` to match them; the revised taxonomy replaced that with
+  a true `slab_obverse`/`slab_reverse` pair, so those five files are now
+  unmapped and want the same cleanup pass — split into a front/back pair, or
+  re-filed as `other`.
+
+#### Verification
+Verified headless (Playwright, `verify_gallery_full.js`) — **92 assertions,
+all passing, across two device contexts** (412×915 touch phone, 1024×768
+touch tablet), zero page/console errors:
+- Taxonomy and schema: slab as a true pair, no `slab_combined`, OGP merged,
+  sub-group tier present, flip sources exactly obverse/reverse, raw retained
+  only for flip sources, COA/reference/other open-ended, aspect locks.
+- Filename derivation: `_cropped`/`_original` for flip sources, open-ended
+  types indexing from 1, named sub-group namespacing, implicit default
+  adding none, and no coin-flip/sub-group collision.
+- Gallery accessors: empty start, single-instance replace, open-ended
+  accumulate, remove-one, and `FAKE_GALLERIES` seed never mutated.
+- **Sub-group delete scope**: removes only its own pair, leaves Set-level
+  photos intact, never touches a child coin's gallery.
+- End-to-end capture with a real non-square PNG upload: Stage 1 opens, has
+  both quick-rotate buttons and the straighten slider, and sits at z-index
+  ≥ 210.
+- Add Set purchase/storage fields all present; all Add Set accordions
+  collapsed by default.
+- Manage Photos from all three entry points, for coins and Sets; sections
+  open collapsed; camera+library present in the COA block; Back returns to
+  Browse (the bug above) and to the Docket.
+- Parent-COA read-through visible on a child with nothing copied onto it.
+- Nav regression smoke across all 14 top-level routes; no page-level
+  horizontal overflow.
+Phone and tablet screenshots reviewed for both a coin and a Set record.
+- **Ray also confirmed on a real tablet**: crop-box drag, resize handles
+  (including coin-photo square-lock), rotation, and the straighten slider.
+- **Not verified**: Samsung Internet specifically (only this environment's
+  Chromium and Ray's tablet); any real OneDrive write (mockup — none
+  exists). **Note the recurring lesson from the cabinet-nav passes**: this
+  environment is weakest at catching real-device spacing/rendering issues,
+  so a final phone pass on Ray's S25 is worth doing before merge.
+- **Prior committed regression suites could not be re-run** — the project's
+  `verify_*.js` scripts live in per-session scratchpads by convention and
+  none survived into this session. The nav smoke check above is a
+  substitute, not an equivalent; if a full regression matters before merge,
+  those suites need rebuilding.
+- **Merged to main on Ray's real-device sign-off** — both a tablet and a
+  Samsung Internet phone pass came back clean, including the crop pipeline
+  itself: a photo cropped through Stage 1/Stage 2 updates the slot/thumbnail
+  immediately in-session. (Not seeing it again after leaving/reloading is
+  the expected mockup limitation until the write layer exists — not a bug.)
+  Ray explicitly accepted the 92-assertion suite above as sufficient
+  coverage for this merge rather than holding for the fuller rebuild below.
+
+**Tracked follow-up (not started): rebuild the fuller regression suite.**
+Sized as its own task, not a quick pass — real gaps beyond what
+`verify_gallery_full.js` covers today, some needing substantive rewriting
+(not just re-running) since the taxonomy changed underneath them
+(`slab_combined` → a true pair, OGP merge):
+- The crop pipeline actually completing end-to-end — today's suite opens
+  Stage 1 and checks its controls exist, but doesn't drive a capture all the
+  way through Stage 2 to a finished entry with `url`/`rawUrl`/`circleUrl`
+  and a live slot-preview update.
+- The "View all photos (N)" viewer button + viewer overlay on coin detail.
+- The Set detail thumbnail strip rendering real thumbs.
+- The scope-filtered picker (coin scope = 5 types, excluding flip sources +
+  whole-set).
+- The capture widget wired into every flow it touches (Add Coin, Browse
+  Edit), not just Add Set.
+- Sub-group add/rename/reorder in the Add Set UI, confirming stable IDs
+  survive a rename.
+- Bug 1/Bug 2's original specific repros (Pause/resume photo persistence,
+  the rotation race) — verified when built, but the repro scripts
+  themselves didn't survive into later sessions.
+Rough sizing given when asked: on the order of 60–100 additional
+assertions, roughly half-day-to-day scale, not mechanical re-scaffolding.
+
 ### Browse detail view (locked in)
 Browse is a grid-then-detail pattern (same shape as Albums): tapping a grid card
 opens a full detail view for that coin with the flip-label treatment above, plus

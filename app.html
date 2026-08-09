@@ -1639,6 +1639,12 @@
     z-index: 200; padding: 20px;
   }
   .photo-adjust-overlay.hidden { display: none; }
+  /* The two CROP overlays can be opened FROM another overlay (the sub-group
+     photo sheet stays open behind them, so you land back on it after
+     cropping). Every .photo-adjust-overlay shares z-index 200, so without
+     this the later-in-DOM sheet paints over the crop tool and swallows its
+     clicks — the tool looks frozen. Lift both crop stages above the rest. */
+  #bgCropOverlay, #photoAdjustOverlay { z-index: 210; }
   .photo-adjust-panel {
     background: var(--bg-case); border: 1px solid var(--case-border-bright);
     border-radius: 14px; padding: 20px; max-width: 320px; width: 100%; text-align: center;
@@ -1677,6 +1683,131 @@
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
     border: none; color: #241c05; font-weight: 700;
   }
+
+  /* ---- Stage 1 background crop (rectangular, hand-rolled) — trims raw
+     upload down to just the subject before it enters a gallery. Reuses the
+     .photo-adjust-overlay backdrop; the panel is wider to fit a rectangular
+     stage. A draggable/resizable crop box with 8 handles sits over the image;
+     the area outside the box is dimmed. Aspect-lock toggle keeps the box
+     square (flip sources) or free-form (gallery-only images). */
+  .bg-crop-panel {
+    background: var(--bg-case); border: 1px solid var(--case-border-bright);
+    border-radius: 14px; padding: 18px; max-width: 420px; width: 100%; text-align: center;
+  }
+  .bg-crop-stage {
+    position: relative; margin: 0 auto 12px; background: #000; overflow: hidden;
+    border: 1px solid var(--case-border); touch-action: none; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bg-crop-stage img { display: block; max-width: 100%; max-height: 100%; pointer-events: none; user-select: none; }
+  /* Four dim panels around the crop box (top/right/bottom/left) rather than a
+     single overlay with a punched hole, so the selected region stays fully
+     bright with no compositing tricks. */
+  .bg-crop-shade { position: absolute; background: rgba(0,0,0,0.55); pointer-events: none; }
+  .bg-crop-box {
+    position: absolute; border: 1px solid var(--gold-bright);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.5); cursor: move; touch-action: none;
+  }
+  .bg-crop-handle {
+    position: absolute; width: 16px; height: 16px; background: var(--gold-bright);
+    border: 1px solid #241c05; border-radius: 3px; touch-action: none;
+  }
+  .bg-crop-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
+  .bg-crop-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
+  .bg-crop-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+  .bg-crop-handle.se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+  .bg-crop-handle.n { top: -8px; left: 50%; margin-left: -8px; cursor: ns-resize; }
+  .bg-crop-handle.s { bottom: -8px; left: 50%; margin-left: -8px; cursor: ns-resize; }
+  .bg-crop-handle.w { left: -8px; top: 50%; margin-top: -8px; cursor: ew-resize; }
+  .bg-crop-handle.e { right: -8px; top: 50%; margin-top: -8px; cursor: ew-resize; }
+  .bg-crop-aspect-row {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
+  }
+  #bgCropStraighten { width: 100%; margin-bottom: 12px; }
+
+  /* ---- Sub-group photo chip (on each sub-group row) + its focused sheet.
+     The chip keeps the row one compact line regardless of how many
+     sub-groups exist, so N sub-groups just scroll rather than needing a
+     drill-down screen; the sheet gives capture full width when opened. */
+  .sg-photos-btn {
+    margin-top: 6px; padding: 5px 12px; border-radius: 14px;
+    border: 1px dashed var(--case-border); background: transparent;
+    color: var(--text-muted); font-family: inherit; font-size: 11px; cursor: pointer;
+  }
+  .sg-photos-btn.has-photos { border-style: solid; border-color: var(--gold); color: var(--gold-bright); }
+  /* Side-by-side on anything roomy; stacks under ~360px of panel width. */
+  .sg-photo-pair { display: flex; gap: 10px; }
+  .sg-photo-pair .sg-photo-slot { flex: 1; text-align: center; }
+  .sg-photo-pair .sg-photo-img {
+    width: 100%; height: 120px; object-fit: contain; border-radius: 8px;
+    border: 1px solid var(--case-border); background: var(--bg-elevated); display: block;
+  }
+  .sg-photo-pair .sg-photo-empty {
+    width: 100%; height: 120px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: rgba(255,255,255,0.015); display: flex; align-items: center; justify-content: center;
+    font-size: 24px; opacity: 0.45;
+  }
+  .sg-photo-pair .sg-photo-label { font-size: 11px; color: var(--text-muted); margin: 6px 0 4px; }
+  .sg-photo-pair .sg-photo-actions { display: flex; gap: 6px; justify-content: center; }
+  .sg-photo-pair .sg-photo-actions button {
+    padding: 5px 9px; border-radius: 6px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--text-muted); font-family: inherit; font-size: 14px; cursor: pointer;
+  }
+
+  /* ---- Reusable gallery-capture widget (Add Coin / Browse Edit / Add Set /
+     Edit Set). An "Add photo" control opens a type picker, then the crop
+     pipeline; captured photos render as thumbnails with a caption field and a
+     remove button. */
+  .gallery-capture { margin-top: 14px; }
+  .gallery-capture .gc-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+  .gc-thumb {
+    width: 88px; position: relative; text-align: center;
+  }
+  .gc-thumb .gc-img {
+    width: 88px; height: 88px; border-radius: 8px; border: 1px solid var(--case-border);
+    background: #000 center/cover no-repeat; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: var(--text-muted); overflow: hidden;
+  }
+  .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+  .gc-thumb .gc-caption {
+    width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
+    border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+  }
+  .gc-thumb .gc-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
+  }
+  .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gc-add-btn {
+    padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: transparent; color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  /* Type picker — a small menu of the types valid for the current scope. */
+  .gallery-type-picker { max-width: 300px; }
+  .gtp-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 14px; }
+  .gtp-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+    font-family: inherit; font-size: 13px; cursor: pointer; text-align: left;
+  }
+  .gtp-item:hover { border-color: var(--gold); }
+  .gtp-item .gtp-icon { font-size: 17px; }
+
+  /* ---- Gallery display: a read-only strip of thumbnails (Set detail region
+     + a shared viewer overlay), reusing the .gc-img tile look. */
+  .gallery-strip { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 4px 0 12px; }
+  .gallery-strip .gc-thumb { cursor: pointer; }
+  .gallery-view-btn {
+    display: inline-flex; align-items: center; gap: 6px; margin: 10px auto 0;
+    padding: 8px 16px; border-radius: 20px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
+  }
+  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 6px; }
+  .gallery-viewer-grid .gv-cell { width: 130px; text-align: center; }
+  .gallery-viewer-grid .gc-img { width: 130px; height: 130px; }
+  .gallery-viewer-grid .gv-cap { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
   /* Year picker — decade grid, then a small grid of years within it, so
      picking a year never means scrolling one giant list. Typing still works. */
@@ -2024,6 +2155,11 @@
             <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
           </div>
           <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
+          <!-- Set detail gallery region (OGP / whole-set front-back / COA
+               front-back) — shown at the top for a Set row, above its flip /
+               child grid. Hidden for individual coins (they use the "View all
+               photos" button below instead). JS-populated in showBrowseDetail(). -->
+          <div class="gallery-strip hidden" id="browseDetailGalleryRegion"></div>
           <div class="case flip-frame" id="browseDetailFlipFrame">
             <span class="flip-label tl" id="browseDetailTL" aria-hidden="true"></span>
             <span class="flip-label tr" id="browseDetailTR" aria-hidden="true"></span>
@@ -2047,12 +2183,20 @@
           <div class="set-child-grid hidden" id="browseDetailChildFlips" aria-label="Coins in this set"></div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
+          <!-- Coin "View all photos" affordance — shown for an individual coin
+               when its gallery holds photos beyond the two flip sources. Opens
+               the full gallery viewer. JS-toggled in showBrowseDetail(). -->
+          <div style="text-align:center;">
+            <button type="button" class="gallery-view-btn hidden" id="browseDetailGalleryBtn">🖼️ View all photos</button>
+          </div>
+
           <div class="case detail-panel" id="browseDetailPanel">
             <!-- Superseded: Edit used to live in the top action row next to
                  Share, above the flip. Moved down into this info box instead
                  — Share stays up top. Routes to Edit Coin or Edit Set
                  depending on the row's own denom (see the click handler). -->
             <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+              <button type="button" class="edit-btn" id="browseDetailManagePhotosBtn" style="margin-right:8px;">📷 Manage photos</button>
               <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
             </div>
             <!-- Key facts, always visible (each row hides itself when blank). -->
@@ -2174,20 +2318,9 @@
           <label>Container</label>
           <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
 
-          <div class="photo-box" style="margin-top:14px;">
-            <div class="name">🖼️ Additional Photo</div>
-            <div class="coin-photo-frame" id="browseEditAdditionalFrame">
-              <span class="placeholder-icon" id="browseEditAdditionalPlaceholder">🖼️</span>
-              <img id="browseEditAdditionalPreview">
-            </div>
-            <div class="photo-btns">
-              <button type="button" id="browseEditAdditionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="browseEditAdditionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="browseEditAdditionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="browseEditAdditionalCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="browseEditAdditionalLibraryInput" accept="image/*">
-          </div>
+          <!-- General photo gallery (slab/COA/box/other) — supersedes the old
+               fixed Additional Photo slot. -->
+          <div class="gallery-capture" id="browseEditGallery"></div>
 
           <div class="photo-box" style="margin-top:14px; max-width:220px;">
             <div class="name">🧾 Receipt Photo</div>
@@ -2240,6 +2373,9 @@
 
           <label>Vendor / Seller</label>
           <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <!-- Set photo gallery — OGP/box, whole-set front/back, COA front/back. -->
+          <div class="gallery-capture" id="editSetGallery"></div>
 
           <div class="photo-box" style="margin-top:14px; max-width:220px;">
             <div class="name">🧾 Receipt Photo</div>
@@ -2467,6 +2603,11 @@
             <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
+          <!-- General photo gallery (slab/COA/box/other) — supersedes the old
+               fixed "Additional Photo" slot. Obverse/Reverse above are the two
+               special flip sources; everything else lives here. -->
+          <div class="gallery-capture" id="addCoinGallery"></div>
+
           <div class="section-label" style="margin-top:0;">Grading Service (optional)</div>
           <label>Grader</label>
           <select id="addCoinGrader">
@@ -2681,20 +2822,8 @@
             <option value="">— not part of an album —</option>
           </select>
 
-          <div class="photo-box" style="margin-top:14px;">
-            <div class="name">🖼️ Additional Photo</div>
-            <div class="coin-photo-frame" id="additionalFrame">
-              <span class="placeholder-icon" id="additionalPlaceholder">🖼️</span>
-              <img id="additionalPreview">
-            </div>
-            <div class="photo-btns">
-              <button type="button" id="additionalCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="additionalLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="additionalAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="additionalCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="additionalLibraryInput" accept="image/*">
-          </div>
+          <!-- The old "Additional Photo" slot here is superseded by the Photo
+               Gallery on the Add Coin main view (its "Other" type). -->
 
           <button class="save-btn" id="storageDoneBtn">Done</button>
         </div>
@@ -2797,6 +2926,9 @@
 
       <!-- ============ ADD SET — Step 1 (set-level basics) ============ -->
       <section class="view" id="view-addset">
+        <!-- Main Step 1 content; the Purchase Info / Storage drill-downs below
+             replace this in place, exactly as Add Coin's subviews do. -->
+        <div id="addSetStep1Main">
         <button class="back-link" id="addSetBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Add Set</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
@@ -2881,35 +3013,125 @@
           <p style="font-size:12px; color:var(--text-muted); margin-top:0;">
             e.g. "Philadelphia" / "Denver" for a Mint Set. If used, the expected count is
             per sub-group and each coin belongs to exactly one. Leave empty for a flat set.
+            Each sub-group can carry its own front/back photos — separate from the
+            whole-set photos in Set photos &amp; documents below.
           </p>
           <div id="addSetSubGroups"></div>
           <button type="button" id="addSetAddSubGroupBtn" class="save-btn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:8px;">+ Add a sub-group</button>
         </div>
 
-        <div class="section-label">Photos (optional)</div>
-        <div class="photo-box" id="addSetWholeBox">
-          <div class="name">📦 Whole-set photo (optional)</div>
-          <img id="addSetWholePreview">
-          <div class="photo-btns">
-            <button type="button" id="addSetWholeCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-            <button type="button" id="addSetWholeLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+        <!-- Purchase Info / Storage drill-downs — same replace-the-screen
+             pattern (and the same field set + labels) Add Coin uses, so
+             adding a Set feels like adding a coin rather than a thinner
+             separate form. Field labels deliberately match Edit Set's
+             existing ones so the create and edit forms agree. -->
+        <div class="case form-row" id="addSetPurchaseInfoRow">
+          <span class="fr-icon">💵</span>
+          <div class="fr-info">
+            <div class="fr-title">Purchase Info</div>
+            <div class="fr-summary" id="addSetPurchaseInfoSummary">Tap to add price, seller, shipping</div>
           </div>
-          <input type="file" id="addSetWholeCameraInput" accept="image/*" capture="environment">
-          <input type="file" id="addSetWholeLibraryInput" accept="image/*">
+          <span class="chevron">›</span>
         </div>
-        <div class="photo-box" id="addSetReceiptBox" style="margin-top:10px;">
-          <div class="name">🧾 Receipt photo (optional)</div>
-          <img id="addSetReceiptPreview">
-          <div class="photo-btns">
-            <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-            <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+        <div class="case form-row" id="addSetStorageRow">
+          <span class="fr-icon">🗄️</span>
+          <div class="fr-info">
+            <div class="fr-title">Storage</div>
+            <div class="fr-summary" id="addSetStorageSummary">Tap to add storage location or container</div>
           </div>
-          <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
-          <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
+          <span class="chevron">›</span>
+        </div>
+
+        <!-- Set photos & documents — ONE collapsed accordion (progressive
+             disclosure: this taxonomy is far too much to show expanded on a
+             phone). Holds the package/OGP pair, the whole-set front/back pair,
+             and the open-ended COA list.
+             Superseded: the Receipt briefly lived here too, on the reasoning
+             that it's a Set-level document. It now lives in the Purchase Info
+             drill-down instead, matching Add Coin — a receipt belongs with the
+             purchase it documents. Moved, not duplicated. -->
+        <div class="detail-accordion" id="addSetDocsAccordion">
+          <button type="button" class="accordion-header" id="addSetDocsHeader" aria-expanded="false">
+            <span>📦 Set photos &amp; documents</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetDocsCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetDocsBody">
+            <!-- Package exterior (OGP) pair + flat-Set front/back pair, both
+                 JS-rendered by renderAddSetDocs(). -->
+            <div id="addSetDocsSlots"></div>
+
+            <!-- Open-ended COA list (multi-page certificates) + any other
+                 Set-level photo, via the reusable gallery widget. -->
+            <div class="gallery-capture" id="addSetGallery"></div>
+          </div>
         </div>
 
         <button class="save-btn" id="addSetStartBtn">Reserve ID &amp; start capturing coins</button>
         <p class="placeholder-note" id="addSetStep1Note"></p>
+        </div><!-- /addSetStep1Main -->
+
+        <!-- Purchase Info drill-down. Same fields/labels as Add Coin's own
+             Purchase Info subview and as Edit Set, so create and edit agree.
+             Receipt is deliberately NOT duplicated here — it already lives in
+             the Set photos & documents accordion on the main view. -->
+        <div class="case form-card" id="addSetPurchaseView" style="display:none;">
+          <button class="back-link" id="addSetPurchaseBackBtn" style="padding-top:0;">← Back</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Info</div>
+
+          <label>Purchase Price</label>
+          <input type="number" step="0.01" id="addSetCost" placeholder="e.g. 450.00">
+
+          <label>Shipping Cost</label>
+          <input type="number" step="0.01" id="addSetShippingCost" placeholder="e.g. 12.50">
+
+          <label>Purchase Date</label>
+          <input type="date" id="addSetPurchaseDate">
+
+          <label>Vendor / Seller</label>
+          <input type="text" id="addSetVendor" placeholder="e.g. eBay seller, local shop name">
+
+          <!-- Receipt lives HERE, alongside the purchase fields, exactly as
+               Add Coin's own Purchase Info subview does. Superseded: it was
+               briefly inside the Set photos & documents accordion (on the
+               reasoning that it's a Set-level document) — but matching Add
+               Coin's placement wins, since a receipt belongs with what it
+               documents. It is NOT duplicated: this is its single home. -->
+          <div class="photo-box" style="margin-top:14px; max-width:220px;">
+            <!-- No placeholder-icon element here, unlike Add Coin's: Add Set's
+                 slots are wired by wireAddSetPhotoSlot(), which passes a null
+                 placeholderId and so would never hide one — it'd sit stuck
+                 above the photo. -->
+            <div class="name">🧾 Receipt Photo</div>
+            <img id="addSetReceiptPreview">
+            <div class="photo-btns">
+              <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+              <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+            </div>
+            <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
+            <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
+          </div>
+
+          <button class="save-btn" id="addSetPurchaseDoneBtn">Done</button>
+        </div>
+
+        <!-- Storage drill-down. Storage Location + Container, matching Edit
+             Set. No "Assign to Album" — that's a coin-level concept; a Set
+             bundle isn't placed in an album slot. -->
+        <div class="case form-card" id="addSetStorageView" style="display:none;">
+          <button class="back-link" id="addSetStorageBackBtn" style="padding-top:0;">← Back</button>
+          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage</div>
+
+          <label>Storage Location</label>
+          <input type="text" id="addSetStorageLocation" placeholder="e.g. Safe, Box 2">
+
+          <label>Container</label>
+          <input type="text" id="addSetContainer" placeholder="e.g. display case, original Mint packaging">
+
+          <button class="save-btn" id="addSetStorageDoneBtn">Done</button>
+        </div>
       </section>
 
       <!-- ============ ADD SET — Step 2 (children, one at a time) ============ -->
@@ -2972,6 +3194,44 @@
         <label for="addSetChildDesignation">Designation</label>
         <input type="text" id="addSetChildDesignation" placeholder="e.g. FB, DCAM — optional">
 
+        <!-- Coin-tier extras, extended IN PLACE on this one-at-a-time card
+             rather than as a new screen. Both collapsed by default — the
+             obverse/reverse pair above stays the primary capture. -->
+        <div class="detail-accordion" id="addSetChildSlabAccordion">
+          <button type="button" class="accordion-header" id="addSetChildSlabHeader" aria-expanded="false">
+            <span>🔲 Slab photos</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetChildSlabCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetChildSlabBody">
+            <p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">
+              The graded holder itself, front and back — the back is where the
+              grading company's cert/serial number usually is.
+            </p>
+            <div class="sg-photo-pair" id="addSetChildSlabPair"></div>
+          </div>
+        </div>
+
+        <div class="detail-accordion" id="addSetChildRefAccordion">
+          <button type="button" class="accordion-header" id="addSetChildRefHeader" aria-expanded="false">
+            <span>🔗 Reference photos</span>
+            <span style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--text-muted);" id="addSetChildRefCount"></span>
+              <span class="accordion-chevron">›</span>
+            </span>
+          </button>
+          <div class="accordion-body hidden" id="addSetChildRefBody">
+            <div class="gallery-capture" id="addSetChildRefGallery"></div>
+          </div>
+        </div>
+
+        <!-- A coin captured as a child of a Set has no COA slot of its own —
+             the certificate belongs to the parent Set. This links through to
+             it read-only (resolved live, nothing copied onto the child). -->
+        <div id="addSetChildCoaLink"></div>
+
         <button class="save-btn" id="addSetChildSaveBtn">Save this coin &amp; add another</button>
         <button type="button" class="save-btn" id="addSetChildDoneBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin-top:10px;">Done — mark set complete (pending research)</button>
         <button type="button" class="save-btn" id="addSetChildPauseBtn" style="background:none; color:var(--text-muted); border:none; margin-top:4px;">Pause — leave as Draft, finish later</button>
@@ -2989,6 +3249,27 @@
         <div id="inProgressSetsContainer"></div>
         <p class="placeholder-note" id="inProgressSetsEmptyNote" style="display:none;">No Sets in progress right now.</p>
         <p class="placeholder-note" id="inProgressSetsErrorNote" style="display:none;"></p>
+      </section>
+
+      <!-- ============ MANAGE PHOTOS ============
+           One screen for adding OR replacing any photo, any type, any tier,
+           on an EXISTING record — Draft, Complete-pending-research, or fully
+           Promoted. Reached from three surfaces (see openManagePhotos):
+             - Browse detail, for a Promoted coin OR Set
+             - an In Progress Sets row, for a Draft
+             - a Docket photo-gap row, for Complete-pending-research
+           Sections are accordions, all collapsed by default (this taxonomy is
+           far too much to show expanded on a phone), and vary by record type.
+           JS-rendered by renderManagePhotos(). -->
+      <section class="view" id="view-managephotos">
+        <button class="back-link" id="managePhotosBackBtn">← Back</button>
+        <h2 class="display" style="margin-top:0;">Manage Photos</h2>
+        <div class="case" style="padding:12px 16px; margin-bottom:14px;">
+          <div style="font-size:13px; font-weight:700;" id="managePhotosName"></div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="managePhotosMeta"></div>
+        </div>
+        <div id="managePhotosSections"></div>
+        <p class="placeholder-note">Photos are held for this session only — no OneDrive write happens yet.</p>
       </section>
 
       <!-- ============ ACQUISITIONS (hub behind the Acquisitions drawer) ============ -->
@@ -3036,6 +3317,94 @@
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stage 1 background crop — trims a raw upload to just the subject before
+       it enters a gallery. Rectangular crop box, aspect-lock toggle. For
+       obverse/reverse this feeds the existing circle adjuster (Stage 2). -->
+  <div class="photo-adjust-overlay hidden" id="bgCropOverlay">
+    <div class="bg-crop-panel">
+      <div class="photo-adjust-title" id="bgCropTitle">Crop Photo</div>
+      <div class="bg-crop-stage" id="bgCropStage">
+        <img id="bgCropImg" draggable="false" alt="">
+        <div class="bg-crop-shade" id="bgCropShadeTop"></div>
+        <div class="bg-crop-shade" id="bgCropShadeBottom"></div>
+        <div class="bg-crop-shade" id="bgCropShadeLeft"></div>
+        <div class="bg-crop-shade" id="bgCropShadeRight"></div>
+        <div class="bg-crop-box" id="bgCropBox">
+          <div class="bg-crop-handle nw" data-h="nw"></div>
+          <div class="bg-crop-handle ne" data-h="ne"></div>
+          <div class="bg-crop-handle sw" data-h="sw"></div>
+          <div class="bg-crop-handle se" data-h="se"></div>
+          <div class="bg-crop-handle n" data-h="n"></div>
+          <div class="bg-crop-handle s" data-h="s"></div>
+          <div class="bg-crop-handle w" data-h="w"></div>
+          <div class="bg-crop-handle e" data-h="e"></div>
+        </div>
+      </div>
+      <label class="bg-crop-aspect-row" id="bgCropAspectRow">
+        <input type="checkbox" id="bgCropAspectLock"> Lock to square
+      </label>
+      <!-- Rotation — same control set as the circle adjuster (two 90° quick
+           rotates + a ±45° straighten slider), ported here because EVERY
+           photo type passes through this stage, whereas the circle adjuster
+           only ever runs for coin obverse/reverse. Without this a whole-set/
+           COA/slab photo taken sideways had no way to be corrected in-app. -->
+      <div class="photo-adjust-rotate-row">
+        <button type="button" id="bgCropRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
+        <button type="button" id="bgCropRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
+      </div>
+      <label class="photo-adjust-zoom-label" for="bgCropStraighten">Straighten</label>
+      <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="1">
+      <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background. Rotate or straighten if it came out sideways or tilted.</div>
+      <div class="photo-adjust-btns">
+        <button type="button" id="bgCropCancelBtn">Cancel</button>
+        <button type="button" id="bgCropUseBtn">Use Crop</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-group photo sheet — the obverse/reverse pair for ONE sub-group
+       (the sealed/bundled group as a whole, distinct from the per-coin photos
+       captured later in Step 2). Opened from a sub-group row's 📷 chip, so
+       capture stays contextual to the row while the row itself stays one
+       compact line regardless of how many sub-groups exist. -->
+  <div class="photo-adjust-overlay hidden" id="subGroupPhotoOverlay">
+    <div class="photo-adjust-panel" style="max-width:360px;">
+      <div class="photo-adjust-title" id="subGroupPhotoTitle">Sub-group photos</div>
+      <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
+        The sealed group as a whole — not the individual coins inside it.
+      </p>
+      <div class="sg-photo-pair" id="subGroupPhotoPair"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="subGroupPhotoDoneBtn">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gallery photo type picker — shown before capture so the photo lands
+       under the right gallery type (obverse, slab, COA, OGP, …). -->
+  <div class="photo-adjust-overlay hidden" id="galleryTypePickerOverlay">
+    <div class="photo-adjust-panel gallery-type-picker">
+      <div class="photo-adjust-title">What kind of photo?</div>
+      <div class="gtp-list" id="galleryTypePickerList"></div>
+      <div class="photo-adjust-btns">
+        <button type="button" id="galleryTypePickerCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full gallery viewer (lightbox grid) — every photo on a coin/Set with
+       type labels + captions. Opened from the detail-view "View all photos"
+       affordance and the Set gallery region. -->
+  <div class="photo-adjust-overlay hidden" id="galleryViewerOverlay">
+    <div class="photo-adjust-panel" style="max-width:460px;">
+      <div class="photo-adjust-title" id="galleryViewerTitle">Photos</div>
+      <div class="gallery-viewer-grid" id="galleryViewerGrid"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;">
+        <button type="button" id="galleryViewerCloseBtn">Close</button>
       </div>
     </div>
   </div>
@@ -3899,7 +4268,16 @@
       lineage: step1.checklistLineage || "",
       dbSetsMatch: step1.dbSetsMatch || null,
       expectedChildCount: trackIndividually ? (Number(step1.expectedChildCount) || 0) : 0,
-      subGroups: trackIndividually && Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{name, expectedCount}]
+      subGroups: trackIndividually && Array.isArray(step1.subGroups) ? step1.subGroups : [], // [{id, name, expectedCount}]
+      // Purchase + storage, captured on Step 1's drill-downs. Same field names
+      // Edit Set / FAKE_COIN_DETAILS already use, so a promoted Set's row and
+      // its edit form line up without translation.
+      cost: step1.cost != null ? step1.cost : null,
+      shippingCost: step1.shippingCost != null ? step1.shippingCost : null,
+      purchaseDate: step1.purchaseDate || "",
+      vendor: step1.vendor || "",
+      storageLocation: step1.storageLocation || "",
+      container: step1.container || "",
       gsid: "",                                    // empty = pending everywhere (Q9)
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
@@ -4267,6 +4645,236 @@
   // structure — combined obverse/reverse handling). The saved-coin flip views fall
   // back to flagging this rather than showing a blank face.
   const COMBINED_PHOTO_COIN_IDS = ["AY-00007"];
+
+  // ==================================================================
+  // PHOTO GALLERY & CROP PIPELINE (mockup) — a general per-coin / per-Set
+  // photo gallery, replacing the old rigid "obverse/reverse/additional"
+  // fixed slots. Each gallery is a single flat array of typed entries; the
+  // flip card still derives from the obverse/reverse entries specifically,
+  // but everything else (slab combined shot, COA front/back, OGP box, any
+  // other photo) coexists in the same array with no fixed count or shape.
+  //
+  // SCOPE: mockup only — like every other coin-side Save in this app, nothing
+  // here writes to OneDrive. Captured photos live as in-browser blob URLs in
+  // galleryStore for the session and are gone on reload; the naming/storage
+  // convention below is documented for the future write layer to implement
+  // against, exactly the way the crop-commit naming already is (see CLAUDE.md
+  // "OneDrive folder structure"). The two-stage crop tools themselves ARE real
+  // and work in-browser.
+  //
+  // Controlled type vocabulary. Each type carries:
+  //   suffix     — the {CollectionID}{suffix}.png filename the future write
+  //                layer would store (flat, no subfolder — same as every other
+  //                photo convention in the project).
+  //   flipSource — coin obverse/reverse only: these two feed the flip-card
+  //                circle crop (Stage 2). The circle is re-derived at display
+  //                time from the background-cropped rectangle, never stored as
+  //                its own asset.
+  //   retainRaw  — keep the true pre-background-crop upload alongside the
+  //                cropped one — only the flip sources do (matches the
+  //                already-locked-in convention: raw = _original,
+  //                background-cropped = _cropped). Everything else keeps a
+  //                single stored copy.
+  //   aspect     — Stage-1 background-crop aspect: "square" locked for flip
+  //                sources (gives the circle adjuster a clean square), "free"
+  //                for everything else (slab/COA/OGP are arbitrary shapes).
+  //   repeatable — true = any number of these, each user-labeled via `caption`
+  //                (COA pages, reference photos, misc). false = one per record,
+  //                or one per SUB-GROUP for the subgroup_* pair.
+  //   tier       — "coin" | "set" | "subgroup". Drives which capture surface
+  //                offers it and how it's grouped in Manage Photos.
+  //   scope      — which capture pickers surface it ("coin" | "set" | "both").
+  //                A coin CAN carry an OGP photo (a Mint-boxed American Eagle),
+  //                so ogp_* is "both" — the single array imposes no row-type
+  //                restriction, this only drives default picker contents.
+  //
+  // TAXONOMY REVISION (supersedes the first cut of this feature):
+  //   - OGP and "whole set" were two separate types documenting the same
+  //     physical thing (the packaging) — merged into the ogp_* pair. This also
+  //     resolved a latent filename collision: the old whole_set_obverse used
+  //     suffix "_obverse", identical to the coin flip source's.
+  //   - Slab was a single "both sides + cert" combined image; it's now a true
+  //     front/back pair, because you physically cannot photograph both sides
+  //     of a slab at once. The 5 existing {CollectionID}_combined.jpg files
+  //     are deliberately NOT renamed — see the legacy-data note below.
+  //   - COA was a fixed front/back pair; it's now open-ended + labeled, since
+  //     real certificates run to multiple pages.
+  //   - Reference photos (PCGS/GreatCollections downloads) are new.
+  //   - The sub-group tier is new — see SUB-GROUP PHOTOS below.
+  //
+  // LEGACY DATA NOTE (pre-existing, deliberately NOT addressed here): some
+  // existing coins' Obverse/Reverse columns already hold SLAB photos rather
+  // than raw coin photos, and 5 coins hold a combined slab shot as
+  // {CollectionID}_combined.jpg in Photo3. Both are data-overload artifacts
+  // predating this feature. Re-pointing those files into the new slab_* type
+  // is a separate future database-cleanup pass, not part of this build.
+  const GALLERY_TYPES = [
+    // --- Coin tier ---
+    { key: "obverse",          label: "Obverse (front)",  icon: "🪙", suffix: "_obverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "reverse",          label: "Reverse (back)",   icon: "🪙", suffix: "_reverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "slab_obverse",     label: "Slab — front",     icon: "🔲", suffix: "_slab_obverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
+    { key: "slab_reverse",     label: "Slab — back",      icon: "🔲", suffix: "_slab_reverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
+    { key: "reference",        label: "Reference photo",  icon: "🔗", suffix: "_ref",           flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "coin", scope: "coin" },
+    // --- Set tier ---
+    { key: "ogp_obverse",      label: "Package (OGP) — front", icon: "📦", suffix: "_ogp_obverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
+    { key: "ogp_reverse",      label: "Package (OGP) — back",  icon: "📦", suffix: "_ogp_reverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
+    { key: "coa",              label: "COA / certificate", icon: "📜", suffix: "_coa",          flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" },
+    // --- Sub-group tier (see SUB-GROUP PHOTOS below) ---
+    { key: "subgroup_obverse", label: "Sub-group — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
+    { key: "subgroup_reverse", label: "Sub-group — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
+    // --- Any tier ---
+    { key: "other",            label: "Other photo",      icon: "🖼️", suffix: "_photo",         flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" }
+  ];
+  function galleryTypeDef(key) { return GALLERY_TYPES.find(t => t.key === key) || null; }
+
+  // SUB-GROUP PHOTOS: a Set's sub-groups (e.g. "Philadelphia"/"Denver" cello
+  // packs in a Mint Set) each get their own obverse/reverse pair showing that
+  // sealed bundle as a whole — distinct from the per-coin obverse/reverse
+  // captured later in Step 2 for each individual coin inside it, and distinct
+  // from the ogp_* package exterior.
+  //
+  // A FLAT Set (no sub-groups defined) is treated as one IMPLICIT default
+  // sub-group, so its "whole set front/back" pair uses this exact same
+  // mechanism rather than a parallel concept. That implicit group's id is
+  // DEFAULT_SUBGROUP_ID; nothing in the UI ever says "default sub-group" —
+  // a flat Set just shows a normal obverse/reverse pair.
+  const DEFAULT_SUBGROUP_ID = "__default__";
+
+  // Sub-group ids are STABLE and generated at row-creation time, so renaming
+  // "Philadelphia" -> "Phila" or reordering rows never re-points photos, and
+  // deleting one sub-group can't take another's photos with it. (Before this,
+  // sub-groups were identified only by array position + free-text name.)
+  let subGroupIdSeq = 0;
+  function nextSubGroupId() { return "sg" + (++subGroupIdSeq); }
+
+  // Whether an entry belongs to a given sub-group. Only subgroup_* entries
+  // carry a subGroupId; everything else ignores it entirely.
+  function isSubGroupEntry(entry) {
+    const def = galleryTypeDef(entry.type);
+    return !!(def && def.tier === "subgroup");
+  }
+
+  // Notional stored filename(s) — documentation/testing only in this mockup
+  // (nothing is written). Flip sources get the locked-in _original (raw) /
+  // _cropped (background-cropped) pair; everything else is a single file.
+  // Repeatable types get a 1-based index to stay unique. Sub-group photos are
+  // namespaced by their sub-group id, EXCEPT the implicit default (a flat
+  // Set), which keeps the plain {CollectionID}_obverse.png / _reverse.png
+  // convention — unambiguous because a Set row has no coin-tier flip sources.
+  function galleryFilenameFor(collectionId, type, indexAmongType, subGroupId) {
+    const def = galleryTypeDef(type);
+    if (!def) return null;
+    if (def.flipSource) {
+      return {
+        cropped: collectionId + def.suffix + "_cropped.png",
+        raw:     collectionId + def.suffix + "_original.png"
+      };
+    }
+    if (def.tier === "subgroup") {
+      const ns = (!subGroupId || subGroupId === DEFAULT_SUBGROUP_ID) ? "" : "_" + subGroupId;
+      return { cropped: collectionId + ns + def.suffix + ".png" };
+    }
+    const n = (def.repeatable && indexAmongType != null) ? "_" + (indexAmongType + 1) : "";
+    return { cropped: collectionId + def.suffix + n + ".png" };
+  }
+
+  // Sparse demo seed, same by-CollectionID convention as FAKE_COIN_DETAILS/
+  // FAKE_METAL_CONTENT — a few coins/Sets carry gallery entries so the display
+  // side is testable. url:null means "a real file would be here" — rendered as
+  // a labeled placeholder tile (no coin in this mockup has a real persisted
+  // photo, exactly as everywhere else). Captured-this-session entries carry a
+  // real blob url instead.
+  const FAKE_GALLERIES = {
+    // A slabbed Morgan: a real slab front/back pair + a COA page, beyond its
+    // obverse/reverse (which the flip card already covers).
+    "AY-00001": [
+      { type: "slab_obverse", url: null, caption: "PCGS slab — cert 12345678" },
+      { type: "slab_reverse", url: null, caption: "" },
+      { type: "coa",          url: null, caption: "" }
+    ],
+    // A commemorative dollar shipped in Mint packaging with a 2-page certificate.
+    "AY-00014": [
+      { type: "ogp_obverse", url: null, caption: "Original Mint box" },
+      { type: "coa",         url: null, caption: "Page 1" },
+      { type: "coa",         url: null, caption: "Page 2" }
+    ],
+    // The 1986 Statue of Liberty 3-coin Set (a Set-bundle row) — package
+    // exterior + a flat Set's implicit-default sub-group pair + COA. Children
+    // are shown via the child grid, NOT part of this gallery.
+    "AY-00022": [
+      { type: "ogp_obverse",      url: null, caption: "Presentation case" },
+      { type: "subgroup_obverse", url: null, caption: "", subGroupId: DEFAULT_SUBGROUP_ID },
+      { type: "subgroup_reverse", url: null, caption: "", subGroupId: DEFAULT_SUBGROUP_ID },
+      { type: "coa",              url: null, caption: "Certificate of Authenticity" }
+    ]
+  };
+
+  // Mutable per-session store, seeded lazily (deep-cloned) from FAKE_GALLERIES
+  // on first access so capture/remove never mutate the demo seed. galleryFor()
+  // is the single accessor every display + capture path reads through.
+  const galleryStore = {};
+  function galleryFor(collectionId) {
+    if (!galleryStore[collectionId]) {
+      const seed = FAKE_GALLERIES[collectionId];
+      galleryStore[collectionId] = seed ? seed.map(e => Object.assign({}, e)) : [];
+    }
+    return galleryStore[collectionId];
+  }
+  function addGalleryEntry(collectionId, entry) {
+    const list = galleryFor(collectionId);
+    const def = galleryTypeDef(entry.type);
+    if (def && !def.repeatable) {
+      // Single-instance: a re-capture supersedes the existing one, preserving
+      // position. For the sub-group tier that uniqueness is PER SUB-GROUP —
+      // capturing Denver's obverse must not replace Philadelphia's.
+      const at = list.findIndex(e =>
+        e.type === entry.type &&
+        (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (entry.subGroupId || DEFAULT_SUBGROUP_ID))
+      );
+      if (at >= 0) { list[at] = entry; return; }
+    }
+    list.push(entry);
+  }
+  function removeGalleryEntry(collectionId, index) {
+    const list = galleryFor(collectionId);
+    if (index >= 0 && index < list.length) list.splice(index, 1);
+  }
+
+  // Entries belonging to one sub-group (its own obverse/reverse pair only).
+  function galleryEntriesForSubGroup(collectionId, subGroupId) {
+    const want = subGroupId || DEFAULT_SUBGROUP_ID;
+    return galleryFor(collectionId).filter(e =>
+      isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === want);
+  }
+
+  // Deleting a sub-group removes ONLY that sub-group's own obverse/reverse
+  // pair. It must never cascade to the photos of coins captured under it —
+  // and structurally cannot: a child coin's photos live in ITS OWN gallery,
+  // keyed by the child's CollectionID, not in the parent Set's array this
+  // touches. Child photos are only ever removed by deleting the coin record.
+  function removeSubGroupPhotos(collectionId, subGroupId) {
+    const want = subGroupId || DEFAULT_SUBGROUP_ID;
+    const list = galleryFor(collectionId);
+    for (let i = list.length - 1; i >= 0; i--) {
+      const e = list[i];
+      if (isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === want) list.splice(i, 1);
+    }
+  }
+  // The obverse/reverse entry for a coin, if captured this session — lets the
+  // flip card prefer a real captured photo over the series reference-image
+  // fallback once photo persistence exists (today always null-url in the seed,
+  // so this is future-facing; the flip render is unchanged when it's absent).
+  function galleryFlipEntry(collectionId, side) {
+    return galleryFor(collectionId).find(e => e.type === side && e.url) || null;
+  }
+
+  // Add Coin / Add Set have no assigned CollectionID until save, so their
+  // in-progress galleries key off a stable temp-draft id. A real write layer
+  // would reconcile these entries to the assigned CollectionID at save time.
+  // Cleared when the respective form resets (see resetGalleryDraft calls).
+  const ADDCOIN_GALLERY_ID = "__addcoin_draft__";
+  const ADDSET_GALLERY_ID = "__addset_draft__";
+  function resetGalleryDraft(tempKey) { galleryStore[tempKey] = []; }
 
   // Slot fields mirror the real Albums sheet columns: Status, Year, MintMark,
   // Description, AlbumName, AlbumID, CoinID, FilledBy. (AlbumName/AlbumID are
@@ -4651,7 +5259,7 @@
   // Docket-only screens go back to the Docket hub. Everything else → Dashboard.
   const SECTION_BACK_TARGET = {
     addcoin: "acquisitions", addset: "acquisitions", batchreceipt: "acquisitions",
-    staging: "needsdbcoins", inprogresssets: "needsdbcoins"
+    staging: "needsdbcoins", inprogresssets: "needsdbcoins", managephotos: "dashboard"
   };
 
   // Which drawer a screen "belongs to," for the closing-animation on the way
@@ -4675,9 +5283,24 @@
   let scrollToCaseOnDashboard = false;
 
   document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
+  document.getElementById("managePhotosBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
   let previousViewId = null;
+
+  // Swap which view element is showing WITHOUT running navigate()'s
+  // section-level side effects (filter resets, drawer-close bookkeeping,
+  // scroll). Used when returning from a screen that was opened on top of a
+  // sub-view the user was already inside — e.g. Back out of Manage Photos to
+  // the Browse detail view it was opened from: navigate("browse") would work
+  // but would also call resetBrowseFilters(), silently clearing whatever the
+  // user had filtered to before they tapped "Manage photos". The caller is
+  // responsible for re-rendering its own sub-view and setting navBack after.
+  function activateViewOnly(viewId) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + viewId).classList.add("active");
+    document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
+  }
 
   function navigate(viewId) {
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
@@ -6298,6 +6921,29 @@
         showBrowseEditView(currentBrowseCoin);
       }
     });
+
+    // Manage Photos entry point #1 — a Promoted row, coin OR Set (both need
+    // it: a coin has slab/reference photos of its own, not just Sets).
+    document.getElementById("browseDetailManagePhotosBtn").addEventListener("click", () => {
+      const coin = currentBrowseCoin;
+      if (!coin) return;
+      const isSet = isSetRow(coin);
+      const parent = !isSet ? resolveChildParentSet(coin) : null;
+      openManagePhotos({
+        id: coin.id,
+        name: coin.name,
+        meta: coin.id + (isSet ? " · Set" : ""),
+        kind: isSet ? "set" : "coin",
+        originSetId: coin.originSetId || "",
+        parentSetId: parent ? parent.id : "",
+        parentSetName: parent ? parent.name : "",
+        // showBrowseDetail() alone only re-renders inside #view-browse — it
+        // never changes which view is active, so on its own Back would leave
+        // the user stranded on Manage Photos. activateViewOnly() puts them
+        // back on Browse without resetting their filters.
+        backTo: () => { activateViewOnly("browse"); showBrowseDetail(coin); }
+      });
+    });
     document.getElementById("browseDetailShareBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
@@ -6438,7 +7084,42 @@
       applyFlipCorners("browseDetail", coin);
     }
 
+    applyGalleryDetailAffordance(coin);
     renderBrowseDetailPanel(coin);
+  }
+
+  // Detail-view gallery affordance (Photo Gallery feature):
+  //   - Set row: a thumbnail strip at the top (OGP / whole-set / COA — its own
+  //     gallery entries), each opening the full viewer. Children are NOT part
+  //     of this — they're the child-flip grid, shown separately below.
+  //   - Individual coin/roll: a "View all photos" button, shown only when the
+  //     gallery holds photos beyond the two flip sources (obverse/reverse).
+  function applyGalleryDetailAffordance(coin) {
+    const region = document.getElementById("browseDetailGalleryRegion");
+    const btn = document.getElementById("browseDetailGalleryBtn");
+    const list = galleryFor(coin.id);
+    if (isSetRow(coin)) {
+      btn.classList.add("hidden");
+      if (list.length) {
+        renderGalleryStrip(region, coin.id, () => openGalleryViewer(coin.id, coin.name + " — photos"));
+        region.classList.remove("hidden");
+      } else {
+        region.innerHTML = "";
+        region.classList.add("hidden");
+      }
+    } else {
+      region.classList.add("hidden");
+      region.innerHTML = "";
+      const extras = list.filter(e => e.type !== "obverse" && e.type !== "reverse").length;
+      if (extras > 0) {
+        btn.textContent = "🖼️ View all photos (" + list.length + ")";
+        btn.classList.remove("hidden");
+        btn.onclick = () => openGalleryViewer(coin.id, coin.name + " — photos");
+      } else {
+        btn.classList.add("hidden");
+        btn.onclick = null;
+      }
+    }
   }
 
   // Builds the clickable child-coin mini-flip grid for a multi-coin Set.
@@ -6859,6 +7540,10 @@
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
     certInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Refresh the gallery widget for THIS coin (the target id changed).
+    const gEl = document.getElementById("browseEditGallery");
+    if (gEl && gEl._galleryRender) gEl._galleryRender();
   }
 
   // Edit Set — Storage/Container, Value, and Purchase Details for a
@@ -6881,13 +7566,18 @@
     document.getElementById("editSetShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
     document.getElementById("editSetPurchaseDate").value = details.purchaseDate || "";
     document.getElementById("editSetVendor").value = details.vendor || "";
+
+    const gEl = document.getElementById("editSetGallery");
+    if (gEl && gEl._galleryRender) gEl._galleryRender();
   }
 
   function initBrowseEdit() {
-    wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn");
-    wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn");
-    wireMockPhotoSlot("browseEditAdditionalPreview", "browseEditAdditionalPlaceholder", "browseEditAdditionalCameraBtn", "browseEditAdditionalLibraryBtn", "browseEditAdditionalCameraInput", "browseEditAdditionalLibraryInput", "browseEditAdditionalFrame", null, "browseEditAdditionalAdjustBtn");
+    const browseEditGalleryId = () => currentBrowseCoin && currentBrowseCoin.id;
+    wireMockPhotoSlot("browseEditObversePreview", "browseEditObversePlaceholder", "browseEditObverseCameraBtn", "browseEditObverseLibraryBtn", "browseEditObverseCameraInput", "browseEditObverseLibraryInput", "browseEditObverseFrame", "browseEditObverseDot", "browseEditObverseAdjustBtn", "obverse", browseEditGalleryId);
+    wireMockPhotoSlot("browseEditReversePreview", "browseEditReversePlaceholder", "browseEditReverseCameraBtn", "browseEditReverseLibraryBtn", "browseEditReverseCameraInput", "browseEditReverseLibraryInput", "browseEditReverseFrame", "browseEditReverseDot", "browseEditReverseAdjustBtn", "reverse", browseEditGalleryId);
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+    // General gallery (slab/COA/box/other) replacing the old Additional slot.
+    initGalleryCapture("browseEditGallery", browseEditGalleryId, "coin");
 
     document.getElementById("browseEditShowObverseBtn").addEventListener("click", showBrowseObverseEditPhoto);
     document.getElementById("browseEditShowReverseBtn").addEventListener("click", showBrowseReverseEditPhoto);
@@ -6937,6 +7627,7 @@
   // write layer exists yet for either form.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+    initGalleryCapture("editSetGallery", () => currentBrowseCoin && currentBrowseCoin.id, "set");
 
     document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
       document.getElementById("browseEditSetView").style.display = "none";
@@ -7886,19 +8577,23 @@
     FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
       actionRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
-        // Jumps straight to Edit Coin, scrolled to the Obverse photo slot, so
-        // Ray can take/upload the photo immediately instead of just being
-        // told about the gap. Same per-origin browseDetailBackHandler
-        // pattern Spotlight's click-through already uses — Back from Detail
-        // returns here (Docket), not Browse's own grid.
+        // This row's flagged gap IS a photo gap, so it routes to Manage
+        // Photos — more direct than the old jump into Edit Coin scrolled to
+        // the obverse slot, and it can now REPLACE as well as fill. Rows
+        // flagging a non-photo gap (none exist yet — see the note in
+        // renderNeedsAttentionHub) must keep their own routing; each row
+        // already carries its own onClick, so there's no shared branch to
+        // get wrong.
         onClick: () => {
-          browseDetailBackHandler = () => navigate("needsdbcoins");
-          lastDrawerView = "needsdbcoins"; // Docket-originated, not Catalog — closes the right drawer on the way back to Dashboard
-          navigate("browse");
-          showBrowseDetail(coin);
-          showBrowseEditView(coin);
-          const box = document.getElementById("browseEditObversePhotoBox");
-          if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
+          const parent = resolveChildParentSet(coin);
+          openManagePhotos({
+            id: coin.id, name: coin.name, meta: coin.id,
+            kind: "coin",
+            originSetId: coin.originSetId || "",
+            parentSetId: parent ? parent.id : "",
+            parentSetName: parent ? parent.name : "",
+            backTo: () => navigate("needsdbcoins")
+          });
         },
         onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
       });
@@ -7910,9 +8605,18 @@
       if (draft.wholeSetPhoto || draft.dismissedGaps.includes("wholeSetPhoto")) return;
       actionRows.push({
         html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">Missing whole-set photo — ${draft.collectionID}</div>`,
-        // Resumes this draft's own Step 1 (not Step 2 — the whole-set photo
-        // field lives in Step 1), landing scrolled to the photo box.
-        onClick: () => resumeSetDraftAtStep1(draft),
+        // Also a photo gap, so also routes to Manage Photos rather than
+        // re-entering Step 1 — which matters most for a Complete-pending-
+        // research Set, whose only prior route in was Step 1's resume flow
+        // (and which locks tracking/count fields on the way).
+        onClick: () => openManagePhotos({
+          id: draft.collectionID,
+          name: draft.setName || draft.collectionID,
+          meta: draft.collectionID + " · " + draft.status,
+          kind: "set",
+          draft,
+          backTo: () => navigate("needsdbcoins")
+        }),
         onDismiss: async () => { await dismissSetDraftGap(draft.collectionID, "wholeSetPhoto"); renderNeedsAttentionHub(); }
       });
     });
@@ -8423,18 +9127,30 @@
   // Receipt photos stay a plain rectangular preview, no adjuster needed there.
   // ==================================================================
 
-  let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId }
+  let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, + EITHER target*Id (legacy) OR onComplete (callback) }
   const slotFiles = {}; // frameId -> original File, so "reopen adjuster" can re-crop the same photo
 
-  async function openPhotoAdjust(file, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
+  // Two call modes, kept backward-compatible:
+  //   LEGACY (positional): openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId)
+  //     — bakes the circle straight into those DOM elements. Used by the
+  //       existing Add Coin / Browse Edit obverse/reverse slots.
+  //   CALLBACK (object):   openPhotoAdjust(source, { onComplete })
+  //     — hands the baked circle blob to onComplete instead of touching the
+  //       DOM. Used by the new gallery crop pipeline (Stage 2). `source` may
+  //       be a File OR a Blob (e.g. the Stage-1 background-cropped rectangle).
+  async function openPhotoAdjust(source, optsOrPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
     const overlay = document.getElementById("photoAdjustOverlay");
     const img = document.getElementById("photoAdjustImg");
     const circleSize = 240;
+    const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
     img.onload = () => {
       photoAdjustState = {
         naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
         zoom: 1, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
-        circleSize, targetPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
+        circleSize,
+        onComplete: callbackMode ? optsOrPreviewId.onComplete : null,
+        targetPreviewId: callbackMode ? null : optsOrPreviewId,
+        targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
       };
       recomputePhotoAdjustBaseScale();
       document.getElementById("photoAdjustZoom").value = 100;
@@ -8445,7 +9161,7 @@
     // preview and the final canvas bake (which draws from this same <img>)
     // then work from already-correct pixels, with no dependency on canvas
     // drawImage() honoring EXIF (it never does).
-    const orientedCanvas = await loadOrientedImageCanvas(file);
+    const orientedCanvas = await loadOrientedImageCanvas(source);
     img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
     overlay.classList.remove("hidden");
   }
@@ -8559,6 +9275,15 @@
       ctx.restore();
 
       canvas.toBlob((blob) => {
+        // Callback mode (new gallery pipeline): hand the baked circle blob off
+        // and let the caller decide what to do with it — no DOM writes here.
+        if (s.onComplete) {
+          const cb = s.onComplete;
+          closePhotoAdjust();
+          cb(blob);
+          return;
+        }
+        // Legacy mode: bake straight into the slot's own preview/frame/dot.
         const url = URL.createObjectURL(blob);
         const preview = document.getElementById(s.targetPreviewId);
         preview.src = url;
@@ -8577,10 +9302,1115 @@
   }
 
   // ==================================================================
+  // STAGE 1 — BACKGROUND CROP (rectangular, hand-rolled). Trims a raw upload
+  // down to just the subject. Draggable/resizable crop box over the oriented
+  // image; aspect-lock toggle (square for flip sources, free otherwise).
+  // Bakes the selected region to a blob and hands it to onComplete. No
+  // library — same self-contained canvas+pointer approach as the circle
+  // adjuster above (this project's no-external-CDN posture).
+  // ==================================================================
+
+  let bgCropState = null; // { baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, onComplete }
+  const BG_CROP_MIN = 32;   // smallest crop box, display px
+  const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds
+  // The EXIF-oriented source is capped to this long edge before any rotation
+  // work, so a re-bake on every straighten-slider tick stays fast on a phone.
+  // Final output caps at 1400 anyway (see the Use Crop handler), so this
+  // costs no meaningful quality.
+  const BG_CROP_BASE_MAX = 1600;
+
+  // Rotation is applied by RE-BAKING the source into an upright canvas rather
+  // than CSS-transforming the displayed image. That's deliberate: the crop box
+  // math (drag/resize/clamp/shade + the final pixel mapping) all assumes the
+  // displayed image is axis-aligned, so baking keeps every one of those paths
+  // untouched and correct. The alternative — transforming the <img> — would
+  // mean re-deriving box coordinates through a rotation matrix everywhere.
+  function bakeRotatedWorkCanvas(baseCanvas, quickDeg, fineDeg) {
+    const rad = ((quickDeg + fineDeg) * Math.PI) / 180;
+    const bw = baseCanvas.width, bh = baseCanvas.height;
+    // Bounding box of the rotated image.
+    const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+    const outW = Math.max(1, Math.round(bw * cos + bh * sin));
+    const outH = Math.max(1, Math.round(bw * sin + bh * cos));
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    ctx.translate(outW / 2, outH / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(baseCanvas, -bw / 2, -bh / 2);
+    return c;
+  }
+
+  // Recomputes the work canvas + stage size after a rotation change.
+  // preserveBox: proportionally rescale the existing crop box into the new
+  // dimensions (used for the straighten slider, where dims change only
+  // slightly and losing framing every tick would be jarring). When false the
+  // box resets to the default inset (used for 90° quick rotates, where the
+  // aspect fundamentally flips and preserving framing is meaningless).
+  function refreshBgCropSource(preserveBox) {
+    const s = bgCropState;
+    if (!s) return;
+    const oldW = s.dispW, oldH = s.dispH;
+    const work = bakeRotatedWorkCanvas(s.baseCanvas, s.rotateQuick, s.rotateFine);
+    s.workCanvas = work;
+    s.naturalW = work.width; s.naturalH = work.height;
+    const scale = Math.min(BG_CROP_MAX_DISP_W / work.width, BG_CROP_MAX_DISP_H / work.height, 1);
+    s.dispW = Math.round(work.width * scale);
+    s.dispH = Math.round(work.height * scale);
+    const stage = document.getElementById("bgCropStage");
+    stage.style.width = s.dispW + "px";
+    stage.style.height = s.dispH + "px";
+    document.getElementById("bgCropImg").src = work.toDataURL("image/jpeg", 0.95);
+    if (preserveBox && oldW > 0 && oldH > 0) {
+      const fx = s.dispW / oldW, fy = s.dispH / oldH;
+      s.box.left *= fx; s.box.right *= fx;
+      s.box.top *= fy; s.box.bottom *= fy;
+      clampBgBox();
+    } else {
+      resetBgCropBox();
+    }
+    renderBgCrop();
+  }
+
+  // Default framing: 80% inset, squared and centered when aspect-locked.
+  function resetBgCropBox() {
+    const s = bgCropState;
+    let left = s.dispW * 0.1, top = s.dispH * 0.1, right = s.dispW * 0.9, bottom = s.dispH * 0.9;
+    if (s.aspectLock) {
+      const side = Math.min(right - left, bottom - top);
+      const cx = s.dispW / 2, cy = s.dispH / 2;
+      left = cx - side / 2; right = cx + side / 2; top = cy - side / 2; bottom = cy + side / 2;
+    }
+    s.box = { left, top, right, bottom };
+  }
+
+  async function openBgCrop(source, opts) {
+    opts = opts || {};
+    const overlay = document.getElementById("bgCropOverlay");
+    document.getElementById("bgCropTitle").textContent = opts.title || "Crop Photo";
+    const oriented = await loadOrientedImageCanvas(source);
+    // Cap the working source once, up front (see BG_CROP_BASE_MAX).
+    let baseCanvas = oriented;
+    const longEdge = Math.max(oriented.width, oriented.height);
+    if (longEdge > BG_CROP_BASE_MAX) {
+      const k = BG_CROP_BASE_MAX / longEdge;
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(oriented.width * k));
+      c.height = Math.max(1, Math.round(oriented.height * k));
+      c.getContext("2d").drawImage(oriented, 0, 0, c.width, c.height);
+      baseCanvas = c;
+    }
+
+    const aspectLock = !!opts.aspectLock;
+    document.getElementById("bgCropAspectLock").checked = aspectLock;
+    document.getElementById("bgCropStraighten").value = 0;
+
+    bgCropState = {
+      baseCanvas, workCanvas: baseCanvas,
+      dispW: 0, dispH: 0, naturalW: baseCanvas.width, naturalH: baseCanvas.height,
+      box: { left: 0, top: 0, right: 0, bottom: 0 },
+      aspectLock, rotateQuick: 0, rotateFine: 0,
+      onComplete: opts.onComplete || null
+    };
+    document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
+    refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
+    overlay.classList.remove("hidden");
+  }
+
+  function closeBgCrop() {
+    document.getElementById("bgCropOverlay").classList.add("hidden");
+    bgCropState = null;
+  }
+
+  function renderBgCrop() {
+    const s = bgCropState;
+    if (!s) return;
+    const b = s.box;
+    const w = b.right - b.left, h = b.bottom - b.top;
+    const box = document.getElementById("bgCropBox");
+    box.style.left = b.left + "px"; box.style.top = b.top + "px";
+    box.style.width = w + "px"; box.style.height = h + "px";
+    // With aspect lock, only corner handles make sense (an edge drag can't keep
+    // square without ambiguity) — hide the four edge handles while locked.
+    box.querySelectorAll('.bg-crop-handle.n, .bg-crop-handle.s, .bg-crop-handle.w, .bg-crop-handle.e')
+      .forEach(el => el.style.display = s.aspectLock ? "none" : "block");
+    // Four dim panels around the box.
+    const setShade = (id, x, y, ww, hh) => {
+      const el = document.getElementById(id);
+      el.style.left = x + "px"; el.style.top = y + "px";
+      el.style.width = Math.max(0, ww) + "px"; el.style.height = Math.max(0, hh) + "px";
+    };
+    setShade("bgCropShadeTop", 0, 0, s.dispW, b.top);
+    setShade("bgCropShadeBottom", 0, b.bottom, s.dispW, s.dispH - b.bottom);
+    setShade("bgCropShadeLeft", 0, b.top, b.left, h);
+    setShade("bgCropShadeRight", b.right, b.top, s.dispW - b.right, h);
+  }
+
+  function clampBgBox() {
+    const s = bgCropState, b = s.box;
+    b.left = Math.max(0, Math.min(b.left, b.right - BG_CROP_MIN));
+    b.top = Math.max(0, Math.min(b.top, b.bottom - BG_CROP_MIN));
+    b.right = Math.min(s.dispW, Math.max(b.right, b.left + BG_CROP_MIN));
+    b.bottom = Math.min(s.dispH, Math.max(b.bottom, b.top + BG_CROP_MIN));
+  }
+
+  function initBgCrop() {
+    const stage = document.getElementById("bgCropStage");
+    const box = document.getElementById("bgCropBox");
+    let drag = null; // { mode: "move"|handle, startX, startY, orig box }
+
+    function startDrag(e, mode) {
+      if (!bgCropState) return;
+      e.preventDefault();
+      drag = { mode, startX: e.clientX, startY: e.clientY, orig: Object.assign({}, bgCropState.box) };
+      stage.setPointerCapture(e.pointerId);
+    }
+    box.addEventListener("pointerdown", (e) => {
+      // A handle press is caught here too (bubbles) — dataset.h distinguishes.
+      const h = e.target.dataset ? e.target.dataset.h : null;
+      startDrag(e, h || "move");
+      e.stopPropagation();
+    });
+    stage.addEventListener("pointermove", (e) => {
+      if (!drag || !bgCropState) return;
+      const s = bgCropState, b = s.box, o = drag.orig;
+      const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+      if (drag.mode === "move") {
+        const w = o.right - o.left, h = o.bottom - o.top;
+        let nl = o.left + dx, nt = o.top + dy;
+        nl = Math.max(0, Math.min(nl, s.dispW - w));
+        nt = Math.max(0, Math.min(nt, s.dispH - h));
+        b.left = nl; b.top = nt; b.right = nl + w; b.bottom = nt + h;
+      } else if (s.aspectLock) {
+        // Corner resize, square, anchored at the opposite corner.
+        const m = drag.mode;
+        const anchorX = (m === "se" || m === "ne") ? o.left : o.right;
+        const anchorY = (m === "se" || m === "sw") ? o.top : o.bottom;
+        const px = Math.max(0, Math.min(s.dispW, (m === "se" || m === "ne") ? o.right + dx : o.left + dx));
+        const py = Math.max(0, Math.min(s.dispH, (m === "se" || m === "sw") ? o.bottom + dy : o.top + dy));
+        let side = Math.max(Math.abs(px - anchorX), Math.abs(py - anchorY), BG_CROP_MIN);
+        // clamp side so the square stays inside the stage from the anchor
+        const maxRight = (m === "se" || m === "ne") ? s.dispW - anchorX : anchorX;
+        const maxDown = (m === "se" || m === "sw") ? s.dispH - anchorY : anchorY;
+        side = Math.min(side, maxRight, maxDown);
+        b.left = (m === "se" || m === "ne") ? anchorX : anchorX - side;
+        b.right = (m === "se" || m === "ne") ? anchorX + side : anchorX;
+        b.top = (m === "se" || m === "sw") ? anchorY : anchorY - side;
+        b.bottom = (m === "se" || m === "sw") ? anchorY + side : anchorY;
+      } else {
+        // Free resize — move only the edges this handle controls.
+        const m = drag.mode;
+        if (m.includes("w")) b.left = o.left + dx;
+        if (m.includes("e")) b.right = o.right + dx;
+        if (m.includes("n")) b.top = o.top + dy;
+        if (m.includes("s")) b.bottom = o.bottom + dy;
+        clampBgBox();
+      }
+      renderBgCrop();
+    });
+    const endDrag = () => { drag = null; };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+
+    document.getElementById("bgCropAspectLock").addEventListener("change", (e) => {
+      if (!bgCropState) return;
+      bgCropState.aspectLock = e.target.checked;
+      document.getElementById("bgCropBox").classList.toggle("locked", e.target.checked);
+      if (e.target.checked) {
+        // Snap current box to a centered square that fits inside it.
+        const b = bgCropState.box;
+        const cx = (b.left + b.right) / 2, cy = (b.top + b.bottom) / 2;
+        const side = Math.min(b.right - b.left, b.bottom - b.top);
+        b.left = cx - side / 2; b.right = cx + side / 2; b.top = cy - side / 2; b.bottom = cy + side / 2;
+        clampBgBox();
+      }
+      renderBgCrop();
+    });
+
+    // --- Rotation. Quick 90° resets the crop box (aspect flips); the
+    // straighten slider preserves it proportionally. Slider re-bakes are
+    // rAF-throttled so dragging stays smooth — the base source is already
+    // capped (BG_CROP_BASE_MAX) to keep each bake cheap.
+    function quickRotate(deltaDeg) {
+      if (!bgCropState) return;
+      bgCropState.rotateQuick = ((bgCropState.rotateQuick + deltaDeg) % 360 + 360) % 360;
+      refreshBgCropSource(false);
+    }
+    document.getElementById("bgCropRotateLeftBtn").addEventListener("click", () => quickRotate(-90));
+    document.getElementById("bgCropRotateRightBtn").addEventListener("click", () => quickRotate(90));
+
+    let straightenPending = false;
+    document.getElementById("bgCropStraighten").addEventListener("input", (e) => {
+      if (!bgCropState) return;
+      bgCropState.rotateFine = Number(e.target.value);
+      if (straightenPending) return;
+      straightenPending = true;
+      requestAnimationFrame(() => {
+        straightenPending = false;
+        if (bgCropState) refreshBgCropSource(true);
+      });
+    });
+
+    document.getElementById("bgCropCancelBtn").addEventListener("click", closeBgCrop);
+    document.getElementById("bgCropUseBtn").addEventListener("click", () => {
+      const s = bgCropState;
+      if (!s) return;
+      const b = s.box;
+      const sx = s.naturalW / s.dispW, sy = s.naturalH / s.dispH;
+      const srcX = Math.round(b.left * sx), srcY = Math.round(b.top * sy);
+      const srcW = Math.round((b.right - b.left) * sx), srcH = Math.round((b.bottom - b.top) * sy);
+      // Cap output long edge to bound memory; preserve the crop's own aspect.
+      const cap = 1400;
+      const longEdge = Math.max(srcW, srcH);
+      const outScale = longEdge > cap ? cap / longEdge : 1;
+      const outW = Math.max(1, Math.round(srcW * outScale)), outH = Math.max(1, Math.round(srcH * outScale));
+      const canvas = document.createElement("canvas");
+      canvas.width = outW; canvas.height = outH;
+      // Draw from the work CANVAS, not the <img>: the img's src is a data URL
+      // set asynchronously by refreshBgCropSource(), so reading it here raced
+      // against its own load (and would silently produce a blank/stale crop
+      // right after a rotation). The canvas is always immediately correct.
+      canvas.getContext("2d").drawImage(s.workCanvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+      canvas.toBlob((blob) => {
+        const cb = s.onComplete;
+        closeBgCrop();
+        if (cb) cb(blob);
+      }, "image/jpeg", 0.92);
+    });
+  }
+
+  // ==================================================================
+  // CROP PIPELINE ORCHESTRATOR — chains the two stages for one captured
+  // photo and produces a gallery entry. onEntry(entry) is called with the
+  // finished { type, url, rawUrl?, caption, filename, rawFilename? }.
+  //   raw upload -> Stage 1 background crop (aspect per type) -> clean
+  //   rectangle (the gallery asset). For flip sources (obverse/reverse) the
+  //   rectangle then feeds Stage 2 (the existing circle adjuster) so the coin
+  //   also gets a framed flip-card circle; the circle itself is display-only
+  //   and NOT a stored asset (re-derived at display time). Flip sources also
+  //   retain the true pre-crop raw (rawUrl / _original.png); gallery-only
+  //   types keep the single cropped copy.
+  // Mockup: url/rawUrl are in-browser blob URLs; filename/rawFilename are the
+  // notional names the future write layer would use (nothing is written).
+  // subGroupId (optional): only meaningful for the subgroup_* tier — namespaces
+  // the photo to one sub-group so each sub-group keeps its own obverse/reverse
+  // pair. Omitted/null means the implicit default (a flat Set).
+  function runCropPipeline(file, type, collectionId, onEntry, subGroupId) {
+    const def = galleryTypeDef(type);
+    if (!def) return;
+    const rawUrl = def.retainRaw ? URL.createObjectURL(file) : null;
+    // index among same-type entries, for repeatable-type filename uniqueness
+    const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
+    const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
+    openBgCrop(file, {
+      title: "Crop — " + def.label,
+      aspectLock: def.aspect === "square",
+      onComplete: (rectBlob) => {
+        const rectUrl = URL.createObjectURL(rectBlob);
+        // circleBlob is a session-only display convenience for flip sources
+        // (updates the capture slot's own circular preview) — it is NOT a
+        // stored asset; the flip card re-derives the circle from the stored
+        // rectangle. Null for gallery-only types.
+        const finish = (circleBlob) => onEntry({
+          type, url: rectUrl, rawUrl,
+          circleUrl: circleBlob ? URL.createObjectURL(circleBlob) : null,
+          // The cropped Blob itself, not just its display URL — the (gated,
+          // real) Add Set write path uploads Blobs, so a caller that feeds
+          // that path needs the bytes, not a blob: URL it can't upload.
+          blob: rectBlob,
+          caption: "",
+          filename: names.cropped,
+          rawFilename: names.raw || null,
+          subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
+        });
+        if (def.flipSource) {
+          // Stage 2: frame the flip-card circle from the clean rectangle.
+          openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob) });
+        } else {
+          finish(null);
+        }
+      }
+    });
+  }
+
+  // ==================================================================
+  // GALLERY CAPTURE WIDGET — one reusable component dropped into all four
+  // capture flows (Add Coin, Browse Edit, Add Set, Edit Set). "Add photo"
+  // opens the type picker, then the crop pipeline; captured photos render as
+  // thumbnails with a caption field and a remove button. Bound to a target
+  // CollectionID via a getter (Add Coin/Add Set use a stable temp-draft key
+  // since no ID is assigned until save — a real write layer would reconcile
+  // it to the assigned CollectionID at save time).
+  // ==================================================================
+
+  // Rendered thumbnail tile for one entry. url present -> the captured blob;
+  // url null (demo seed) -> a labeled placeholder tile, same "no real photo
+  // persisted yet" convention as the rest of the app.
+  function galleryThumbInner(entry) {
+    const def = galleryTypeDef(entry.type);
+    const icon = def ? def.icon : "🖼️";
+    const imgStyle = entry.url ? ` style="background-image:url('${entry.url}')"` : "";
+    return `<div class="gc-img"${imgStyle}>${entry.url ? "" : icon}</div>`;
+  }
+
+  // A shared pending-pick callback for the type picker overlay.
+  let galleryTypePickPending = null;
+  // allowedTypes (optional): restrict to these exact keys instead of the
+  // scope-based default list.
+  function openGalleryTypePicker(scope, onPick, allowedTypes) {
+    galleryTypePickPending = onPick;
+    const list = document.getElementById("galleryTypePickerList");
+    list.innerHTML = "";
+    // Flip sources (obverse/reverse) are captured via the dedicated flip
+    // slots above the widget, never the gallery picker — exclude them here.
+    GALLERY_TYPES.filter(t => allowedTypes
+      ? allowedTypes.includes(t.key)
+      : (!t.flipSource && (t.scope === "both" || t.scope === scope))).forEach(t => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "gtp-item";
+      btn.innerHTML = `<span class="gtp-icon">${t.icon}</span><span>${t.label}</span>`;
+      btn.addEventListener("click", () => {
+        document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+        const cb = galleryTypePickPending;
+        galleryTypePickPending = null;
+        if (cb) cb(t.key);
+      });
+      list.appendChild(btn);
+    });
+    document.getElementById("galleryTypePickerOverlay").classList.remove("hidden");
+  }
+
+  // ==================================================================
+  // SUB-GROUP PHOTO SHEET — the obverse/reverse pair for ONE sub-group.
+  // Also serves a flat Set's implicit default sub-group (DEFAULT_SUBGROUP_ID),
+  // which is how "whole set front/back" is captured without a parallel
+  // concept — see SUB-GROUP PHOTOS in the taxonomy block.
+  // ==================================================================
+
+  let subGroupSheetId = null;   // which sub-group the open sheet is editing
+  const SUBGROUP_PAIR = ["subgroup_obverse", "subgroup_reverse"];
+
+  // ------------------------------------------------------------------
+  // SHARED photo-pair slot renderer — used by BOTH the Set-documents pairs
+  // (package/OGP, whole-set) and the sub-group sheet, which previously built
+  // near-identical markup twice.
+  //
+  // Carries the standard 📷 Camera / 🖼️ Library button PAIRING every other
+  // photo slot in this app uses. That pairing is a hard requirement, not a
+  // style choice: Samsung Internet skips the native chooser dialog, so a
+  // single file input gives no way to reach the camera at all (see CLAUDE.md
+  // "Add Coin: the core workflow"). All three of these new slots shipped
+  // file-picker-only, which is exactly that bug.
+  //
+  // opts: { typeKey, targetId, subGroupId, label, onChange }
+  function buildPhotoPairSlot(opts) {
+    const { typeKey, targetId, subGroupId, label, onChange } = opts;
+    const def = galleryTypeDef(typeKey);
+    const list = galleryFor(targetId);
+    const idx = list.findIndex(e => e.type === typeKey &&
+      (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === (subGroupId || DEFAULT_SUBGROUP_ID)));
+    const entry = idx >= 0 ? list[idx] : null;
+
+    const slot = document.createElement("div");
+    slot.className = "sg-photo-slot";
+    const face = entry && entry.url
+      ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
+      : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
+    slot.innerHTML = `
+      ${face}
+      <div class="sg-photo-label">${label}</div>
+      <div class="sg-photo-actions">
+        <button type="button" data-act="camera" aria-label="Take photo with camera" title="Camera">📷</button>
+        <button type="button" data-act="library" aria-label="Choose photo from library" title="Library">🖼️</button>
+        ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
+      </div>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
+    `;
+    const cam = slot.querySelector('[data-role="cam"]');
+    const lib = slot.querySelector('[data-role="lib"]');
+    slot.querySelector('[data-act="camera"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
+    slot.querySelector('[data-act="library"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
+    const handle = (input) => {
+      const f = input.files[0];
+      if (!f) return;
+      runCropPipeline(f, typeKey, targetId, (newEntry) => {
+        addGalleryEntry(targetId, newEntry);
+        if (onChange) onChange(newEntry, typeKey);
+      }, subGroupId);
+    };
+    cam.addEventListener("change", () => handle(cam));
+    lib.addEventListener("change", () => handle(lib));
+    const rm = slot.querySelector('[data-act="remove"]');
+    if (rm) rm.addEventListener("click", () => {
+      removeGalleryEntry(targetId, idx);
+      if (onChange) onChange(null, typeKey);
+    });
+    return slot;
+  }
+
+  function openSubGroupPhotoSheet(sgId, titleOverride) {
+    subGroupSheetId = sgId || DEFAULT_SUBGROUP_ID;
+    const row = document.querySelector('#addSetSubGroups .subgroup-row[data-sg-id="' + subGroupSheetId + '"]');
+    const name = row ? (row.querySelector(".sg-name").value.trim() || "Sub-group") : null;
+    document.getElementById("subGroupPhotoTitle").textContent =
+      titleOverride || (name ? name + " — photos" : "Set photos");
+    renderSubGroupPhotoSheet();
+    document.getElementById("subGroupPhotoOverlay").classList.remove("hidden");
+  }
+
+  function renderSubGroupPhotoSheet() {
+    const pair = document.getElementById("subGroupPhotoPair");
+    const targetId = addSetGalleryTargetId();
+    pair.innerHTML = "";
+    SUBGROUP_PAIR.forEach((typeKey, i) => {
+      pair.appendChild(buildPhotoPairSlot({
+        typeKey, targetId, subGroupId: subGroupSheetId,
+        label: i === 0 ? "Front" : "Back",
+        onChange: () => {
+          renderSubGroupPhotoSheet();
+          updateSubGroupPhotoChip(subGroupSheetId);
+        }
+      }));
+    });
+  }
+
+  // ==================================================================
+  // ADD SET — "Set photos & documents" accordion body (§B). Renders the
+  // package/OGP pair and the whole-set pair.
+  //
+  // Both are ALWAYS shown, independent of whether sub-groups exist. These
+  // document three genuinely different, independently-optional things:
+  //   - package/OGP     — the box/folder/envelope exterior
+  //   - whole set       — the complete set as received, front & back
+  //   - each sub-group  — one sealed pack (Philadelphia, Denver, …), captured
+  //                       from its own row's 📷 chip, NOT here
+  // Superseded: the whole-set pair used to hide as soon as a sub-group was
+  // defined, on the reading that sub-groups replaced it. They don't — Ray
+  // wants to document the complete set AND its individual packs. The
+  // "implicit default sub-group" is still how the whole-set pair is stored
+  // (same mechanism, DEFAULT_SUBGROUP_ID), it just isn't conditional on the
+  // sub-group list any more.
+  // ==================================================================
+
+  const ADDSET_OGP_PAIR = ["ogp_obverse", "ogp_reverse"];
+
+  function renderAddSetDocs() {
+    const host = document.getElementById("addSetDocsSlots");
+    if (!host) return;
+    const targetId = addSetGalleryTargetId();
+    host.innerHTML = "";
+
+    const pairBlock = (label, hint, typeKeys, subGroupId) => {
+      const wrap = document.createElement("div");
+      wrap.style.marginBottom = "14px";
+      wrap.innerHTML = `<div class="name" style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">${label}</div>` +
+        (hint ? `<p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">${hint}</p>` : "") +
+        `<div class="sg-photo-pair"></div>`;
+      const pair = wrap.querySelector(".sg-photo-pair");
+      typeKeys.forEach((typeKey, i) => {
+        pair.appendChild(buildPhotoPairSlot({
+          typeKey, targetId, subGroupId,
+          label: i === 0 ? "Front" : "Back",
+          onChange: (newEntry, changedType) => {
+            // Keep the REAL (gated) write path fed: draft.wholeSetPhoto is what
+            // startSetCapture uploads to Staging and plannedPromotionMoves
+            // relocates to {parent}_set.jpg, and what the Docket's missing-
+            // whole-set-photo gap checks. The package front is the natural
+            // stand-in for that single legacy slot, so mirroring it here keeps
+            // upload/promotion/Docket working unchanged while the UI moves to
+            // the new taxonomy. (The legacy _set.jpg convention itself is
+            // deliberately not migrated — see CLAUDE.md decision 5.)
+            if (changedType === "ogp_obverse") {
+              addSetPhotoFiles["whole"] = newEntry ? (newEntry.blob || null) : null;
+            }
+            renderAddSetDocs();
+          }
+        }));
+      });
+      return wrap;
+    };
+
+    host.appendChild(pairBlock(
+      "📦 Package / OGP",
+      "The packaging itself — box, folder or envelope exterior.",
+      ADDSET_OGP_PAIR, null));
+
+    host.appendChild(pairBlock(
+      "🖼️ Whole set — front &amp; back",
+      "The complete set as received. Optional, and independent of sub-groups — each sub-group has its own photos on its row above.",
+      SUBGROUP_PAIR, DEFAULT_SUBGROUP_ID));
+
+    updateAddSetDocsCount();
+  }
+
+  // Count badge on the collapsed accordion header, so the section still tells
+  // you whether anything's in there without expanding it.
+  function updateAddSetDocsCount() {
+    const el = document.getElementById("addSetDocsCount");
+    if (!el) return;
+    const list = galleryFor(addSetGalleryTargetId());
+    const n = list.filter(e => {
+      const def = galleryTypeDef(e.type);
+      return def && (def.tier === "set" || def.tier === "subgroup");
+    }).length;
+    el.textContent = n ? n + " photo" + (n === 1 ? "" : "s") : "";
+  }
+
+  // ==================================================================
+  // CHILD -> PARENT COA READ-THROUGH. A coin captured as a child of a Set
+  // gets NO COA slot of its own — the certificate belongs to the parent Set,
+  // which is where the real information lives. This renders the parent's COA
+  // photos read-only into `hostEl`, resolved LIVE from the parent's gallery
+  // (nothing is copied onto the child), so it keeps working after the child
+  // is eventually promoted to its own standalone row — originSetId still
+  // resolves then.
+  //
+  // parentId may be a draft's CollectionID (during Step 2 capture) or a
+  // promoted parent Set's row id (from Manage Photos / detail views).
+  // Renders nothing at all when there's no parent or the parent has no COA.
+  // ==================================================================
+  function renderParentCoaReadThrough(hostEl, parentId, parentName) {
+    if (!hostEl) return 0;
+    hostEl.innerHTML = "";
+    if (!parentId) return 0;
+    const coa = galleryFor(parentId).filter(e => e.type === "coa");
+    if (!coa.length) return 0;
+    const wrap = document.createElement("div");
+    wrap.className = "case";
+    wrap.style.cssText = "padding:12px; margin-top:14px;";
+    wrap.innerHTML = `
+      <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:4px;">
+        📜 COA — from parent Set
+      </div>
+      <p style="font-size:11px; color:var(--text-muted); margin:0 0 8px;">
+        ${parentName ? parentName + " · " : ""}${coa.length} photo${coa.length === 1 ? "" : "s"} —
+        the certificate belongs to the Set, so it's managed there, not on this coin.
+      </p>
+      <div class="gallery-strip" data-role="coa-strip"></div>
+    `;
+    const strip = wrap.querySelector('[data-role="coa-strip"]');
+    coa.forEach(entry => {
+      const t = document.createElement("div");
+      t.className = "gc-thumb";
+      t.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${entry.caption || "COA"}</div>`;
+      t.addEventListener("click", () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
+      strip.appendChild(t);
+    });
+    hostEl.appendChild(wrap);
+    return coa.length;
+  }
+
+  // ==================================================================
+  // ADD SET STEP 2 — coin-tier extras on the per-coin card (slab pair,
+  // reference photos, parent-COA read-through). The child's photos are keyed
+  // by ITS OWN CollectionID, which nextChildCollectionId() holds stable for
+  // as long as this one child-capture form stays open — the same property the
+  // existing obverse/reverse Pause/resume handling already relies on.
+  // ==================================================================
+
+  const ADDSET_CHILD_SLAB_PAIR = ["slab_obverse", "slab_reverse"];
+
+  function addSetChildGalleryTargetId() {
+    return currentSetDraft ? nextChildCollectionId(currentSetDraft) : null;
+  }
+
+  function renderAddSetChildExtras() {
+    const targetId = addSetChildGalleryTargetId();
+    const pair = document.getElementById("addSetChildSlabPair");
+    if (pair) {
+      pair.innerHTML = "";
+      if (targetId) {
+        ADDSET_CHILD_SLAB_PAIR.forEach((typeKey, i) => {
+          pair.appendChild(buildPhotoPairSlot({
+            typeKey, targetId, subGroupId: null,
+            label: i === 0 ? "Front" : "Back",
+            onChange: () => renderAddSetChildExtras()
+          }));
+        });
+      }
+    }
+    // Counts on the collapsed headers.
+    const list = targetId ? galleryFor(targetId) : [];
+    const slabCount = list.filter(e => e.type.indexOf("slab_") === 0).length;
+    const refCount = list.filter(e => e.type === "reference").length;
+    const slabEl = document.getElementById("addSetChildSlabCount");
+    if (slabEl) slabEl.textContent = slabCount ? slabCount + " photo" + (slabCount === 1 ? "" : "s") : "";
+    const refEl = document.getElementById("addSetChildRefCount");
+    if (refEl) refEl.textContent = refCount ? refCount + " photo" + (refCount === 1 ? "" : "s") : "";
+
+    const refGallery = document.getElementById("addSetChildRefGallery");
+    if (refGallery && refGallery._galleryRender) refGallery._galleryRender();
+
+    renderParentCoaReadThrough(
+      document.getElementById("addSetChildCoaLink"),
+      currentSetDraft ? currentSetDraft.collectionID : null,
+      currentSetDraft ? currentSetDraft.setName : ""
+    );
+  }
+
+  function initAddSetChildExtras() {
+    const wireAcc = (headerId, bodyId) => {
+      const h = document.getElementById(headerId), b = document.getElementById(bodyId);
+      if (!h || !b) return;
+      h.addEventListener("click", () => {
+        const open = b.classList.toggle("hidden") === false;
+        h.setAttribute("aria-expanded", String(open));
+        if (open) renderAddSetChildExtras();
+      });
+    };
+    wireAcc("addSetChildSlabHeader", "addSetChildSlabBody");
+    wireAcc("addSetChildRefHeader", "addSetChildRefBody");
+    // Reference photos only — a single allowed type, so the type picker is
+    // skipped and the camera/library buttons act directly.
+    initGalleryCapture("addSetChildRefGallery", addSetChildGalleryTargetId, "coin", {
+      types: ["reference"],
+      title: "Reference photos",
+      description: "Images downloaded from PCGS, GreatCollections and similar — for comparison, not photos of this specific coin."
+    });
+  }
+
+  // ==================================================================
+  // MANAGE PHOTOS — add or REPLACE any photo on an existing record, at any
+  // status. Generalizes the Docket's existing "fill a gap" routing to also
+  // cover "replace what's already there".
+  //
+  // managePhotosCtx describes what's being edited, independent of where it
+  // came from:
+  //   { id, name, meta, kind: "coin"|"set", draft?, backTo }
+  // `draft` is present for a Draft / Complete-pending-research Set (so
+  // sub-group rows can be read off it); a Promoted Set has no draft, and
+  // falls back to whatever sub-group photos its gallery already carries.
+  // ==================================================================
+
+  let managePhotosCtx = null;
+
+  function openManagePhotos(ctx) {
+    managePhotosCtx = ctx;
+    navigate("managephotos");
+    setNavBack(ctx.backTo || (() => navigate("dashboard")));
+    document.getElementById("managePhotosName").textContent = ctx.name || ctx.id || "";
+    document.getElementById("managePhotosMeta").textContent = ctx.meta || "";
+    renderManagePhotos();
+  }
+
+  // One collapsed accordion section. bodyBuilder(bodyEl) fills it lazily on
+  // first expand, and is re-run on every re-render so counts/thumbs stay live.
+  function appendManageSection(host, title, countText, bodyBuilder, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "detail-accordion";
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "accordion-header";
+    const startOpen = !!(opts && opts.open);
+    header.setAttribute("aria-expanded", String(startOpen));
+    header.innerHTML = `<span>${title}</span><span style="display:flex; align-items:center; gap:8px;">` +
+      `<span style="font-size:11px; color:var(--text-muted);">${countText || ""}</span>` +
+      `<span class="accordion-chevron">›</span></span>`;
+    const body = document.createElement("div");
+    body.className = "accordion-body" + (startOpen ? "" : " hidden");
+    header.addEventListener("click", () => {
+      const open = body.classList.toggle("hidden") === false;
+      header.setAttribute("aria-expanded", String(open));
+      if (open) { body.innerHTML = ""; bodyBuilder(body); }
+    });
+    if (startOpen) bodyBuilder(body);
+    wrap.appendChild(header);
+    wrap.appendChild(body);
+    host.appendChild(wrap);
+    return { wrap, header, body };
+  }
+
+  // A labelled pair block (obverse/reverse style) inside Manage Photos.
+  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId) {
+    if (label) {
+      const h = document.createElement("div");
+      h.style.cssText = "font-size:12px; font-weight:600; color:var(--text-muted); margin:4px 0 6px;";
+      h.textContent = label;
+      body.appendChild(h);
+    }
+    if (hint) {
+      const p = document.createElement("p");
+      p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
+      p.textContent = hint;
+      body.appendChild(p);
+    }
+    const pair = document.createElement("div");
+    pair.className = "sg-photo-pair";
+    typeKeys.forEach((typeKey, i) => {
+      pair.appendChild(buildPhotoPairSlot({
+        typeKey, targetId, subGroupId,
+        label: i === 0 ? "Front" : "Back",
+        onChange: () => renderManagePhotos()
+      }));
+    });
+    body.appendChild(pair);
+  }
+
+  // An open-ended (repeatable) type rendered as a strip of existing photos
+  // plus camera/library add buttons.
+  function manageOpenEndedBlock(body, typeKey, targetId, hint) {
+    const def = galleryTypeDef(typeKey);
+    if (hint) {
+      const p = document.createElement("p");
+      p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
+      p.textContent = hint;
+      body.appendChild(p);
+    }
+    const grid = document.createElement("div");
+    grid.className = "gc-grid";
+    galleryFor(targetId).forEach((entry, index) => {
+      if (entry.type !== typeKey) return;
+      const thumb = document.createElement("div");
+      thumb.className = "gc-thumb";
+      thumb.innerHTML = `
+        <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+        ${galleryThumbInner(entry)}
+        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+      `;
+      thumb.querySelector(".gc-remove").addEventListener("click", () => {
+        removeGalleryEntry(targetId, index);
+        renderManagePhotos();
+      });
+      thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+      grid.appendChild(thumb);
+    });
+    body.appendChild(grid);
+
+    const row = document.createElement("div");
+    row.className = "gc-add-row";
+    row.style.marginTop = "10px";
+    row.innerHTML = `
+      <button type="button" class="gc-add-btn" data-role="cam-btn">📷 Take photo</button>
+      <button type="button" class="gc-add-btn" data-role="lib-btn">🖼️ Choose photo</button>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
+    `;
+    const cam = row.querySelector('[data-role="cam"]');
+    const lib = row.querySelector('[data-role="lib"]');
+    row.querySelector('[data-role="cam-btn"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
+    row.querySelector('[data-role="lib-btn"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
+    const handle = (input) => {
+      const f = input.files[0];
+      if (!f) return;
+      runCropPipeline(f, typeKey, targetId, (entry) => {
+        addGalleryEntry(targetId, entry);
+        renderManagePhotos();
+      });
+    };
+    cam.addEventListener("change", () => handle(cam));
+    lib.addEventListener("change", () => handle(lib));
+    body.appendChild(row);
+  }
+
+  function manageCount(targetId, predicate) {
+    const n = galleryFor(targetId).filter(predicate).length;
+    return n ? n + " photo" + (n === 1 ? "" : "s") : "";
+  }
+
+  function renderManagePhotos() {
+    const ctx = managePhotosCtx;
+    const host = document.getElementById("managePhotosSections");
+    if (!ctx || !host) return;
+    // Preserve which sections were open across a re-render (a capture
+    // re-renders the whole screen, and collapsing everything underfoot would
+    // be jarring).
+    const openTitles = new Set(
+      [...host.querySelectorAll('.accordion-header[aria-expanded="true"] > span:first-child')]
+        .map(s => s.textContent));
+    host.innerHTML = "";
+    const id = ctx.id;
+
+    if (ctx.kind === "coin") {
+      appendManageSection(host, "🪙 Coin — obverse &amp; reverse",
+        manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
+        (body) => managePairBlock(body, null,
+          "The flip-card photos. Cropped square, then framed into the circle.",
+          ["obverse", "reverse"], id, null),
+        { open: openTitles.has("🪙 Coin — obverse &amp; reverse") });
+
+      appendManageSection(host, "🔲 Slab photos",
+        manageCount(id, e => e.type.indexOf("slab_") === 0),
+        (body) => managePairBlock(body, null,
+          "The graded holder itself, front and back.",
+          ["slab_obverse", "slab_reverse"], id, null),
+        { open: openTitles.has("🔲 Slab photos") });
+
+      appendManageSection(host, "🔗 Reference photos",
+        manageCount(id, e => e.type === "reference"),
+        (body) => manageOpenEndedBlock(body, "reference", id,
+          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin."),
+        { open: openTitles.has("🔗 Reference photos") });
+
+      appendManageSection(host, "🖼️ Other photos",
+        manageCount(id, e => e.type === "other"),
+        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin."),
+        { open: openTitles.has("🖼️ Other photos") });
+
+      // A child coin's COA belongs to its parent Set — read-only link, no slot.
+      const parent = ctx.parentSetId ? { id: ctx.parentSetId, name: ctx.parentSetName } : null;
+      if (parent) {
+        const holder = document.createElement("div");
+        renderParentCoaReadThrough(holder, parent.id, parent.name);
+        if (holder.innerHTML.trim()) host.appendChild(holder);
+      }
+      return;
+    }
+
+    // --- Set ---
+    appendManageSection(host, "📦 Package / OGP",
+      manageCount(id, e => e.type.indexOf("ogp_") === 0),
+      (body) => managePairBlock(body, null,
+        "The packaging itself — box, folder or envelope exterior.",
+        ["ogp_obverse", "ogp_reverse"], id, null),
+      { open: openTitles.has("📦 Package / OGP") });
+
+    appendManageSection(host, "🖼️ Whole set — front &amp; back",
+      manageCount(id, e => isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID),
+      (body) => managePairBlock(body, null,
+        "The complete set as received. Independent of sub-groups.",
+        SUBGROUP_PAIR, id, DEFAULT_SUBGROUP_ID),
+      { open: openTitles.has("🖼️ Whole set — front &amp; back") });
+
+    // One sub-section per sub-group. Read off the draft when there is one;
+    // otherwise fall back to whatever sub-group ids the gallery already has
+    // (a Promoted Set has no draft to read).
+    const subGroups = (ctx.draft && ctx.draft.subGroups && ctx.draft.subGroups.length)
+      ? ctx.draft.subGroups
+      : [...new Set(galleryFor(id).filter(isSubGroupEntry)
+          .map(e => e.subGroupId || DEFAULT_SUBGROUP_ID)
+          .filter(sg => sg !== DEFAULT_SUBGROUP_ID))].map(sg => ({ id: sg, name: sg }));
+    if (subGroups.length) {
+      appendManageSection(host, "🧩 Sub-groups",
+        subGroups.length + " group" + (subGroups.length === 1 ? "" : "s"),
+        (body) => {
+          subGroups.forEach(sg => {
+            managePairBlock(body, sg.name || "Sub-group",
+              null, SUBGROUP_PAIR, id, sg.id);
+          });
+        },
+        { open: openTitles.has("🧩 Sub-groups") });
+    }
+
+    appendManageSection(host, "📜 COA / certificates",
+      manageCount(id, e => e.type === "coa"),
+      (body) => manageOpenEndedBlock(body, "coa", id,
+        "Add one photo per page or side — label each one (e.g. \"page 1\")."),
+      { open: openTitles.has("📜 COA / certificates") });
+
+    appendManageSection(host, "🖼️ Other photos",
+      manageCount(id, e => e.type === "other"),
+      (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this Set."),
+      { open: openTitles.has("🖼️ Other photos") });
+
+    // Coins in this Set — each drills into its own Manage Photos.
+    const children = (ctx.draft && ctx.draft.children) ? ctx.draft.children
+      : setChildrenFor({ id, denom: "Multiple", originSetId: ctx.originSetId });
+    if (children && children.length) {
+      appendManageSection(host, "🪙 Coins in this Set",
+        children.length + " coin" + (children.length === 1 ? "" : "s"),
+        (body) => {
+          children.forEach(child => {
+            const row = document.createElement("div");
+            row.className = "case album-card";
+            row.style.cursor = "pointer";
+            const childName = child.name || [child.year, child.mint].filter(Boolean).join("-") || child.id;
+            row.innerHTML = `
+              <div class="album-card-icon">🪙</div>
+              <div class="album-card-info">
+                <div class="album-card-name">${childName}</div>
+                <div class="roll-card-meta">${child.id}${galleryFor(child.id).length ? " · " + galleryFor(child.id).length + " photo(s)" : ""}</div>
+              </div>
+              <span class="chevron">›</span>
+            `;
+            row.addEventListener("click", () => {
+              const back = managePhotosCtx;
+              openManagePhotos({
+                id: child.id, name: childName, meta: child.id + " · in " + (ctx.name || "this Set"),
+                kind: "coin", parentSetId: id, parentSetName: ctx.name,
+                backTo: () => openManagePhotos(back)
+              });
+            });
+            body.appendChild(row);
+          });
+        },
+        { open: openTitles.has("🪙 Coins in this Set") });
+    }
+  }
+
+  function initSubGroupPhotoSheet() {
+    document.getElementById("subGroupPhotoDoneBtn").addEventListener("click", () => {
+      document.getElementById("subGroupPhotoOverlay").classList.add("hidden");
+      subGroupSheetId = null;
+    });
+  }
+
+  function initGalleryTypePicker() {
+    document.getElementById("galleryTypePickerCancelBtn").addEventListener("click", () => {
+      document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+      galleryTypePickPending = null;
+    });
+  }
+
+  // sectionId: a container div. getTargetId(): returns the CollectionID (or
+  // temp-draft key) whose gallery this widget edits. scope: "coin" | "set".
+  // opts (optional): { title, description } — lets a host screen give the
+  // widget context-appropriate copy (a Set's is about certificates/documents,
+  // a coin's about slab & reference shots) instead of one generic heading.
+  function initGalleryCapture(sectionId, getTargetId, scope, opts) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    opts = opts || {};
+    const title = opts.title || "Photo Gallery (optional)";
+    const description = opts.description ||
+      "Any photos beyond the flip card — slab/COA/box shots, extra angles. Each is cropped to remove background before it's saved.";
+    // TWO add buttons — camera and library — not one generic "Add photo" with
+    // a lone file input. Same Samsung Internet requirement as every other
+    // photo slot in the app: it skips the native chooser, so a single input
+    // gives no route to the camera. (This widget shipped with that defect,
+    // matching the one just fixed on the pair slots.)
+    section.innerHTML = `
+      <div class="section-label" style="margin-top:0;">${title}</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
+      <div class="gc-grid" data-role="grid"></div>
+      <div class="gc-add-row">
+        <button type="button" class="gc-add-btn" data-role="add-cam">📷 Take photo</button>
+        <button type="button" class="gc-add-btn" data-role="add-lib">🖼️ Choose photo</button>
+      </div>
+      <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
+      <input type="file" accept="image/*" data-role="lib" style="display:none;">
+    `;
+    const grid = section.querySelector('[data-role="grid"]');
+    const camInput = section.querySelector('[data-role="cam"]');
+    const libInput = section.querySelector('[data-role="lib"]');
+    // opts.types (optional): restrict the picker to these type keys instead of
+    // everything in `scope`. With exactly one allowed type the picker is
+    // skipped entirely — there's nothing to choose (e.g. a Reference-photos-
+    // only section).
+    const allowedTypes = Array.isArray(opts.types) && opts.types.length ? opts.types : null;
+    let pendingType = null;
+
+    function render() {
+      const id = getTargetId();
+      const list = id ? galleryFor(id) : [];
+      grid.innerHTML = "";
+      list.forEach((entry, index) => {
+        const def = galleryTypeDef(entry.type);
+        // Flip sources live in the same gallery array but are managed by the
+        // dedicated obverse/reverse slots above — don't show/remove them here.
+        if (def && def.flipSource) return;
+        const thumb = document.createElement("div");
+        thumb.className = "gc-thumb";
+        thumb.innerHTML = `
+          <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+          ${galleryThumbInner(entry)}
+          <div class="gc-type">${def ? def.label : entry.type}</div>
+          <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        `;
+        thumb.querySelector(".gc-remove").addEventListener("click", () => {
+          removeGalleryEntry(id, index);
+          render();
+        });
+        thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+        grid.appendChild(thumb);
+      });
+    }
+
+    // Each add button remembers WHICH input to open once the type is chosen,
+    // so the camera/library choice survives the type picker in between.
+    function startAdd(input) {
+      const go = (typeKey) => {
+        pendingType = typeKey;
+        input.value = ""; // allow re-picking the same file
+        input.click();
+      };
+      if (allowedTypes && allowedTypes.length === 1) { go(allowedTypes[0]); return; }
+      openGalleryTypePicker(scope, go, allowedTypes);
+    }
+    section.querySelector('[data-role="add-cam"]').addEventListener("click", () => startAdd(camInput));
+    section.querySelector('[data-role="add-lib"]').addEventListener("click", () => startAdd(libInput));
+
+    const handleAdd = (input) => {
+      const file = input.files[0];
+      if (!file || !pendingType) return;
+      const id = getTargetId();
+      const type = pendingType;
+      pendingType = null;
+      runCropPipeline(file, type, id, (entry) => {
+        addGalleryEntry(id, entry);
+        render();
+      });
+    };
+    camInput.addEventListener("change", () => handleAdd(camInput));
+    libInput.addEventListener("change", () => handleAdd(libInput));
+
+    // Expose a re-render hook so a flow can refresh the widget when its target
+    // changes (e.g. Browse Edit opening a different coin).
+    section._galleryRender = render;
+    render();
+  }
+
+  // ==================================================================
+  // GALLERY DISPLAY (read-only) — a thumbnail strip (Set detail region) and
+  // a full viewer overlay, both reused across coin and Set detail views.
+  // ==================================================================
+
+  // Renders a read-only strip of gallery thumbnails into containerEl. Each
+  // thumb opens the full viewer on click. Returns the number rendered.
+  function renderGalleryStrip(containerEl, collectionId, onThumbClick) {
+    const list = galleryFor(collectionId);
+    containerEl.innerHTML = "";
+    list.forEach((entry, index) => {
+      const def = galleryTypeDef(entry.type);
+      const thumb = document.createElement("div");
+      thumb.className = "gc-thumb";
+      thumb.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${def ? def.label : entry.type}</div>`;
+      thumb.addEventListener("click", () => onThumbClick(index));
+      containerEl.appendChild(thumb);
+    });
+    return list.length;
+  }
+
+  let galleryViewerId = null;
+  function openGalleryViewer(collectionId, title) {
+    galleryViewerId = collectionId;
+    document.getElementById("galleryViewerTitle").textContent = title || "Photos";
+    const grid = document.getElementById("galleryViewerGrid");
+    const list = galleryFor(collectionId);
+    grid.innerHTML = "";
+    if (!list.length) {
+      grid.innerHTML = `<p style="font-size:13px; color:var(--text-muted);">No photos yet.</p>`;
+    } else {
+      list.forEach(entry => {
+        const def = galleryTypeDef(entry.type);
+        const cell = document.createElement("div");
+        cell.className = "gv-cell";
+        const cap = [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
+        cell.innerHTML = `${galleryThumbInner(entry)}<div class="gv-cap">${cap}</div>`;
+        grid.appendChild(cell);
+      });
+    }
+    document.getElementById("galleryViewerOverlay").classList.remove("hidden");
+  }
+  function initGalleryViewer() {
+    document.getElementById("galleryViewerCloseBtn").addEventListener("click", () => {
+      document.getElementById("galleryViewerOverlay").classList.add("hidden");
+      galleryViewerId = null;
+    });
+  }
+
+  // ==================================================================
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
-  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId) {
+  // galleryType/getGalleryId (optional): when set, this frame slot is a flip
+  // source (obverse/reverse) and runs the full two-stage pipeline —
+  // background crop then circle — writing the framed circle into the slot's
+  // own preview AND registering the background-cropped rectangle as a gallery
+  // entry of that type. When absent, the slot keeps its legacy circle-only
+  // behavior (Wishlist's obverse/reverse, which aren't owned-coin galleries).
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId, galleryType, getGalleryId) {
     const preview = document.getElementById(previewId);
     const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
@@ -8594,8 +10424,29 @@
     cameraBtn.addEventListener("click", () => cameraInput.click());
     libraryBtn.addEventListener("click", () => libraryInput.click());
 
+    // Applies a baked circle blob URL to this slot's own DOM (preview/frame/
+    // dot/adjust button) — the same writes the legacy circle path made.
+    function applyCirclePreview(circleUrl) {
+      if (!circleUrl) return;
+      preview.src = circleUrl;
+      preview.style.display = "block";
+      if (placeholder) placeholder.style.display = "none";
+      if (frame) frame.classList.add("has-photo");
+      if (dot) dot.classList.add("filled");
+      if (adjustBtn) adjustBtn.style.display = "flex";
+    }
+
     async function handleFile(file) {
-      if (frameId) {
+      if (frameId && galleryType && getGalleryId) {
+        // Flip source — two-stage pipeline, updates the slot preview and
+        // registers the rectangle as an obverse/reverse gallery entry.
+        slotFiles[frameId] = file;
+        const id = getGalleryId();
+        runCropPipeline(file, galleryType, id, (entry) => {
+          addGalleryEntry(id, entry);
+          applyCirclePreview(entry.circleUrl);
+        });
+      } else if (frameId) {
         // Circular coin photo — crop/zoom/pan before it becomes the preview.
         slotFiles[frameId] = file;
         openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
@@ -8634,7 +10485,16 @@
       adjustBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         const file = slotFiles[frameId];
-        if (file) openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
+        if (!file) return;
+        if (galleryType && getGalleryId) {
+          const id = getGalleryId();
+          runCropPipeline(file, galleryType, id, (entry) => {
+            addGalleryEntry(id, entry);
+            applyCirclePreview(entry.circleUrl);
+          });
+        } else {
+          openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
+        }
       });
     }
   }
@@ -9158,10 +11018,14 @@
   }
 
   function initAddCoin() {
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn");
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn");
+    // Obverse/Reverse are the flip sources — routed through the two-stage
+    // pipeline (background crop -> circle) and registered as gallery entries.
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID);
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID);
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
-    wireMockPhotoSlot("additionalPreview", "additionalPlaceholder", "additionalCameraBtn", "additionalLibraryBtn", "additionalCameraInput", "additionalLibraryInput", "additionalFrame", null, "additionalAdjustBtn");
+    // The old fixed "Additional Photo" slot is superseded by the gallery
+    // widget (its role is now the gallery's "Other" type).
+    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin");
     refreshVarietyOptions();
 
     document.getElementById("purchaseInfoRow").addEventListener("click", () => showAddCoinSubview("purchase"));
@@ -9660,7 +11524,20 @@
   // isReceipt: only Add Set's "receipt" slot auto-wraps to PDF — "whole"
   // (the whole-set packaging photo) is not a receipt and stays a plain image,
   // untouched by this.
-  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, isReceipt) {
+  // cropAspect (optional): "square" | "free" — when set, this slot's captured
+  // photo runs through the Stage-1 background crop (which also carries the
+  // rotate/straighten controls) before it becomes the preview AND before it's
+  // stored for upload.
+  //
+  // BUG FIX (found in live tablet testing): every non-receipt slot here used
+  // to write `preview.src` straight from the raw capture and store the raw
+  // File, never calling the crop pipeline at all — so Add Set's whole-set
+  // photo could not be cropped or rotated, despite the gallery widget being
+  // present elsewhere on the same screen. The widget and these pre-existing
+  // slots were simply two different code paths; only the widget was wired up.
+  // Receipts deliberately stay uncropped (they're PDF-wrapped document scans —
+  // a long-standing decision, see CLAUDE.md "Receipt photos auto-convert to PDF").
+  function wireAddSetPhotoSlot(key, previewId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, isReceipt, cropAspect) {
     const preview = document.getElementById(previewId);
     const cam = document.getElementById(cameraInputId);
     const lib = document.getElementById(libraryInputId);
@@ -9672,6 +11549,24 @@
         addSetPhotoFiles[key] = prepared.blob;
         addSetPhotoFilenames[key] = prepared.filename;
         showReceiptPdfIndicator(previewId, null, prepared.filename);
+        return;
+      }
+      if (cropAspect) {
+        // Crop-enabled slot: Stage 1 (background crop + rotate/straighten).
+        // Returns early WITHOUT decoding here — openBgCrop does its own
+        // EXIF-oriented decode, so decoding first would just do it twice.
+        // The CROPPED blob is what gets stored for upload; uploadDraftPhoto/
+        // graph().uploadFile are Blob-safe (they never assumed a real File),
+        // so the crop genuinely persists rather than being preview-only.
+        openBgCrop(file, {
+          title: "Crop photo",
+          aspectLock: cropAspect === "square",
+          onComplete: (croppedBlob) => {
+            addSetPhotoFiles[key] = croppedBlob;
+            preview.src = URL.createObjectURL(croppedBlob);
+            preview.style.display = "block";
+          }
+        });
         return;
       }
       const canvas = await loadOrientedImageCanvas(file);
@@ -9733,10 +11628,32 @@
 
     populateAddSetNameOptions();
 
-    wireAddSetPhotoSlot("whole", "addSetWholePreview", "addSetWholeCameraBtn", "addSetWholeLibraryBtn", "addSetWholeCameraInput", "addSetWholeLibraryInput");
+    // The legacy standalone "whole-set photo" slot is gone — that role is now
+    // the package/OGP pair plus (for a flat Set) the implicit-default
+    // sub-group pair, both rendered by renderAddSetDocs() inside the
+    // Set-documents accordion. "square" for the Step 2 per-coin
+    // obverse/reverse, which are flip-card sources.
     wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
-    wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput");
-    wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput");
+    wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput", false, "square");
+    wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput", false, "square");
+
+    // Set-documents accordion: collapsed by default, toggles like the Browse
+    // detail accordions. Its body holds renderAddSetDocs()'s pairs + the
+    // open-ended COA/other gallery widget + the Receipt.
+    const docsHeader = document.getElementById("addSetDocsHeader");
+    const docsBody = document.getElementById("addSetDocsBody");
+    docsHeader.addEventListener("click", () => {
+      const nowOpen = docsBody.classList.toggle("hidden") === false;
+      docsHeader.setAttribute("aria-expanded", String(nowOpen));
+      if (nowOpen) renderAddSetDocs();
+    });
+
+    // Open-ended COA / other Set-level photos. Targets the resumed draft's own
+    // CollectionID when resuming, else the temp key.
+    initGalleryCapture("addSetGallery", addSetGalleryTargetId, "set", {
+      title: "Certificates &amp; other documents",
+      description: "COA pages (add as many as the certificate has) and any other Set-level photo. Each is cropped to remove background before it's saved."
+    });
 
     // Name and Year each recompute Category (item 4) on every genuine edit
     // — see updateAddSetCategoryFromNameYear(). Setting addSetNameTouched/
@@ -9809,6 +11726,15 @@
     });
 
     document.getElementById("addSetAddSubGroupBtn").addEventListener("click", () => addSubGroupRow());
+
+    // Purchase Info / Storage drill-downs — same replace-the-screen pattern as
+    // Add Coin's, including refreshing the row summaries on the way back.
+    document.getElementById("addSetPurchaseInfoRow").addEventListener("click", () => showAddSetSubview("purchase"));
+    document.getElementById("addSetStorageRow").addEventListener("click", () => showAddSetSubview("storage"));
+    document.getElementById("addSetPurchaseBackBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetStorageBackBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetPurchaseDoneBtn").addEventListener("click", showAddSetStep1Main);
+    document.getElementById("addSetStorageDoneBtn").addEventListener("click", showAddSetStep1Main);
     document.getElementById("addSetStartBtn").addEventListener("click", startSetCapture);
     document.getElementById("addSetChildSaveBtn").addEventListener("click", saveCurrentChild);
     document.getElementById("addSetChildDoneBtn").addEventListener("click", markCurrentSetComplete);
@@ -9876,24 +11802,61 @@
     }
   }
 
-  function addSubGroupRow(name, count) {
+  // A sub-group row carries a STABLE id (data-sg-id) generated once at
+  // creation and preserved by readSubGroups(), so renaming or reordering never
+  // re-points its photos. `id` is passed when restoring an existing draft's
+  // rows; omitted for a brand-new row.
+  function addSubGroupRow(name, count, id) {
     const container = document.getElementById("addSetSubGroups");
+    const sgId = id || nextSubGroupId();
     const row = document.createElement("div");
     row.className = "subgroup-row";
-    row.style.cssText = "display:flex; gap:8px; margin-top:8px; align-items:center;";
+    row.dataset.sgId = sgId;
+    row.style.cssText = "margin-top:8px;";
     row.innerHTML = `
-      <input type="text" class="sg-name" placeholder="Sub-group name" style="flex:2;" value="${name || ""}">
-      <input type="number" class="sg-count" placeholder="count" inputmode="numeric" style="flex:1;" value="${count != null ? count : ""}">
-      <button type="button" class="sg-remove" style="background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" class="sg-name" placeholder="Sub-group name" style="flex:2;" value="${(name || "").replace(/"/g, "&quot;")}">
+        <input type="number" class="sg-count" placeholder="count" inputmode="numeric" style="flex:1;" value="${count != null ? count : ""}">
+        <button type="button" class="sg-remove" style="background:none; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      </div>
+      <button type="button" class="sg-photos-btn" data-sg-id="${sgId}">📷 Add photos</button>
     `;
-    row.querySelector(".sg-remove").addEventListener("click", () => row.remove());
+    row.querySelector(".sg-remove").addEventListener("click", () => {
+      // Removes ONLY this sub-group's own obverse/reverse pair — never the
+      // photos of coins captured under it (those live in each child coin's
+      // own gallery; see removeSubGroupPhotos).
+      removeSubGroupPhotos(addSetGalleryTargetId(), sgId);
+      row.remove();
+    });
+    row.querySelector(".sg-photos-btn").addEventListener("click", () => openSubGroupPhotoSheet(sgId));
     container.appendChild(row);
+    updateSubGroupPhotoChip(sgId);
   }
 
   function readSubGroups() {
     return [...document.querySelectorAll("#addSetSubGroups .subgroup-row")]
-      .map(r => ({ name: r.querySelector(".sg-name").value.trim(), expectedCount: Number(r.querySelector(".sg-count").value) || 0 }))
+      .map(r => ({
+        id: r.dataset.sgId,
+        name: r.querySelector(".sg-name").value.trim(),
+        expectedCount: Number(r.querySelector(".sg-count").value) || 0
+      }))
       .filter(sg => sg.name);
+  }
+
+  // Which gallery the Add Set screen's photos belong to — the resumed draft's
+  // real CollectionID when resuming, else the temp draft key (no ID is
+  // reserved until Step 1 is submitted).
+  function addSetGalleryTargetId() {
+    return currentSetDraft ? currentSetDraft.collectionID : ADDSET_GALLERY_ID;
+  }
+
+  // The per-row chip reflects how many of that sub-group's 2 photos exist.
+  function updateSubGroupPhotoChip(sgId) {
+    const btn = document.querySelector('#addSetSubGroups .sg-photos-btn[data-sg-id="' + sgId + '"]');
+    if (!btn) return;
+    const n = galleryEntriesForSubGroup(addSetGalleryTargetId(), sgId).length;
+    btn.textContent = n ? "📷 " + n + " photo" + (n === 1 ? "" : "s") : "📷 Add photos";
+    btn.classList.toggle("has-photos", n > 0);
   }
 
   // Year is a required either/or (see the Step 1 markup comment): a specific
@@ -9911,9 +11874,68 @@
     return isNaN(n) ? null : n;
   }
 
+  // Add Set's Purchase Info / Storage drill-downs — mirrors Add Coin's
+  // showAddCoinMain()/showAddCoinSubview() pair, including the shallow
+  // up-one-level Back target while a subview is open.
+  function showAddSetStep1Main() {
+    document.getElementById("addSetStep1Main").style.display = "block";
+    document.getElementById("addSetPurchaseView").style.display = "none";
+    document.getElementById("addSetStorageView").style.display = "none";
+    updateAddSetRowSummaries();
+    setNavBack(() => navigate("acquisitions")); // Add Set's parent is the Acquisitions hub
+  }
+
+  function showAddSetSubview(which) {
+    document.getElementById("addSetStep1Main").style.display = "none";
+    document.getElementById("addSetPurchaseView").style.display = which === "purchase" ? "block" : "none";
+    document.getElementById("addSetStorageView").style.display = which === "storage" ? "block" : "none";
+    setNavBack(() => showAddSetStep1Main()); // subview → Step 1 main
+    window.scrollTo({ top: 0 });
+  }
+
+  // One-line summaries on the collapsed rows, same shape as Add Coin's.
+  function updateAddSetRowSummaries() {
+    const price = document.getElementById("addSetCost").value;
+    const shipping = document.getElementById("addSetShippingCost").value;
+    const vendor = document.getElementById("addSetVendor").value;
+    const purchaseParts = [];
+    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (vendor) purchaseParts.push(vendor);
+    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
+    document.getElementById("addSetPurchaseInfoSummary").textContent =
+      purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
+
+    const loc = document.getElementById("addSetStorageLocation").value;
+    const container = document.getElementById("addSetContainer").value;
+    const storageParts = [];
+    if (loc) storageParts.push(loc);
+    if (container) storageParts.push(container);
+    document.getElementById("addSetStorageSummary").textContent =
+      storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or container";
+  }
+
+  // The Step-1 purchase/storage field values, as stored on the draft.
+  function readAddSetPurchaseStorage() {
+    const num = (id) => {
+      const v = document.getElementById(id).value;
+      return v === "" ? null : (Number(v) || 0);
+    };
+    return {
+      cost: num("addSetCost"),
+      shippingCost: num("addSetShippingCost"),
+      purchaseDate: document.getElementById("addSetPurchaseDate").value || "",
+      vendor: document.getElementById("addSetVendor").value.trim(),
+      storageLocation: document.getElementById("addSetStorageLocation").value.trim(),
+      container: document.getElementById("addSetContainer").value.trim()
+    };
+  }
+
   function showAddSetStep1() {
     currentSetDraft = null;
     populateAddSetNameOptions(); // refresh in case live DB_Sets data finished loading since initAddSet()
+    showAddSetStep1Main(); // always land on the main view, never a stale subview
+    ["addSetCost", "addSetShippingCost", "addSetPurchaseDate", "addSetVendor",
+     "addSetStorageLocation", "addSetContainer"].forEach(id => document.getElementById(id).value = "");
     ["addSetName", "addSetProductCode", "addSetExpectedCount", "addSetYear"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("addSetYearVarious").checked = false;
     document.getElementById("addSetYear").disabled = false;
@@ -9933,13 +11955,22 @@
     document.getElementById("addSetMatchNote").textContent = "";
     document.getElementById("addSetSubGroups").innerHTML = "";
     document.getElementById("addSetStep1Note").textContent = "";
-    addSetClearPhoto("whole", "addSetWholePreview");
+    addSetPhotoFiles["whole"] = null; // legacy write-path slot, now fed by the OGP front capture
     addSetClearPhoto("receipt", "addSetReceiptPreview");
+    // Fresh entry starts with an empty Set gallery draft (temp key), a
+    // collapsed docs accordion, and freshly-numbered sub-group ids.
+    resetGalleryDraft(ADDSET_GALLERY_ID);
+    const asg = document.getElementById("addSetGallery");
+    if (asg && asg._galleryRender) asg._galleryRender();
+    document.getElementById("addSetDocsBody").classList.add("hidden");
+    document.getElementById("addSetDocsHeader").setAttribute("aria-expanded", "false");
+    renderAddSetDocs();
     // Banner hidden by default; applyAddSetContext() (called right AFTER
     // navigate on the checklist path) re-shows/fills it. Deliberately does NOT
     // null setChecklistContext — that survives navigate so applyAddSetContext
     // can read it; it's cleared only when actually leaving Add Set.
     document.getElementById("addSetContextBanner").classList.add("hidden");
+    updateAddSetRowSummaries(); // reflect the cleared purchase/storage fields
   }
 
   // Resumes an EXISTING Set draft's Step 1 form — used by the Docket's
@@ -9978,6 +12009,16 @@
     document.getElementById("addSetProductCode").value = draft.productCode || "";
     document.getElementById("addSetCategory").value = draft.category || "";
     addSetCategoryTouched = true; // a real known value — never auto-derive over it
+
+    // Purchase + storage (absent on drafts created before these fields existed —
+    // they just restore blank, no migration needed).
+    document.getElementById("addSetCost").value = draft.cost != null ? draft.cost : "";
+    document.getElementById("addSetShippingCost").value = draft.shippingCost != null ? draft.shippingCost : "";
+    document.getElementById("addSetPurchaseDate").value = draft.purchaseDate || "";
+    document.getElementById("addSetVendor").value = draft.vendor || "";
+    document.getElementById("addSetStorageLocation").value = draft.storageLocation || "";
+    document.getElementById("addSetContainer").value = draft.container || "";
+    updateAddSetRowSummaries();
     addSetNameTouched = true;     // ditto — a later product-code entry shouldn't overwrite either
     addSetYearTouched = true;
 
@@ -9985,7 +12026,9 @@
     addSetTrackIndividuallyTouched = true;
     updateAddSetTrackIndividuallyVisibility();
     document.getElementById("addSetExpectedCount").value = draft.expectedChildCount || "";
-    (draft.subGroups || []).forEach(sg => addSubGroupRow(sg.name, sg.expectedCount));
+    // Pass each sub-group's STORED id through, so a resumed draft's rows keep
+    // pointing at their own already-captured photos (a fresh id would orphan them).
+    (draft.subGroups || []).forEach(sg => addSubGroupRow(sg.name, sg.expectedCount, sg.id));
     document.getElementById("addSetTrackIndividually").disabled = true;
     document.getElementById("addSetExpectedCount").disabled = true;
     document.getElementById("addSetAddSubGroupBtn").disabled = true;
@@ -9998,8 +12041,19 @@
 
     currentSetDraft = draft; // tells startSetCapture() to update this draft in place, not reserve a new ID
 
-    const box = document.getElementById("addSetWholeBox");
-    if (box) box.scrollIntoView({ block: "center", behavior: "auto" });
+    // Re-render the gallery now that the widget targets this resumed draft's
+    // own CollectionID (showAddSetStep1 rendered it against the temp key).
+    const asg = document.getElementById("addSetGallery");
+    if (asg && asg._galleryRender) asg._galleryRender();
+
+    // Resuming to fill a photo gap — expand the docs accordion (rather than
+    // landing on a collapsed section with nothing visible) and scroll to it.
+    const docsBody = document.getElementById("addSetDocsBody");
+    docsBody.classList.remove("hidden");
+    document.getElementById("addSetDocsHeader").setAttribute("aria-expanded", "true");
+    renderAddSetDocs();
+    const acc = document.getElementById("addSetDocsAccordion");
+    if (acc) acc.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
   // Deep-link pre-fill from a Sets completeness-checklist empty tile (A2):
@@ -10094,6 +12148,7 @@
         resumingDraft.year = yearValue;
         resumingDraft.wholeSetPhoto = wholeName;
         resumingDraft.receiptPhoto = receiptName;
+        Object.assign(resumingDraft, readAddSetPurchaseStorage());
         await writeSetDraft(resumingDraft);
         currentSetDraft = resumingDraft;
         showToast("Saved.");
@@ -10118,7 +12173,8 @@
         wholeSetPhoto: wholeName, receiptPhoto: receiptName,
         year: yearValue,
         checklistSetId: ctx ? ctx.setId : "",
-        checklistLineage: ctx ? ctx.lineage : ""
+        checklistLineage: ctx ? ctx.lineage : "",
+        ...readAddSetPurchaseStorage()
       });
       await writeSetDraft(draft);
       currentSetDraft = draft;
@@ -10233,8 +12289,9 @@
       draft.partialChild = null;
       writeSetDraft(draft).catch(() => {}); // best-effort; form already shows the restored values regardless
       restorePartialChildPhotos(draft.collectionID, restoredPhotos).catch(() => {}); // Bug 3 fix — fire-and-forget, best-effort
+      renderAddSetChildExtras(); // point slab/reference/COA at this child + parent
     } else {
-      clearChildForm();
+      clearChildForm(); // itself re-renders the extras
     }
   }
 
@@ -10257,6 +12314,17 @@
     document.getElementById("addSetChildMint").value = "";
     addSetClearPhoto("childObv", "addSetChildObvPreview");
     addSetClearPhoto("childRev", "addSetChildRevPreview");
+    // Collapse the coin-tier extras and re-point them at the NEXT child's own
+    // CollectionID (the previous child's photos stay under its own id).
+    ["addSetChildSlabBody", "addSetChildRefBody"].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.classList.add("hidden");
+    });
+    ["addSetChildSlabHeader", "addSetChildRefHeader"].forEach(id => {
+      const h = document.getElementById(id);
+      if (h) h.setAttribute("aria-expanded", "false");
+    });
+    renderAddSetChildExtras();
   }
 
   // Reads the child form's typed/selected FIELD values only. Photos are
@@ -10402,8 +12470,23 @@
           <div class="wish-notes">${draft.children.length} of ${total || "?"} coins captured</div>
           <div class="wish-date">Started ${(draft.createdDate || "").slice(0, 10)}</div>
         </div>
+        <button type="button" class="staging-btn" data-role="photos">📷 Photos</button>
         <span class="chevron">›</span>
       `;
+      // Row body still resumes capture (unchanged); the 📷 button is Manage
+      // Photos entry point #2 — a Draft, which otherwise has no way to reach
+      // add/replace outside the capture flow.
+      item.querySelector('[data-role="photos"]').addEventListener("click", (e) => {
+        e.stopPropagation();
+        openManagePhotos({
+          id: draft.collectionID,
+          name: draft.setName || "(unnamed set)",
+          meta: draft.collectionID + " · Draft",
+          kind: "set",
+          draft,
+          backTo: () => navigate("inprogresssets")
+        });
+      });
       item.addEventListener("click", () => { currentSetDraft = draft; renderChildStep(); });
       container.appendChild(item);
     });
@@ -10432,6 +12515,11 @@
   initAlbums();
   initWishlist();
   initPhotoAdjuster();
+  initBgCrop();
+  initGalleryTypePicker();
+  initSubGroupPhotoSheet();
+  initAddSetChildExtras();
+  initGalleryViewer();
   initGradingHelp();
   initAddCoin();
   initAddSet();
