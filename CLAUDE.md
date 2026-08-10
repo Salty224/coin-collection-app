@@ -3653,7 +3653,24 @@ design decision rather than weakening the suite.
 **Not verified: any real device, and no real OneDrive write has ever been
 executed** — every write in this build went to a mock Graph client. The live
 run against the `_Testing` copy is Ray's to do, same as the Add Set write
-layer's own live-run step.
+layer's own live-run step; the step-by-step is committed alongside as
+`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`.
+- **The write pass can only run where a local server can run.** The only
+  Entra redirect URI registered for `app.html` is
+  `http://localhost:8791/app.html`, so the functional verification happens
+  in a desktop browser against `python3 -m http.server 8791`. A phone
+  pointed at the live GitHub Pages site cannot do this pass at all. To get
+  a real Samsung Internet pass on the new UI, use USB port forwarding
+  (`chrome://inspect` → Port forwarding, device 8791 → localhost:8791) so
+  the phone's origin is still exactly `localhost:8791` and matches the
+  registered URI. Registering a production redirect URI would remove this
+  constraint but would also make the live site write-capable — a separate
+  decision, deliberately not taken as a side effect of this feature.
+- **First Edit open in a fresh session bounces to Microsoft sign-in and
+  returns to the Dashboard, not the form** (a full page load, so app state
+  resets). Expected MSAL redirect behavior, same as the reference-image
+  feature's own first fetch — not a bug; reopen the coin and it's silent
+  from then on.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
