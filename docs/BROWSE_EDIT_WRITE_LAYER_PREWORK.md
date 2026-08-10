@@ -1,8 +1,19 @@
 # Browse Edit real write layer — prework notes (schema verification + open questions)
 
-**Status:** Research/scoping only. No code written, no branch created. Picking
-up in a future session once Ray has answered the questions below and the
-in-progress database fixes are resolved.
+> **SUPERSEDED — historical record only.** Every question below has since
+> been answered and the feature is BUILT on branch
+> `claude/browse-edit-write-layer`. See the "Browse Edit real write layer"
+> section of CLAUDE.md for the answers as implemented and for the final
+> design. Two things in this document are now known to be WRONG about the
+> workbook and are corrected in CLAUDE.md: SpotValue and Total are live
+> formulas (they had been silently flattened workbook-wide by a Copilot
+> formatting pass and have since been restored), and Discrepancy 2 below
+> reflects that flattened state, not the intended one. Kept for the
+> schema-verification record and for the reasoning behind the questions.
+
+**Original status:** Research/scoping only. No code written, no branch
+created. Picking up in a future session once Ray has answered the questions
+below and the in-progress database fixes are resolved.
 
 **Source workbook checked against:** `CoinCollection_AI.xlsx` uploaded
 2026-08-10 (filename on disk: `a80f4451-CoinCollection_AI.xlsx`). This is

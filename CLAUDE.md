@@ -413,15 +413,82 @@ supersedes every earlier `_receipt.jpg` reference in this file.
   denomination dropdown/display in the app should use (or map to/from) these codes.
 
 ## Workbook sheets that matter
-- **All** — owned coin records, ~480 rows. Authoritative for what Ray owns. Has a
-  new **SpotValue** column (not live yet — formula pending).
+**Verified against the real workbook 2026-08-10** (during the Browse Edit
+write-layer build). The counts and column facts in this section are as of
+that date — the workbook is co-managed with Copilot between sessions, so
+re-verify before relying on any of it for a write.
+- **All** — owned coin records, backed by the table **`AllCoins`** (the table
+  name matters: the Graph Excel API addresses it by name). **542 data rows,
+  49 columns (A–AW)**, CollectionID unique across every row (zero
+  duplicates — safe as a write key). **24 of those rows are real `-A`/`-B`
+  child rows** living on All like any other row, not just the app's own
+  nested `FAKE_SET_CHILDREN` demo model.
+  - **`SpotValue` (Z) and `Total` (U) are LIVE FORMULAS** —
+    `Total = Cost + Shipping`; SpotValue is a nested-VLOOKUP chain through
+    DB_Coins → Lookup_MetalContent → Ref_SpotPrices. **Superseded:** this
+    file previously said SpotValue was "not live yet — formula pending" and
+    elsewhere that it had been deployed 7/13; neither described the actual
+    state. **Both columns had been silently flattened to static values
+    workbook-wide (all 1,084 cells), almost certainly by a Copilot "refresh
+    formatting" pass** — a real data-loss failure, not a design gap: Total
+    would have gone stale the instant Cost/Shipping changed and SpotValue
+    would never have reflected updated spot prices again. Both were restored
+    via targeted XML surgery, verified byte-for-byte against the original
+    except those cells. **The naive restore-from-backup would have been
+    WRONG** — DB_Coins and Lookup_MetalContent had gained columns since the
+    backup, so the old formula pointed at the wrong DB_Coins column and
+    omitted Copper/Nickel; the correct current formula was recovered from
+    the `AllCoins` table's own `calculatedColumnFormula` metadata, which the
+    flattening never touched. **Treat "a Copilot formatting pass can silently
+    flatten formulas" as a known failure mode of this workbook**, and never
+    let app code write a literal into a formula column.
+  - **There is no `Notes` or `FunFact` column on All** — `Remarks` (AG) is
+    the only free-text column. Notes/FunFact exist on DB_Coins (and Notes on
+    Wishlist). Don't assume a per-specimen home for either.
+  - `LastModified` (AW) exists, is blank on every row, and is stamped by the
+    APP only — Copilot writes and manual Excel edits deliberately do not
+    populate it. It is "last app touch," not an audit trail.
+  - `Reviewed` (AS) exists and is blank on every row.
+  - `Seller_Link` (V) holds seller NAMES far more often than URLs (7 of 233
+    populated values are `http…`), despite the column name.
+- **Photos** (new) — one row per photo, replacing the old fixed
+  Obverse/Reverse/Photo3/Photo4/OGPPhoto columns on All: `PhotoID` (PH-#####),
+  `CollectionID`, `PhotoType`, `SubGroupID`, `Filename`, `Label`, `DateAdded`.
+  PhotoTypes in use: Obverse, Reverse, Slab_Obverse, Slab_Reverse, Reference
+  (**capitalized** — the app's own `GALLERY_TYPES` uses lowercase, a mapping
+  to resolve whenever photo reads migrate).
+- **Receipts** (new) — `ReceiptID` (RC-#####), `CollectionID`, `Filename`,
+  `DateAdded`. One row per (receipt × coin), so a multi-coin receipt is
+  several rows sharing a ReceiptID and Filename. Cost/Shipping/PurchaseDate/
+  Seller_Link deliberately stay on All as the single source of truth.
+- **Containers** (new) — `ContainerName`, `StorageLocation`, `Notes`,
+  `DateAdded`. One row per physical container, holding its current location,
+  so moving a container is one edit here rather than an update to every coin
+  row referencing it. `ContainerName` matches `All.Container` text exactly
+  (the name IS the key — no separate ID). Currently 11 containers, and the
+  data is clean: all 314 rows with a Container agree with it, zero orphans.
+  The read-layer join that makes this actually cascade is BUILT — see
+  "Browse Edit real write layer" below.
+- **The All-sheet flat photo/receipt columns are still populated and still
+  what the app reads** (Obverse, Obverse_Original, Reverse, Reverse_Original,
+  Photo3, Photo4, Receipt, OGPPhoto). They're deliberately left in place
+  until the app's photo/receipt reads move to the Photos/Receipts tabs, at
+  which point they should be cleared to avoid two sources of truth. That
+  migration is a known, still-unstarted piece of work — the Browse Edit
+  write layer explicitly did NOT do it.
 - **DB_Coins** — ~3,753 reference coin types. Add rows opportunistically when a gap
   is hit during other research — never proactively expand into an exhaustive catalog.
-  Has Mintage (partially populated) and will get a new FunFact column. Co-managed
+  Has Mintage (partially populated) and a **FunFact** column (confirmed present —
+  this is the source Edit Coin's read-only Fun Fact display reads). Co-managed
   with Copilot outside app sessions (GSID population, PCGS# corrections, structural
   fixes have happened this way) — **treat any previously-pulled copy of DB_Coins as
   possibly stale**; re-pull before relying on it for anything beyond a quick mockup.
 - **DB_Sets** — reference sets, including all albums (Type=AL).
+- **Sets** (new, table `Sets_Status`) — `Status`, `Year`, `Variety`,
+  `Description`, `Lineage`, `SetID`, `FilledBy`. Nothing in the app reads it
+  yet (deliberately, per Ray). Worth revisiting as a possibly better
+  ownership signal for the Sets completeness checklist than the sparse
+  `All.SetID` linkage — a separate scoping decision, not assumed.
 - **Albums** (formerly AlbumSlots) — restructured; actual live columns are
   `Status`, `Year`, `MintMark`, `Description`, `AlbumName`, `AlbumID`, `CoinID`,
   `FilledBy` (plain CollectionID, blank = open hole/want-list). There is no
@@ -1537,6 +1604,11 @@ inside the Notes & Facts accordion (read-only in the first pass was a
 placeholder pending this decision, now confirmed). Both are `<textarea>`s
 prefilled from `FAKE_COIN_DETAILS` and written back by the same session-only
 in-memory Save the rest of this pass uses — no OneDrive write.
+**Partly superseded by the Browse Edit write layer**: in EDIT COIN, Fun Fact
+is now read-only (it's DB_Coins catalog data about the coin type, with no
+All-sheet column to write to) and Notes maps to `All.Remarks`. Edit Set is
+unchanged — both are still editable textareas there, still session-only,
+pending its own write layer.
 - **The Set-level facts group stays READ-ONLY** above the two textareas on
   Edit Set (Coins in Set is derived from the linked children; Face Value and
   Mintage are catalog figures — none of them specimen data). Extracted into
@@ -3355,6 +3427,11 @@ pulled from the workbook.
 ## Editing existing coins (bounded)
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
 Container, and can attach additional photos/receipts to an existing coin at any time.
+**Widened by the Browse Edit write layer below** — the real allow-list is now
+that list plus Year, MintMark, Denomination, Variety, Description, Value,
+Cost, Shipping, Seller_Link, PurchaseDate, Remarks, Reviewed and
+LastModified; see `ALL_WRITABLE_COLUMNS` for the authoritative version. The
+"no research or judgment" boundary below is unchanged.
 **Container is a real, separate All-sheet column from StorageLocation** (not a
 schema change — it already exists in the workbook) — Edit Coin exposes both as two
 independent fields, same as Edit Set below. App CANNOT do anything requiring
@@ -3377,6 +3454,206 @@ Container only ever appears in the new Location section.
 
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
+
+### Browse Edit real write layer (BUILT, held on branch `claude/browse-edit-write-layer`, NOT merged — awaiting Ray's real-device pass)
+The app's first write **into the workbook itself**, and the pattern every
+other form's write layer should follow. (The Add Set write layer writes
+Staging JSON + photo files and deliberately never touches the workbook — a
+different thing entirely.) **Scope is Browse Edit's Save button only** — Add
+Coin, Edit Set, Wishlist and Batch Receipt all still have exactly the stub
+Saves they had before, untouched. Per the merge policy this is architectural
+work, so it's held on its branch pending Ray's explicit go-ahead after a real
+device pass.
+
+**Gate (`ENABLE_BROWSE_EDIT_WRITE = false`, localhost-dev only)** — its own
+flag, deliberately NOT riding `ENABLE_SET_WRITE_LAYER`, since the two write
+completely different things and must be independently enable-able (same
+"don't couple independently-flagged features" rule the reference-image and
+live-nav readers already follow). A new `WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER
+|| ENABLE_BROWSE_EDIT_WRITE` is what now gates constructing the write-capable
+MSAL instance (renamed `setWriteMsalInstance` → `writeMsalInstance`, since it
+serves both features) — with both flags off there is no write-capable auth
+instance on the page at all, so nothing can redirect or write.
+`WRITE_TARGET = "copy"` is unchanged, so writes land in the `_Testing` copy
+workbook until Ray flips it.
+
+**Column allow-list, enforced structurally rather than by convention.**
+`ALL_WRITABLE_COLUMNS` = Year, MintMark, Denomination, Variety, Description,
+Value, Cost, Shipping, Seller_Link, PurchaseDate, StorageLocation, Container,
+Grade, GradeSource, Designation, **SerNo**, Remarks, **Reviewed**,
+LastModified. `ALL_NEVER_WRITE_COLUMNS` = SpotValue, Total, CollectionID,
+CoinID, SetID, OriginSetID, CertLink. `buildRowCellEdits()` derives its ranges
+from the allow-list alone, so an unlisted column has **no code path to a
+PATCH** — verified by asserting that Total/SpotValue/CollectionID/Status
+together produce zero edits.
+- **Column POSITIONS are resolved from the sheet's own header row at run
+  time** (`ensureAllHeaderMap`, cached per session), never hardcoded — a
+  future Copilot-side column insertion can't silently redirect a write into
+  the wrong column.
+- **Why multiple targeted range PATCHes and not one row-wide write:** the
+  writable columns are **not contiguous** — the two formula columns sit
+  between them (Total at U, SpotValue at Z). A Graph range PATCH must supply
+  a value for every cell in its rectangle, so any range spanning U or Z would
+  overwrite a live formula with a literal and destroy it — the exact silent
+  data loss this workbook already suffered once (see below). Adjacent
+  writable columns merge into one range; a run stops dead at a formula
+  column. Sent as one `$batch` request chained with `dependsOn`, so it's one
+  round trip and strictly ordered. **Graph offers no transactional
+  multi-range workbook write** — the ordering is what matters instead:
+  LastModified is queued last, so it can only be stamped if every data write
+  ahead of it succeeded.
+
+**Row targeting: CollectionID matched fresh at write time**, never a row
+index remembered from when the form opened (`findAllSheetRowNumber()`, via
+the `AllCoins` table's own CollectionID column). Verified by shuffling rows
+in the mock grid between reads and confirming the same id resolves to its new
+position. A CollectionID that's no longer on the sheet returns `not-found`
+rather than writing to a guessed row. (CollectionID was confirmed unique
+across all 542 rows, so this is a safe key.)
+
+**Conflict detection (concurrent-edit hard block).** Opening Edit Coin
+snapshots every allow-listed column's live value (`loadBrowseEditSnapshot`).
+On Save the row is re-read fresh and compared field by field; **any**
+difference — whether or not the user's edit touches that field — blocks the
+save entirely. No write, no partial write, no merge, no "save anyway" option.
+The dialog names each changed field with its was/now values; the form keeps
+everything typed into it and the user stays on it.
+- **`LastModified` and `Reviewed` are excluded from the comparison** — this
+  layer writes both on every save, so comparing them would make a second
+  save from the same open form report a false conflict about its own
+  previous write.
+- Blank-ish values (`null`/`undefined`/`""`) all compare equal, and numbers
+  compare numerically, so `620` vs `"620"` isn't a phantom conflict.
+- After a successful save the snapshot is **re-baselined** to what's now on
+  the row, so a second save from the same open form compares correctly.
+
+**Identity-overwrite confirmation** — `detectIdentityOverwrites(current,
+next, fields)`, deliberately built as a **shared, reusable helper taking its
+field list as a parameter** (Q8): Browse Edit passes `IDENTITY_COLUMNS`
+(Year, MintMark, Denomination, Variety, Description); **Edit Set will call
+the same function with its own (Year, Description) list when its write layer
+is scoped** — do not fork it. Fires only on a real overwrite of an
+already-populated field; **filling a blank field never asks**. Separate
+concern from conflict detection: nothing is wrong, it's the user's own edit
+being read back because it replaces catalogued data.
+
+**Both guards share one dialog shell** (`#writeGuardOverlay` /
+`showWriteGuard()`) with a per-call button row, since they're identical in
+presentation but different in kind (one can only be acknowledged, the other
+is a real Cancel/Confirm choice). Reuses the photo-adjuster overlay chrome,
+same as Grading Help and the Year filter. Date values render as dates in
+these messages, not raw Excel serials.
+
+**Dates: real date values, date-only, no time component** (Q2 — this
+overrode the task spec's own "timestamp" wording, per the workbook's standing
+rule, which exists because 44 ValueDate cells once had to be repaired after
+being pasted in as ISO/Zulu text). Written as Excel serial numbers with an
+explicit `yyyy-mm-dd` number format applied on every write — **note the
+`LastModified` column currently carries a leftover `yyyy-mm-dd hh:mm` format
+from when it was created expecting a timestamp**, so setting the format
+explicitly is what stops a date-only value rendering as a misleading
+"... 00:00". Serials are built from bare Y/M/D parts, never by parsing a full
+timestamp, so nothing can shift a date across a day boundary by timezone;
+`excelSerialToday()` uses the user's LOCAL calendar day.
+
+**Field mapping decisions (Ray's answers):**
+- **Notes → `All.Remarks`** (Q1). There is no `Notes` column on All — it
+  exists only on DB_Coins/Wishlist. The textarea **loads prefilled with the
+  row's existing Remarks**, so an edit extends rather than silently clobbers
+  text Copilot put there (18 real rows carry "Physical receipt in binder —
+  not yet digitized.").
+- **Fun Fact is now READ-ONLY in Edit Coin** (Q1) — it's a DB_Coins catalog
+  fact about the coin TYPE with no All-sheet column to write to, so a
+  per-coin edit surface for it was wrong. Displayed via `catalogFunFactFor()`
+  (DB_Coins FunFact, falling back to the `FAKE_COIN_DETAILS` demo value so
+  the mockup still shows something). **This supersedes the accordion-redesign
+  addendum's "Notes & Fun Fact are now editable"** — Notes still is, Fun Fact
+  isn't.
+- **`SerNo` added to the allow-list; `CertLink` stays out** (Q4).
+- **`Reviewed` is blanked on EVERY successful save**, changed or not (Q6) —
+  an app-written row is by definition not human-reviewed yet, so it must not
+  stay checked just because this edit didn't touch it.
+- **`Total` is never written** (Q3) — it's a live formula
+  (`=AllCoins[[#This Row],[Cost]]+AllCoins[[#This Row],[Shipping]]`), so
+  Excel recalculates it the instant Cost or Shipping changes and the write
+  layer must do nothing for it to stay correct.
+- Identity-overwrite confirmation alone is sufficient for a Denomination
+  change (Q7) — no extra handling. The Receipt pill in Edit Coin stays
+  exactly as inert as it was; Save writes nothing for it (Q10).
+
+**Containers read-layer join (built alongside).** A containerized record's
+displayed Storage Location now resolves through the **Containers** tab
+(`ContainerName -> StorageLocation`) instead of its own flat
+`All.StorageLocation` — `resolveStorageLocation(record)`, wired into Browse
+detail's Storage accordion. **Identical logic for a plain coin, a Set, and a
+child coin — no record-type branching and explicitly no parent/child
+inheritance**: a child carries its own Container like any other row, and a
+child with a blank Container falls back to its OWN flat StorageLocation
+rather than inheriting its parent Set's container. Blank/unknown Container
+falls back to the flat value, so nothing ever renders blank because the
+lookup is missing or still loading.
+- **Edit Coin hides the StorageLocation input entirely when the location is
+  container-derived** (Q5, approved as an intentional UI change), showing the
+  derived value read-only with a short explanation. Leaving it live would let
+  a save write a per-coin location disagreeing with its container's — exactly
+  the drift the Containers tab exists to eliminate. A derived value is also
+  **omitted from the write set entirely**, not written back. Clearing
+  Container immediately hands the editable input back.
+- **This does NOT extend to Photos or Receipts** — those still read the old
+  flat All columns in this build; that migration is explicitly separate work.
+- **Expect this to look like a no-op on current data**: all 314 rows with a
+  Container already agree with the Containers tab, with zero orphan container
+  names, so nothing displays differently today. It only diverges once a
+  container is actually moved. That's the correct outcome, not a sign it
+  isn't wired.
+- New `.readonly-field` class for both this and Fun Fact — deliberately
+  borderless/flat/muted with a left rule, **not** styled like an input (a
+  first pass that looked like an input was caught in a screenshot and
+  changed). Same "no global `.hidden` rule in this file" trap as before —
+  `.readonly-field.hidden`, `#browseEditStorageLocation.hidden` and
+  `.placeholder-note.hidden` are all load-bearing scoped rules.
+
+**Test seams:** `__setBrowseEditWriteEnabledForTest()` overrides the gate
+(kept as a separate override variable so the shipped `const` stays genuinely
+immutable and no app code can flip it), plus
+`__resetAllHeaderMapForTest()`, `__setContainersForTest()`,
+`__setBrowseEditSnapshotForTest()`/`__getBrowseEditSnapshotForTest()`. The
+mock Graph client gained a real 2-D sheet grid (`seed.sheets`, exposed as
+`_grids`) plus `readWorkbookRange`/`readTableColumn`/`patchWorkbookRanges`,
+so a test can mutate a cell between form-open and Save to simulate a
+concurrent Copilot edit and then assert nothing was written.
+
+**Verified headless — 206 assertions across both required viewports**
+(`verify_browse_edit_write.js`, 103 × 2), zero page/console errors: allow-list
+and never-write list contents and disjointness; header-map position
+resolution against the real 49-column layout; row re-resolution after rows
+shift; the row read never even exposing formula/identity columns; Excel
+serial round-trips and whole-day stamping; conflict detection including
+third-party edits, self-stamped-column exclusion and no phantom
+blank/numeric conflicts; identity overwrite vs. blank-fill vs. non-identity
+vs. Edit Set's own field list; edit ranges merging adjacent columns while
+never touching U or Z, and date columns carrying their own format; a full
+`saveCoinRowToWorkbook()` cycle (clean save, hard block writing nothing,
+not-found, and a no-change save still stamping LastModified/Reviewed); the
+Containers join across coin/Set/child; the detail view showing the derived
+location; the read-only Fun Fact and derived-storage UI including clearing
+Container; both guard dialogs; and a **full end-to-end run through the real
+Save button** — snapshot load, Notes prefilled from Remarks, a plain save
+writing real cells with both formula cells untouched, an identity edit
+asking first and writing nothing on Cancel, a concurrent edit blocking a
+real Save click with the typed text preserved, and a reopen-and-retry
+landing. Plus: with the gate off, `ENABLE_BROWSE_EDIT_WRITE === false`, no
+write-capable MSAL instance exists, a save returns `disabled` and writes
+nothing, and Save still does the old session-only in-memory update. All 9
+prior suites re-run clean alongside it — **479 assertions total, zero
+failures**. `verify_addendum.js`'s "Fun Fact is an editable textarea"
+assertion was updated to assert the new read-only behavior, following a real
+design decision rather than weakening the suite.
+
+**Not verified: any real device, and no real OneDrive write has ever been
+executed** — every write in this build went to a mock Graph client. The live
+run against the `_Testing` copy is Ray's to do, same as the Add Set write
+layer's own live-run step.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

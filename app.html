@@ -1617,6 +1617,28 @@
      rule is what actually hides it when a record has no linkage. */
   .edit-linkage-wrap.hidden { display: none; }
 
+  /* A value shown inside an Edit form that this form deliberately can't
+     change — Fun Fact (a DB_Coins catalog fact about the coin type), and a
+     StorageLocation that's derived from the coin's Container. Styled to read
+     as content rather than as a disabled input, since it isn't a field that
+     could be edited here under some other condition. Same "no global
+     .hidden" caveat as the rule directly above — both the .hidden variants
+     below are load-bearing. */
+  .readonly-field {
+    /* Must NOT read as an input. The surrounding fields are all editable
+       boxes, so anything with a solid border and an elevated background gets
+       tapped and typed into — deliberately borderless, flat, and muted, with
+       a left rule marking it as displayed content rather than an entry box. */
+    padding: 6px 0 6px 10px; font-size: 14px; line-height: 1.45;
+    color: var(--text-muted); background: none; border: none;
+    border-left: 2px solid var(--case-border);
+    min-height: 19px; white-space: pre-wrap;
+  }
+  .readonly-field:empty::before { content: "—"; opacity: 0.6; }
+  .readonly-field.hidden { display: none; }
+  #browseEditStorageLocation.hidden { display: none; }
+  .placeholder-note.hidden { display: none; }
+
   /* Flags that the disc above is standing in for an uncropped combined
      obverse/reverse photo (Photo3/Photo4), not a normal single-face shot. */
   .combined-photo-badge {
@@ -2387,9 +2409,20 @@
               <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="editCoinNotesBody">
+              <!-- Fun Fact is READ-ONLY here. It's a DB_Coins catalog fact
+                   about the coin TYPE, not about this specimen, so it has no
+                   All-sheet column to write to and editing it from a
+                   per-coin form would imply a per-coin value that doesn't
+                   exist. Shown for context only; corrections go through
+                   DB_Coins. -->
               <label>Fun Fact</label>
-              <textarea id="browseEditFunFact" placeholder="Something notable about this coin or its series"></textarea>
+              <div id="browseEditFunFact" class="readonly-field"></div>
 
+              <!-- Notes writes to All.Remarks (the only free-text column on
+                   All). Prefilled with the row's existing Remarks so an edit
+                   extends it rather than silently clobbering text put there
+                   by Copilot — e.g. "Physical receipt in binder — not yet
+                   digitized." on 18 real rows. -->
               <label>Notes</label>
               <textarea id="browseEditNotes" placeholder="Anything else worth remembering about this specimen"></textarea>
             </div>
@@ -2423,7 +2456,15 @@
             </button>
             <div class="accordion-body hidden" id="editCoinStorageBody">
               <label>Storage Location</label>
+              <!-- Two presentations of the same field: the editable input for
+                   a loose coin, and a read-only display when the location is
+                   derived from this coin's Container via the Containers tab.
+                   Only one is ever visible — see applyStorageLocationMode(). -->
               <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
+              <div id="browseEditStorageLocationDerived" class="readonly-field hidden"></div>
+              <div id="browseEditStorageLocationNote" class="placeholder-note hidden" style="margin-top:-4px;">
+                Set by this coin's container — change it on the container, not here.
+              </div>
 
               <label>Container</label>
               <input type="text" id="browseEditContainer" placeholder="e.g. display case, capsule tray">
@@ -2431,7 +2472,7 @@
           </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
-          <div class="placeholder-note">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
+          <div class="placeholder-note" id="browseEditSaveNote">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
 
         <!-- EDIT SET — accordion redesign (locked in). Mirrors a Set's own
@@ -3627,6 +3668,22 @@
     </div>
   </div>
 
+  <!-- Write-layer guard dialog. One shell serving both guards the Browse
+       Edit write layer needs — the concurrent-edit hard block and the
+       identity-overwrite confirmation. They're different in kind (one can
+       only be acknowledged, the other is a real choice), so the button row
+       is built per call rather than baked in; everything else about the
+       presentation is identical, which is why this isn't two overlays.
+       Reuses the photo-adjuster's overlay/panel chrome, same as Grading
+       Help and the Year filter already do. -->
+  <div class="photo-adjust-overlay hidden" id="writeGuardOverlay">
+    <div class="photo-adjust-panel" style="max-width:360px; text-align:left;">
+      <div class="photo-adjust-title" id="writeGuardTitle" style="text-align:center;">Confirm</div>
+      <div id="writeGuardBody" style="font-size:13px; color:var(--text); line-height:1.5;"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;" id="writeGuardBtns"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -4143,6 +4200,20 @@
   // ==================================================================
 
   const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
+  // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
+  // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
+  // two features write completely different things (Add Set writes Staging
+  // JSON + photo files and never touches the workbook; Browse Edit writes
+  // single cells INTO the workbook), so they must be independently
+  // enable-able — same "don't couple independently-flagged features"
+  // reasoning that already keeps the reference-image and live-nav readers on
+  // separate instances. Same localhost-dev-only posture and the same
+  // re-enable steps as every other real-Graph flag in this file.
+  const ENABLE_BROWSE_EDIT_WRITE = false;
+  // Either write feature being on is what justifies constructing a
+  // write-capable (Files.ReadWrite) auth instance at all. With both off there
+  // is no such instance on the page, so nothing can redirect or write.
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE;
   const WRITE_TARGET = "copy";          // "copy" | "live" — Ray-only flip (Q5)
 
   const WRITE_PATHS = {
@@ -4163,10 +4234,13 @@
 
   // Dedicated write-capable MSAL instance (Files.ReadWrite). Same clientId/
   // authority/localhost redirectUri as the reference-image reader, but a
-  // separate instance so the two independently-flagged features don't couple.
-  // Constructed only when ENABLE_SET_WRITE_LAYER is on AND msal loaded, so
-  // there's no dormant write-capable auth instance on the live site.
-  const setWriteMsalInstance = (ENABLE_SET_WRITE_LAYER && typeof msal !== "undefined")
+  // separate instance so the read-only features don't couple to it.
+  // Constructed only when SOME write feature is enabled AND msal loaded, so
+  // there's no dormant write-capable auth instance on the live site. Shared
+  // by both write features (Add Set drafts, Browse Edit row writes) — they
+  // need the identical scope against the identical drive, so a second
+  // instance would only mean a second sign-in for no isolation benefit.
+  const writeMsalInstance = (WRITE_LAYER_ENABLED && typeof msal !== "undefined")
     ? new msal.PublicClientApplication({
         auth: {
           clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
@@ -4177,18 +4251,18 @@
       })
     : null;
   const WRITE_MSAL_SCOPES = ["Files.ReadWrite"];
-  if (setWriteMsalInstance) {
-    setWriteMsalInstance.handleRedirectPromise().catch(err => console.warn("Set-write sign-in redirect error:", err));
+  if (writeMsalInstance) {
+    writeMsalInstance.handleRedirectPromise().catch(err => console.warn("Write-layer sign-in redirect error:", err));
   }
 
   async function getWriteToken() {
-    if (!setWriteMsalInstance) return null; // disabled or MSAL absent — never redirect
-    const account = setWriteMsalInstance.getAllAccounts()[0];
+    if (!writeMsalInstance) return null; // disabled or MSAL absent — never redirect
+    const account = writeMsalInstance.getAllAccounts()[0];
     try {
-      const result = await setWriteMsalInstance.acquireTokenSilent({ scopes: WRITE_MSAL_SCOPES, account });
+      const result = await writeMsalInstance.acquireTokenSilent({ scopes: WRITE_MSAL_SCOPES, account });
       return result.accessToken;
     } catch (e) {
-      setWriteMsalInstance.acquireTokenRedirect({ scopes: WRITE_MSAL_SCOPES });
+      writeMsalInstance.acquireTokenRedirect({ scopes: WRITE_MSAL_SCOPES });
       return null;
     }
   }
@@ -4278,6 +4352,85 @@
       if (col === -1) return [];
       return values.slice(1).map(r => r[col]).filter(v => v !== null && v !== undefined && v !== "");
     },
+    // --- Browse Edit write layer: targeted range read/write ------------
+    // Reads one explicit A1 range on a worksheet. Unlike readWorkbookColumn
+    // above (which pulls the whole usedRange to find one column), this is
+    // bounded to exactly the cells asked for — the Browse Edit save path
+    // reads a single row and a single header row, not 542x49 cells.
+    async readWorkbookRange(workbookPath, sheet, address) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) + "')?$select=values";
+      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
+      const data = await res.json();
+      return data.values || [];
+    },
+    // One table column by name (header cell + every data cell). Used to
+    // resolve a CollectionID to its row without dragging the whole sheet
+    // across the wire, and bounded to the table rather than a guessed
+    // A2:A100000 span.
+    async readTableColumn(workbookPath, tableName, columnName) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/tables('" + encodeURIComponent(tableName) + "')/columns('" + encodeURIComponent(columnName) + "')?$select=values";
+      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Table column read " + columnName + " failed: " + res.status);
+      const data = await res.json();
+      return (data.values || []).map(r => (r && r.length ? r[0] : null));
+    },
+    // Writes several targeted ranges in ONE HTTP round trip via Graph's
+    // $batch endpoint, chained with dependsOn so they execute in order and
+    // a failure short-circuits everything after it.
+    //
+    // Why several ranges rather than one row-wide PATCH: the writable
+    // columns are NOT contiguous — the two formula columns (Total at U,
+    // SpotValue at Z) sit between them. A range PATCH must supply a value
+    // for every cell in its rectangle, so any range spanning U or Z would
+    // overwrite a live formula with a literal value and permanently destroy
+    // it. That is the exact silent-data-loss failure this workbook has
+    // already suffered once. Writing only the specific runs that changed is
+    // what makes "never write a formula column" structurally true rather
+    // than merely intended.
+    //
+    // Graph offers no transactional multi-range workbook write, so this is
+    // one round trip and ordered, not atomic in the database sense. The
+    // ordering is what matters in practice: LastModified is queued last, so
+    // it can only be stamped if every data write before it succeeded.
+    async patchWorkbookRanges(workbookPath, sheet, edits) {
+      if (!edits.length) return { written: 0 };
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const base = "/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='";
+      const requests = edits.map((e, i) => {
+        const req = {
+          id: String(i + 1),
+          method: "PATCH",
+          url: base + encodeURIComponent(e.address) + "')",
+          headers: { "Content-Type": "application/json" },
+          body: e.numberFormat ? { values: e.values, numberFormat: e.numberFormat } : { values: e.values }
+        };
+        if (i > 0) req.dependsOn = [String(i)];
+        return req;
+      });
+      const res = await fetch("https://graph.microsoft.com/v1.0/$batch", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ requests })
+      });
+      if (!res.ok) throw new Error("Batch write failed: " + res.status + " " + (await res.text()));
+      const data = await res.json();
+      const failed = (data.responses || []).filter(r => r.status >= 300);
+      if (failed.length) {
+        throw new Error("Batch write rejected " + failed.length + " of " + requests.length +
+          " range(s): " + failed.map(f => f.status + " " + JSON.stringify(f.body && f.body.error || {})).join("; "));
+      }
+      return { written: edits.length };
+    },
+
     // Task 2: the workbook's own Graph webUrl, for an "Open workbook in
     // Excel" link — read-only metadata, same GET a plain item-meta lookup
     // would do, just read directly for the workbook path specifically
@@ -4304,8 +4457,31 @@
     const store = new Map();          // path -> { kind:"json"|"bytes", value }
     const workbookColumns = (seed && seed.workbookColumns) || {}; // "Sheet::Header" -> [values]
     const workbookWebUrl = (seed && "workbookWebUrl" in seed) ? seed.workbookWebUrl : "https://mock.onedrive.example/workbook";
+    // A real 2-D cell grid per sheet ("All" -> [[header row], [row 2], ...]),
+    // so the Browse Edit write layer's read/compare/write cycle can be driven
+    // end-to-end headlessly: a test can mutate the grid between form-open and
+    // save to simulate a concurrent Copilot edit, then assert the save was
+    // blocked and the grid was left untouched. `_grids` is exposed so tests
+    // can inspect exactly which cells a save did (and did not) write.
+    const grids = (seed && seed.sheets) || {};
+    function colLettersToIndex(letters) {
+      let n = 0;
+      for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
+      return n - 1; // 0-based
+    }
+    function parseA1(address) {
+      const bare = address.indexOf("!") >= 0 ? address.slice(address.indexOf("!") + 1) : address;
+      const parts = bare.split(":");
+      const m0 = /^([A-Z]+)(\d+)$/.exec(parts[0]);
+      const m1 = /^([A-Z]+)(\d+)$/.exec(parts[1] || parts[0]);
+      return {
+        r0: parseInt(m0[2], 10) - 1, c0: colLettersToIndex(m0[1]),
+        r1: parseInt(m1[2], 10) - 1, c1: colLettersToIndex(m1[1])
+      };
+    }
     return {
       _store: store,
+      _grids: grids,
       putContent(path, body, contentType) { store.set(path, { kind: "bytes", value: body }); return Promise.resolve({ name: path.split("/").pop() }); },
       uploadFile(path, f) { store.set(path, { kind: "bytes", value: f }); return Promise.resolve({ name: path.split("/").pop() }); },
       uploadBytes(path, b) { store.set(path, { kind: "bytes", value: b }); return Promise.resolve({ name: path.split("/").pop() }); },
@@ -4323,7 +4499,43 @@
       },
       deleteItem(path) { store.delete(path); return Promise.resolve(true); },
       readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); },
-      getWorkbookWebUrl() { return Promise.resolve(workbookWebUrl); }
+      getWorkbookWebUrl() { return Promise.resolve(workbookWebUrl); },
+      readWorkbookRange(workbookPath, sheet, address) {
+        const g = grids[sheet] || [];
+        const a = parseA1(address);
+        const out = [];
+        for (let r = a.r0; r <= a.r1; r++) {
+          const row = [];
+          for (let c = a.c0; c <= a.c1; c++) {
+            const v = g[r] && g[r][c] !== undefined ? g[r][c] : null;
+            row.push(v);
+          }
+          out.push(row);
+        }
+        return Promise.resolve(out);
+      },
+      readTableColumn(workbookPath, tableName, columnName) {
+        // Mock tables are 1:1 with their sheet grid; AllCoins -> "All".
+        const sheet = tableName === "AllCoins" ? "All" : tableName;
+        const g = grids[sheet] || [];
+        if (!g.length) return Promise.resolve([]);
+        const c = g[0].indexOf(columnName);
+        if (c === -1) return Promise.resolve([]);
+        return Promise.resolve(g.map(row => (row[c] === undefined ? null : row[c])));
+      },
+      patchWorkbookRanges(workbookPath, sheet, edits) {
+        const g = grids[sheet] || (grids[sheet] = []);
+        edits.forEach(e => {
+          const a = parseA1(e.address);
+          for (let r = a.r0; r <= a.r1; r++) {
+            if (!g[r]) g[r] = [];
+            for (let c = a.c0; c <= a.c1; c++) {
+              g[r][c] = e.values[r - a.r0][c - a.c0];
+            }
+          }
+        });
+        return Promise.resolve({ written: edits.length });
+      }
     };
   }
 
@@ -4350,6 +4562,501 @@
     return cachedWorkbookWebUrl;
   }
   function __resetWorkbookWebUrlCacheForTest() { cachedWorkbookWebUrl = undefined; } // test-only seam
+
+  // ==================================================================
+  // BROWSE EDIT WRITE LAYER — real single-row writes into All
+  // ==================================================================
+  // The app's first write INTO the workbook itself. (The Add Set write
+  // layer above writes Staging JSON + photo files and deliberately never
+  // touches the workbook — see its own header comment.) Gated by
+  // ENABLE_BROWSE_EDIT_WRITE, targeting whichever workbook WRITE_TARGET
+  // points at ("copy" -> CoinCollection/_Testing/... by default).
+  //
+  // Design rules this module exists to enforce structurally, not by
+  // convention:
+  //   1. A row is located by matching CollectionID at WRITE time, never by
+  //      a row index remembered from when the form opened — anything else
+  //      editing the workbook in between can shift row positions.
+  //   2. Only ALL_WRITABLE_COLUMNS may ever be written. Everything else,
+  //      and formula columns above all (Total, SpotValue), is unreachable
+  //      from here: buildRowCellEdits() derives its ranges from that list
+  //      alone, so an unlisted column has no code path to a PATCH.
+  //   3. Every save re-reads the row first and hard-blocks on ANY change
+  //      to a writable column since the form opened, whether or not the
+  //      user's own edit touches that field.
+
+  const ALL_SHEET_NAME = "All";
+  const ALL_TABLE_NAME = "AllCoins";
+
+  // The complete allow-list. Order is irrelevant — column POSITIONS are
+  // resolved from the sheet's own header row at run time (see
+  // ensureAllHeaderMap), never hardcoded, so a future column insertion on
+  // the Copilot side can't silently redirect a write to the wrong column.
+  const ALL_WRITABLE_COLUMNS = [
+    "Year", "MintMark", "Denomination", "Variety", "Description",
+    "Value", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
+    "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
+    "SerNo", "Remarks", "Reviewed", "LastModified"
+  ];
+
+  // Never written, under any circumstance. Total and SpotValue are LIVE
+  // FORMULAS (restored after a Copilot formatting pass silently flattened
+  // all 1,084 of them to static values) — Excel recalculates Total the
+  // instant Cost or Shipping changes, so the write layer must do nothing
+  // for it to stay correct, and writing a literal there would destroy the
+  // formula again. The identity columns are the row's own keys. This list
+  // is asserted against the allow-list at startup rather than merely
+  // documented, so the two can't drift apart.
+  const ALL_NEVER_WRITE_COLUMNS = [
+    "SpotValue", "Total", "CollectionID", "CoinID", "SetID", "OriginSetID", "CertLink"
+  ];
+
+  // Identity fields, in the sense of "overwriting one of these on an
+  // already-populated row is a claim that the record was previously
+  // mis-catalogued." Shared/reusable: Browse Edit (coins) is the only
+  // caller today, but Edit Set will call detectIdentityOverwrites() with
+  // its own narrower field list when its write layer is scoped.
+  const IDENTITY_COLUMNS = ["Year", "MintMark", "Denomination", "Variety", "Description"];
+
+  // Written as a real Excel date value (a serial number) with an explicit
+  // date-only number format. The workbook's own standing rule is that date
+  // columns hold real dates and never carry a time/timezone component; the
+  // LastModified column currently carries a leftover "yyyy-mm-dd hh:mm"
+  // format from when it was created expecting a timestamp, so the format is
+  // set explicitly on every write to bring it in line rather than letting a
+  // date-only value render as a misleading "... 00:00".
+  const WORKBOOK_DATE_FORMAT = "yyyy-mm-dd";
+
+  // Test-only override of the gate, same seam pattern as
+  // __setGraphClientForTest. Kept separate from the shipped const rather
+  // than loosening it to a `let`, so the production value stays genuinely
+  // immutable and the only way to enable this path is an explicitly
+  // test-named function that no app code calls. null = use the real flag.
+  let browseEditWriteEnabledOverride = null;
+  function browseEditWriteEnabled() {
+    return browseEditWriteEnabledOverride === null ? ENABLE_BROWSE_EDIT_WRITE : browseEditWriteEnabledOverride;
+  }
+  function __setBrowseEditWriteEnabledForTest(v) { browseEditWriteEnabledOverride = v; } // test-only seam
+
+  (function assertWriteColumnListsDisjoint() {
+    const overlap = ALL_WRITABLE_COLUMNS.filter(c => ALL_NEVER_WRITE_COLUMNS.indexOf(c) !== -1);
+    if (overlap.length) {
+      console.error("Write allow-list and never-write list overlap:", overlap);
+    }
+  })();
+
+  // --- Excel serial-date conversion ----------------------------------
+  // Excel's 1900 date system counts days from 1899-12-30 (the offset that
+  // absorbs its deliberate fictitious 1900-02-29). Dates are built and read
+  // from bare Y/M/D parts, never via Date parsing of a full timestamp, so
+  // nothing here can shift a date across a day boundary by timezone — the
+  // exact failure mode behind the 44 ValueDate cells that had to be
+  // repaired after being pasted in as ISO/Zulu text.
+  const EXCEL_EPOCH_OFFSET = 25569; // serial for 1970-01-01
+
+  function excelSerialFromYMD(y, m, d) {
+    return Math.round(Date.UTC(y, m - 1, d) / 86400000) + EXCEL_EPOCH_OFFSET;
+  }
+  function excelSerialFromISODate(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "").trim());
+    if (!m) return null;
+    return excelSerialFromYMD(+m[1], +m[2], +m[3]);
+  }
+  function excelSerialToISODate(serial) {
+    const n = Number(serial);
+    if (!Number.isFinite(n)) return "";
+    const dt = new Date((Math.floor(n) - EXCEL_EPOCH_OFFSET) * 86400000);
+    const pad = v => String(v).padStart(2, "0");
+    return dt.getUTCFullYear() + "-" + pad(dt.getUTCMonth() + 1) + "-" + pad(dt.getUTCDate());
+  }
+  // Today in the USER's local calendar, not UTC — "last app touch" should
+  // match the day Ray actually did it, not a day that rolls over at 7pm.
+  function excelSerialToday() {
+    const now = new Date();
+    return excelSerialFromYMD(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  }
+
+  // --- Column-position resolution ------------------------------------
+  // Cached per session: the header row never changes mid-session, and every
+  // save would otherwise re-read it.
+  let allHeaderMap = null; // { headerName: 1-based column index }
+
+  function columnIndexToLetters(index) { // 1-based -> "A", "Z", "AA", "AW"
+    let s = "", n = index;
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      s = String.fromCharCode(65 + rem) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  async function ensureAllHeaderMap() {
+    if (allHeaderMap) return allHeaderMap;
+    const rows = await graph().readWorkbookRange(writePaths().workbook, ALL_SHEET_NAME, "A1:BZ1");
+    const header = rows[0] || [];
+    const map = {};
+    header.forEach((name, i) => {
+      const key = String(name == null ? "" : name).trim();
+      if (key && !(key in map)) map[key] = i + 1;
+    });
+    allHeaderMap = map;
+    return map;
+  }
+  function __resetAllHeaderMapForTest() { allHeaderMap = null; } // test-only seam
+
+  // Resolves CollectionID -> 1-based SHEET row number, read fresh every
+  // time (rule 1 above). Returns null when the id isn't on the sheet.
+  async function findAllSheetRowNumber(collectionId) {
+    const col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    const want = String(collectionId).trim();
+    for (let i = 1; i < col.length; i++) { // index 0 is the header cell
+      if (String(col[i] == null ? "" : col[i]).trim() === want) return i + 1; // +1: sheet rows are 1-based
+    }
+    return null;
+  }
+
+  // Reads exactly the writable columns of one row, keyed by header name.
+  // Reads the whole row span in a single range (cheaper than N reads) but
+  // only ever EXPOSES the writable columns, so nothing downstream can
+  // accidentally start comparing or echoing a column this layer has no
+  // business touching.
+  async function readAllRowWritableValues(rowNumber) {
+    const map = await ensureAllHeaderMap();
+    const indices = ALL_WRITABLE_COLUMNS.map(c => map[c]).filter(Boolean);
+    if (!indices.length) return {};
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const rows = await graph().readWorkbookRange(
+      writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
+    const row = rows[0] || [];
+    const out = {};
+    ALL_WRITABLE_COLUMNS.forEach(name => {
+      const idx = map[name];
+      if (!idx) return; // column genuinely absent from this workbook
+      const raw = row[idx - 1];
+      out[name] = raw === undefined ? null : raw;
+    });
+    return out;
+  }
+
+  // --- Comparison / conflict detection --------------------------------
+  // Blank-ish values all compare equal (null/undefined/"" are the same
+  // thing to a spreadsheet reader), and numbers compare numerically so a
+  // 45 read back as "45" isn't reported as a phantom conflict.
+  function normalizeCellForCompare(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "number") return String(v);
+    const s = String(v).trim();
+    if (s === "") return "";
+    const n = Number(s);
+    return Number.isFinite(n) && s !== "" ? String(n) : s;
+  }
+  function cellsEqual(a, b) { return normalizeCellForCompare(a) === normalizeCellForCompare(b); }
+
+  // Any writable column differing from the snapshot means the row moved
+  // under us — regardless of whether the user's own edit touches that
+  // field. Returns [] when the row is unchanged.
+  function detectRowConflicts(snapshot, fresh) {
+    if (!snapshot) return [];
+    const conflicts = [];
+    ALL_WRITABLE_COLUMNS.forEach(name => {
+      // LastModified is stamped by this very layer on every save, so a
+      // difference there is our own previous write, not a third party's
+      // concurrent edit — comparing it would make every second save on a
+      // stale form report a false conflict about a field the user can't
+      // even see. Reviewed is likewise written blank by us on every save.
+      if (name === "LastModified" || name === "Reviewed") return;
+      if (!(name in snapshot) || !(name in fresh)) return;
+      if (!cellsEqual(snapshot[name], fresh[name])) {
+        conflicts.push({ field: name, was: snapshot[name], now: fresh[name] });
+      }
+    });
+    return conflicts;
+  }
+
+  // --- Identity-overwrite detection (shared helper) -------------------
+  // Fires ONLY on a real overwrite: an already-populated identity field
+  // changing to a different value. Filling a blank field is just completing
+  // the record and never asks for confirmation. `fields` is a parameter so
+  // Edit Set can reuse this with its own (Year, Description) list once its
+  // write layer exists — do not hardcode IDENTITY_COLUMNS inside.
+  function detectIdentityOverwrites(currentValues, nextValues, fields) {
+    const list = fields || IDENTITY_COLUMNS;
+    const out = [];
+    list.forEach(name => {
+      if (!(name in nextValues)) return;
+      const before = currentValues ? currentValues[name] : null;
+      const after = nextValues[name];
+      const hadValue = normalizeCellForCompare(before) !== "";
+      if (hadValue && !cellsEqual(before, after)) {
+        out.push({ field: name, from: before, to: after });
+      }
+    });
+    return out;
+  }
+
+  // --- Building the actual cell edits ---------------------------------
+  // Groups the changed columns into contiguous runs so adjacent edits share
+  // one range, while never spanning a column outside the allow-list — see
+  // patchWorkbookRanges' comment for why a single row-wide PATCH would be
+  // actively destructive here.
+  async function buildRowCellEdits(rowNumber, changedValues) {
+    const map = await ensureAllHeaderMap();
+    const cells = [];
+    Object.keys(changedValues).forEach(name => {
+      if (ALL_WRITABLE_COLUMNS.indexOf(name) === -1) return;   // belt: unlisted column can't reach a PATCH
+      if (ALL_NEVER_WRITE_COLUMNS.indexOf(name) !== -1) return; // suspenders
+      const idx = map[name];
+      if (!idx) return;
+      cells.push({ name, index: idx, value: changedValues[name] });
+    });
+    cells.sort((a, b) => a.index - b.index);
+
+    const edits = [];
+    let run = null;
+    const isDateCol = n => n === "PurchaseDate" || n === "LastModified";
+    cells.forEach(cell => {
+      // A date cell needs its own numberFormat, so it never merges into a
+      // run with non-date neighbours (a range PATCH applies one format to
+      // the whole rectangle).
+      const breaks = !run || cell.index !== run.endIndex + 1 ||
+        isDateCol(cell.name) !== run.isDate;
+      if (breaks) {
+        run = { startIndex: cell.index, endIndex: cell.index, values: [cell.value], isDate: isDateCol(cell.name), names: [cell.name] };
+        edits.push(run);
+      } else {
+        run.endIndex = cell.index;
+        run.values.push(cell.value);
+        run.names.push(cell.name);
+      }
+    });
+
+    return edits.map(run => {
+      const address = columnIndexToLetters(run.startIndex) + rowNumber +
+        (run.endIndex !== run.startIndex ? ":" + columnIndexToLetters(run.endIndex) + rowNumber : "");
+      const edit = { address, values: [run.values], _columns: run.names };
+      if (run.isDate) edit.numberFormat = [run.values.map(() => WORKBOOK_DATE_FORMAT)];
+      return edit;
+    });
+  }
+
+  // --- The save itself -------------------------------------------------
+  // Returns one of:
+  //   { ok:true,  written:[columns] }
+  //   { ok:false, reason:"conflict",  conflicts:[{field,was,now}] }
+  //   { ok:false, reason:"not-found" | "disabled" | "error", message }
+  // Never throws for an expected outcome — the caller renders each case.
+  //
+  // `nextValues` is a full map of writable-column -> desired value; only
+  // the ones that actually differ from the live row are written.
+  async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot) {
+    if (!browseEditWriteEnabled()) {
+      return { ok: false, reason: "disabled", message: "Browse Edit's write layer is off (localhost-dev only for now)." };
+    }
+    let rowNumber, fresh;
+    try {
+      rowNumber = await findAllSheetRowNumber(collectionId);
+      if (!rowNumber) {
+        return { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." };
+      }
+      fresh = await readAllRowWritableValues(rowNumber);
+    } catch (e) {
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+
+    const conflicts = detectRowConflicts(snapshot, fresh);
+    if (conflicts.length) return { ok: false, reason: "conflict", conflicts };
+
+    const changed = {};
+    Object.keys(nextValues).forEach(name => {
+      if (ALL_WRITABLE_COLUMNS.indexOf(name) === -1) return;
+      if (!cellsEqual(fresh[name], nextValues[name])) changed[name] = nextValues[name];
+    });
+
+    // Reviewed is blanked on EVERY successful save, changed or not — an
+    // app-written row is by definition not human-reviewed yet, so it must
+    // not stay checked just because this particular edit didn't touch it.
+    changed.Reviewed = "";
+    // Stamped last so it lands only if every data write ahead of it
+    // succeeded (patchWorkbookRanges chains with dependsOn).
+    changed.LastModified = excelSerialToday();
+
+    let edits;
+    try {
+      edits = await buildRowCellEdits(rowNumber, changed);
+      await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
+    } catch (e) {
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+    return {
+      ok: true,
+      rowNumber,
+      written: edits.reduce((acc, e) => acc.concat(e._columns), []),
+      values: Object.assign({}, fresh, changed)
+    };
+  }
+
+  // ==================================================================
+  // CONTAINERS READ-LAYER JOIN
+  // ==================================================================
+  // A containerized coin's displayed location comes from the Containers tab
+  // (ContainerName -> StorageLocation), not from its own flat
+  // All.StorageLocation. That's the whole point of the Containers tab:
+  // moving a container should be one edit there, not a bulk update across
+  // every coin row that references it.
+  //
+  // Identical logic for a plain coin, a Set, and a child coin — deliberately
+  // NO parent/child inheritance special-casing. A child row carries its own
+  // Container value like any other row; if it's blank, the child is loose
+  // and falls back to its own flat StorageLocation, exactly like a loose
+  // plain coin would. A child does NOT inherit its parent Set's container.
+  //
+  // Scope note: this covers StorageLocation only. Photos and Receipts still
+  // read the old flat All columns in this build — that migration is a
+  // separate, explicitly out-of-scope piece of work.
+  let LIVE_CONTAINERS = null; // { containerName: storageLocation } once loaded
+  let containersFetchPromise = null;
+
+  async function ensureContainersFetch() {
+    if (!browseEditWriteEnabled()) return null; // gated with the rest of the real-Graph work
+    if (LIVE_CONTAINERS) return LIVE_CONTAINERS;
+    if (containersFetchPromise) return containersFetchPromise;
+    containersFetchPromise = (async () => {
+      try {
+        const rows = await graph().readWorkbookRange(writePaths().workbook, "Containers", "A1:B200");
+        const header = (rows[0] || []).map(v => String(v == null ? "" : v).trim());
+        const nameCol = header.indexOf("ContainerName");
+        const locCol = header.indexOf("StorageLocation");
+        if (nameCol === -1 || locCol === -1) return null;
+        const map = {};
+        rows.slice(1).forEach(r => {
+          const n = String(r[nameCol] == null ? "" : r[nameCol]).trim();
+          if (n) map[n] = String(r[locCol] == null ? "" : r[locCol]).trim();
+        });
+        LIVE_CONTAINERS = map;
+        return map;
+      } catch (e) {
+        console.warn("Containers lookup unavailable:", e);
+        return null; // degrade to the flat StorageLocation, never break the view
+      } finally {
+        containersFetchPromise = null;
+      }
+    })();
+    return containersFetchPromise;
+  }
+  function __setContainersForTest(map) { LIVE_CONTAINERS = map; } // test-only seam
+
+  // The one resolver every display surface should use. Blank Container (or
+  // a container with no row in the Containers tab yet) falls back to the
+  // record's own flat StorageLocation, so nothing ever renders blank just
+  // because the lookup is missing or hasn't loaded.
+  function resolveStorageLocation(record) {
+    if (!record) return "";
+    const container = String(record.container || "").trim();
+    if (container && LIVE_CONTAINERS && Object.prototype.hasOwnProperty.call(LIVE_CONTAINERS, container)) {
+      const derived = LIVE_CONTAINERS[container];
+      if (derived) return derived;
+    }
+    return record.storageLocation || "";
+  }
+  // True when the displayed location is coming FROM the Containers tab
+  // rather than the row's own column — drives Edit Coin making the
+  // StorageLocation input read-only (editing it there would re-create the
+  // per-row drift the Containers tab exists to eliminate).
+  function storageLocationIsDerived(record) {
+    if (!record) return false;
+    const container = String(record.container || "").trim();
+    return !!(container && LIVE_CONTAINERS &&
+      Object.prototype.hasOwnProperty.call(LIVE_CONTAINERS, container) && LIVE_CONTAINERS[container]);
+  }
+
+  // ==================================================================
+  // WRITE-LAYER GUARD DIALOGS
+  // ==================================================================
+  // showWriteGuard({title, bodyHtml, buttons}) — buttons are
+  // [{label, primary?, onClick}]; clicking any of them closes the dialog
+  // first, then runs its handler, so a handler is free to open another
+  // dialog without fighting this one's own teardown.
+  function showWriteGuard(opts) {
+    const overlay = document.getElementById("writeGuardOverlay");
+    document.getElementById("writeGuardTitle").textContent = opts.title;
+    document.getElementById("writeGuardBody").innerHTML = opts.bodyHtml;
+    const btnRow = document.getElementById("writeGuardBtns");
+    btnRow.innerHTML = "";
+    (opts.buttons || []).forEach(spec => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = spec.label;
+      if (spec.primary) {
+        b.style.background = "linear-gradient(180deg, var(--gold-bright), var(--gold))";
+        b.style.border = "none";
+        b.style.color = "#241c05";
+        b.style.fontWeight = "700";
+      }
+      b.addEventListener("click", () => {
+        overlay.classList.add("hidden");
+        if (spec.onClick) spec.onClick();
+      });
+      btnRow.appendChild(b);
+    });
+    overlay.classList.remove("hidden");
+  }
+
+  // Formats a cell value for display inside a guard dialog. Date columns
+  // come back from Graph as raw Excel serials, which would be meaningless
+  // ("46234") in a message whose whole job is telling Ray what changed.
+  function guardValueText(field, value) {
+    if (normalizeCellForCompare(value) === "") return "(blank)";
+    if ((field === "PurchaseDate" || field === "LastModified") && typeof value === "number") {
+      return excelSerialToISODate(value);
+    }
+    return String(value);
+  }
+
+  // The concurrent-edit hard block. Deliberately offers no merge and no
+  // "save anyway" — the row changed underneath the form, so anything this
+  // dialog could offer beyond "go look at the current data" would be
+  // guessing on Ray's behalf about someone else's edit. The form keeps
+  // everything typed into it; closing this returns to that form untouched.
+  function showWriteConflictDialog(collectionId, conflicts) {
+    const rows = conflicts.map(c =>
+      `<li style="margin-bottom:8px;"><strong>${escapeHtmlText(c.field)}</strong><br>` +
+      `<span style="opacity:0.75;">was:</span> ${escapeHtmlText(guardValueText(c.field, c.was))}<br>` +
+      `<span style="opacity:0.75;">now:</span> <strong>${escapeHtmlText(guardValueText(c.field, c.now))}</strong></li>`
+    ).join("");
+    showWriteGuard({
+      title: "Not saved — record changed",
+      bodyHtml:
+        `<p style="margin:0 0 10px;">${escapeHtmlText(collectionId)} was changed in the workbook after you opened this form, ` +
+        `so nothing was written.</p>` +
+        `<ul style="margin:0 0 10px; padding-left:18px;">${rows}</ul>` +
+        `<p style="margin:0; opacity:0.8;">Your edits are still in the form. Reload the record to see the current data ` +
+        `and reapply them, or back out.</p>`,
+      buttons: [{ label: "OK", primary: true }]
+    });
+  }
+
+  // The identity-overwrite confirmation. Separate concern from the conflict
+  // block above: nothing is wrong here, this is the user's own edit being
+  // read back to them because it replaces catalogued identity data rather
+  // than filling in a gap.
+  function showIdentityOverwriteDialog(collectionId, overwrites, onConfirm) {
+    const rows = overwrites.map(o =>
+      `<li style="margin-bottom:6px;"><strong>${escapeHtmlText(o.field)}</strong>: ` +
+      `${escapeHtmlText(guardValueText(o.field, o.from))} → <strong>${escapeHtmlText(guardValueText(o.field, o.to))}</strong></li>`
+    ).join("");
+    showWriteGuard({
+      title: "Confirm identity change",
+      bodyHtml:
+        `<p style="margin:0 0 10px;">You're changing identifying details on ${escapeHtmlText(collectionId)}:</p>` +
+        `<ul style="margin:0 0 10px; padding-left:18px;">${rows}</ul>` +
+        `<p style="margin:0; opacity:0.8;">This replaces existing catalogued values. Confirm?</p>`,
+      buttons: [
+        { label: "Cancel" },
+        { label: "Confirm", primary: true, onClick: onConfirm }
+      ]
+    });
+  }
 
   // ---- CollectionID reservation module -------------------------------
   // Standalone + reusable (Part 1): Add Set uses it now, Add Coin later.
@@ -7279,6 +7986,21 @@
     applyFlipCorners("browseDetail", coin);
 
     renderBrowseDetailPanel(coin);
+
+    // The Storage row resolves through the Containers tab. If that lookup
+    // hasn't landed yet this session, this render correctly falls back to
+    // the row's own flat StorageLocation; re-render once it arrives so the
+    // derived value replaces it, guarding that the user hasn't navigated to
+    // a different coin in the meantime. A no-op when the write layer is off
+    // (ensureContainersFetch resolves null immediately).
+    if (!LIVE_CONTAINERS) {
+      ensureContainersFetch().then(map => {
+        if (map && currentBrowseCoin && currentBrowseCoin.id === coin.id &&
+            document.getElementById("browseDetailView").style.display !== "none") {
+          renderBrowseDetailPanel(coin);
+        }
+      });
+    }
   }
 
   // (renderSetChildFlips() lived here — the child mini-flip grid for a
@@ -7666,8 +8388,13 @@
     // --- 6. Storage (renamed from "Location") — Storage Location and
     // Container. Storage Location no longer also appears as a bare key fact
     // above the fold; this section is now its only home.
+    // Storage Location is RESOLVED, not read flat: a containerized record's
+    // location comes from the Containers tab via its Container name. Same
+    // call for a coin, a Set, and a child coin — no record-type branching,
+    // no parent/child inheritance (see resolveStorageLocation).
     const storageRows = [];
-    if (coin.storageLocation) storageRows.push(["Storage Location", coin.storageLocation]);
+    const resolvedLocation = resolveStorageLocation(coin);
+    if (resolvedLocation) storageRows.push(["Storage Location", resolvedLocation]);
     if (coin.container) storageRows.push(["Container", coin.container]);
     if (storageRows.length) {
       appendAccordion(container, RECORD_SECTIONS.STORAGE, detailRowsHtml(storageRows));
@@ -7827,6 +8554,44 @@
     wrap.classList.toggle("hidden", count === 0);
   }
 
+  // The live workbook values of every writable column, captured when the
+  // form opened — the baseline every save's conflict check compares against.
+  // { id, values } or null when the write layer is off / the row wasn't
+  // readable (in which case Save falls back to the session-only stub).
+  let browseEditSnapshot = null;
+  function __setBrowseEditSnapshotForTest(s) { browseEditSnapshot = s; } // test-only seam
+  function __getBrowseEditSnapshotForTest() { return browseEditSnapshot; } // test-only seam
+
+  // Loads that baseline, then re-syncs the two fields that depend on it:
+  // Notes (prefilled from the row's real Remarks) and the Storage Location
+  // mode (which needs the Containers lookup). Async and non-blocking — the
+  // form is already usable from in-memory data when this resolves; if it
+  // fails, the form simply stays on the mockup values and Save degrades to
+  // the session-only path rather than writing against an unknown baseline.
+  async function loadBrowseEditSnapshot(coin) {
+    browseEditSnapshot = null;
+    if (!browseEditWriteEnabled()) return null;
+    try {
+      await ensureContainersFetch();
+      const rowNumber = await findAllSheetRowNumber(coin.id);
+      if (!rowNumber) return null;
+      const values = await readAllRowWritableValues(rowNumber);
+      browseEditSnapshot = { id: coin.id, values };
+      // Only re-sync if this coin is still the one on screen — a fast
+      // back-out-and-open-another would otherwise land this row's Remarks
+      // in a different coin's form.
+      if (currentBrowseCoin && currentBrowseCoin.id === coin.id &&
+          document.getElementById("browseEditView").style.display !== "none") {
+        document.getElementById("browseEditNotes").value = String(values.Remarks || "");
+        applyStorageLocationMode(coin);
+      }
+      return browseEditSnapshot;
+    } catch (e) {
+      console.warn("Browse Edit snapshot unavailable:", e);
+      return null;
+    }
+  }
+
   function showBrowseEditView(coin) {
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
@@ -7834,6 +8599,7 @@
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
+    loadBrowseEditSnapshot(coin);
 
     // --- Overview: identity fields are editable now (they had no edit
     // surface at all before this redesign — they only ever appeared on the
@@ -7867,10 +8633,15 @@
     const specRows = specificationRows(coin);
     fillReadOnlySection("browseEditSpecsRows", specRows.length ? detailRowsHtml(specRows) : "");
 
-    // --- Notes & Facts: Fun Fact and Notes are editable (a coin has no
-    // Set-level facts block). Both live in FAKE_COIN_DETAILS.
-    document.getElementById("browseEditFunFact").value = details.funFact || "";
-    document.getElementById("browseEditNotes").value = details.notes || "";
+    // --- Notes & Facts. Fun Fact is read-only (catalog data about the coin
+    // TYPE — see the markup comment); Notes is the editable one and maps to
+    // All.Remarks, prefilled with whatever's already there so an edit
+    // extends rather than clobbers existing Copilot-written text.
+    document.getElementById("browseEditFunFact").textContent = catalogFunFactFor(coin);
+    document.getElementById("browseEditNotes").value =
+      browseEditSnapshot && browseEditSnapshot.id === coin.id && browseEditSnapshot.values
+        ? String(browseEditSnapshot.values.Remarks || "")
+        : (details.notes || "");
 
     // --- Purchase Details: cost lives on the row itself, the rest in the
     // FAKE_COIN_DETAILS sparse lookup — same split Edit Set already used.
@@ -7882,6 +8653,58 @@
     // --- Storage
     document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
     document.getElementById("browseEditContainer").value = coin.container || "";
+    applyStorageLocationMode(coin);
+    applySaveNote();
+  }
+
+  // The note under Save has to tell the truth about which of the two save
+  // paths this build is actually on — they differ in the one way that
+  // matters most to someone testing on a device (does this touch OneDrive
+  // or not). Set per render rather than once at init so it stays accurate
+  // however the gate was resolved.
+  function applySaveNote() {
+    const note = document.getElementById("browseEditSaveNote");
+    if (!note) return;
+    note.textContent = browseEditWriteEnabled()
+      ? "Saves directly to the " + WRITE_TARGET + " workbook on OneDrive. The record is re-checked first — " +
+        "if anything changed since you opened this form, the save is blocked rather than overwriting it."
+      : "Session-only — edits update this browser's in-memory copy so you can see them round-trip, " +
+        "but nothing is written to OneDrive and everything resets on reload.";
+  }
+
+  // Switches Edit Coin's Storage Location between its editable input (loose
+  // coin — Container blank or unknown to the Containers tab) and a read-only
+  // display of the container-derived value. Re-run whenever Container
+  // changes, so clearing a container immediately hands the field back.
+  //
+  // Q5, approved as an intentional UI change: leaving the input live for a
+  // containerized coin would let a save write a per-coin StorageLocation
+  // that disagrees with its container's — exactly the drift the Containers
+  // tab exists to eliminate.
+  function applyStorageLocationMode(coin) {
+    const input = document.getElementById("browseEditStorageLocation");
+    const derivedEl = document.getElementById("browseEditStorageLocationDerived");
+    const note = document.getElementById("browseEditStorageLocationNote");
+    if (!input || !derivedEl || !note) return;
+    const probe = { container: document.getElementById("browseEditContainer").value, storageLocation: (coin && coin.storageLocation) || "" };
+    const derived = storageLocationIsDerived(probe);
+    input.classList.toggle("hidden", derived);
+    derivedEl.classList.toggle("hidden", !derived);
+    note.classList.toggle("hidden", !derived);
+    if (derived) derivedEl.textContent = resolveStorageLocation(probe);
+  }
+
+  // Fun Fact is catalog data about the coin TYPE, so it comes from DB_Coins
+  // (FunFact column), matched the same way every other DB_Coins lookup in
+  // this app matches. Falls back to the FAKE_COIN_DETAILS demo value so the
+  // mockup still shows something — FAKE_DB_COINS carries no funFact field,
+  // and a blank panel would read as "this feature is broken" during a
+  // device review rather than "no catalog fact on file."
+  function catalogFunFactFor(coin) {
+    const match = findDbCoinsMatch(coin);
+    if (match && match.funFact) return match.funFact;
+    const details = FAKE_COIN_DETAILS[coin.id] || {};
+    return details.funFact || "";
   }
 
   // Edit Set — the same six-section structure as a Set's own detail page.
@@ -8038,47 +8861,152 @@
       document.getElementById("browseDetailView").style.display = "block";
     });
 
+    // Container drives whether Storage Location is editable at all, so the
+    // field has to re-evaluate as soon as a container is typed or cleared —
+    // not only on form open.
+    document.getElementById("browseEditContainer").addEventListener("input", () => {
+      if (currentBrowseCoin) applyStorageLocationMode(currentBrowseCoin);
+    });
+
     document.getElementById("browseEditSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
-      const gradeSel = document.getElementById("browseEditGradeFrom").value;
-      const grade = gradeSel === "__other__"
-        ? document.getElementById("browseEditGradeOther").value.trim()
-        : gradeSel;
-      const designation = document.getElementById("browseEditDesignation").value.trim();
 
       // Designation re-resolution is unchanged — an ambiguous DB_Coins match
       // still surfaces the shared "pick one" list rather than auto-resolving.
+      const designation = readBrowseEditForm().workbook.Designation;
       checkDesignationReresolution({ ...coin, designation }, (resolvedRow) => {
-        applyEditsToRecord(coin, {
-          row: {
-            year: numOrUndefined(document.getElementById("browseEditYear").value),
-            mint: document.getElementById("browseEditMintMark").value,
-            denom: document.getElementById("browseEditDenomination").value,
-            description: document.getElementById("browseEditDescription").value.trim(),
-            variety: document.getElementById("browseEditVariety").value.trim(),
-            grade,
-            gradeSource: document.getElementById("browseEditGradeSource").value,
-            serNo: document.getElementById("browseEditCertTypeNumber").value.trim(),
-            designation,
-            value: numOrUndefined(document.getElementById("browseEditValue").value),
-            cost: numOrUndefined(document.getElementById("browseEditCost").value),
-            storageLocation: document.getElementById("browseEditStorageLocation").value.trim(),
-            container: document.getElementById("browseEditContainer").value.trim()
-          },
-          details: {
-            shippingCost: numOrUndefined(document.getElementById("browseEditShippingCost").value),
-            vendor: document.getElementById("browseEditVendor").value.trim(),
-            purchaseDate: document.getElementById("browseEditPurchaseDate").value,
-            funFact: document.getElementById("browseEditFunFact").value.trim(),
-            notes: document.getElementById("browseEditNotes").value.trim()
-          }
-        });
-        const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
-        showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg);
-        showBrowseDetail(coin);
+        commitBrowseEdit(coin, resolvedRow);
       });
     });
+  }
+
+  // Reads the form once into both shapes the save path needs: `workbook`
+  // (writable All-column names -> values, the shape the write layer wants)
+  // and `record` (the in-memory FAKE_COINS/FAKE_COIN_DETAILS field names the
+  // session-only apply path already used). One reader so the two can't drift
+  // out of sync about what the user actually typed.
+  function readBrowseEditForm() {
+    const gradeSel = document.getElementById("browseEditGradeFrom").value;
+    const grade = gradeSel === "__other__"
+      ? document.getElementById("browseEditGradeOther").value.trim()
+      : gradeSel;
+    const val = id => document.getElementById(id).value;
+    const container = val("browseEditContainer").trim();
+    // A container-derived Storage Location is not this form's to change
+    // (Q5): when the input is hidden, the field is simply left out of the
+    // write set rather than written back with a stale or derived value.
+    const storageDerived = storageLocationIsDerived({ container, storageLocation: coinStorageLocationOf(currentBrowseCoin) });
+
+    const workbook = {
+      Year: numOrUndefined(val("browseEditYear")),
+      MintMark: val("browseEditMintMark"),
+      Denomination: val("browseEditDenomination"),
+      Description: val("browseEditDescription").trim(),
+      Variety: val("browseEditVariety").trim(),
+      Grade: grade,
+      GradeSource: val("browseEditGradeSource"),
+      Designation: val("browseEditDesignation").trim(),
+      SerNo: val("browseEditCertTypeNumber").trim(),
+      Value: numOrUndefined(val("browseEditValue")),
+      Cost: numOrUndefined(val("browseEditCost")),
+      Shipping: numOrUndefined(val("browseEditShippingCost")),
+      Seller_Link: val("browseEditVendor").trim(),
+      PurchaseDate: excelSerialFromISODate(val("browseEditPurchaseDate")),
+      Container: container,
+      Remarks: val("browseEditNotes").trim()
+    };
+    if (!storageDerived) workbook.StorageLocation = val("browseEditStorageLocation").trim();
+    // A blanked number field means "leave it alone" (numOrUndefined), not
+    // "write zero" — drop those so they never reach the diff.
+    Object.keys(workbook).forEach(k => { if (workbook[k] === undefined || workbook[k] === null) delete workbook[k]; });
+
+    return {
+      workbook,
+      record: {
+        row: {
+          year: numOrUndefined(val("browseEditYear")),
+          mint: val("browseEditMintMark"),
+          denom: val("browseEditDenomination"),
+          description: val("browseEditDescription").trim(),
+          variety: val("browseEditVariety").trim(),
+          grade,
+          gradeSource: val("browseEditGradeSource"),
+          serNo: val("browseEditCertTypeNumber").trim(),
+          designation: val("browseEditDesignation").trim(),
+          value: numOrUndefined(val("browseEditValue")),
+          cost: numOrUndefined(val("browseEditCost")),
+          storageLocation: storageDerived ? undefined : val("browseEditStorageLocation").trim(),
+          container
+        },
+        details: {
+          shippingCost: numOrUndefined(val("browseEditShippingCost")),
+          vendor: val("browseEditVendor").trim(),
+          purchaseDate: val("browseEditPurchaseDate"),
+          notes: val("browseEditNotes").trim()
+        }
+      }
+    };
+  }
+  function coinStorageLocationOf(coin) { return (coin && coin.storageLocation) || ""; }
+
+  // The save itself, after Designation re-resolution has had its say.
+  // Three paths, in order of precedence:
+  //   - write layer off        -> the pre-existing session-only stub, verbatim
+  //   - identity overwrite     -> confirm first, then fall through to the write
+  //   - otherwise              -> real single-row workbook write
+  function commitBrowseEdit(coin, resolvedRow) {
+    const form = readBrowseEditForm();
+    const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
+
+    if (!browseEditWriteEnabled() || !browseEditSnapshot || browseEditSnapshot.id !== coin.id) {
+      // Unchanged session-only behavior — this is still exactly what every
+      // OTHER form in the app does, and what this form does whenever the
+      // write layer is disabled or its baseline couldn't be read.
+      applyEditsToRecord(coin, form.record);
+      showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg);
+      showBrowseDetail(coin);
+      return;
+    }
+
+    const overwrites = detectIdentityOverwrites(browseEditSnapshot.values, form.workbook, IDENTITY_COLUMNS);
+    if (overwrites.length) {
+      showIdentityOverwriteDialog(coin.id, overwrites, () => performBrowseEditWrite(coin, form, linkMsg));
+      return;
+    }
+    performBrowseEditWrite(coin, form, linkMsg);
+  }
+
+  async function performBrowseEditWrite(coin, form, linkMsg) {
+    const btn = document.getElementById("browseEditSaveBtn");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    let result;
+    try {
+      result = await saveCoinRowToWorkbook(coin.id, form.workbook, browseEditSnapshot.values);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+
+    if (result.ok) {
+      // Re-baseline so a second save from the same open form compares
+      // against what's now really on the row, not the pre-save values.
+      browseEditSnapshot = { id: coin.id, values: result.values };
+      applyEditsToRecord(coin, form.record);
+      showToast("Saved " + coin.id + " to the workbook (" + result.written.length + " field" +
+        (result.written.length === 1 ? "" : "s") + " updated)." + linkMsg);
+      showBrowseDetail(coin);
+      return;
+    }
+    if (result.reason === "conflict") {
+      // Hard block. The form is left exactly as the user typed it — no
+      // reset, no partial write, nothing to recover.
+      showWriteConflictDialog(coin.id, result.conflicts);
+      return;
+    }
+    showToast("Couldn't save " + coin.id + ": " + result.message);
   }
 
   // Same session-only in-memory Save as Edit Coin — no OneDrive write layer
