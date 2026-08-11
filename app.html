@@ -3899,12 +3899,15 @@
   //     feature, and it hardcodes method: "GET").
   //   - Files.Read scope only (not Files.ReadWrite) — this feature never
   //     writes anything, so it never needs the write layer's broader scope.
-  //   - Reads the REAL production workbook directly (not a `_Testing`
-  //     copy) — safe because a read-only GET can't corrupt anything, the
-  //     same reasoning that already lets Reference Images read straight
-  //     from `CoinCollection/ReferenceImages/` on the live drive. This is
-  //     different from the Add Set write layer, which uses a `_Testing`
-  //     copy specifically because IT writes.
+  //   - Reads whatever workbook WRITE_TARGET points at (writePaths()
+  //     .workbook, via liveNavWorkbookPath()) — the SAME file the write
+  //     layer touches, never a different one. **Superseded:** this used to
+  //     read the real production workbook directly regardless of
+  //     WRITE_TARGET, on the reasoning that a read-only GET can't corrupt
+  //     anything. That reasoning held only while nothing wrote; once Browse
+  //     Edit could write, reading one workbook and writing another caused
+  //     real silent data loss. See liveNavWorkbookPath()'s own comment for
+  //     the full incident.
   //   - redirectUri is the same LOCAL DEV TESTING URI as every other real
   //     Graph feature in this file (http://localhost:8791/app.html) — no
   //     production redirect URI exists yet, so ENABLE_LIVE_NAV_DATA stays
@@ -3962,9 +3965,29 @@
     }
   }
 
-  // The real production workbook, read directly (see the safety-posture
-  // comment above for why this is safe without a _Testing copy).
-  const LIVE_NAV_WORKBOOK_PATH = "CoinCollection/CoinCollection (AI).xlsx";
+  // ONE workbook for the whole app — reads and writes must never point at
+  // different files. This deliberately routes through writePaths(), the
+  // same WRITE_TARGET-driven path the write layer uses.
+  //
+  // **Superseded, and the reason matters.** This used to be a hardcoded
+  // `"CoinCollection/CoinCollection (AI).xlsx"` (production), on the
+  // reasoning that a read-only GET can't corrupt anything so it didn't need
+  // the _Testing copy convention. That was true while NOTHING wrote. It
+  // stopped being true the moment Browse Edit could write, and it caused
+  // real, silent data loss in Ray's live pass: Catalog/Browse detail/Edit
+  // Coin were displaying and PRE-FILLING from production, while the write
+  // layer's conflict snapshot and its actual writes went to the _Testing
+  // copy. So Edit Coin showed production's Year/MintMark/Variety for a coin
+  // whose copy-workbook row said something different, and saving diffed
+  // production-derived form values against copy-derived snapshot values —
+  // submitting "changes" to fields the user never touched (a real Variety
+  // value was blanked this way; the identity-confirmation dialog correctly
+  // reported it, but it read as routine).
+  //
+  // **Rule going forward: any new read path reads writePaths().workbook.**
+  // Never reintroduce a separate read target. A read/write split is not a
+  // safety measure here — it's the bug.
+  function liveNavWorkbookPath() { return writePaths().workbook; }
 
   // GETs a worksheet's full used range and returns an array of plain
   // objects keyed by the header row's own text (trimmed) — no assumptions
@@ -3977,7 +4000,7 @@
     const token = await getLiveNavToken();
     if (!token) return null;
     const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-      LIVE_NAV_WORKBOOK_PATH.split("/").map(encodeURIComponent).join("/") +
+      liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
       ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
     try {
       const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
@@ -4113,11 +4136,62 @@
     };
   }
 
+  // A real DB_Coins row -> the same shape FAKE_DB_COINS rows use, so every
+  // existing consumer (findDbCoinsMatch, dbCoinsCandidatesFor,
+  // renderAmbiguousMatchList, catalogFunFactFor, slotMintage, the PCGS
+  // label decoder) works unchanged against either source. All column names
+  // here are CONFIRMED against the real sheet, whose full header row is:
+  // CoinID, GSID, PCGS#, NGC#, Researched_NGC, USMint#, Year, MintMark,
+  // Description, Denomination, Variety, Finish, KeyDate, Composition,
+  // Diameter, Designer, Mintage, Notes, SetID, FunFact, MetalContentType,
+  // Weight, Thickness, Edge, ReedCount, SameCoinPairResearch.
+  //
+  // NOTE: DB_Coins has **no Designation column** — FAKE_DB_COINS carries a
+  // `designation` field (its deliberate RD-vs-BN ambiguous demo pair), but
+  // there's no real equivalent to map, so live rows get "". That does NOT
+  // disable the ambiguous-match picker: it triggers on 2+ rows sharing the
+  // base Year+MintMark+Denom+Variety key, which real data can and does
+  // produce on its own.
+  function mapWorkbookRowToDbCoin(row) {
+    const yearRaw = colVal(row, "Year");
+    const yearNum = Number(yearRaw);
+    const mintageRaw = colVal(row, "Mintage");
+    const mintageNum = Number(mintageRaw);
+    return {
+      coinId: String(colVal(row, "CoinID")),
+      year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
+      mint: String(colVal(row, "MintMark")),
+      denom: String(colVal(row, "Denomination")),
+      variety: String(colVal(row, "Variety")),
+      description: String(colVal(row, "Description")),
+      finish: String(colVal(row, "Finish")),
+      gsid: String(colVal(row, "GSID")),
+      pcgs: String(colVal(row, "PCGS#")),
+      // Mintage is only partially populated on the real sheet, so this is
+      // null (not 0/NaN) when absent — every display site already guards on
+      // `!= null` rather than assuming a number is there.
+      mintage: (mintageRaw === "" || isNaN(mintageNum)) ? null : mintageNum,
+      funFact: String(colVal(row, "FunFact")),
+      designation: ""
+    };
+  }
+
   // null = not loaded yet (every consumer falls back to FAKE_*); a loaded
   // array is cached for the rest of the session (no auto-refresh — same
   // "fetched at most once per session" posture as Reference Images).
   let LIVE_COINS = null;
   let LIVE_DB_SETS = null;
+  // The real DB_Coins catalog (~3,753 rows). **Superseded:** DB_Coins used
+  // to be fetched only to build the Metal-filter join and then discarded,
+  // with an explicit "neither sheet gets its own LIVE_* cache" note. That
+  // became a real bug the moment Browse Edit started re-deriving CoinID
+  // from an edited identity: every DB_Coins match ran against the 12-row
+  // FAKE_DB_COINS mock, so a coin whose new identity has a perfectly good
+  // real catalog row (verified live: AY-00008 -> C-1920-S-1C-01, DB_Coins
+  // row 335) was reported as "no match", had its CoinID cleared and got
+  // routed to Needs Attention. Any code asking "which DB_Coins row is
+  // this?" must read the REAL catalog when it's available.
+  let LIVE_DB_COINS = null;
   let liveNavDataFetchPromise = null;
 
   // The single swap point every nav function reads through — this is what
@@ -4126,6 +4200,8 @@
   // FAKE_COINS/FAKE_DB_SETS references throughout the whole file.
   function activeCoins() { return LIVE_COINS || FAKE_COINS; }
   function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
+  function activeDbCoins() { return LIVE_DB_COINS || FAKE_DB_COINS; }
+  function __setLiveDbCoinsForTest(rows) { LIVE_DB_COINS = rows; } // test-only seam
 
   // Lazy and dedup'd, safe to call as often as needed (mirrors
   // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
@@ -4171,6 +4247,12 @@
         const category = colVal(row, "MetalCategory");
         if (coinType && category) contentTypeToCategory[coinType] = category;
       });
+      // The DB_Coins rows are already in hand for the metal join above —
+      // cache them as the real catalog too, rather than discarding them and
+      // leaving every DB_Coins match running against the 12-row mock (see
+      // LIVE_DB_COINS' own comment for the bug that caused). A row with no
+      // CoinID isn't a usable catalog entry, same filter as LIVE_COINS.
+      LIVE_DB_COINS = dbCoinsRows.map(mapWorkbookRowToDbCoin).filter(c => c.coinId);
       LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id).map(coin => {
         // A coin with no MetalContentType match (or a broken link anywhere
         // in the chain) gets a blank metalCategory — metalCategoryFor()'s
@@ -8665,12 +8747,129 @@
   function __setBrowseEditSnapshotForTest(s) { browseEditSnapshot = s; } // test-only seam
   function __getBrowseEditSnapshotForTest() { return browseEditSnapshot; } // test-only seam
 
+  // Element ids the user has actually typed in / changed since this form
+  // opened. Only used to decide what applySnapshotToEditForm() may
+  // overwrite when the live snapshot lands mid-edit — see its comment.
+  // Reset on every form open, and populated by one delegated listener
+  // (wired once in initBrowseEdit) rather than per-field handlers, so a
+  // future field added to this form is covered automatically.
+  const browseEditTouchedFields = new Set();
+
   // Loads that baseline, then re-syncs the two fields that depend on it:
   // Notes (prefilled from the row's real Remarks) and the Storage Location
   // mode (which needs the Containers lookup). Async and non-blocking — the
   // form is already usable from in-memory data when this resolves; if it
   // fails, the form simply stays on the mockup values and Save degrades to
   // the session-only path rather than writing against an unknown baseline.
+  // Sets a <select> to a value, injecting a real option for it first when
+  // the value isn't already in the list. Without this, assigning an
+  // unlisted value silently leaves the select on NO selection — which then
+  // reads back as "the user blanked this field" and gets written as blank.
+  // That is exactly how a real Variety/MintMark value gets destroyed by a
+  // save the user thought was unrelated, and it isn't hypothetical: the
+  // MintMark column alone carries real values the dropdown never offered
+  // ("P", and multi-mint forms like "P/D", "P/D/S", "None/D"). Injecting
+  // preserves whatever the workbook actually says, and marks it so it's
+  // obvious the value came from the data rather than the standard list.
+  function setSelectValuePreservingUnknown(el, rawValue) {
+    if (!el) return;
+    const value = rawValue == null ? "" : String(rawValue);
+    const known = Array.from(el.options).some(o => o.value === value);
+    if (!known && value !== "") {
+      const opt = new Option(value + " — existing value", value);
+      opt.dataset.injected = "1";
+      el.appendChild(opt);
+    }
+    el.value = value;
+  }
+
+  // Re-populates every writable field from the LIVE workbook row the save
+  // is going to diff against.
+  //
+  // This is the structural fix for a real data-loss bug found in Ray's live
+  // pass: the form used to pre-fill from the in-memory `coin` object while
+  // the save diffed against a separately-fetched snapshot. When those two
+  // disagreed (they did — the app was reading production and writing to the
+  // _Testing copy, see liveNavWorkbookPath()), a field the user never
+  // touched could be submitted as a change and silently overwrite real
+  // data. The identity-confirmation dialog DID catch and name it, but it
+  // read as routine.
+  //
+  // Pre-filling from the snapshot makes the form's baseline and the diff's
+  // baseline the same object by construction, so an untouched field can no
+  // longer produce a change — regardless of whether any display source ever
+  // diverges again. Keep it that way: if a new writable field is added to
+  // this form, it belongs here too.
+  function applySnapshotToEditForm(values, coin) {
+    // The snapshot can land after the user has already started typing (the
+    // form is usable immediately; the fetch takes a few hundred ms). Any
+    // field they've actually touched is left alone — their input is a real
+    // intentional edit and must not be overwritten — while every UNtouched
+    // field is still re-based onto the live row, which is the half that
+    // matters for not silently submitting a stale value.
+    const skip = id => browseEditTouchedFields.has(id);
+    const set = (id, v) => {
+      if (skip(id)) return;
+      const el = document.getElementById(id);
+      if (el) el.value = v == null ? "" : String(v);
+    };
+    const setSel = (id, v) => { if (!skip(id)) setSelectValuePreservingUnknown(document.getElementById(id), v); };
+
+    set("browseEditYear", values.Year);
+    setSel("browseEditMintMark", values.MintMark);
+    setSel("browseEditDenomination", values.Denomination);
+    set("browseEditDescription", values.Description);
+    set("browseEditVariety", values.Variety);
+
+    // Grade keeps its dropdown/"Other" split — an unlisted grade lands in
+    // the free-text box rather than being injected into the list, since
+    // that box exists precisely for values outside the standard set.
+    if (!skip("browseEditGradeFrom") && !skip("browseEditGradeOther")) {
+      const gradeFromEl = document.getElementById("browseEditGradeFrom");
+      const gradeValue = values.Grade == null ? "" : String(values.Grade);
+      const hasGradeOption = Array.from(gradeFromEl.options).some(o => o.value === gradeValue);
+      gradeFromEl.value = hasGradeOption ? gradeValue : "__other__";
+      document.getElementById("browseEditGradeOther").style.display = hasGradeOption ? "none" : "block";
+      document.getElementById("browseEditGradeOther").value = hasGradeOption ? "" : gradeValue;
+    }
+
+    setSel("browseEditGradeSource", values.GradeSource);
+    set("browseEditDesignation", values.Designation);
+    set("browseEditValue", values.Value);
+
+    if (!skip("browseEditCertTypeNumber")) {
+      const certInput = document.getElementById("browseEditCertTypeNumber");
+      certInput.value = values.SerNo == null ? "" : String(values.SerNo);
+      certInput.dispatchEvent(new Event("input", { bubbles: true })); // refreshes the cert-link button
+    }
+
+    set("browseEditCost", values.Cost);
+    set("browseEditShippingCost", values.Shipping);
+    set("browseEditVendor", values.Seller_Link);
+    // Date columns come back as Excel serials; the <input type=date> needs
+    // a plain ISO date string.
+    set("browseEditPurchaseDate", values.PurchaseDate == null || values.PurchaseDate === ""
+      ? "" : excelSerialToISODate(values.PurchaseDate));
+
+    set("browseEditStorageLocation", values.StorageLocation);
+    set("browseEditContainer", values.Container);
+
+    const notesEl = document.getElementById("browseEditNotes");
+    if (!skip("browseEditNotes")) notesEl.value = String(values.Remarks || "");
+    notesEl.placeholder = "Anything else worth remembering about this specimen";
+
+    // Storage mode depends on the Container value just applied, so this
+    // has to run after it — and against the snapshot's own Container, not
+    // the in-memory coin's.
+    applyStorageLocationMode({ container: values.Container, storageLocation: values.StorageLocation });
+    // Fun Fact is catalog data keyed off the coin's identity, so it should
+    // reflect the row's REAL identity, not the possibly-stale display copy.
+    document.getElementById("browseEditFunFact").textContent = catalogFunFactFor({
+      denom: values.Denomination, year: values.Year, mint: values.MintMark,
+      variety: values.Variety, id: coin ? coin.id : ""
+    });
+  }
+
   async function loadBrowseEditSnapshot(coin) {
     browseEditSnapshot = null;
     if (!browseEditWriteEnabled()) return null;
@@ -8681,14 +8880,11 @@
       const values = await readAllRowWritableValues(rowNumber);
       browseEditSnapshot = { id: coin.id, values };
       // Only re-sync if this coin is still the one on screen — a fast
-      // back-out-and-open-another would otherwise land this row's Remarks
+      // back-out-and-open-another would otherwise land this row's values
       // in a different coin's form.
       if (currentBrowseCoin && currentBrowseCoin.id === coin.id &&
           document.getElementById("browseEditView").style.display !== "none") {
-        const notesEl = document.getElementById("browseEditNotes");
-        notesEl.value = String(values.Remarks || "");
-        notesEl.placeholder = "Anything else worth remembering about this specimen";
-        applyStorageLocationMode(coin);
+        applySnapshotToEditForm(values, coin);
       }
       return browseEditSnapshot;
     } catch (e) {
@@ -8704,6 +8900,7 @@
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
+    browseEditTouchedFields.clear(); // fresh form — nothing user-modified yet
     loadBrowseEditSnapshot(coin);
 
     // --- Overview: identity fields are editable now (they had no edit
@@ -8980,6 +9177,18 @@
       document.getElementById("browseDetailView").style.display = "block";
     });
 
+    // One delegated listener for the whole form marks which fields the
+    // user has genuinely touched. Delegated (not per-field) so any field
+    // added to this form later is covered without remembering to wire it.
+    // Programmatic `.value =` assignments never fire these events, so a
+    // pre-fill can't mark itself as user input.
+    const editView = document.getElementById("browseEditView");
+    ["input", "change"].forEach(evt => {
+      editView.addEventListener(evt, e => {
+        if (e.target && e.target.id) browseEditTouchedFields.add(e.target.id);
+      });
+    });
+
     // Container drives whether Storage Location is editable at all, so the
     // field has to re-evaluate as soon as a container is typed or cleared —
     // not only on form open.
@@ -9218,8 +9427,11 @@
   // resolveCoinIdForEdit() (identity edits), since both are really the same
   // underlying question: "which DB_Coins row does this specimen match?"
   function dbCoinsCandidatesFor(shape) {
-    return FAKE_DB_COINS.filter(c =>
-      c.denom === shape.denom && String(c.year) === String(shape.year) &&
+    // activeDbCoins(), never FAKE_DB_COINS directly — the real catalog is
+    // ~3,753 rows and the mock is 12, so matching against the mock reports
+    // "no match" for almost every real coin (see LIVE_DB_COINS).
+    return activeDbCoins().filter(c =>
+      normField(c.denom) === normField(shape.denom) && String(c.year) === String(shape.year) &&
       normField(c.mint) === normField(shape.mint) && normField(c.variety || "") === normField(shape.variety || "")
     );
   }
@@ -12347,12 +12559,10 @@
   // the matching rule a second time.
   function findDbCoinsMatch(record) {
     if (!record.denom || !record.year) return null;
-    return FAKE_DB_COINS.find(c =>
-      c.denom === record.denom &&
-      String(c.year) === String(record.year) &&
-      normField(c.mint) === normField(record.mint) &&
-      normField(c.variety) === normField(record.variety)
-    ) || null;
+    // Same shared candidate rule dbCoinsCandidatesFor() uses (and the same
+    // activeDbCoins() source) — this is just "the first candidate, if any",
+    // so the two can never disagree about what counts as a match.
+    return dbCoinsCandidatesFor(record)[0] || null;
   }
 
   function checkDbCoinsMatch() {
@@ -12378,8 +12588,13 @@
     if (found) {
       lastDbMatch = found;
       document.getElementById("dbMatchMsg").innerHTML =
-        "Matched DB_Coins — <strong>" + found.coinId + "</strong> · PCGS# " + found.pcgs +
-        " · Mintage " + found.mintage.toLocaleString();
+        // Mintage/PCGS# are only PARTIALLY populated on the real DB_Coins
+        // sheet, so neither can be assumed present now that this reads the
+        // live catalog — an unguarded .toLocaleString() on a null Mintage
+        // would throw and take the whole match banner down.
+        "Matched DB_Coins — <strong>" + found.coinId + "</strong>" +
+        (found.pcgs ? " · PCGS# " + found.pcgs : "") +
+        (found.mintage != null ? " · Mintage " + found.mintage.toLocaleString() : "");
       matchBanner.classList.remove("hidden");
       noMatchBanner.classList.add("hidden");
     } else {

@@ -3754,16 +3754,111 @@ architecture changes):**
   CoinID and flagging Needs Attention with the correct identity, and a
   non-identity save (Value only) leaving CoinID completely untouched with no
   confirmation dialog at all. All prior suites re-run clean alongside —
-  **519 assertions total across the whole app, zero failures.**
+  **519 assertions total across the whole app, zero failures** (since grown
+  to 563 by the Part-D2 fixes below).
+
+**Four more findings from Ray's Part-D2 live pass, all resolved. Two were
+serious and share ONE root cause worth remembering.**
+
+**ROOT CAUSE (Bugs A + B) — the app was READING one workbook and WRITING
+another.** `ENABLE_LIVE_NAV_DATA`'s reader hardcoded
+`LIVE_NAV_WORKBOOK_PATH = "CoinCollection/CoinCollection (AI).xlsx"` (real
+production) on the reasoning, recorded in this file, that "a read-only GET
+can't corrupt anything, so it doesn't need the `_Testing` copy convention."
+That reasoning was sound **only while nothing wrote**. It stopped being true
+the moment Browse Edit could write, and the two features were built in
+separate rounds so nothing forced a re-check.
+- **Bug A (silent wrong data on screen):** Catalog, Browse detail and Edit
+  Coin all displayed/pre-filled from PRODUCTION, while the write layer's
+  conflict snapshot and its actual writes went to the `_Testing` COPY. On
+  AY-00008 the copy said Year=1920/Variety="Type 69" while production still
+  said 1919/blank — so both screens showed 1919-S with Variety blank. Ray's
+  diagnosis that a shared upstream source was at fault was exactly right;
+  it just wasn't a CoinID parse (nothing anywhere derives displayed identity
+  from CoinID) — it was the wrong file.
+- **Bug B (real data loss):** because the form pre-filled from production
+  and the save diffed against the copy, a save that only intentionally
+  touched Year submitted `Variety: "Type 69" → (blank)` as a side effect.
+  The identity-confirmation dialog worked perfectly — it caught and named
+  the change — but it read as routine, and confirming destroyed real data.
+- **Fix, two layers, both deliberate:**
+  1. **One workbook for the whole app.** `LIVE_NAV_WORKBOOK_PATH` is gone,
+     replaced by `liveNavWorkbookPath()` returning `writePaths().workbook`.
+     **Standing rule going forward: any new read path reads
+     `writePaths().workbook`. Never reintroduce a separate read target — a
+     read/write split is not a safety measure here, it IS the bug.**
+  2. **The form now pre-fills from the SNAPSHOT, not the in-memory record**
+     (`applySnapshotToEditForm()`, called when the snapshot lands). This is
+     the structural fix: the form's baseline and the diff's baseline are now
+     the same object by construction, so an untouched field cannot produce a
+     change even if some display source diverges again. **If a new writable
+     field is added to Edit Coin, it belongs in that function too.**
+     A `browseEditTouchedFields` set (one delegated listener on the edit
+     view) means a late-arriving snapshot re-bases only fields the user
+     hasn't typed in — their own edits are never clobbered.
+- **Also fixed, same class, wider than the earlier "P" bug:**
+  `setSelectValuePreservingUnknown()` injects a real `<option>` for any
+  workbook value a dropdown doesn't already list, instead of silently
+  leaving the select on no selection (which then reads back as "user blanked
+  it"). This matters beyond `"P"` — the real MintMark column also carries
+  `"P/D"` (26 rows), `"P/D/S"`, `"P/S"`, `"None/D"`, `"P/W"` and others.
+
+**Bug C — CoinID re-linking matched against the 12-row MOCK catalog.**
+`dbCoinsCandidatesFor()`/`findDbCoinsMatch()` read `FAKE_DB_COINS` directly,
+so AY-00008's edited identity (1920-S 1C) was reported "no match" and had
+its CoinID cleared — even though DB_Coins row 335 is exactly
+`C-1920-S-1C-01`, confirmed both in the workbook and independently by
+Copilot. **Fixed:** `ensureLiveNavDataFetch()` already fetched DB_Coins for
+the Metal-filter join and then *discarded* it (an explicit "neither sheet
+gets its own LIVE_* cache" note — now superseded); it's cached as
+`LIVE_DB_COINS` with an `activeDbCoins()` accessor, and both match functions
+read through it. `mapWorkbookRowToDbCoin()` maps the real, confirmed
+DB_Coins headers. Two notes worth carrying:
+- **DB_Coins has no `Designation` column** — live rows get `""`. The
+  ambiguous-match picker still works, since it triggers on 2+ rows sharing
+  the base Year+MintMark+Denom+Variety key, which real data produces on its
+  own.
+- **`Mintage` and `PCGS#` are only partially populated**, so the Add Coin
+  match banner now omits each when absent rather than calling
+  `.toLocaleString()` on null and throwing.
+- **Still on the mock, deliberately out of scope:** `slotMintage()`
+  (Albums — Ray's earlier explicit call that Albums isn't wired to live
+  data), `validVarietiesForCurrentCoin()` and the PCGS label decoder (both
+  Add Coin, whose Save is still a stub). Worth doing when Add Coin's own
+  write layer lands.
+
+**Verified headless — 44 new assertions (290 total in
+`verify_browse_edit_write.js`, 145 × 2 viewports; 563 across all 10 suites,
+zero failures).** The Bug B coverage is a direct reproduction of the live
+scenario: a workbook row saying 1920/"Type 69" behind an in-memory record
+saying 1919/blank, then typing only Year and saving — asserting the form
+re-bases onto the workbook values, that NO identity dialog fires, and that
+the real Variety survives. Plus: read and write paths resolve to the same
+file; an unlisted `"P/D"` round-trips through a select; a user-typed field
+survives a late snapshot while untouched fields still re-base; the exact
+1920-S identity matches `C-1920-S-1C-01` once the live catalog is loaded
+and the full re-link succeeds end-to-end without flagging research; a null
+Mintage doesn't throw; and the badge deliberately ignores research items.
+
+**Bug D — NOT a bug; working as designed.** The Docket fob counts the
+"Needs your action" section ONLY, never the research section — Ray's own
+earlier explicit call ("the badge should only reflect things Ray can
+actually resolve himself"). A `coinid-relink` item is research-bound, so it
+correctly appears in the Docket list without incrementing the count.
+Asserted as intended behavior rather than changed. **Open question for Ray:
+if the badge should count research items too, that's a one-line change —
+but it reverses a decision he made deliberately, so it isn't assumed here.**
 
 **Not verified: any real device, and no real OneDrive write has ever been
 executed** — every write in this build went to a mock Graph client. The live
 run against the `_Testing` copy is Ray's to do, same as the Add Set write
 layer's own live-run step; the step-by-step is committed alongside as
-`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`. **The first live pass (Parts B–F)
-is done and passed** — this round's three bugs are what it found; a second
-pass (specifically Part D2, the new CoinID re-linking steps) is still
-outstanding.
+`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`. **Two live passes are done**:
+Parts B–F passed (finding the Mint Mark / CoinID / Notes-flash bugs), and
+the Part-D2 pass found the four above. A third pass is still outstanding,
+and should re-run **all** of B–F, not just D2 — the read/write-target fix
+changes which workbook every screen reads, so the earlier passes' results
+no longer describe the current build.
 - **The write pass can only run where a local server can run.** The only
   Entra redirect URI registered for `app.html` is
   `http://localhost:8791/app.html`, so the functional verification happens
@@ -5113,14 +5208,25 @@ item once Ray actually signs off — **main is the source of truth for this
 feature**, same as the Add Set write layer's own merge-status correction
 below.
 
-**Sheets/ranges read:** the real `All` sheet and the real `DB_Sets` sheet, in
-full (`usedRange(valuesOnly=true)`), from the **live production workbook**
-(`CoinCollection/CoinCollection (AI).xlsx`) — not a `_Testing` copy. This is
-safe without the write layer's copy-target convention because a read-only GET
-can't corrupt anything, the same reasoning that already lets the Reference
-Images feature read directly from `CoinCollection/ReferenceImages/` on the
-live drive (see that section below) — the `_Testing` copy convention exists
-specifically to protect against writes, which this feature never does.
+**Sheets/ranges read:** the `All`, `DB_Sets`, `DB_Coins` and
+`Lookup_MetalContent` sheets, in full (`usedRange(valuesOnly=true)`), from
+**whichever workbook `WRITE_TARGET` points at** — `liveNavWorkbookPath()`,
+which returns `writePaths().workbook`.
+
+**Superseded, and this is the important part:** this used to read the **live
+production workbook** unconditionally, on the reasoning that "a read-only
+GET can't corrupt anything, so it doesn't need the `_Testing` copy
+convention." That was true while nothing wrote. Once the Browse Edit write
+layer landed, reading production while writing to the `_Testing` copy caused
+real, silent data loss on Ray's live pass — the Edit form pre-filled from
+one file and diffed against another, so an untouched field got submitted as
+a change. See "Browse Edit real write layer" → Bugs A/B for the full
+account. **Standing rule: reads and writes target the same workbook, always.
+Any new read path uses `writePaths().workbook`. Do not reintroduce a
+separate read target for "safety" — that split is what caused the bug.**
+(The Reference Images feature reading `CoinCollection/ReferenceImages/`
+directly is genuinely different and unaffected: it reads image FILES, not
+the workbook, and nothing writes those.)
 
 **Safety posture — deliberately its own thing, not reusing the write layer's
 gate:** `ENABLE_LIVE_NAV_DATA` (default `false`, localhost-dev only, same
@@ -5278,12 +5384,17 @@ under Other per an existing note in `Lookup_MetalContent`, not a gap).
   the existing gate rather than held for separate review — it's an
   incremental extension of an already-reviewed/merged read pattern, not new
   architecture, and stays exposure-free in production either way.
-- Neither new sheet gets its own `LIVE_*` cache or `activeX()` accessor —
-  they exist only to build two lookup maps (`CoinID -> MetalContentType`,
-  `MetalContentType (as CoinType) -> MetalCategory`) at fetch time, which are
-  then used once to stamp a real `metalCategory` field onto each mapped
-  `LIVE_COINS` row and discarded. `mapWorkbookRowToCoin()` also gained a
-  `coinId` field (`All.CoinID`, same confirmed-header convention as
+- Both new sheets were originally used only to build two lookup maps
+  (`CoinID -> MetalContentType`, `MetalContentType (as CoinType) ->
+  MetalCategory`) at fetch time and then discarded, with no `LIVE_*` cache
+  or `activeX()` accessor of their own. **`DB_Coins` is superseded** — it's
+  now cached as `LIVE_DB_COINS` behind `activeDbCoins()`, because every
+  DB_Coins match in the app (`findDbCoinsMatch`, `dbCoinsCandidatesFor`,
+  and so the Browse Edit CoinID re-link) was silently running against the
+  12-row `FAKE_DB_COINS` mock. See "Browse Edit real write layer" → Bug C.
+  `Lookup_MetalContent` is unchanged and still map-only.
+  `mapWorkbookRowToCoin()` also gained a `coinId` field (`All.CoinID`, same
+  confirmed-header convention as
   `CollectionID`/`Denomination`/`Year`/`MintMark`/`SerNo`) as the join key.
 - `metalCategoryFor(coin)` now checks `coin.metalCategory` first (set only
   on live-fetched coins) before falling back to the `FAKE_METAL_CONTENT`

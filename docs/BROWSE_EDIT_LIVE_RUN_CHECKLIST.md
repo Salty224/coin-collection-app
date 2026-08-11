@@ -6,7 +6,7 @@ here touches the real `CoinCollection (AI).xlsx` — `WRITE_TARGET` stays
 `"copy"` throughout, and this is the app's first code that writes *into* a
 workbook at all, so the copy is the whole safety net.
 
-All app-side logic is already verified headless (246 automated assertions
+All app-side logic is already verified headless (290 automated assertions
 across two viewports, driven by a mock Graph client). This checklist exists to
 confirm the **real Graph Excel API** behaves the way the mock did on your
 account — the mock cannot prove that Graph accepts these exact range/batch
@@ -36,6 +36,37 @@ calls, only that our logic around them is right.
 >
 > Plus the polish item (Storage Location note reworded) and this checklist's
 > own `ENABLE_LIVE_NAV_DATA` gap, both addressed below/inline.
+
+> **Round 3 — re-run EVERYTHING, not just D2.** Your Part-D2 pass found four
+> more issues. Two of them shared one root cause that changes which workbook
+> every screen reads, so the Round-2 results no longer describe this build —
+> please re-run **all of B through F**, not only the new steps.
+> 1. **The app was reading production and writing to the `_Testing` copy.**
+>    Catalog/Browse detail/Edit Coin pre-filled from
+>    `CoinCollection (AI).xlsx` while the write layer's snapshot and writes
+>    went to the copy — which is why AY-00008 showed 1919-S/blank when the
+>    copy said 1920-S/"Type 69". Fixed: reads now come from whatever
+>    `WRITE_TARGET` points at, so with `"copy"` **everything you see is the
+>    `_Testing` copy**. Expect Catalog to now reflect the copy's data, not
+>    production's — that's the fix working, and worth confirming early.
+> 2. **The Edit form now pre-fills from the live workbook row**, not the
+>    in-memory display record, so a field you never touched can no longer be
+>    submitted as a change (the "Type 69 → blank" data loss). Watch for
+>    fields settling to their real values a moment after the form opens —
+>    that's intentional. Anything you've already typed is left alone.
+> 3. **DB_Coins matching now uses the real ~3,753-row catalog** instead of a
+>    12-row mock, which is why the 1920-S re-link failed. Part D2's match
+>    case should now succeed.
+> 4. **The Docket badge not incrementing was NOT a bug** — it counts "Needs
+>    your action" only and never the research section, which was your own
+>    earlier explicit call. Left as-is; say the word if you want it changed.
+>
+> One consequence worth planning around: **AY-00008 in `_Testing` is
+> currently CoinID-blank and Variety-blank** from the last pass. That's a
+> fine starting state for re-testing the re-link (step 23 onward), but note
+> its Variety no longer has a value to preserve — if you want to re-test the
+> "untouched field survives" behavior specifically, set a Variety on some
+> row by hand in Excel first, then edit a DIFFERENT field on that row.
 
 ---
 
@@ -72,13 +103,16 @@ side effect of this checklist.
 
 ## A. Setup
 
-1. **Confirm the copy workbook is current** — you said you'd check this right
-   before the run. It needs the restored `SpotValue`/`Total` formulas and the
-   current schema (Photos / Receipts / Containers / LastModified). This
-   matters more than usual: several steps below verify that formulas survive
-   a write, which proves nothing against a copy that has no formulas.
-   Quick check in Excel: click `All!U2` and `All!Z2` — the formula bar should
-   show a formula, not a number.
+1. **Confirm the copy workbook is current** — it needs the restored
+   `SpotValue`/`Total` formulas and the current schema (Photos / Receipts /
+   Containers / LastModified). Quick check in Excel: click `All!U2` and
+   `All!Z2` — the formula bar should show a formula, not a number.
+   **This matters more than it did last round.** The app now READS from this
+   same copy too (that was the fix for the read/write split), so the copy is
+   no longer just the write target — it's the only data you'll see anywhere
+   in the app. A stale copy now means stale Catalog listings, stale Edit
+   pre-fills, and a `DB_Coins` catalog that may not contain the rows you're
+   testing CoinID re-linking against.
 2. Confirm the Entra redirect URI `http://localhost:8791/app.html` exists (it
    should, from the reference-image and Add Set rounds).
 3. On the branch `claude/browse-edit-write-layer`, in `app.html` set:
@@ -88,12 +122,11 @@ side effect of this checklist.
    and doesn't need Add Set's.
    **Also set `const ENABLE_LIVE_NAV_DATA = true;`** (a separate, older flag,
    further up the file). Without it, Catalog only shows the small ~17-item
-   hardcoded demo set instead of the real workbook data — you want real
-   coins on screen to pick a genuine test subject and to actually see real
-   Year/Grade/Container values to compare against. This flag is unrelated to
-   Browse Edit's own write layer (it only powers reads for Catalog/Rolls/
-   Sets), but the two need to be on together for a live pass to mean
-   anything against real data.
+   hardcoded demo set instead of real workbook data. **As of this round it's
+   no longer merely cosmetic**: that same reader now also loads the real
+   `DB_Coins` catalog, which is what CoinID re-linking matches against — with
+   it off, Part D2 matches against a 12-row mock and will report "no match"
+   for almost any real coin. Both flags need to be on.
 4. From the repo root: `python3 -m http.server 8791`
 5. Open `http://localhost:8791/app.html`.
 6. **Pick a throwaway test coin** and note its CollectionID, plus its current
