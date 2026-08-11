@@ -10495,12 +10495,18 @@
     });
 
     const badge = document.getElementById("needsAttentionBadge");
-    // Counts only "Needs your action" — items Ray can actually resolve
-    // himself — not the research section, which is stuck on Copilot, not him.
-    // Rendered as the Docket drawer's hanging fob now (a plain number, not
+    // Counts BOTH sections — everything in the Docket, not just the
+    // directly-actionable half. **Supersedes the earlier action-only rule**
+    // ("the badge should only reflect things Ray can actually resolve
+    // himself"): a research item still needs Ray to hand it to Copilot and
+    // then reconcile the result, so it's his action too, just a different
+    // kind. An item sitting in the Docket uncounted reads as "nothing to
+    // do here" when there genuinely is.
+    // Rendered as the Docket drawer's hanging fob (a plain number, not
     // "(N)", since it's a physical tag on the cabinet, not inline nav text).
-    if (badge) badge.textContent = actionRows.length ? String(actionRows.length) : "";
-    updateDocketFob(actionRows.length);
+    const docketCount = actionRows.length + researchRows.length;
+    if (badge) badge.textContent = docketCount ? String(docketCount) : "";
+    updateDocketFob(docketCount);
   }
 
   // ==================================================================

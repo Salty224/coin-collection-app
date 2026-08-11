@@ -6,7 +6,7 @@ here touches the real `CoinCollection (AI).xlsx` — `WRITE_TARGET` stays
 `"copy"` throughout, and this is the app's first code that writes *into* a
 workbook at all, so the copy is the whole safety net.
 
-All app-side logic is already verified headless (290 automated assertions
+All app-side logic is already verified headless (296 automated assertions
 across two viewports, driven by a mock Graph client). This checklist exists to
 confirm the **real Graph Excel API** behaves the way the mock did on your
 account — the mock cannot prove that Graph accepts these exact range/batch
@@ -57,9 +57,12 @@ calls, only that our logic around them is right.
 > 3. **DB_Coins matching now uses the real ~3,753-row catalog** instead of a
 >    12-row mock, which is why the 1920-S re-link failed. Part D2's match
 >    case should now succeed.
-> 4. **The Docket badge not incrementing was NOT a bug** — it counts "Needs
->    your action" only and never the research section, which was your own
->    earlier explicit call. Left as-is; say the word if you want it changed.
+> 4. **The Docket badge now counts BOTH sections**, per your call — a
+>    research item needs you to hand it to Copilot and reconcile the result,
+>    so it counts as your action too. (It wasn't originally a bug: the badge
+>    was deliberately action-only. You changed the design.) Worth a quick
+>    confirm during the pass: flag a coin into research via Part D2 step 26
+>    and check the fob goes UP by one.
 >
 > One consequence worth planning around: **AY-00008 in `_Testing` is
 > currently CoinID-blank and Variety-blank** from the last pass. That's a
@@ -232,6 +235,8 @@ it's worth deliberately exercising both directions.
     value. Then check Docket → Needs Attention → **Waiting on Copilot
     research**: this coin should appear there with a note like "Identity
     edited, no DB_Coins match — CoinID cleared, needs a catalog entry."
+    **Also note the Docket drawer's fob number before and after this step —
+    it should go UP by one** (the badge now counts research items too).
 27. Undo your test edits on this coin (put Mint Mark/Year back) so it isn't
     left in a confusing state in the copy workbook.
 28. **Also verify the negative case**: open Edit on a DIFFERENT coin, change

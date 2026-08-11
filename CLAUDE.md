@@ -3311,14 +3311,18 @@ is:
     original spec's literal wording (Sets/Coins with that status), extended
     to coins via the "no DB_Coins match" heuristic above since coins have no
     literal status field of their own.
-- **Dashboard badge** = count of "Needs your action" only, NOT a total across
-  both sections (Ray's explicit call, resolving open item 3 below) — the
-  badge should only reflect things Ray can actually resolve himself; items
-  stuck waiting on Copilot research don't belong in a number that reads as
-  "things to go do." **Supersedes an earlier version of this hub** that
-  summed both sections, matching the prior flat-queue badge's convention —
-  that convention wasn't actually right once the hub split "actionable" from
-  "research-bound," so it wasn't preserved here.
+- **Dashboard/Docket badge = a total across BOTH sections** (Ray's call,
+  Aug 11). Reasoning: a research item still needs Ray to hand it to Copilot
+  and then reconcile the result, so it IS his action — just a different kind
+  — and an item sitting in the Docket uncounted reads as "nothing to do
+  here" when there genuinely is. **This is the third and current state of a
+  decision that has flipped twice**: originally a sum (inherited from the
+  flat-queue badge), then narrowed to "Needs your action" only when the hub
+  split actionable from research-bound ("the badge should only reflect
+  things Ray can actually resolve himself"), and now back to a sum on the
+  reasoning above. Implemented as `actionRows.length + researchRows.length`
+  in `renderNeedsAttentionHub()`, feeding both `#needsAttentionBadge` and
+  `updateDocketFob()`.
 
 **"Open workbook in Excel" link (Task 2, plain link only — the `ms-excel:`
 desktop-preferred variant was explicitly marked a nice-to-have and NOT
@@ -3827,8 +3831,8 @@ DB_Coins headers. Two notes worth carrying:
   Add Coin, whose Save is still a stub). Worth doing when Add Coin's own
   write layer lands.
 
-**Verified headless — 44 new assertions (290 total in
-`verify_browse_edit_write.js`, 145 × 2 viewports; 563 across all 10 suites,
+**Verified headless — 50 new assertions (296 total in
+`verify_browse_edit_write.js`, 148 × 2 viewports; 569 across all 10 suites,
 zero failures).** The Bug B coverage is a direct reproduction of the live
 scenario: a workbook row saying 1920/"Type 69" behind an in-memory record
 saying 1919/blank, then typing only Year and saving — asserting the form
@@ -3838,16 +3842,16 @@ file; an unlisted `"P/D"` round-trips through a select; a user-typed field
 survives a late snapshot while untouched fields still re-base; the exact
 1920-S identity matches `C-1920-S-1C-01` once the live catalog is loaded
 and the full re-link succeeds end-to-end without flagging research; a null
-Mintage doesn't throw; and the badge deliberately ignores research items.
+Mintage doesn't throw; and the Docket badge counts both sections, equals
+every visible row, and decrements back when an item is removed.
 
-**Bug D — NOT a bug; working as designed.** The Docket fob counts the
-"Needs your action" section ONLY, never the research section — Ray's own
-earlier explicit call ("the badge should only reflect things Ray can
-actually resolve himself"). A `coinid-relink` item is research-bound, so it
-correctly appears in the Docket list without incrementing the count.
-Asserted as intended behavior rather than changed. **Open question for Ray:
-if the badge should count research items too, that's a one-line change —
-but it reverses a decision he made deliberately, so it isn't assumed here.**
+**Bug D — was working as designed, then Ray changed the design.** The fob
+had counted the "Needs your action" section only, never research — his own
+earlier call. Reported as intended rather than silently "fixed"; he then
+decided research items SHOULD count, since handing something to Copilot and
+reconciling the result is still his action. **Now a total across both
+sections** — see "Needs Attention hub" → Dashboard badge above for the full
+history of this decision (it has flipped twice) and the implementation.
 
 **Not verified: any real device, and no real OneDrive write has ever been
 executed** — every write in this build went to a mock Graph client. The live
