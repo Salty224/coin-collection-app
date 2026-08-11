@@ -6,11 +6,36 @@ here touches the real `CoinCollection (AI).xlsx` — `WRITE_TARGET` stays
 `"copy"` throughout, and this is the app's first code that writes *into* a
 workbook at all, so the copy is the whole safety net.
 
-All app-side logic is already verified headless (206 automated assertions
+All app-side logic is already verified headless (246 automated assertions
 across two viewports, driven by a mock Graph client). This checklist exists to
 confirm the **real Graph Excel API** behaves the way the mock did on your
 account — the mock cannot prove that Graph accepts these exact range/batch
 calls, only that our logic around them is right.
+
+> **Round 2.** Your first live pass (Parts B–F, all exercised) confirmed the
+> core write layer — formulas survived, conflict detection blocked correctly,
+> identity confirmation worked, the Containers join worked — and found 3 real
+> bugs, all now fixed:
+> 1. **Mint Mark could load blank for a real "P" coin** (Philadelphia
+>    explicitly marked, e.g. 2017-P Lincoln Shield Cent) — "P" is now a real
+>    dropdown option in both Add Coin and Edit Coin. Worth specifically
+>    re-checking on whatever coin you originally hit this on.
+> 2. **CoinID wasn't recomputed when Year/MintMark/Denomination changed** —
+>    an identity edit could silently leave a coin's catalog link pointing at
+>    the wrong DB_Coins row. Fixed with its own narrow, explicit write path
+>    (never routed through the general column allow-list): a real match
+>    writes the new CoinID, no match clears it and flags the coin into Needs
+>    Attention rather than leaving something wrong in place. **New — worth
+>    specifically exercising this round**: edit a coin's Year or Mint Mark
+>    into a combination you know exists in DB_Coins (CoinID should update)
+>    and separately into one you know doesn't (CoinID should clear and the
+>    coin should show up under Needs Attention → Waiting on Copilot research).
+> 3. **Notes briefly flashed unrelated placeholder text** before settling to
+>    the real value — fixed, it now starts blank with a "Loading current
+>    notes…" placeholder instead of ever showing another coin's mock text.
+>
+> Plus the polish item (Storage Location note reworded) and this checklist's
+> own `ENABLE_LIVE_NAV_DATA` gap, both addressed below/inline.
 
 ---
 
@@ -61,6 +86,14 @@ side effect of this checklist.
    Leave `const WRITE_TARGET = "copy";` **exactly as-is**.
    Leave `ENABLE_SET_WRITE_LAYER` alone — this feature has its own flag now
    and doesn't need Add Set's.
+   **Also set `const ENABLE_LIVE_NAV_DATA = true;`** (a separate, older flag,
+   further up the file). Without it, Catalog only shows the small ~17-item
+   hardcoded demo set instead of the real workbook data — you want real
+   coins on screen to pick a genuine test subject and to actually see real
+   Year/Grade/Container values to compare against. This flag is unrelated to
+   Browse Edit's own write layer (it only powers reads for Catalog/Rolls/
+   Sets), but the two need to be on together for a live pass to mean
+   anything against real data.
 4. From the repo root: `python3 -m http.server 8791`
 5. Open `http://localhost:8791/app.html`.
 6. **Pick a throwaway test coin** and note its CollectionID, plus its current
@@ -68,11 +101,14 @@ side effect of this checklist.
    pick one that already has a Container set (so Part E has something to
    show) — e.g. anything with `Container = "Coin Slab Box 1"`.
 
-> **Expected on first Edit open:** the page will bounce to a Microsoft
-> sign-in and come back to the **Dashboard**, not to the form. That's the
-> normal MSAL redirect flow (a full page load, so app state resets) — not a
-> bug. Just navigate back to the coin and open Edit again; from then on it's
-> silent for the rest of the session.
+> **Expected on first open, possibly TWICE:** Catalog's live data
+> (`ENABLE_LIVE_NAV_DATA`) and Browse Edit's writes (`ENABLE_BROWSE_EDIT_WRITE`)
+> use two separate MSAL instances (different scopes — read-only vs.
+> read/write), so you may see the Microsoft sign-in redirect fire once when
+> you first open Catalog and again the first time you open Edit. Each is a
+> full page load that lands back on the **Dashboard**, not wherever you were
+> — that's the normal MSAL redirect flow, not a bug. Just navigate back and
+> retry; both are silent for the rest of the session once signed in.
 
 > If anything misbehaves, set `ENABLE_BROWSE_EDIT_WRITE` back to `false`.
 > Nothing can reach the real workbook regardless of what goes wrong.
@@ -137,21 +173,57 @@ side effect of this checklist.
 
 ---
 
+## D2. CoinID re-linking (new this round — the fix for Bug 2)
+
+This is the one genuinely new piece of behavior since your last pass, so
+it's worth deliberately exercising both directions.
+
+23. Pick a coin whose Year+MintMark+Denomination you can look up in
+    `DB_Coins` — ideally one where you also know a NEIGHBORING combination
+    that DOES exist (e.g. the same coin at a different, real mint mark).
+    Open **Edit**, change **Mint Mark** to that neighboring value that you
+    know has a real `DB_Coins` row, save (confirm the identity dialog if it
+    asks — only fires when overwriting an already-populated field, same as
+    Part D).
+24. **Verify:** the toast now includes *"CoinID updated to C-....."* — check
+    the workbook: `CoinID` on that row changed to match the new identity, and
+    `Mintage`/`FunFact`/`Composition` wherever they're displayed (Browse
+    detail's Specifications / Notes & Facts accordions) now show the
+    NEIGHBORING coin's catalog data, not the original one's.
+25. Now edit the **same coin's** identity into something you're confident has
+    **no** `DB_Coins` row at all (a made-up mint mark combination, or a
+    variety you know isn't catalogued). Save (confirm if asked).
+26. **Verify:** the toast reads *"No DB_Coins match for the new identity —
+    CoinID cleared and flagged to Needs Attention."* Check the workbook:
+    `CoinID` on that row is now **blank**, not left at its old (now wrong)
+    value. Then check Docket → Needs Attention → **Waiting on Copilot
+    research**: this coin should appear there with a note like "Identity
+    edited, no DB_Coins match — CoinID cleared, needs a catalog entry."
+27. Undo your test edits on this coin (put Mint Mark/Year back) so it isn't
+    left in a confusing state in the copy workbook.
+28. **Also verify the negative case**: open Edit on a DIFFERENT coin, change
+    only **Grade** or **Value** (nothing identity-related), save. **Verify:**
+    `CoinID` on that row is completely untouched — check it in Excel before
+    and after if you want to be certain.
+
+---
+
 ## E. Container-derived Storage Location
 
-23. Reopen **Edit** → **Storage** accordion, on a coin whose `Container` is
+29. Reopen **Edit** → **Storage** accordion, on a coin whose `Container` is
     set to a real container name.
-24. **Verify:** *Storage Location* is shown as a read-only value (same flat
-    muted style as Fun Fact), with the note *"Set by this coin's container —
-    change it on the container, not here."* The editable text box is gone.
-25. **Verify** the value shown matches that container's `StorageLocation` in
+30. **Verify:** *Storage Location* is shown as a read-only value (same flat
+    muted style as Fun Fact), with the note *"Set by the Containers tab —
+    change it there, not here."* (reworded this round for clarity). The
+    editable text box is gone.
+31. **Verify** the value shown matches that container's `StorageLocation` in
     the **Containers** tab — not necessarily the row's own
     `All.StorageLocation` cell. On today's data those agree for all 314
     containerized rows, so this will look identical either way; that's
-    expected, see step 27 for the real proof.
-26. Clear the **Container** field. **Verify:** the editable Storage Location
+    expected, see step 33 for the real proof.
+32. Clear the **Container** field. **Verify:** the editable Storage Location
     input reappears immediately.
-27. **The real test of the join** (optional but worth doing once): in the copy
+33. **The real test of the join** (optional but worth doing once): in the copy
     workbook's **Containers** tab, change one container's `StorageLocation` to
     something obviously fake (e.g. `ZZZ TEST LOCATION`), save, then reload the
     app and open a coin in that container. **Verify:** Browse detail's Storage
@@ -165,13 +237,13 @@ side effect of this checklist.
 
 This is the safety net, and the one thing worth deliberately breaking.
 
-28. Open **Edit** on your test coin and type something into **Notes** — but
+34. Open **Edit** on your test coin and type something into **Notes** — but
     **don't save yet**.
-29. Leave the form open. In Excel (or Copilot), change **any** field on that
+35. Leave the form open. In Excel (or Copilot), change **any** field on that
     same row — pick one you are *not* editing, e.g. `Seller_Link` or
     `Designation`. Save the workbook.
-30. Back in the app, tap **Save Changes**.
-31. **Verify:**
+36. Back in the app, tap **Save Changes**.
+37. **Verify:**
     - A *"Not saved — record changed"* dialog appears, naming the field
       **the other editor changed** (not the one you were editing) with its
       was/now values.
@@ -179,25 +251,28 @@ This is the safety net, and the one thing worth deliberately breaking.
     - **The workbook row is untouched** — your Notes text did *not* land.
     - After tapping OK you're **still on the Edit form**, and your typed
       Notes text is **still there**.
-32. Tap Back, reopen Edit on the same coin, retype/confirm your Notes, save.
-33. **Verify:** it saves cleanly this time, and `Remarks` on that row now holds
+38. Tap Back, reopen Edit on the same coin, retype/confirm your Notes, save.
+39. **Verify:** it saves cleanly this time, and `Remarks` on that row now holds
     your text.
 
 ---
 
 ## G. Phone pass (only if you set up port forwarding — see the top)
 
-34. With port forwarding active, open `http://localhost:8791/app.html` in
+40. With port forwarding active, open `http://localhost:8791/app.html` in
     **Samsung Internet** on the S25.
-35. Re-run **B (9–11)**, **D (17–21)** and **F (28–31)** — those are the three
-    places with new UI: the read-only fields, and the two dialogs.
-36. **Verify specifically on the phone:**
+41. Re-run **B (9–11)**, **D (17–21)**, **D2 (24, 26)** and **F (36–37)** —
+    those are the places with new UI: the read-only fields, and the two
+    dialogs.
+42. **Verify specifically on the phone:**
     - The read-only Fun Fact / Storage Location blocks don't look like input
       boxes you'd try to type in.
     - Both dialogs fit the screen without horizontal scrolling, and their
       buttons are comfortably tappable.
     - Long values in the conflict dialog (a full Remarks sentence) wrap
       rather than overflowing.
+    - The Mint Mark dropdown's new "P — Philadelphia (explicit)" option
+      renders and is selectable without any layout weirdness.
     These are exactly the class of thing this environment is worst at
     catching — the headless checks passed at 412×915, but that isn't Samsung
     Internet.
@@ -206,17 +281,20 @@ This is the safety net, and the one thing worth deliberately breaking.
 
 ## H. Afterwards
 
-37. **Set `ENABLE_BROWSE_EDIT_WRITE` back to `false`** before pushing
+43. **Set `ENABLE_BROWSE_EDIT_WRITE` back to `false`** before pushing
     anything. The flag must never reach the live site as `true` while
-    `app.html` has no production redirect URI.
-38. If you want the copy workbook back to a clean state, either restore your
+    `app.html` has no production redirect URI. (`ENABLE_LIVE_NAV_DATA` should
+    also go back to `false` if you changed it, same reasoning.)
+44. If you want the copy workbook back to a clean state, either restore your
     test coin's original values by hand or re-copy the workbook.
-39. Report back what passed and anything that didn't. Most useful to me:
+45. Report back what passed and anything that didn't. Most useful to me:
     - The exact toast or dialog text you saw when something was wrong.
     - Any red errors in the browser console (F12 → Console) — the first live
       Graph call is where an unexpected API-shape problem would surface, and
       the error text tells me exactly which call and why.
     - Whether `Total`/`SpotValue` survived every write (step 14).
+    - For CoinID re-linking specifically: the exact toast text, and what
+      `CoinID` actually read in the workbook afterward.
 
 ---
 
@@ -235,3 +313,16 @@ This is the safety net, and the one thing worth deliberately breaking.
 - **Conflict detection ignores `LastModified` and `Reviewed`** by design, so
   a third-party edit that touched *only* those two columns wouldn't block a
   save. Approved as reasoned — noted here so the behavior isn't a surprise.
+- **CoinID re-linking only triggers on Year/MintMark/Denomination/Variety.**
+  Editing anything else (Grade, Cost, Storage, ...) never touches CoinID,
+  even on the same save. If a coin's CoinID looks wrong for a reason OTHER
+  than one of those four fields having just been edited, that's a
+  pre-existing data issue, not something this feature would have caught or
+  caused.
+- **CoinID's own conflict detection is narrower than everything else's.**
+  The general conflict check compares every allow-listed column against a
+  live re-read before writing; CoinID isn't on that list (it has its own
+  dedicated write path), so a third party changing CoinID itself between
+  form-open and Save — a genuinely unusual thing to edit by hand — isn't
+  something this layer would detect as a conflict. Worth knowing, not
+  expected to matter in practice.

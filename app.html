@@ -2290,6 +2290,19 @@
               <label>Mint Mark</label>
               <select id="browseEditMintMark">
                 <option value="">— none (Philadelphia) —</option>
+                <!-- Explicit "P" — real data (bug found via live device testing):
+                     Philadelphia normally carries no mint mark at all, but a
+                     handful of real issues DO explicitly mark it (2017 Lincoln
+                     Shield Cent among them) — 25 real All-sheet rows carry a
+                     plain "P". Without this option, setting a select's .value
+                     to "P" with no matching <option> silently falls back to no
+                     selection at all — Edit Coin's Mint Mark field loaded
+                     blank for a coin whose real MintMark was "P" (AY-00193),
+                     caught only because the resulting blank-vs-populated
+                     mismatch tripped the identity-overwrite confirmation on
+                     an unrelated save. Fixed at the root: "P" is now a real,
+                     selectable option, distinct from the default blank. -->
+                <option value="P">P — Philadelphia (explicit)</option>
                 <option value="D">D — Denver</option>
                 <option value="S">S — San Francisco</option>
                 <option value="CC">CC — Carson City</option>
@@ -2463,7 +2476,7 @@
               <input type="text" id="browseEditStorageLocation" placeholder="e.g. Safe, Box 2, Album A">
               <div id="browseEditStorageLocationDerived" class="readonly-field hidden"></div>
               <div id="browseEditStorageLocationNote" class="placeholder-note hidden" style="margin-top:-4px;">
-                Set by this coin's container — change it on the container, not here.
+                Set by the Containers tab — change it there, not here.
               </div>
 
               <label>Container</label>
@@ -2902,6 +2915,9 @@
           <label>Mint Mark</label>
           <select id="mintMark">
             <option value="">— none (Philadelphia) —</option>
+            <!-- See Browse Edit's identical dropdown for why "P" is a real,
+                 separate option from the default blank. -->
+            <option value="P">P — Philadelphia (explicit)</option>
             <option value="D">D — Denver</option>
             <option value="S">S — San Francisco</option>
             <option value="CC">CC — Carson City</option>
@@ -4894,6 +4910,91 @@
       written: edits.reduce((acc, e) => acc.concat(e._columns), []),
       values: Object.assign({}, fresh, changed)
     };
+  }
+
+  // ==================================================================
+  // COINID RE-LINKING ON IDENTITY EDIT
+  // ==================================================================
+  // A coin's CoinID (its DB_Coins reference key, e.g. C-1919-S-1C-01) is
+  // derived from Year+MintMark+Denomination+Variety at Add Coin time and
+  // then never touched again — a real bug once Browse Edit could change
+  // those same fields: a stale CoinID silently starts pointing at the
+  // WRONG DB_Coins row (wrong Mintage/FunFact/Composition — and since
+  // SpotValue's own formula keys off CoinID, wrong metal-content lookup
+  // too). Found via live-device testing: AY-00008's Year was edited
+  // 1919 -> 1920 and saved successfully, but CoinID stayed
+  // C-1919-S-1C-01 — DB_Coins has a real, DIFFERENT 1920-S row with its
+  // own Mintage, so the saved record silently showed the wrong coin's
+  // catalog data with no visible error.
+  //
+  // CoinID is deliberately NOT on ALL_WRITABLE_COLUMNS — the general
+  // allow-list machinery must never be able to write it, since every
+  // OTHER edit (Grade, Cost, Storage, ...) has no business touching it.
+  // This is instead its own narrow, explicit, single-purpose write path,
+  // used ONLY when the identity fields CoinID is derived from actually
+  // changed, and it can only ever write a CoinID for a REAL DB_Coins
+  // match or write BLANK — never guess or invent one.
+
+  const COINID_TRIGGER_FIELDS = ["Year", "MintMark", "Denomination", "Variety"];
+
+  // True when any field CoinID is derived from actually changed, compared
+  // against the row's live-workbook snapshot (the same source of truth
+  // conflict detection uses) — not the possibly-already-stale in-memory
+  // `coin` object.
+  function coinIdInputsChanged(snapshotValues, nextWorkbook) {
+    if (!snapshotValues) return false;
+    return COINID_TRIGGER_FIELDS.some(f => f in nextWorkbook && !cellsEqual(snapshotValues[f], nextWorkbook[f]));
+  }
+
+  // Decides what CoinID SHOULD be for the edited identity. `resolvedRow` is
+  // whatever checkDesignationReresolution() already resolved against the
+  // NEW form values — same underlying "which DB_Coins row matches?"
+  // question Designation re-resolution asks, so this reuses its answer
+  // rather than re-deriving it: by the time this runs, ambiguity (2+
+  // candidates) has already been resolved into a definite pick via the
+  // shared ambiguous-picker UI, so `resolvedRow` is simply either a real
+  // match or null (genuinely zero DB_Coins rows for the new identity).
+  //   { needed:false }                     — identity didn't change, leave CoinID alone
+  //   { needed:true, coinId:"C-..." }      — a real match — write it
+  //   { needed:true, coinId:"" }           — no match at all — write blank, flag for research
+  function resolveCoinIdForEdit(snapshotValues, nextWorkbook, resolvedRow) {
+    if (!coinIdInputsChanged(snapshotValues, nextWorkbook)) return { needed: false };
+    return { needed: true, coinId: resolvedRow ? resolvedRow.coinId : "" };
+  }
+
+  // The one place a CoinID cell is ever written. Deliberately bypasses
+  // buildRowCellEdits()/ALL_WRITABLE_COLUMNS entirely — routing it through
+  // the general allow-list machinery (even via a one-off addition) would
+  // weaken the "an unlisted column has no code path to a PATCH" guarantee
+  // every other write in this layer relies on. Called only from
+  // performBrowseEditWrite(), only after the main save has already
+  // succeeded, targeting the exact row number that save just resolved.
+  async function writeCoinIdCell(rowNumber, coinId) {
+    const map = await ensureAllHeaderMap();
+    const idx = map.CoinID;
+    if (!idx) return; // column genuinely absent from this workbook — nothing to do
+    const address = columnIndexToLetters(idx) + rowNumber;
+    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, [{ address, values: [[coinId]] }]);
+  }
+
+  // A "no DB_Coins match for the edited identity" is the same situation
+  // Add Coin already handles for a brand-new entry — reusing that exact
+  // queue/hub rather than inventing a parallel research-tracking pattern
+  // (see saveAddCoinForm()'s own identical push). `kind` distinguishes this
+  // case in the Needs Attention hub's copy: an ALREADY-OWNED coin's catalog
+  // link just went stale because of an edit, not a brand-new unmatched find.
+  function flagCoinIdNeedsRelink(coin, identityShape) {
+    FAKE_NEEDS_QUEUE.push({
+      kind: "coinid-relink",
+      collectionId: coin.id,
+      denom: identityShape.denom,
+      year: identityShape.year,
+      mint: identityShape.mint,
+      variety: identityShape.variety,
+      desc: coin.description || coin.name || "",
+      dateFlagged: new Date().toISOString().slice(0, 10)
+    });
+    renderNeedsAttentionHub(); // fire-and-forget refresh, same pattern as saveAddCoinForm()
   }
 
   // ==================================================================
@@ -7270,10 +7371,12 @@
     return activeCoins().filter(c => c.denom === "Medal");
   }
 
-  // Same blank/Philadelphia, D, S, CC, O, W order as the Mint Mark dropdown
-  // (see CLAUDE.md "Add Coin field layout") — an unrecognized/future mark
-  // sorts after all of these rather than being treated as blank.
-  const MINT_MARK_ORDER = ["", "D", "S", "CC", "O", "W"];
+  // Same blank/Philadelphia, P, D, S, CC, O, W order as the Mint Mark
+  // dropdown (see CLAUDE.md "Add Coin field layout") — an unrecognized/
+  // future mark sorts after all of these rather than being treated as
+  // blank. "P" sits right after the default blank since it's the SAME mint
+  // (Philadelphia), just explicitly marked on a handful of real issues.
+  const MINT_MARK_ORDER = ["", "P", "D", "S", "CC", "O", "W"];
   function mintMarkSortIndex(mint) {
     const i = MINT_MARK_ORDER.indexOf(mint || "");
     return i === -1 ? MINT_MARK_ORDER.length : i;
@@ -8582,7 +8685,9 @@
       // in a different coin's form.
       if (currentBrowseCoin && currentBrowseCoin.id === coin.id &&
           document.getElementById("browseEditView").style.display !== "none") {
-        document.getElementById("browseEditNotes").value = String(values.Remarks || "");
+        const notesEl = document.getElementById("browseEditNotes");
+        notesEl.value = String(values.Remarks || "");
+        notesEl.placeholder = "Anything else worth remembering about this specimen";
         applyStorageLocationMode(coin);
       }
       return browseEditSnapshot;
@@ -8638,10 +8743,24 @@
     // All.Remarks, prefilled with whatever's already there so an edit
     // extends rather than clobbers existing Copilot-written text.
     document.getElementById("browseEditFunFact").textContent = catalogFunFactFor(coin);
-    document.getElementById("browseEditNotes").value =
-      browseEditSnapshot && browseEditSnapshot.id === coin.id && browseEditSnapshot.values
-        ? String(browseEditSnapshot.values.Remarks || "")
-        : (details.notes || "");
+    // Real bug found in live-device testing: this render runs BEFORE
+    // loadBrowseEditSnapshot()'s fetch resolves (it's fire-and-forget, not
+    // awaited), so a naive fallback to the FAKE_COIN_DETAILS mock value here
+    // briefly showed a stranger's demo note (e.g. "Bought at auction...")
+    // before the real Remarks value landed a couple hundred ms later —
+    // confusing and, worse, plausible enough to be mistaken for real data.
+    // Fixed: the mock fallback is now ONLY used when the write layer is off
+    // (the mockup path, where there's no real fetch coming to correct it).
+    // With the write layer on, this starts genuinely blank with a loading
+    // placeholder rather than ever showing content that isn't this row's own.
+    const notesEl = document.getElementById("browseEditNotes");
+    if (browseEditWriteEnabled()) {
+      const hasFreshSnapshot = browseEditSnapshot && browseEditSnapshot.id === coin.id && browseEditSnapshot.values;
+      notesEl.value = hasFreshSnapshot ? String(browseEditSnapshot.values.Remarks || "") : "";
+      notesEl.placeholder = hasFreshSnapshot ? "Anything else worth remembering about this specimen" : "Loading current notes…";
+    } else {
+      notesEl.value = details.notes || "";
+    }
 
     // --- Purchase Details: cost lives on the row itself, the rest in the
     // FAKE_COIN_DETAILS sparse lookup — same split Edit Set already used.
@@ -8871,12 +8990,22 @@
     document.getElementById("browseEditSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
+      const form = readBrowseEditForm();
 
-      // Designation re-resolution is unchanged — an ambiguous DB_Coins match
-      // still surfaces the shared "pick one" list rather than auto-resolving.
-      const designation = readBrowseEditForm().workbook.Designation;
-      checkDesignationReresolution({ ...coin, designation }, (resolvedRow) => {
-        commitBrowseEdit(coin, resolvedRow);
+      // Re-resolution against DB_Coins runs off the NEW form values, not
+      // coin's stale pre-edit identity — this was itself a real bug (see
+      // resolveCoinIdForEdit's own comment): resolving against the OLD
+      // identity meant a genuine identity edit never got checked against
+      // what it was actually being changed TO. Designation ambiguity and
+      // CoinID re-linking are the same underlying "which DB_Coins row
+      // matches?" question, so they share this one resolution pass.
+      const identityShape = {
+        denom: form.workbook.Denomination, year: form.workbook.Year,
+        mint: form.workbook.MintMark, variety: form.workbook.Variety,
+        designation: form.workbook.Designation
+      };
+      checkDesignationReresolution(identityShape, (resolvedRow) => {
+        commitBrowseEdit(coin, form, identityShape, resolvedRow);
       });
     });
   }
@@ -8950,19 +9079,20 @@
   }
   function coinStorageLocationOf(coin) { return (coin && coin.storageLocation) || ""; }
 
-  // The save itself, after Designation re-resolution has had its say.
+  // The save itself, after DB_Coins re-resolution has had its say.
   // Three paths, in order of precedence:
   //   - write layer off        -> the pre-existing session-only stub, verbatim
   //   - identity overwrite     -> confirm first, then fall through to the write
   //   - otherwise              -> real single-row workbook write
-  function commitBrowseEdit(coin, resolvedRow) {
-    const form = readBrowseEditForm();
-    const linkMsg = resolvedRow ? " Designation would link to DB_Coins " + resolvedRow.coinId + "." : "";
-
+  function commitBrowseEdit(coin, form, identityShape, resolvedRow) {
     if (!browseEditWriteEnabled() || !browseEditSnapshot || browseEditSnapshot.id !== coin.id) {
       // Unchanged session-only behavior — this is still exactly what every
       // OTHER form in the app does, and what this form does whenever the
-      // write layer is disabled or its baseline couldn't be read.
+      // write layer is disabled or its baseline couldn't be read. CoinID
+      // re-linking (below) is deliberately scoped to the REAL write path
+      // only — the mockup FAKE_COINS rows don't carry a CoinID field to
+      // begin with, and this stub predates the write layer entirely.
+      const linkMsg = resolvedRow ? " Matches DB_Coins " + resolvedRow.coinId + "." : "";
       applyEditsToRecord(coin, form.record);
       showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg);
       showBrowseDetail(coin);
@@ -8971,13 +9101,13 @@
 
     const overwrites = detectIdentityOverwrites(browseEditSnapshot.values, form.workbook, IDENTITY_COLUMNS);
     if (overwrites.length) {
-      showIdentityOverwriteDialog(coin.id, overwrites, () => performBrowseEditWrite(coin, form, linkMsg));
+      showIdentityOverwriteDialog(coin.id, overwrites, () => performBrowseEditWrite(coin, form, resolvedRow));
       return;
     }
-    performBrowseEditWrite(coin, form, linkMsg);
+    performBrowseEditWrite(coin, form, resolvedRow);
   }
 
-  async function performBrowseEditWrite(coin, form, linkMsg) {
+  async function performBrowseEditWrite(coin, form, resolvedRow) {
     const btn = document.getElementById("browseEditSaveBtn");
     const originalLabel = btn.textContent;
     btn.disabled = true;
@@ -8991,12 +9121,43 @@
     }
 
     if (result.ok) {
+      // CoinID re-linking — a separate, narrow write attempted ONLY after
+      // the main save has already succeeded, and only when Year/MintMark/
+      // Denomination/Variety actually changed (see resolveCoinIdForEdit).
+      // `browseEditSnapshot.values` here is still the PRE-save snapshot —
+      // exactly what's needed, since it's compared against the just-saved
+      // form.workbook to detect the identity change.
+      const coinIdDecision = resolveCoinIdForEdit(browseEditSnapshot.values, form.workbook, resolvedRow);
+      let coinIdMsg = "";
+      if (coinIdDecision.needed) {
+        try {
+          await writeCoinIdCell(result.rowNumber, coinIdDecision.coinId);
+          if (coinIdDecision.coinId) {
+            coin.coinId = coinIdDecision.coinId;
+            coinIdMsg = " CoinID updated to " + coinIdDecision.coinId + ".";
+          } else {
+            coin.coinId = "";
+            flagCoinIdNeedsRelink(coin, {
+              denom: form.workbook.Denomination, year: form.workbook.Year,
+              mint: form.workbook.MintMark, variety: form.workbook.Variety
+            });
+            coinIdMsg = " No DB_Coins match for the new identity — CoinID cleared and flagged to Needs Attention.";
+          }
+        } catch (e) {
+          // The row's own fields already saved successfully; only the
+          // follow-up CoinID write failed. Surface it rather than silently
+          // leaving a stale CoinID with no indication anything's wrong.
+          console.warn("CoinID re-link write failed:", e);
+          coinIdMsg = " (Couldn't update CoinID automatically — worth a manual check.)";
+        }
+      }
+
       // Re-baseline so a second save from the same open form compares
       // against what's now really on the row, not the pre-save values.
       browseEditSnapshot = { id: coin.id, values: result.values };
       applyEditsToRecord(coin, form.record);
       showToast("Saved " + coin.id + " to the workbook (" + result.written.length + " field" +
-        (result.written.length === 1 ? "" : "s") + " updated)." + linkMsg);
+        (result.written.length === 1 ? "" : "s") + " updated)." + coinIdMsg);
       showBrowseDetail(coin);
       return;
     }
@@ -9052,6 +9213,17 @@
     });
   }
 
+  // The DB_Coins rows sharing a coin's base Year+MintMark+Denom+Variety key
+  // — shared between checkDesignationReresolution() (Designation edits) and
+  // resolveCoinIdForEdit() (identity edits), since both are really the same
+  // underlying question: "which DB_Coins row does this specimen match?"
+  function dbCoinsCandidatesFor(shape) {
+    return FAKE_DB_COINS.filter(c =>
+      c.denom === shape.denom && String(c.year) === String(shape.year) &&
+      normField(c.mint) === normField(shape.mint) && normField(c.variety || "") === normField(shape.variety || "")
+    );
+  }
+
   // Designation is edit-able here; confirming/changing it can affect which
   // specific DB_Coins row (and CoinID) a coin actually links to when more
   // than one row shares the same base Year+MintMark+Denom+Variety key (e.g.
@@ -9062,10 +9234,7 @@
   // "Direct-write vs. Staging" — this is a firm rule, not a preference, per
   // real historical data bugs in this project).
   function checkDesignationReresolution(coin, onResolved) {
-    const candidates = FAKE_DB_COINS.filter(c =>
-      c.denom === coin.denom && String(c.year) === String(coin.year) &&
-      normField(c.mint) === normField(coin.mint) && normField(c.variety || "") === normField(coin.variety || "")
-    );
+    const candidates = dbCoinsCandidatesFor(coin);
     const panel = document.getElementById("designationAmbiguousPanel");
     if (candidates.length <= 1) {
       panel.classList.add("hidden");
@@ -10069,8 +10238,16 @@
       researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
     });
     FAKE_NEEDS_QUEUE.slice().reverse().forEach(item => {
-      const label = (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") + (item.variety ? " · " + item.variety : "");
-      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">No DB_Coins match — needs a catalog entry</div><div class="wish-date">Flagged ${item.dateFlagged}</div>` });
+      const label = (item.collectionId ? item.collectionId + " · " : "") +
+        (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") + (item.variety ? " · " + item.variety : "");
+      // "coinid-relink" (Browse Edit): an ALREADY-OWNED coin's identity was
+      // edited into something with no DB_Coins match, so its catalog link
+      // was cleared rather than left silently pointing at the wrong row —
+      // different wording from a brand-new unmatched entry, same queue.
+      const note = item.kind === "coinid-relink"
+        ? "Identity edited, no DB_Coins match — CoinID cleared, needs a catalog entry"
+        : "No DB_Coins match — needs a catalog entry";
+      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div><div class="wish-date">Flagged ${item.dateFlagged}</div>` });
     });
     completeSets.forEach(draft => {
       researchRows.push({ html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">${draft.collectionID} · Complete — pending research</div>` });

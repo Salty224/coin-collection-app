@@ -3432,6 +3432,12 @@ that list plus Year, MintMark, Denomination, Variety, Description, Value,
 Cost, Shipping, Seller_Link, PurchaseDate, Remarks, Reviewed and
 LastModified; see `ALL_WRITABLE_COLUMNS` for the authoritative version. The
 "no research or judgment" boundary below is unchanged.
+**One narrow exception on top of the allow-list**: CoinID is re-derived and
+written automatically — never by hand, never through the general allow-list
+mechanism — whenever an edit actually changes Year/MintMark/Denomination/
+Variety, so the row's DB_Coins catalog link doesn't silently go stale. See
+"Browse Edit real write layer" → the CoinID re-linking bug-fix note below for
+the full mechanism.
 **Container is a real, separate All-sheet column from StorageLocation** (not a
 schema change — it already exists in the workbook) — Edit Coin exposes both as two
 independent fields, same as Edit Set below. App CANNOT do anything requiring
@@ -3650,11 +3656,114 @@ failures**. `verify_addendum.js`'s "Fun Fact is an editable textarea"
 assertion was updated to assert the new read-only behavior, following a real
 design decision rather than weakening the suite.
 
+**Two bugs found during Ray's live copy-workbook run, both fixed and
+re-verified headless (checklist itself passed — B8-B9/C12-C14/D16/E19-E20 all
+confirmed against real OneDrive data; these were refinements on top, not
+architecture changes):**
+- **Bug 1 — Edit Coin's Mint Mark field could load blank for a real "P" coin.**
+  AY-00193 (a 2017-P Lincoln Shield Cent, workbook `MintMark = "P"`) loaded
+  with Mint Mark blank in Edit Coin — setting a `<select>`'s `.value` to an
+  option that doesn't exist silently falls back to no selection, and the
+  dropdown only ever offered blank/D/S/CC/O/W. This then correctly tripped
+  the identity-overwrite dialog on an unrelated save (`MintMark: P →
+  (blank)`) — the identity-check logic itself was working correctly off of
+  what the form had wrongly loaded; the bug was upstream of it. **Root cause
+  confirmed against the real workbook**: 25 real rows carry a plain `"P"` —
+  modern Philadelphia issues sometimes mark it explicitly even though
+  historical Philadelphia coins carry no mint mark at all. Fixed by adding
+  `"P — Philadelphia (explicit)"` as a real, separate option from the
+  default blank in BOTH Add Coin's and Edit Coin's Mint Mark dropdowns (kept
+  in sync, per the existing "Edit Coin reuses Add Coin's dropdown options"
+  rule), and adding `"P"` to `MINT_MARK_ORDER` (right after blank) so the
+  Coins tab's Year-then-MintMark sort treats it correctly instead of sorting
+  it to the very end as an unrecognized value.
+- **Bug 2 — CoinID wasn't recomputed when Year/MintMark/Denomination changed,
+  silently linking to the wrong catalog data.** Reproduced live: AY-00008
+  (`CoinID C-1919-S-1C-01`) had its Year edited to 1920 and saved
+  successfully — CoinID stayed `C-1919-S-1C-01` instead of becoming
+  `C-1920-S-1C-01`, even though DB_Coins has a real, DIFFERENT row for
+  1920-S with its own Mintage. Since SpotValue's formula and any
+  Mintage/Composition/FunFact display key off CoinID, the row would have
+  silently shown 1919-S's catalog data on a coin now displayed as 1920-S —
+  no error, nothing visibly wrong. **Fixed with a new, narrow, single-purpose
+  module** (`resolveCoinIdForEdit`/`writeCoinIdCell`/`flagCoinIdNeedsRelink`),
+  deliberately NOT added to `ALL_WRITABLE_COLUMNS` — CoinID has no general
+  code path to a PATCH, only this one dedicated, explicitly-audited write,
+  fired only from `performBrowseEditWrite()` after the main row save has
+  already succeeded:
+  - Triggers only when Year, MintMark, Denomination, or Variety actually
+    changed (`coinIdInputsChanged()`, compared against the live snapshot).
+  - Reuses the SAME DB_Coins candidate lookup Designation re-resolution
+    already used (`dbCoinsCandidatesFor()`, factored out so both share one
+    "which DB_Coins row matches?" implementation) — a real fix in its own
+    right, since the Designation re-check was previously being run against
+    the coin's STALE pre-edit identity (`{...coin, designation}`) rather
+    than the new form values, meaning a genuine identity edit never actually
+    got re-checked against what it was being changed TO. Both now run off
+    one `identityShape` built from the actual submitted form values.
+  - A unique DB_Coins match → writes the real CoinID and reports it in the
+    save toast ("CoinID updated to C-...").
+  - Zero matches → **clears CoinID to blank** (an already-supported "pending
+    research" state elsewhere in the app, e.g. Add Coin's own DB_Coins-miss
+    path) rather than leaving the stale, now-wrong value in place, and
+    pushes the coin into the SAME `FAKE_NEEDS_QUEUE`/Needs Attention
+    "Waiting on Copilot research" pipeline Add Coin already uses for a
+    brand-new unmatched entry (`flagCoinIdNeedsRelink()`) — reusing that
+    existing pattern rather than building a parallel one, per the explicit
+    request. A `kind: "coinid-relink"` marker gives it its own wording in
+    the hub ("Identity edited, no DB_Coins match — CoinID cleared, needs a
+    catalog entry") so it doesn't read as a brand-new find.
+  - 2+ candidates → the existing shared ambiguous-picker UI surfaces exactly
+    as it already did for Designation; by the time the save callback fires,
+    ambiguity has already been resolved into a real pick or a genuine miss,
+    so the CoinID logic itself only ever sees "matched" or "didn't."
+  - A write failure on this follow-up step (main row already saved
+    successfully) degrades to a toast rather than losing the rest of the
+    save.
+- **Bug 3 — Notes briefly flashed unrelated mock content before settling to
+  the real value.** On AY-00001 (real `Remarks` blank), Edit Coin's Notes
+  field showed "Bought at auction, still in the original PCGS holder." for
+  about half a second before correctly clearing — that text matched no real
+  row; it was `FAKE_COIN_DETAILS`'s demo fallback rendering because the
+  initial synchronous form-populate ran before `loadBrowseEditSnapshot()`'s
+  async fetch resolved (fire-and-forget, not awaited). Functionally harmless
+  (the eventual Save always wrote the real value), but confusing and
+  plausible enough to be mistaken for real data. **Fixed**: with the write
+  layer on, the mock `details.notes` fallback is never used at all — Notes
+  starts genuinely blank with a "Loading current notes…" placeholder instead,
+  filled in for real once the snapshot resolves. The write-layer-OFF
+  (mockup) path is unchanged and still uses the mock value immediately,
+  since there's no real fetch coming to correct it there.
+- **Polish item**: the Storage Location read-only note reworded from "Set by
+  this coin's container — change it on the container, not here." to "Set by
+  the Containers tab — change it there, not here." — the old wording read
+  ambiguously between "container" as a concept and as the literal tab name.
+- **Checklist gap**: `docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md` didn't mention
+  `ENABLE_LIVE_NAV_DATA` needing to be on too, so Catalog only showed the
+  ~17-item hardcoded demo set during the live pass instead of real workbook
+  data. Added to the checklist's setup steps, plus a note that first open may
+  now trigger sign-in redirects from BOTH separate MSAL instances (live-nav
+  read, write-layer read/write), not just one.
+- 40 new headless assertions (`verify_browse_edit_write.js`, 246 total now,
+  123 × 2 viewports) cover all three bugs: the "P" option existing and
+  loading correctly in both dropdowns plus its `MINT_MARK_ORDER` position;
+  Notes never showing mock content while loading (with a distinguishing
+  placeholder) vs. the unchanged write-layer-off behavior; and CoinID
+  re-linking end-to-end through the real Save button — a real match writing
+  the new CoinID and updating the in-memory record, a genuine miss clearing
+  CoinID and flagging Needs Attention with the correct identity, and a
+  non-identity save (Value only) leaving CoinID completely untouched with no
+  confirmation dialog at all. All prior suites re-run clean alongside —
+  **519 assertions total across the whole app, zero failures.**
+
 **Not verified: any real device, and no real OneDrive write has ever been
 executed** — every write in this build went to a mock Graph client. The live
 run against the `_Testing` copy is Ray's to do, same as the Add Set write
 layer's own live-run step; the step-by-step is committed alongside as
-`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`.
+`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`. **The first live pass (Parts B–F)
+is done and passed** — this round's three bugs are what it found; a second
+pass (specifically Part D2, the new CoinID re-linking steps) is still
+outstanding.
 - **The write pass can only run where a local server can run.** The only
   Entra redirect URI registered for `app.html` is
   `http://localhost:8791/app.html`, so the functional verification happens
