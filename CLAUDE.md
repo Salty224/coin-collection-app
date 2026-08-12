@@ -3925,6 +3925,82 @@ reconciling the result is still his action. **Now a total across both
 sections** — see "Needs Attention hub" → Dashboard badge above for the full
 history of this decision (it has flipped twice) and the implementation.
 
+**Part-F live pass: an unresolvable save loop that lost typed input.** On
+AY-00680-C (1945-D Mercury Dime), editing only Grade and Notes produced:
+duplicate-catalog picker on every save → pick → conflict block → OK →
+picker again, forever, with typed Notes eventually lost. Five distinct
+causes, three of them mine from the previous rounds.
+- **The duplicate is REAL, not a spurious match.** DB_Coins rows 939 and
+  3742 are both 1945-D 10C Mercury Dime Business Strike, blank Variety,
+  differing only in CoinID / GSID (4623 vs 4624) / PCGS# (5058 vs 5059).
+  And it is not rare: on the real catalog, **577 base keys
+  (Denom+Year+Mint+Variety) have 2+ rows, covering 1,629 rows — ~43% of
+  DB_Coins.**
+- **The picker fired on EVERY save, not just identity edits.**
+  `checkDesignationReresolution()` ran unconditionally. Invisible against
+  the 12-row mock; against the real catalog it means any save on any coin
+  with duplicate catalog rows pops a "pick one" list for no reason. Fixed
+  with `resolveDbCoinsForSave()`, which runs the resolution only when
+  Year/MintMark/Denomination/Variety/**Designation** actually changed
+  against the snapshot. Designation stays a trigger — that was the
+  mechanism's original purpose.
+- **`Finish` was missing from the candidate match.** It's real specimen
+  data on BOTH sheets (`All.Finish` populated on all 542 rows), so a Proof
+  and a Business Strike of the same date were being treated as one match.
+  Adding it cuts ambiguity from 577 groups/1,629 rows to **227
+  groups/771 rows**. **Soft, never a hard filter** — `All.Finish` carries
+  values DB_Coins doesn't (`Circulated` on 139 rows, `Various` on 6), so a
+  strict filter would turn a good match into zero for ~145 rows and wrongly
+  clear their CoinID. An empty narrowed set falls back to the full one.
+- **The picker's options were visually identical**, confirmed in practice —
+  both rendered "1945-D 10C · Mercury Dime · Business Strike". Now the
+  CoinID leads (it's the value the pick actually writes) with PCGS# / GSID /
+  Mintage beneath, which is what makes a candidate checkable against PCGS or
+  the Red Book before committing.
+- **The conflict block had no exit.** The snapshot stayed at its
+  pre-conflict values, so the next save re-detected the identical conflict
+  forever; the only escape was backing out, which silently discarded
+  everything typed. Now `resolveConflictAndRebaseline()` adopts the
+  acknowledged values as the new baseline and refreshes only fields the user
+  has NOT touched, so a second save compares clean and lands. The dialog
+  also now names any conflicted field the user is *also* editing ("your
+  value will replace it if you save again"), which is the informed-consent
+  half of that.
+- **Two further bugs found while reproducing it, both mine:**
+  (a) `applySnapshotToEditForm()`/`showBrowseEditView()` dispatch a real
+  `input` event on the cert field to refresh its link button — and the
+  delegated touched-field listener could not tell that from typing, so
+  **SerNo was marked user-touched the instant the form opened, never
+  re-based, and a stale in-memory SerNo got written over a row whose real
+  SerNo was blank.** Fixed with `withProgrammaticFormUpdate()`, which
+  suppresses touch-recording during app-driven population.
+  (b) `showWriteGuard()` left its buttons in the DOM with live handlers
+  after the overlay hid, so a stray later click could re-run a **stale**
+  acknowledgement and silently roll the snapshot backwards. Buttons are now
+  torn down on close.
+- **Saving during the baseline read** used to fall through to the
+  session-only path and toast "updated for this session only" — during a
+  live write run that reads as success while writing nothing. Now it says
+  "Still loading … try Save again in a moment" and nudges a retry.
+- **Backing out with unsaved edits now warns first** (Keep editing /
+  Discard). This is the actual mechanism by which the live typed Notes were
+  lost: the conflict dialog promises the edits are still in the form, which
+  is true right up until you back out — and backing out is the natural
+  thing to try when a save won't go through.
+- **Browse detail no longer disagrees with Edit.** Edit re-fetches its row
+  every open; Browse renders from `LIVE_COINS`, fetched once per session and
+  never refreshed, so the two showed different values for the same coin.
+  Rather than give Browse its own re-fetch, `applySnapshotToRecord()` feeds
+  the read Edit already performs back onto the shared record, so Browse
+  agrees for free.
+- Verified headless (+62 assertions, 358 total in the suite): the real
+  duplicate pair reproduced end-to-end, no picker on a Grade+Notes save,
+  picker still fires on a Designation change, Finish narrowing including the
+  `Circulated` fallback, distinguishable picker rows, the conflict loop now
+  exiting on the second save with edits landed, SerNo never written from
+  stale memory, the shared record refreshing, the mid-load toast, and the
+  back-out warning.
+
 **Not verified: any real device, and no real OneDrive write has ever been
 executed** — every write in this build went to a mock Graph client. The live
 run against the `_Testing` copy is Ray's to do, same as the Add Set write

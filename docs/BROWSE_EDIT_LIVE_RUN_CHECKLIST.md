@@ -6,7 +6,7 @@ here touches the real `CoinCollection (AI).xlsx` — `WRITE_TARGET` stays
 `"copy"` throughout, and this is the app's first code that writes *into* a
 workbook at all, so the copy is the whole safety net.
 
-All app-side logic is already verified headless (298 automated assertions
+All app-side logic is already verified headless (358 automated assertions
 across two viewports, driven by a mock Graph client). This checklist exists to
 confirm the **real Graph Excel API** behaves the way the mock did on your
 account — the mock cannot prove that Graph accepts these exact range/batch
@@ -70,6 +70,24 @@ calls, only that our logic around them is right.
 >    on the redirect and corrupted each other's auth state. Fixed by
 >    collapsing to one shared instance with one serialized token
 >    acquisition. **Expect exactly one sign-in prompt now**, not two.
+>
+> 6. **The Part-F save loop is fixed** (picker on every save → conflict →
+>    OK → picker again, forever, eventually losing typed Notes). Five
+>    causes; the ones that change what you'll see:
+>    - The duplicate-catalog picker now fires **only** when you actually
+>      change Year / MintMark / Denomination / Variety / Designation. A
+>      Grade-only or Notes-only save never raises it.
+>    - When it does fire, the options are now distinguishable — CoinID
+>      first, then PCGS# / GSID / Mintage. (Your 1945-D pair is PCGS# 5058
+>      vs 5059, GSID 4623 vs 4624.) The duplicate is real, by the way: 577
+>      base keys in DB_Coins have 2+ rows.
+>    - `Finish` now narrows candidates, so a Proof and a Business Strike of
+>      the same date stop colliding.
+>    - **The conflict block now has an exit.** Clicking OK adopts the
+>      current values as the new baseline and refreshes only the fields you
+>      haven't edited — so saving again actually works. The dialog also
+>      flags any conflicted field you're also editing.
+>    - Backing out with unsaved edits now warns first.
 >
 > One consequence worth planning around: **AY-00008 in `_Testing` is
 > currently CoinID-blank and Variety-blank** from the last pass. That's a
