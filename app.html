@@ -3753,7 +3753,67 @@
   // exists and this has a non-localhost-only story.
   const ENABLE_REFERENCE_IMAGES = false;
 
-  const referenceImageMsalConfig = {
+  // ==================================================================
+  // REAL-GRAPH FEATURE FLAGS + THE ONE SHARED MSAL INSTANCE
+  // ==================================================================
+  // All the flags live together here because the shared auth instance below
+  // is constructed at load time from them, so they must all be evaluated
+  // before it (a `const` referenced before its declaration is a TDZ error).
+  // Each flag still independently controls whether ITS feature may touch
+  // Graph at all — see the per-feature checks in the token getters.
+  //
+  //   ENABLE_REFERENCE_IMAGES  — series reference images (read-only)
+  //   ENABLE_LIVE_NAV_DATA     — Catalog/Rolls/Sets + DB_Coins (read-only)
+  //   ENABLE_SET_WRITE_LAYER   — Add Set drafts (writes Staging files)
+  //   ENABLE_BROWSE_EDIT_WRITE — Browse Edit row writes (writes the workbook)
+  const ENABLE_LIVE_NAV_DATA = false; // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
+  const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
+  // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
+  // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
+  // two features write completely different things (Add Set writes Staging
+  // JSON + photo files and never touches the workbook; Browse Edit writes
+  // single cells INTO the workbook), so they must be independently
+  // enable-able. Same localhost-dev-only posture as every other flag here.
+  const ENABLE_BROWSE_EDIT_WRITE = false;
+  // Either write feature being on is what justifies requesting a
+  // write-capable scope at all.
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE;
+  const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
+
+  // **ONE PublicClientApplication for the whole app.** This is not a
+  // simplification for its own sake — it fixes a real, fully blocking
+  // sign-in failure.
+  //
+  // There used to be three separate instances (reference images, live nav
+  // data, the write layer), each with its own comment justifying the
+  // separation as "don't couple independently-flagged features." That
+  // reasoning was wrong about how MSAL works: all three used the SAME
+  // clientId, authority, redirectUri and localStorage cache, and MSAL keys
+  // its browser storage by clientId. So they were never isolated — they
+  // shared one cache, one `interaction_in_progress` guard, one PKCE
+  // verifier and one request-state entry, and they overwrote each other's.
+  //
+  // With two or more enabled at once that produced, reproducibly:
+  //   - every instance calling handleRedirectPromise() on load, racing to
+  //     consume the single redirect response in the URL hash — the first
+  //     clears the hash and the temporary cache, the rest fail state
+  //     validation and clear more state on their way out;
+  //   - two features independently calling acquireTokenRedirect() moments
+  //     apart (live-nav's fetch fires from the first Catalog render, the
+  //     write layer's from Edit's snapshot load), each overwriting the
+  //     other's stored request state, so whatever finally came back from
+  //     Microsoft matched nothing in storage.
+  // Symptom: Microsoft's generic "We can't sign you in right now", the page
+  // reloading repeatedly, and sign-in never completing — surviving a full
+  // restart and a storage clear, because nothing about it was stale state.
+  // With only one feature enabled it worked fine, which is exactly why this
+  // survived every earlier single-flag test pass.
+  //
+  // **Rule: there is exactly one MSAL instance and exactly one
+  // handleRedirectPromise() call in this app. Never add a second.** Feature
+  // isolation belongs in the flags and in the token getters, not in
+  // duplicate auth instances that silently share one storage namespace.
+  const graphMsalConfig = {
     auth: {
       clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
       authority: "https://login.microsoftonline.com/consumers",
@@ -3766,43 +3826,74 @@
   // MSAL is loaded from jsdelivr in a plain <script> tag in <head> — if that
   // request gets blocked (offline, a content blocker, the exact class of
   // issue already seen with alcdn.msauth.net — see CLAUDE.md), `msal` never
-  // gets defined. This whole feature is additive and must never be able to
-  // take the rest of the app (all still-fake, non-network functionality)
-  // down with it, so every entry point below degrades to "no reference image
-  // available" instead of throwing when that happens. Gated on
-  // ENABLE_REFERENCE_IMAGES too — skip constructing MSAL at all when
-  // disabled, not just declining to use it, so there's no live
-  // PublicClientApplication instance sitting around reading its own
-  // localStorage cache for no reason while this is off.
-  const referenceImageMsalInstance = (ENABLE_REFERENCE_IMAGES && typeof msal !== "undefined")
-    ? new msal.PublicClientApplication(referenceImageMsalConfig)
+  // gets defined. Every real-Graph feature here is additive and must never
+  // be able to take the rest of the app down with it, so every entry point
+  // degrades to "unavailable" instead of throwing when that happens. Not
+  // constructed at all when every flag is off, so there's no live instance
+  // reading its own localStorage cache for no reason in production.
+  const graphMsalInstance = (ANY_GRAPH_FEATURE_ENABLED && typeof msal !== "undefined")
+    ? new msal.PublicClientApplication(graphMsalConfig)
     : null;
-  const REFERENCE_IMAGE_SCOPES = ["Files.Read"];
 
-  if (referenceImageMsalInstance) {
-    referenceImageMsalInstance.handleRedirectPromise().catch(err => {
-      console.warn("Reference image sign-in redirect error:", err);
+  // One scope set for the one instance. Files.ReadWrite already covers
+  // every read this app does, so when a write feature is on there's nothing
+  // to gain by also requesting Files.Read — and requesting DIFFERENT scope
+  // sets per feature against one cache is what makes silent acquisition
+  // miss (MSAL only returns a cached token whose scopes cover the request).
+  // With only read features enabled the app still asks for read-only.
+  const GRAPH_SCOPES = WRITE_LAYER_ENABLED ? ["Files.ReadWrite"] : ["Files.Read"];
+
+  // Exactly one redirect-response handler, run once at load.
+  if (graphMsalInstance) {
+    graphMsalInstance.handleRedirectPromise().catch(err => {
+      console.warn("Graph sign-in redirect error:", err);
     });
-  } else if (ENABLE_REFERENCE_IMAGES) {
-    console.warn("MSAL failed to load — reference images will show placeholders only.");
+  } else if (ANY_GRAPH_FEATURE_ENABLED) {
+    console.warn("MSAL failed to load — every real-Graph feature will degrade to demo/placeholder data.");
   }
 
-  // Same silent-then-redirect pattern as index.html's getToken(). Unlike
-  // index.html, there's no explicit "Sign In" button here — this is called
-  // lazily off the first coin render that needs a reference image, so the
-  // very first time that happens with no cached session, acquireTokenRedirect
-  // will navigate the page to Microsoft's sign-in (a real, full-page
-  // redirect, not a popup) and back again once Ray signs in.
-  async function getReferenceImageToken() {
-    if (!referenceImageMsalInstance) return null; // MSAL didn't load — see the guard above
-    const account = referenceImageMsalInstance.getAllAccounts()[0];
-    try {
-      const result = await referenceImageMsalInstance.acquireTokenSilent({ scopes: REFERENCE_IMAGE_SCOPES, account });
-      return result.accessToken;
-    } catch (e) {
-      referenceImageMsalInstance.acquireTokenRedirect({ scopes: REFERENCE_IMAGE_SCOPES });
-      return null;
-    }
+  // Serialized token acquisition. Several features (and, within live nav
+  // data alone, four parallel sheet fetches) can ask for a token in the
+  // same tick; without this they would each independently reach the
+  // acquireTokenRedirect() fallback and stamp over each other's request
+  // state — the same corruption the single instance is meant to end.
+  // One in-flight request is shared by every caller, and a redirect is
+  // initiated at most once per page load.
+  let graphTokenInFlight = null;
+  let graphRedirectStarted = false;
+  function acquireGraphToken() {
+    if (!graphMsalInstance) return Promise.resolve(null); // MSAL didn't load, or every feature is off
+    if (graphTokenInFlight) return graphTokenInFlight;
+    graphTokenInFlight = (async () => {
+      try {
+        const account = graphMsalInstance.getAllAccounts()[0];
+        const result = await graphMsalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+        return result.accessToken;
+      } catch (e) {
+        // No cached session (or it expired) — hand off to a full-page
+        // redirect. Guarded so concurrent callers can't each start one.
+        if (!graphRedirectStarted) {
+          graphRedirectStarted = true;
+          graphMsalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
+        }
+        return null; // callers treat null as "no answer yet", never as an error
+      } finally {
+        graphTokenInFlight = null;
+      }
+    })();
+    return graphTokenInFlight;
+  }
+  function __resetGraphTokenStateForTest() { graphTokenInFlight = null; graphRedirectStarted = false; } // test-only seam
+
+  // Per-feature entry points. Each keeps its OWN flag check — that's what
+  // actually enforces "this feature may not touch Graph", now that the
+  // instance itself is shared and can't carry that meaning anymore.
+  // Called lazily off the first render that needs data, not from an
+  // explicit Sign In button, so the first such call in a fresh session is
+  // what triggers the real full-page redirect to Microsoft.
+  function getReferenceImageToken() {
+    if (!ENABLE_REFERENCE_IMAGES) return Promise.resolve(null);
+    return acquireGraphToken();
   }
 
   const REFERENCE_IMAGES_FOLDER = "CoinCollection/ReferenceImages";
@@ -3924,45 +4015,17 @@
   //     over is explicitly a separate, not-yet-scoped task.
   // ==================================================================
 
-  const ENABLE_LIVE_NAV_DATA = false; // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
-
-  const liveNavMsalConfig = {
-    auth: {
-      clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
-      authority: "https://login.microsoftonline.com/consumers",
-      redirectUri: "http://localhost:8791/app.html"
-    },
-    cache: { cacheLocation: "localStorage" }
-  };
-  // Same "skip constructing MSAL at all when disabled" reasoning as the
-  // other two gated features — no dormant PublicClientApplication instance
-  // sitting around when this is off.
-  const liveNavMsalInstance = (ENABLE_LIVE_NAV_DATA && typeof msal !== "undefined")
-    ? new msal.PublicClientApplication(liveNavMsalConfig)
-    : null;
-  const LIVE_NAV_SCOPES = ["Files.Read"];
-
-  if (liveNavMsalInstance) {
-    liveNavMsalInstance.handleRedirectPromise().catch(err => {
-      console.warn("Live nav data sign-in redirect error:", err);
-    });
-  } else if (ENABLE_LIVE_NAV_DATA) {
-    console.warn("MSAL failed to load — Catalog/Rolls/Sets will show demo data only.");
-  }
-
-  // Same silent-then-redirect pattern as getReferenceImageToken()/getToken().
+  // ENABLE_LIVE_NAV_DATA is declared with the other real-Graph flags, up
+  // beside the shared MSAL instance — it has to be evaluated before that
+  // instance is constructed. This feature no longer has (or needs) an auth
+  // instance of its own; see that block for why three separate instances
+  // broke sign-in outright.
+  //
   // Called lazily off the first Browse render that wants live data (see
   // ensureLiveNavDataFetch() below), not from an explicit Sign In button.
-  async function getLiveNavToken() {
-    if (!liveNavMsalInstance) return null; // MSAL didn't load — see the guard above
-    const account = liveNavMsalInstance.getAllAccounts()[0];
-    try {
-      const result = await liveNavMsalInstance.acquireTokenSilent({ scopes: LIVE_NAV_SCOPES, account });
-      return result.accessToken;
-    } catch (e) {
-      liveNavMsalInstance.acquireTokenRedirect({ scopes: LIVE_NAV_SCOPES });
-      return null;
-    }
+  function getLiveNavToken() {
+    if (!ENABLE_LIVE_NAV_DATA) return Promise.resolve(null);
+    return acquireGraphToken();
   }
 
   // ONE workbook for the whole app — reads and writes must never point at
@@ -4297,21 +4360,9 @@
   //     is fully verifiable without touching OneDrive (Q12).
   // ==================================================================
 
-  const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
-  // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
-  // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
-  // two features write completely different things (Add Set writes Staging
-  // JSON + photo files and never touches the workbook; Browse Edit writes
-  // single cells INTO the workbook), so they must be independently
-  // enable-able — same "don't couple independently-flagged features"
-  // reasoning that already keeps the reference-image and live-nav readers on
-  // separate instances. Same localhost-dev-only posture and the same
-  // re-enable steps as every other real-Graph flag in this file.
-  const ENABLE_BROWSE_EDIT_WRITE = false;
-  // Either write feature being on is what justifies constructing a
-  // write-capable (Files.ReadWrite) auth instance at all. With both off there
-  // is no such instance on the page, so nothing can redirect or write.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE;
+  // ENABLE_SET_WRITE_LAYER / ENABLE_BROWSE_EDIT_WRITE / WRITE_LAYER_ENABLED
+  // are declared with the other real-Graph flags, up beside the shared MSAL
+  // instance — they have to be evaluated before it is constructed.
   const WRITE_TARGET = "copy";          // "copy" | "live" — Ray-only flip (Q5)
 
   const WRITE_PATHS = {
@@ -4330,39 +4381,14 @@
   };
   function writePaths() { return WRITE_PATHS[WRITE_TARGET]; }
 
-  // Dedicated write-capable MSAL instance (Files.ReadWrite). Same clientId/
-  // authority/localhost redirectUri as the reference-image reader, but a
-  // separate instance so the read-only features don't couple to it.
-  // Constructed only when SOME write feature is enabled AND msal loaded, so
-  // there's no dormant write-capable auth instance on the live site. Shared
-  // by both write features (Add Set drafts, Browse Edit row writes) — they
-  // need the identical scope against the identical drive, so a second
-  // instance would only mean a second sign-in for no isolation benefit.
-  const writeMsalInstance = (WRITE_LAYER_ENABLED && typeof msal !== "undefined")
-    ? new msal.PublicClientApplication({
-        auth: {
-          clientId: "bf9aaf28-a5e1-4eed-a006-15f03146693b",
-          authority: "https://login.microsoftonline.com/consumers",
-          redirectUri: "http://localhost:8791/app.html"
-        },
-        cache: { cacheLocation: "localStorage" }
-      })
-    : null;
-  const WRITE_MSAL_SCOPES = ["Files.ReadWrite"];
-  if (writeMsalInstance) {
-    writeMsalInstance.handleRedirectPromise().catch(err => console.warn("Write-layer sign-in redirect error:", err));
-  }
-
-  async function getWriteToken() {
-    if (!writeMsalInstance) return null; // disabled or MSAL absent — never redirect
-    const account = writeMsalInstance.getAllAccounts()[0];
-    try {
-      const result = await writeMsalInstance.acquireTokenSilent({ scopes: WRITE_MSAL_SCOPES, account });
-      return result.accessToken;
-    } catch (e) {
-      writeMsalInstance.acquireTokenRedirect({ scopes: WRITE_MSAL_SCOPES });
-      return null;
-    }
+  // There is no dedicated write MSAL instance — see the shared-instance
+  // block up top for why separate per-feature instances broke sign-in.
+  // The write-capable scope (Files.ReadWrite) is requested by that one
+  // instance whenever WRITE_LAYER_ENABLED, and this getter's own flag check
+  // is what enforces "no write feature may touch Graph while it's off".
+  function getWriteToken() {
+    if (!WRITE_LAYER_ENABLED) return Promise.resolve(null); // disabled — never redirect, never write
+    return acquireGraphToken();
   }
 
   // ---- Graph client abstraction --------------------------------------

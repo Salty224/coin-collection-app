@@ -113,6 +113,74 @@ app is loaded/hosted changed otherwise.
   production redirect URI for `app.html` exists yet, that's a separate future
   step once this app is actually deployed/tested beyond local dev.
 
+### Auth: ONE shared MSAL instance (locked in — hard rule)
+**`app.html` has exactly one `PublicClientApplication` (`graphMsalInstance`)
+and exactly one `handleRedirectPromise()` call. Never add a second of
+either.** All Graph features — reference images, live nav data, the Add Set
+write layer, the Browse Edit write layer — share it.
+
+**Why this is a rule and not a preference.** There used to be three separate
+instances, one per feature, each with a comment justifying the split as
+"don't couple independently-flagged features." That reasoning was wrong
+about how MSAL works. All three used the same clientId, authority,
+redirectUri and `cacheLocation: "localStorage"`, and **MSAL keys its browser
+storage by clientId** — so they were never isolated. They shared one token
+cache, one `interaction_in_progress` guard, one PKCE verifier and one
+request-state entry, and they overwrote each other's.
+
+With one flag on it worked fine. With **two or more on it failed
+completely** — Microsoft's generic "We can't sign you in right now", the
+page reloading repeatedly, sign-in never completing, surviving a full
+restart and a storage clear (nothing about it was stale state). Two
+mechanisms, both real:
+- every instance called `handleRedirectPromise()` at load, racing to consume
+  the single redirect response in the URL hash — the first cleared the hash
+  and the temp cache, the rest failed state validation and cleared more
+  state on the way out;
+- two features independently called `acquireTokenRedirect()` moments apart
+  (live-nav's fetch fires from the first Catalog render, the write layer's
+  from Edit's snapshot load), each stamping over the other's stored request
+  state, so whatever came back from Microsoft matched nothing in storage.
+
+**This is exactly the config the Browse Edit live run needs** (live nav data
+for real Catalog/DB_Coins reads + the write layer), so it was fully
+blocking. It survived every earlier pass because every earlier pass had
+exactly one flag on.
+
+**How feature isolation actually works now** — in the flags and the token
+getters, not in duplicate auth instances:
+- `getReferenceImageToken()` / `getLiveNavToken()` / `getWriteToken()` each
+  check their OWN flag first and return `null` when off, so a disabled
+  feature still cannot touch Graph. That check is now the real enforcement,
+  since the instance no longer carries that meaning.
+- `acquireGraphToken()` is the single serialized acquisition point: one
+  in-flight request shared by all callers, and **at most one redirect per
+  page load** (`graphRedirectStarted`). This matters beyond the multi-feature
+  case — `ensureLiveNavDataFetch()` alone fires four parallel sheet reads,
+  which previously meant four independent redirect attempts.
+- `GRAPH_SCOPES` is one set for the one instance: `Files.ReadWrite` when a
+  write feature is enabled, otherwise `Files.Read`. Requesting *different*
+  scope sets per feature against one shared cache is itself a bug — MSAL
+  only serves a cached token whose scopes cover the request, so mismatched
+  sets cause silent-acquisition misses and extra interactive prompts.
+- Every flag now lives in one block immediately above the instance, because
+  it's constructed at load time from them (a `const` referenced before its
+  declaration is a TDZ error).
+
+**Honest note on scope narrowing:** the old per-feature `Files.Read`
+instances were described as giving read-only features a narrower scope. That
+was already illusory — they shared one clientId-keyed cache, so a
+`Files.ReadWrite` token obtained by the write layer was sitting in the same
+storage the "read-only" instances read from. The enforcement that actually
+holds is in code (`fetchReferenceImageBlob()` hardcodes `method: "GET"`,
+etc.), not in the scope string.
+
+Regression-guarded by `verify_msal_single_instance.js` (22 assertions),
+which injects a fake `msal` global — the real one can't load in the
+sandbox — and asserts instance count, redirect-handler count, one redirect
+across six concurrent token requests, shared silent acquisition, and that
+nothing is constructed at all with every flag off.
+
 ## Real Graph API reads (locked in — first real network/auth code in app.html)
 `app.html` was pure `FAKE_*` in-memory mockup data until the Reference Images
 feature below needed to check Ray's actual OneDrive — this is still the
@@ -136,8 +204,10 @@ feature below needed to check Ray's actual OneDrive — this is still the
   (every caller's real entry point to a Graph/MSAL call) returns
   `Promise.resolve(null)` immediately — so no caller, present or future, can
   reintroduce this by skipping a check at its own call site.
-  `referenceImageMsalInstance` also isn't constructed at all while the flag
-  is off, not just left unused.
+  The shared MSAL instance also isn't constructed at all while EVERY
+  real-Graph flag is off, not just left unused (superseded detail: this
+  used to be a `referenceImageMsalInstance` of its own — see "Auth: ONE
+  shared MSAL instance" above for why per-feature instances were retired).
   **To re-enable for local testing:** set `ENABLE_REFERENCE_IMAGES = true`,
   run a local server on port 8791 from the repo root (e.g.
   `python3 -m http.server 8791`), add `http://localhost:8791/app.html` as a
@@ -158,8 +228,10 @@ feature below needed to check Ray's actual OneDrive — this is still the
   permissions — `Files.Read` grants read access to the whole drive — so this
   boundary is enforced entirely by the calling code, not by anything Graph or
   Entra can restrict on its own.
-- **MSAL bootstrap adapted from index.html's**, own `PublicClientApplication`
-  instance (`referenceImageMsalInstance`), same `clientId`/`authority`,
+- **MSAL bootstrap adapted from index.html's** — **superseded**: this feature
+  no longer has an instance of its own, it shares the app's single
+  `graphMsalInstance` (see "Auth: ONE shared MSAL instance" above). Same
+  `clientId`/`authority`,
   `cacheLocation: "localStorage"` (MSAL's own token cache — the same narrow,
   intentional exception to the no-localStorage rule as the other two pages).
   `redirectUri` is `http://localhost:8791/app.html` — **local dev testing
@@ -178,7 +250,7 @@ feature below needed to check Ray's actual OneDrive — this is still the
   jsdelivr `<script>` tag is a real external request, and this project has
   already hit exactly this class of failure once (`alcdn.msauth.net` silently
   blocked by a browser extension — see Azure/Entra config above). If `msal`
-  never becomes defined, `referenceImageMsalInstance` is `null` instead of
+  never becomes defined, `graphMsalInstance` is `null` instead of
   throwing, and every function that needs it (`getReferenceImageToken()`,
   etc.) short-circuits to "no image available" rather than throwing — this
   was verified to matter: an earlier version threw uncaught at the top of the
@@ -5232,19 +5304,20 @@ separate read target for "safety" — that split is what caused the bug.**
 directly is genuinely different and unaffected: it reads image FILES, not
 the workbook, and nothing writes those.)
 
-**Safety posture — deliberately its own thing, not reusing the write layer's
-gate:** `ENABLE_LIVE_NAV_DATA` (default `false`, localhost-dev only, same
-re-enable steps as `ENABLE_REFERENCE_IMAGES`), its own `liveNavMsalInstance`
-(narrow `Files.Read` scope only — this feature never writes, so it never
-needs the write layer's `Files.ReadWrite`), same `http://localhost:8791/
-app.html` redirect URI as every other real-Graph feature in this file (no
-production URI exists yet for any of them). Constructed only when both the
-flag is on and MSAL loaded — no dormant auth instance sitting around
-otherwise, same pattern as the other two gated features. `getLiveNavToken()`
-mirrors `getReferenceImageToken()` exactly (silent-then-redirect, called
-lazily off the first Browse render that wants it — `showBrowseTab()` calls
-`ensureLiveNavDataFetch()` at its top — never from an explicit Sign In
-button).
+**Safety posture:** `ENABLE_LIVE_NAV_DATA` (default `false`, localhost-dev
+only, same re-enable steps as `ENABLE_REFERENCE_IMAGES`), same
+`http://localhost:8791/app.html` redirect URI as every other real-Graph
+feature in this file (no production URI exists yet for any of them).
+`getLiveNavToken()` returns `null` immediately when the flag is off, and
+otherwise defers to the app's ONE shared MSAL instance — **superseded: this
+feature used to construct its own `liveNavMsalInstance` with a narrow
+`Files.Read` scope**, described here as deliberate isolation from the write
+layer. That isolation was never real (all instances shared one clientId and
+therefore one MSAL storage namespace) and it broke sign-in outright once two
+features were enabled together — see "Auth: one shared MSAL instance" below.
+Called lazily off the first Browse render that wants it (`showBrowseTab()`
+calls `ensureLiveNavDataFetch()` at its top), never from an explicit Sign In
+button.
 
 **Blast radius — the exact list of call sites swapped, and nothing else:**
 `coinsTabBaseRows()`, `medalTabBaseRows()`, `applyRollsTabFilters()`,

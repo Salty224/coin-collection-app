@@ -6,7 +6,7 @@ here touches the real `CoinCollection (AI).xlsx` — `WRITE_TARGET` stays
 `"copy"` throughout, and this is the app's first code that writes *into* a
 workbook at all, so the copy is the whole safety net.
 
-All app-side logic is already verified headless (296 automated assertions
+All app-side logic is already verified headless (298 automated assertions
 across two viewports, driven by a mock Graph client). This checklist exists to
 confirm the **real Graph Excel API** behaves the way the mock did on your
 account — the mock cannot prove that Graph accepts these exact range/batch
@@ -63,6 +63,13 @@ calls, only that our logic around them is right.
 >    was deliberately action-only. You changed the design.) Worth a quick
 >    confirm during the pass: flag a coin into research via Part D2 step 26
 >    and check the fob goes UP by one.
+>
+> 5. **Sign-in with both flags on was completely broken** (found on your
+>    attempt to start this round, not by me): three separate MSAL instances
+>    shared one clientId and therefore one storage namespace, so they raced
+>    on the redirect and corrupted each other's auth state. Fixed by
+>    collapsing to one shared instance with one serialized token
+>    acquisition. **Expect exactly one sign-in prompt now**, not two.
 >
 > One consequence worth planning around: **AY-00008 in `_Testing` is
 > currently CoinID-blank and Variety-blank** from the last pass. That's a
@@ -137,14 +144,18 @@ side effect of this checklist.
    pick one that already has a Container set (so Part E has something to
    show) — e.g. anything with `Container = "Coin Slab Box 1"`.
 
-> **Expected on first open, possibly TWICE:** Catalog's live data
-> (`ENABLE_LIVE_NAV_DATA`) and Browse Edit's writes (`ENABLE_BROWSE_EDIT_WRITE`)
-> use two separate MSAL instances (different scopes — read-only vs.
-> read/write), so you may see the Microsoft sign-in redirect fire once when
-> you first open Catalog and again the first time you open Edit. Each is a
+> **Expected on first open: ONE sign-in, once.** The whole app now shares a
+> single MSAL instance, so the Microsoft redirect fires once, on whichever
+> screen first needs Graph, and covers every feature from then on. It's a
 > full page load that lands back on the **Dashboard**, not wherever you were
-> — that's the normal MSAL redirect flow, not a bug. Just navigate back and
-> retry; both are silent for the rest of the session once signed in.
+> — normal MSAL redirect behavior, not a bug. Navigate back and continue.
+>
+> **This supersedes the "possibly TWICE, that's expected" note from the
+> previous round, which was wrong.** Two instances didn't redirect twice
+> harmlessly — they corrupted each other's stored auth state and sign-in
+> could never complete with both flags on ("We can't sign you in right now",
+> repeated reloads). If you see anything resembling that again, stop and
+> report it; it should now be impossible by construction.
 
 > If anything misbehaves, set `ENABLE_BROWSE_EDIT_WRITE` back to `false`.
 > Nothing can reach the real workbook regardless of what goes wrong.
