@@ -3537,15 +3537,30 @@ Container only ever appears in the new Location section.
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
 
-### Browse Edit real write layer (BUILT, held on branch `claude/browse-edit-write-layer`, NOT merged — awaiting Ray's real-device pass)
+### Browse Edit real write layer (BUILT and merged to main)
+**Merge status correction:** this section previously read "held on branch
+`claude/browse-edit-write-layer`, NOT merged — awaiting Ray's real-device
+pass" — that reflected the plan, not the outcome. The full checklist (Parts
+B, C, D, D2, E, F) has since passed live-device verification against the
+`_Testing` copy workbook, including the MSAL single-instance fix, the
+workbook read/write path unification (Bugs A/B), and the picker/conflict-loop
+fix (Part F) all holding up under real use, not just headless suites. Ray
+gave explicit merge go-ahead and `claude/browse-edit-write-layer` was merged
+to `main` (commit `05718e0`). **`main` is now the source of truth for this
+feature**, same standing as every other merged-after-holding branch in this
+file. `ENABLE_BROWSE_EDIT_WRITE` and `ENABLE_LIVE_NAV_DATA` ship `false` on
+main as usual — dev-only until a production redirect URI exists for a real
+push to production. A batch of smaller, non-blocking display/UX findings
+from the final live-device round (flip-card layout, CollectionID placement,
+a couple of staleness gaps) was explicitly deferred by Ray to a separate
+follow-up task — not started here, not implied by this merge.
+
 The app's first write **into the workbook itself**, and the pattern every
 other form's write layer should follow. (The Add Set write layer writes
 Staging JSON + photo files and deliberately never touches the workbook — a
 different thing entirely.) **Scope is Browse Edit's Save button only** — Add
 Coin, Edit Set, Wishlist and Batch Receipt all still have exactly the stub
-Saves they had before, untouched. Per the merge policy this is architectural
-work, so it's held on its branch pending Ray's explicit go-ahead after a real
-device pass.
+Saves they had before, untouched.
 
 **Gate (`ENABLE_BROWSE_EDIT_WRITE = false`, localhost-dev only)** — its own
 flag, deliberately NOT riding `ENABLE_SET_WRITE_LAYER`, since the two write
@@ -4001,16 +4016,21 @@ causes, three of them mine from the previous rounds.
   stale memory, the shared record refreshing, the mid-load toast, and the
   back-out warning.
 
-**Not verified: any real device, and no real OneDrive write has ever been
-executed** — every write in this build went to a mock Graph client. The live
-run against the `_Testing` copy is Ray's to do, same as the Add Set write
-layer's own live-run step; the step-by-step is committed alongside as
-`docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md`. **Two live passes are done**:
-Parts B–F passed (finding the Mint Mark / CoinID / Notes-flash bugs), and
-the Part-D2 pass found the four above. A third pass is still outstanding,
-and should re-run **all** of B–F, not just D2 — the read/write-target fix
-changes which workbook every screen reads, so the earlier passes' results
-no longer describe the current build.
+**Superseded — real live-device passes against real OneDrive have since
+happened; this paragraph originally described a mock-only state before any
+of them.** Three live passes ran against the `_Testing` copy workbook, each
+finding and fixing real bugs before the next: Parts B–F (Mint Mark/CoinID/
+Notes-flash bugs), Part-D2 (the read/write-target mismatch — Bugs A/B — plus
+the DB_Coins mock-catalog bug, Bug C), and a final full B–F re-run (per this
+section's own earlier instruction that the read/write-target fix invalidated
+prior passes) which surfaced the two-MSAL-instance sign-in failure and the
+Part-F picker/conflict save loop, both fixed and re-verified live. Ray
+confirmed the full checklist (B, C, D, D2, E, F) passed against `_Testing`
+with no data-loss or write-safety issues remaining open, and the branch was
+merged to main on that basis — see the merge-status correction at the top of
+this section. `docs/BROWSE_EDIT_LIVE_RUN_CHECKLIST.md` remains the
+step-by-step this was run against, for reference on how a future live pass
+(e.g. once a production redirect URI exists) should be structured.
 - **The write pass can only run where a local server can run.** The only
   Entra redirect URI registered for `app.html` is
   `http://localhost:8791/app.html`, so the functional verification happens
