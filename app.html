@@ -495,12 +495,30 @@
       inset 0 0 0 1px rgba(255,255,255,0.06);
     overflow: hidden;
   }
-  /* Faint horizontal muntin bar so it reads as a glazed case, not a photo. */
+  /* Faint horizontal muntin bar so it reads as a glazed case, not a photo.
+     Root cause of the "hairline bisecting the coin" report, confirmed via
+     pixel-level screenshot diffing (not guessed): this bar sits at top:50%
+     of THIS element, which is also very close to the Spotlight coin disc's
+     own vertical center (the disc is centered within .flip-frame, itself
+     centered within .spotlight, itself inside this same box) — so the bar
+     was drawing directly across the coin, not just the surrounding glass.
+     As a generated ::after with z-index:auto, it painted AFTER (on top of)
+     .spotlight in this element's own stacking context (both are positioned
+     descendants; ::after is last in paint order), which is why it visibly
+     brightened the coin rather than being hidden behind it. z-index:-1
+     drops it into the negative-z-index paint layer, below the (non-
+     positioned) opaque coin-disc, so the bar still reads as a glazed-case
+     divider in the visible glass margins beside the coin but is naturally
+     occluded wherever the coin itself covers it — no change to the bar's
+     own size/opacity/position, and Browse detail is unaffected (its
+     .flip-frame has no .display-case-glass ancestor, so this rule never
+     applied there — confirmed no seam exists on that view either way). */
   .display-case-glass::after {
     content: "";
     position: absolute; left: 6px; right: 6px; top: 50%;
     height: 1px; background: rgba(255,255,255,0.05);
     pointer-events: none;
+    z-index: -1;
   }
 
   /* ---- Drawer stack ---- */
@@ -1563,6 +1581,14 @@
   .detail-section-heading {
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--text-muted); margin: 18px 0 6px;
+  }
+  /* CollectionID — standalone, centered, no label, directly above the
+     Overview accordion. Same typographic weight as .accordion-header
+     (13px/600) below it, minus that header's button chrome (no border/
+     background/hover — this isn't interactive). */
+  .detail-collectionid {
+    text-align: center; font-size: 13px; font-weight: 600; color: var(--text);
+    margin: 2px 0 12px;
   }
   .detail-accordion { margin-top: 10px; }
   .detail-accordion + .detail-accordion { margin-top: 8px; }
@@ -4742,6 +4768,22 @@
   // its own narrower field list when its write layer is scoped.
   const IDENTITY_COLUMNS = ["Year", "MintMark", "Denomination", "Variety", "Description"];
 
+  // Columns saveCoinRowToWorkbook() writes unconditionally on EVERY
+  // successful save, regardless of what the user actually edited (see its
+  // own comments: Reviewed is blanked every save since an app-written row
+  // is by definition unreviewed; LastModified is stamped every save). Real
+  // writes, not excluded from ALL_WRITABLE_COLUMNS or result.written — only
+  // excluded from the Browse Edit save toast's "N fields updated" COUNT, so
+  // that count reflects what the user changed rather than administrative
+  // bookkeeping the user never touched. Traced directly against
+  // saveCoinRowToWorkbook(): these two are the only fields ever added to
+  // `changed` outside the genuine fresh-vs-next diff loop — CoinID
+  // re-linking (writeCoinIdCell(), fired only when Year/MintMark/
+  // Denomination/Variety actually changed) is a separate write entirely,
+  // bypasses buildRowCellEdits()/ALL_WRITABLE_COLUMNS, and was already never
+  // counted in result.written, so it needs no listing here.
+  const ADMIN_ONLY_SAVE_FIELDS = ["LastModified", "Reviewed"];
+
   // Written as a real Excel date value (a serial number) with an explicit
   // date-only number format. The workbook's own standing rule is that date
   // columns hold real dates and never carry a time/timezone component; the
@@ -6953,7 +6995,14 @@
   function applyFlipCorners(prefix, coin) {
     // Identification only, standard shorthand — same rule as Add Coin: coded
     // denomination, not the spelled-out name, and no price/value on this face.
-    document.getElementById(prefix + "TL").textContent = coin.year + (coin.mint ? "-" + coin.mint : "");
+    // Variety rides as a second stacked line beneath Year-Mint (same
+    // renderCornerLines()/.corner-line mechanism the TR corner already uses
+    // for Type/Denom) — omitted entirely when blank, same as every other
+    // corner value here. Coin object is the source (already resolved onto
+    // it from All at fetch/save time; see CLAUDE.md "Browse detail / flip
+    // card field sourcing"), no new data plumbing needed.
+    renderCornerLines(document.getElementById(prefix + "TL"),
+      [coin.year + (coin.mint ? "-" + coin.mint : ""), coin.variety || ""]);
     // A Roll's coin.name is a full descriptive sentence ("Roll of 20 Silver
     // Dollars (mixed dates)"), not the "{Series} {Denomination word}" shape
     // seriesLabel()/renderTypeDenomCorner() assume — stripping a denom-word
@@ -6970,7 +7019,15 @@
     } else {
       renderTypeDenomCorner(trEl, coin);
     }
-    document.getElementById(prefix + "BL").textContent = coin.grade || "";
+    // Designation concatenates directly onto Grade with NO space (e.g.
+    // "MS-67FB") — a different join style from Add Coin's own live-entry
+    // BR corner (flipObverseBR), which stacks Variety/Designation as two
+    // separate lines; that's a different corner with a different pairing
+    // rule, used here only as a reference for "check blank before joining,"
+    // not for its stacking mechanism. Designation blank -> Grade alone, no
+    // trailing artifact. Grade blank + a (rare) standalone Designation ->
+    // Designation alone, same "just concatenate what's present" rule.
+    document.getElementById(prefix + "BL").textContent = (coin.grade || "") + (coin.designation || "");
 
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
     if (combinedBadge) {
@@ -8508,6 +8565,19 @@
     container.innerHTML = "";
     const isSet = isSetRow(coin);
 
+    // --- 0. CollectionID — standalone, centered, no label, above Overview.
+    // Same font-weight/style as the accordion section headers just below it
+    // (.accordion-header: 13px/600) for visual consistency, without the
+    // header's button chrome (border/background/hover) since this isn't
+    // interactive. Applies to both individual coins and Set-bundle rows —
+    // every owned row has a CollectionID.
+    if (coin.id) {
+      const idEl = document.createElement("div");
+      idEl.className = "detail-collectionid";
+      idEl.textContent = coin.id;
+      container.appendChild(idEl);
+    }
+
     // --- 1. Overview — repeats the flip card's identity info, plus the
     // grade/cert/value facts that used to float above the fold as bare rows,
     // plus the "Belongs to" linkage chips that used to be their own block.
@@ -8616,7 +8686,19 @@
       if (setFacts.mintage != null) setRows.push(["Mintage", setFacts.mintage.toLocaleString()]);
       if (setRows.length) notesHtml += detailRowsHtml(setRows);
     }
-    if (details.funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${details.funFact}</p>`;
+    // Fun Fact now reads through the same live DB_Coins soft-match Edit
+    // Coin already uses (catalogFunFactFor() — Denom+Year+Mint+Variety,
+    // softly narrowed by Finish when ambiguous), falling back to the sparse
+    // FAKE_COIN_DETAILS mockup only when no DB_Coins match is found — same
+    // fallback catalogFunFactFor() already does internally. Supersedes the
+    // old direct `details.funFact` read, which never consulted DB_Coins at
+    // all and could disagree with what Edit Coin showed for the same
+    // record. Safe for a Set-bundle row too: catalogFunFactFor() calls
+    // findDbCoinsMatch(), which requires denom+year and never matches
+    // Denomination="Multiple" against any real DB_Coins row, so it degrades
+    // to the same FAKE_COIN_DETAILS fallback a Set already used.
+    const funFact = catalogFunFactFor(coin);
+    if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${funFact}</p>`;
     if (details.notes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
     if (notesHtml) appendAccordion(container, RECORD_SECTIONS.NOTES, notesHtml);
 
@@ -9536,8 +9618,15 @@
       // against what's now really on the row, not the pre-save values.
       browseEditSnapshot = { id: coin.id, values: result.values };
       applyEditsToRecord(coin, form.record);
-      showToast("Saved " + coin.id + " to the workbook (" + result.written.length + " field" +
-        (result.written.length === 1 ? "" : "s") + " updated)." + coinIdMsg);
+      // result.written includes LastModified/Reviewed, which are stamped on
+      // every successful save regardless of what the user changed (see
+      // ADMIN_ONLY_SAVE_FIELDS) — excluded here so the toast's count
+      // reflects the user's actual edit, not administrative bookkeeping.
+      // Real writes either way; this only changes what's counted for
+      // display.
+      const userFacingWritten = result.written.filter(f => ADMIN_ONLY_SAVE_FIELDS.indexOf(f) === -1);
+      showToast("Saved " + coin.id + " to the workbook (" + userFacingWritten.length + " field" +
+        (userFacingWritten.length === 1 ? "" : "s") + " updated)." + coinIdMsg);
       showBrowseDetail(coin);
       return;
     }
