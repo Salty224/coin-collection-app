@@ -864,6 +864,222 @@ the same corner mapping:
   exists) — it's Ray's own preference, matching the price-sticker placement
   he sees at his local coin shop.
 
+### Saved-coin flip corners: Variety + Designation added (BUILT, held on branch `claude/browse-detail-flip-card-updates`, NOT merged — awaiting Ray's test against stage.html)
+`applyFlipCorners()` (Spotlight + Browse detail's shared saved-coin renderer
+— **not** Add Coin's live-entry corners, a separate function/mapping, see
+below) gained two fields it never showed before, both via the existing
+`coin` object with no new data plumbing:
+- **Top-left (Year+MintMark) gained Variety as a second stacked line**,
+  using the same `renderCornerLines()`/`.corner-line` mechanism the
+  top-right (Type/Denom) corner already uses — omitted entirely when blank,
+  same rule every corner value here already follows. Verified for a Roll
+  too (including the mixed-date `"Various"` roll) — a Roll's `coin.variety`
+  is usually blank and correctly renders as a single line; a populated one
+  renders as a second line with no special-casing needed.
+- **Bottom-left (Grade) gained Designation, concatenated with NO space**
+  (`MS-67FB`, not `MS-67 FB`) — deliberately a different join style from
+  Add Coin's own live-entry bottom-right corner (`flipObverseBR`), which
+  stacks Variety/Designation as two separate lines. That's a different
+  corner with a different pairing rule; it was only ever a reference for
+  "check blank before joining," not for its stacking mechanism. Designation
+  blank → Grade alone, no trailing artifact; Grade blank + a (rare)
+  standalone Designation → Designation alone.
+- **This intentionally diverges saved-coin corners from Add Coin's
+  live-entry corner mapping described above** (Add Coin: Variety+
+  Designation both live in the bottom-right corner, stacked). Worth knowing
+  for a future session: the two flip-corner systems are NOT mirrors of each
+  other field-for-field — Add Coin's live preview and the saved-coin display
+  (Spotlight/Browse detail) have always been separate functions with
+  separate corner assignments, and this change widens that gap rather than
+  narrowing it. Deliberate, not an oversight — Ray's spec named the exact
+  corners and join style for the saved-coin case.
+
+### Horizontal hairline on the coin-disc — root cause found and fixed (BUILT, same branch, held)
+A report of "a visible horizontal hairline bisecting the circle" on the
+flip-card coin graphic was root-caused via pixel-level screenshot diffing
+(not guessed) rather than patched blind, per the explicit instruction that
+prompted this pass. **Two completely different things were initially
+conflated and had to be separated:**
+- **The actual, confirmed cause — Dashboard Spotlight only**: `.display-
+  case-glass::after` (a deliberate "muntin bar" decoration meant to make the
+  display case read as glazed, not a photo) sits at `top: 50%` of
+  `.display-case-glass` — which is also almost exactly where the Spotlight
+  coin disc's own vertical center falls, since the disc is centered within
+  `.flip-frame`, itself centered within `.spotlight`, itself inside that
+  same box. As a generated `::after` with `z-index: auto`, it painted AFTER
+  (visually on top of) `.spotlight` in their shared stacking context — both
+  are positioned descendants of `.display-case-glass`, and `::after` is last
+  in paint order — so the bar was drawing a faint white line directly across
+  the coin, not just the surrounding glass margins. Confirmed by removing
+  the fallback year-number text entirely and finding the seam persisted
+  (independent of text) at every x-column across the disc's full width, at
+  exactly `y = 50%` — then confirmed the fix by isolating the CSS in a
+  standalone test page and pixel-diffing before/after.
+- **The fix: `z-index: -1` on `.display-case-glass::after`**, nothing else
+  changed (same size/opacity/position). This drops the bar into the
+  negative-z-index paint layer, below the (non-positioned) opaque coin-disc,
+  so it's naturally occluded wherever the coin covers it while still reading
+  as a glazed-case divider in the visible glass margins beside the coin —
+  exactly the original visual intent, just no longer drawn across the coin
+  itself.
+- **Browse detail was never actually affected by this bug at all** — its
+  `.flip-frame` has no `.display-case-glass` ancestor (that class only wraps
+  Spotlight), confirmed by the same text-removal pixel test coming back
+  completely clean there with zero seam at any point. What can *look* like a
+  faint horizontal line on Browse detail's disc is the ordinary fallback
+  `coin.year` placeholder text itself (e.g. "1877") — dark serif digits,
+  vertically centered by the disc's own flexbox layout, which can read as a
+  thin dark smudge at a glance depending on rendering/distance. That's
+  intentional placeholder content (see "Series-level reference images"
+  above — the bare year-number disc is the accepted fallback until a real
+  photo or reference image exists), not a CSS defect, and nothing about it
+  was changed by this fix.
+
+### Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, same branch, held)
+Browse detail's read-only Fun Fact display (`renderDetailAccordions()`'s
+Notes & Facts section) previously read only `FAKE_COIN_DETAILS[coin.id]
+.funFact` — a sparse mockup lookup by CollectionID that never consulted
+DB_Coins, unlike Edit Coin's own Fun Fact display (`catalogFunFactFor()`,
+see "Browse Edit real write layer" → field mapping decisions above), which
+could show a *different* value for the same coin. Now both call the exact
+same `catalogFunFactFor(coin)` — the live DB_Coins soft-match (Denom+Year+
+Mint+Variety, softly narrowed by Finish when ambiguous), falling back to
+`FAKE_COIN_DETAILS` only when no DB_Coins match is found. Safe for a
+Set-bundle row too: `catalogFunFactFor()`'s underlying `findDbCoinsMatch()`
+requires denom+year and never matches `Denomination="Multiple"` against any
+real DB_Coins row, so a Set degrades to the same `FAKE_COIN_DETAILS`
+fallback it already used — verified directly, no throw. Display/read-only
+change only; nothing about DB_Coins matching itself, CoinID re-linking, or
+the write layer was touched.
+
+### Browse detail: CollectionID display above Overview (BUILT, same branch, held)
+A standalone, centered `AY-#####` line (`.detail-collectionid`) now sits
+directly above the Overview accordion in Browse detail's info panel — same
+typographic weight as the accordion section headers below it (13px/600,
+`var(--text)`) minus their interactive button chrome (no border/background/
+hover, since this isn't clickable). Built inside `renderDetailAccordions()`
+itself (the one function that owns/clears/rebuilds `#detailAccordions` on
+every render) as the first element appended, ahead of the Overview
+accordion — applies identically to individual coins and Set-bundle rows,
+since every owned row has a CollectionID.
+
+### Browse Edit save toast: field count excludes admin-only columns (BUILT, same branch, held)
+The "Saved AY-##### to the workbook (N fields updated)" toast was counting
+`LastModified` and `Reviewed` toward N even though `saveCoinRowToWorkbook()`
+writes both **unconditionally on every successful save**, regardless of
+what the user actually edited (`Reviewed` is blanked every save since an
+app-written row is by definition unreviewed; `LastModified` is stamped every
+save) — so a one-field edit (e.g. Grade only) reported "3 fields updated,"
+and a genuine no-change save (Ray hits Save without editing anything) still
+reported "2 fields updated," both overstating what actually changed.
+- **New `ADMIN_ONLY_SAVE_FIELDS = ["LastModified", "Reviewed"]`** — traced
+  directly against `saveCoinRowToWorkbook()`'s own code, not guessed: these
+  two are the *only* fields ever added to its `changed` object outside the
+  genuine fresh-vs-next diff loop. CoinID re-linking (`writeCoinIdCell()`,
+  fired only when Year/MintMark/Denomination/Variety actually changed) is a
+  separate write entirely — it bypasses `buildRowCellEdits()`/
+  `ALL_WRITABLE_COLUMNS` and was already never counted in `result.written`,
+  so it needed no listing here and required no change.
+- **Display-only fix, scoped to the toast's count alone** — `result.written`
+  itself (the real, complete list of columns actually patched) is
+  untouched, and so is every actual write. `performBrowseEditWrite()` now
+  filters `ADMIN_ONLY_SAVE_FIELDS` out of `result.written` only when
+  computing the toast's displayed count. A genuine no-change save now
+  honestly reports "(0 fields updated)" instead of the old misleading
+  "(2 fields updated)" — a truthful count was judged better than a
+  special-cased "nothing changed" message, since 0 is itself accurate.
+- No changes to write-layer conflict detection, CoinID matching, or DB_Coins
+  schema, per the explicit scope boundary for this task.
+
+**Held pending Ray's stage.html test, per this pass's explicit instruction**
+— all five items above (Variety/Designation on the flip corners, the
+hairline root-cause fix, Fun Fact's live sourcing, the CollectionID display,
+and the toast field-count fix) landed together on
+`claude/browse-detail-flip-card-updates`. Verified headless (Playwright,
+scratchpad scripts — not committed, same convention as the rest of this
+project's regression history): Designation/Grade concatenation and its
+blank-field edge cases on both Spotlight and Browse detail; Variety as a
+second TL line including the Roll and blank-Variety cases; the muntin-bar
+`z-index:-1` fix confirmed via computed style and a clean pixel scan across
+the coin's full width; Fun Fact's live-match-wins-over-fallback behavior and
+the no-throw Set-bundle case; the CollectionID display's text/centering/
+font-weight/position for both a coin and a Set; and the toast's field count
+for both a one-field save and a genuine no-change save. All 11 prior
+regression suites (653 assertions) re-run clean alongside the 19 new
+assertions across the two new scripts. **Not verified: any real device** —
+same standing caveat as the rest of this feature area.
+
+**Follow-up, same branch, still held — 2 more items from Ray's stage.html
+round.**
+- **Header row layout: Share/CollectionID/Edit consolidated onto one row.**
+  Previously scattered across three separate spots — Share floated next to
+  the title above the flip card; CollectionID (added earlier this branch)
+  rendered as its own centered block above the Overview accordion; Edit sat
+  alone, right-aligned, in the row directly below the flip card. Ray's
+  explicit ask: move CollectionID up to share Edit's row, with Share
+  relocated there too — far left, CollectionID centered in the middle, Edit
+  far right, all on one row. The title (`#browseDetailName`) is now alone on
+  its own line, no longer paired with Share.
+  - **`#browseDetailCollectionId` is now static markup** (a `<span>` inside
+    the action row), not an element `renderDetailAccordions()` builds and
+    prepends into `#detailAccordions` on every render — it lives outside
+    that container now (which the function still clears/rebuilds every
+    call), so building it the old way would have gotten it wiped
+    immediately. `renderDetailAccordions()` now just sets its `textContent`.
+  - **Centering a middle item between two differently-sized buttons
+    (a bare icon vs. an icon+label) needs `flex:1` on the middle item, not
+    `justify-content:space-between`** — the latter only centers a middle
+    child when flanked by equal-width siblings, which Share/Edit aren't.
+    `.detail-collectionid`'s CSS was updated accordingly (`flex:1` added,
+    the old block-context `margin` removed as no longer relevant inline).
+  - Applies identically to Set-bundle rows (verified) — same shared header
+    markup this whole page already uses for both record types.
+- **"Medal" duplication on the flip card's top-right corner — root-caused,
+  not guess-patched, per this pass's explicit instruction.** Confirmed via
+  live reproduction before touching anything: `DENOM_NAME_SUFFIXES` (the
+  list `seriesLabel()` strips a trailing denomination WORD from — "Mercury
+  Dime" → "Mercury", so the top line doesn't repeat the coded denomination
+  line below it) never included `"Medal"`. Every other denomination's own
+  coded value (`1C`, `5C`, `10C`, `25C`, `50C`, `$1`) is a different string
+  from its spelled-out word, so an unstripped name never visually collided
+  with the code line — but Medal's own `denom` value IS the literal word
+  `"Medal"`, and this collection's medals are named `"{Description} Medal"`
+  (`AY-00015` "Lincoln Bicentennial Medal", `AY-00016` "US Mint Inaugural
+  Medal"), so the unstripped top line repeated the bottom line verbatim.
+  **A second layer compounded it**, confirmed live: the corner's own
+  last-word-shortening overflow fallback (`renderTypeDenomCorner`, meant for
+  an overlong series name) then collapsed the too-long unstripped top line
+  down to ITS OWN last word — which, for an unstripped medal name, is
+  always `"Medal"` too — producing an even more literal `"Medal"` /
+  `"Medal"` than the plain unstripped two-line overflow alone would have.
+  Fixed by adding `"Medal"` to `DENOM_NAME_SUFFIXES` — resolves both layers
+  at once: the type line becomes `"Lincoln Bicentennial"` (shorter, usually
+  fits without the fallback ever triggering), and even if a future medal's
+  name still needs shortening, the fallback then picks THAT string's own
+  last word, never `"Medal"` again, since `"Medal"` is no longer part of
+  what's being measured/shortened. One-line, single-source-of-truth fix —
+  `seriesLabel()`/`renderTypeDenomCorner()` are shared by Spotlight, Browse
+  detail, AND Browse's grid-mini cards, so this is fixed everywhere at once,
+  not per-surface. Rolls were never at risk (`applyFlipCorners()` already
+  skips `renderTypeDenomCorner()` entirely for a Roll, denom-code-only).
+- Verified headless (14 new assertions): Share/CollectionID/Edit render on
+  one row in the correct left-to-right order for both a coin and a Set-bundle
+  row, the old CollectionID block is gone from `#detailAccordions`, the title
+  is immediately followed by the flip-frame (confirming Share was actually
+  relocated, not just visually coincidental), Share's click handler still
+  fires after the move, `seriesLabel()` now strips "Medal" for both demo
+  medals while an ordinary coin's own suffix-stripping (`"Dollar"`) is
+  unaffected, both medals' TR corner shows `"Medal"` exactly once (checked
+  by counting corner-line elements, not just eyeballing text), and the fix
+  applies identically on Spotlight (the other `applyFlipCorners()`
+  consumer). One prior suite (`verify_funfact_and_toast.js`) had 3
+  assertions following the CollectionID element's real relocation (querying
+  `#browseDetailCollectionId` instead of the old
+  `#detailAccordions .detail-collectionid`) — updated to match the design
+  change, not weakened. All prior suites re-run clean alongside these.
+  **Not verified: any real device** — same standing caveat as everything
+  else in this feature area.
+
 ### Tap-to-flip (superseded — see "Coin-flip interaction redesign" below)
 Every flip-frame a saved coin rendered in used to carry a small dedicated ⟲
 icon (`.flip-toggle-btn`, bottom-center of the frame, via a shared

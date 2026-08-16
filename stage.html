@@ -1582,13 +1582,16 @@
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--text-muted); margin: 18px 0 6px;
   }
-  /* CollectionID — standalone, centered, no label, directly above the
-     Overview accordion. Same typographic weight as .accordion-header
-     (13px/600) below it, minus that header's button chrome (no border/
-     background/hover — this isn't interactive). */
+  /* CollectionID — no label, centered in the middle of the Share/Edit
+     action row (superseded: originally its own standalone block above the
+     Overview accordion; see that row's own markup comment). Same
+     typographic weight as .accordion-header (13px/600) below it, minus
+     that header's button chrome (no border/background/hover — this isn't
+     interactive). flex:1 is what lets text-align:center actually center it
+     between two differently-sized sibling buttons, rather than just
+     sitting at its own natural width wherever flexbox happens to place it. */
   .detail-collectionid {
-    text-align: center; font-size: 13px; font-weight: 600; color: var(--text);
-    margin: 2px 0 12px;
+    flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--text);
   }
   .detail-accordion { margin-top: 10px; }
   .detail-accordion + .detail-accordion { margin-top: 8px; }
@@ -2213,16 +2216,13 @@
 
         <div id="browseDetailView" style="display:none;">
           <button class="back-link" id="browseDetailBackBtn" style="padding-bottom:0;">← Back</button>
-          <!-- Share repositioned (locked in) — used to float as its own pill
-               above the flip card, in the same row as Back. Now matches
-               Wishlist's layout (#view-wishlist's own title/Share row):
-               right-aligned next to the record's title, not floating
-               separately above the image. Applies to both Coin and Set
-               detail — this is the one shared header for both. -->
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-            <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
-            <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
-          </div>
+          <!-- Superseded: Share used to float as its own pill up here, right
+               next to the title (matching Wishlist's own title/Share row).
+               Moved down to the action row below the flip card instead, so
+               Share/CollectionID/Edit read as one action row together — see
+               that row's own comment further down. Title is now alone on
+               its own line. -->
+          <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
                button layered on it. The Set gallery region that used to sit
@@ -2251,21 +2251,40 @@
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
           <div class="case detail-panel" id="browseDetailPanel">
-            <!-- Superseded: Edit used to live in the top action row next to
-                 Share, above the flip. Moved down into this info box instead
-                 — Share stays up top. Routes to Edit Coin or Edit Set
-                 depending on the row's own denom (see the click handler).
-                 Superseded again: "Manage photos" used to sit here as its
-                 own standalone button — it's now folded INTO Edit (both Edit
-                 Coin and Edit Set embed the same Manage-Photos section list
-                 as their one real photo-editing surface), so Edit alone is
-                 the single entry point for changing anything about a
-                 record, including photos. -->
-            <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+            <!-- Action row (locked in): Share far left, CollectionID/SetID
+                 centered in the middle, Edit far right — all three on one
+                 row. Superseded twice: Edit originally lived alone here,
+                 right-aligned; Share originally lived up top next to the
+                 title; CollectionID originally rendered as its own centered
+                 block above the Overview accordion (built fresh by
+                 renderDetailAccordions() on every render). All three are now
+                 one row instead, so identity/actions read together instead
+                 of being scattered across three separate spots on the page.
+                 CollectionID's middle span (#browseDetailCollectionId) is
+                 static markup — renderDetailAccordions() now just sets its
+                 textContent instead of building/prepending its own element,
+                 since this row lives outside #detailAccordions (which that
+                 function clears and rebuilds every render) and would
+                 otherwise be wiped on every re-render. `flex:1;
+                 text-align:center` on the middle span is what centers it
+                 regardless of the two buttons' differing widths (an icon vs.
+                 an icon+label), rather than relying on justify-content,
+                 which wouldn't visually center a middle item flanked by
+                 unequal-width siblings.
+                 Edit routes to Edit Coin or Edit Set depending on the row's
+                 own denom (see the click handler). "Manage photos" used to
+                 sit here as its own standalone button too — it's now folded
+                 INTO Edit (both Edit Coin and Edit Set embed the same
+                 Manage-Photos section list as their one real photo-editing
+                 surface), so Edit alone is the single entry point for
+                 changing anything about a record, including photos. -->
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+              <button type="button" class="edit-btn" id="browseDetailShareBtn" aria-label="Share this coin" title="Share">📤</button>
+              <span class="detail-collectionid" id="browseDetailCollectionId"></span>
               <button type="button" class="edit-btn" id="browseDetailEditBtn">✏️ Edit</button>
             </div>
             <!-- Accordion redesign (locked in): detail is now flip card +
-                 Edit button + accordions ONLY. Every bare key-facts row that
+                 action row + accordions ONLY. Every bare key-facts row that
                  used to float here (Value, Cert, Storage, Roll Composition)
                  and the "Belongs to" linkage block have all moved INTO
                  accordions — Value/Cert/linkage into the new Overview
@@ -6769,7 +6788,28 @@
   // "Franklin Half Dollar") — strip the denomination word so the top-right
   // corner can show "{Series} {DenomCode}" (e.g. "Mercury 10C") instead of
   // repeating the spelled-out denomination the code already conveys.
-  const DENOM_NAME_SUFFIXES = ["Half Dollar", "Dollar", "Quarter", "Dime", "Nickel", "Cent", "Half"];
+  // "Medal" belongs in this list for the exact same reason, but its absence
+  // was a real, confirmed bug (not just a missing nicety): every OTHER
+  // denomination's own coded value (1C, 5C, 10C, 25C, 50C, $1) is a
+  // different string from its spelled-out word, so an unstripped name never
+  // visually collided with the code line below it. Medal's own `denom`
+  // value IS the literal word "Medal" (there's no separate coded
+  // abbreviation), and this collection's medals are named "{Description}
+  // Medal" (e.g. "Lincoln Bicentennial Medal") — so without stripping it,
+  // the top line repeated the bottom line verbatim: "Lincoln Bicentennial
+  // Medal" / "Medal". Confirmed live (not guessed): the corner's own
+  // last-word-shortening overflow fallback (renderTypeDenomCorner, for a
+  // type name too long to fit on one line) then compounded it further —
+  // since the untrimmed name's own LAST WORD is "Medal", the shortening
+  // fallback collapsed the top line down to just "Medal" too, producing an
+  // even more literal "Medal" / "Medal" than the unshortened two-line
+  // overflow alone would have. Adding "Medal" here fixes both layers at
+  // once: the type line becomes "Lincoln Bicentennial" (shorter, usually
+  // fits without the fallback ever triggering), and even if some future
+  // medal's name still needed shortening, the fallback would then pick ITS
+  // last word, never "Medal" again, since "Medal" is no longer part of the
+  // string being measured/shortened.
+  const DENOM_NAME_SUFFIXES = ["Half Dollar", "Dollar", "Quarter", "Dime", "Nickel", "Cent", "Half", "Medal"];
   function seriesLabel(coin) {
     const name = coin.name || "";
     for (const suffix of DENOM_NAME_SUFFIXES) {
@@ -8565,18 +8605,17 @@
     container.innerHTML = "";
     const isSet = isSetRow(coin);
 
-    // --- 0. CollectionID — standalone, centered, no label, above Overview.
-    // Same font-weight/style as the accordion section headers just below it
-    // (.accordion-header: 13px/600) for visual consistency, without the
-    // header's button chrome (border/background/hover) since this isn't
-    // interactive. Applies to both individual coins and Set-bundle rows —
-    // every owned row has a CollectionID.
-    if (coin.id) {
-      const idEl = document.createElement("div");
-      idEl.className = "detail-collectionid";
-      idEl.textContent = coin.id;
-      container.appendChild(idEl);
-    }
+    // --- 0. CollectionID — the middle span of the Share/CollectionID/Edit
+    // action row above this container (superseded: this used to build and
+    // prepend its own element into #detailAccordions itself; moved out to a
+    // static element in that row instead — see its own markup comment —
+    // since that row is above the fold, aligned with Edit, rather than
+    // buried above just the Overview accordion). Just a textContent set now
+    // that the element itself is static markup, not container-owned.
+    // Applies to both individual coins and Set-bundle rows — every owned
+    // row has a CollectionID.
+    const idEl = document.getElementById("browseDetailCollectionId");
+    if (idEl) idEl.textContent = coin.id || "";
 
     // --- 1. Overview — repeats the flip card's identity info, plus the
     // grade/cert/value facts that used to float above the fold as bare rows,
