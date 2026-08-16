@@ -864,7 +864,20 @@ the same corner mapping:
   exists) — it's Ray's own preference, matching the price-sticker placement
   he sees at his local coin shop.
 
-### Saved-coin flip corners: Variety + Designation added (BUILT, held on branch `claude/browse-detail-flip-card-updates`, NOT merged — awaiting Ray's test against stage.html)
+### Saved-coin flip corners: Variety + Designation added (BUILT and merged to main)
+**Merge status correction:** every section below through "Browse Edit save
+toast: field count excludes admin-only columns" plus the header-row/Medal
+follow-up (5 sections total) previously read "held on branch
+`claude/browse-detail-flip-card-updates`, NOT merged" — that reflected the
+plan, not the outcome. Ray reviewed all of it live on `stage.html` across
+two rounds of testing and gave explicit merge go-ahead; the branch was
+merged to `main` (commit `8b1c48d`). **`main` is now the source of truth
+for this whole feature**, same standing as every other merged-after-holding
+branch in this file. `stage.html` was restored to the real "Add New Coin"
+staging form immediately after (commit `1aab7d1`) — the temporary app.html
+swap used for live testing is gone; it was never a permanent part of this
+feature, just the testing mechanism.
+
 `applyFlipCorners()` (Spotlight + Browse detail's shared saved-coin renderer
 — **not** Add Coin's live-entry corners, a separate function/mapping, see
 below) gained two fields it never showed before, both via the existing
@@ -894,7 +907,7 @@ below) gained two fields it never showed before, both via the existing
   narrowing it. Deliberate, not an oversight — Ray's spec named the exact
   corners and join style for the saved-coin case.
 
-### Horizontal hairline on the coin-disc — root cause found and fixed (BUILT, same branch, held)
+### Horizontal hairline on the coin-disc — root cause found and fixed (BUILT, merged to main)
 A report of "a visible horizontal hairline bisecting the circle" on the
 flip-card coin graphic was root-caused via pixel-level screenshot diffing
 (not guessed) rather than patched blind, per the explicit instruction that
@@ -935,7 +948,7 @@ conflated and had to be separated:**
   photo or reference image exists), not a CSS defect, and nothing about it
   was changed by this fix.
 
-### Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, same branch, held)
+### Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, merged to main)
 Browse detail's read-only Fun Fact display (`renderDetailAccordions()`'s
 Notes & Facts section) previously read only `FAKE_COIN_DETAILS[coin.id]
 .funFact` — a sparse mockup lookup by CollectionID that never consulted
@@ -952,7 +965,7 @@ fallback it already used — verified directly, no throw. Display/read-only
 change only; nothing about DB_Coins matching itself, CoinID re-linking, or
 the write layer was touched.
 
-### Browse detail: CollectionID display above Overview (BUILT, same branch, held)
+### Browse detail: CollectionID display above Overview (BUILT, merged to main — superseded placement, see the header-row consolidation follow-up below)
 A standalone, centered `AY-#####` line (`.detail-collectionid`) now sits
 directly above the Overview accordion in Browse detail's info panel — same
 typographic weight as the accordion section headers below it (13px/600,
@@ -963,7 +976,7 @@ every render) as the first element appended, ahead of the Overview
 accordion — applies identically to individual coins and Set-bundle rows,
 since every owned row has a CollectionID.
 
-### Browse Edit save toast: field count excludes admin-only columns (BUILT, same branch, held)
+### Browse Edit save toast: field count excludes admin-only columns (BUILT, merged to main)
 The "Saved AY-##### to the workbook (N fields updated)" toast was counting
 `LastModified` and `Reviewed` toward N even though `saveCoinRowToWorkbook()`
 writes both **unconditionally on every successful save**, regardless of
@@ -991,26 +1004,25 @@ reported "2 fields updated," both overstating what actually changed.
 - No changes to write-layer conflict detection, CoinID matching, or DB_Coins
   schema, per the explicit scope boundary for this task.
 
-**Held pending Ray's stage.html test, per this pass's explicit instruction**
-— all five items above (Variety/Designation on the flip corners, the
-hairline root-cause fix, Fun Fact's live sourcing, the CollectionID display,
-and the toast field-count fix) landed together on
-`claude/browse-detail-flip-card-updates`. Verified headless (Playwright,
-scratchpad scripts — not committed, same convention as the rest of this
-project's regression history): Designation/Grade concatenation and its
-blank-field edge cases on both Spotlight and Browse detail; Variety as a
-second TL line including the Roll and blank-Variety cases; the muntin-bar
-`z-index:-1` fix confirmed via computed style and a clean pixel scan across
-the coin's full width; Fun Fact's live-match-wins-over-fallback behavior and
-the no-throw Set-bundle case; the CollectionID display's text/centering/
-font-weight/position for both a coin and a Set; and the toast's field count
-for both a one-field save and a genuine no-change save. All 11 prior
-regression suites (653 assertions) re-run clean alongside the 19 new
-assertions across the two new scripts. **Not verified: any real device** —
-same standing caveat as the rest of this feature area.
+**First round, merged as part of the whole feature (see the merge-status
+correction at the top of this section)** — all five items above
+(Variety/Designation on the flip corners, the hairline root-cause fix, Fun
+Fact's live sourcing, the CollectionID display, and the toast field-count
+fix) landed together on `claude/browse-detail-flip-card-updates`. Verified
+headless (Playwright, scratchpad scripts — not committed, same convention
+as the rest of this project's regression history): Designation/Grade
+concatenation and its blank-field edge cases on both Spotlight and Browse
+detail; Variety as a second TL line including the Roll and blank-Variety
+cases; the muntin-bar `z-index:-1` fix confirmed via computed style and a
+clean pixel scan across the coin's full width; Fun Fact's
+live-match-wins-over-fallback behavior and the no-throw Set-bundle case; the
+CollectionID display's text/centering/font-weight/position for both a coin
+and a Set; and the toast's field count for both a one-field save and a
+genuine no-change save. All 11 prior regression suites (653 assertions)
+re-run clean alongside the 19 new assertions across the two new scripts.
 
-**Follow-up, same branch, still held — 2 more items from Ray's stage.html
-round.**
+**Second round, same branch, merged together with the first — 2 more items
+from Ray's stage.html round.**
 - **Header row layout: Share/CollectionID/Edit consolidated onto one row.**
   Previously scattered across three separate spots — Share floated next to
   the title above the flip card; CollectionID (added earlier this branch)
@@ -1077,8 +1089,13 @@ round.**
   `#browseDetailCollectionId` instead of the old
   `#detailAccordions .detail-collectionid`) — updated to match the design
   change, not weakened. All prior suites re-run clean alongside these.
-  **Not verified: any real device** — same standing caveat as everything
-  else in this feature area.
+- **Both rounds confirmed by Ray on `stage.html`** (the temporary-swap
+  live-testing pattern this project uses for `app.html` builds — see "Real
+  Graph API reads" and the Add Set write layer's own live-run notes above
+  for the same convention) — this is what closes the "not verified: any
+  real device" gap every earlier headless-only pass in this section
+  carried. Full regression suite (685 assertions across 14 suites) re-run
+  clean immediately before the merge, per Ray's explicit instruction.
 
 ### Tap-to-flip (superseded — see "Coin-flip interaction redesign" below)
 Every flip-frame a saved coin rendered in used to carry a small dedicated ⟲
