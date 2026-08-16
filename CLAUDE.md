@@ -3714,6 +3714,129 @@ available this session
 consistent with how the original write-layer work also had a Ray-only live
 step.
 
+### Docket research queue: durable + resolvable (BUILT, held on branch `claude/docket-identity-matching`, NOT merged — awaiting Ray's go-ahead)
+First piece of the Docket identity-matching work. The "Waiting on Copilot
+research" queue was `FAKE_NEEDS_QUEUE` and nothing else — a plain in-memory
+array, seeded with two demo rows, appended to by Add Coin's save and Browse
+Edit's CoinID re-link, **append-only with no code path that could ever
+remove an entry**, and gone on reload. So a coin stayed flagged for the life
+of the page even after Copilot added the DB_Coins row that resolved it.
+This adds a durable store, a Re-check action, and a dismiss-with-reason.
+
+**Gate: `ENABLE_DOCKET_WRITE = false`** — its own flag, same
+localhost-dev-only posture as every other real-Graph flag, and added to
+`WRITE_LAYER_ENABLED` (it writes a Staging file AND, on a confirmed
+Re-check, one CoinID cell). With it off, everything behaves exactly as
+before on `FAKE_NEEDS_QUEUE` — that's what keeps the shipped build working
+unchanged, and it's asserted.
+
+**Which "Staging" this writes to — a real discrepancy with the request's
+own wording, resolved deliberately.** The task said "write to the Staging
+**sheet** via the existing real Staging write path." Those are two
+different things in this project and only one of them exists:
+- the Staging **SHEET** (the Excel tab mirroring All's columns) is still
+  entirely `FAKE_STAGING`, in memory. **There is no real write path to it,
+  and none to any sheet but All.** The workbook write layer only ever
+  PATCHes targeted ranges on an *existing* All row located by CollectionID
+  — it has no append-a-new-row capability for any sheet. Writing the queue
+  there would mean building that from scratch: new architecture, not "use
+  the existing path."
+- the Staging **FOLDER** (`{stagingBase}/…`, JSON files) is the app's real,
+  already-shipping Staging write path (`writeSetDraft`/`readSetDraft`/
+  `listSetDrafts` → `graph().uploadJson`/`getJson`).
+Went with the folder, since that's the only thing the phrase accurately
+describes, and Ray explicitly delegated the storage shape ("use your
+judgment... new rows vs. a structured block"). **If he actually wanted rows
+on the Staging sheet, that's a separate and much larger piece of work** —
+it needs a sheet-append capability the write layer has never had.
+
+**Storage shape**: ONE document at `{stagingBase}/_Docket/docket.json`
+(`type: "docket-queue"`, `version: 1`, `entries: []`), not a file per
+entry — the queue is tens of entries at most, one file gives
+read-modify-write in a single round trip plus a natural home for a schema
+version, and it keeps the Staging folder from filling with single-record
+files `listSetDrafts()` has to walk past. **Safe alongside set drafts**:
+`listSetDrafts()` `getJson()`s `{base}/{child}/set.json` for every child
+and drops anything that isn't `type === "set"`, so a `_Docket` folder
+holding `docket.json` yields null there and is skipped — asserted, not
+assumed.
+
+**Entries are closed, never deleted.** `status` is `open`/`resolved`/
+`dismissed`; only `open` renders. A resolve records `resolvedCoinId` +
+`resolvedDate`, a dismissal records `dismissedReason` + `dismissedDate`.
+Item 3 explicitly required a dismissal to record WHY ("not just filter from
+view"), and the same reasoning applies to a resolve — which CoinID it
+landed on is exactly what someone reconciling later needs.
+
+**One operations layer over both storage modes** (`docketOpenEntries` /
+`appendDocketEntry` / `closeDocketEntry` → `docketResolveEntry` /
+`docketDismissEntry`). Every caller goes through these rather than touching
+either store, so the durable path and the flag-off mockup path can't drift.
+The two stores are deliberately **not merged** when the durable one is
+live — `FAKE_NEEDS_QUEUE`'s two seeded rows are mockup demo data, so in
+durable mode the file alone is the source of truth. `appendDocketEntry`
+returns `{entry, durable}` so a flag-on write that didn't reach OneDrive
+still records in memory *and* says so, rather than silently dropping a flag.
+
+**Re-check** (`docketRecheckEntry`) re-runs the *same* `dbCoinsCandidatesFor()`
+matching against whatever DB_Coins is currently loaded, using the entry's
+own stored attribute shape:
+- **0 candidates** → entry stays queued, toast says nothing new was found.
+- **1 candidate** → a confirmation dialog naming the CoinID/PCGS#/GSID/
+  Mintage. **Never auto-applied** — asserted that nothing is written and
+  the entry stays open until Confirm is actually clicked.
+- **2+ candidates** → the shared ambiguous picker. The existing picker
+  MARKUP (`#designationAmbiguousPanel`) lives inside the Edit Coin form so
+  it can't be reused from the Docket view, but `renderAmbiguousMatchList()`
+  itself is container-agnostic and IS reused, so both surfaces render
+  candidates identically. The deliberate pick is the confirmation — same
+  rule `checkDesignationReresolution()` already follows.
+- Resolving writes the CoinID via **`writeCoinIdCell()`**, the one narrow
+  audited CoinID write path Browse Edit's re-link already uses — not
+  through the general allow-list machinery, which would weaken the
+  "an unlisted column has no code path to a PATCH" guarantee.
+- **A coin with no All row yet is handled, not treated as failure**: a
+  coin saved to Staging holds a reserved CollectionID but has no All row
+  until reconciliation promotes it, so `findAllSheetRowNumber()` returns
+  null → the resolution is still recorded on the entry, with a note saying
+  so, and no write is attempted.
+
+**Dismiss-with-reason** reuses `showWriteGuard()`, which gained three
+**backward-compatible** optional button hooks: `keepOpenUnless` (refuse to
+close — a blank reason keeps the dialog open), `onInvalid`, and `collect`
+(read body state BEFORE teardown, since `onClick` runs after the dialog
+closes). Buttons that declare none behave exactly as before — the conflict
+and identity-overwrite dialogs are untouched and their 358-assertion suite
+re-runs clean.
+
+**One necessary fix to Add Coin's push site**: it pushed the flag BEFORE
+`getNextCollectionId()`, so every entry it created carried **no
+CollectionID at all** — fine for a display-only backlog, useless for a
+Re-check that needs to know which row to write to. Reordered so the ID is
+reserved first (safe: `getNextCollectionId()` is a pure max+1 scan that
+doesn't depend on the push). Add Coin has no Finish input, so those entries
+carry a blank finish — handled correctly downstream, since
+`dbCoinsCandidatesFor()` only narrows by finish when one is present.
+Browse Edit's `flagCoinIdNeedsRelink()` now passes `finish` too, from the
+same source `identityShape` uses.
+
+**Verified headless — 63 new assertions (`verify_docket_queue.js`), all
+passing**, plus all 14 prior suites re-run clean (748 total, zero
+failures): the flag ships false and never touches Graph when off; seeded
+entries get stable ids across repeated reads; the durable file lands at the
+right `_Testing`-scoped path with the right type/version/shape; entries
+survive a cache drop; `listSetDrafts()` is unaffected; all three Re-check
+branches including "not auto-applied" and "Cancel writes nothing"; the
+chosen candidate (not the first) is what gets recorded on an ambiguous
+pick; overlay/list teardown; blank-reason dismissal refused with the
+validation message and nothing recorded; a real reason recorded durably
+with the entry retained; Re-check/Dismiss rendering on exactly the
+queue-backed research rows and never on action rows; dismissal still
+working in-memory with the flag off; and Add Coin's entry now carrying its
+CollectionID. **Not verified: any real device or any real OneDrive
+session** — this is a new write path and needs a live run before it's
+trusted (see the testing note in the branch's own report).
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins
