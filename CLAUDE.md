@@ -1009,6 +1009,77 @@ regression suites (653 assertions) re-run clean alongside the 19 new
 assertions across the two new scripts. **Not verified: any real device** —
 same standing caveat as the rest of this feature area.
 
+**Follow-up, same branch, still held — 2 more items from Ray's stage.html
+round.**
+- **Header row layout: Share/CollectionID/Edit consolidated onto one row.**
+  Previously scattered across three separate spots — Share floated next to
+  the title above the flip card; CollectionID (added earlier this branch)
+  rendered as its own centered block above the Overview accordion; Edit sat
+  alone, right-aligned, in the row directly below the flip card. Ray's
+  explicit ask: move CollectionID up to share Edit's row, with Share
+  relocated there too — far left, CollectionID centered in the middle, Edit
+  far right, all on one row. The title (`#browseDetailName`) is now alone on
+  its own line, no longer paired with Share.
+  - **`#browseDetailCollectionId` is now static markup** (a `<span>` inside
+    the action row), not an element `renderDetailAccordions()` builds and
+    prepends into `#detailAccordions` on every render — it lives outside
+    that container now (which the function still clears/rebuilds every
+    call), so building it the old way would have gotten it wiped
+    immediately. `renderDetailAccordions()` now just sets its `textContent`.
+  - **Centering a middle item between two differently-sized buttons
+    (a bare icon vs. an icon+label) needs `flex:1` on the middle item, not
+    `justify-content:space-between`** — the latter only centers a middle
+    child when flanked by equal-width siblings, which Share/Edit aren't.
+    `.detail-collectionid`'s CSS was updated accordingly (`flex:1` added,
+    the old block-context `margin` removed as no longer relevant inline).
+  - Applies identically to Set-bundle rows (verified) — same shared header
+    markup this whole page already uses for both record types.
+- **"Medal" duplication on the flip card's top-right corner — root-caused,
+  not guess-patched, per this pass's explicit instruction.** Confirmed via
+  live reproduction before touching anything: `DENOM_NAME_SUFFIXES` (the
+  list `seriesLabel()` strips a trailing denomination WORD from — "Mercury
+  Dime" → "Mercury", so the top line doesn't repeat the coded denomination
+  line below it) never included `"Medal"`. Every other denomination's own
+  coded value (`1C`, `5C`, `10C`, `25C`, `50C`, `$1`) is a different string
+  from its spelled-out word, so an unstripped name never visually collided
+  with the code line — but Medal's own `denom` value IS the literal word
+  `"Medal"`, and this collection's medals are named `"{Description} Medal"`
+  (`AY-00015` "Lincoln Bicentennial Medal", `AY-00016` "US Mint Inaugural
+  Medal"), so the unstripped top line repeated the bottom line verbatim.
+  **A second layer compounded it**, confirmed live: the corner's own
+  last-word-shortening overflow fallback (`renderTypeDenomCorner`, meant for
+  an overlong series name) then collapsed the too-long unstripped top line
+  down to ITS OWN last word — which, for an unstripped medal name, is
+  always `"Medal"` too — producing an even more literal `"Medal"` /
+  `"Medal"` than the plain unstripped two-line overflow alone would have.
+  Fixed by adding `"Medal"` to `DENOM_NAME_SUFFIXES` — resolves both layers
+  at once: the type line becomes `"Lincoln Bicentennial"` (shorter, usually
+  fits without the fallback ever triggering), and even if a future medal's
+  name still needs shortening, the fallback then picks THAT string's own
+  last word, never `"Medal"` again, since `"Medal"` is no longer part of
+  what's being measured/shortened. One-line, single-source-of-truth fix —
+  `seriesLabel()`/`renderTypeDenomCorner()` are shared by Spotlight, Browse
+  detail, AND Browse's grid-mini cards, so this is fixed everywhere at once,
+  not per-surface. Rolls were never at risk (`applyFlipCorners()` already
+  skips `renderTypeDenomCorner()` entirely for a Roll, denom-code-only).
+- Verified headless (14 new assertions): Share/CollectionID/Edit render on
+  one row in the correct left-to-right order for both a coin and a Set-bundle
+  row, the old CollectionID block is gone from `#detailAccordions`, the title
+  is immediately followed by the flip-frame (confirming Share was actually
+  relocated, not just visually coincidental), Share's click handler still
+  fires after the move, `seriesLabel()` now strips "Medal" for both demo
+  medals while an ordinary coin's own suffix-stripping (`"Dollar"`) is
+  unaffected, both medals' TR corner shows `"Medal"` exactly once (checked
+  by counting corner-line elements, not just eyeballing text), and the fix
+  applies identically on Spotlight (the other `applyFlipCorners()`
+  consumer). One prior suite (`verify_funfact_and_toast.js`) had 3
+  assertions following the CollectionID element's real relocation (querying
+  `#browseDetailCollectionId` instead of the old
+  `#detailAccordions .detail-collectionid`) — updated to match the design
+  change, not weakened. All prior suites re-run clean alongside these.
+  **Not verified: any real device** — same standing caveat as everything
+  else in this feature area.
+
 ### Tap-to-flip (superseded — see "Coin-flip interaction redesign" below)
 Every flip-frame a saved coin rendered in used to carry a small dedicated ⟲
 icon (`.flip-toggle-btn`, bottom-center of the frame, via a shared
