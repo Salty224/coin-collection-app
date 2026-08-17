@@ -4280,7 +4280,14 @@
       // `!= null` rather than assuming a number is there.
       mintage: (mintageRaw === "" || isNaN(mintageNum)) ? null : mintageNum,
       funFact: String(colVal(row, "FunFact")),
-      designation: ""
+      // DB_Coins.Designation — column AH, added 2026-08-17 and backfilled
+      // FB on 78 Mercury Dime rows (all Business Strike, each duplicating a
+      // pre-existing plain sibling on the base key). Read live now that the
+      // column genuinely exists; this was hardcoded "" back when DB_Coins
+      // had no such column. FAKE_DB_COINS carries its own designation values
+      // (the 1909-S RD/BN mock pair), so the mock path is unaffected — this
+      // only changes what a LIVE-fetched DB_Coins row exposes.
+      designation: String(colVal(row, "Designation"))
     };
   }
 
@@ -5117,7 +5124,15 @@
   // changed, and it can only ever write a CoinID for a REAL DB_Coins
   // match or write BLANK — never guess or invent one.
 
-  const COINID_TRIGGER_FIELDS = ["Year", "MintMark", "Denomination", "Variety"];
+  // Designation is included as of 2026-08-17: now that DB_Coins carries a
+  // real Designation column and dbCoinsCandidatesFor() narrows on it, a
+  // Designation change can genuinely change WHICH DB_Coins row (and thus
+  // CoinID) a coin resolves to — so it must trigger the CoinID re-link the
+  // same as the other four. Before this, a Designation-only edit could run
+  // the full re-resolution (Designation was already in the resolution set
+  // below) and then silently DISCARD the answer, because this gate excluded
+  // it. Adding it closes that gap.
+  const COINID_TRIGGER_FIELDS = ["Year", "MintMark", "Denomination", "Variety", "Designation"];
 
   // True when any field CoinID is derived from actually changed, compared
   // against the row's live-workbook snapshot (the same source of truth
@@ -5367,6 +5382,30 @@
         `<p style="margin:0 0 10px;">You're changing identifying details on ${escapeHtmlText(collectionId)}:</p>` +
         `<ul style="margin:0 0 10px; padding-left:18px;">${rows}</ul>` +
         `<p style="margin:0; opacity:0.8;">This replaces existing catalogued values. Confirm?</p>`,
+      buttons: [
+        { label: "Cancel" },
+        { label: "Confirm", primary: true, onClick: onConfirm }
+      ]
+    });
+  }
+
+  // A distinct confirm for the DERIVED consequence of an identity edit: the
+  // coin's DB_Coins catalog link (CoinID) is about to change to a different
+  // existing entry. Separate from the identity-overwrite dialog above, which
+  // confirms the FIELD edits themselves — this confirms that those edits
+  // re-point WHICH catalogued coin this row maps to (its Mintage / FunFact /
+  // metal content / SpotValue all key off CoinID). Fires per commitBrowseEdit's
+  // coinIdGate: a single-candidate re-link to a different, non-blank CoinID,
+  // not already chosen via the ambiguous picker. This is the confirmation
+  // that was missing when a Year edit could silently corrupt a row's catalog
+  // link (the AY-00008 bug this thread exists to fully close).
+  function showCoinIdChangeDialog(collectionId, fromCoinId, toCoinId, onConfirm) {
+    showWriteGuard({
+      title: "Confirm catalog re-link",
+      bodyHtml:
+        `<p style="margin:0 0 10px;">Your edit changes which DB_Coins entry ${escapeHtmlText(collectionId)} is linked to:</p>` +
+        `<p style="margin:0 0 10px;"><strong>CoinID</strong>: ${escapeHtmlText(String(fromCoinId))} → <strong>${escapeHtmlText(String(toCoinId))}</strong></p>` +
+        `<p style="margin:0; opacity:0.8;">This re-points its catalog data (Mintage, Fun Fact, metal content). Confirm?</p>`,
       buttons: [
         { label: "Cancel" },
         { label: "Confirm", primary: true, onClick: onConfirm }
@@ -9496,7 +9535,7 @@
       resolveDbCoinsForSave(
         browseEditSnapshot && browseEditSnapshot.id === coin.id ? browseEditSnapshot.values : null,
         form.workbook, identityShape,
-        (resolvedRow) => commitBrowseEdit(coin, form, identityShape, resolvedRow));
+        (resolvedRow, viaPicker) => commitBrowseEdit(coin, form, identityShape, resolvedRow, viaPicker));
     });
   }
 
@@ -9574,7 +9613,7 @@
   //   - write layer off        -> the pre-existing session-only stub, verbatim
   //   - identity overwrite     -> confirm first, then fall through to the write
   //   - otherwise              -> real single-row workbook write
-  function commitBrowseEdit(coin, form, identityShape, resolvedRow) {
+  function commitBrowseEdit(coin, form, identityShape, resolvedRow, viaPicker) {
     // With the write layer ON, a missing snapshot means the baseline read is
     // still in flight (or failed) — NOT that this is a mockup session.
     // Falling through to the session-only path there would tell the user
@@ -9600,12 +9639,45 @@
       return;
     }
 
+    // Two confirm gates compose here; both must clear before the write:
+    //   1. Identity-overwrite (existing): fires when an already-populated
+    //      identity FIELD (Year/Mint/Denom/Variety/Description) is replaced.
+    //   2. CoinID-change (new — item 3): fires when re-resolution lands on a
+    //      DIFFERENT single CoinID than what's already on the row.
+    // The CoinID gate is the INNER one, so on an identity edit the user
+    // confirms the field change first, then its catalog-link consequence.
+    // This is the fix for the original AY-00008 class of bug: a Year edit
+    // that silently re-pointed CoinID with no confirmation at all. It's
+    // deliberately GENERAL (any identity field, incl. Designation), not
+    // Designation-specific — a Designation-only dialog wouldn't have caught
+    // that original Year-change bug.
+    const proceed = () => performBrowseEditWrite(coin, form, resolvedRow);
+    const coinIdGate = () => {
+      const decision = resolveCoinIdForEdit(browseEditSnapshot.values, form.workbook, resolvedRow);
+      const currentCoinId = browseEditSnapshot.values.CoinID;
+      // Confirm ONLY a genuine overwrite: a re-link to a different, real
+      // (non-blank) CoinID, where the row already HAD a non-blank CoinID,
+      // that the user hasn't already chosen via the ambiguous picker.
+      //  - blank -> real is "completing", not overwriting (mirrors the
+      //    identity-overwrite dialog's own hadValue rule) — applied silently.
+      //  - real -> blank (a genuine no-match) already routes to Docket with
+      //    its own explicit toast; no confirm needed and none wanted.
+      //  - a value the user just picked in the 2+ picker (viaPicker) was
+      //    already an explicit choice; re-confirming would be redundant.
+      if (decision.needed && decision.coinId && !viaPicker &&
+          normalizeCellForCompare(currentCoinId) !== "" &&
+          !cellsEqual(decision.coinId, currentCoinId)) {
+        showCoinIdChangeDialog(coin.id, currentCoinId, decision.coinId, proceed);
+        return;
+      }
+      proceed();
+    };
     const overwrites = detectIdentityOverwrites(browseEditSnapshot.values, form.workbook, IDENTITY_COLUMNS);
     if (overwrites.length) {
-      showIdentityOverwriteDialog(coin.id, overwrites, () => performBrowseEditWrite(coin, form, resolvedRow));
+      showIdentityOverwriteDialog(coin.id, overwrites, coinIdGate);
       return;
     }
-    performBrowseEditWrite(coin, form, resolvedRow);
+    coinIdGate();
   }
 
   async function performBrowseEditWrite(coin, form, resolvedRow) {
@@ -9757,28 +9829,62 @@
     // activeDbCoins(), never FAKE_DB_COINS directly — the real catalog is
     // ~3,753 rows and the mock is 12, so matching against the mock reports
     // "no match" for almost every real coin (see LIVE_DB_COINS).
-    const base = activeDbCoins().filter(c =>
+    let candidates = activeDbCoins().filter(c =>
       normField(c.denom) === normField(shape.denom) && String(c.year) === String(shape.year) &&
       normField(c.mint) === normField(shape.mint) && normField(c.variety || "") === normField(shape.variety || "")
     );
-    // Finish narrows further where it can. Measured against the real
-    // catalog, Denom+Year+Mint+Variety alone leaves 577 ambiguous groups
-    // covering 1,629 rows (~43% of DB_Coins); adding Finish cuts that to
-    // 227 groups / 771 rows. Finish is real specimen data on BOTH sheets
+    // --- Finish tier. Narrows further where it can. Measured against the
+    // real catalog, Denom+Year+Mint+Variety alone leaves 577 ambiguous
+    // groups covering 1,629 rows (~43% of DB_Coins); adding Finish cuts that
+    // to 227 groups / 771 rows. Finish is real specimen data on BOTH sheets
     // (All.Finish is populated on all 542 rows), so a Proof and a Business
     // Strike of the same date are genuinely different coins and treating
     // them as one match was simply wrong.
     //
-    // **Soft, never a hard filter.** All.Finish carries values DB_Coins
-    // doesn't ("Circulated" on 139 rows, "Various" on 6), so filtering
-    // strictly would turn a good match into zero matches for ~145 rows and
-    // wrongly clear their CoinID. An empty narrowed set falls back to the
-    // full one, so this can only ever reduce ambiguity, never create a miss.
-    if (base.length > 1 && normField(shape.finish || "")) {
-      const byFinish = base.filter(c => normField(c.finish || "") === normField(shape.finish || ""));
-      if (byFinish.length) return byFinish;
+    // **Soft, never a hard filter, and blank-owned never narrows.** All.Finish
+    // carries values DB_Coins doesn't ("Circulated" on 139 rows, "Various" on
+    // 6), so a strict filter would turn a good match into zero for ~145 rows
+    // and wrongly clear their CoinID — hence the `normField(shape.finish)`
+    // guard (a blank owned Finish skips this tier entirely) plus the
+    // empty-result fallback. This tier can only ever reduce ambiguity.
+    if (candidates.length > 1 && normField(shape.finish || "")) {
+      const byFinish = candidates.filter(c => normField(c.finish || "") === normField(shape.finish || ""));
+      if (byFinish.length) candidates = byFinish;
     }
-    return base;
+    // --- Designation tier. Same "reduce ambiguity, never create a miss"
+    // spirit as Finish, but DELIBERATELY STRONGER in one specific way: a
+    // BLANK owned Designation is treated as a real, matchable value, not
+    // skipped. Rationale (confirmed against the current workbook, 2026-08-17):
+    // DB_Coins.Designation is populated on ONLY 78 rows, all FB Mercury
+    // Dimes, each duplicating a pre-existing plain (blank-Designation)
+    // sibling with the SAME Finish (Business Strike) — so Finish can't
+    // separate them, and 73 owned dimes that used to resolve to exactly one
+    // candidate now resolve to 2+. A blank All.Designation genuinely means
+    // "not FB" here, so it SHOULD select the plain (blank) catalog row and
+    // drop the FB one; an FB owned coin selects the FB row and drops the
+    // plain. This is the opposite call from Finish (where blank must NOT
+    // narrow) and it's correct precisely because the two fields carry
+    // different kinds of blank: All.Finish blank means "unknown/other",
+    // All.Designation blank means "plain".
+    //
+    // Still soft: if NO candidate matches the owned Designation (e.g. owned
+    // FB but the catalog only has a plain row), it falls back to the full
+    // set rather than returning zero — so it can never create a Docket miss.
+    //
+    // Non-dimes are unaffected: no non-dime DB_Coins row carries a
+    // Designation today, so for them every candidate's designation is blank
+    // and a blank owned Designation keeps them all (a no-op).
+    //
+    // KNOWN, ACCEPTED TRADEOFF: an owned Mercury dime that is physically
+    // Full Bands but not yet recorded FB in All.Designation now silently
+    // resolves to the plain catalog row instead of surfacing the ambiguous
+    // picker. Logged as a ParkingLot item ("Physical FB check pass on owned
+    // Mercury dimes", Data/Medium) — not an oversight.
+    if (candidates.length > 1) {
+      const byDesig = candidates.filter(c => normField(c.designation || "") === normField(shape.designation || ""));
+      if (byDesig.length) candidates = byDesig;
+    }
+    return candidates;
   }
 
   // Designation is edit-able here; confirming/changing it can affect which
@@ -9790,25 +9896,34 @@
   // candidate's designation happens to match exactly (see CLAUDE.md
   // "Direct-write vs. Staging" — this is a firm rule, not a preference, per
   // real historical data bugs in this project).
+  // onResolved(row, viaPicker): viaPicker is true only when the 2+ ambiguous
+  // picker was actually shown and the user picked. The single/zero-candidate
+  // path passes false — it resolved silently, with no UI, so a downstream
+  // step (the CoinID-change confirm) knows the user hasn't seen this result
+  // yet and may need to.
   function checkDesignationReresolution(coin, onResolved) {
     const candidates = dbCoinsCandidatesFor(coin);
     const panel = document.getElementById("designationAmbiguousPanel");
     if (candidates.length <= 1) {
       panel.classList.add("hidden");
-      onResolved(candidates[0] || null);
+      onResolved(candidates[0] || null, false);
       return;
     }
     renderAmbiguousMatchList(document.getElementById("designationAmbiguousList"), candidates, (row) => {
       panel.classList.add("hidden");
-      onResolved(row);
+      onResolved(row, true);
     });
     panel.classList.remove("hidden");
   }
 
   // Fields whose change is the ONLY reason to re-ask "which DB_Coins row is
-  // this?" — the four CoinID is derived from, plus Designation (whose whole
-  // purpose is picking between designation-specific rows sharing a base key).
-  const DB_COINS_RESOLUTION_FIELDS = COINID_TRIGGER_FIELDS.concat(["Designation"]);
+  // this?". This used to be COINID_TRIGGER_FIELDS + Designation, because
+  // Designation was a resolution tiebreaker but NOT a CoinID-write trigger.
+  // As of 2026-08-17 Designation is a first-class member of
+  // COINID_TRIGGER_FIELDS (see its comment), so the two sets have converged
+  // and this is simply an alias — kept as a separate name only for
+  // readability at the resolveDbCoinsForSave() call site.
+  const DB_COINS_RESOLUTION_FIELDS = COINID_TRIGGER_FIELDS;
 
   // Runs the ambiguous-match resolution ONLY when one of those fields
   // actually changed against the live snapshot.
@@ -9830,7 +9945,7 @@
       f => f in nextWorkbook && !cellsEqual(snapshotValues[f], nextWorkbook[f]));
     if (!changed) {
       document.getElementById("designationAmbiguousPanel").classList.add("hidden");
-      onResolved(null);
+      onResolved(null, false);
       return;
     }
     checkDesignationReresolution(identityShape, onResolved);
