@@ -4291,6 +4291,19 @@
     };
   }
 
+  // Lookup_Graders -> the same {code, certBaseUrl, type} shape
+  // FAKE_LOOKUP_GRADERS rows use. Confirmed real headers (2026-08-18):
+  // Grader, Full Name, Cert Lookup Base URL, Type — Type is "Service" for
+  // PCGS/NGC/ANACS/ICG/CAC, "Seller"/"Self" for the two non-certification
+  // rows. isServiceGradeSource() is the only consumer today.
+  function mapWorkbookRowToGrader(row) {
+    return {
+      code: String(colVal(row, "Grader")),
+      certBaseUrl: String(colVal(row, "Cert Lookup Base URL")),
+      type: String(colVal(row, "Type"))
+    };
+  }
+
   // null = not loaded yet (every consumer falls back to FAKE_*); a loaded
   // array is cached for the rest of the session (no auto-refresh — same
   // "fetched at most once per session" posture as Reference Images).
@@ -4307,6 +4320,11 @@
   // routed to Needs Attention. Any code asking "which DB_Coins row is
   // this?" must read the REAL catalog when it's available.
   let LIVE_DB_COINS = null;
+  // The real Lookup_Graders table (7 rows) — added for the Designation
+  // matcher's cert-protection tier (isServiceGradeSource()), not any prior
+  // feature. Same "cache once per session, fall back to FAKE_* until loaded"
+  // posture as every other LIVE_* array here.
+  let LIVE_LOOKUP_GRADERS = null;
   let liveNavDataFetchPromise = null;
 
   // The single swap point every nav function reads through — this is what
@@ -4316,7 +4334,9 @@
   function activeCoins() { return LIVE_COINS || FAKE_COINS; }
   function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
   function activeDbCoins() { return LIVE_DB_COINS || FAKE_DB_COINS; }
+  function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
   function __setLiveDbCoinsForTest(rows) { LIVE_DB_COINS = rows; } // test-only seam
+  function __setLiveLookupGradersForTest(rows) { LIVE_LOOKUP_GRADERS = rows; } // test-only seam
 
   // Lazy and dedup'd, safe to call as often as needed (mirrors
   // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
@@ -4341,11 +4361,16 @@
       // exist only to build the join below, nothing else in the app reads
       // them (yet).
       fetchWorkbookSheetRows("DB_Coins"),
-      fetchWorkbookSheetRows("Lookup_MetalContent")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows]) => {
+      fetchWorkbookSheetRows("Lookup_MetalContent"),
+      // Lookup_Graders — feeds isServiceGradeSource() (the Designation
+      // matcher's cert-protection tier). Small, static-ish table; fetched
+      // alongside everything else rather than lazily, same posture as
+      // Lookup_MetalContent above.
+      fetchWorkbookSheetRows("Lookup_Graders")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows]) => {
       liveNavDataFetchPromise = null;
-      // no real answer yet for any of the four — don't cache, retry on next call
-      if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null) return false;
+      // no real answer yet for any of the five — don't cache, retry on next call
+      if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) return false;
       // A stray blank sheet row (no CollectionID) is never a real owned
       // coin; a DB_Sets row with no Lineage is out of this feature's scope
       // entirely (Commemorative/one-off/Album reference rows — the exact
@@ -4380,6 +4405,7 @@
         return coin;
       });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
+      LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
       const activeView = document.querySelector(".view.active");
       if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
       return true;
@@ -6290,12 +6316,18 @@
   // adding a confirmed URL later is the only change needed to light one up.
   // GradeSource's dropdown is sourced from this same list (+ Seller/Owner/AI-est)
   // rather than keeping a separate hardcoded PCGS/NGC pair.
+  // type mirrors the real Lookup_Graders sheet's own Type column (confirmed
+  // 2026-08-18: Grader/Full Name/Cert Lookup Base URL/Type, with PCGS/NGC/
+  // ANACS/ICG/CAC all Type="Service" — Seller/Owner are separate rows there
+  // with Type="Seller"/"Self", represented here via GRADE_SOURCE_OTHER_OPTIONS
+  // instead since they're not certification services). isServiceGradeSource()
+  // below reads this field, never a hardcoded grader-name list.
   const FAKE_LOOKUP_GRADERS = [
-    { code: "PCGS",  certBaseUrl: "https://www.pcgs.com/cert/" },
-    { code: "NGC",   certBaseUrl: "https://www.ngccoin.com/certlookup/" },
-    { code: "ANACS", certBaseUrl: "" },
-    { code: "ICG",   certBaseUrl: "" },
-    { code: "CAC",   certBaseUrl: "" }
+    { code: "PCGS",  certBaseUrl: "https://www.pcgs.com/cert/", type: "Service" },
+    { code: "NGC",   certBaseUrl: "https://www.ngccoin.com/certlookup/", type: "Service" },
+    { code: "ANACS", certBaseUrl: "", type: "Service" },
+    { code: "ICG",   certBaseUrl: "", type: "Service" },
+    { code: "CAC",   certBaseUrl: "", type: "Service" }
   ];
   const GRADE_SOURCE_OTHER_OPTIONS = [
     { code: "Seller", label: "Seller (taking their word for it)" },
@@ -6315,6 +6347,20 @@
   function getGraderBaseUrl(code) {
     const g = FAKE_LOOKUP_GRADERS.find(x => x.code === code);
     return g ? g.certBaseUrl : "";
+  }
+
+  // True only when gradeSource resolves to a real Lookup_Graders row whose
+  // own Type is "Service" (PCGS/NGC/ANACS/ICG/CAC today) — read through
+  // activeLookupGraders() so this stays correct against the live table
+  // without a hardcoded grader-name list. "Seller"/"Owner"/"AI-est" (and
+  // blank) are never Type="Service" and so never match here. Used by
+  // dbCoinsCandidatesFor()'s Designation tier to withhold the blank-as-value
+  // narrowing for a coin whose grading source is an actual certification —
+  // see that function's own comment for why.
+  function isServiceGradeSource(gradeSource) {
+    if (!gradeSource) return false;
+    const g = activeLookupGraders().find(x => x.code === gradeSource);
+    return !!g && g.type === "Service";
   }
 
   // Grader-agnostic — works for whatever's in Lookup_Graders without a code change
@@ -9526,6 +9572,12 @@
         denom: form.workbook.Denomination, year: form.workbook.Year,
         mint: form.workbook.MintMark, variety: form.workbook.Variety,
         designation: form.workbook.Designation,
+        // GradeSource, from the form's own current value (edited or not) —
+        // feeds dbCoinsCandidatesFor()'s cert-protection guard, which
+        // withholds the Designation blank-as-value narrowing when this
+        // resolves to a real certification service (Lookup_Graders
+        // Type="Service"), not just a Seller/Owner estimate.
+        gradeSource: form.workbook.GradeSource,
         // Finish isn't editable here, so it comes from the row itself — it
         // narrows which DB_Coins rows are even candidates (see
         // dbCoinsCandidatesFor).
@@ -9880,7 +9932,29 @@
     // resolves to the plain catalog row instead of surfacing the ambiguous
     // picker. Logged as a ParkingLot item ("Physical FB check pass on owned
     // Mercury dimes", Data/Medium) — not an oversight.
-    if (candidates.length > 1) {
+    //
+    // --- Cert-protection guard on the tier above (2026-08-18, live-test
+    // finding). The blank-as-value rule assumes All.Designation is the best
+    // available signal — true for a Seller/Owner-sourced grade (nothing else
+    // to check it against), but WRONG the moment a coin actually carries a
+    // real third-party certification: AY-00207's own SerNo
+    // (`4906.06/33115202`) decodes to PCGS# 4906, which is DB_Coins'
+    // PLAIN row — yet the tier would happily let a manually-typed
+    // Designation=FB edit silently re-link it to the FB row, writing a
+    // Designation that contradicts the cert already on file. Nothing here
+    // decodes/uses that cert data (that's the separate, deferred
+    // cert-derived-resolution ParkingLot item) — this guard just declines to
+    // let the SOFTER Designation-field signal override a coin with a REAL
+    // certification on it, falling back to the ambiguous picker instead so a
+    // human looks at it, same as before this whole tier existed.
+    //
+    // isServiceGradeSource() reads Lookup_Graders' own Type column (Service
+    // vs. Seller/Self) rather than a hardcoded grader list, and this check is
+    // denomination/field-agnostic by construction — it runs for every
+    // dbCoinsCandidatesFor() call, not just Designation/dime rows, so it
+    // protects Jefferson Nickel FS / Standing Liberty FH etc. the moment
+    // those get backfilled, with no second fix needed.
+    if (candidates.length > 1 && !isServiceGradeSource(shape.gradeSource)) {
       const byDesig = candidates.filter(c => normField(c.designation || "") === normField(shape.designation || ""));
       if (byDesig.length) candidates = byDesig;
     }

@@ -3808,6 +3808,55 @@ and a new save-time confirm.
     now silently resolves to the plain catalog row instead of surfacing the
     picker. Logged as a ParkingLot item (see the session-log entry below) —
     a physical FB-check pass, same shape as the deferred copper-color pass.
+  - **Cert-protection guard, added after Ray's live-test pass found a real
+    gap in the tier above.** Live-testing on `AY-00207` (SerNo
+    `4906.06/33115202`, GradeSource `PCGS`) surfaced that the blank-as-value
+    rule assumes `All.Designation` is the best available signal — true for a
+    Seller/Owner estimate, but wrong the moment a coin carries a REAL
+    certification: AY-00207's own cert decodes (via the existing
+    `parsePcgsLabel()`) to PCGS# 4906, which is DB_Coins' plain row, yet a
+    manually-typed Designation=FB edit would have silently re-linked it to
+    the FB row — writing a Designation that contradicts the cert already on
+    file. **`isServiceGradeSource(gradeSource)`** (new) checks whether a
+    GradeSource resolves to a `Lookup_Graders` row with `Type="Service"`
+    (PCGS/NGC/ANACS/ICG/CAC confirmed today) rather than a hardcoded grader
+    list, so it stays correct if that table ever changes. When true, the
+    Designation tier's blank-as-value narrowing is withheld entirely —
+    `candidates` falls through unnarrowed, so the ambiguous picker fires
+    instead and a human decides, same as before the Designation tier
+    existed. "Seller"/"Owner"/"AI-est"/blank all resolve non-Service and are
+    unaffected — those 55 (of 73) collision coins still get the blank-as-
+    value narrowing, since there's nothing independently verifiable to check
+    it against.
+    - **Deliberately denomination/field-agnostic, not Mercury-dime- or
+      Designation-specific (Ray's explicit correction to the first pass of
+      this fix, which was scoped to PCGS-only).** The guard runs inside
+      `dbCoinsCandidatesFor()` itself, ahead of the Designation tier, for
+      EVERY call regardless of denomination — so it protects Jefferson
+      Nickel FS / Standing Liberty FH the moment those get backfilled, with
+      no second fix needed, even though only dimes exercise it today.
+    - **`Lookup_Graders` is now read live** (`mapWorkbookRowToGrader()`,
+      `LIVE_LOOKUP_GRADERS`/`activeLookupGraders()`, fetched alongside
+      All/DB_Sets/DB_Coins/Lookup_MetalContent in `ensureLiveNavDataFetch()`)
+      — confirmed real headers: `Grader`, `Full Name`, `Cert Lookup Base
+      URL`, `Type`. `FAKE_LOOKUP_GRADERS` gained a matching `type: "Service"`
+      field on all 5 mock rows so the mock path behaves identically before a
+      live session loads the real table. `getGraderBaseUrl()`/
+      `buildCertLookupUrl()` (the pre-existing cert-link-building code,
+      unrelated to this fix) were deliberately left reading
+      `FAKE_LOOKUP_GRADERS` directly, out of scope here.
+    - **`identityShape` (Browse Edit's save handler) gained a `gradeSource`
+      field**, sourced from the form's own current `GradeSource` value (same
+      pattern as `designation`) — this is what lets the guard see whether
+      the coin being saved is Service-graded. `checkDesignationReresolution()`'s
+      other caller (`coin` objects, which already carry `gradeSource` via
+      `mapWorkbookRowToCoin`/`FAKE_COINS`) needed no change.
+    - **Still just a guard, not the derivation itself** — nothing here
+      decodes the cert or picks the "correct" row automatically. The
+      separate, deferred cert-derived-resolution enhancement (using
+      `parsePcgsLabel()`'s SPEC against DB_Coins.PCGS# as an authoritative
+      match) remains its own future ParkingLot item, per Ray's explicit
+      confirmation this stays a later, separate task.
 - **`Designation` added to `COINID_TRIGGER_FIELDS`** (was excluded). Now that
   Designation is a real match input, a Designation change can genuinely
   change which DB_Coins row (and CoinID) a coin resolves to, so it must
@@ -3836,22 +3885,36 @@ and a new save-time confirm.
   already carries a "Thread B worklist" row noting this Designation-only fix
   won't catch the commemorative wrong-link class — consistent with that
   boundary.)
-- **Verified headless — 34 new assertions (`verify_designation_matcher.js`),
-  all passing**, plus the full 685-assertion main baseline re-run clean
-  (719 total). The new suite covers: the mapper reading Designation; every
-  branch of the blank-as-value tier (plain, FB, soft fallback, non-dime
-  no-op, Finish still narrowing, blank-Finish still not narrowing, the
-  2-blank-row picker-preserved case, the FAKE RD/BN pair); the
-  `COINID_TRIGGER_FIELDS` change and set convergence; and the confirm dialog
-  end-to-end (fires on a Designation-only re-link, writes nothing until
-  confirmed, Cancel writes nothing, Confirm writes both Designation and the
-  new CoinID, no dialog on a Grade-only or blank-fill save, and the 2+ picker
-  path suppressing the redundant confirm). **Three existing
-  `verify_browse_edit_write.js` assertions were updated** to click through the
-  new confirm dialog — they asserted the old silent-re-link behavior, so this
-  follows the real design change, not a weakening. **Not verified: any real
-  device or real OneDrive session** — new save-path behavior, needs the live
-  pass in `docs/` before it's trusted.
+- **Verified headless — 47 assertions (`verify_designation_matcher.js`, up
+  from the original 34), all passing**, plus the full 651-assertion main
+  branch's own regression suite re-run clean (698 total). The suite covers:
+  the mapper reading Designation; every branch of the blank-as-value tier
+  (plain, FB, soft fallback, non-dime no-op, Finish still narrowing,
+  blank-Finish still not narrowing, the 2-blank-row picker-preserved case,
+  the FAKE RD/BN pair); the `COINID_TRIGGER_FIELDS` change and set
+  convergence; the confirm dialog end-to-end (fires on a Designation-only
+  re-link, writes nothing until confirmed, Cancel writes nothing, Confirm
+  writes both Designation and the new CoinID, no dialog on a Grade-only or
+  blank-fill save, and the 2+ picker path suppressing the redundant
+  confirm); and the new **13 cert-protection assertions**: `isServiceGradeSource()`
+  against all 5 FAKE_LOOKUP_GRADERS services and against Seller/Owner/
+  AI-est/blank/unknown, the same function reading through a swapped-in LIVE
+  `Lookup_Graders` table (proving it isn't hardcoded), the guard withholding
+  narrowing for PCGS- and NGC-sourced dimes while leaving a Seller-sourced
+  dime unaffected, the identical guard protecting a synthetic non-dime
+  Jefferson Nickel FS pair (denomination-agnostic proof), and an end-to-end
+  Save-button repro of the exact AY-00207 live-test finding (PCGS
+  GradeSource + a Designation edit now surfaces the ambiguous picker instead
+  of the single-candidate re-link dialog, with nothing written until a
+  choice is made). **Three existing `verify_browse_edit_write.js`
+  assertions were updated** (in the original pass, unaffected by this
+  follow-up) to click through the confirm dialog — they asserted the old
+  silent-re-link behavior, so this follows the real design change, not a
+  weakening. **Not verified: any real device or real OneDrive session** —
+  the cert-protection guard specifically needs a live re-run of
+  `docs/MATCHER_DESIGNATION_LIVE_RUN_CHECKLIST.md`'s AY-00207 scenario
+  (§B) before it's trusted end-to-end; everything else in that checklist
+  already passed live per Ray's prior report.
 - **Regression baseline note:** this branch is off `main`, which does NOT
   contain the Docket Part 1 durable-queue work (that's on the paused
   `claude/docket-identity-matching` branch). So the baseline here is the
