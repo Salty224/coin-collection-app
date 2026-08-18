@@ -3879,6 +3879,16 @@ and a new save-time confirm.
   user already chose the row via the 2+ ambiguous picker (`viaPicker`
   threaded through `checkDesignationReresolution`'s callback so the pick
   isn't redundantly re-confirmed).
+- **Cancel on this dialog (or the identity-overwrite dialog before it) does
+  NOT revert the Edit form's own displayed field values — confirmed as
+  correct, not a bug (Ray, 2026-08-18).** Nothing is written to the
+  workbook either way (that's the actual guarantee these dialogs make), but
+  a field the user typed into stays showing what they typed until they
+  either save again or use the Back button's existing "unsaved edits"
+  Keep-editing/Discard prompt. This is consistent with every other guard
+  dialog in Browse Edit (the write-conflict dialog's own doc comment says
+  the same thing) — Cancel means "don't save this," not "undo what I
+  typed." Don't revisit this as an open item.
 - **Scope boundaries held:** Thread B (link audit / further backfill),
   copper-color RD/RB/BN designations, and Add Coin's lack of a Finish input
   are all explicitly out of scope, untouched. (The workbook's own ParkingLot
