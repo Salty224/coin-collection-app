@@ -82,7 +82,11 @@ underlying cause: the only Entra redirect URI registered for `app.html` is
    row (a made-up mint-mark, or a variety you know isn't catalogued) — one
    for Part B/C, and one each for Parts D and E (Parts D/E each add their
    own matching `DB_Coins` row afterward, so their starting identity just
-   needs to be genuinely uncatalogued at flag time).
+   needs to be genuinely uncatalogued at flag time). **Part B/C's identity
+   is now reached via a Browse Edit identity edit, not Add Coin** — see the
+   note at the start of Part B — so have a real (or throwaway) owned coin
+   ready to edit into that identity, rather than typing it fresh into Add
+   Coin.
 
 > **Expected on first open: ONE sign-in, once**, same as every other
 > real-Graph feature in this app now that everything shares one MSAL
@@ -96,29 +100,97 @@ underlying cause: the only Entra redirect URI registered for `app.html` is
 
 ---
 
-## B. Creating a durable entry
+## B. Creating a durable entry — via Browse Edit, not Add Coin — BLOCKED (rewritten)
+
+**Add Coin cannot be used for this section — confirmed live.** Attempting
+the original version of this part (below), Add Coin's Save to Database
+turned out to still be a placeholder: it only toasts *"Placeholder only —
+AY-00027 saved to Database. Nothing written to OneDrive yet"* and never
+writes anything, so it can't create a real Docket entry today. This
+matches CLAUDE.md's own documented state of Add Coin (see "Add Coin: the
+core workflow" — the direct-write/reconciliation step described there is a
+separate, larger, not-yet-built scope; nothing about the Docket branch
+changes that).
+
+**Rewritten to use Browse Edit's identity-edit path instead** — the same
+mechanism Parts D, E, and E2 already used successfully this session (edit
+an identity field on a real coin to a value with zero DB_Coins candidates;
+the save clears CoinID and creates a Docket entry). This exercises the
+identical underlying `docket.json` write / fob-increment /
+reload-persistence behavior this section was always meant to verify —
+just triggered through a path that's actually live, rather than one still
+gated on a future write layer.
 
 8. Navigate to **Docket** (bottom drawer). Note the fob number before you
    start.
-9. Go to **Acquisitions → Add New Coin**. Fill in Denomination/Year/Mint/
-   Description using the "no `DB_Coins` row" identity from step 7. Tap
-   **Save to Database** (or Staging — either path flags the same way).
-10. **Verify:** a toast confirms the save. Navigate back to **Docket**.
+9. Go to **Browse → Edit** on a real coin (or a throwaway coin you don't
+   mind editing back afterward). Edit an identity field — Year is the
+   simplest — to a value with **no** matching `DB_Coins` row for that
+   Denom/Mint/Variety (the same "genuinely uncatalogued" identity idea
+   Setup step 7 already has you prepare). Tap **Save Changes**.
+10. **Verify:** the save succeeds, and — since the new identity has zero
+    DB_Coins candidates — the result reads *"No DB_Coins match for the new
+    identity — CoinID cleared and flagged to Needs Attention."* Navigate
+    back to **Docket**.
 11. **Verify:** a new row appears under **Waiting on Copilot research**,
-    labeled with your test coin's CollectionID, description, and today's
-    date. The fob number went up by one from step 8.
+    labeled with the coin's CollectionID and its (now-edited) identity. The
+    fob number went up by one from step 8.
 12. **In OneDrive**, confirm
     `CoinCollection/_Testing/Staging/_Docket/docket.json` now exists (or was
     updated, if it already existed) and contains an entry with:
     - `status: "open"`
-    - `collectionId` matching the coin you just saved (**not blank** — this
-      is the fix from this round; previously Add Coin's flag never carried
-      an ID at all)
-    - `kind: "no-db-coins-match"`
+    - `collectionId` matching the coin you edited (**not blank**)
+    - `kind: "coinid-relink"` — **not** `"no-db-coins-match"`, since this
+      path flags an already-owned coin whose edit went uncatalogued, not a
+      brand-new unmatched find. Both kinds render identically in the
+      Docket list and Re-check treats them the same way (see CLAUDE.md).
     - a real `entryId`
 13. Reload the page (`F5`). **Verify:** the entry is still there under
     Waiting on Copilot research, with the same text — confirming it's read
     back from the file, not just held in memory from the save.
+13a. **Restore the coin**: reopen Browse → Edit and set the identity field
+     back to its original value, then Save. (This doesn't clear the Docket
+     entry you just created — that's fine and expected; leave it for
+     Part F's Dismiss-with-reason, or for a later Re-check once you've
+     added a matching `DB_Coins` row, same as Part D.)
+
+**Also found, while attempting the original Add-Coin version below — a
+real messaging bug, now fixed regardless of the scope question above:**
+Add Coin's form could show *"No matching DB_Coins entry... needs a
+catalog entry added later"* (`dbNoMatchBanner`) and then, further down the
+same form, *"Matched with enough confidence for a direct save."*
+(`saveConfidentBanner`) for the same coin — directly contradicting each
+other. Root cause: confidence (`isConfidentMatch()`) is driven purely by
+Variety recognition and is deliberately independent of whether DB_Coins
+matched at all (see CLAUDE.md "Direct-write vs. Staging" — a DB_Coins miss
+never blocks a direct save on its own), so the two banners can legitimately
+be true at once — the bug was only in the word **"Matched,"** which
+falsely implied a catalog match had happened. Fixed by rewording the
+confident banner to *"No unrecognized Variety flagged — ready for a direct
+save. (A missing DB_Coins catalog entry, if noted above, won't block this
+on its own.)"* — same underlying logic, no behavior change, just no longer
+claims something that isn't true. Verified headless (7 assertions,
+`verify_addcoin_banner_wording.js`, not committed per this project's
+scratchpad convention): the exact coexistence scenario (uncatalogued
+denom/year, blank/recognized Variety) now shows both banners with text
+that no longer contradicts.
+
+**Blocked, not deleted — the original Add-Coin-based version of this
+section, to restore once Add Coin's own direct-write/reconciliation layer
+exists** (see CLAUDE.md "Add Coin: the core workflow" for that scope):
+
+> 9. Go to **Acquisitions → Add New Coin**. Fill in Denomination/Year/Mint/
+>    Description using the "no `DB_Coins` row" identity from Setup step 7.
+>    Tap **Save to Database** (or Staging — either path flags the same way).
+> 10. **Verify:** a toast confirms the save. Navigate back to **Docket**.
+> 11. **Verify:** a new row appears under **Waiting on Copilot research**,
+>     labeled with your test coin's CollectionID, description, and today's
+>     date. The fob number went up by one.
+> 12. **In OneDrive**, confirm `docket.json` contains an entry with
+>     `status: "open"`, a real (not blank) `collectionId`,
+>     `kind: "no-db-coins-match"`, and a real `entryId`.
+> 13. Reload the page (`F5`). **Verify:** the entry is still there, read
+>     back from the file rather than held in memory.
 
 ---
 

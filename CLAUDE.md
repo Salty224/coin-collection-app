@@ -3898,6 +3898,35 @@ different door (Re-check) that the guard's own fix never touched.
   alone rather than assumed; worth a look if a similar gap ever surfaces on
   that entry kind.
 
+**Checklist Part B rewritten — Add Coin's Save is still a placeholder,
+confirmed live.** Attempting Part B live surfaced that Add Coin's "Save to
+Database" only toasts *"Placeholder only — ... Nothing written to OneDrive
+yet"* — it can't create a real Docket entry, per Add Coin's own documented
+scope ("Add Coin: the core workflow" — its direct-write/reconciliation step
+is separate, larger, not-yet-built work, unaffected by this branch).
+`docs/DOCKET_LIVE_RUN_CHECKLIST.md`'s Part B now creates the test entry via
+Browse Edit's identity-edit path instead (same mechanism Parts D/E/E2
+already used) — same underlying `docket.json` write/fob/reload-persistence
+behavior, just triggered through a path that's actually live. **The
+original Add-Coin-based steps are kept, marked blocked, not deleted** —
+restore them once Add Coin's own write layer lands.
+- **A real messaging bug found in the same attempt, fixed regardless of
+  the scope question above**: Add Coin's form could show "No matching
+  DB_Coins entry... needs a catalog entry added later" (`dbNoMatchBanner`)
+  and then, further down the same form, "Matched with enough confidence
+  for a direct save." (`saveConfidentBanner`) for the same coin —
+  contradicting each other. Not a logic bug: confidence
+  (`isConfidentMatch()`) is deliberately driven purely by Variety
+  recognition, independent of DB_Coins match status (a DB_Coins miss never
+  blocks a direct save on its own — see "Direct-write vs. Staging" above),
+  so both banners can legitimately be true at once. The bug was only the
+  word **"Matched,"** which falsely implied a catalog match. Reworded to
+  "No unrecognized Variety flagged — ready for a direct save. (A missing
+  DB_Coins catalog entry, if noted above, won't block this on its own.)" —
+  same logic, no behavior change, just an honest claim. Verified headless
+  (7 assertions, `verify_addcoin_banner_wording.js`, not committed per this
+  project's scratchpad convention).
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins
