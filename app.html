@@ -3772,7 +3772,45 @@
 
 </div>
 
+<!-- Local-only dev-flag override file (see "Local dev-flag overrides" in
+     README.md, and the DEV_FLAG_OVERRIDES comment right below in the main
+     script). dev-flags.local.js is listed in .gitignore and is NEVER
+     committed or shipped — this tag simply 404s harmlessly on GitHub
+     Pages and on any fresh checkout that doesn't have the file, exactly
+     like every other "gracefully degrade if a resource isn't there"
+     pattern already in this file (the MSAL CDN script, reference images,
+     etc.). A plain <script src> that 404s fires an error event and moves
+     on; it does not throw or block the rest of the page from loading. -->
+<script src="dev-flags.local.js"></script>
+
 <script>
+  // ==================================================================
+  // LOCAL DEV-FLAG OVERRIDES — see README.md's "Local dev-flag overrides"
+  // section for the full picture. The problem this solves: every real-Graph
+  // flag below (ENABLE_REFERENCE_IMAGES, ENABLE_LIVE_NAV_DATA,
+  // ENABLE_SET_WRITE_LAYER, ENABLE_BROWSE_EDIT_WRITE, ENABLE_DOCKET_WRITE)
+  // plus WRITE_TARGET further down are plain `const`s, so testing anything
+  // locally meant hand-editing this file in Notepad after every fresh
+  // branch ZIP download — tedious, and easy to forget to set back before
+  // committing (which is exactly the kind of mistake this app's own
+  // "disabled by default in production" posture exists to prevent).
+  //
+  // devFlagOverride(name, fallback) reads an optional `window.__DEV_FLAGS__`
+  // object — set by `dev-flags.local.js` (see the <script> tag just above
+  // this one in the HTML) if that file exists next to app.html — and falls
+  // back to the exact same hardcoded default every flag already had if the
+  // key isn't present. `dev-flags.local.js` is listed in .gitignore and is
+  // NEVER committed or shipped: on GitHub Pages, or any checkout that
+  // hasn't had the file placed in it, the <script src> 404s, `__DEV_FLAGS__`
+  // is never set, and every flag below resolves to its literal hardcoded
+  // default exactly as if this whole mechanism didn't exist. This is a
+  // local convenience layer only — it can only ever loosen defaults on a
+  // machine that already has the override file, never on production.
+  function devFlagOverride(name, fallback) {
+    const overrides = (typeof window !== "undefined" && window.__DEV_FLAGS__) || {};
+    return Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : fallback;
+  }
+
   // ==================================================================
   // REAL Graph API integration — Reference Images (read-only, first real
   // network/auth code in this file). Everything else in app.html still
@@ -3821,7 +3859,7 @@
   // will redirect to a real Microsoft sign-in and back. Set back to false
   // before merging/deploying again until a real production redirect URI
   // exists and this has a non-localhost-only story.
-  const ENABLE_REFERENCE_IMAGES = false;
+  const ENABLE_REFERENCE_IMAGES = devFlagOverride("ENABLE_REFERENCE_IMAGES", false);
 
   // ==================================================================
   // REAL-GRAPH FEATURE FLAGS + THE ONE SHARED MSAL INSTANCE
@@ -3838,15 +3876,15 @@
   //   ENABLE_BROWSE_EDIT_WRITE — Browse Edit row writes (writes the workbook)
   //   ENABLE_DOCKET_WRITE      — Docket research queue (writes a Staging file,
   //                              plus a CoinID cell on resolve)
-  const ENABLE_LIVE_NAV_DATA = false; // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
-  const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
+  const ENABLE_LIVE_NAV_DATA = devFlagOverride("ENABLE_LIVE_NAV_DATA", false); // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
+  const ENABLE_SET_WRITE_LAYER = devFlagOverride("ENABLE_SET_WRITE_LAYER", false); // localhost-dev only for now (Q6=a)
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
   // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
   // two features write completely different things (Add Set writes Staging
   // JSON + photo files and never touches the workbook; Browse Edit writes
   // single cells INTO the workbook), so they must be independently
   // enable-able. Same localhost-dev-only posture as every other flag here.
-  const ENABLE_BROWSE_EDIT_WRITE = false;
+  const ENABLE_BROWSE_EDIT_WRITE = devFlagOverride("ENABLE_BROWSE_EDIT_WRITE", false);
   // The Docket's "no DB_Coins match" research queue, made durable (it was
   // in-memory-only and append-only before). Its OWN flag for the same
   // reason every other one is: it writes a different thing again (a JSON
@@ -3854,7 +3892,7 @@
   // Re-check is confirmed, one CoinID cell on the All sheet via the same
   // narrow writeCoinIdCell() path Browse Edit already uses). Independently
   // enable-able, same localhost-dev-only posture.
-  const ENABLE_DOCKET_WRITE = false;
+  const ENABLE_DOCKET_WRITE = devFlagOverride("ENABLE_DOCKET_WRITE", false);
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
   const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE;
@@ -4476,7 +4514,7 @@
   // ENABLE_SET_WRITE_LAYER / ENABLE_BROWSE_EDIT_WRITE / WRITE_LAYER_ENABLED
   // are declared with the other real-Graph flags, up beside the shared MSAL
   // instance — they have to be evaluated before it is constructed.
-  const WRITE_TARGET = "copy";          // "copy" | "live" — Ray-only flip (Q5)
+  const WRITE_TARGET = devFlagOverride("WRITE_TARGET", "copy"); // "copy" | "live" — Ray-only flip (Q5)
 
   const WRITE_PATHS = {
     copy: {
