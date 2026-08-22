@@ -3770,6 +3770,170 @@ Container only ever appears in the new Location section.
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
 
+### Matcher hardening: Designation in dbCoinsCandidatesFor() (BUILT, held on branch `claude/matcher-designation-hardening`, NOT merged — awaiting Ray's go-ahead + live pass)
+Built off `main` (NOT the paused `claude/docket-identity-matching` branch —
+kept strictly separate at Ray's explicit instruction). Adds
+`DB_Coins.Designation` to the DB_Coins match so the FB-catalog expansion
+stops flooding the ambiguous picker, plus full-attribute re-link validation
+and a new save-time confirm.
+- **Workbook verified fresh, not from prior docs (2026-08-17 upload):**
+  DB_Coins is now **34 columns**, `AH = Designation`, `AG = Mint`. Note
+  there are TWO mint columns now — `MintMark` (H, the abbreviation `S`/`D`/
+  blank) and a new `Mint` (AG, the full name `San Francisco`/`Denver`/
+  `Philadelphia`). **The matcher reads `MintMark` (H)** to match
+  `All.MintMark`; the new full-name `Mint` column is not used by any match
+  logic and must not be. Designation is populated on **only 78 rows**, all
+  `FB`, all Mercury Dimes, each a Business-Strike duplicate of a pre-existing
+  plain sibling — so Finish can't separate them, and 73 owned dimes that used
+  to resolve to exactly one candidate now resolve to 2+.
+- **`mapWorkbookRowToDbCoin()` now reads the real Designation column** (was
+  hardcoded `""` from back when DB_Coins had no such column). FAKE_DB_COINS
+  already carried its own designation values (the 1909-S RD/BN mock pair), so
+  the mock path is unaffected — only a live-fetched row's exposure changed.
+- **Designation narrowing tier in `dbCoinsCandidatesFor()`, option C
+  (blank-as-value) — DELIBERATELY STRONGER than the Finish tier, confirmed
+  with Ray.** Unlike Finish (where a blank owned value must NOT narrow,
+  because `All.Finish` carries values DB_Coins lacks like "Circulated"), a
+  blank `All.Designation` genuinely means "not FB" and so SHOULD select the
+  plain (blank) catalog row and drop the FB one; an FB owned coin selects FB
+  and drops plain. Still soft: if no candidate matches the owned Designation
+  it falls back to the full set (never zero, never a Docket flood). Verified
+  against the real sheet: this is the ONLY semantic that actually fixes the
+  collision (73 owned dimes → 2; the literal "narrow only when both non-blank
+  and differ" reading fixes nothing because one side of every FB/plain pair
+  is always blank). Non-dimes are untouched (no non-dime DB_Coins row carries
+  a Designation).
+  - **KNOWN, ACCEPTED TRADEOFF (Ray signed off):** an owned Mercury dime
+    that is physically Full Bands but not yet recorded FB in `All.Designation`
+    now silently resolves to the plain catalog row instead of surfacing the
+    picker. Logged as a ParkingLot item (see the session-log entry below) —
+    a physical FB-check pass, same shape as the deferred copper-color pass.
+  - **Cert-protection guard, added after Ray's live-test pass found a real
+    gap in the tier above.** Live-testing on `AY-00207` (SerNo
+    `4906.06/33115202`, GradeSource `PCGS`) surfaced that the blank-as-value
+    rule assumes `All.Designation` is the best available signal — true for a
+    Seller/Owner estimate, but wrong the moment a coin carries a REAL
+    certification: AY-00207's own cert decodes (via the existing
+    `parsePcgsLabel()`) to PCGS# 4906, which is DB_Coins' plain row, yet a
+    manually-typed Designation=FB edit would have silently re-linked it to
+    the FB row — writing a Designation that contradicts the cert already on
+    file. **`isServiceGradeSource(gradeSource)`** (new) checks whether a
+    GradeSource resolves to a `Lookup_Graders` row with `Type="Service"`
+    (PCGS/NGC/ANACS/ICG/CAC confirmed today) rather than a hardcoded grader
+    list, so it stays correct if that table ever changes. When true, the
+    Designation tier's blank-as-value narrowing is withheld entirely —
+    `candidates` falls through unnarrowed, so the ambiguous picker fires
+    instead and a human decides, same as before the Designation tier
+    existed. "Seller"/"Owner"/"AI-est"/blank all resolve non-Service and are
+    unaffected — those 55 (of 73) collision coins still get the blank-as-
+    value narrowing, since there's nothing independently verifiable to check
+    it against.
+    - **Deliberately denomination/field-agnostic, not Mercury-dime- or
+      Designation-specific (Ray's explicit correction to the first pass of
+      this fix, which was scoped to PCGS-only).** The guard runs inside
+      `dbCoinsCandidatesFor()` itself, ahead of the Designation tier, for
+      EVERY call regardless of denomination — so it protects Jefferson
+      Nickel FS / Standing Liberty FH the moment those get backfilled, with
+      no second fix needed, even though only dimes exercise it today.
+    - **`Lookup_Graders` is now read live** (`mapWorkbookRowToGrader()`,
+      `LIVE_LOOKUP_GRADERS`/`activeLookupGraders()`, fetched alongside
+      All/DB_Sets/DB_Coins/Lookup_MetalContent in `ensureLiveNavDataFetch()`)
+      — confirmed real headers: `Grader`, `Full Name`, `Cert Lookup Base
+      URL`, `Type`. `FAKE_LOOKUP_GRADERS` gained a matching `type: "Service"`
+      field on all 5 mock rows so the mock path behaves identically before a
+      live session loads the real table. `getGraderBaseUrl()`/
+      `buildCertLookupUrl()` (the pre-existing cert-link-building code,
+      unrelated to this fix) were deliberately left reading
+      `FAKE_LOOKUP_GRADERS` directly, out of scope here.
+    - **`identityShape` (Browse Edit's save handler) gained a `gradeSource`
+      field**, sourced from the form's own current `GradeSource` value (same
+      pattern as `designation`) — this is what lets the guard see whether
+      the coin being saved is Service-graded. `checkDesignationReresolution()`'s
+      other caller (`coin` objects, which already carry `gradeSource` via
+      `mapWorkbookRowToCoin`/`FAKE_COINS`) needed no change.
+    - **Still just a guard, not the derivation itself** — nothing here
+      decodes the cert or picks the "correct" row automatically. The
+      separate, deferred cert-derived-resolution enhancement (using
+      `parsePcgsLabel()`'s SPEC against DB_Coins.PCGS# as an authoritative
+      match) remains its own future ParkingLot item, per Ray's explicit
+      confirmation this stays a later, separate task.
+- **`Designation` added to `COINID_TRIGGER_FIELDS`** (was excluded). Now that
+  Designation is a real match input, a Designation change can genuinely
+  change which DB_Coins row (and CoinID) a coin resolves to, so it must
+  trigger the CoinID re-link write. Before, a Designation-only edit ran the
+  full re-resolution and then silently DISCARDED the answer (it was in
+  `DB_COINS_RESOLUTION_FIELDS` but not the CoinID-write gate). The two sets
+  have now converged — `DB_COINS_RESOLUTION_FIELDS === COINID_TRIGGER_FIELDS`
+  (kept as a separate name only for readability at its call site).
+- **New "Confirm catalog re-link" dialog (`showCoinIdChangeDialog`) — item 3,
+  built as the GENERAL option (b), not Designation-specific.** Fires whenever
+  re-resolution lands on a single, different, non-blank CoinID than what's
+  already on the row, for ANY identity field — the missing confirmation that
+  let the original AY-00008 Year-change bug silently re-point a row's catalog
+  link. Composed as the INNER gate after the existing identity-overwrite
+  dialog (on an identity edit the user confirms the field change first, then
+  its catalog-link consequence). Deliberately NOT fired when: the CoinID is
+  being filled from blank (completing, not overwriting — mirrors the
+  identity-overwrite dialog's own hadValue rule); the re-link clears to blank
+  (a genuine no-match already routes to Docket with its own toast); or the
+  user already chose the row via the 2+ ambiguous picker (`viaPicker`
+  threaded through `checkDesignationReresolution`'s callback so the pick
+  isn't redundantly re-confirmed).
+- **Cancel on this dialog (or the identity-overwrite dialog before it) does
+  NOT revert the Edit form's own displayed field values — confirmed as
+  correct, not a bug (Ray, 2026-08-18).** Nothing is written to the
+  workbook either way (that's the actual guarantee these dialogs make), but
+  a field the user typed into stays showing what they typed until they
+  either save again or use the Back button's existing "unsaved edits"
+  Keep-editing/Discard prompt. This is consistent with every other guard
+  dialog in Browse Edit (the write-conflict dialog's own doc comment says
+  the same thing) — Cancel means "don't save this," not "undo what I
+  typed." Don't revisit this as an open item.
+- **Scope boundaries held:** Thread B (link audit / further backfill),
+  copper-color RD/RB/BN designations, and Add Coin's lack of a Finish input
+  are all explicitly out of scope, untouched. (The workbook's own ParkingLot
+  already carries a "Thread B worklist" row noting this Designation-only fix
+  won't catch the commemorative wrong-link class — consistent with that
+  boundary.)
+- **Verified headless — 47 assertions (`verify_designation_matcher.js`, up
+  from the original 34), all passing**, plus the full 651-assertion main
+  branch's own regression suite re-run clean (698 total). The suite covers:
+  the mapper reading Designation; every branch of the blank-as-value tier
+  (plain, FB, soft fallback, non-dime no-op, Finish still narrowing,
+  blank-Finish still not narrowing, the 2-blank-row picker-preserved case,
+  the FAKE RD/BN pair); the `COINID_TRIGGER_FIELDS` change and set
+  convergence; the confirm dialog end-to-end (fires on a Designation-only
+  re-link, writes nothing until confirmed, Cancel writes nothing, Confirm
+  writes both Designation and the new CoinID, no dialog on a Grade-only or
+  blank-fill save, and the 2+ picker path suppressing the redundant
+  confirm); and the new **13 cert-protection assertions**: `isServiceGradeSource()`
+  against all 5 FAKE_LOOKUP_GRADERS services and against Seller/Owner/
+  AI-est/blank/unknown, the same function reading through a swapped-in LIVE
+  `Lookup_Graders` table (proving it isn't hardcoded), the guard withholding
+  narrowing for PCGS- and NGC-sourced dimes while leaving a Seller-sourced
+  dime unaffected, the identical guard protecting a synthetic non-dime
+  Jefferson Nickel FS pair (denomination-agnostic proof), and an end-to-end
+  Save-button repro of the exact AY-00207 live-test finding (PCGS
+  GradeSource + a Designation edit now surfaces the ambiguous picker instead
+  of the single-candidate re-link dialog, with nothing written until a
+  choice is made). **Three existing `verify_browse_edit_write.js`
+  assertions were updated** (in the original pass, unaffected by this
+  follow-up) to click through the confirm dialog — they asserted the old
+  silent-re-link behavior, so this follows the real design change, not a
+  weakening. **Not verified: any real device or real OneDrive session** —
+  the cert-protection guard specifically needs a live re-run of
+  `docs/MATCHER_DESIGNATION_LIVE_RUN_CHECKLIST.md`'s AY-00207 scenario
+  (§B) before it's trusted end-to-end; everything else in that checklist
+  already passed live per Ray's prior report.
+- **Regression baseline note:** this branch is off `main`, which does NOT
+  contain the Docket Part 1 durable-queue work (that's on the paused
+  `claude/docket-identity-matching` branch). So the baseline here is the
+  685-assertion main suite, not the 748 that includes the 63 Docket-only
+  assertions. The zero-candidate path reuses `flagCoinIdNeedsRelink()` as it
+  exists on main (in-memory `FAKE_NEEDS_QUEUE`); it's forward-compatible —
+  the Docket branch already rewired that same function to route durably, so
+  whichever merges second inherits the other's behavior.
+
 ### Browse Edit real write layer (BUILT and merged to main)
 **Merge status correction:** this section previously read "held on branch
 `claude/browse-edit-write-layer`, NOT merged — awaiting Ray's real-device
@@ -5910,6 +6074,17 @@ reference-image-second, then the bare placeholder third.
   actual store; the app should be re-derivable from OneDrive state at any time.
 
 ## Session log — carried-forward state (not app architecture, tracked here for continuity)
+
+### ParkingLot entry to transfer (matcher-hardening branch, 2026-08-17)
+**Needs adding to the workbook's ParkingLot sheet — logged here because this
+coding session has no write access to the live OneDrive workbook.** Recorded
+verbatim in ParkingLot's own column shape (Title, Category, Priority, Date,
+Description, …, Status), same shape as the existing "Copper color
+designations (RD/RB/BN)" future-pass row:
+- **Title:** `Physical FB check pass on owned Mercury dimes`
+- **Category:** `Data`  · **Priority:** `Medium`  · **Date:** `2026-08-17`
+- **Status:** `Open`
+- **Description:** `The Designation matcher (dbCoinsCandidatesFor, matcher-hardening branch) treats a blank All.Designation as "not FB" — so an owned Mercury dime that is physically Full Bands but not yet recorded FB in All.Designation now silently resolves to the plain (non-FB) DB_Coins row instead of surfacing the ambiguous picker. This is a deliberate, accepted tradeoff (it's what stops the 78 FB catalog rows from flooding the Docket for the 70 owned dimes that carry no Designation). Needs a physical inspection pass to set All.Designation=FB on any owned Mercury dime that is actually Full Bands, coin by coin — Ray's call, not a bulk inference. Same shape as the deferred copper-color RD/RB/BN pass. Only 3 owned dimes currently carry FB (AY-00210, AY-00240, AY-00680-C).`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
