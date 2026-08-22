@@ -5247,6 +5247,16 @@
   // isn't. `finish` rides along because dbCoinsCandidatesFor() uses it to
   // narrow candidates — without it a later Re-check would be matching on a
   // weaker key than the save that created the entry did.
+  //
+  // `designation`/`gradeSource` ride along for the identical reason, fixing
+  // a real gap found while merging this branch onto the Designation-matcher
+  // hardening: without them, a later docketRecheckEntry() had no way to
+  // know the coin's real Designation or whether its GradeSource is a real
+  // certification service, so it re-derived candidates as if both were
+  // blank — silently bypassing the cert-protection guard that already
+  // protects this exact identity edit on the live Browse Edit Save path.
+  // Same field names as identityShape (the shape this function's own
+  // caller already builds for Browse Edit's save handler) — no new shape.
   async function flagCoinIdNeedsRelink(coin, identityShape) {
     const result = await appendDocketEntry({
       kind: "coinid-relink",
@@ -5256,6 +5266,8 @@
       mint: identityShape.mint,
       variety: identityShape.variety,
       finish: identityShape.finish,
+      designation: identityShape.designation,
+      gradeSource: identityShape.gradeSource,
       desc: coin.description || coin.name || ""
     });
     if (docketWriteEnabled() && !result.durable) {
@@ -5833,6 +5845,19 @@
       mint: fields.mint || "",
       variety: fields.variety || "",
       finish: fields.finish || "",
+      // Same field names as identityShape (Browse Edit's save-path shape) —
+      // deliberately not renamed. Needed so a later docketRecheckEntry()
+      // can call dbCoinsCandidatesFor() with the coin's real current
+      // Designation/GradeSource instead of implicitly blank/non-service,
+      // which would silently skip both the Designation tier's real value
+      // and the cert-protection guard on Re-check. Both default to "" for
+      // callers that don't have them (e.g. Add Coin's "no-db-coins-match"
+      // push, which has no matched row to read Finish from either) — a
+      // blank designation/gradeSource is handled correctly downstream by
+      // dbCoinsCandidatesFor()/isServiceGradeSource(), same as a blank
+      // finish already is.
+      designation: fields.designation || "",
+      gradeSource: fields.gradeSource || "",
       desc: fields.desc || "",
       dateFlagged: fields.dateFlagged || new Date().toISOString().slice(0, 10),
       resolvedCoinId: "",
@@ -10029,7 +10054,15 @@
               // so it comes off the row itself and narrows a later Re-check
               // the same way it narrowed this save's own match attempt.
               finish: browseEditSnapshot && browseEditSnapshot.id === coin.id
-                ? browseEditSnapshot.values.Finish : coin.finish
+                ? browseEditSnapshot.values.Finish : coin.finish,
+              // Designation/GradeSource, same field names/source as the
+              // identityShape built at the top of this save handler — needed
+              // so a later Re-check on this flagged entry can see the coin's
+              // real current signal instead of implicitly blank/non-service
+              // (see flagCoinIdNeedsRelink()'s own comment for why this
+              // matters — the cert-protection guard depends on it).
+              designation: form.workbook.Designation,
+              gradeSource: form.workbook.GradeSource
             });
             coinIdMsg = " No DB_Coins match for the new identity — CoinID cleared and flagged to Needs Attention.";
           }
@@ -11278,9 +11311,16 @@
   //                   already follows (CLAUDE.md: ambiguous matches always
   //                   need a human's eyes, never silent resolution).
   async function docketRecheckEntry(entry) {
+    // designation/gradeSource included so the Designation tier and its
+    // cert-protection guard (dbCoinsCandidatesFor()) see the coin's real
+    // current signal on Re-check, same as Browse Edit's own save path —
+    // an entry built before these fields existed on the schema simply
+    // carries "" for both, which both functions already treat as
+    // blank/non-service, the same safe default they've always had.
     const candidates = dbCoinsCandidatesFor({
       denom: entry.denom, year: entry.year, mint: entry.mint,
-      variety: entry.variety, finish: entry.finish
+      variety: entry.variety, finish: entry.finish,
+      designation: entry.designation, gradeSource: entry.gradeSource
     });
 
     if (!candidates.length) {

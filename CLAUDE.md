@@ -3837,6 +3837,58 @@ CollectionID. **Not verified: any real device or any real OneDrive
 session** — this is a new write path and needs a live run before it's
 trusted (see the testing note in the branch's own report).
 
+**Real gap found and fixed while merging this branch onto
+`claude/matcher-designation-hardening`.** Bringing the merged matcher
+(Designation-aware, with the cert-protection guard from that branch's own
+live-test fix) onto this branch was clean at the git level, but exposed a
+real functional gap: **`buildDocketEntry()`'s field whitelist didn't
+include `designation`/`gradeSource`, and `flagCoinIdNeedsRelink()` never
+passed them in the first place** — so `docketRecheckEntry()` re-derived
+candidates as if a coin's Designation were always blank and its GradeSource
+were always non-service, regardless of the coin's real current values.
+Reproduced directly: a synthetic entry shaped exactly like the real
+`AY-00207` case (Designation `FB`, GradeSource `PCGS`) silently narrowed to
+the plain (wrong) catalog row on Re-check instead of surfacing the
+ambiguous picker — the exact class of bug the cert-protection guard exists
+to prevent on the live Browse Edit Save path, just reachable through a
+different door (Re-check) that the guard's own fix never touched.
+- **Fixed**: `designation`/`gradeSource` added to `buildDocketEntry()`'s
+  entry shape (defaulting to `""` for callers that don't have them, e.g.
+  Add Coin's `no-db-coins-match` push — same safe-default treatment `finish`
+  already got); `flagCoinIdNeedsRelink()`'s doc comment and its
+  `appendDocketEntry()` call now forward `identityShape.designation`/
+  `.gradeSource`; and — the actual bug, not just an oversight in the
+  function signature — **`performBrowseEditWrite()`'s own call site**
+  (which builds its own inline object rather than passing the save
+  handler's `identityShape` through) needed the same two fields added
+  directly, or the fix upstream would never have had anything to forward.
+  `docketRecheckEntry()` now includes both in the shape it passes to
+  `dbCoinsCandidatesFor()`. Same field names as `identityShape` throughout
+  — no new shape invented.
+- **Verified headless** (12 new assertions, `verify_docket_designation_fix.js`,
+  not committed per this project's scratchpad-script convention): the
+  schema keeps both fields when supplied and defaults them to `""` when
+  not; an end-to-end repro through the real functions
+  (`flagCoinIdNeedsRelink` → in-memory queue → `docketRecheckEntry`) for an
+  `AY-00207`-shaped entry now correctly surfaces the ambiguous picker
+  (`docketMatchOverlay`) instead of the single-match confirm dialog
+  (`writeGuardOverlay`); a Seller-sourced control case (no real cert) still
+  narrows to one match as before, confirming the fix isn't over-broad; and
+  a source-level guard on the specific `performBrowseEditWrite()` call site
+  so a future edit can't silently drop the two fields again without a test
+  catching it. Full syntax/nav/console-error smoke re-run clean alongside
+  it.
+- **Not yet live-verified** — Part E2 of
+  `docs/DOCKET_LIVE_RUN_CHECKLIST.md` (added alongside this fix) is what
+  needs a real pass against the copy workbook before Part 1 testing
+  resumes, same role §B2 played for the matcher branch's own checklist.
+- **Add Coin's `no-db-coins-match` push was deliberately left unchanged** —
+  it doesn't currently pass `designation`/`gradeSource` even though the
+  form has both fields available (`buildCoinRecordFromForm()` already reads
+  them). Not part of the reported finding or Ray's fix request, so left
+  alone rather than assumed; worth a look if a similar gap ever surfaces on
+  that entry kind.
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins

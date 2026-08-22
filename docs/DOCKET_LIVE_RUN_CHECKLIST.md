@@ -13,6 +13,13 @@ the way the mock did on your account — the mock cannot prove Graph accepts
 these exact `uploadJson`/`getJson` calls against a real OneDrive, only that our
 logic around them is right.
 
+**Since then:** merging this branch onto `claude/matcher-designation-hardening`
+surfaced a real gap (Docket entries didn't carry `designation`/`gradeSource`,
+so Re-check couldn't see them) — fixed and re-verified headless (12 new
+assertions, not committed per this project's scratchpad-script convention).
+**Part E2 below is what confirms that fix live**, same role §B2 played for
+the matcher branch's own checklist.
+
 ---
 
 ## Read this first: where this pass can actually happen
@@ -177,6 +184,57 @@ Same idea as Part D, but add **two** rows this round.
     not whichever one happened to render first.
 30. Afterward, delete both test rows from `DB_Coins` and clear the `CoinID`
     cell you wrote.
+
+---
+
+## E2. Re-check — cert-protected identity edit (the picker fires, not a silent narrow) — NEW
+
+Found while merging this branch onto the Designation-matcher hardening
+branch (`claude/matcher-designation-hardening`, itself confirmed live via
+its own checklist's §B2 against `AY-00207`): `flagCoinIdNeedsRelink()` and
+`buildDocketEntry()` didn't carry the coin's `Designation`/`GradeSource`
+onto the durable entry, so a later **Re-check** re-derived candidates as if
+both were blank — silently bypassing the cert-protection guard that
+already protects this exact identity edit on the live Browse Edit **Save**
+path (per §B2). Fixed (`designation`/`gradeSource` added to the entry
+schema, `flagCoinIdNeedsRelink()`'s caller, and the fields
+`docketRecheckEntry()` passes into `dbCoinsCandidatesFor()`) and re-verified
+headless — this section is what proves it live, on the real workbook,
+the same way §B2 did for Save.
+
+30a. Flag a fresh entry the same way Part E does, but this time via **Browse
+     → Edit** on a real or throwaway coin, not Add Coin — set its
+     **Designation** field to `FB` and its **GradeSource** dropdown to
+     **PCGS** before saving, and edit an identity field (e.g. Year) to a
+     value with **no** matching `DB_Coins` row, so the save clears CoinID
+     and flags a `coinid-relink` entry (same "zero match" flag path Part D's
+     own scenario description explains). Note the entry's identity
+     (Denom/Year/Mint/Variety) from the Docket list.
+30b. **In OneDrive**, open `docket.json` and confirm the new entry's
+     `designation` field reads `"FB"` and its `gradeSource` field reads
+     `"PCGS"` — **this is the actual fix**, so confirm it landed in the
+     file before going further, not just in the running page.
+30c. In the **copy workbook's `DB_Coins` tab**, add **two** rows matching
+     that entry's identity exactly — one with a **blank** `Designation`
+     (e.g. `CoinID = C-TEST-9004`) and one with `Designation = FB`
+     (e.g. `CoinID = C-TEST-9005`), same shape as the real
+     `AY-00207`/1916-D Mercury Dime plain-vs-FB pair. Save the workbook.
+30d. In **Docket**, tap **Re-check** on the entry from 30a.
+30e. **Verify: the ambiguous picker ("Pick the matching catalog entry")
+     opens, listing BOTH `C-TEST-9004` and `C-TEST-9005`.** This is the bug
+     check — **before this fix**, Re-check would have silently narrowed to
+     the single blank-`Designation` row (`C-TEST-9004`, the WRONG one for
+     an FB-certified coin) and shown "One match found" instead, with
+     nothing warning you the coin was actually FB/PCGS-certified.
+30f. Tap **Cancel**. Delete both test `DB_Coins` rows afterward.
+
+**Control, same step 30a–30d shape but confirming the fix isn't
+over-broad:** repeat with GradeSource left as **Seller** (or blank) instead
+of PCGS, everything else identical. **Verify:** Re-check still narrows to a
+**single** match (the FB row, since a non-service-graded coin's own
+Designation is real signal to narrow on) and shows "One match found" —
+the picker should NOT fire here. If it does, the fix over-triggered and
+needs another look before Part 1 testing resumes.
 
 ---
 
