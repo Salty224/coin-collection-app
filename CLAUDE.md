@@ -3714,6 +3714,277 @@ available this session
 consistent with how the original write-layer work also had a Ray-only live
 step.
 
+### Docket research queue: durable + resolvable (BUILT, held on branch `claude/docket-identity-matching`, NOT merged — awaiting Ray's go-ahead)
+First piece of the Docket identity-matching work. The "Waiting on Copilot
+research" queue was `FAKE_NEEDS_QUEUE` and nothing else — a plain in-memory
+array, seeded with two demo rows, appended to by Add Coin's save and Browse
+Edit's CoinID re-link, **append-only with no code path that could ever
+remove an entry**, and gone on reload. So a coin stayed flagged for the life
+of the page even after Copilot added the DB_Coins row that resolved it.
+This adds a durable store, a Re-check action, and a dismiss-with-reason.
+
+**Gate: `ENABLE_DOCKET_WRITE = false`** — its own flag, same
+localhost-dev-only posture as every other real-Graph flag, and added to
+`WRITE_LAYER_ENABLED` (it writes a Staging file AND, on a confirmed
+Re-check, one CoinID cell). With it off, everything behaves exactly as
+before on `FAKE_NEEDS_QUEUE` — that's what keeps the shipped build working
+unchanged, and it's asserted.
+
+**Which "Staging" this writes to — a real discrepancy with the request's
+own wording, resolved deliberately.** The task said "write to the Staging
+**sheet** via the existing real Staging write path." Those are two
+different things in this project and only one of them exists:
+- the Staging **SHEET** (the Excel tab mirroring All's columns) is still
+  entirely `FAKE_STAGING`, in memory. **There is no real write path to it,
+  and none to any sheet but All.** The workbook write layer only ever
+  PATCHes targeted ranges on an *existing* All row located by CollectionID
+  — it has no append-a-new-row capability for any sheet. Writing the queue
+  there would mean building that from scratch: new architecture, not "use
+  the existing path."
+- the Staging **FOLDER** (`{stagingBase}/…`, JSON files) is the app's real,
+  already-shipping Staging write path (`writeSetDraft`/`readSetDraft`/
+  `listSetDrafts` → `graph().uploadJson`/`getJson`).
+Went with the folder, since that's the only thing the phrase accurately
+describes, and Ray explicitly delegated the storage shape ("use your
+judgment... new rows vs. a structured block"). **If he actually wanted rows
+on the Staging sheet, that's a separate and much larger piece of work** —
+it needs a sheet-append capability the write layer has never had.
+
+**Storage shape**: ONE document at `{stagingBase}/_Docket/docket.json`
+(`type: "docket-queue"`, `version: 1`, `entries: []`), not a file per
+entry — the queue is tens of entries at most, one file gives
+read-modify-write in a single round trip plus a natural home for a schema
+version, and it keeps the Staging folder from filling with single-record
+files `listSetDrafts()` has to walk past. **Safe alongside set drafts**:
+`listSetDrafts()` `getJson()`s `{base}/{child}/set.json` for every child
+and drops anything that isn't `type === "set"`, so a `_Docket` folder
+holding `docket.json` yields null there and is skipped — asserted, not
+assumed.
+
+**Entries are closed, never deleted.** `status` is `open`/`resolved`/
+`dismissed`; only `open` renders. A resolve records `resolvedCoinId` +
+`resolvedDate`, a dismissal records `dismissedReason` + `dismissedDate`.
+Item 3 explicitly required a dismissal to record WHY ("not just filter from
+view"), and the same reasoning applies to a resolve — which CoinID it
+landed on is exactly what someone reconciling later needs.
+
+**One operations layer over both storage modes** (`docketOpenEntries` /
+`appendDocketEntry` / `closeDocketEntry` → `docketResolveEntry` /
+`docketDismissEntry`). Every caller goes through these rather than touching
+either store, so the durable path and the flag-off mockup path can't drift.
+The two stores are deliberately **not merged** when the durable one is
+live — `FAKE_NEEDS_QUEUE`'s two seeded rows are mockup demo data, so in
+durable mode the file alone is the source of truth. `appendDocketEntry`
+returns `{entry, durable}` so a flag-on write that didn't reach OneDrive
+still records in memory *and* says so, rather than silently dropping a flag.
+
+**Re-check** (`docketRecheckEntry`) re-runs the *same* `dbCoinsCandidatesFor()`
+matching against whatever DB_Coins is currently loaded, using the entry's
+own stored attribute shape:
+- **0 candidates** → entry stays queued, toast says nothing new was found.
+- **1 candidate** → a confirmation dialog naming the CoinID/PCGS#/GSID/
+  Mintage. **Never auto-applied** — asserted that nothing is written and
+  the entry stays open until Confirm is actually clicked.
+- **2+ candidates** → the shared ambiguous picker. The existing picker
+  MARKUP (`#designationAmbiguousPanel`) lives inside the Edit Coin form so
+  it can't be reused from the Docket view, but `renderAmbiguousMatchList()`
+  itself is container-agnostic and IS reused, so both surfaces render
+  candidates identically. The deliberate pick is the confirmation — same
+  rule `checkDesignationReresolution()` already follows.
+- Resolving writes the CoinID via **`writeCoinIdCell()`**, the one narrow
+  audited CoinID write path Browse Edit's re-link already uses — not
+  through the general allow-list machinery, which would weaken the
+  "an unlisted column has no code path to a PATCH" guarantee.
+- **A coin with no All row yet is handled, not treated as failure**: a
+  coin saved to Staging holds a reserved CollectionID but has no All row
+  until reconciliation promotes it, so `findAllSheetRowNumber()` returns
+  null → the resolution is still recorded on the entry, with a note saying
+  so, and no write is attempted.
+
+**Dismiss-with-reason** reuses `showWriteGuard()`, which gained three
+**backward-compatible** optional button hooks: `keepOpenUnless` (refuse to
+close — a blank reason keeps the dialog open), `onInvalid`, and `collect`
+(read body state BEFORE teardown, since `onClick` runs after the dialog
+closes). Buttons that declare none behave exactly as before — the conflict
+and identity-overwrite dialogs are untouched and their 358-assertion suite
+re-runs clean.
+
+**One necessary fix to Add Coin's push site**: it pushed the flag BEFORE
+`getNextCollectionId()`, so every entry it created carried **no
+CollectionID at all** — fine for a display-only backlog, useless for a
+Re-check that needs to know which row to write to. Reordered so the ID is
+reserved first (safe: `getNextCollectionId()` is a pure max+1 scan that
+doesn't depend on the push). Add Coin has no Finish input, so those entries
+carry a blank finish — handled correctly downstream, since
+`dbCoinsCandidatesFor()` only narrows by finish when one is present.
+Browse Edit's `flagCoinIdNeedsRelink()` now passes `finish` too, from the
+same source `identityShape` uses.
+
+**Verified headless — 63 new assertions (`verify_docket_queue.js`), all
+passing**, plus all 14 prior suites re-run clean (748 total, zero
+failures): the flag ships false and never touches Graph when off; seeded
+entries get stable ids across repeated reads; the durable file lands at the
+right `_Testing`-scoped path with the right type/version/shape; entries
+survive a cache drop; `listSetDrafts()` is unaffected; all three Re-check
+branches including "not auto-applied" and "Cancel writes nothing"; the
+chosen candidate (not the first) is what gets recorded on an ambiguous
+pick; overlay/list teardown; blank-reason dismissal refused with the
+validation message and nothing recorded; a real reason recorded durably
+with the entry retained; Re-check/Dismiss rendering on exactly the
+queue-backed research rows and never on action rows; dismissal still
+working in-memory with the flag off; and Add Coin's entry now carrying its
+CollectionID. **Not verified: any real device or any real OneDrive
+session** — this is a new write path and needs a live run before it's
+trusted (see the testing note in the branch's own report).
+
+**Real gap found and fixed while merging this branch onto
+`claude/matcher-designation-hardening`.** Bringing the merged matcher
+(Designation-aware, with the cert-protection guard from that branch's own
+live-test fix) onto this branch was clean at the git level, but exposed a
+real functional gap: **`buildDocketEntry()`'s field whitelist didn't
+include `designation`/`gradeSource`, and `flagCoinIdNeedsRelink()` never
+passed them in the first place** — so `docketRecheckEntry()` re-derived
+candidates as if a coin's Designation were always blank and its GradeSource
+were always non-service, regardless of the coin's real current values.
+Reproduced directly: a synthetic entry shaped exactly like the real
+`AY-00207` case (Designation `FB`, GradeSource `PCGS`) silently narrowed to
+the plain (wrong) catalog row on Re-check instead of surfacing the
+ambiguous picker — the exact class of bug the cert-protection guard exists
+to prevent on the live Browse Edit Save path, just reachable through a
+different door (Re-check) that the guard's own fix never touched.
+- **Fixed**: `designation`/`gradeSource` added to `buildDocketEntry()`'s
+  entry shape (defaulting to `""` for callers that don't have them, e.g.
+  Add Coin's `no-db-coins-match` push — same safe-default treatment `finish`
+  already got); `flagCoinIdNeedsRelink()`'s doc comment and its
+  `appendDocketEntry()` call now forward `identityShape.designation`/
+  `.gradeSource`; and — the actual bug, not just an oversight in the
+  function signature — **`performBrowseEditWrite()`'s own call site**
+  (which builds its own inline object rather than passing the save
+  handler's `identityShape` through) needed the same two fields added
+  directly, or the fix upstream would never have had anything to forward.
+  `docketRecheckEntry()` now includes both in the shape it passes to
+  `dbCoinsCandidatesFor()`. Same field names as `identityShape` throughout
+  — no new shape invented.
+- **Verified headless** (12 new assertions, `verify_docket_designation_fix.js`,
+  not committed per this project's scratchpad-script convention): the
+  schema keeps both fields when supplied and defaults them to `""` when
+  not; an end-to-end repro through the real functions
+  (`flagCoinIdNeedsRelink` → in-memory queue → `docketRecheckEntry`) for an
+  `AY-00207`-shaped entry now correctly surfaces the ambiguous picker
+  (`docketMatchOverlay`) instead of the single-match confirm dialog
+  (`writeGuardOverlay`); a Seller-sourced control case (no real cert) still
+  narrows to one match as before, confirming the fix isn't over-broad; and
+  a source-level guard on the specific `performBrowseEditWrite()` call site
+  so a future edit can't silently drop the two fields again without a test
+  catching it. Full syntax/nav/console-error smoke re-run clean alongside
+  it.
+- **Live-verified since**: Part E2 of `docs/DOCKET_LIVE_RUN_CHECKLIST.md`
+  passed against the real `_Testing` copy. Positive case (`AY-00522`,
+  Designation=FB/GradeSource=PCGS, identity edited to a zero-match state):
+  `docket.json` captured both fields correctly, and Re-check surfaced the
+  ambiguous picker (blank-Designation + FB test rows) — no silent narrow.
+  Control case (`AY-00518`, Designation=FB/GradeSource blank): Re-check
+  resolved cleanly to a single "One match found," confirming the fix
+  doesn't over-trigger for a non-certified coin. One operational-only
+  finding, not a code bug: `DB_Coins` is fetched once per page load, so a
+  DB_Coins row added directly in Excel needs a hard reload
+  (`Ctrl+Shift+R`) before Re-check will see it — otherwise it looks
+  exactly like a genuine matching failure. Documented in the checklist's
+  setup section and Known Limitations, not just noted here.
+- **Add Coin's `no-db-coins-match` push was deliberately left unchanged** —
+  it doesn't currently pass `designation`/`gradeSource` even though the
+  form has both fields available (`buildCoinRecordFromForm()` already reads
+  them). Not part of the reported finding or Ray's fix request, so left
+  alone rather than assumed; worth a look if a similar gap ever surfaces on
+  that entry kind.
+
+**Checklist Part B rewritten — Add Coin's Save is still a placeholder,
+confirmed live.** Attempting Part B live surfaced that Add Coin's "Save to
+Database" only toasts *"Placeholder only — ... Nothing written to OneDrive
+yet"* — it can't create a real Docket entry, per Add Coin's own documented
+scope ("Add Coin: the core workflow" — its direct-write/reconciliation step
+is separate, larger, not-yet-built work, unaffected by this branch).
+`docs/DOCKET_LIVE_RUN_CHECKLIST.md`'s Part B now creates the test entry via
+Browse Edit's identity-edit path instead (same mechanism Parts D/E/E2
+already used) — same underlying `docket.json` write/fob/reload-persistence
+behavior, just triggered through a path that's actually live. **The
+original Add-Coin-based steps are kept, marked blocked, not deleted** —
+restore them once Add Coin's own write layer lands.
+- **A real messaging bug found in the same attempt, fixed regardless of
+  the scope question above**: Add Coin's form could show "No matching
+  DB_Coins entry... needs a catalog entry added later" (`dbNoMatchBanner`)
+  and then, further down the same form, "Matched with enough confidence
+  for a direct save." (`saveConfidentBanner`) for the same coin —
+  contradicting each other. Not a logic bug: confidence
+  (`isConfidentMatch()`) is deliberately driven purely by Variety
+  recognition, independent of DB_Coins match status (a DB_Coins miss never
+  blocks a direct save on its own — see "Direct-write vs. Staging" above),
+  so both banners can legitimately be true at once. The bug was only the
+  word **"Matched,"** which falsely implied a catalog match. Reworded to
+  "No unrecognized Variety flagged — ready for a direct save. (A missing
+  DB_Coins catalog entry, if noted above, won't block this on its own.)" —
+  same logic, no behavior change, just an honest claim. Verified headless
+  (7 assertions, `verify_addcoin_banner_wording.js`, not committed per this
+  project's scratchpad convention).
+
+**Real double-render bug found live (Part B's reload-persistence step),
+root-caused and fixed, not a browser-cache issue.** Every entry under
+"Waiting on Copilot research" rendered TWICE after a plain `F5` reload —
+`docket.json` itself was confirmed correct (right entry count, unique
+`entryId`s, no duplicates), so this was a render-only bug. Two candidate
+explanations were investigated: a genuine double-render/double-subscription
+bug, or the same stale-JS-before-a-real-reload browser-cache issue hit
+twice already that session. **Confirmed the former, not the latter** —
+reproduced directly, headless, by firing two overlapping
+`renderNeedsAttentionHub()` calls against a delayed mock Graph client (4
+rows instead of 2 before the fix).
+- **Root cause**: `renderNeedsAttentionHub()` is called both unconditionally
+  at page-load init (`INIT` section) AND every time `navigate("needsdbcoins")`
+  runs (opening the Docket drawer) — see that function's own comment. It
+  clears its containers synchronously up front but only appends rows after
+  several real Graph reads (`listSetDrafts`/`docketOpenEntries`/
+  `getCachedWorkbookWebUrl`, all awaited). If the page-load call is still
+  in flight when the user opens Docket — plausible right after a reload,
+  since that's exactly when the app's own MSAL/Graph round trip is
+  slowest — both calls independently clear-then-append, and whichever
+  finishes LAST stacks its rows on top of the other's instead of onto a
+  clean container.
+- **Fixed** with a render-generation token (`needsAttentionRenderToken`,
+  bumped at the start of every call): a staleness check sits right after
+  the function's last `await` and before any DOM mutation — if a NEWER call
+  started (and so already bumped the token) while this call's awaits were
+  in flight, this call bails out entirely, touching nothing (not the row
+  containers, not the badge/fob). Only the most-recently-STARTED call is
+  ever allowed to render, regardless of which one's awaits happen to
+  resolve first.
+- **Verified headless** (12 new assertions across two scripts, not
+  committed per this project's convention): the exact overlap scenario
+  (older/slower call + newer/faster call) leaves exactly the newer call's
+  rows with zero trace of the older call's, including the badge/fob count
+  matching the winning call's own totals rather than a stale or summed
+  value; a single, non-overlapping call afterward still renders normally.
+  Full syntax check and a 9-route nav smoke re-run clean alongside it.
+- **Live-reconfirmed since**: a fresh entry (`AY-00520`) created, then
+  Docket opened immediately with realistic timing — no duplication.
+  Followed by a plain `F5` reload — still no duplication, every entry
+  showing exactly once. The fix holds under real conditions, not just the
+  headless repro. Nothing further blocking on this branch from that
+  session's testing.
+
+**Full live-test checklist now COMPLETE — Parts A–G plus E2, all passed
+against the real `_Testing` copy.** `docs/DOCKET_LIVE_RUN_CHECKLIST.md`
+carries the full run's status at the top. One clarification from Part F:
+the blank-reason validation message was briefly misread from a screenshot
+as missing — re-checked directly and it's present and correct; no code
+change needed. Test data left in `docket.json` (6 entries: 5 dismissed, 2
+resolved) was cleaned up by Ray directly in OneDrive afterward, by choice
+— nothing in this repo needed to change for that.
+
+**Branch remains held, per the standing merge policy** — a full live-test
+pass is what unblocks a merge decision, it isn't itself the go-ahead. Ray's
+own words: "This branch is ready for a merge decision," not yet "merge
+it." Wait for the explicit instruction before merging to `main`.
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins

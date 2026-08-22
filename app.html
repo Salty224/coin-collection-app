@@ -1439,6 +1439,14 @@
     background: var(--bg-elevated); color: var(--text-muted);
     border: 1px solid var(--case-border);
   }
+  /* Docket research rows carry TWO actions (Re-check / Dismiss), unlike the
+     action-section rows' single Dismiss. .wish-item is already
+     flex/space-between, so the pair just needs its own column to sit in —
+     stacked rather than side-by-side so a narrow phone doesn't squeeze the
+     entry's own text down to nothing. */
+  .docket-row-actions {
+    display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+  }
 
   /* ---------- Add Coin ---------- */
   .form-card { padding: 18px 16px; }
@@ -3055,7 +3063,7 @@
 
           <div class="banner context-banner hidden" id="saveConfidentBanner">
             <span class="icon">✅</span>
-            <span class="msg">Matched with enough confidence for a direct save.</span>
+            <span class="msg">No unrecognized Variety flagged — ready for a direct save. (A missing DB_Coins catalog entry, if noted above, won't block this on its own.)</span>
           </div>
           <div class="banner pending-banner hidden" id="saveNotConfidentBanner">
             <span class="icon">⚠️</span>
@@ -3745,9 +3753,64 @@
     </div>
   </div>
 
+  <!-- Docket Re-check: the ambiguous "pick one" list, when a re-check finds
+       2+ DB_Coins candidates. The EXISTING picker markup
+       (#designationAmbiguousPanel) lives inside the Edit Coin form, so it
+       can't be reused from the Docket view — but renderAmbiguousMatchList()
+       itself is container-agnostic and IS reused here, so both surfaces
+       render candidates identically (CoinID leading, PCGS#/GSID/Mintage as
+       the differentiators). Same overlay chrome as the write guards /
+       Grading Help / Year filter. -->
+  <div class="photo-adjust-overlay hidden" id="docketMatchOverlay">
+    <div class="photo-adjust-panel" style="max-width:420px; text-align:left;">
+      <div class="photo-adjust-title" id="docketMatchTitle" style="text-align:center;">Pick the matching catalog entry</div>
+      <div id="docketMatchBody" style="font-size:13px; color:var(--text-muted); line-height:1.5; margin-bottom:10px;"></div>
+      <div id="docketMatchList"></div>
+      <div class="photo-adjust-btns" style="margin-top:16px;" id="docketMatchBtns"></div>
+    </div>
+  </div>
+
 </div>
 
+<!-- Local-only dev-flag override file (see "Local dev-flag overrides" in
+     README.md, and the DEV_FLAG_OVERRIDES comment right below in the main
+     script). dev-flags.local.js is listed in .gitignore and is NEVER
+     committed or shipped — this tag simply 404s harmlessly on GitHub
+     Pages and on any fresh checkout that doesn't have the file, exactly
+     like every other "gracefully degrade if a resource isn't there"
+     pattern already in this file (the MSAL CDN script, reference images,
+     etc.). A plain <script src> that 404s fires an error event and moves
+     on; it does not throw or block the rest of the page from loading. -->
+<script src="dev-flags.local.js"></script>
+
 <script>
+  // ==================================================================
+  // LOCAL DEV-FLAG OVERRIDES — see README.md's "Local dev-flag overrides"
+  // section for the full picture. The problem this solves: every real-Graph
+  // flag below (ENABLE_REFERENCE_IMAGES, ENABLE_LIVE_NAV_DATA,
+  // ENABLE_SET_WRITE_LAYER, ENABLE_BROWSE_EDIT_WRITE, ENABLE_DOCKET_WRITE)
+  // plus WRITE_TARGET further down are plain `const`s, so testing anything
+  // locally meant hand-editing this file in Notepad after every fresh
+  // branch ZIP download — tedious, and easy to forget to set back before
+  // committing (which is exactly the kind of mistake this app's own
+  // "disabled by default in production" posture exists to prevent).
+  //
+  // devFlagOverride(name, fallback) reads an optional `window.__DEV_FLAGS__`
+  // object — set by `dev-flags.local.js` (see the <script> tag just above
+  // this one in the HTML) if that file exists next to app.html — and falls
+  // back to the exact same hardcoded default every flag already had if the
+  // key isn't present. `dev-flags.local.js` is listed in .gitignore and is
+  // NEVER committed or shipped: on GitHub Pages, or any checkout that
+  // hasn't had the file placed in it, the <script src> 404s, `__DEV_FLAGS__`
+  // is never set, and every flag below resolves to its literal hardcoded
+  // default exactly as if this whole mechanism didn't exist. This is a
+  // local convenience layer only — it can only ever loosen defaults on a
+  // machine that already has the override file, never on production.
+  function devFlagOverride(name, fallback) {
+    const overrides = (typeof window !== "undefined" && window.__DEV_FLAGS__) || {};
+    return Object.prototype.hasOwnProperty.call(overrides, name) ? overrides[name] : fallback;
+  }
+
   // ==================================================================
   // REAL Graph API integration — Reference Images (read-only, first real
   // network/auth code in this file). Everything else in app.html still
@@ -3796,7 +3859,7 @@
   // will redirect to a real Microsoft sign-in and back. Set back to false
   // before merging/deploying again until a real production redirect URI
   // exists and this has a non-localhost-only story.
-  const ENABLE_REFERENCE_IMAGES = false;
+  const ENABLE_REFERENCE_IMAGES = devFlagOverride("ENABLE_REFERENCE_IMAGES", false);
 
   // ==================================================================
   // REAL-GRAPH FEATURE FLAGS + THE ONE SHARED MSAL INSTANCE
@@ -3811,18 +3874,28 @@
   //   ENABLE_LIVE_NAV_DATA     — Catalog/Rolls/Sets + DB_Coins (read-only)
   //   ENABLE_SET_WRITE_LAYER   — Add Set drafts (writes Staging files)
   //   ENABLE_BROWSE_EDIT_WRITE — Browse Edit row writes (writes the workbook)
-  const ENABLE_LIVE_NAV_DATA = false; // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
-  const ENABLE_SET_WRITE_LAYER = false; // localhost-dev only for now (Q6=a)
+  //   ENABLE_DOCKET_WRITE      — Docket research queue (writes a Staging file,
+  //                              plus a CoinID cell on resolve)
+  const ENABLE_LIVE_NAV_DATA = devFlagOverride("ENABLE_LIVE_NAV_DATA", false); // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
+  const ENABLE_SET_WRITE_LAYER = devFlagOverride("ENABLE_SET_WRITE_LAYER", false); // localhost-dev only for now (Q6=a)
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
   // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
   // two features write completely different things (Add Set writes Staging
   // JSON + photo files and never touches the workbook; Browse Edit writes
   // single cells INTO the workbook), so they must be independently
   // enable-able. Same localhost-dev-only posture as every other flag here.
-  const ENABLE_BROWSE_EDIT_WRITE = false;
-  // Either write feature being on is what justifies requesting a
+  const ENABLE_BROWSE_EDIT_WRITE = devFlagOverride("ENABLE_BROWSE_EDIT_WRITE", false);
+  // The Docket's "no DB_Coins match" research queue, made durable (it was
+  // in-memory-only and append-only before). Its OWN flag for the same
+  // reason every other one is: it writes a different thing again (a JSON
+  // file under the Staging folder — see DOCKET_QUEUE_PATH — plus, when a
+  // Re-check is confirmed, one CoinID cell on the All sheet via the same
+  // narrow writeCoinIdCell() path Browse Edit already uses). Independently
+  // enable-able, same localhost-dev-only posture.
+  const ENABLE_DOCKET_WRITE = devFlagOverride("ENABLE_DOCKET_WRITE", false);
+  // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE;
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE;
   const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
 
   // **ONE PublicClientApplication for the whole app.** This is not a
@@ -4441,7 +4514,7 @@
   // ENABLE_SET_WRITE_LAYER / ENABLE_BROWSE_EDIT_WRITE / WRITE_LAYER_ENABLED
   // are declared with the other real-Graph flags, up beside the shared MSAL
   // instance — they have to be evaluated before it is constructed.
-  const WRITE_TARGET = "copy";          // "copy" | "live" — Ray-only flip (Q5)
+  const WRITE_TARGET = devFlagOverride("WRITE_TARGET", "copy"); // "copy" | "live" — Ray-only flip (Q5)
 
   const WRITE_PATHS = {
     copy: {
@@ -5206,18 +5279,40 @@
   // (see saveAddCoinForm()'s own identical push). `kind` distinguishes this
   // case in the Needs Attention hub's copy: an ALREADY-OWNED coin's catalog
   // link just went stale because of an edit, not a brand-new unmatched find.
-  function flagCoinIdNeedsRelink(coin, identityShape) {
-    FAKE_NEEDS_QUEUE.push({
+  // Now routes through appendDocketEntry() rather than pushing FAKE_NEEDS_QUEUE
+  // directly, so the flag lands in the durable Staging store when
+  // ENABLE_DOCKET_WRITE is on and in memory (exactly as before) when it
+  // isn't. `finish` rides along because dbCoinsCandidatesFor() uses it to
+  // narrow candidates — without it a later Re-check would be matching on a
+  // weaker key than the save that created the entry did.
+  //
+  // `designation`/`gradeSource` ride along for the identical reason, fixing
+  // a real gap found while merging this branch onto the Designation-matcher
+  // hardening: without them, a later docketRecheckEntry() had no way to
+  // know the coin's real Designation or whether its GradeSource is a real
+  // certification service, so it re-derived candidates as if both were
+  // blank — silently bypassing the cert-protection guard that already
+  // protects this exact identity edit on the live Browse Edit Save path.
+  // Same field names as identityShape (the shape this function's own
+  // caller already builds for Browse Edit's save handler) — no new shape.
+  async function flagCoinIdNeedsRelink(coin, identityShape) {
+    const result = await appendDocketEntry({
       kind: "coinid-relink",
       collectionId: coin.id,
       denom: identityShape.denom,
       year: identityShape.year,
       mint: identityShape.mint,
       variety: identityShape.variety,
-      desc: coin.description || coin.name || "",
-      dateFlagged: new Date().toISOString().slice(0, 10)
+      finish: identityShape.finish,
+      designation: identityShape.designation,
+      gradeSource: identityShape.gradeSource,
+      desc: coin.description || coin.name || ""
     });
+    if (docketWriteEnabled() && !result.durable) {
+      showToast("Flagged " + coin.id + " for research, but couldn't save it to the Docket file — it won't survive a reload.");
+    }
     renderNeedsAttentionHub(); // fire-and-forget refresh, same pattern as saveAddCoinForm()
+    return result;
   }
 
   // ==================================================================
@@ -5318,6 +5413,18 @@
         b.style.fontWeight = "700";
       }
       b.addEventListener("click", () => {
+        // Optional validation hook, for a dialog whose body carries a
+        // required input (the Docket's dismiss-with-reason). A button that
+        // doesn't declare it behaves exactly as before — the conflict and
+        // identity-overwrite dialogs are unaffected.
+        if (spec.keepOpenUnless && !spec.keepOpenUnless()) {
+          if (spec.onInvalid) spec.onInvalid();
+          return; // stay open, nothing torn down
+        }
+        // Read any body state BEFORE teardown — onClick runs after the
+        // dialog is closed, by which point the body may have been replaced
+        // by a later showWriteGuard() call.
+        const collected = spec.collect ? spec.collect() : undefined;
         overlay.classList.add("hidden");
         // Tear the buttons down as the dialog closes. Hiding the overlay
         // alone leaves them in the DOM with their handlers live, so a stray
@@ -5325,7 +5432,7 @@
         // conflict dialog means silently rolling the snapshot back to an
         // older baseline. Caught while reproducing the save loop.
         btnRow.innerHTML = "";
-        if (spec.onClick) spec.onClick();
+        if (spec.onClick) spec.onClick(collected);
       });
       btnRow.appendChild(b);
     });
@@ -5641,6 +5748,222 @@
     if (!draft.dismissedGaps.includes(gapKey)) draft.dismissedGaps.push(gapKey);
     await writeSetDraft(draft);
     return draft;
+  }
+
+  // ==================================================================
+  // DOCKET RESEARCH QUEUE — durable store (ENABLE_DOCKET_WRITE)
+  // ==================================================================
+  // The Docket's "Waiting on Copilot research" queue used to be
+  // FAKE_NEEDS_QUEUE and nothing else: a plain in-memory array, seeded with
+  // two demo rows, appended to by Add Coin's save and by Browse Edit's
+  // CoinID re-link, never read back from anywhere durable, and with no code
+  // path that could remove an entry. So a flagged coin stayed flagged for
+  // the life of the page even after Copilot added the DB_Coins row that
+  // resolved it, and everything reset on reload.
+  //
+  // **Which "Staging" this writes to, and why.** This project has two
+  // different things called Staging, and only one of them has a real write
+  // path today:
+  //   - the Staging *SHEET* (an Excel tab mirroring All's columns) — still
+  //     entirely FAKE_STAGING, in-memory. The workbook write layer only
+  //     ever PATCHes targeted ranges on an EXISTING All row located by
+  //     CollectionID; it has no append-a-new-row capability at all, for any
+  //     sheet. Writing this queue there would mean building that capability
+  //     from scratch, which is new architecture, not "use the existing
+  //     path."
+  //   - the Staging *FOLDER* (`{stagingBase}/…` in OneDrive, JSON files) —
+  //     the app's real, proven, already-shipping Staging write path
+  //     (writeSetDraft/readSetDraft/listSetDrafts → graph().uploadJson/
+  //     getJson). This is what the queue uses, following the exact same
+  //     convention set.json drafts already do.
+  // See CLAUDE.md for the flagged discrepancy between this and the original
+  // request's wording ("the Staging sheet").
+  //
+  // ONE document rather than a file per entry: the queue is tens of entries
+  // at most, a single file gives read-modify-write in one round trip and a
+  // natural home for a schema version, and it keeps the Staging folder from
+  // filling with single-record files that listSetDrafts() would have to
+  // walk past. Safe alongside set drafts either way — listSetDrafts()
+  // getJson()s `{base}/{child}/set.json` for every child and drops anything
+  // that isn't `type === "set"`, so a `_Docket` folder holding docket.json
+  // yields null there and is skipped (the `type` marker below is a second
+  // guard on top of the different filename).
+  const DOCKET_QUEUE_TYPE = "docket-queue";
+  const DOCKET_QUEUE_VERSION = 1;
+  function docketQueuePath() { return writePaths().stagingBase + "/_Docket/docket.json"; }
+
+  // Entries are never deleted — they're closed with a status and an audit
+  // trail. Item 3 of this feature explicitly requires a dismissal to record
+  // WHY ("not just filter from view"), and the same reasoning applies to a
+  // resolve: which CoinID it landed on, and when, is exactly what someone
+  // reconciling later needs. Only `status === "open"` ever renders.
+  const DOCKET_STATUS = { OPEN: "open", RESOLVED: "resolved", DISMISSED: "dismissed" };
+
+  function emptyDocketQueue() {
+    return { type: DOCKET_QUEUE_TYPE, version: DOCKET_QUEUE_VERSION, updatedDate: new Date().toISOString(), entries: [] };
+  }
+
+  // Stable per-entry id, so a resolve/dismiss can target one entry without
+  // depending on array position (the array is re-read from OneDrive between
+  // renders, and the two push sites can append concurrently from different
+  // screens).
+  let docketEntrySeq = 0;
+  function newDocketEntryId() {
+    docketEntrySeq += 1;
+    return "DQ-" + Date.now().toString(36) + "-" + docketEntrySeq;
+  }
+
+  function docketWriteEnabled() {
+    return docketWriteEnabledOverride === null ? ENABLE_DOCKET_WRITE : docketWriteEnabledOverride;
+  }
+  let docketWriteEnabledOverride = null;
+  function __setDocketWriteEnabledForTest(v) { docketWriteEnabledOverride = v; } // test-only seam
+
+  // Cached document, so a render doesn't re-fetch on every call. Null =
+  // not loaded yet (or the feature is off, in which case it stays null and
+  // every accessor falls back to the in-memory array).
+  let LIVE_DOCKET_QUEUE = null;
+  function __setLiveDocketQueueForTest(doc) { LIVE_DOCKET_QUEUE = doc; } // test-only seam
+  function __getLiveDocketQueueForTest() { return LIVE_DOCKET_QUEUE; }    // test-only seam
+
+  async function loadDocketQueue(force) {
+    if (!docketWriteEnabled()) return null;
+    if (LIVE_DOCKET_QUEUE && !force) return LIVE_DOCKET_QUEUE;
+    try {
+      const doc = await graph().getJson(docketQueuePath());
+      // A missing file is the normal first-run state, not an error.
+      LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
+      if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
+    } catch (e) {
+      // Not signed in / offline / transient Graph failure. Leave the cache
+      // null so a later call retries for real rather than caching an empty
+      // queue that would read as "nothing to research" — same
+      // only-cache-a-real-answer rule the reference-image fetch follows.
+      console.warn("Docket queue read failed:", e);
+      return null;
+    }
+    return LIVE_DOCKET_QUEUE;
+  }
+
+  async function saveDocketQueue(doc) {
+    doc.updatedDate = new Date().toISOString();
+    await graph().uploadJson(docketQueuePath(), doc);
+    LIVE_DOCKET_QUEUE = doc;
+    return doc;
+  }
+
+  // ---- One set of operations over BOTH storage modes -----------------
+  // Every caller below goes through these rather than touching either
+  // store directly, so the durable path and the shipped (flag-off) mockup
+  // path can't drift into behaving differently. With the flag off, or with
+  // it on but the file not yet readable, these operate on FAKE_NEEDS_QUEUE
+  // exactly as before — which is what keeps the default build working
+  // unchanged.
+  //
+  // Note the two stores are deliberately NOT merged when the durable one is
+  // live: FAKE_NEEDS_QUEUE's two seeded rows are mockup demo data, so in
+  // durable mode the file alone is the source of truth.
+  function normalizeDocketEntry(raw) {
+    // The seeded FAKE_NEEDS_QUEUE rows predate entry ids/status, so they
+    // get both on first read. Mutates in place so the id stays stable for
+    // the rest of the session (a fresh id per render would break resolve).
+    if (!raw.entryId) raw.entryId = newDocketEntryId();
+    if (!raw.status) raw.status = DOCKET_STATUS.OPEN;
+    return raw;
+  }
+
+  function buildDocketEntry(fields) {
+    return {
+      entryId: newDocketEntryId(),
+      kind: fields.kind || "no-db-coins-match",
+      status: DOCKET_STATUS.OPEN,
+      collectionId: fields.collectionId || "",
+      denom: fields.denom || "",
+      year: fields.year || "",
+      mint: fields.mint || "",
+      variety: fields.variety || "",
+      finish: fields.finish || "",
+      // Same field names as identityShape (Browse Edit's save-path shape) —
+      // deliberately not renamed. Needed so a later docketRecheckEntry()
+      // can call dbCoinsCandidatesFor() with the coin's real current
+      // Designation/GradeSource instead of implicitly blank/non-service,
+      // which would silently skip both the Designation tier's real value
+      // and the cert-protection guard on Re-check. Both default to "" for
+      // callers that don't have them (e.g. Add Coin's "no-db-coins-match"
+      // push, which has no matched row to read Finish from either) — a
+      // blank designation/gradeSource is handled correctly downstream by
+      // dbCoinsCandidatesFor()/isServiceGradeSource(), same as a blank
+      // finish already is.
+      designation: fields.designation || "",
+      gradeSource: fields.gradeSource || "",
+      desc: fields.desc || "",
+      dateFlagged: fields.dateFlagged || new Date().toISOString().slice(0, 10),
+      resolvedCoinId: "",
+      resolvedDate: "",
+      dismissedReason: "",
+      dismissedDate: ""
+    };
+  }
+
+  async function docketOpenEntries() {
+    const doc = await loadDocketQueue();
+    const list = doc ? doc.entries : FAKE_NEEDS_QUEUE;
+    return list.map(normalizeDocketEntry).filter(e => e.status === DOCKET_STATUS.OPEN);
+  }
+
+  // Returns { entry, durable } so a caller can tell the user when a flag-on
+  // write didn't actually reach OneDrive. The entry is still recorded
+  // in-memory in that case — losing the flag entirely would be worse than
+  // recording it non-durably and saying so.
+  async function appendDocketEntry(fields) {
+    const entry = buildDocketEntry(fields);
+    if (docketWriteEnabled()) {
+      try {
+        const doc = await loadDocketQueue();
+        if (doc) {
+          doc.entries.push(entry);
+          await saveDocketQueue(doc);
+          return { entry, durable: true };
+        }
+      } catch (e) {
+        console.warn("Docket queue append failed, keeping in memory:", e);
+      }
+    }
+    FAKE_NEEDS_QUEUE.push(entry);
+    return { entry, durable: false };
+  }
+
+  async function closeDocketEntry(entryId, patch) {
+    if (docketWriteEnabled()) {
+      const doc = await loadDocketQueue();
+      if (doc) {
+        const entry = doc.entries.map(normalizeDocketEntry).find(e => e.entryId === entryId);
+        if (!entry) return null;
+        Object.assign(entry, patch);
+        await saveDocketQueue(doc);
+        return entry;
+      }
+    }
+    const entry = FAKE_NEEDS_QUEUE.map(normalizeDocketEntry).find(e => e.entryId === entryId);
+    if (!entry) return null;
+    Object.assign(entry, patch);
+    return entry;
+  }
+
+  function docketResolveEntry(entryId, coinId) {
+    return closeDocketEntry(entryId, {
+      status: DOCKET_STATUS.RESOLVED,
+      resolvedCoinId: coinId || "",
+      resolvedDate: new Date().toISOString().slice(0, 10)
+    });
+  }
+
+  function docketDismissEntry(entryId, reason) {
+    return closeDocketEntry(entryId, {
+      status: DOCKET_STATUS.DISMISSED,
+      dismissedReason: reason || "",
+      dismissedDate: new Date().toISOString().slice(0, 10)
+    });
   }
 
   // ---- Promotion file-move loop (Part 3 step 3) ----------------------
@@ -9764,7 +10087,20 @@
             coin.coinId = "";
             flagCoinIdNeedsRelink(coin, {
               denom: form.workbook.Denomination, year: form.workbook.Year,
-              mint: form.workbook.MintMark, variety: form.workbook.Variety
+              mint: form.workbook.MintMark, variety: form.workbook.Variety,
+              // Same source identityShape uses — Finish isn't editable here,
+              // so it comes off the row itself and narrows a later Re-check
+              // the same way it narrowed this save's own match attempt.
+              finish: browseEditSnapshot && browseEditSnapshot.id === coin.id
+                ? browseEditSnapshot.values.Finish : coin.finish,
+              // Designation/GradeSource, same field names/source as the
+              // identityShape built at the top of this save handler — needed
+              // so a later Re-check on this flagged entry can see the coin's
+              // real current signal instead of implicitly blank/non-service
+              // (see flagCoinIdNeedsRelink()'s own comment for why this
+              // matters — the cert-protection guard depends on it).
+              designation: form.workbook.Designation,
+              gradeSource: form.workbook.GradeSource
             });
             coinIdMsg = " No DB_Coins match for the new identity — CoinID cleared and flagged to Needs Attention.";
           }
@@ -10921,11 +11257,224 @@
   // the draft's own `dismissedGaps` (see dismissSetDraftGap above).
   const dismissedCoinPhotoGaps = new Set();
 
+  // ---- Docket research-row actions: Re-check and Dismiss --------------
+
+  function docketEntryLabel(entry) {
+    return (entry.collectionId ? entry.collectionId + " · " : "") +
+      (entry.desc || entry.denom) + " · " + entry.year +
+      (entry.mint ? "-" + entry.mint : "") + (entry.variety ? " · " + entry.variety : "");
+  }
+
+  // Writes the resolved CoinID back to the coin's own All row and closes
+  // the entry. Deliberately reuses writeCoinIdCell() — the ONE narrow,
+  // explicitly-audited CoinID write path Browse Edit's re-link already
+  // uses — rather than routing CoinID through the general allow-list
+  // machinery, which would weaken the "an unlisted column has no code path
+  // to a PATCH" guarantee the whole write layer rests on.
+  async function applyDocketResolution(entry, row) {
+    const coinId = row ? row.coinId : "";
+    let wroteWorkbook = false;
+    let note = "";
+
+    if (docketWriteEnabled() && entry.collectionId) {
+      try {
+        const rowNumber = await findAllSheetRowNumber(entry.collectionId);
+        if (rowNumber) {
+          await writeCoinIdCell(rowNumber, coinId);
+          wroteWorkbook = true;
+        } else {
+          // Legitimately expected, not a failure: a coin saved to Staging
+          // (rather than direct-to-database) has a reserved CollectionID but
+          // no All row yet, so there's nothing to write to until
+          // reconciliation promotes it. The resolution is still recorded on
+          // the entry so that promotion can pick it up.
+          note = " (not on the All sheet yet — recorded on the Docket entry for reconciliation.)";
+        }
+      } catch (e) {
+        console.warn("Docket CoinID write failed:", e);
+        showToast("Couldn't write the CoinID for " + entry.collectionId + ": " + String(e && e.message || e));
+        return false;
+      }
+    }
+
+    // Keep the in-memory record in step so Catalog/Browse reflect the new
+    // link immediately, the same way Browse Edit's own re-link does.
+    const coin = FAKE_COINS.find(c => c.id === entry.collectionId) ||
+                 FAKE_STAGING.find(c => c.id === entry.collectionId);
+    if (coin) coin.coinId = coinId;
+
+    await docketResolveEntry(entry.entryId, coinId);
+    showToast("Resolved " + (entry.collectionId || "entry") + " → " + (coinId || "(no CoinID)") +
+      (wroteWorkbook ? ", CoinID written to the workbook." : ".") + note);
+    renderNeedsAttentionHub();
+    return true;
+  }
+
+  function closeDocketMatchOverlay() {
+    const overlay = document.getElementById("docketMatchOverlay");
+    overlay.classList.add("hidden");
+    // Same teardown rule showWriteGuard() follows: leaving the list and
+    // buttons in the DOM keeps their handlers live, so a stray later click
+    // could re-run a stale resolution against an already-closed entry.
+    document.getElementById("docketMatchList").innerHTML = "";
+    document.getElementById("docketMatchBtns").innerHTML = "";
+  }
+
+  function showDocketMatchOverlay(opts) {
+    document.getElementById("docketMatchTitle").textContent = opts.title;
+    document.getElementById("docketMatchBody").textContent = opts.body || "";
+    const list = document.getElementById("docketMatchList");
+    list.innerHTML = "";
+    renderAmbiguousMatchList(list, opts.rows, (row) => {
+      closeDocketMatchOverlay();
+      opts.onPick(row);
+    });
+    const btnRow = document.getElementById("docketMatchBtns");
+    btnRow.innerHTML = "";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", closeDocketMatchOverlay);
+    btnRow.appendChild(cancel);
+    document.getElementById("docketMatchOverlay").classList.remove("hidden");
+  }
+
+  // Re-runs the SAME matching logic the original flag used
+  // (dbCoinsCandidatesFor, against whatever DB_Coins is currently loaded)
+  // using the entry's own stored attribute shape. Three outcomes, per spec:
+  //   0 candidates  — nothing found, entry stays queued, say so.
+  //   1 candidate   — show it for CONFIRMATION; never auto-applied.
+  //   2+ candidates — the shared ambiguous picker; the deliberate pick IS
+  //                   the confirmation, same rule checkDesignationReresolution()
+  //                   already follows (CLAUDE.md: ambiguous matches always
+  //                   need a human's eyes, never silent resolution).
+  async function docketRecheckEntry(entry) {
+    // designation/gradeSource included so the Designation tier and its
+    // cert-protection guard (dbCoinsCandidatesFor()) see the coin's real
+    // current signal on Re-check, same as Browse Edit's own save path —
+    // an entry built before these fields existed on the schema simply
+    // carries "" for both, which both functions already treat as
+    // blank/non-service, the same safe default they've always had.
+    const candidates = dbCoinsCandidatesFor({
+      denom: entry.denom, year: entry.year, mint: entry.mint,
+      variety: entry.variety, finish: entry.finish,
+      designation: entry.designation, gradeSource: entry.gradeSource
+    });
+
+    if (!candidates.length) {
+      showToast("Still no DB_Coins match for " + docketEntryLabel(entry) + " — leaving it queued.");
+      return;
+    }
+
+    if (candidates.length === 1) {
+      const row = candidates[0];
+      const detail = [
+        row.pcgs ? "PCGS# " + row.pcgs : "",
+        row.gsid ? "GSID " + row.gsid : "",
+        row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
+      ].filter(Boolean).join(" · ");
+      showWriteGuard({
+        title: "One match found",
+        bodyHtml:
+          "<p style=\"margin:0 0 10px;\">DB_Coins now has a match for <strong>" +
+            escapeHtmlText(docketEntryLabel(entry)) + "</strong>:</p>" +
+          "<div class=\"case\" style=\"padding:10px; margin-bottom:10px;\">" +
+            "<div style=\"font-weight:700;\">" + escapeHtmlText(row.coinId || "(no CoinID)") + "</div>" +
+            "<div style=\"color:var(--text-muted);\">" +
+              escapeHtmlText([row.year + (row.mint ? "-" + row.mint : "") + " " + row.denom,
+                row.description, row.variety, row.finish].filter(Boolean).join(" · ")) +
+            "</div>" +
+            (detail ? "<div style=\"color:var(--text-muted);\">" + escapeHtmlText(detail) + "</div>" : "") +
+          "</div>" +
+          "<p style=\"margin:0;\">Link this coin to it and clear the entry from the Docket?</p>",
+        buttons: [
+          { label: "Cancel" },
+          { label: "Link & resolve", primary: true, onClick: () => applyDocketResolution(entry, row) }
+        ]
+      });
+      return;
+    }
+
+    showDocketMatchOverlay({
+      title: "Pick the matching catalog entry",
+      body: candidates.length + " DB_Coins rows match " + docketEntryLabel(entry) +
+        ". Pick the right one — this writes its CoinID to the coin and clears the entry.",
+      rows: candidates,
+      onPick: (row) => applyDocketResolution(entry, row)
+    });
+  }
+
+  // Dismiss REQUIRES a reason and records it durably (per spec) — unlike
+  // the coin-photo-gap Dismiss in the action section, which is a
+  // filter-from-view with no note and no persistence. The point is that
+  // someone reading this later can tell why an entry was closed WITHOUT a
+  // CoinID match, which a bare "dismissed" flag wouldn't convey.
+  function promptDocketDismiss(entry) {
+    showWriteGuard({
+      title: "Dismiss without a match",
+      bodyHtml:
+        "<p style=\"margin:0 0 10px;\">Closing <strong>" + escapeHtmlText(docketEntryLabel(entry)) +
+          "</strong> without linking it to a DB_Coins entry.</p>" +
+        "<label style=\"display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;\">" +
+          "Reason (required)</label>" +
+        "<textarea id=\"docketDismissReason\" rows=\"3\" style=\"width:100%; box-sizing:border-box;\" " +
+          "placeholder=\"e.g. Not a real variety — catalogued under the base date\"></textarea>" +
+        "<div id=\"docketDismissError\" style=\"color:#e6a5a5; font-size:12px; margin-top:6px; display:none;\">" +
+          "Please enter a short reason.</div>",
+      buttons: [
+        { label: "Cancel" },
+        {
+          label: "Dismiss", primary: true,
+          // A blank reason keeps the dialog open rather than silently
+          // closing an entry with no explanation — the whole point of this
+          // variant of Dismiss.
+          keepOpenUnless: () => {
+            const el = document.getElementById("docketDismissReason");
+            return !!(el && el.value.trim());
+          },
+          onInvalid: () => {
+            const err = document.getElementById("docketDismissError");
+            if (err) err.style.display = "block";
+          },
+          collect: () => {
+            const el = document.getElementById("docketDismissReason");
+            return el ? el.value.trim() : "";
+          },
+          onClick: async (reason) => {
+            await docketDismissEntry(entry.entryId, reason);
+            showToast("Dismissed " + (entry.collectionId || "entry") + " — reason recorded.");
+            renderNeedsAttentionHub();
+          }
+        }
+      ]
+    });
+  }
+
+  // Bumped once per call, before any await — lets an overlapping call tell
+  // whether it's still the most-recently-started one by the time its own
+  // awaits resolve. Real bug found live (Ray, Docket Part B's reload-
+  // persistence check): every entry rendered TWICE after a plain F5, with
+  // docket.json itself confirmed correct (right entry count, no duplicate
+  // entryIds) — a render-only bug, not a write-path one. Root cause: this
+  // function is called both unconditionally at page-load init AND every
+  // time navigate("needsdbcoins") runs (opening the Docket drawer), and it
+  // clears its containers synchronously up front but only APPENDS rows
+  // after several awaits (listSetDrafts/docketOpenEntries/
+  // getCachedWorkbookWebUrl) — real Graph reads when ENABLE_DOCKET_WRITE is
+  // on. If the init call is still mid-flight when the user opens Docket
+  // (very plausible right after a reload, since a fresh page load's own
+  // MSAL/Graph round trip is exactly when this is slowest), both calls
+  // clear-then-append independently, and whichever finishes last appends
+  // its rows on top of the other's already-appended ones instead of onto a
+  // clean container — doubling every row. Reproduced directly (headless,
+  // two overlapping calls against a delayed mock Graph client: 4 rows
+  // instead of 2, "Test Coin One" appearing twice) before this fix, and
+  // confirmed fixed after.
+  let needsAttentionRenderToken = 0;
   async function renderNeedsAttentionHub() {
+    const myRenderToken = ++needsAttentionRenderToken;
     const actionContainer = document.getElementById("needsActionContainer");
     const researchContainer = document.getElementById("needsResearchContainer");
-    actionContainer.innerHTML = "";
-    researchContainer.innerHTML = "";
 
     const actionRows = [];   // { html, onClick?, onDismiss? }
     const researchRows = []; // { html }
@@ -11014,9 +11563,13 @@
       const label = (c.name || c.denom) + " · " + c.year + (c.mint ? "-" + c.mint : "") + (c.variety ? " · " + c.variety : "");
       researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
     });
-    FAKE_NEEDS_QUEUE.slice().reverse().forEach(item => {
-      const label = (item.collectionId ? item.collectionId + " · " : "") +
-        (item.desc || item.denom) + " · " + item.year + (item.mint ? "-" + item.mint : "") + (item.variety ? " · " + item.variety : "");
+    // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
+    // directly — durable Staging file when ENABLE_DOCKET_WRITE is on, the
+    // same in-memory array as before when it's off. Only `open` entries
+    // render; resolved/dismissed ones stay in the store as an audit trail.
+    const docketEntries = await docketOpenEntries();
+    docketEntries.slice().reverse().forEach(item => {
+      const label = docketEntryLabel(item);
       // "coinid-relink" (Browse Edit): an ALREADY-OWNED coin's identity was
       // edited into something with no DB_Coins match, so its catalog link
       // was cleared rather than left silently pointing at the wrong row —
@@ -11024,7 +11577,11 @@
       const note = item.kind === "coinid-relink"
         ? "Identity edited, no DB_Coins match — CoinID cleared, needs a catalog entry"
         : "No DB_Coins match — needs a catalog entry";
-      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div><div class="wish-date">Flagged ${item.dateFlagged}</div>` });
+      researchRows.push({
+        html: `<div class="wish-desc">${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div><div class="wish-date">Flagged ${escapeHtmlText(String(item.dateFlagged || ""))}</div>`,
+        onRecheck: () => docketRecheckEntry(item),
+        onDismiss: () => promptDocketDismiss(item)
+      });
     });
     completeSets.forEach(draft => {
       researchRows.push({ html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">${draft.collectionID} · Complete — pending research</div>` });
@@ -11035,6 +11592,20 @@
     // failure) degrades to one explanatory note instead of a broken link
     // repeated on every row.
     const webUrl = researchRows.length ? await getCachedWorkbookWebUrl() : null;
+
+    // Staleness check — everything above this line only computed rows in
+    // local variables, touching no DOM. If a NEWER call started (and so
+    // already bumped the token) while all those awaits above were in
+    // flight, this call is superseded: bail out here, before clearing or
+    // writing anything, so a slow call can never stomp on a faster one's
+    // already-rendered result. Only the most-recently-STARTED call is ever
+    // allowed to render, regardless of which one's awaits happen to
+    // resolve first.
+    if (myRenderToken !== needsAttentionRenderToken) return;
+
+    actionContainer.innerHTML = "";
+    researchContainer.innerHTML = "";
+
     document.getElementById("needsResearchWorkbookNote").textContent =
       (researchRows.length && !webUrl) ? "Workbook link unavailable right now (write layer disabled, or not signed in)." : "";
 
@@ -11055,7 +11626,20 @@
     researchRows.forEach(r => {
       const row = document.createElement("div");
       row.className = "case wish-item";
-      row.innerHTML = `<div>${r.html}${webUrl ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : ""}</div>`;
+      // Re-check/Dismiss only exist on rows backed by a real Docket queue
+      // entry. The other two kinds of research row (a coin-side Staging row
+      // with no match, a Set draft pending research) aren't queue entries —
+      // they're derived live from their own sources, so there'd be nothing
+      // to resolve or dismiss.
+      const actions = (r.onRecheck || r.onDismiss)
+        ? `<div class="docket-row-actions">` +
+            (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
+            (r.onDismiss ? `<button type="button" class="staging-btn reject docket-dismiss">Dismiss</button>` : "") +
+          `</div>`
+        : "";
+      row.innerHTML = `<div>${r.html}${webUrl ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : ""}</div>` + actions;
+      if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
+      if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
       researchContainer.appendChild(row);
     });
 
@@ -13447,19 +14031,35 @@
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
 
+    // Reserve the ID FIRST, so an unmatched-coin flag can carry it. This
+    // push used to run before getNextCollectionId(), so every entry it
+    // created had no collectionId at all — fine while the queue was a
+    // display-only backlog, but a Re-check needs to know which row to write
+    // a resolved CoinID back to. Reordering is safe: getNextCollectionId()
+    // is a pure max+1 scan over FAKE_COINS/FAKE_STAGING and doesn't depend
+    // on anything the flag-push did.
+    const collectionId = getNextCollectionId();
+    const record = buildCoinRecordFromForm(collectionId);
+
     if (denom && year && !lastDbMatch) {
-      FAKE_NEEDS_QUEUE.push({
+      // Routed through appendDocketEntry() — durable Staging file when
+      // ENABLE_DOCKET_WRITE is on, in-memory exactly as before when it's
+      // off. Fire-and-forget like the render call below it; the append
+      // handles its own failures.
+      appendDocketEntry({
+        kind: "no-db-coins-match",
+        collectionId,
         denom, year,
         mint: document.getElementById("mintMark").value,
         variety: document.getElementById("variety").value,
-        desc: document.getElementById("description").value,
-        dateFlagged: new Date().toISOString().slice(0, 10)
-      });
-      renderNeedsAttentionHub(); // fire-and-forget refresh — badge/list catch up whenever this resolves
+        // No Finish: Add Coin has no Finish input (it's an All/DB_Coins
+        // column, never captured at intake), and this branch only runs when
+        // there's no matched DB_Coins row to read one off either. A blank
+        // finish is handled correctly downstream — dbCoinsCandidatesFor()
+        // only narrows by finish when one is actually present.
+        desc: document.getElementById("description").value
+      }).then(() => renderNeedsAttentionHub()); // badge/list catch up whenever this resolves
     }
-
-    const collectionId = getNextCollectionId();
-    const record = buildCoinRecordFromForm(collectionId);
 
     if (destination === "database") {
       FAKE_COINS.push(record);
