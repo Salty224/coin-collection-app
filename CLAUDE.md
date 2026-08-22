@@ -3964,11 +3964,12 @@ rows instead of 2 before the fix).
   matching the winning call's own totals rather than a stale or summed
   value; a single, non-overlapping call afterward still renders normally.
   Full syntax check and a 9-route nav smoke re-run clean alongside it.
-- **Not yet live-verified** — this is a timing-dependent race that can't be
-  reproduced with certainty outside a real reload against a real Graph
-  round trip; `docs/DOCKET_LIVE_RUN_CHECKLIST.md`'s Part B step 13 now
-  carries a note asking for a fresh live confirmation at the same step
-  before this is fully trusted.
+- **Live-reconfirmed since**: a fresh entry (`AY-00520`) created, then
+  Docket opened immediately with realistic timing — no duplication.
+  Followed by a plain `F5` reload — still no duplication, every entry
+  showing exactly once. The fix holds under real conditions, not just the
+  headless repro. Nothing further blocking on this branch from that
+  session's testing.
 
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets

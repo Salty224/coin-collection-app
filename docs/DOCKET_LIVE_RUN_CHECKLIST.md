@@ -169,10 +169,13 @@ gated on a future write layer.
     headless via two overlapping calls against a delayed mock Graph client
     (4 rows instead of 2 before the fix, exactly 2 after) — not
     reproducible from a single call, which is why it slipped through every
-    earlier headless suite. **Needs a fresh live confirmation at this
-    exact step** (reload right after creating an entry, ideally right after
-    a real sign-in redirect when Graph is genuinely slowest) before this is
-    fully trusted — not yet re-verified against the real workbook.
+    earlier headless suite.
+
+    > **Live-reconfirmed.** A fresh entry (`AY-00520`) created, then Docket
+    > opened immediately afterward with no artificial delay (realistic
+    > timing) — no duplication. Followed by a plain `F5` reload — still no
+    > duplication, every entry showing exactly once. Fix holds under real
+    > conditions, not just the headless repro.
 13a. **Restore the coin**: reopen Browse → Edit and set the identity field
      back to its original value, then Save. (This doesn't clear the Docket
      entry you just created — that's fine and expected; leave it for
