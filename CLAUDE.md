@@ -6089,16 +6089,26 @@ reference-image-second, then the bare placeholder third.
 
 ## Session log — carried-forward state (not app architecture, tracked here for continuity)
 
-### ParkingLot entry to transfer (matcher-hardening branch, 2026-08-17)
+### ParkingLot entries to transfer (2 rows, as of 2026-08-22)
 **Needs adding to the workbook's ParkingLot sheet — logged here because this
 coding session has no write access to the live OneDrive workbook.** Recorded
-verbatim in ParkingLot's own column shape (Title, Category, Priority, Date,
-Description, …, Status), same shape as the existing "Copper color
-designations (RD/RB/BN)" future-pass row:
-- **Title:** `Physical FB check pass on owned Mercury dimes`
+verbatim in ParkingLot's own column shape (Item/Title, Category, Priority,
+Date, Description, Status), same shape as the existing "Copper color
+designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
+2026-08-17 version of this same entry with Ray's own canonical wording
+(same underlying item, not a new one — don't add both).
+
+**Row 1:**
+- **Item/Title:** `Physical FB check pass on owned Mercury dimes`
 - **Category:** `Data`  · **Priority:** `Medium`  · **Date:** `2026-08-17`
 - **Status:** `Open`
-- **Description:** `The Designation matcher (dbCoinsCandidatesFor, matcher-hardening branch) treats a blank All.Designation as "not FB" — so an owned Mercury dime that is physically Full Bands but not yet recorded FB in All.Designation now silently resolves to the plain (non-FB) DB_Coins row instead of surfacing the ambiguous picker. This is a deliberate, accepted tradeoff (it's what stops the 78 FB catalog rows from flooding the Docket for the 70 owned dimes that carry no Designation). Needs a physical inspection pass to set All.Designation=FB on any owned Mercury dime that is actually Full Bands, coin by coin — Ray's call, not a bulk inference. Same shape as the deferred copper-color RD/RB/BN pass. Only 3 owned dimes currently carry FB (AY-00210, AY-00240, AY-00680-C).`
+- **Description:** `Matcher narrowing treats a blank All.Designation as meaning "not Full Bands" for Mercury dimes, which is correct for resolving CoinID links but doesn't confirm the physical coin actually lacks Full Bands. Owned Mercury dimes not yet inspected should get a coin-by-coin physical FB check, same shape as the deferred copper-color (RD/RB/BN) pass. Not urgent, not blocking any current work.`
+
+**Row 2:**
+- **Item/Title:** `Catalog grid/list view drops distinguishing catalog fields`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-22`
+- **Status:** `Open`
+- **Description:** `Catalog's grid and list views don't surface fields that distinguish otherwise-identical-looking catalog entries. Confirmed for two cases: Designation (FB Mercury dimes show bare Grade, e.g. "MS-64" instead of "MS-64FB") and Variety (1909 VDB vs non-VDB Wheat cents both show plain "1909 Wheat 1C" with no way to tell them apart). Individual Browse detail's flip card handles both fields correctly — only Catalog's grid/list views are missing them. Not blocking, cosmetic/data-clarity issue only.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
