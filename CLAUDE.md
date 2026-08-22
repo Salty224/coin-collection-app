@@ -3927,6 +3927,49 @@ restore them once Add Coin's own write layer lands.
   (7 assertions, `verify_addcoin_banner_wording.js`, not committed per this
   project's scratchpad convention).
 
+**Real double-render bug found live (Part B's reload-persistence step),
+root-caused and fixed, not a browser-cache issue.** Every entry under
+"Waiting on Copilot research" rendered TWICE after a plain `F5` reload —
+`docket.json` itself was confirmed correct (right entry count, unique
+`entryId`s, no duplicates), so this was a render-only bug. Two candidate
+explanations were investigated: a genuine double-render/double-subscription
+bug, or the same stale-JS-before-a-real-reload browser-cache issue hit
+twice already that session. **Confirmed the former, not the latter** —
+reproduced directly, headless, by firing two overlapping
+`renderNeedsAttentionHub()` calls against a delayed mock Graph client (4
+rows instead of 2 before the fix).
+- **Root cause**: `renderNeedsAttentionHub()` is called both unconditionally
+  at page-load init (`INIT` section) AND every time `navigate("needsdbcoins")`
+  runs (opening the Docket drawer) — see that function's own comment. It
+  clears its containers synchronously up front but only appends rows after
+  several real Graph reads (`listSetDrafts`/`docketOpenEntries`/
+  `getCachedWorkbookWebUrl`, all awaited). If the page-load call is still
+  in flight when the user opens Docket — plausible right after a reload,
+  since that's exactly when the app's own MSAL/Graph round trip is
+  slowest — both calls independently clear-then-append, and whichever
+  finishes LAST stacks its rows on top of the other's instead of onto a
+  clean container.
+- **Fixed** with a render-generation token (`needsAttentionRenderToken`,
+  bumped at the start of every call): a staleness check sits right after
+  the function's last `await` and before any DOM mutation — if a NEWER call
+  started (and so already bumped the token) while this call's awaits were
+  in flight, this call bails out entirely, touching nothing (not the row
+  containers, not the badge/fob). Only the most-recently-STARTED call is
+  ever allowed to render, regardless of which one's awaits happen to
+  resolve first.
+- **Verified headless** (12 new assertions across two scripts, not
+  committed per this project's convention): the exact overlap scenario
+  (older/slower call + newer/faster call) leaves exactly the newer call's
+  rows with zero trace of the older call's, including the badge/fob count
+  matching the winning call's own totals rather than a stale or summed
+  value; a single, non-overlapping call afterward still renders normally.
+  Full syntax check and a 9-route nav smoke re-run clean alongside it.
+- **Not yet live-verified** — this is a timing-dependent race that can't be
+  reproduced with certainty outside a real reload against a real Graph
+  round trip; `docs/DOCKET_LIVE_RUN_CHECKLIST.md`'s Part B step 13 now
+  carries a note asking for a fresh live confirmation at the same step
+  before this is fully trusted.
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins

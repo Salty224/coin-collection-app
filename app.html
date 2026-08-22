@@ -11450,11 +11450,31 @@
     });
   }
 
+  // Bumped once per call, before any await — lets an overlapping call tell
+  // whether it's still the most-recently-started one by the time its own
+  // awaits resolve. Real bug found live (Ray, Docket Part B's reload-
+  // persistence check): every entry rendered TWICE after a plain F5, with
+  // docket.json itself confirmed correct (right entry count, no duplicate
+  // entryIds) — a render-only bug, not a write-path one. Root cause: this
+  // function is called both unconditionally at page-load init AND every
+  // time navigate("needsdbcoins") runs (opening the Docket drawer), and it
+  // clears its containers synchronously up front but only APPENDS rows
+  // after several awaits (listSetDrafts/docketOpenEntries/
+  // getCachedWorkbookWebUrl) — real Graph reads when ENABLE_DOCKET_WRITE is
+  // on. If the init call is still mid-flight when the user opens Docket
+  // (very plausible right after a reload, since a fresh page load's own
+  // MSAL/Graph round trip is exactly when this is slowest), both calls
+  // clear-then-append independently, and whichever finishes last appends
+  // its rows on top of the other's already-appended ones instead of onto a
+  // clean container — doubling every row. Reproduced directly (headless,
+  // two overlapping calls against a delayed mock Graph client: 4 rows
+  // instead of 2, "Test Coin One" appearing twice) before this fix, and
+  // confirmed fixed after.
+  let needsAttentionRenderToken = 0;
   async function renderNeedsAttentionHub() {
+    const myRenderToken = ++needsAttentionRenderToken;
     const actionContainer = document.getElementById("needsActionContainer");
     const researchContainer = document.getElementById("needsResearchContainer");
-    actionContainer.innerHTML = "";
-    researchContainer.innerHTML = "";
 
     const actionRows = [];   // { html, onClick?, onDismiss? }
     const researchRows = []; // { html }
@@ -11572,6 +11592,20 @@
     // failure) degrades to one explanatory note instead of a broken link
     // repeated on every row.
     const webUrl = researchRows.length ? await getCachedWorkbookWebUrl() : null;
+
+    // Staleness check — everything above this line only computed rows in
+    // local variables, touching no DOM. If a NEWER call started (and so
+    // already bumped the token) while all those awaits above were in
+    // flight, this call is superseded: bail out here, before clearing or
+    // writing anything, so a slow call can never stomp on a faster one's
+    // already-rendered result. Only the most-recently-STARTED call is ever
+    // allowed to render, regardless of which one's awaits happen to
+    // resolve first.
+    if (myRenderToken !== needsAttentionRenderToken) return;
+
+    actionContainer.innerHTML = "";
+    researchContainer.innerHTML = "";
+
     document.getElementById("needsResearchWorkbookNote").textContent =
       (researchRows.length && !webUrl) ? "Workbook link unavailable right now (write layer disabled, or not signed in)." : "";
 

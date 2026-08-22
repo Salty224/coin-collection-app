@@ -148,6 +148,31 @@ gated on a future write layer.
 13. Reload the page (`F5`). **Verify:** the entry is still there under
     Waiting on Copilot research, with the same text — confirming it's read
     back from the file, not just held in memory from the save.
+
+    **Real bug found and fixed at this exact step, root-caused not
+    guessed.** A first live attempt at this step showed every entry
+    rendering TWICE after the reload, with `docket.json` itself confirmed
+    correct (right entry count, unique `entryId`s, no duplicates) — a
+    render-only bug. Root cause: `renderNeedsAttentionHub()` is called both
+    unconditionally at page-load init AND every time the Docket drawer is
+    opened, but it clears its containers up front and only appends rows
+    after several real Graph reads (`await`s) — so if the page-load call is
+    still in flight when you open Docket (very plausible right after a
+    reload, since that's exactly when the app's own MSAL/Graph round trip
+    is slowest), both calls independently clear-then-append and whichever
+    finishes LAST stacks its rows on top of the other's instead of onto a
+    clean container. **Fixed** with a render-generation token
+    (`needsAttentionRenderToken`): only the most-recently-STARTED call is
+    ever allowed to clear/write the DOM or update the badge — an older,
+    now-superseded call detects it's stale (its token no longer matches)
+    and discards its own result entirely, touching nothing. Reproduced
+    headless via two overlapping calls against a delayed mock Graph client
+    (4 rows instead of 2 before the fix, exactly 2 after) — not
+    reproducible from a single call, which is why it slipped through every
+    earlier headless suite. **Needs a fresh live confirmation at this
+    exact step** (reload right after creating an entry, ideally right after
+    a real sign-in redirect when Graph is genuinely slowest) before this is
+    fully trusted — not yet re-verified against the real workbook.
 13a. **Restore the coin**: reopen Browse → Edit and set the identity field
      back to its original value, then Save. (This doesn't clear the Docket
      entry you just created — that's fine and expected; leave it for
