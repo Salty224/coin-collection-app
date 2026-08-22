@@ -3714,7 +3714,21 @@ available this session
 consistent with how the original write-layer work also had a Ray-only live
 step.
 
-### Docket research queue: durable + resolvable (BUILT, held on branch `claude/docket-identity-matching`, NOT merged — awaiting Ray's go-ahead)
+### Docket research queue: durable + resolvable (BUILT and merged to main)
+**Merge status correction:** this section previously read "held on branch
+`claude/docket-identity-matching`, NOT merged — awaiting Ray's go-ahead."
+The full live-test checklist (Parts A–G plus E2) passed against the real
+`_Testing` copy workbook — see `docs/DOCKET_LIVE_RUN_CHECKLIST.md`'s own
+"Live-test status: COMPLETE" note for the full run, including the two bugs
+found and fixed along the way (the designation/gradeSource Re-check gap,
+and the reload double-render race) and Part F's clarified non-bug. Ray
+gave explicit merge go-ahead and the branch was merged to `main`. **`main`
+is now the source of truth for this feature**, same standing as every
+other merged-after-holding branch in this file. The local-only
+dev-flags-override mechanism and the Add Coin banner-wording fix that
+landed on the same branch are part of this merge too — see their own notes
+below.
+
 First piece of the Docket identity-matching work. The "Waiting on Copilot
 research" queue was `FAKE_NEEDS_QUEUE` and nothing else — a plain in-memory
 array, seeded with two demo rows, appended to by Add Coin's save and Browse
@@ -3980,10 +3994,8 @@ change needed. Test data left in `docket.json` (6 entries: 5 dismissed, 2
 resolved) was cleaned up by Ray directly in OneDrive afterward, by choice
 — nothing in this repo needed to change for that.
 
-**Branch remains held, per the standing merge policy** — a full live-test
-pass is what unblocks a merge decision, it isn't itself the go-ahead. Ray's
-own words: "This branch is ready for a merge decision," not yet "merge
-it." Wait for the explicit instruction before merging to `main`.
+**Merged to main following Ray's explicit go-ahead** — see the merge-status
+correction at the top of this section.
 
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
