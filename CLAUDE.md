@@ -3770,7 +3770,22 @@ Container only ever appears in the new Location section.
 Every app-made write (add or edit) sets a **Reviewed** column on All to
 blank/unchecked. A human sets it checked after glancing at it.
 
-### Matcher hardening: Designation in dbCoinsCandidatesFor() (BUILT, held on branch `claude/matcher-designation-hardening`, NOT merged — awaiting Ray's go-ahead + live pass)
+### Matcher hardening: Designation in dbCoinsCandidatesFor() (BUILT and merged to main)
+**Merge status correction:** this section previously read "held on branch
+`claude/matcher-designation-hardening`, NOT merged — awaiting Ray's go-ahead
++ live pass." The live pass has since run clean: §B2 of
+`docs/MATCHER_DESIGNATION_LIVE_RUN_CHECKLIST.md` was confirmed against the
+real `_Testing` copy workbook — editing `AY-00207` (PCGS-certified, cert
+#4906, non-FB) from blank to FB Designation correctly surfaced the ambiguous
+picker (both `C-1916-D-10C-01` plain and `C-1916-D-10C-02` FB shown, nothing
+written, backed out cleanly) instead of the old silent narrow — confirming
+the cert-protection guard works as designed. Issue 2 (Cancel not reverting
+the Edit form's displayed fields) was separately confirmed as expected
+behavior, not a bug — see the session-log note below. Ray gave explicit
+merge go-ahead and the branch was merged to `main`. **`main` is now the
+source of truth for this feature**, same standing as every other
+merged-after-holding branch in this file.
+
 Built off `main` (NOT the paused `claude/docket-identity-matching` branch —
 kept strictly separate at Ray's explicit instruction). Adds
 `DB_Coins.Designation` to the DB_Coins match so the FB-catalog expansion
@@ -3920,11 +3935,10 @@ and a new save-time confirm.
   assertions were updated** (in the original pass, unaffected by this
   follow-up) to click through the confirm dialog — they asserted the old
   silent-re-link behavior, so this follows the real design change, not a
-  weakening. **Not verified: any real device or real OneDrive session** —
-  the cert-protection guard specifically needs a live re-run of
-  `docs/MATCHER_DESIGNATION_LIVE_RUN_CHECKLIST.md`'s AY-00207 scenario
-  (§B) before it's trusted end-to-end; everything else in that checklist
-  already passed live per Ray's prior report.
+  weakening. **Live-verified since**: `docs/MATCHER_DESIGNATION_LIVE_RUN_CHECKLIST.md`
+  §B2 (`AY-00207`) confirmed the cert-protection guard against the real
+  `_Testing` copy workbook — see the merge-status correction at the top of
+  this section.
 - **Regression baseline note:** this branch is off `main`, which does NOT
   contain the Docket Part 1 durable-queue work (that's on the paused
   `claude/docket-identity-matching` branch). So the baseline here is the
