@@ -51,6 +51,17 @@ underlying cause: the only Entra redirect URI registered for `app.html` is
    against `DB_Coins` — with this flag off, it matches against a 12-row
    mock and will report "still no DB_Coins match" for almost everything
    real. This is the same flag/reasoning the Browse Edit checklist uses.
+
+   **Operational note, confirmed during the live Part E2 pass: `DB_Coins`
+   is fetched once per page load (`ensureLiveNavDataFetch()`), not
+   re-read on each Re-check.** Any step below that has you add a row
+   directly in Excel and then immediately tap Re-check needs a **hard
+   reload of the page first** (`Ctrl+Shift+R`, not just navigating back to
+   Docket) — otherwise Re-check runs against the catalog snapshot from
+   when the page loaded, before your edit, and looks exactly like a
+   genuine "still no match"/wrong-candidate failure when it's actually
+   just stale in-memory data. This affects Parts D, E, and E2 alike
+   (anywhere the steps say "add a row... then Re-check").
 3. Leave `ENABLE_BROWSE_EDIT_WRITE` and `ENABLE_SET_WRITE_LAYER` at whatever
    you want for this session — they're independent flags and don't need to
    be on for this pass. Turning `ENABLE_BROWSE_EDIT_WRITE` on too is only
@@ -187,7 +198,7 @@ Same idea as Part D, but add **two** rows this round.
 
 ---
 
-## E2. Re-check — cert-protected identity edit (the picker fires, not a silent narrow) — NEW
+## E2. Re-check — cert-protected identity edit (the picker fires, not a silent narrow) — CONFIRMED LIVE
 
 Found while merging this branch onto the Designation-matcher hardening
 branch (`claude/matcher-designation-hardening`, itself confirmed live via
@@ -201,6 +212,17 @@ schema, `flagCoinIdNeedsRelink()`'s caller, and the fields
 `docketRecheckEntry()` passes into `dbCoinsCandidatesFor()`) and re-verified
 headless — this section is what proves it live, on the real workbook,
 the same way §B2 did for Save.
+
+> **Result: PASSED, against the real `_Testing` copy.** Positive case run
+> against `AY-00522` (Designation=FB, GradeSource=PCGS, identity edited to
+> a zero-match state): `docket.json` correctly captured both fields, and
+> Re-check correctly surfaced the ambiguous picker (a blank-Designation
+> test row alongside the FB one) — no silent narrow. Control case run
+> against `AY-00518` (Designation=FB, GradeSource blank): Re-check
+> correctly resolved to a single clean "One match found," no picker — the
+> fix doesn't over-trigger for a non-certified coin. One operational
+> gotcha hit along the way (not a code bug): see the hard-reload note in
+> Part A's setup section, added because of exactly this run.
 
 30a. Flag a fresh entry the same way Part E does, but this time via **Browse
      → Edit** on a real or throwaway coin, not Add Coin — set its
@@ -344,3 +366,11 @@ needs another look before Part 1 testing resumes.
 - **The Docket fob math (both sections counted) is unchanged by this
   feature** — same behavior as before, just now backed by durable entries
   instead of in-memory ones.
+- **`DB_Coins` is fetched once per page load, not re-read per Re-check
+  click** — confirmed during the live Part E2 pass. Adding a row directly
+  in Excel and immediately tapping Re-check in an already-open tab will
+  not see it; a hard reload (`Ctrl+Shift+R`) is required first. This looks
+  exactly like a genuine matching failure if you don't know to expect it —
+  see the note added to Part A's setup section. Not a Docket-specific
+  quirk (the same live-nav-data fetch-once behavior applies wherever
+  `ENABLE_LIVE_NAV_DATA` is used), just newly relevant here.

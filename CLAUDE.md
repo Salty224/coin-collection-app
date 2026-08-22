@@ -3878,10 +3878,19 @@ different door (Re-check) that the guard's own fix never touched.
   so a future edit can't silently drop the two fields again without a test
   catching it. Full syntax/nav/console-error smoke re-run clean alongside
   it.
-- **Not yet live-verified** — Part E2 of
-  `docs/DOCKET_LIVE_RUN_CHECKLIST.md` (added alongside this fix) is what
-  needs a real pass against the copy workbook before Part 1 testing
-  resumes, same role §B2 played for the matcher branch's own checklist.
+- **Live-verified since**: Part E2 of `docs/DOCKET_LIVE_RUN_CHECKLIST.md`
+  passed against the real `_Testing` copy. Positive case (`AY-00522`,
+  Designation=FB/GradeSource=PCGS, identity edited to a zero-match state):
+  `docket.json` captured both fields correctly, and Re-check surfaced the
+  ambiguous picker (blank-Designation + FB test rows) — no silent narrow.
+  Control case (`AY-00518`, Designation=FB/GradeSource blank): Re-check
+  resolved cleanly to a single "One match found," confirming the fix
+  doesn't over-trigger for a non-certified coin. One operational-only
+  finding, not a code bug: `DB_Coins` is fetched once per page load, so a
+  DB_Coins row added directly in Excel needs a hard reload
+  (`Ctrl+Shift+R`) before Re-check will see it — otherwise it looks
+  exactly like a genuine matching failure. Documented in the checklist's
+  setup section and Known Limitations, not just noted here.
 - **Add Coin's `no-db-coins-match` push was deliberately left unchanged** —
   it doesn't currently pass `designation`/`gradeSource` even though the
   form has both fields available (`buildCoinRecordFromForm()` already reads
