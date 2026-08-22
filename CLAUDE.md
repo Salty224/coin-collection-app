@@ -3971,6 +3971,20 @@ rows instead of 2 before the fix).
   headless repro. Nothing further blocking on this branch from that
   session's testing.
 
+**Full live-test checklist now COMPLETE — Parts A–G plus E2, all passed
+against the real `_Testing` copy.** `docs/DOCKET_LIVE_RUN_CHECKLIST.md`
+carries the full run's status at the top. One clarification from Part F:
+the blank-reason validation message was briefly misread from a screenshot
+as missing — re-checked directly and it's present and correct; no code
+change needed. Test data left in `docket.json` (6 entries: 5 dismissed, 2
+resolved) was cleaned up by Ray directly in OneDrive afterward, by choice
+— nothing in this repo needed to change for that.
+
+**Branch remains held, per the standing merge policy** — a full live-test
+pass is what unblocks a merge decision, it isn't itself the go-ahead. Ray's
+own words: "This branch is ready for a merge decision," not yet "merge
+it." Wait for the explicit instruction before merging to `main`.
+
 ### Needs Attention queue (superseded by the hub above — kept for history)
 Framed as a general discrepancy-tracking hub — "where any discrepancy gets
 identified, worked, and tracked" — not something narrowly scoped to DB_Coins

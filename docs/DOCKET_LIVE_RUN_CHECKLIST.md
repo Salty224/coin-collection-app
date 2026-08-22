@@ -20,6 +20,30 @@ assertions, not committed per this project's scratchpad-script convention).
 **Part E2 below is what confirms that fix live**, same role §B2 played for
 the matcher branch's own checklist.
 
+> ## Live-test status: COMPLETE — all parts passed
+>
+> Every part of this checklist (A–G, plus E2) has been run live against the
+> real `_Testing` copy and passed. This includes two bugs found and fixed
+> along the way (the Part B reload-persistence double-render race, and the
+> E2 designation/gradeSource gap), both fixed and re-confirmed live
+> afterward — see each part's own notes below for detail.
+> - **Part F clarification, not a bug**: the blank-reason validation
+>   message (step 34) was initially misread from a screenshot as missing —
+>   re-checked directly and it's present and correct ("enter a short
+>   reason" shown under the textarea, dialog stays open, nothing recorded).
+>   No code change needed.
+> - **Test data cleanup**: this session's run left 6 entries in
+>   `docket.json` (dismissed: `AY-00522`, `AY-00518`, `AY-00027`,
+>   `AY-00519`, `AY-00524`; resolved: `AY-00520`, `AY-00523`) — expected
+>   under the "entries are closed, never deleted" audit-trail design, not a
+>   bug. Ray cleaned the file directly in OneDrive afterward, by choice
+>   (not required by the design) — nothing in this repo/branch needed to
+>   change for that; there is no local copy of the file to update.
+> - **Branch status**: ready for a merge decision. Held per the standing
+>   merge policy pending Ray's explicit go-ahead (see CLAUDE.md) — a full
+>   live-test pass is what this checklist exists to produce, not itself
+>   the go-ahead.
+
 ---
 
 ## Read this first: where this pass can actually happen
