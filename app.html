@@ -2993,11 +2993,21 @@
           </div>
 
           <label>Denomination</label>
+          <label class="grade-range-toggle" style="margin-top:0;">
+            <input type="checkbox" id="addCoinBullionToggle"> Bullion (Gold/Platinum/Palladium Eagle, Buffalo, Silver Eagle)
+          </label>
+          <p class="placeholder-note" style="margin:4px 0 8px;">
+            Complementary to the catalog match below, not a replacement for it —
+            this just filters the list so entry doesn't require already knowing
+            which era a coin belongs to. Off shows everyday denominations plus
+            classic pre-1933 gold; on shows the modern bullion programs instead.
+          </p>
           <select id="denomination">
             <option value="">— select —</option>
-            <!-- The rest are generated at init by populateAddCoinDenominationDropdown()
-                 from DENOM_CODE_INFO/FAKE_DENOMINATIONS (retest #8) — not
-                 hand-maintained here anymore. -->
+            <!-- The rest are generated at init (and on Bullion toggle) by
+                 populateAddCoinDenominationDropdown() from DENOM_CODE_INFO/
+                 FAKE_DENOMINATIONS (retest #8) — not hand-maintained here
+                 anymore. -->
           </select>
 
           <label>Year</label>
@@ -7179,21 +7189,47 @@
   // documents it as — a short, controlled set of codes — rather than letting
   // a reference sheet's own descriptive bucketing leak into it.
   //
-  // DELIBERATELY STILL EXCLUDED (retest #8 fixed the half-cent/two-cent/
-  // three-cent/twenty-cent/half-dime gap Ray named explicitly; the
-  // gold/bullion tier is a SEPARATE, larger scope decision, flagged for
-  // Ray rather than guessed at): Half Eagle, Quarter Eagle, Eagle, Double
-  // Eagle, Three Dollar, Gold Dollar, Gold Buffalo, Commemorative Gold,
-  // Commemorative $5 Gold, First Spouse $10, Gold Eagle, Silver Eagle,
-  // Platinum Eagle, Palladium Eagle, and "Special." These rows' own
-  // face-value-based names would collide with existing codes if mapped
-  // naively (a Gold Dollar is not a $1 the way a modern circulating Dollar
-  // is; a bullion Silver Eagle's $1 face value has nothing to do with its
-  // actual value or how it's tracked) — assigning them real codes needs
-  // Ray's numismatic judgment call, the same reasoning already recorded
-  // above for Silver Eagles specifically. Their rows are simply not in this
-  // array yet; once Ray picks a scheme, add them to DENOM_NAME_TO_CODE and
-  // this array grows to the full 187, no other code changes needed.
+  // GOLD/BULLION TIER (Ray's resolved direction, batch-3 follow-up): codes
+  // derived from Ref_Denominations' own Category column, one code per
+  // category, EXCEPT American Gold Eagle and American Platinum Eagle —
+  // each real-world program mints 4 genuinely different face values (1 oz/
+  // 1/2 oz/1/4 oz/1/10 oz), so Category alone can't tell those apart; each
+  // gets its own 4-code family instead (AGE-*/APE-*, size folded directly
+  // into the code). A "G$" prefix on the classic pre-1933 gold codes keeps
+  // them visually distinct from the cents-based codes and from each other
+  // (G$1 Gold Dollar vs. the modern circulating $1) — this matters because,
+  // unlike the classic-vs-bullion year-gap case below, Gold Dollar
+  // (1849-1889) genuinely DID coexist with Seated Liberty/Morgan SILVER
+  // dollars (1840-1921) — same era, different metal, both legal tender —
+  // so it could never safely share the "$1" code the way Silver Eagle does.
+  //
+  // YEAR-AWARE CODE REUSE (Ray's explicit call, confirmed reliable, not a
+  // guess): American Silver Eagle reuses the EXISTING "$1" code rather than
+  // getting a new one. All U.S. gold coinage ended with the 1933 gold
+  // recall; the modern bullion programs (Gold/Platinum/Palladium Eagle,
+  // Buffalo) didn't start until 1986/1997/2017 — a 53-year minimum gap, so
+  // no year could ever resolve to both a classic and a modern coin under
+  // the same code. Silver is the one case where REUSE (not a new code) is
+  // actually correct: Peace Dollar ended 1935, Silver Eagle started 1986 —
+  // 51 years, zero overlap — and Silver Eagle genuinely IS a $1-face-value
+  // coin, unlike Gold Dollar's coexistence problem above. (The one
+  // near-miss — 2021-2023 Morgan/Peace 100th Anniversary silver dollar
+  // reissues — is already its own distinct FAKE_DENOMINATIONS row under
+  // "$1" with its own year range, so it doesn't collide with the Silver
+  // Eagle rows added below either.) This DOES mean the series/Description
+  // picker can now show "Silver Eagle" as a candidate alongside ordinary
+  // modern dollar series for a $1 coin dated 1986+ — a real, deliberate
+  // consequence of the shared code, not a bug; the new Bullion toggle (see
+  // populateAddCoinDenominationDropdown) is what actually disambiguates
+  // which one a user meant at entry time, via two differently-labeled
+  // dropdown options that both write the same "$1" value.
+  //
+  // "Special" (8 rows — burnished/enhanced Silver Eagle variants, W-mintmark
+  // quarters, "Best of the Mint" mixed sets) is DELIBERATELY STILL
+  // EXCLUDED — it's a genuine catch-all across several already-mapped
+  // denominations, not a face-value category of its own, so there's no
+  // single code to derive from it. Not a gap in this pass; there's nothing
+  // coherent to map.
   const DENOM_NAME_TO_CODE = {
     "Half Cent": "0.5C",
     "Cent": "1C",
@@ -7214,8 +7250,35 @@
     "Dollar": "$1",
     "Commemorative Dollar": "$1",
     "Error Dollar": "$1",
-    "Medal": "Medal"
+    "Medal": "Medal",
+    // --- Gold/bullion tier (batch-3 follow-up) ---
+    "Gold Dollar": "G$1",
+    "Quarter Eagle": "G$2.5",
+    "Three Dollar": "G$3",
+    "Half Eagle": "G$5",
+    "Eagle": "G$10",
+    "Double Eagle": "G$20",
+    "Commemorative Gold": "G$COM-C",   // classic (Panama-Pacific era) commemorative gold, mixed face values
+    "Commemorative $5 Gold": "G$5-COM", // modern $5 commemorative gold (Apollo 11, Basketball HOF, etc.)
+    "First Spouse $10": "G$10-FS",
+    "Gold Buffalo": "GBUF",
+    "Palladium Eagle": "APDE",
+    "Silver Eagle": "$1" // year-aware reuse — see the comment above
+    // "Gold Eagle" and "Platinum Eagle" are NOT single entries here — see
+    // GOLD_EAGLE_SIZE_CODES/PLATINUM_EAGLE_SIZE_CODES below, which fan a
+    // single Ref_Denominations row out into 4 size-coded rows each.
   };
+  // American Gold Eagle / Platinum Eagle: one Ref_Denominations row (a
+  // design "Type") applies equally to all four sizes the Mint actually
+  // strikes it in, but each size is a genuinely different face-value coin
+  // (Gold Eagle: $50/$25/$10/$5 for 1 oz/1-2 oz/1-4 oz/1-10 oz; Platinum
+  // Eagle: $100/$50/$25/$10) — Category/Denomination-column text alone
+  // can't tell them apart, so each size gets its own code instead of
+  // reusing one. Metal-prefixed (AGE-/APE-) so a shared face value between
+  // the two metals (Gold Eagle 1 oz = $50 same as Platinum Eagle 1/2 oz)
+  // can never collide.
+  const GOLD_EAGLE_SIZE_CODES = ["AGE-1OZ", "AGE-1/2OZ", "AGE-1/4OZ", "AGE-1/10OZ"];
+  const PLATINUM_EAGLE_SIZE_CODES = ["APE-1OZ", "APE-1/2OZ", "APE-1/4OZ", "APE-1/10OZ"];
   const FAKE_DENOMINATIONS = [
     { denom: "0.5C", yearStart: 1793, yearEnd: 1793, series: "Liberty Cap Left" },
     { denom: "0.5C", yearStart: 1794, yearEnd: 1797, series: "Liberty Cap Right" },
@@ -7346,7 +7409,65 @@
     { denom: "Medal", yearStart: 2020, yearEnd: 2020, series: "Women's Suffrage Centennial Silver" },
     { denom: "Medal", yearStart: 2021, yearEnd: 2021, series: "Purple Heart Silver" },
     { denom: "Medal", yearStart: 2026, yearEnd: 2026, series: "Semiquincentennial Gold" },
-    { denom: "Medal", yearStart: 2026, yearEnd: 2026, series: "Semiquincentennial Silver" }
+    { denom: "Medal", yearStart: 2026, yearEnd: 2026, series: "Semiquincentennial Silver" },
+    { denom: "G$1", yearStart: 1849, yearEnd: 1854, series: "Liberty Head Type 1" },
+    { denom: "G$1", yearStart: 1854, yearEnd: 1856, series: "Indian Princess Type 2" },
+    { denom: "G$1", yearStart: 1856, yearEnd: 1889, series: "Indian Princess Type 3" },
+    { denom: "G$2.5", yearStart: 1796, yearEnd: 1796, series: "Capped Bust Right No Stars" },
+    { denom: "G$2.5", yearStart: 1796, yearEnd: 1807, series: "Capped Bust Right Stars" },
+    { denom: "G$2.5", yearStart: 1808, yearEnd: 1834, series: "Capped Bust Left" },
+    { denom: "G$2.5", yearStart: 1834, yearEnd: 1839, series: "Classic Head" },
+    { denom: "G$2.5", yearStart: 1840, yearEnd: 1907, series: "Liberty Head" },
+    { denom: "G$2.5", yearStart: 1908, yearEnd: 1929, series: "Indian Head" },
+    { denom: "G$3", yearStart: 1854, yearEnd: 1889, series: "Indian Princess" },
+    { denom: "G$5", yearStart: 1795, yearEnd: 1798, series: "Capped Bust Right Small Eagle" },
+    { denom: "G$5", yearStart: 1795, yearEnd: 1807, series: "Capped Bust Right Heraldic Eagle" },
+    { denom: "G$5", yearStart: 1807, yearEnd: 1812, series: "Capped Bust Left" },
+    { denom: "G$5", yearStart: 1813, yearEnd: 1834, series: "Capped Head Left" },
+    { denom: "G$5", yearStart: 1834, yearEnd: 1838, series: "Classic Head" },
+    { denom: "G$5", yearStart: 1839, yearEnd: 1866, series: "Liberty Head No Motto" },
+    { denom: "G$5", yearStart: 1866, yearEnd: 1908, series: "Liberty Head Motto" },
+    { denom: "G$5", yearStart: 1908, yearEnd: 1929, series: "Indian Head" },
+    { denom: "G$10", yearStart: 1795, yearEnd: 1797, series: "Capped Bust Right Small Eagle" },
+    { denom: "G$10", yearStart: 1797, yearEnd: 1804, series: "Capped Bust Right Heraldic Eagle" },
+    { denom: "G$10", yearStart: 1838, yearEnd: 1866, series: "Liberty Head No Motto" },
+    { denom: "G$10", yearStart: 1866, yearEnd: 1907, series: "Liberty Head Motto" },
+    { denom: "G$10", yearStart: 1907, yearEnd: 1908, series: "Indian Head No Motto" },
+    { denom: "G$10", yearStart: 1908, yearEnd: 1933, series: "Indian Head Motto" },
+    { denom: "G$20", yearStart: 1849, yearEnd: 1866, series: "Liberty Head Type 1" },
+    { denom: "G$20", yearStart: 1866, yearEnd: 1876, series: "Liberty Head Type 2" },
+    { denom: "G$20", yearStart: 1877, yearEnd: 1907, series: "Liberty Head Type 3" },
+    { denom: "G$20", yearStart: 1907, yearEnd: 1907, series: "Saint-Gaudens High Relief" },
+    { denom: "G$20", yearStart: 1907, yearEnd: 1908, series: "Saint-Gaudens No Motto" },
+    { denom: "G$20", yearStart: 1908, yearEnd: 1933, series: "Saint-Gaudens Motto" },
+    { denom: "$1", yearStart: 1986, yearEnd: 2021, series: "Walking Liberty/Heraldic Eagle" },
+    { denom: "$1", yearStart: 2021, yearEnd: 2026, series: "Walking Liberty/Eagle Landing" },
+    { denom: "AGE-1OZ", yearStart: 1986, yearEnd: 2021, series: "Liberty/Family of Eagles Type 1" },
+    { denom: "AGE-1/2OZ", yearStart: 1986, yearEnd: 2021, series: "Liberty/Family of Eagles Type 1" },
+    { denom: "AGE-1/4OZ", yearStart: 1986, yearEnd: 2021, series: "Liberty/Family of Eagles Type 1" },
+    { denom: "AGE-1/10OZ", yearStart: 1986, yearEnd: 2021, series: "Liberty/Family of Eagles Type 1" },
+    { denom: "AGE-1OZ", yearStart: 2021, yearEnd: 2026, series: "Liberty/Family of Eagles Type 2" },
+    { denom: "AGE-1/2OZ", yearStart: 2021, yearEnd: 2026, series: "Liberty/Family of Eagles Type 2" },
+    { denom: "AGE-1/4OZ", yearStart: 2021, yearEnd: 2026, series: "Liberty/Family of Eagles Type 2" },
+    { denom: "AGE-1/10OZ", yearStart: 2021, yearEnd: 2026, series: "Liberty/Family of Eagles Type 2" },
+    { denom: "APE-1OZ", yearStart: 1997, yearEnd: 2026, series: "Liberty/Eagle" },
+    { denom: "APE-1/2OZ", yearStart: 1997, yearEnd: 2026, series: "Liberty/Eagle" },
+    { denom: "APE-1/4OZ", yearStart: 1997, yearEnd: 2026, series: "Liberty/Eagle" },
+    { denom: "APE-1/10OZ", yearStart: 1997, yearEnd: 2026, series: "Liberty/Eagle" },
+    { denom: "APDE", yearStart: 2017, yearEnd: 2026, series: "Winged Liberty/Eagle" },
+    { denom: "GBUF", yearStart: 2006, yearEnd: 2026, series: "Indian Head/Bison" },
+    { denom: "G$COM-C", yearStart: 1915, yearEnd: 1915, series: "Panama-Pacific $2.50" },
+    { denom: "G$COM-C", yearStart: 1915, yearEnd: 1915, series: "Panama-Pacific $50 Round" },
+    { denom: "G$COM-C", yearStart: 1915, yearEnd: 1915, series: "Panama-Pacific $50 Octagonal" },
+    { denom: "G$COM-C", yearStart: 1903, yearEnd: 1926, series: "Various $1 and $2.50" },
+    { denom: "G$5-COM", yearStart: 1984, yearEnd: 2026, series: "Various Issues" },
+    { denom: "G$5-COM", yearStart: 2019, yearEnd: 2019, series: "Apollo 11 Curved" },
+    { denom: "G$5-COM", yearStart: 2020, yearEnd: 2020, series: "Basketball HOF Curved" },
+    { denom: "G$10-FS", yearStart: 2007, yearEnd: 2007, series: "Martha Washington" },
+    { denom: "G$10-FS", yearStart: 2007, yearEnd: 2007, series: "Abigail Adams" },
+    { denom: "G$10-FS", yearStart: 2007, yearEnd: 2007, series: "Jefferson's Liberty" },
+    { denom: "G$10-FS", yearStart: 2007, yearEnd: 2007, series: "Dolley Madison" },
+    { denom: "G$10-FS", yearStart: 2008, yearEnd: 2016, series: "Various" }
   ];
 
   // Canonical denomination code metadata (label + face-value order), used
@@ -7359,33 +7480,71 @@
   // data. Medal is included even though it has no real "diameter" — it's
   // still a legitimate Denomination value elsewhere in the app (Browse's
   // Medal filter, Stats & Value's coins-vs-medals split).
+  //
+  // `era` ("classic" | "bullion") is what the Bullion toggle below filters
+  // on — everyday circulating denominations and classic pre-1933 gold are
+  // "classic" (the default, unchecked state); the modern bullion programs
+  // (Gold/Platinum/Palladium Eagle, Buffalo) are "bullion". American Silver
+  // Eagle is the one deliberate exception: it shares the LITERAL "$1" code
+  // with the classic/modern circulating Dollar (see DENOM_NAME_TO_CODE's
+  // own comment for why that reuse is correct, not a shortcut), so it gets
+  // its own SEPARATE dropdown entry with the same value but a
+  // bullion-specific label — two <option value="$1"> elements are valid
+  // HTML, and both write the identical denom code to the coin record, so
+  // downstream matching/filtering never has to know which label the user
+  // actually picked.
   const DENOM_CODE_INFO = [
-    { code: "0.5C", label: "Half Cent" },
-    { code: "1C",   label: "Cent" },
-    { code: "2C",   label: "Two Cent" },
-    { code: "3C",   label: "Three Cent" },
-    { code: "H5C",  label: "Half Dime" },
-    { code: "5C",   label: "Nickel" },
-    { code: "10C",  label: "Dime" },
-    { code: "20C",  label: "Twenty Cent" },
-    { code: "25C",  label: "Quarter" },
-    { code: "50C",  label: "Half Dollar" },
-    { code: "$1",   label: "Dollar" },
-    { code: "Medal", label: "Medal" }
+    { code: "0.5C", label: "Half Cent", era: "classic" },
+    { code: "1C",   label: "Cent", era: "classic" },
+    { code: "2C",   label: "Two Cent", era: "classic" },
+    { code: "3C",   label: "Three Cent", era: "classic" },
+    { code: "H5C",  label: "Half Dime", era: "classic" },
+    { code: "5C",   label: "Nickel", era: "classic" },
+    { code: "10C",  label: "Dime", era: "classic" },
+    { code: "20C",  label: "Twenty Cent", era: "classic" },
+    { code: "25C",  label: "Quarter", era: "classic" },
+    { code: "50C",  label: "Half Dollar", era: "classic" },
+    { code: "$1",   label: "Dollar", era: "classic" },
+    { code: "Medal", label: "Medal", era: "classic" },
+    // --- Gold/bullion tier (batch-3 follow-up) ---
+    { code: "G$1",    label: "Gold Dollar", era: "classic" },
+    { code: "G$2.5",  label: "Quarter Eagle ($2.50 Gold)", era: "classic" },
+    { code: "G$3",    label: "Three Dollar Gold", era: "classic" },
+    { code: "G$5",    label: "Half Eagle ($5 Gold)", era: "classic" },
+    { code: "G$10",   label: "Eagle ($10 Gold)", era: "classic" },
+    { code: "G$20",   label: "Double Eagle ($20 Gold)", era: "classic" },
+    { code: "G$COM-C", label: "Commemorative Gold (Classic)", era: "classic" },
+    { code: "G$5-COM", label: "Commemorative $5 Gold (Modern)", era: "classic" },
+    { code: "G$10-FS", label: "First Spouse $10 Gold", era: "classic" },
+    { code: "GBUF",   label: "American Buffalo Gold", era: "bullion" },
+    { code: "APDE",   label: "American Palladium Eagle ($25)", era: "bullion" },
+    { code: "$1",     label: "American Silver Eagle", era: "bullion" }, // same code as Dollar above, deliberately — see comment
+    { code: "AGE-1OZ",    label: "American Gold Eagle — 1 oz ($50)", era: "bullion" },
+    { code: "AGE-1/2OZ",  label: "American Gold Eagle — 1/2 oz ($25)", era: "bullion" },
+    { code: "AGE-1/4OZ",  label: "American Gold Eagle — 1/4 oz ($10)", era: "bullion" },
+    { code: "AGE-1/10OZ", label: "American Gold Eagle — 1/10 oz ($5)", era: "bullion" },
+    { code: "APE-1OZ",    label: "American Platinum Eagle — 1 oz ($100)", era: "bullion" },
+    { code: "APE-1/2OZ",  label: "American Platinum Eagle — 1/2 oz ($50)", era: "bullion" },
+    { code: "APE-1/4OZ",  label: "American Platinum Eagle — 1/4 oz ($25)", era: "bullion" },
+    { code: "APE-1/10OZ", label: "American Platinum Eagle — 1/10 oz ($10)", era: "bullion" }
   ];
 
   // Populates Add Coin's #denomination <select> from DENOM_CODE_INFO,
-  // filtered to only codes actually present in FAKE_DENOMINATIONS — called
-  // once at init, replacing the six <option>s that used to be hardcoded
-  // directly in the HTML. Edit Coin's own Denomination dropdown is
-  // deliberately NOT changed here — it's a separate, smaller, static list
-  // (the six original codes + Medal, minus "Multiple") scoped to editing an
-  // ALREADY-OWNED coin, where a newly-added reference denomination isn't
-  // relevant until a coin of that type is actually saved.
-  function populateAddCoinDenominationDropdown() {
+  // filtered to only codes actually present in FAKE_DENOMINATIONS AND to
+  // the given era ("classic" default, "bullion" when the toggle is
+  // checked) — called once at init and again whenever the Bullion toggle
+  // changes. Replaces the six <option>s that used to be hardcoded directly
+  // in the HTML. Edit Coin's own Denomination dropdown is deliberately NOT
+  // changed here — it's a separate, smaller, static list (the six original
+  // codes + Medal, minus "Multiple") scoped to editing an ALREADY-OWNED
+  // coin, where a newly-added reference denomination isn't relevant until
+  // a coin of that type is actually saved.
+  function populateAddCoinDenominationDropdown(era) {
+    era = era || "classic";
     const select = document.getElementById("denomination");
     const present = new Set(FAKE_DENOMINATIONS.map(d => d.denom));
-    DENOM_CODE_INFO.filter(d => present.has(d.code)).forEach(d => {
+    select.innerHTML = '<option value="">— select —</option>';
+    DENOM_CODE_INFO.filter(d => present.has(d.code) && d.era === era).forEach(d => {
       select.appendChild(new Option(d.code + " — " + d.label, d.code));
     });
   }
@@ -15645,6 +15804,8 @@
     document.getElementById("certTypeNumber").value = "";
 
     // --- Identity
+    document.getElementById("addCoinBullionToggle").checked = false;
+    populateAddCoinDenominationDropdown("classic");
     document.getElementById("denomination").value = "";
     document.getElementById("year").value = "";
     document.getElementById("mintMark").value = "";
@@ -15808,7 +15969,17 @@
       }
     });
 
-    populateAddCoinDenominationDropdown();
+    populateAddCoinDenominationDropdown("classic");
+    // Bullion toggle (batch-3 follow-up): re-populates the dropdown to the
+    // opposite era's option set and clears the current selection — a
+    // stale classic pick lingering after switching to Bullion mode (or
+    // vice versa) would be confusing, and neither list is a subset of the
+    // other, so there's no value worth trying to preserve across the
+    // switch.
+    document.getElementById("addCoinBullionToggle").addEventListener("change", (e) => {
+      populateAddCoinDenominationDropdown(e.target.checked ? "bullion" : "classic");
+      document.getElementById("denomination").dispatchEvent(new Event("change"));
+    });
     document.getElementById("denomination").addEventListener("change", () => {
       maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
       const denom = document.getElementById("denomination").value;

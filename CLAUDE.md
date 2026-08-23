@@ -5491,8 +5491,10 @@ Opus-tier, held for its own go-ahead.
     what the naming-conventions section already documents it as — a short,
     controlled set of codes — rather than letting a reference sheet's own
     descriptive bucketing leak into it.
-  - **Deliberately still excluded, flagged rather than guessed at: the
-    gold/bullion tier** (Half Eagle, Quarter Eagle, Eagle, Double Eagle,
+  - **Superseded by "Add Coin Phase 1: gold/bullion denomination codes"
+    below** — Ray resolved the code scheme; this whole bullet is history.
+  - Deliberately still excluded, flagged rather than guessed at: the
+    gold/bullion tier (Half Eagle, Quarter Eagle, Eagle, Double Eagle,
     Three Dollar, Gold Dollar, Gold Buffalo, Commemorative Gold,
     Commemorative $5 Gold, First Spouse $10, American Gold/Silver/
     Platinum/Palladium Eagle bullion, and "Special" — 57 rows). Ray's own
@@ -5621,6 +5623,117 @@ Opus-tier, held for its own go-ahead.
   horizontal overflow either width.
 - **Not verified: any real device, any real OneDrive session against these
   specific fixes** — same standing caveat as every prior Add Coin round.
+
+### Add Coin Phase 1: gold/bullion denomination codes (BUILT, same branch, still held)
+Resolves the "held for Ray's own numismatic call" gap batch 3 explicitly
+left open — **supersedes** batch 3's "deliberately still excluded" list for
+everything below except `Special` (still out of scope, see its own note).
+
+**Codes derived from Ref_Denominations' own `Category` column, one code per
+category** — the general rule Ray specified — **except American Gold Eagle
+and American Platinum Eagle**, which each mint 4 genuinely different face
+values (1 oz/1-2 oz/1-4 oz/1-10 oz) under one Category, so Category alone
+can't tell them apart; each gets its own 4-code, metal-and-size-prefixed
+family instead (`AGE-1OZ`/`AGE-1/2OZ`/`AGE-1/4OZ`/`AGE-1/10OZ`,
+`APE-1OZ`/`APE-1/2OZ`/`APE-1/4OZ`/`APE-1/10OZ`) — size folded directly into
+the code, per Ray's instruction. Metal-prefixing specifically (not just
+size) is what stops a real cross-metal collision: Gold Eagle 1 oz and
+Platinum Eagle 1/2 oz are both $50 face value, active the same years
+(1997+) — a plain size-only code would have collided.
+
+- `G$1` (Gold Dollar), `G$2.5` (Quarter Eagle), `G$3` (Three Dollar Gold),
+  `G$5` (Half Eagle), `G$10` (Eagle), `G$20` (Double Eagle) — classic
+  pre-1933 gold, one code per Category as the default rule. The `G$` prefix
+  keeps these visually and functionally distinct from the cents-based codes
+  and from each other.
+- `G$COM-C` (classic Commemorative Gold, Panama-Pacific era — mixed face
+  values within one Category, so one representative code rather than
+  splitting further), `G$5-COM` (modern Commemorative $5 Gold),
+  `G$10-FS` (First Spouse $10 Gold), `GBUF` (American Buffalo).
+- `APDE` (American Palladium Eagle — single size, $25 face, no size-split
+  needed).
+- `AGE-*` / `APE-*` — the 4-size Gold/Platinum Eagle families above.
+
+**Year-aware code REUSE, not a new code, for American Silver Eagle — Ray's
+explicit call, confirmed reliable, not a guess.** All U.S. gold coinage
+ended with the 1933 gold recall; the modern bullion programs (Gold/
+Platinum/Palladium Eagle, Buffalo) didn't start until 1986/1997/2017 — a
+53-year minimum gap, so a year can never resolve to both a classic and
+modern coin under a shared code (this is WHY the classic gold codes above
+each get their own dedicated code rather than trying to double up with a
+bullion equivalent — there IS no real face-value overlap needing
+resolution there once each program has its own code). Silver is different
+and Ray specifically named it: Peace Dollar ended 1935, Silver Eagle
+started 1986 — 51 years, zero overlap — and Silver Eagle genuinely IS a
+$1-face-value coin, so it correctly **reuses the existing `$1` code**
+rather than getting a new one. (The one near-exception — 2021-2023 Morgan/
+Peace 100th Anniversary silver dollar reissues — is already its own
+distinct `FAKE_DENOMINATIONS` row under `$1` with its own year range, so
+it doesn't collide with the new Silver Eagle rows either.) **Gold Dollar
+is the opposite case and needed its own code (`G$1`, not `$1`)** —
+Gold Dollar (1849-1889) genuinely DID coexist with Seated Liberty/Trade/
+Morgan SILVER dollars (1840-1921), same era, same legal-tender status,
+different metal — the year-gap trick that makes Silver Eagle safe does
+NOT apply here, so a shared code would have been a real ambiguity, not
+just a theoretical one.
+
+**Known, accepted side effect of the `$1` reuse**: the series/Description
+auto-fill picker can now show "Walking Liberty/Heraldic Eagle" (Silver
+Eagle) as a candidate alongside ordinary modern-dollar series
+(Presidential/Native American/Various Issues/etc.) for a `$1` coin dated
+1986 or later — a real, deliberate consequence of the shared code, not a
+bug. The Bullion toggle (below) is what disambiguates which one a user
+actually meant at ENTRY time; it doesn't change what the series picker
+itself can show once a year is typed, since the underlying denom code is
+identical either way.
+
+**New Bullion toggle** (`#addCoinBullionToggle`, a checkbox using the
+existing `.grade-range-toggle` style) filters the Denomination dropdown to
+bullion-only or classic-only options — explicitly a COMPLEMENTARY UX
+layer, not a replacement for the year-aware matching above: data entry
+doesn't require already knowing which era a coin belongs to, but the
+actual denom code written and the series-matching logic behave identically
+regardless of which state the toggle was in when the value was picked.
+- `DENOM_CODE_INFO` entries each carry an `era` (`"classic"` | `"bullion"`).
+  Off (default) shows everyday circulating denominations plus classic
+  pre-1933 gold; on shows the modern bullion programs (Gold/Platinum/
+  Palladium Eagle, Buffalo) plus a Silver-Eagle-labeled option.
+- **American Silver Eagle gets its own dropdown OPTION despite sharing the
+  literal `$1` VALUE with "Dollar"** — two `<option value="$1">` elements
+  with different labels and different `era` tags is valid HTML; both write
+  the identical `$1` denom code to the coin record, so no downstream
+  matching/filtering code needs to know or care which label the user
+  actually clicked. This is what actually resolves the tension between
+  "Ray wants Silver Eagle to reuse `$1`" and "the toggle needs a clearly
+  labeled Silver Eagle option to filter on" — solved by decoupling the
+  dropdown's display layer from the underlying stored value, not by
+  picking one requirement over the other.
+- `populateAddCoinDenominationDropdown(era)` now takes the era and rebuilds
+  the option list from scratch (clearing any stale selection) — called at
+  init (`"classic"`), on toggle change, and by `resetAddCoinForm()` (which
+  also unchecks the toggle, consistent with the existing "form resets
+  fully between visits" fix).
+- **`Special` (8 rows) stays excluded, unchanged from batch 3** — it's a
+  genuine catch-all across several ALREADY-mapped denominations (burnished
+  Silver Eagle variants, W-mintmark quarters, "Best of the Mint" mixed
+  sets), not a face-value category of its own with anything coherent to
+  derive a code from.
+
+**Verified headless — 9 new assertions in `tests/verify_batch3.js`** (41
+total in that suite now, 189 across all 3 suites, zero failures): all four
+Gold Eagle and Platinum Eagle sizes present as real, size-distinct codes;
+Buffalo/Palladium Eagle present in Bullion view; classic/everyday codes
+correctly absent from the Bullion view (and vice versa); toggling resets
+the current selection rather than leaving a stale cross-list pick; a
+classic gold code (Half Eagle, 1900) and a bullion code (1 oz Gold Eagle,
+2000) both resolve the correct series via the existing
+`lookupDescriptionCandidates()` machinery, unchanged; and the "American
+Silver Eagle" bullion-view option writes the literal `$1` value, confirmed
+identical to the classic "Dollar" option. Screenshots reviewed at both
+viewports for the toggle + explanatory note — no overflow, no layout
+collision with the fields above/below it.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every prior round in this feature.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

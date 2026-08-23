@@ -83,17 +83,74 @@ module.exports = defineSuite("batch3", async ({ ok, openApp, PHONE }) => {
       halfCentScale: DENOM_SCALE['0.5C'],
       statsOrderIncludesHalfCent: STATS_DENOM_ORDER.includes('0.5C'),
       denomLabelsHasTwoCent: DENOM_LABELS['2C'],
-      noGoldCode: !options.includes('Half Eagle') && !options.includes('$5') && !options.includes('Silver Eagle'),
-      fakeDenomHasGoldRows: FAKE_DENOMINATIONS.some(d => d.series === 'Morgan') === false // sanity: Morgan is a $1 series, not a gold one
+      // Gold/bullion codes now DO exist (the follow-up round), but must not
+      // leak into the default/classic dropdown view — see the Bullion
+      // toggle block below for where they actually show up.
+      noBullionCodeInClassicView: !options.includes('AGE-1OZ') && !options.includes('APE-1OZ') && !options.includes('GBUF') && !options.includes('APDE'),
+      hasClassicGoldCode: options.includes('G$5') // classic pre-1933 gold DOES show in the default view
     };
   });
   ok(B8.hasHalfCent && B8.hasTwoCent && B8.hasThreeCent && B8.hasTwentyCent && B8.hasHalfDime,
     "8.1 the five new denom codes Ray named (Half Cent/Two Cent/Three Cent/Twenty Cent/Half Dime) are all real dropdown options now");
   ok(B8.hasMedal, "8.2 Medal is now a real dropdown option too (a real Ref_Denominations row, a low-risk side effect)");
   ok(B8.halfCentScale === 0.70, "8.3 the new codes got a real DENOM_SCALE entry (floored at 0.70) instead of silently defaulting to 1.0");
+  ok(B8.noBullionCodeInClassicView, "8.6a bullion-era codes (Gold/Platinum Eagle, Buffalo, Palladium) are hidden in the default classic view");
+  ok(B8.hasClassicGoldCode, "8.6b classic pre-1933 gold (Half Eagle) shows in the default classic view, unlike bullion");
   ok(B8.statsOrderIncludesHalfCent, "8.4 STATS_DENOM_ORDER extended so Stats & Value can show a real breakdown row for the new codes");
   ok(B8.denomLabelsHasTwoCent === "Two Cents", "8.5 DENOM_LABELS extended with a real plural label");
-  ok(B8.noGoldCode, "8.6 gold/bullion denominations are deliberately NOT in the dropdown yet -- held for Ray's own code-scheme decision");
+
+  // ---------- #8 follow-up: gold/bullion tier + Bullion toggle ----------
+  const B8g = await page.evaluate(() => {
+    navigate('addcoin');
+    const classicOptions = [...document.querySelectorAll('#denomination option')].map(o => o.value);
+    const toggle = document.getElementById('addCoinBullionToggle');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    const bullionOptions = [...document.querySelectorAll('#denomination option')].map(o => o.value);
+    const bullionLabels = [...document.querySelectorAll('#denomination option')].map(o => o.textContent);
+    // The Denomination select gets reset (its own "change" handler fires,
+    // clearing the flip labels etc.) -- confirm it's actually blank after
+    // toggling, not left on a stale classic-mode selection.
+    const denomClearedAfterToggle = document.getElementById('denomination').value === '';
+
+    // Series matching still works correctly for the new codes.
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    document.getElementById('denomination').value = 'G$5'; // classic Half Eagle
+    document.getElementById('year').value = '1900';
+    maybeAutoFillDescription();
+    const classicGoldSeries = document.getElementById('description').value;
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    document.getElementById('denomination').value = 'AGE-1OZ';
+    document.getElementById('year').value = '2000';
+    maybeAutoFillDescription();
+    const bullionSeries = document.getElementById('description').value;
+
+    // Silver Eagle and Dollar are two differently-labeled options sharing
+    // the identical underlying code -- confirm both really do write "$1".
+    const silverEagleOption = [...document.querySelectorAll('#denomination option')].find(o => o.textContent.includes('American Silver Eagle'));
+    const silverEagleValue = silverEagleOption ? silverEagleOption.value : null;
+
+    return {
+      classicOptions, bullionOptions, bullionLabels, denomClearedAfterToggle,
+      classicGoldSeries, bullionSeries, silverEagleValue,
+      hasAGE: bullionOptions.includes('AGE-1OZ') && bullionOptions.includes('AGE-1/2OZ') && bullionOptions.includes('AGE-1/4OZ') && bullionOptions.includes('AGE-1/10OZ'),
+      hasAPE: bullionOptions.includes('APE-1OZ') && bullionOptions.includes('APE-1/2OZ') && bullionOptions.includes('APE-1/4OZ') && bullionOptions.includes('APE-1/10OZ'),
+      hasGBUF: bullionOptions.includes('GBUF'),
+      hasAPDE: bullionOptions.includes('APDE'),
+      noClassicCodeInBullionView: !bullionOptions.includes('0.5C') && !bullionOptions.includes('G$5')
+    };
+  });
+  ok(B8g.hasAGE, "8g.1 all four American Gold Eagle sizes appear as real, size-distinct codes");
+  ok(B8g.hasAPE, "8g.2 all four American Platinum Eagle sizes appear as real, size-distinct codes");
+  ok(B8g.hasGBUF && B8g.hasAPDE, "8g.3 American Buffalo and Palladium Eagle appear in the Bullion view");
+  ok(B8g.noClassicCodeInBullionView, "8g.4 classic/everyday codes are hidden in the Bullion view (the two lists don't overlap, aside from the deliberate Silver Eagle/$1 case)");
+  ok(B8g.denomClearedAfterToggle, "8g.5 toggling Bullion resets the current Denomination selection rather than leaving a stale pick from the other list");
+  ok(B8g.classicGoldSeries === 'Liberty Head Motto', "8g.6 a classic gold code (Half Eagle, G$5) still resolves the correct series for its year (1900)");
+  ok(B8g.bullionSeries === 'Liberty/Family of Eagles Type 1', "8g.7 a bullion code (1 oz American Gold Eagle) resolves the correct series for its year (2000)");
+  ok(B8g.silverEagleValue === '$1', "8g.8 the 'American Silver Eagle' bullion-view option writes the IDENTICAL '$1' code the classic 'Dollar' option does");
 
   // ---------- #10: shared loading indicator mechanics ----------
   const B10 = await page.evaluate(() => {
