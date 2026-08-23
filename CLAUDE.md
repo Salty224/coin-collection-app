@@ -5625,113 +5625,130 @@ Opus-tier, held for its own go-ahead.
   specific fixes** — same standing caveat as every prior Add Coin round.
 
 ### Add Coin Phase 1: gold/bullion denomination codes (BUILT, same branch, still held)
-Resolves the "held for Ray's own numismatic call" gap batch 3 explicitly
-left open — **supersedes** batch 3's "deliberately still excluded" list for
-everything below except `Special` (still out of scope, see its own note).
+**Superseded once already, same session — the version below is the
+corrected, final design.** The first pass built a dedicated denom-code
+family (`G$1`, `G$2.5`, `AGE-1OZ`, `APE-1OZ`, etc.) reasoning purely from
+face-value collision risk. Ray corrected this on review: the real workbook
+already has 49 Silver Eagle rows plus Morgan/Peace Dollar rows that solve
+this exact problem by keeping Denomination PLAIN (the real legal-tender
+face value, e.g. `$1`) and using a separate **Category** column as the
+distinguishing type (`Silver Eagle`). Inventing a new denomination-code
+vocabulary was solving an already-solved problem, and solving it in a way
+that didn't match how the collection is actually catalogued. Everything
+below is the corrected design; the `G$`/`AGE-`/`APE-` code family is gone
+from the app entirely, not just superseded in prose.
 
-**Codes derived from Ref_Denominations' own `Category` column, one code per
-category** — the general rule Ray specified — **except American Gold Eagle
-and American Platinum Eagle**, which each mint 4 genuinely different face
-values (1 oz/1-2 oz/1-4 oz/1-10 oz) under one Category, so Category alone
-can't tell them apart; each gets its own 4-code, metal-and-size-prefixed
-family instead (`AGE-1OZ`/`AGE-1/2OZ`/`AGE-1/4OZ`/`AGE-1/10OZ`,
-`APE-1OZ`/`APE-1/2OZ`/`APE-1/4OZ`/`APE-1/10OZ`) — size folded directly into
-the code, per Ray's instruction. Metal-prefixing specifically (not just
-size) is what stops a real cross-metal collision: Gold Eagle 1 oz and
-Platinum Eagle 1/2 oz are both $50 face value, active the same years
-(1997+) — a plain size-only code would have collided.
+**No new Denomination codes at all.** `DENOM_CODE_INFO` (the everyday
+dropdown) is back to exactly its pre-gold-tier 12 entries. The gold/bullion
+tier is a completely separate structure, `BULLION_TIER_OPTIONS`, of
+`{label, denom, category}` triples — `denom` is always a real, plain
+face value (`$1`, `$2.5`, `$3`, `$5`, `$10`, `$20`, `$25`, `$50`, `$100`),
+never a fabricated code.
 
-- `G$1` (Gold Dollar), `G$2.5` (Quarter Eagle), `G$3` (Three Dollar Gold),
-  `G$5` (Half Eagle), `G$10` (Eagle), `G$20` (Double Eagle) — classic
-  pre-1933 gold, one code per Category as the default rule. The `G$` prefix
-  keeps these visually and functionally distinct from the cents-based codes
-  and from each other.
-- `G$COM-C` (classic Commemorative Gold, Panama-Pacific era — mixed face
-  values within one Category, so one representative code rather than
-  splitting further), `G$5-COM` (modern Commemorative $5 Gold),
-  `G$10-FS` (First Spouse $10 Gold), `GBUF` (American Buffalo).
-- `APDE` (American Palladium Eagle — single size, $25 face, no size-split
-  needed).
-- `AGE-*` / `APE-*` — the 4-size Gold/Platinum Eagle families above.
+- **Several entries deliberately SHARE the same `denom`** — exactly
+  matching the real workbook's own pattern, not a bug to fix: Gold Dollar,
+  American Silver Eagle, and the classic circulating Dollar are all `$1`;
+  Gold Eagle 1 oz, Platinum Eagle 1/2 oz, and American Buffalo are all
+  `$50`. **Category is what actually disambiguates them** — Category
+  `"Silver Eagle"` vs. blank (an ordinary Dollar) vs. `"Gold Dollar"`, all
+  under the identical `$1` Denomination.
+- **Gold/Platinum Eagle sizes are real, distinct face values, not a
+  size-coded vocabulary**: Gold Eagle 1 oz/1-2 oz/1-4 oz/1-10 oz are
+  genuinely `$50`/`$25`/`$10`/`$5`; Platinum Eagle's four sizes are
+  `$100`/`$50`/`$25`/`$10`. All four Gold Eagle rows share ONE Category
+  (`"Gold Eagle"`) — Denomination alone (the real face value) is what
+  tells the sizes apart, exactly like the real workbook would. The
+  dropdown LABEL spells out the size for the user ("American Gold Eagle —
+  1 oz ($50)"); nothing downstream needs a size baked into a code.
+- Classic pre-1933 gold (Gold Dollar, Quarter Eagle, Three Dollar, Half
+  Eagle, Eagle, Double Eagle), the two commemorative-gold buckets, First
+  Spouse $10, American Buffalo, and American Palladium Eagle each get one
+  `BULLION_TIER_OPTIONS` entry with their own real plain face value.
+  Classic Commemorative Gold's real span across two face values ($2.50 and
+  $50, Panama-Pacific era) is handled as two entries under one Category
+  name rather than picking one arbitrarily; its one genuinely mixed source
+  row (`"Various $1 and $2.50"`) is folded into the $2.50 entry as a
+  reasonable simplification, not treated as a third split.
+- `Special` (8 rows) stays excluded, unchanged — still a genuine catch-all
+  across several already-mapped denominations, nothing coherent to derive
+  a single type from.
 
-**Year-aware code REUSE, not a new code, for American Silver Eagle — Ray's
-explicit call, confirmed reliable, not a guess.** All U.S. gold coinage
-ended with the 1933 gold recall; the modern bullion programs (Gold/
-Platinum/Palladium Eagle, Buffalo) didn't start until 1986/1997/2017 — a
-53-year minimum gap, so a year can never resolve to both a classic and
-modern coin under a shared code (this is WHY the classic gold codes above
-each get their own dedicated code rather than trying to double up with a
-bullion equivalent — there IS no real face-value overlap needing
-resolution there once each program has its own code). Silver is different
-and Ray specifically named it: Peace Dollar ended 1935, Silver Eagle
-started 1986 — 51 years, zero overlap — and Silver Eagle genuinely IS a
-$1-face-value coin, so it correctly **reuses the existing `$1` code**
-rather than getting a new one. (The one near-exception — 2021-2023 Morgan/
-Peace 100th Anniversary silver dollar reissues — is already its own
-distinct `FAKE_DENOMINATIONS` row under `$1` with its own year range, so
-it doesn't collide with the new Silver Eagle rows either.) **Gold Dollar
-is the opposite case and needed its own code (`G$1`, not `$1`)** —
-Gold Dollar (1849-1889) genuinely DID coexist with Seated Liberty/Trade/
-Morgan SILVER dollars (1840-1921), same era, same legal-tender status,
-different metal — the year-gap trick that makes Silver Eagle safe does
-NOT apply here, so a shared code would have been a real ambiguity, not
-just a theoretical one.
+**Bullion toggle still exists, same UX goal, corrected mechanism.**
+`#addCoinBullionToggle` still filters the Denomination dropdown between
+"classic" (`DENOM_CODE_INFO`, everyday circulating denominations only) and
+"bullion" (`BULLION_TIER_OPTIONS`, which now includes the classic gold
+tier too, not just the modern bullion programs — grouped together under
+one toggle since neither is an everyday circulating denomination).
+- **Picking a bullion-tier option sets Denomination AND Category in one
+  action** — the user never fills out two fields. Each `<option>`'s
+  `value` is still the plain `denom` (so `#denomination`'s own value is
+  always a real face value, exactly like the classic case); the option's
+  `category` rides along in a `dataset.category` attribute. The
+  denomination `change` handler reads it into a new module-level
+  `addCoinBullionCategory` (blank for every everyday pick, matching how a
+  regular coin has no Category on the real workbook either), which
+  `readAddCoinFormForDraft()`/`buildCoinDraft()` now carry through onto the
+  Staging draft as a real `category` field.
+- **Description auto-fill is suppressed for a bullion-tier pick, and set
+  directly from the option's own label instead.** This is a real,
+  necessary consequence of the shared-`denom` design: `maybeAutoFillDescription()`
+  is keyed only by denom+year (via `lookupDescriptionCandidates()`/
+  `FAKE_DENOMINATIONS`), with no awareness of Category — so running it
+  unchanged for, say, a `$50` Gold Eagle pick would show mixed, wrong
+  candidates drawn from every OTHER `$50` bullion/gold type active in
+  overlapping years (Platinum Eagle 1/2 oz, American Buffalo, and a
+  Panama-Pacific $50 commemorative all also use `$50`). Since a
+  bullion-tier pick already fully identifies the coin (denom + category
+  together), Description is simply set to the option's label
+  (stripping the trailing "($50)"-style face-value parenthetical, since
+  Description is a name, not a value) — this is exactly why
+  `BULLION_TIER_OPTIONS` rows are deliberately NOT added to
+  `FAKE_DENOMINATIONS` at all, unlike the everyday denominations.
+- Toggling Bullion off (or resetting the form) clears
+  `addCoinBullionCategory` back to blank, so a stale bullion Category can
+  never survive onto an unrelated everyday pick.
 
-**Known, accepted side effect of the `$1` reuse**: the series/Description
-auto-fill picker can now show "Walking Liberty/Heraldic Eagle" (Silver
-Eagle) as a candidate alongside ordinary modern-dollar series
-(Presidential/Native American/Various Issues/etc.) for a `$1` coin dated
-1986 or later — a real, deliberate consequence of the shared code, not a
-bug. The Bullion toggle (below) is what disambiguates which one a user
-actually meant at ENTRY time; it doesn't change what the series picker
-itself can show once a year is typed, since the underlying denom code is
-identical either way.
+**`Category` is a real, deliberate new capture on the Add Coin draft —
+flagged explicitly, not folded in silently, per Ray's own instruction.**
+`category` is added to `readAddCoinFormForDraft()`'s shape and
+`buildCoinDraft()`'s stored fields, matching the real workbook's own
+Category column. **`ALL_WRITABLE_COLUMNS` (the write-guard list Browse
+Edit's live-workbook PATCH is built from) is confirmed via source to have
+no `Category` entry today, and this task deliberately does NOT add one.**
+Add Coin Phase 1 only ever writes a Staging JSON draft (no
+`ALL_WRITABLE_COLUMNS` involvement at all), so nothing requires the change
+yet — same standing precedent as Finish, which was captured on the Add
+Coin draft well before it was added to the allow-list. **Phase 2's real
+direct-write path will need `Category` added to `ALL_WRITABLE_COLUMNS`
+before a picked Category can actually persist to the real All sheet** —
+that is real future work, not implied or started by this change.
 
-**New Bullion toggle** (`#addCoinBullionToggle`, a checkbox using the
-existing `.grade-range-toggle` style) filters the Denomination dropdown to
-bullion-only or classic-only options — explicitly a COMPLEMENTARY UX
-layer, not a replacement for the year-aware matching above: data entry
-doesn't require already knowing which era a coin belongs to, but the
-actual denom code written and the series-matching logic behave identically
-regardless of which state the toggle was in when the value was picked.
-- `DENOM_CODE_INFO` entries each carry an `era` (`"classic"` | `"bullion"`).
-  Off (default) shows everyday circulating denominations plus classic
-  pre-1933 gold; on shows the modern bullion programs (Gold/Platinum/
-  Palladium Eagle, Buffalo) plus a Silver-Eagle-labeled option.
-- **American Silver Eagle gets its own dropdown OPTION despite sharing the
-  literal `$1` VALUE with "Dollar"** — two `<option value="$1">` elements
-  with different labels and different `era` tags is valid HTML; both write
-  the identical `$1` denom code to the coin record, so no downstream
-  matching/filtering code needs to know or care which label the user
-  actually clicked. This is what actually resolves the tension between
-  "Ray wants Silver Eagle to reuse `$1`" and "the toggle needs a clearly
-  labeled Silver Eagle option to filter on" — solved by decoupling the
-  dropdown's display layer from the underlying stored value, not by
-  picking one requirement over the other.
-- `populateAddCoinDenominationDropdown(era)` now takes the era and rebuilds
-  the option list from scratch (clearing any stale selection) — called at
-  init (`"classic"`), on toggle change, and by `resetAddCoinForm()` (which
-  also unchecks the toggle, consistent with the existing "form resets
-  fully between visits" fix).
-- **`Special` (8 rows) stays excluded, unchanged from batch 3** — it's a
-  genuine catch-all across several ALREADY-mapped denominations (burnished
-  Silver Eagle variants, W-mintmark quarters, "Best of the Mint" mixed
-  sets), not a face-value category of its own with anything coherent to
-  derive a code from.
+**Known, real scope gap, flagged rather than silently left**:
+`dbCoinsCandidatesFor()`'s base-key match (denom+year+mint+variety) has NO
+Category awareness, so entering a real Silver Eagle today (`denom="$1"`)
+will match/mismatch against DB_Coins using the same key an ordinary Dollar
+would, with no way to tell them apart at the catalog-matching level. This
+mirrors the exact tension the Description-auto-fill fix above had to work
+around, but for DB_Coins matching instead of the series picker — and
+extending `dbCoinsCandidatesFor()` with a Category tier is a real,
+separate matcher change this task did not make (deliberately, to stay
+scoped to what was asked: the dropdown/Category-capture mechanism). Worth
+Ray's explicit call before building.
 
-**Verified headless — 9 new assertions in `tests/verify_batch3.js`** (41
-total in that suite now, 189 across all 3 suites, zero failures): all four
-Gold Eagle and Platinum Eagle sizes present as real, size-distinct codes;
-Buffalo/Palladium Eagle present in Bullion view; classic/everyday codes
-correctly absent from the Bullion view (and vice versa); toggling resets
-the current selection rather than leaving a stale cross-list pick; a
-classic gold code (Half Eagle, 1900) and a bullion code (1 oz Gold Eagle,
-2000) both resolve the correct series via the existing
-`lookupDescriptionCandidates()` machinery, unchanged; and the "American
-Silver Eagle" bullion-view option writes the literal `$1` value, confirmed
-identical to the classic "Dollar" option. Screenshots reviewed at both
-viewports for the toggle + explanatory note — no overflow, no layout
-collision with the fields above/below it.
+**Verified headless — `tests/verify_batch3.js` rewritten for the corrected
+design (42 assertions in that suite now, 190 across all 3 suites, zero
+failures)**: the everyday dropdown has exactly its original 12 options (no
+new code vocabulary leaked in); the Bullion view includes all four
+Platinum Eagle sizes, Buffalo, and Palladium Eagle, with no everyday code
+among its values; toggling resets the current selection; picking "Half
+Eagle" sets Denomination to the plain `$5` and Category to `"Half Eagle"`
+with Description set from the label directly (not the denom+year lookup);
+picking "American Silver Eagle" writes the SAME `$1` Denomination the
+classic Dollar uses, distinguished only by Category; all four Gold Eagle
+sizes are four genuinely distinct face values sharing one Category; and
+toggling back to classic clears the picked Category. Screenshots reviewed
+at both viewports for the corrected toggle label/note and a real
+Silver-Eagle pick — no overflow, no layout collision.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every prior round in this feature.
 
