@@ -36,6 +36,61 @@ clarifying questions as plain, copy-pasteable text in the chat response instead 
 he discusses them with Claude (chat) separately and brings back answers to all of
 them at once, which an interactive per-question picker doesn't allow for.
 
+## Regression suites are COMMITTED (locked in — supersedes the scratchpad convention)
+`verify_*.js` suites live in **`tests/`, in the repo**, and are run with
+`npm test`. This **supersedes the long-standing "scripts live in per-session
+scratchpads" convention** referenced throughout this file — every earlier
+mention of that convention is history, not current practice.
+
+**Why it changed.** A suite that cannot be re-run is not a regression suite;
+it is a one-time acceptance check. It validates the session that wrote it and
+protects nothing afterward. The cost was real, repeated, and documented here
+several times over: the photo-gallery-crop branch could not re-run anything
+and substituted a nav smoke check; there is still a tracked item to *rebuild*
+a suite already written once (self-sized at 60–100 assertions,
+half-a-day-to-a-day); assertion counts climbing 653 → 685 → 748 were
+discarded wholesale at session boundaries. The Add Coin Phase 1 build hit it
+again — ~750 assertions of prior coverage unavailable — and still found three
+real bugs, with no way to know what the lost coverage would have caught in
+the same code.
+
+**This does not weaken the no-build/self-contained posture.** That rule is
+about the SHIPPED artifact: `app.html` must stand alone in a browser with no
+network dependencies. Test tooling is dev-time, never served, and
+`node_modules/` is gitignored. GitHub Pages ignores `tests/` and
+`package.json` entirely.
+
+**Honest scope: the value accrues to coding sessions, not to Ray.** His
+workflow is ZIP → Notepad → `python3 -m http.server`; he is not expected to
+run `npm test` and nothing asks him to.
+
+**Layout:**
+- `tests/harness.js` — browser resolution, page setup, the `ok()` assertion
+  helper, automatic page/console error collection, and `defineSuite()`.
+- `tests/verify_*.js` — one file per feature area. Auto-discovered; adding one
+  needs no registration step.
+- `tests/run-all.js` — `npm test`. Runs every suite, prints one total, exits
+  non-zero on any failure or uncaught page error (verified in both the
+  aggregated and standalone paths).
+
+**Two rules worth keeping:**
+- **Never hardcode a browser path in a suite.** Playwright's default
+  resolution cannot be relied on — the installed version pins a build number
+  that may not be what a sandbox pre-installed (verified: default launch
+  failed looking for build 1234 while `/opt/pw-browsers` held 1194). The
+  harness resolves it in one place: `CHROMIUM_PATH`, then the newest
+  `chromium-*` under `PLAYWRIGHT_BROWSERS_PATH`, then a system Chrome, then
+  Playwright's own default.
+- **A stale suite is worse than none** — it gets either spuriously failed and
+  ignored, or quietly weakened to pass. This project's existing discipline
+  (assertions "updated to follow a real design change, not weakened") is the
+  standard to hold.
+
+**Only the Add Coin Phase 1 suite is committed so far** (69 assertions).
+Retro-rebuilding the older suites remains the separate tracked item it
+already was — but it now has somewhere permanent to land, so it can be
+chipped at incrementally instead of needing one big rebuild.
+
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
 - No backend server — static HTML/JS + Microsoft Graph API only.
@@ -4946,8 +5001,15 @@ recreating the Part-F "both options look identical" bug by another route.
 them out of the one-line ellipsis. Fixed at the shared renderer, so Browse
 Edit and the Docket get it too. Presentation only — no matching logic changed.
 
-**Verified headless — 66 assertions (`verify_addcoin_phase1.js`), all passing,
-zero page errors**, at 412x915 and 1024x768, driven by the mock Graph client:
+**Verified headless — 69 assertions (`tests/verify_addcoin_phase1.js`), all
+passing, zero page errors**, driven by the mock Graph client. **Correction to
+an earlier version of this line:** it claimed the whole suite ran at both
+412x915 and 1024x768; it did not — the assertions ran at 412x915 only, and
+only the screenshots covered both. That is now true rather than aspirational:
+the logic assertions (Graph writes, draft shape, matcher resolution) are
+viewport-independent and run once at 412x915, and the three genuinely
+layout-sensitive checks — picker candidate count, picker truncation, and
+horizontal overflow — are additionally re-run at 1024x768. Coverage:
 flag-off inertness (no Graph call, in-memory path intact, nothing written);
 the reservation seeing a coin draft that `listSetDrafts()` cannot, `_Docket`
 never counting, and each lister ignoring the other's drafts; a full real save
@@ -4961,11 +5023,12 @@ draft and its photos; the Docket showing both an unmatched draft and a
 handed-off one; the picker not truncating a late differentiator; "Save to
 Database" writing a draft in Phase 1 with `savedVia: "direct"`; and a 12-route
 nav smoke with no horizontal overflow.
-- **Prior committed regression suites could not be re-run** — per this
-  project's convention the `verify_*.js` scripts live in per-session
-  scratchpads and none survived into this session. The nav smoke check is a
-  substitute, not an equivalent (same caveat the photo-gallery-crop branch
-  carried).
+- **Prior committed regression suites could not be re-run** — under the
+  convention in force at the time, the `verify_*.js` scripts lived in
+  per-session scratchpads and none survived into this session. The nav smoke
+  check is a substitute, not an equivalent (same caveat the
+  photo-gallery-crop branch carried). **This is what prompted the convention
+  change below**, so it should be the last time this caveat is needed.
 - **Not verified: any real device, and any real OneDrive session.** This is a
   new write path and needs a live run against `_Testing` before it's trusted —
   see `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`.

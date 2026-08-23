@@ -1,0 +1,12 @@
+{
+  "name": "coin-collection-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Salty's Cabinet — static coin-collection app. This package.json exists ONLY for the headless regression suite; the app itself has no build step and no runtime dependencies (app.html is served as-is by GitHub Pages and must stay self-contained — see CLAUDE.md's no-CDN posture).",
+  "scripts": {
+    "test": "node tests/run-all.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
