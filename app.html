@@ -1701,6 +1701,19 @@
 
   #pcgsLabelAmbiguousPanel.hidden { display: none; }
   #designationAmbiguousPanel.hidden { display: none; }
+  /* Real bug caught by screenshot, same recurring trap this file has hit
+     before (see the CLAUDE.md notes on "no global .hidden rule" — every
+     .hidden here is scoped to its own component, never a bare utility
+     class): these two panels were built with class="case hidden" copying
+     the visual look of the two ID-scoped rules just above, but with no
+     matching rule of their own, so classList.contains("hidden") correctly
+     read true while the panel stayed fully visible and laid out on the
+     page. Caught in the Add Coin Phase 1 bug-fix pass, not by any test —
+     the committed suite only ever checked classList state, never actual
+     rendered visibility, which is exactly the gap this class of bug hides
+     in. */
+  #descriptionAmbiguousPanel.hidden { display: none; }
+  #addCoinMatchAmbiguousPanel.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
   /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
@@ -2927,7 +2940,7 @@
           <div id="pcgsLabelBlock" style="display:none;">
             <label>PCGS Label #</label>
             <div class="year-field-row">
-              <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT">
+              <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT" autocomplete="off">
               <button type="button" id="pcgsLabelApplyBtn">Decode</button>
             </div>
             <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
@@ -2949,7 +2962,7 @@
 
           <div id="certTypeNumberRow" style="display:none;">
             <label>Cert / Type Number</label>
-            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo">
+            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
             <p class="placeholder-note" style="margin:-8px 0 16px;">
               Just captures the number here — the cert-lookup link lives on the saved coin's
               Browse detail view, not during entry.
@@ -2969,7 +2982,7 @@
 
           <label>Year</label>
           <div class="year-field-row">
-            <input type="text" inputmode="numeric" pattern="[0-9]*" id="year" placeholder="e.g. 1943">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" id="year" placeholder="e.g. 1943" autocomplete="off">
             <button type="button" class="year-pick-btn" id="yearPickBtn" aria-label="Pick year">📅</button>
           </div>
           <div class="year-picker hidden" id="yearPicker">
@@ -2994,7 +3007,13 @@
           </select>
 
           <label>Description</label>
-          <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)">
+          <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)" autocomplete="off">
+          <div class="case hidden" id="descriptionAmbiguousPanel" style="margin:4px 0 12px; padding:10px;">
+            <div class="placeholder-note" style="margin:0 0 8px;">This Year + Denomination matches more than one series — pick one, or type your own above.</div>
+            <select id="descriptionAmbiguousSelect">
+              <option value="">— choose a series —</option>
+            </select>
+          </div>
 
           <label>Variety</label>
           <select id="varietySelect">
@@ -3011,6 +3030,28 @@
             saved directly (see Save options below).
           </p>
 
+          <label>Finish</label>
+          <select id="finish">
+            <option value="">— not recorded —</option>
+            <option value="Business Strike">Business Strike</option>
+            <option value="Proof">Proof</option>
+            <option value="Reverse Proof">Reverse Proof</option>
+            <option value="SMS">SMS</option>
+            <option value="Specimen">Specimen</option>
+          </select>
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            A Proof and a Business Strike of the same date are different coins
+            in the catalog, so recording this narrows the DB_Coins match and
+            avoids being asked to pick between otherwise-identical entries on
+            save. Optional — leaving it blank never blocks a save, it just
+            matches on a weaker key.
+          </p>
+
+          <!-- Moved below Finish (real live-run finding, #13): Finish is one
+               of the fields the match below is actually computed from, so
+               showing the match banner ABOVE the field that helps determine
+               it read backwards — recording Finish, then seeing the banner
+               react, is the order that actually makes sense. -->
           <div class="banner context-banner hidden" id="dbMatchBanner">
             <span class="icon">✅</span>
             <span class="msg" id="dbMatchMsg"></span>
@@ -3023,24 +3064,6 @@
             <span class="icon">🔀</span>
             <span class="msg" id="dbAmbiguousMsg"></span>
           </div>
-
-          <label>Finish</label>
-          <select id="finish">
-            <option value="">— not recorded —</option>
-            <option value="Business Strike">Business Strike</option>
-            <option value="Proof">Proof</option>
-            <option value="Reverse Proof">Reverse Proof</option>
-            <option value="SMS">SMS</option>
-            <option value="Specimen">Specimen</option>
-            <option value="Circulated">Circulated</option>
-          </select>
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
-            A Proof and a Business Strike of the same date are different coins
-            in the catalog, so recording this narrows the DB_Coins match and
-            avoids being asked to pick between otherwise-identical entries on
-            save. Optional — leaving it blank never blocks a save, it just
-            matches on a weaker key.
-          </p>
 
           <div style="display:flex; align-items:center; justify-content:space-between;">
             <label style="margin:0;">Grade</label>
@@ -3118,7 +3141,7 @@
           <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
             <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
             <div id="addCoinMatchAmbiguousList"></div>
-            <button type="button" class="save-btn" id="addCoinMatchCancelBtn" style="background:none; color:var(--text-muted); border:none; margin-top:4px;">Cancel — don't save yet</button>
+            <button type="button" class="save-btn" id="addCoinMatchCancelBtn" style="background:var(--bg-elevated); color:var(--text); border:1px solid var(--case-border-bright); margin-top:8px;">Cancel — don't save yet</button>
           </div>
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
           <button class="save-btn" id="saveToStagingBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border);">Save to Staging</button>
@@ -3139,7 +3162,7 @@
           <input type="date" id="purchaseDate">
 
           <label>Vendor / Seller</label>
-          <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name">
+          <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name" autocomplete="off">
 
           <div class="photo-box" style="margin-top:14px; max-width:220px;">
             <div class="name">🧾 Receipt Photo</div>
@@ -3161,10 +3184,10 @@
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage</div>
 
           <label>Storage Location</label>
-          <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A">
+          <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A" autocomplete="off">
 
           <label>Container</label>
-          <input type="text" id="container" placeholder="e.g. display case, capsule tray">
+          <input type="text" id="container" placeholder="e.g. display case, capsule tray" autocomplete="off">
 
           <label>Assign to Album</label>
           <select id="assignAlbum">
@@ -6006,6 +6029,22 @@
     return draft;
   }
 
+  // The inverse of markCoinDraftReady — real live-run finding: Reject was
+  // the ONLY way back from Ready, and Reject permanently deletes the draft
+  // and its photos. Marking ready a beat too early (a real, easy mistake —
+  // nothing stops it, by design, since Phase 1 has no reconciliation gate)
+  // had no recovery except losing the whole capture. This never touches the
+  // reservation or the draft's own fields beyond status — the CollectionID,
+  // photos, and every captured value are untouched, so a revert is exactly
+  // as safe as the mark-ready it undoes.
+  async function revertCoinDraftToDraft(collectionId) {
+    const draft = await readCoinDraft(collectionId);
+    if (!draft) throw new Error("Coin draft not found: " + collectionId);
+    draft.status = COIN_DRAFT_STATUS.DRAFT;
+    await writeCoinDraft(draft);
+    return draft;
+  }
+
   // Rejecting deletes the whole draft folder — coin.json AND its photos, so
   // no orphaned image bytes are left behind under Staging. The freed
   // CollectionID follows the same monotonic max+1 rule as everywhere else:
@@ -7073,36 +7112,133 @@
     { code: "Scratched",   label: "Scratched",            group: "problem" }
   ];
 
-  // Representative stand-in for the workbook's Ref_Denominations tab (year range -> series name).
+  // REAL Ref_Denominations data (85 rows), pulled directly from the live
+  // workbook 2026-08-23 and loaded verbatim, per Ray's explicit call —
+  // supersedes the earlier ~28-row hand-picked stand-in below, which is
+  // what produced the concatenated "Anthony / Sacagawea / Presidential"
+  // series bug (see CLAUDE.md "Add Coin Phase 1 fixes"): that stand-in's own
+  // $1 row spanned 1979-2026 as ONE entry, so any year in that span
+  // resolved to all three names joined together — a data artifact of the
+  // mock, not a matching-logic bug. The real sheet has each series as its
+  // own row with its own real year range, so 1982 now correctly resolves to
+  // Susan B. Anthony alone (confirmed against this exact data by Ray before
+  // it was loaded).
+  //
+  // ONLY rows whose real Denomination column is one of the six codes Add
+  // Coin's own dropdown supports (Cent/Nickel/Dime/Quarter/Half Dollar/
+  // Dollar) are included — this is a literal filter on the sheet's own
+  // Denomination column, not a numismatic judgment call. Excluded
+  // categories (Half Cent, Two/Three Cent, Half Dime, Twenty Cent, every
+  // gold denomination, Silver/Gold/Platinum/Palladium Eagles, Commemoratives,
+  // Medals, Error coins, First Spouse) have no corresponding denom code
+  // today — same "no match, no autofill" behavior those already got before
+  // this change, not a regression. (Silver Eagles are legal-tender $1
+  // coins, but the sheet categorizes them separately from "Dollar," and
+  // folding them in would create false ambiguity against every other
+  // concurrent modern dollar series — a separate scoping decision, not
+  // assumed here.)
+  //
+  // MULTIPLE ROWS LEGITIMATELY OVERLAP on real data, in two different ways:
+  // a transition year where two series were both struck (Barber/Mercury
+  // both include 1916; three Flowing Hair Cent varieties all say 1793), and
+  // the modern era's concurrent dollar-coin proliferation (Presidential,
+  // Native American, and American Innovation all ran at once from 2018-2020).
+  // Both are handled the same way, generically — see
+  // lookupDescriptionCandidates()/maybeAutoFillDescription() below: 2+
+  // candidates always surface a pick, never silently choose one. This is a
+  // short-term load of the flat reference table (Q3, "option A" of a
+  // three-way choice); a live read of the real Ref_Denominations sheet
+  // ("option C") is a possible future upgrade, not done here — it would be
+  // the first live read added outside Phase 1's own scope.
   const FAKE_DENOMINATIONS = [
-    { denom: "1C", yearStart: 1793, yearEnd: 1857, series: "Large Cent" },
+    { denom: "1C", yearStart: 1787, yearEnd: 1787, series: "Fugio" },
+    { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Chain" },
+    { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Wreath" },
+    { denom: "1C", yearStart: 1793, yearEnd: 1796, series: "Liberty Cap" },
+    { denom: "1C", yearStart: 1796, yearEnd: 1807, series: "Draped Bust" },
+    { denom: "1C", yearStart: 1808, yearEnd: 1814, series: "Classic Head" },
+    { denom: "1C", yearStart: 1816, yearEnd: 1839, series: "Coronet" },
+    { denom: "1C", yearStart: 1839, yearEnd: 1857, series: "Braided Hair" },
     { denom: "1C", yearStart: 1856, yearEnd: 1858, series: "Flying Eagle" },
     { denom: "1C", yearStart: 1859, yearEnd: 1909, series: "Indian Head" },
     { denom: "1C", yearStart: 1909, yearEnd: 1958, series: "Lincoln Wheat" },
     { denom: "1C", yearStart: 1959, yearEnd: 2008, series: "Lincoln Memorial" },
     { denom: "1C", yearStart: 2009, yearEnd: 2009, series: "Lincoln Bicentennial" },
     { denom: "1C", yearStart: 2010, yearEnd: 2026, series: "Lincoln Shield" },
-    { denom: "5C", yearStart: 1866, yearEnd: 1883, series: "Shield Nickel" },
-    { denom: "5C", yearStart: 1883, yearEnd: 1913, series: "Liberty Head (V Nickel)" },
+    { denom: "5C", yearStart: 1866, yearEnd: 1883, series: "Shield" },
+    { denom: "5C", yearStart: 1883, yearEnd: 1913, series: "Liberty (V)" },
     { denom: "5C", yearStart: 1913, yearEnd: 1938, series: "Buffalo (Indian Head)" },
-    { denom: "5C", yearStart: 1938, yearEnd: 2026, series: "Jefferson" },
+    { denom: "5C", yearStart: 1938, yearEnd: 2003, series: "Jefferson (Monticello)" },
+    { denom: "5C", yearStart: 2004, yearEnd: 2005, series: "Westward Journey" },
+    { denom: "5C", yearStart: 2006, yearEnd: 2026, series: "Jefferson (Return to Monticello)" },
+    { denom: "10C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
+    { denom: "10C", yearStart: 1798, yearEnd: 1807, series: "Draped Bust Heraldic Eagle" },
+    { denom: "10C", yearStart: 1809, yearEnd: 1828, series: "Capped Bust Large" },
+    { denom: "10C", yearStart: 1828, yearEnd: 1837, series: "Capped Bust Small" },
+    { denom: "10C", yearStart: 1837, yearEnd: 1838, series: "Seated Liberty No Stars" },
+    { denom: "10C", yearStart: 1838, yearEnd: 1860, series: "Seated Liberty Stars" },
+    { denom: "10C", yearStart: 1860, yearEnd: 1891, series: "Seated Liberty Legend" },
     { denom: "10C", yearStart: 1892, yearEnd: 1916, series: "Barber" },
     { denom: "10C", yearStart: 1916, yearEnd: 1945, series: "Mercury (Winged Liberty)" },
-    { denom: "10C", yearStart: 1946, yearEnd: 2026, series: "Roosevelt" },
+    { denom: "10C", yearStart: 1946, yearEnd: 1964, series: "Roosevelt Silver" },
+    { denom: "10C", yearStart: 1965, yearEnd: 2026, series: "Roosevelt Clad" },
+    { denom: "25C", yearStart: 1796, yearEnd: 1796, series: "Draped Bust Small Eagle" },
+    { denom: "25C", yearStart: 1804, yearEnd: 1807, series: "Draped Bust Heraldic Eagle" },
+    { denom: "25C", yearStart: 1815, yearEnd: 1828, series: "Capped Bust Large" },
+    { denom: "25C", yearStart: 1831, yearEnd: 1838, series: "Capped Bust Small" },
+    { denom: "25C", yearStart: 1838, yearEnd: 1865, series: "Seated Liberty No Motto" },
+    { denom: "25C", yearStart: 1866, yearEnd: 1891, series: "Seated Liberty Motto" },
     { denom: "25C", yearStart: 1892, yearEnd: 1916, series: "Barber" },
-    { denom: "25C", yearStart: 1916, yearEnd: 1930, series: "Standing Liberty" },
-    { denom: "25C", yearStart: 1932, yearEnd: 1998, series: "Washington" },
-    { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "State Quarters" },
-    { denom: "25C", yearStart: 2009, yearEnd: 2026, series: "America the Beautiful" },
+    { denom: "25C", yearStart: 1916, yearEnd: 1917, series: "Standing Liberty Type 1" },
+    { denom: "25C", yearStart: 1917, yearEnd: 1930, series: "Standing Liberty Type 2" },
+    { denom: "25C", yearStart: 1932, yearEnd: 1964, series: "Washington Silver" },
+    { denom: "25C", yearStart: 1965, yearEnd: 1998, series: "Washington Clad" },
+    { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "Washington State (1st Design)" },
+    { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "State Quarters Silver Proof" },
+    { denom: "25C", yearStart: 2009, yearEnd: 2009, series: "Washington DC & Territories" },
+    { denom: "25C", yearStart: 2010, yearEnd: 2021, series: "Washington ATB" },
+    { denom: "25C", yearStart: 2010, yearEnd: 2021, series: "ATB Silver Proof" },
+    { denom: "25C", yearStart: 2022, yearEnd: 2025, series: "Washington American Women" },
+    { denom: "25C", yearStart: 2022, yearEnd: 2025, series: "American Women Silver Proof" },
+    { denom: "25C", yearStart: 2026, yearEnd: 2030, series: "Washington Semiquincentennial" },
+    { denom: "50C", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "50C", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "50C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
+    { denom: "50C", yearStart: 1801, yearEnd: 1807, series: "Draped Bust Heraldic Eagle" },
+    { denom: "50C", yearStart: 1807, yearEnd: 1836, series: "Capped Bust Lettered Edge" },
+    { denom: "50C", yearStart: 1836, yearEnd: 1839, series: "Capped Bust Reeded Edge" },
+    { denom: "50C", yearStart: 1839, yearEnd: 1866, series: "Seated Liberty No Motto" },
+    { denom: "50C", yearStart: 1866, yearEnd: 1891, series: "Seated Liberty Motto" },
     { denom: "50C", yearStart: 1892, yearEnd: 1915, series: "Barber" },
     { denom: "50C", yearStart: 1916, yearEnd: 1947, series: "Walking Liberty" },
     { denom: "50C", yearStart: 1948, yearEnd: 1963, series: "Franklin" },
-    { denom: "50C", yearStart: 1964, yearEnd: 2026, series: "Kennedy" },
-    { denom: "$1", yearStart: 1878, yearEnd: 1904, series: "Morgan" },
+    { denom: "50C", yearStart: 1964, yearEnd: 1964, series: "Kennedy Silver" },
+    { denom: "50C", yearStart: 1965, yearEnd: 1970, series: "Kennedy 40% Silver" },
+    { denom: "50C", yearStart: 1971, yearEnd: 2026, series: "Kennedy Clad" },
+    { denom: "50C", yearStart: 1976, yearEnd: 1976, series: "Kennedy Bicentennial" },
+    { denom: "$1", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "$1", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "$1", yearStart: 1795, yearEnd: 1798, series: "Draped Bust Small Eagle" },
+    { denom: "$1", yearStart: 1798, yearEnd: 1804, series: "Draped Bust Heraldic Eagle" },
+    { denom: "$1", yearStart: 1836, yearEnd: 1839, series: "Gobrecht" },
+    { denom: "$1", yearStart: 1840, yearEnd: 1865, series: "Seated Liberty No Motto" },
+    { denom: "$1", yearStart: 1866, yearEnd: 1873, series: "Seated Liberty Motto" },
+    { denom: "$1", yearStart: 1873, yearEnd: 1885, series: "Trade" },
+    { denom: "$1", yearStart: 1878, yearEnd: 1921, series: "Morgan" },
     { denom: "$1", yearStart: 1921, yearEnd: 1935, series: "Peace" },
-    { denom: "$1", yearStart: 1971, yearEnd: 1978, series: "Eisenhower" },
-    { denom: "$1", yearStart: 1979, yearEnd: 2026, series: "Anthony / Sacagawea / Presidential" }
+    { denom: "$1", yearStart: 1971, yearEnd: 1978, series: "Eisenhower Clad" },
+    { denom: "$1", yearStart: 1971, yearEnd: 1976, series: "Eisenhower 40% Silver" },
+    { denom: "$1", yearStart: 1976, yearEnd: 1976, series: "Eisenhower Bicentennial" },
+    { denom: "$1", yearStart: 1979, yearEnd: 1999, series: "Susan B. Anthony" },
+    { denom: "$1", yearStart: 2000, yearEnd: 2008, series: "Sacagawea" },
+    { denom: "$1", yearStart: 2007, yearEnd: 2020, series: "Presidential" },
+    { denom: "$1", yearStart: 2009, yearEnd: 2026, series: "Native American" },
+    { denom: "$1", yearStart: 2018, yearEnd: 2032, series: "American Innovation" },
+    { denom: "$1", yearStart: 2021, yearEnd: 2023, series: "Morgan 100th Anniversary" },
+    { denom: "$1", yearStart: 2021, yearEnd: 2023, series: "Peace 100th Anniversary" }
   ];
+
+  // Representative stand-in for DB_Coins  ];
 
   // Representative stand-in for DB_Coins (~3,753 rows in reality) — just enough rows to
   // demo a match and a miss. Matching is denom + year + mint (blank = P) + variety (blank ok).
@@ -7311,6 +7447,14 @@
       showAlbumsList();
     }
     if (viewId === "addcoin") {
+      // Real live-run finding (#1): reopening Add Coin via nav showed
+      // whatever was left over from a prior unsaved visit. Reset ALWAYS
+      // runs first — an album/wishlist deep-link's own applyAlbumContext()/
+      // applyWishlistContext() call (made by the CALLER, right after this
+      // navigate() call returns) still lands on top of a clean form, exactly
+      // as before; see resetAddCoinForm()'s own comment for why it must not
+      // touch the pending context variable itself.
+      resetAddCoinForm();
       showAddCoinMain();
       showObversePhoto();
     }
@@ -7354,12 +7498,24 @@
   // ==================================================================
 
   let toastTimer;
+  // Real live-run finding (#10): a fixed 2600ms was too short to read
+  // several real toasts in this app, especially Add Coin's own save
+  // confirmations ("Saved AY-00696 to Staging on OneDrive (copy) with 2
+  // files · CoinID pending research. Review it under Staging Review.") and
+  // any failure toast, which by nature carries a real error message someone
+  // needs to actually read, not just notice. Duration now scales with
+  // message length instead of one fixed number for every toast — short
+  // toasts ("Dismissed AY-00801.") stay snappy, long ones get the time they
+  // need. Clamped both ends: never so short a normal toast is unreadable,
+  // never so long a toast overstays and blocks the next one from feeling
+  // responsive.
   function showToast(msg) {
     const toast = document.getElementById("toast");
     toast.textContent = msg;
     toast.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+    const duration = Math.max(2600, Math.min(7000, 1800 + msg.length * 40));
+    toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
   }
 
   // ==================================================================
@@ -11545,10 +11701,14 @@
 
   // ---- Docket research-row actions: Re-check and Dismiss --------------
 
+  // Real live-run finding (#17): read as "Description · Year-Mint," backwards
+  // from how a coin is normally referenced (a collector says "1916-D
+  // Mercury Dime," not "Mercury Dime 1916-D"). Year-Mint now leads.
   function docketEntryLabel(entry) {
+    const yearMint = entry.year + (entry.mint ? "-" + entry.mint : "");
     return (entry.collectionId ? entry.collectionId + " · " : "") +
-      (entry.desc || entry.denom) + " · " + entry.year +
-      (entry.mint ? "-" + entry.mint : "") + (entry.variety ? " · " + entry.variety : "");
+      yearMint + " · " + (entry.desc || entry.denom) +
+      (entry.variety ? " · " + entry.variety : "");
   }
 
   // Writes the resolved CoinID back to the coin's own All row and closes
@@ -11868,15 +12028,27 @@
     stagingResearch.forEach(c => {
       // `name` on an in-memory FAKE_STAGING row, `description` on a durable
       // coin draft — both sources flow through here, so read either.
-      const label = (c.name || c.description || c.denom) + " · " + c.year + (c.mint ? "-" + c.mint : "") + (c.variety ? " · " + c.variety : "");
+      // CollectionID is now always shown: docketEntryLabel() (used a few
+      // lines below for real Docket entries) already includes it, and this
+      // builder didn't — a real staged coin rendered here with no way to
+      // tell which CollectionID it actually was.
+      // Year-Mint leads (real live-run finding, #17) — "1916-D Mercury Dime"
+      // reads correctly, "Mercury Dime 1916-D" is backwards from how a
+      // collector actually refers to a coin. Same ordering docketEntryLabel()
+      // now uses for real Docket entries, kept consistent across both.
+      const idPart = c.id || c.collectionID || "";
+      const yearMint = c.year + (c.mint ? "-" + c.mint : "");
+      const label = (idPart ? escapeHtmlText(idPart) + " · " : "") +
+        escapeHtmlText(yearMint + " · " + (c.name || c.description || c.denom) + (c.variety ? " · " + c.variety : ""));
       researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
     });
     // Drafts already marked ready: nothing left for Ray to decide, they're
     // waiting on Copilot to move the row into All (Phase 1 has no in-app
     // promotion — see the ENABLE_ADDCOIN_WRITE flag comment).
     stagedHandedOff.forEach(d => {
-      const label = (d.description || d.denom) + " · " + d.year + (d.mint ? "-" + d.mint : "") + (d.variety ? " · " + d.variety : "");
-      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(label)}</div><div class="wish-notes">${escapeHtmlText(d.collectionID)} ready for reconciliation — waiting on the All-sheet row</div>` });
+      const yearMint = d.year + (d.mint ? "-" + d.mint : "");
+      const label = yearMint + " · " + (d.description || d.denom) + (d.variety ? " · " + d.variety : "");
+      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">Ready for reconciliation — waiting on the All-sheet row</div>` });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
     // directly — durable Staging file when ENABLE_DOCKET_WRITE is on, the
@@ -12055,8 +12227,7 @@
 
     document.getElementById("stagingEmptyNote").style.display = rows.length ? "none" : "block";
 
-    // Newest staged first, matching the Needs Attention list's ordering.
-    rows.slice().reverse().forEach(row => {
+    function buildStagingRowEl(row) {
       const yearMint = (row.year || "") + (row.mint ? "-" + row.mint : "");
       const label = [row.name, yearMint, row.variety].filter(Boolean).join(" · ");
       const gradeLine = row.grade ? row.grade + (row.gradeSource ? " " + row.gradeSource : "") : "No grade recorded";
@@ -12069,6 +12240,16 @@
       const alreadyReady = !row._mock && row.status === COIN_DRAFT_STATUS.READY;
       const item = document.createElement("div");
       item.className = "case wish-item";
+      // A draft already marked ready gets "Revert to Draft" in place of the
+      // disabled "Ready" button it used to show — real live-run finding:
+      // Reject was the only way back from Ready, and Reject permanently
+      // deletes the draft and its photos. Marking ready a beat too early is
+      // an easy, ordinary mistake (nothing gates it), so undoing it needs to
+      // be non-destructive. Reject remains available for when the draft
+      // itself is genuinely wrong, not just prematurely marked.
+      const primaryBtnHtml = alreadyReady
+        ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
+        : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
       item.innerHTML =
         '<div>' +
           '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
@@ -12078,16 +12259,47 @@
           '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
         '</div>' +
         '<div class="staging-actions">' +
-          '<button class="staging-btn promote"' + (alreadyReady ? ' disabled' : '') + '>' +
-            escapeHtmlText(alreadyReady ? "Ready" : promoteLabel) + '</button>' +
+          primaryBtnHtml +
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
-      if (!alreadyReady) {
+      if (alreadyReady) {
+        item.querySelector(".promote").addEventListener("click", () => revertStagedCoinToDraft(row.id));
+      } else {
         item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
       }
       item.querySelector(".reject").addEventListener("click", () => rejectStagedCoin(row.id));
-      container.appendChild(item);
-    });
+      return item;
+    }
+
+    // Real live-run finding (#16): every row rendered into one flat list,
+    // so a draft still needing a decision (Mark ready / Reject) sat visually
+    // identical to one already marked ready and just waiting on
+    // reconciliation — no way to tell "needs me right now" from "already
+    // handled" at a glance. Split into two labeled groups, newest-first
+    // within each, same section-label convention the rest of this app
+    // already uses for grouping. A row is only ever "already ready" on the
+    // real path (a mock FAKE_STAGING row has no Ready status to begin with),
+    // so the mock build simply never shows the second group.
+    const newestFirst = rows.slice().reverse();
+    const needsDecision = newestFirst.filter(r => r._mock || r.status !== COIN_DRAFT_STATUS.READY);
+    const alreadyReadyRows = newestFirst.filter(r => !r._mock && r.status === COIN_DRAFT_STATUS.READY);
+
+    if (needsDecision.length && alreadyReadyRows.length) {
+      const label = document.createElement("div");
+      label.className = "section-label";
+      label.style.marginTop = "0";
+      label.textContent = "Needs a decision";
+      container.appendChild(label);
+    }
+    needsDecision.forEach(row => container.appendChild(buildStagingRowEl(row)));
+
+    if (alreadyReadyRows.length) {
+      const label = document.createElement("div");
+      label.className = "section-label";
+      label.textContent = "Marked ready — waiting on reconciliation";
+      container.appendChild(label);
+      alreadyReadyRows.forEach(row => container.appendChild(buildStagingRowEl(row)));
+    }
 
     updateStagingBadge();
   }
@@ -12147,6 +12359,21 @@
     } catch (e) {
       console.error("Couldn't mark draft ready:", e);
       showToast("Couldn't update " + collectionId + ": " + String(e && e.message || e));
+    }
+  }
+
+  // The non-destructive undo for a draft marked ready too soon — see
+  // revertCoinDraftToDraft()'s own comment. Real-path only (a mock
+  // FAKE_STAGING row is never "Ready" to begin with, so this button never
+  // renders in the flag-off build).
+  async function revertStagedCoinToDraft(collectionId) {
+    try {
+      await revertCoinDraftToDraft(collectionId);
+      await renderStagingList();
+      showToast(collectionId + " reverted to Draft — nothing lost, still yours to finish or mark ready again.");
+    } catch (e) {
+      console.error("Couldn't revert draft:", e);
+      showToast("Couldn't revert " + collectionId + ": " + String(e && e.message || e));
     }
   }
 
@@ -12560,16 +12787,31 @@
     const circleSize = 240;
     const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
     img.onload = () => {
+      // Real live-run finding (#5): dragging inside the circle did nothing
+      // at the default framing. Root cause is the "cover" fit math in
+      // recomputePhotoAdjustBaseScale() itself, not the drag handlers or the
+      // clamp: for a SQUARE source (exactly what Stage 1's background crop
+      // hands to this adjuster for a flip source, per its aspectLock), a
+      // zoom of exactly 100% scales the image so it fills the circle's
+      // bounding box with precisely zero pixels of overscan in either
+      // dimension -- there is nothing to drag INTO, mathematically, not a
+      // clamp bug (clampPhotoAdjustOffsets()'s own "can't pan past its own
+      // edges" rule is correct and unchanged). Defaulting to a touch of
+      // starting zoom bakes in a small amount of real pan headroom (~12px
+      // each direction at 110%/240px) so a small framing nudge never
+      // requires touching the zoom slider first, while the slider's own
+      // 100-300% range and every other behavior stays exactly as it was.
+      const DEFAULT_PHOTO_ADJUST_ZOOM = 110;
       photoAdjustState = {
         naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
-        zoom: 1, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
+        zoom: DEFAULT_PHOTO_ADJUST_ZOOM / 100, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
         circleSize,
         onComplete: callbackMode ? optsOrPreviewId.onComplete : null,
         targetPreviewId: callbackMode ? null : optsOrPreviewId,
         targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
       };
       recomputePhotoAdjustBaseScale();
-      document.getElementById("photoAdjustZoom").value = 100;
+      document.getElementById("photoAdjustZoom").value = DEFAULT_PHOTO_ADJUST_ZOOM;
       document.getElementById("photoAdjustRotate").value = 0;
       applyPhotoAdjustTransform();
     };
@@ -14112,20 +14354,61 @@
 
   let descriptionAutoFilled = true;
 
-  function lookupDescription(denomCode, year) {
+  // Every FAKE_DENOMINATIONS row matching this denom+year — real data
+  // legitimately has more than one, both at genuine transition years
+  // (Barber/Mercury both cover 1916) and in the modern era's concurrent
+  // dollar-coin proliferation (Presidential/Native American/Innovation all
+  // ran 2018-2020). Returning all candidates, not just the first, is what
+  // lets the caller ask instead of guess.
+  function lookupDescriptionCandidates(denomCode, year) {
     const y = parseInt(year, 10);
-    if (!denomCode || !y) return null;
-    const match = FAKE_DENOMINATIONS.find(r => r.denom === denomCode && y >= r.yearStart && y <= r.yearEnd);
-    return match ? match.series : null;
+    if (!denomCode || !y) return [];
+    return FAKE_DENOMINATIONS.filter(r => r.denom === denomCode && y >= r.yearStart && y <= r.yearEnd);
+  }
+  // Back-compat single-answer form — unused internally now, kept only in
+  // case something outside this module still calls it.
+  function lookupDescription(denomCode, year) {
+    const candidates = lookupDescriptionCandidates(denomCode, year);
+    return candidates.length === 1 ? candidates[0].series : null;
   }
 
+  function hideDescriptionAmbiguousPanel() {
+    document.getElementById("descriptionAmbiguousPanel").classList.add("hidden");
+  }
+
+  // 0 candidates -> CLEAR the field. Previously this no-op'd, leaving a
+  // stale series name on screen after Year/Denomination changed to
+  // something the catalog no longer matches (e.g. typing over a valid year
+  // with one that has no row) — confirmed live, a real bug, not cosmetic:
+  // the stale text reads as a real match that was never re-verified.
+  // 1 candidate -> autofill, as before.
+  // 2+ candidates -> do NOT guess. Real data has genuine multi-series years
+  // (see lookupDescriptionCandidates' own comment); silently taking the
+  // first alphabetically/positionally is exactly the "Anthony / Sacagawea /
+  // Presidential" class of bug this was fixed to stop doing, just moved from
+  // string-concatenation to first-of-N. A small inline picker offers the
+  // real choices; nothing is written until the user picks one or types their
+  // own value directly into Description.
   function maybeAutoFillDescription() {
     const descEl = document.getElementById("description");
-    if (!descriptionAutoFilled && descEl.value) return;
-    const series = lookupDescription(document.getElementById("denomination").value, document.getElementById("year").value);
-    if (series) {
-      descEl.value = series;
+    if (!descriptionAutoFilled && descEl.value) { hideDescriptionAmbiguousPanel(); return; }
+    const candidates = lookupDescriptionCandidates(document.getElementById("denomination").value, document.getElementById("year").value);
+    if (candidates.length === 0) {
+      descEl.value = "";
       descriptionAutoFilled = true;
+      hideDescriptionAmbiguousPanel();
+    } else if (candidates.length === 1) {
+      descEl.value = candidates[0].series;
+      descriptionAutoFilled = true;
+      hideDescriptionAmbiguousPanel();
+    } else {
+      descEl.value = "";
+      descriptionAutoFilled = true;
+      const panel = document.getElementById("descriptionAmbiguousPanel");
+      const select = document.getElementById("descriptionAmbiguousSelect");
+      select.innerHTML = "<option value=\"\">— choose a series —</option>" +
+        candidates.map(c => "<option value=\"" + escapeHtmlText(c.series) + "\">" + escapeHtmlText(c.series) + "</option>").join("");
+      panel.classList.remove("hidden");
     }
   }
 
@@ -14192,6 +14475,36 @@
   // at save time instead of collapsing into the same null.
   let lastDbCandidates = [];
 
+  // A candidate the user explicitly picked from the 2+ ambiguous picker,
+  // plus a snapshot of the exact identity it was picked for. This is what
+  // lets a pick be REMEMBERED across the "resolve, then Save again"
+  // sequence below (Ray's Q4) without re-showing the picker for an
+  // unchanged identity, while still being correctly thrown away the moment
+  // any field the matcher reads actually changes.
+  let addCoinResolvedPick = null; // { row, forShape, candidateCount }
+
+  function addCoinIdentityShapeKey(shape) {
+    return JSON.stringify([shape.denom, shape.year, shape.mint, shape.variety, shape.finish, shape.designation, shape.gradeSource]);
+  }
+
+  // Single source of truth for "what does the catalog say about this
+  // identity right now" — the live banner AND the save-time resolution
+  // both read through this, so they cannot disagree. Real live-run finding
+  // (#14): before this, the banner and the picker were two independently
+  // updated pieces of UI, and were observed to disagree (banner still
+  // saying "multiple rows match" after the picker had already resolved).
+  function currentAddCoinMatchState() {
+    const shape = addCoinIdentityShape();
+    const key = addCoinIdentityShapeKey(shape);
+    if (addCoinResolvedPick && addCoinResolvedPick.forShape !== key) {
+      addCoinResolvedPick = null; // identity changed since the pick — stale, discard
+    }
+    if (addCoinResolvedPick) {
+      return { candidates: [addCoinResolvedPick.row], resolvedPick: true, shape, key };
+    }
+    return { candidates: dbCoinsCandidatesFor(shape), resolvedPick: false, shape, key };
+  }
+
   function checkDbCoinsMatch() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
@@ -14211,7 +14524,7 @@
       return;
     }
 
-    const candidates = dbCoinsCandidatesFor(addCoinIdentityShape());
+    const { candidates } = currentAddCoinMatchState();
     lastDbCandidates = candidates;
     lastDbMatch = candidates.length === 1 ? candidates[0] : null;
 
@@ -14253,28 +14566,47 @@
   // that invoked it simply doesn't happen, nothing is written, and the form
   // keeps everything typed into it.
   //
+  // PICKING A CANDIDATE DOES NOT SAVE (Ray's Q4, live-run finding #12). It
+  // resolves the match, updates the live banner to show it, closes the
+  // picker, and returns control to the form — the user presses Save again
+  // to actually commit. This is why onResolved is NOT called from the pick
+  // handler below: the pick is remembered in addCoinResolvedPick, and the
+  // NEXT call to this function (from the next Save click) takes the
+  // already-resolved-pick shortcut at the top and calls onResolved
+  // immediately, with no picker shown a second time for the same identity.
+  //
   // `how` is recorded on the draft because reconciliation needs to know
   // whether a CoinID link was a human judgement ("picked") or an unambiguous
   // catalog hit ("single").
   function resolveAddCoinCatalogMatch(onResolved, onCancel) {
     const panel = document.getElementById("addCoinMatchAmbiguousPanel");
-    const candidates = dbCoinsCandidatesFor(addCoinIdentityShape());
+    const state = currentAddCoinMatchState();
 
-    if (candidates.length === 0) {
+    if (state.resolvedPick) {
+      panel.classList.add("hidden");
+      const row = state.candidates[0];
+      onResolved({ coinId: row.coinId || "", row, how: "picked", candidateCount: addCoinResolvedPick.candidateCount });
+      return;
+    }
+    if (state.candidates.length === 0) {
       panel.classList.add("hidden");
       onResolved({ coinId: "", row: null, how: "none", candidateCount: 0 });
       return;
     }
-    if (candidates.length === 1) {
+    if (state.candidates.length === 1) {
       panel.classList.add("hidden");
-      onResolved({ coinId: candidates[0].coinId || "", row: candidates[0], how: "single", candidateCount: 1 });
+      onResolved({ coinId: state.candidates[0].coinId || "", row: state.candidates[0], how: "single", candidateCount: 1 });
       return;
     }
     // 2+ — the firm rule: always a human, never auto-resolved, even when one
     // candidate looks like an exact match on some field.
-    renderAmbiguousMatchList(document.getElementById("addCoinMatchAmbiguousList"), candidates, (row) => {
+    renderAmbiguousMatchList(document.getElementById("addCoinMatchAmbiguousList"), state.candidates, (row) => {
       panel.classList.add("hidden");
-      onResolved({ coinId: row.coinId || "", row, how: "picked", candidateCount: candidates.length });
+      addCoinResolvedPick = { row, forShape: state.key, candidateCount: state.candidates.length };
+      checkDbCoinsMatch(); // refresh the live banner to reflect the pick immediately
+      showToast("Matched " + (row.coinId || "this catalog entry") + " — press Save again to continue.");
+      // Deliberately does NOT call onResolved — see this function's own
+      // header comment. Nothing is saved on this click.
     });
     panel.classList.remove("hidden");
     panel.scrollIntoView({ block: "center", behavior: "auto" });
@@ -14289,12 +14621,19 @@
   // Varieties that actually exist in DB_Coins for the exact Year+MintMark+
   // Denomination already entered — e.g. a 1909 cent offers VDB, a 1920
   // quarter doesn't. Context-sensitive, unlike Error above.
+  // activeDbCoins(), never FAKE_DB_COINS directly. This drives which
+  // Variety values isVarietyRecognized() treats as real — and that decides
+  // the direct-write-vs-Staging routing (see "Direct-write vs. Staging" in
+  // CLAUDE.md) — so reading the 12-row mock while live data was loaded would
+  // have judged a real, cataloged variety "unrecognized" and wrongly forced
+  // a real coin to Staging. CLAUDE.md flagged this exact fix as "worth doing
+  // when Add Coin's own write layer lands" — that's now.
   function validVarietiesForCurrentCoin() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
     const mint = document.getElementById("mintMark").value;
     if (!denom || !year) return [];
-    const matches = FAKE_DB_COINS.filter(c =>
+    const matches = activeDbCoins().filter(c =>
       c.denom === denom && String(c.year) === year && normField(c.mint) === normField(mint) && c.variety
     ).map(c => c.variety);
     return [...new Set(matches)];
@@ -14496,7 +14835,15 @@
       if (raw.trim()) showToast("Couldn't parse that label — expected SPEC.GRADE/CERT, e.g. 4905.65/12345678");
       return;
     }
-    const matches = FAKE_DB_COINS.filter(c => c.pcgs === parsed.spec);
+    // activeDbCoins(), never FAKE_DB_COINS directly — this was hardcoded to
+    // the 12-row mock and never consulted ENABLE_LIVE_NAV_DATA at all, so a
+    // real PCGS# (e.g. 4908, a real 1916-S Mercury dime) reported "not
+    // found" even with live data loaded. Same source every other matcher
+    // in this file already reads through (dbCoinsCandidatesFor,
+    // findDbCoinsMatch) — this was the one holdout, left over from before
+    // Add Coin's Save actually wrote anything and there was nothing at
+    // stake in getting the source right.
+    const matches = activeDbCoins().filter(c => c.pcgs === parsed.spec);
     if (matches.length === 0) {
       document.getElementById("pcgsLabelNotFoundBanner").classList.remove("hidden");
     } else if (matches.length === 1) {
@@ -14689,29 +15036,49 @@
       const collectionId = await reserveCoinCollectionId();
       const form = readAddCoinFormForDraft();
 
-      // A genuine catalog miss still goes to the Docket, exactly as before —
-      // but now it's driven by the resolved match rather than a live banner
-      // flag, so "several candidates, one picked" is correctly NOT treated as
-      // a miss. designation/gradeSource ride along so a later Re-check
-      // engages the cert-protection guard (the same gap already fixed for
-      // Browse Edit's own flag push).
-      if (form.denom && form.year && match.how === "none") {
-        appendDocketEntry({
-          kind: "no-db-coins-match",
-          collectionId,
-          denom: form.denom, year: form.year, mint: form.mint,
-          variety: form.variety,
-          finish: form.finish,
-          designation: form.designation,
-          gradeSource: form.gradeSource,
-          desc: form.description
-        }).then(() => renderNeedsAttentionHub());
-      }
-
       if (!addCoinWriteEnabled()) {
+        // A genuine catalog miss goes to the Docket, exactly as before this
+        // branch existed — driven by the resolved match rather than a live
+        // banner flag, so "several candidates, one picked" is correctly NOT
+        // treated as a miss.
+        //
+        // MOCK PATH ONLY. On the real path (below) this push is skipped
+        // deliberately — see that branch's own comment for why: it used to
+        // fire unconditionally regardless of destination, and once Phase 1
+        // made BOTH "Save to Database" and "Save to Staging" write the same
+        // kind of coin.json draft, every unmatched save produced TWO
+        // independent records of the identical fact ("this coin has no
+        // catalog entry") — one from this push, one from the draft's own
+        // presence in the Needs Attention hub's stagingResearch/
+        // stagedHandedOff lists. Real repro: save with no match, mark ready,
+        // reload — the SAME CollectionID appeared with two different
+        // messages ("ready for reconciliation" from the draft, "No DB_Coins
+        // match" from this push), because the two never talk to each other
+        // and the draft's own status change (Draft -> Ready) has no way to
+        // update or supersede an already-appended Docket entry.
+        if (form.denom && form.year && match.how === "none") {
+          appendDocketEntry({
+            kind: "no-db-coins-match",
+            collectionId,
+            denom: form.denom, year: form.year, mint: form.mint,
+            variety: form.variety,
+            finish: form.finish,
+            designation: form.designation,
+            gradeSource: form.gradeSource,
+            desc: form.description
+          }).then(() => renderNeedsAttentionHub());
+        }
         completeAddCoinSaveInMemory(destination, collectionId, match);
         return;
       }
+
+      // REAL PATH: no separate Docket push. The coin.json draft this branch
+      // is about to write is ALREADY the single source of truth for "does
+      // this coin have a catalog match" — the Needs Attention hub derives
+      // stagingResearch/stagedHandedOff live from the draft's own current
+      // fields every time it renders (see renderNeedsAttentionHub()), so a
+      // second, static record would only ever go stale relative to it, not
+      // add information. This is what the comment above found and fixed.
 
       const draft = buildCoinDraft(collectionId, form, match);
       draft.savedVia = destination === "database" ? "direct" : "staging";
@@ -14781,9 +15148,145 @@
   // draft's own folder, so the in-progress gallery has to be cleared —
   // otherwise the next coin entered in the same session would re-upload the
   // previous coin's photos under its own CollectionID.
-  function resetAddCoinAfterSave() {
+  // Inverse of wireMockPhotoSlot's applyCirclePreview() — restores a flip-
+  // source slot (obverse/reverse) to its pristine, no-photo state.
+  function resetCirclePhotoSlot(previewId, placeholderId, frameId, dotId, adjustBtnId) {
+    const preview = document.getElementById(previewId);
+    preview.style.display = "none";
+    preview.removeAttribute("src");
+    const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
+    if (placeholder) placeholder.style.display = "";
+    const frame = frameId ? document.getElementById(frameId) : null;
+    if (frame) frame.classList.remove("has-photo");
+    const dot = dotId ? document.getElementById(dotId) : null;
+    if (dot) dot.classList.remove("filled");
+    const adjustBtn = adjustBtnId ? document.getElementById(adjustBtnId) : null;
+    if (adjustBtn) adjustBtn.style.display = "none";
+  }
+
+  // Inverse of showReceiptImagePreview()/showReceiptPdfIndicator() —
+  // restores a receipt slot to its pristine, no-file state. Unlike
+  // clearReceiptPdfIndicator() (which assumes a REAL photo is about to
+  // replace the PDF indicator, so it hides the placeholder), this leaves the
+  // placeholder visible, since nothing is replacing it.
+  function resetReceiptSlot(previewId, placeholderId) {
+    const preview = document.getElementById(previewId);
+    preview.style.display = "none";
+    preview.removeAttribute("src");
+    const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
+    if (placeholder) {
+      if (placeholder.dataset.origIcon) {
+        placeholder.innerHTML = placeholder.dataset.origIcon;
+        delete placeholder.dataset.origIcon;
+      }
+      placeholder.style.display = "";
+    }
+    const box = preview.closest(".photo-box");
+    const note = box ? box.querySelector(".pdf-attached-note") : null;
+    if (note) note.style.display = "none";
+  }
+
+  // Real live-run finding: reopening Add Coin via nav (not a save, not an
+  // album/wishlist deep-link) showed whatever was left over from a prior
+  // unsaved visit — every field, the photo thumbnails, all of it. Add Coin
+  // has no "resume a draft" feature today (that's Add Set's In Progress Sets,
+  // a different flow), so there is no legitimate case where a fresh entry
+  // into this screen should show stale data. Called unconditionally from
+  // navigate()'s "addcoin" branch, BEFORE the album/wishlist deep-link
+  // handlers run (applyAlbumContext()/applyWishlistContext() are invoked by
+  // the CALLER immediately after navigate("addcoin") returns) — so a clean
+  // reset always happens first, and a deep-link's own prefill still lands on
+  // top of it exactly as before.
+  function resetAddCoinForm() {
+    // --- Album / Wishlist deep-link banners. Hides them ONLY — does not
+    // touch the albumContext/wishlistContext module variables themselves.
+    // Those variables are set by a slot/Wishlist-item click BEFORE
+    // navigate("addcoin") runs, and applyAlbumContext()/applyWishlistContext()
+    // is called by that SAME caller immediately after navigate() returns —
+    // clearing the variable here (inside navigate()'s own branch, which is
+    // where this function is called from) would null it out from under that
+    // still-pending call. Real, explicit clearing (the Clear button, or after
+    // a save) goes through clearAlbumContext()/clearWishlistContext()
+    // instead, which this function deliberately leaves alone.
+    document.getElementById("albumContextBanner").classList.add("hidden");
+    document.getElementById("wishlistOriginBanner").classList.add("hidden");
+
+    // --- Grader / PCGS decode
+    document.getElementById("addCoinGrader").value = "";
+    applyGraderDependentVisibility("");
+    document.getElementById("pcgsLabelInput").value = "";
+    document.getElementById("pcgsLabelNotFoundBanner").classList.add("hidden");
+    document.getElementById("pcgsLabelAppliedBanner").classList.add("hidden");
+    document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
+    document.getElementById("certTypeNumber").value = "";
+
+    // --- Identity
+    document.getElementById("denomination").value = "";
+    document.getElementById("year").value = "";
+    document.getElementById("mintMark").value = "";
+    document.getElementById("description").value = "";
+    hideDescriptionAmbiguousPanel();
+    descriptionAutoFilled = true;
+    document.getElementById("varietySelect").value = "";
+    document.getElementById("varietyOther").value = "";
+    document.getElementById("varietyOther").style.display = "none";
+    document.getElementById("variety").value = "";
+    document.getElementById("finish").value = "";
+    document.getElementById("designation").value = "";
+    document.getElementById("errorSelect").value = "";
+    document.getElementById("errorOther").value = "";
+    document.getElementById("errorOther").style.display = "none";
+    document.getElementById("errorDesc").value = "";
+    document.getElementById("notesField").value = "";
+    refreshVarietyOptions();
+
+    // --- Match state
+    lastDbMatch = null;
+    lastDbCandidates = [];
+    addCoinResolvedPick = null;
+    document.getElementById("dbMatchBanner").classList.add("hidden");
+    document.getElementById("dbNoMatchBanner").classList.add("hidden");
+    document.getElementById("dbAmbiguousBanner").classList.add("hidden");
+    document.getElementById("addCoinMatchAmbiguousPanel").classList.add("hidden");
+    addCoinMatchCancelHandler = null;
+
+    // --- Grade
+    document.getElementById("gradeFrom").value = "";
+    document.getElementById("gradeRangeToggle").checked = false;
+    document.getElementById("gradeTo").style.display = "none";
+    document.getElementById("gradeTo").value = "";
+    document.getElementById("gradeOther").style.display = "none";
+    document.getElementById("gradeOther").value = "";
+    document.getElementById("gradeResolvedPreview").textContent = "";
+    document.getElementById("gradeSource").value = "";
+
+    // --- Photos
+    resetCirclePhotoSlot("obversePreview", "obversePlaceholder", "obverseFrame", "obverseDot", "obverseAdjustBtn");
+    resetCirclePhotoSlot("reversePreview", "reversePlaceholder", "reverseFrame", "reverseDot", "reverseAdjustBtn");
+    resetReceiptSlot("receiptPreview", "receiptPlaceholder");
+    delete slotFiles["obverseFrame"];
+    delete slotFiles["reverseFrame"];
     delete galleryStore[ADDCOIN_GALLERY_ID];
     delete receiptFiles["receiptPreview"];
+    const gallerySection = document.getElementById("addCoinGallery");
+    if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
+
+    // --- Purchase / Storage
+    document.getElementById("purchasePrice").value = "";
+    document.getElementById("shippingCost").value = "";
+    document.getElementById("purchaseDate").value = "";
+    document.getElementById("vendor").value = "";
+    document.getElementById("storageLocation").value = "";
+    document.getElementById("container").value = "";
+    document.getElementById("assignAlbum").value = "";
+
+    updateFlipLabels();
+    updateSaveConfidenceUI();
+    updateFormRowSummaries();
+  }
+
+  function resetAddCoinAfterSave() {
+    resetAddCoinForm();
     clearAlbumContext();
     clearWishlistContext();
   }
@@ -14808,7 +15311,13 @@
     const yearMint = year + (mint ? "-" + mint : "");
     const gradeParts = [];
     if (grade) gradeParts.push(grade);
-    if (gradeSource) gradeParts.push(gradeSource);
+    // Q2 (real live-run finding, #6): GradeSource only belongs on the coin's
+    // own graphic when it's a real third-party certification — PCGS/NGC/etc.
+    // A raw/self-graded/Seller-estimated coin shows Grade alone; the source
+    // stays visible in Overview/detail text regardless (see
+    // gradeWithSourceText(), unaffected by this — that's a different
+    // display, not the coin's own label).
+    if (gradeSource && isServiceGradeSource(gradeSource)) gradeParts.push(gradeSource);
 
     // Obverse: identification, standard shorthand (coded denomination, not the
     // spelled-out series name), plus Variety+Designation if present.
@@ -14915,7 +15424,15 @@
       checkDbCoinsMatch(); updateFlipLabels();
     });
 
-    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; updateFlipLabels(); });
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; hideDescriptionAmbiguousPanel(); updateFlipLabels(); });
+    document.getElementById("descriptionAmbiguousSelect").addEventListener("change", (e) => {
+      if (!e.target.value) return;
+      document.getElementById("description").value = e.target.value;
+      descriptionAutoFilled = true; // picking a real option is still an autofill, not a manual override — a later Year/Denom change is free to replace it
+      hideDescriptionAmbiguousPanel();
+      updateFlipLabels();
+      checkDbCoinsMatch();
+    });
     document.getElementById("designation").addEventListener("input", updateFlipLabels);
 
     // Error: unfiltered dropdown (applies to any coin) + manual "Other"

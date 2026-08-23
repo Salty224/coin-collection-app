@@ -131,7 +131,13 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     const res = {
       paths,
       draft,
-      galleryCleared: !galleryStore[ADDCOIN_GALLERY_ID],
+      // A full reset (added alongside the #1 stale-form fix) re-renders the
+      // gallery widget after clearing it, and that render calls galleryFor()
+      // -- which lazily re-creates an EMPTY array for the id it's given
+      // (see galleryFor()'s own code). So the key is no longer simply
+      // absent; the real invariant is "holds nothing," not "the key is
+      // gone" -- check length, not truthiness.
+      galleryCleared: !galleryStore[ADDCOIN_GALLERY_ID] || galleryStore[ADDCOIN_GALLERY_ID].length === 0,
       badge: document.getElementById('stagingBadge') ? document.getElementById('stagingBadge').textContent : null
     };
     __setLiveDbCoinsForTest(null);
@@ -159,6 +165,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   // ---------- D. Ambiguity: 2+ candidates must reach a human ----------
   const AMBIG = "[{\"denom\": \"50C\", \"year\": 1986, \"mint\": \"\", \"variety\": \"\", \"description\": \"Statue of Liberty Half Dollar\", \"finish\": \"Business Strike\", \"designation\": \"\", \"coinId\": \"C-1986-M-50C-01\", \"pcgs\": \"9500\", \"mintage\": 1000, \"gsid\": \"\"}, {\"denom\": \"50C\", \"year\": 1986, \"mint\": \"\", \"variety\": \"\", \"description\": \"Statue of Liberty Commemorative\", \"finish\": \"Business Strike\", \"designation\": \"\", \"coinId\": \"C-1986-M-50C-02\", \"pcgs\": \"9501\", \"mintage\": 2000, \"gsid\": \"\"}]";
   const D = await page.evaluate(async (rowsJson) => {
+    navigate('addcoin'); // fresh form -- clears any addCoinResolvedPick left by an earlier test on this same page
     const mock = createMockGraphClient({ workbookColumns: { "All::CollectionID": ["AY-00600"] } });
     __setGraphClientForTest(mock);
     __setAddCoinWriteEnabledForTest(true);
@@ -187,10 +194,21 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     // could not pass this by accident
     const cards = document.querySelectorAll('#addCoinMatchAmbiguousList .form-row');
     cards[1].click();
-    await new Promise(r => setTimeout(r, 700));
+    await new Promise(r => setTimeout(r, 200));
+    // Q4 (Ray's explicit call): picking resolves the match but does NOT
+    // save -- the picker closes, the banner updates, and nothing is written
+    // until Save is pressed again. Both states are asserted before AND
+    // after that second click, so a regression back to "pick auto-saves"
+    // would be caught either way.
+    const pickerHiddenAfterPick = document.getElementById('addCoinMatchAmbiguousPanel').classList.contains('hidden');
+    const wroteAfterPickBeforeSecondSave = mock._store.size;
+    const bannerAfterPick = document.getElementById('dbMatchMsg').textContent;
+    await new Promise(r => { saveAddCoinForm('staging'); setTimeout(r, 700); });
+    const pickerReopenedOnSecondSave = !document.getElementById('addCoinMatchAmbiguousPanel').classList.contains('hidden');
     const draft = await mock.getJson(writePaths().stagingBase + "/AY-00601/coin.json");
     __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
-    return { bannerShown, bannerText, claimsSingle, pickerOpen, wroteBeforePick, optionCards, optionTexts, draft };
+    return { bannerShown, bannerText, claimsSingle, pickerOpen, wroteBeforePick, optionCards, optionTexts,
+      pickerHiddenAfterPick, wroteAfterPickBeforeSecondSave, bannerAfterPick, pickerReopenedOnSecondSave, draft };
   }, AMBIG);
   ok(D.bannerShown, "D1 live banner warns when several catalog rows match");
   ok(/2 catalog entries match/.test(D.bannerText), "D2 banner states the real candidate count");
@@ -201,13 +219,18 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   ok(D.optionTexts.some(t => /Statue of Liberty Half Dollar/.test(t)) &&
      D.optionTexts.some(t => /Statue of Liberty Commemorative/.test(t)),
      "D7 picker distinguishes the rows by Description (the commemorative case)");
-  ok(D.draft && D.draft.coinId === 'C-1986-M-50C-02', "D8 the CHOSEN candidate is recorded, not the first");
-  ok(D.draft && D.draft.matchedHow === 'picked', "D9 provenance recorded as a human pick");
+  ok(D.pickerHiddenAfterPick, "D8 picker closes immediately on a pick");
+  ok(D.wroteAfterPickBeforeSecondSave === 0, "D9 Q4: picking a candidate does NOT save by itself");
+  ok(D.bannerAfterPick.includes('C-1986-M-50C-02'), "D10 live banner updates to the CHOSEN candidate right after the pick (fixes the #14 desync)");
+  ok(D.pickerReopenedOnSecondSave === false, "D11 the second Save click does not re-show the picker for the same identity");
+  ok(D.draft && D.draft.coinId === 'C-1986-M-50C-02', "D12 the CHOSEN candidate is what actually gets saved, not the first");
+  ok(D.draft && D.draft.matchedHow === 'picked', "D13 provenance recorded as a human pick");
   ok(D.draft && /ambiguous DB_Coins candidates/.test(D.draft.researchNote || ''),
-     "D10 research note flags the ambiguity for reconciliation");
+     "D14 research note flags the ambiguity for reconciliation");
 
   // cancel writes nothing
   const DC = await page.evaluate(async (rowsJson) => {
+    navigate('addcoin'); // fresh form -- same isolation reason as the D block above
     const mock = createMockGraphClient({ workbookColumns: { "All::CollectionID": ["AY-00700"] } });
     __setGraphClientForTest(mock);
     __setAddCoinWriteEnabledForTest(true);
@@ -228,9 +251,9 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
     return res;
   }, AMBIG);
-  ok(DC.wrote === 0, "D11 cancelling the picker writes nothing and reserves nothing");
-  ok(DC.hidden, "D12 picker closes on cancel");
-  ok(DC.yearKept === '1986', "D13 the typed entry survives a cancelled save");
+  ok(DC.wrote === 0, "D15 cancelling the picker writes nothing and reserves nothing");
+  ok(DC.hidden, "D16 picker closes on cancel");
+  ok(DC.yearKept === '1986', "D17 the typed entry survives a cancelled save");
 
   // ---------- E. Finish narrows an otherwise-ambiguous pair ----------
   const E = await page.evaluate(() => {
@@ -311,7 +334,12 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     return { text };
   });
   ok(/Unmatched Cent/.test(G.text), "G1 a real staged draft with no catalog match reaches the Docket");
-  ok(/AY-00902 ready for reconciliation/.test(G.text), "G2 a handed-off draft shows as waiting on reconciliation");
+  // Label ordering fix (#17, real live-run finding): Year-Mint now leads
+  // ("1937-D · Buffalo Nickel"), and the CollectionID sits at the front of
+  // the label line rather than glued onto "ready for reconciliation" in the
+  // notes line -- both moved, so check for the id and the status text
+  // separately rather than as one contiguous phrase.
+  ok(G.text.includes("AY-00902") && /Ready for reconciliation/.test(G.text), "G2 a handed-off draft shows as waiting on reconciliation");
 
   // ---------- J. Picker must not truncate away the differentiator ----------
   // The whole reason a Description tier was NOT added to the matcher is that
@@ -320,6 +348,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   // differentiator that sits late in the string, which is exactly the case
   // for the commemorative pairs.
   const J = await page.evaluate(async () => {
+    navigate('addcoin'); // fresh form -- same isolation reason as the D block above
     __setGraphClientForTest(createMockGraphClient({ workbookColumns: { "All::CollectionID": ["AY-01100"] } }));
     __setAddCoinWriteEnabledForTest(true);
     __setLiveDbCoinsForTest([

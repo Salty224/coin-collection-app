@@ -5050,6 +5050,220 @@ session doesn't reopen them:**
   UX polish on a working save, no urgency — logged as ParkingLot Row 3 in the
   session log below.
 
+### Add Coin Phase 1: live-run bug-fix pass (BUILT, same branch, still held)
+Ray's own full manual live run against `_Testing` (Parts A–H) found the write
+path itself — reservation, the ambiguous-picker data integrity, photo/receipt
+handling, network-failure honesty — clean. Everything below is real bugs and
+UX findings from that same run, all fixed on this branch, still held for the
+same explicit-go-ahead reason as the rest of Phase 1.
+
+**Q3 — real `Ref_Denominations` data loaded, replacing the ~28-row hand-picked
+stand-in.** 85 rows, pulled straight from the live workbook and loaded
+verbatim (Ray's call), filtered to only the six denom codes Add Coin's own
+dropdown supports (a literal filter on the sheet's real `Denomination` column,
+not a numismatic judgment call — Silver/Gold/Platinum/Palladium Eagles, Half
+Cents, Commemoratives, etc. get no autofill, same as they already didn't).
+This is what actually root-caused bug #3 below — the OLD mock's single `$1`
+row spanned 1979–2026 as one entry (`"Anthony / Sacagawea / Presidential"`),
+so any year in that span resolved to all three names joined together. The
+real sheet has each series as its own row with its own real range; 1982 now
+resolves to Susan B. Anthony alone (confirmed against this exact data by Ray
+before it was loaded). **Real data legitimately has 2+ rows matching the same
+denom+year** in two different ways — a genuine transition year (Barber/Mercury
+both cover 1916) and the modern era's concurrent dollar-coin proliferation
+(Presidential/Native American/American Innovation all ran 2018–2020) — both
+handled the same way as the DB_Coins matcher's own firm rule: never guess,
+always ask.
+
+**#2/#3 — Description auto-fill: clears on no match, offers a picklist on
+2+.** `maybeAutoFillDescription()` used to no-op on zero candidates, leaving
+whatever series name was already on screen — a stale answer that reads as
+current. Now: 0 candidates clears the field; 1 autofills as before; 2+ leaves
+it blank and shows a small inline picker (`#descriptionAmbiguousPanel`) rather
+than silently taking the first match — the same failure class the
+concatenation bug was, just moved from string-joining to first-of-N. Nothing
+is written to Description until the user picks or types their own value.
+
+**#4 — PCGS label decode was hardcoded to the 12-row mock, ignoring
+`ENABLE_LIVE_NAV_DATA` entirely.** `handlePcgsLabelApply()` filtered
+`FAKE_DB_COINS` directly; reproduced live with a real PCGS# (4908, a real
+1916-S Mercury dime) reporting "not found." Now reads `activeDbCoins()`, the
+same source every other matcher in the file already uses. **Found and fixed
+the same gap in `validVarietiesForCurrentCoin()` alongside it** — CLAUDE.md
+had already flagged this one as "worth doing when Add Coin's own write layer
+lands" (it drives `isVarietyRecognized()`, which decides the direct-write-vs-
+Staging routing — a real coin's variety was being judged against the mock).
+`slotMintage()` (Albums) stays on the mock — separate, deliberate, unrelated
+call from Ray.
+
+**#7 — investigated in depth; not what it looked like, and not what Ray's own
+correction guessed either.** Ray's follow-up note walked the finding back to
+"probably the DB_Coins-once-per-load caching behaviour, drop it unless
+cleanly reproduced." A clean, deterministic repro was already in hand
+(save → Mark ready → open Docket) and it does NOT reproduce a missing entry —
+but it surfaced a real, different bug: **the same coin rendered as two
+independent, disagreeing records** — once via the draft's own live status
+(`stagedHandedOff`, "ready for reconciliation") and once via a separate,
+static Docket entry (`appendDocketEntry`'s pre-existing "no-db-coins-match"
+push, which fired unconditionally on every save regardless of destination).
+Root cause: Phase 1 made BOTH "Save to Database" and "Save to Staging" write
+the same kind of coin.json draft, and the draft's own presence in the hub
+already represents "needs a catalog entry" — so the old separate push became
+pure duplication the moment that happened, and the two records could disagree
+once the draft's own status moved on (Draft → Ready) with no way to update or
+retract the earlier static entry. **Fixed by removing the redundant push
+entirely on the real path** — the draft is the single source of truth there;
+the flag-off mock path is unchanged, since a `FAKE_COINS`-destined mock save
+has no draft-based representation to duplicate.
+
+**#8 — Docket research rows never showed CollectionID for a staged coin with
+no match**, unlike `docketEntryLabel()` (used a few lines below in the same
+render for real Docket entries), which already did. Different label-building
+code path, same missing field — now shown consistently.
+
+**#9 — Reject was the only way back from "Marked ready," and Reject is
+permanent (deletes the draft + photos).** Marking ready a beat too early is
+an easy, ungated mistake in Phase 1 (there's no reconciliation check to catch
+it). New `revertCoinDraftToDraft()`/`revertStagedCoinToDraft()` — Staging
+Review now shows **"Revert to Draft"** in place of the old disabled "Ready"
+button, touching only `status`; the CollectionID, photos, and every captured
+field are untouched, so a revert is exactly as safe as the mark-ready it
+undoes.
+
+**#1 — Add Coin didn't reset between visits.** Reopening it via plain nav
+(not a save, not an album/wishlist deep-link) showed whatever was left from a
+prior unsaved session — every field, the photo thumbnails, all of it. New
+`resetAddCoinForm()`, called unconditionally at the top of `navigate()`'s
+`"addcoin"` branch, resets every field, photo slot, gallery entry, and match/
+picker state. **The one real subtlety**: an album/wishlist deep-link sets its
+context variable and calls `navigate("addcoin")`, then calls
+`applyAlbumContext()`/`applyWishlistContext()` **right after** `navigate()`
+returns — so the reset had to clear the two banners' visibility without
+nulling the `albumContext`/`wishlistContext` variables themselves, or it would
+null out a deep-link's own pending context from under it. Verified directly:
+a plain re-entry starts fully blank, and a deep-link straight after still
+prefills correctly. `resetAddCoinAfterSave()` now calls this same function
+instead of its own narrower clear, so a second coin entered in the same
+session also starts clean — a second, smaller fix in its own right.
+
+**#12/#14/Q4 — picking an ambiguous-match candidate used to save immediately,
+with no way to reconsider, and the live banner could disagree with the
+picker.** Both are really one root cause: the banner and the save-time
+resolution were two independently-updated pieces of state that could drift.
+Fixed with one consolidated source of truth, `currentAddCoinMatchState()`:
+- Picking a candidate now **resolves and stops** — it updates
+  `addCoinResolvedPick` (the pick plus a snapshot of the exact identity it
+  was picked for), refreshes the live banner to show it immediately (closing
+  the #14 desync), toasts "press Save again to continue," and returns. **It
+  does not save.**
+- The **next** Save click re-derives match state, finds the still-valid
+  resolved pick (identity unchanged), and proceeds straight to save with no
+  picker shown a second time.
+- **Any relevant field changing invalidates the pick** — the snapshot no
+  longer matches, so a fresh identity re-derives candidates normally rather
+  than silently reusing a stale choice.
+- Verified end-to-end: nothing written between the pick and the second Save
+  click; the banner shows the CHOSEN candidate (picked the second option
+  deliberately, so "still shows the first" couldn't pass by accident); the
+  second Save click writes the remembered pick without re-opening the picker.
+
+**#11 — the picker's "Cancel — don't save yet" had no visual weight**
+(`background:none; border:none`, blending into the page). Given a real
+bordered/background button matching the candidate cards it sits beside.
+
+**#13 — the DB_Coins match banners sat ABOVE Finish**, even though Finish is
+one of the fields the match is actually computed from — recording it, then
+watching the banner react, is the order that makes sense. Finish moved above
+the banners.
+
+**#15 — `Circulated` was selectable as an Add Coin Finish option**,
+contradicting the Aug 17 session's established rule that Circulated is a
+wear-state/condition, not a strike method (tolerated only in 139 legacy `All`
+rows, never generated going forward). Removed from the dropdown; the
+matcher's own soft-fallback tolerance for an All-only Finish value is
+unchanged — a legacy `Circulated` row still matches correctly, it just can't
+be newly created from this form.
+
+**#6/Q2 — GradeSource baked into the coin's own flip-card label, even for a
+non-certified estimate** (e.g. "VF-30 Seller"). Ray's resolution: keep it on
+the graphic **only when it's a real third-party grading service** (PCGS/NGC/
+ICG/etc., via the existing `isServiceGradeSource()`) — a raw/Seller/Owner/
+AI-est-sourced grade shows Grade alone. **Scoped correctly after checking
+both render paths**: this only ever applied to Add Coin's own live-entry
+corner (`updateFlipLabels()`) — the SAVED-coin flip corner
+(`applyFlipCorners()`, Spotlight/Browse detail) was already Grade+Designation
+only and has never put GradeSource on the graphic at all; `gradeWithSourceText()`
+(Overview/detail text, "MS-64 (PCGS)") is the separate display that already
+shows GradeSource unconditionally, exactly as Q2 asked it to keep doing. One
+edit, correctly scoped — not the two-surface change originally assumed before
+checking the code.
+
+**#5 — couldn't drag-reposition inside the circular crop guide.** Root-caused,
+not guess-patched: for a perfectly SQUARE source (exactly what Stage 1's
+background crop hands the adjuster for a flip source), `recomputePhotoAdjustBaseScale()`'s
+"cover" fit gives **zero pixels of overscan at exactly 100% zoom** — there is
+nothing to drag into, by the math; the clamp itself (`clampPhotoAdjustOffsets()`,
+"can't pan past its own edges") is correct and untouched. Fixed by defaulting
+the adjuster to a small above-100% starting zoom (110%) so a real ~12px of pan
+headroom always exists without forcing a zoom action first; the slider's own
+100–300% range and every other control are unchanged.
+
+**#16 — Staging Review flattened "needs a decision" and "already handled"
+into one list**, with a Draft row (needs Mark ready/Reject) visually
+identical to a Ready row (nothing left to decide). Split into two labeled
+sections, same section-label convention used elsewhere in this app — "Needs
+a decision" first, "Marked ready — waiting on reconciliation" second, newest
+first within each. The mock build never shows the second section (a
+`FAKE_STAGING` row has no Ready status to begin with).
+
+**#17 — Docket labels read "Description · Year-Mint," backwards from how a
+coin is normally referenced** ("1916-D Mercury Dime," not "Mercury Dime
+1916-D"). Year-Mint now leads in all three label-building sites
+(`docketEntryLabel()`, the staged-no-match row, the handed-off-draft row) —
+kept consistent across all of them, not just the one Ray happened to see.
+
+**#10/#18 — toasts disappeared before they could reliably be read**, and
+identity fields (Year especially) showed the browser's own autocomplete
+suggestions. Toast duration now scales with message length (`1800 + 40ms/char`,
+clamped 2600–7000ms) instead of one fixed 2600ms for every toast — a short
+toast stays snappy, a real save confirmation or error message gets the time
+it needs. `autocomplete="off"` added to Year, Description, Vendor, Storage
+Location, Container, Cert/Type Number, and the PCGS Label field.
+
+**A real bug in the fix itself, caught by screenshot, not by the test
+suite.** The new `#descriptionAmbiguousPanel` and `#addCoinMatchAmbiguousPanel`
+were built with `class="case hidden"`, copying two PRE-EXISTING elements'
+visual look — but **this file has no generic `.hidden` rule**; every
+`.hidden` is scoped to its own component (documented in CLAUDE.md already,
+after being hit before). The two elements this was copied from
+(`#pcgsLabelAmbiguousPanel`, `#designationAmbiguousPanel`) have their own
+ID-scoped `.hidden` rules; the two new ones didn't, so `classList.contains("hidden")`
+read `true` while the panel stayed fully visible and laid out on the page —
+visible in a screenshot, invisible to `classList`-only assertions. **This
+exposed a real gap in the committed suite itself**: every assertion checking
+these panels checked `classList` state, never actual rendered visibility,
+which is exactly what let this slip through 133 passing assertions. Fixed
+both: added the two missing scoped rules, and added a dedicated
+`getComputedStyle().display` check (confirmed to actually fail without the
+CSS fix, not just pass trivially) so this class of bug can't hide behind a
+green suite again.
+
+**19 — logged, not built.** Cert/serial duplicate-check suggestion recorded
+as ParkingLot Row 4 in the session log below — idea only, no design work.
+
+**Verified headless — 137 assertions across two suites (`addcoin-phase1`:
+73, `addcoin-bugfixes`: 64), all passing, zero page errors**, at 412×915 with
+the three genuinely layout-sensitive checks re-run at 1024×768. Every fix
+above has its own committed assertion(s); the visibility-gap fix additionally
+includes a negative-control check (confirmed to fail with the bug
+reintroduced). Screenshots reviewed at both viewports for the ambiguous
+picker (open and post-pick states) and Staging Review's two-section split —
+no horizontal overflow either width.
+
+**Not verified: any real device, any real OneDrive session against these
+specific fixes.** `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md` covers the original
+Phase 1 build; a second pass against these fixes specifically hasn't run yet.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
@@ -6680,7 +6894,7 @@ reference-image-second, then the bare placeholder third.
 
 ## Session log — carried-forward state (not app architecture, tracked here for continuity)
 
-### ParkingLot entries to transfer (3 rows, as of 2026-08-23)
+### ParkingLot entries to transfer (4 rows, as of 2026-08-23)
 **Needs adding to the workbook's ParkingLot sheet — logged here because this
 coding session has no write access to the live OneDrive workbook.** Recorded
 verbatim in ParkingLot's own column shape (Item/Title, Category, Priority,
@@ -6706,6 +6920,12 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
 - **Status:** `Open`
 - **Description:** `Add Coin's "Assign to Album" selection is now recorded on the Phase 1 Staging coin draft (assignAlbum), but nothing consumes it — no slot is filled, and the separately-specced post-save Albums matching flow (offer to fill a matching open slot; surface both coins on an already-filled slot; never auto-fill silently) is still unbuilt. Deliberately NOT scoped into any Add Coin write-layer phase: it is UX polish on a save that already works, not core to logging a coin. Pick up whenever. See CLAUDE.md "Post-save Albums matching" for the behaviour already agreed.`
+
+**Row 4:**
+- **Item/Title:** `Cert/serial duplicate check against owned coins`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
+- **Status:** `Open`
+- **Description:** `Feature suggestion from the Add Coin Phase 1 live-run session, not a bug: nothing today cross-checks a PCGS/NGC cert number entered on a new coin against SerNo on already-owned coins to flag a likely duplicate entry (a coin re-added by mistake, or a cert typo colliding with a real existing coin). Could live in Add Coin's live matcher (a warning banner alongside the DB_Coins match banner) or as a save-time check. No design work done yet — flagging the idea, not scoping the build.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
