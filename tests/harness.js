@@ -14,7 +14,20 @@
 
 const fs = require("fs");
 const path = require("path");
-const { chromium } = require("playwright");
+
+// A fresh checkout has no node_modules, and the bare MODULE_NOT_FOUND stack
+// that produces is a poor first thing to hit. Say what to do instead.
+let chromium;
+try {
+  ({ chromium } = require("playwright"));
+} catch (e) {
+  if (e && e.code === "MODULE_NOT_FOUND") {
+    console.error("\nPlaywright isn't installed. Run `npm install` first " +
+      "(dev-only; it is not part of the shipped app).\n");
+    process.exit(1);
+  }
+  throw e;
+}
 
 const APP_URL = "file://" + path.resolve(__dirname, "..", "app.html");
 
