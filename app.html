@@ -173,6 +173,18 @@
     font-size: 28px; margin: 0 0 8px;
   }
   .splash-status { color: var(--text-muted); font-size: 14px; }
+
+  /* Retest #10 — shared section-scale loading indicator, reusing the
+     splash screen's own spinning-disc keyframes at a smaller size. */
+  .section-loading {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 28px 0; color: var(--text-muted); font-size: 14px;
+  }
+  .section-loading-disc {
+    font-size: 26px; display: inline-block;
+    animation: splashSpin 1.6s linear infinite;
+  }
+  .coin-grid .section-loading { grid-column: 1 / -1; }
   .splash-error {
     margin-top: 20px; background: var(--danger-bg);
     border: 1px solid rgba(181,72,60,0.4); border-radius: 10px;
@@ -2192,6 +2204,10 @@
           <div id="browseCoinsHeader">
             <div class="filter-row" id="browseFilters"></div>
             <div class="filter-row" id="browseMetalFilters" style="margin-top:6px;"></div>
+            <!-- Retest #15: grading-service filter, same multi-select/OR
+                 chip pattern as Metal, ANDing with every other Catalog
+                 filter. -->
+            <div class="filter-row" id="browseGradingServiceFilters" style="margin-top:6px;"></div>
           </div>
 
           <div id="browseSetsHeader" style="display:none;">
@@ -2979,12 +2995,9 @@
           <label>Denomination</label>
           <select id="denomination">
             <option value="">— select —</option>
-            <option value="1C">1C — Cent</option>
-            <option value="5C">5C — Nickel</option>
-            <option value="10C">10C — Dime</option>
-            <option value="25C">25C — Quarter</option>
-            <option value="50C">50C — Half Dollar</option>
-            <option value="$1">$1 — Dollar</option>
+            <!-- The rest are generated at init by populateAddCoinDenominationDropdown()
+                 from DENOM_CODE_INFO/FAKE_DENOMINATIONS (retest #8) — not
+                 hand-maintained here anymore. -->
           </select>
 
           <label>Year</label>
@@ -3050,8 +3063,10 @@
             A Proof and a Business Strike of the same date are different coins
             in the catalog, so recording this narrows the DB_Coins match and
             avoids being asked to pick between otherwise-identical entries on
-            save. Optional — leaving it blank never blocks a save, it just
-            matches on a weaker key.
+            save — including down to no match at all if the catalog genuinely
+            has no row with this Finish for this exact date (a real signal,
+            not an error). Optional — leaving it blank never blocks a save,
+            it just matches on a weaker key.
           </p>
 
           <!-- Moved below Finish (real live-run finding, #13): Finish is one
@@ -4528,6 +4543,16 @@
     if (!ENABLE_LIVE_NAV_DATA) return Promise.resolve(false);
     if (LIVE_COINS && LIVE_DB_SETS) return Promise.resolve(true); // already loaded this session
     if (liveNavDataFetchPromise) return liveNavDataFetchPromise;
+    // Retest #10 was going to show the shared loading indicator here too,
+    // but this call site is a genuinely different shape from the other
+    // two (Staging Review, the Docket): showBrowseTab() calls this and
+    // then IMMEDIATELY renders FAKE_*-backed cards synchronously in the
+    // same tick, by design ("never blocks" — see this function's own
+    // comment above) — so an indicator inserted here would be wiped out
+    // by that synchronous render before a human could ever see it, not a
+    // real loading state. Left out here on that basis; still wired at the
+    // two call sites where the container is genuinely empty/stale until
+    // the real fetch resolves.
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -7120,31 +7145,21 @@
     { code: "Scratched",   label: "Scratched",            group: "problem" }
   ];
 
-  // REAL Ref_Denominations data (85 rows), pulled directly from the live
-  // workbook 2026-08-23 and loaded verbatim, per Ray's explicit call —
-  // supersedes the earlier ~28-row hand-picked stand-in below, which is
-  // what produced the concatenated "Anthony / Sacagawea / Presidential"
-  // series bug (see CLAUDE.md "Add Coin Phase 1 fixes"): that stand-in's own
-  // $1 row spanned 1979-2026 as ONE entry, so any year in that span
-  // resolved to all three names joined together — a data artifact of the
-  // mock, not a matching-logic bug. The real sheet has each series as its
-  // own row with its own real year range, so 1982 now correctly resolves to
-  // Susan B. Anthony alone (confirmed against this exact data by Ray before
-  // it was loaded).
+  // REAL Ref_Denominations data (187 rows), pulled directly from the live
+  // workbook and loaded verbatim, per Ray's explicit call — supersedes both
+  // the earlier ~28-row hand-picked stand-in (which produced the concatenated
+  // "Anthony / Sacagawea / Presidential" series bug — see CLAUDE.md "Add Coin
+  // Phase 1 fixes": that stand-in's own $1 row spanned 1979-2026 as ONE
+  // entry, so any year in that span resolved to all three names joined
+  // together) AND the later 85-row load that filtered to only the six
+  // pre-existing denom codes (retest #8's own predecessor).
   //
-  // ONLY rows whose real Denomination column is one of the six codes Add
-  // Coin's own dropdown supports (Cent/Nickel/Dime/Quarter/Half Dollar/
-  // Dollar) are included — this is a literal filter on the sheet's own
-  // Denomination column, not a numismatic judgment call. Excluded
-  // categories (Half Cent, Two/Three Cent, Half Dime, Twenty Cent, every
-  // gold denomination, Silver/Gold/Platinum/Palladium Eagles, Commemoratives,
-  // Medals, Error coins, First Spouse) have no corresponding denom code
-  // today — same "no match, no autofill" behavior those already got before
-  // this change, not a regression. (Silver Eagles are legal-tender $1
-  // coins, but the sheet categorizes them separately from "Dollar," and
-  // folding them in would create false ambiguity against every other
-  // concurrent modern dollar series — a separate scoping decision, not
-  // assumed here.)
+  // ALL 187 rows are loaded now, not just rows matching an existing denom
+  // code — retest #8's whole point. Each real Denomination-column value maps
+  // through DENOM_NAME_TO_CODE below; only values with NO safe, unambiguous
+  // code are excluded (see that map's own comment for exactly which, and
+  // why). This is why the array below carries five denom codes that didn't
+  // exist before this change (0.5C, 2C, 3C, H5C, 20C) plus Medal.
   //
   // MULTIPLE ROWS LEGITIMATELY OVERLAP on real data, in two different ways:
   // a transition year where two series were both struck (Barber/Mercury
@@ -7153,12 +7168,60 @@
   // Native American, and American Innovation all ran at once from 2018-2020).
   // Both are handled the same way, generically — see
   // lookupDescriptionCandidates()/maybeAutoFillDescription() below: 2+
-  // candidates always surface a pick, never silently choose one. This is a
-  // short-term load of the flat reference table (Q3, "option A" of a
-  // three-way choice); a live read of the real Ref_Denominations sheet
-  // ("option C") is a possible future upgrade, not done here — it would be
-  // the first live read added outside Phase 1's own scope.
+  // candidates always surface a pick, never silently choose one.
+  //
+  // A "Commemorative X"/"Error X" row in the source sheet is NOT a new
+  // denomination — it's really an ordinary Dollar/Half Dollar/Quarter/Cent/
+  // Nickel row that happens to describe a commemorative or error variety, so
+  // it's folded onto that denomination's own existing code (see the map)
+  // rather than treated as anything new. This keeps the app's Denomination
+  // vocabulary exactly what CLAUDE.md's naming-conventions section already
+  // documents it as — a short, controlled set of codes — rather than letting
+  // a reference sheet's own descriptive bucketing leak into it.
+  //
+  // DELIBERATELY STILL EXCLUDED (retest #8 fixed the half-cent/two-cent/
+  // three-cent/twenty-cent/half-dime gap Ray named explicitly; the
+  // gold/bullion tier is a SEPARATE, larger scope decision, flagged for
+  // Ray rather than guessed at): Half Eagle, Quarter Eagle, Eagle, Double
+  // Eagle, Three Dollar, Gold Dollar, Gold Buffalo, Commemorative Gold,
+  // Commemorative $5 Gold, First Spouse $10, Gold Eagle, Silver Eagle,
+  // Platinum Eagle, Palladium Eagle, and "Special." These rows' own
+  // face-value-based names would collide with existing codes if mapped
+  // naively (a Gold Dollar is not a $1 the way a modern circulating Dollar
+  // is; a bullion Silver Eagle's $1 face value has nothing to do with its
+  // actual value or how it's tracked) — assigning them real codes needs
+  // Ray's numismatic judgment call, the same reasoning already recorded
+  // above for Silver Eagles specifically. Their rows are simply not in this
+  // array yet; once Ray picks a scheme, add them to DENOM_NAME_TO_CODE and
+  // this array grows to the full 187, no other code changes needed.
+  const DENOM_NAME_TO_CODE = {
+    "Half Cent": "0.5C",
+    "Cent": "1C",
+    "Error Cent": "1C",
+    "Two Cent": "2C",
+    "Three Cent": "3C",
+    "Half Dime": "H5C",
+    "Nickel": "5C",
+    "Error Nickel": "5C",
+    "Dime": "10C",
+    "Error Dime": "10C",
+    "Twenty Cent": "20C",
+    "Quarter": "25C",
+    "Commemorative Quarter": "25C",
+    "Error Quarter": "25C",
+    "Half Dollar": "50C",
+    "Commemorative Half": "50C",
+    "Dollar": "$1",
+    "Commemorative Dollar": "$1",
+    "Error Dollar": "$1",
+    "Medal": "Medal"
+  };
   const FAKE_DENOMINATIONS = [
+    { denom: "0.5C", yearStart: 1793, yearEnd: 1793, series: "Liberty Cap Left" },
+    { denom: "0.5C", yearStart: 1794, yearEnd: 1797, series: "Liberty Cap Right" },
+    { denom: "0.5C", yearStart: 1800, yearEnd: 1808, series: "Draped Bust" },
+    { denom: "0.5C", yearStart: 1809, yearEnd: 1836, series: "Classic Head" },
+    { denom: "0.5C", yearStart: 1840, yearEnd: 1857, series: "Braided Hair" },
     { denom: "1C", yearStart: 1787, yearEnd: 1787, series: "Fugio" },
     { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Chain" },
     { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Wreath" },
@@ -7170,14 +7233,31 @@
     { denom: "1C", yearStart: 1856, yearEnd: 1858, series: "Flying Eagle" },
     { denom: "1C", yearStart: 1859, yearEnd: 1909, series: "Indian Head" },
     { denom: "1C", yearStart: 1909, yearEnd: 1958, series: "Lincoln Wheat" },
+    { denom: "1C", yearStart: 1943, yearEnd: 1943, series: "1943 Copper" },
+    { denom: "1C", yearStart: 1944, yearEnd: 1944, series: "1944 Steel" },
+    { denom: "1C", yearStart: 1955, yearEnd: 1955, series: "1955 DDO" },
     { denom: "1C", yearStart: 1959, yearEnd: 2008, series: "Lincoln Memorial" },
+    { denom: "1C", yearStart: 1969, yearEnd: 1969, series: "1969-S DDO" },
+    { denom: "1C", yearStart: 1972, yearEnd: 1972, series: "1972 DDO" },
     { denom: "1C", yearStart: 2009, yearEnd: 2009, series: "Lincoln Bicentennial" },
     { denom: "1C", yearStart: 2010, yearEnd: 2026, series: "Lincoln Shield" },
+    { denom: "2C", yearStart: 1864, yearEnd: 1873, series: "Shield" },
+    { denom: "3C", yearStart: 1851, yearEnd: 1873, series: "Silver (Trime)" },
+    { denom: "3C", yearStart: 1865, yearEnd: 1889, series: "Nickel" },
+    { denom: "H5C", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "H5C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
+    { denom: "H5C", yearStart: 1800, yearEnd: 1805, series: "Draped Bust Heraldic Eagle" },
+    { denom: "H5C", yearStart: 1829, yearEnd: 1837, series: "Capped Bust" },
+    { denom: "H5C", yearStart: 1837, yearEnd: 1838, series: "Seated Liberty No Stars" },
+    { denom: "H5C", yearStart: 1838, yearEnd: 1859, series: "Seated Liberty Stars" },
+    { denom: "H5C", yearStart: 1860, yearEnd: 1873, series: "Seated Liberty Legend" },
     { denom: "5C", yearStart: 1866, yearEnd: 1883, series: "Shield" },
     { denom: "5C", yearStart: 1883, yearEnd: 1913, series: "Liberty (V)" },
     { denom: "5C", yearStart: 1913, yearEnd: 1938, series: "Buffalo (Indian Head)" },
+    { denom: "5C", yearStart: 1937, yearEnd: 1937, series: "1937-D 3-Legged" },
     { denom: "5C", yearStart: 1938, yearEnd: 2003, series: "Jefferson (Monticello)" },
     { denom: "5C", yearStart: 2004, yearEnd: 2005, series: "Westward Journey" },
+    { denom: "5C", yearStart: 2005, yearEnd: 2005, series: "2005-D Speared Bison" },
     { denom: "5C", yearStart: 2006, yearEnd: 2026, series: "Jefferson (Return to Monticello)" },
     { denom: "10C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
     { denom: "10C", yearStart: 1798, yearEnd: 1807, series: "Draped Bust Heraldic Eagle" },
@@ -7190,6 +7270,8 @@
     { denom: "10C", yearStart: 1916, yearEnd: 1945, series: "Mercury (Winged Liberty)" },
     { denom: "10C", yearStart: 1946, yearEnd: 1964, series: "Roosevelt Silver" },
     { denom: "10C", yearStart: 1965, yearEnd: 2026, series: "Roosevelt Clad" },
+    { denom: "10C", yearStart: 1982, yearEnd: 1982, series: "1982 No P" },
+    { denom: "20C", yearStart: 1875, yearEnd: 1878, series: "Seated Liberty" },
     { denom: "25C", yearStart: 1796, yearEnd: 1796, series: "Draped Bust Small Eagle" },
     { denom: "25C", yearStart: 1804, yearEnd: 1807, series: "Draped Bust Heraldic Eagle" },
     { denom: "25C", yearStart: 1815, yearEnd: 1828, series: "Capped Bust Large" },
@@ -7197,12 +7279,14 @@
     { denom: "25C", yearStart: 1838, yearEnd: 1865, series: "Seated Liberty No Motto" },
     { denom: "25C", yearStart: 1866, yearEnd: 1891, series: "Seated Liberty Motto" },
     { denom: "25C", yearStart: 1892, yearEnd: 1916, series: "Barber" },
+    { denom: "25C", yearStart: 1893, yearEnd: 1893, series: "Isabella Quarter" },
     { denom: "25C", yearStart: 1916, yearEnd: 1917, series: "Standing Liberty Type 1" },
     { denom: "25C", yearStart: 1917, yearEnd: 1930, series: "Standing Liberty Type 2" },
     { denom: "25C", yearStart: 1932, yearEnd: 1964, series: "Washington Silver" },
     { denom: "25C", yearStart: 1965, yearEnd: 1998, series: "Washington Clad" },
     { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "Washington State (1st Design)" },
     { denom: "25C", yearStart: 1999, yearEnd: 2008, series: "State Quarters Silver Proof" },
+    { denom: "25C", yearStart: 1999, yearEnd: 1999, series: "1999-P Delaware Spitting Horse" },
     { denom: "25C", yearStart: 2009, yearEnd: 2009, series: "Washington DC & Territories" },
     { denom: "25C", yearStart: 2010, yearEnd: 2021, series: "Washington ATB" },
     { denom: "25C", yearStart: 2010, yearEnd: 2021, series: "ATB Silver Proof" },
@@ -7218,12 +7302,18 @@
     { denom: "50C", yearStart: 1839, yearEnd: 1866, series: "Seated Liberty No Motto" },
     { denom: "50C", yearStart: 1866, yearEnd: 1891, series: "Seated Liberty Motto" },
     { denom: "50C", yearStart: 1892, yearEnd: 1915, series: "Barber" },
+    { denom: "50C", yearStart: 1892, yearEnd: 1893, series: "Columbian Exposition" },
+    { denom: "50C", yearStart: 1915, yearEnd: 1915, series: "Panama-Pacific" },
     { denom: "50C", yearStart: 1916, yearEnd: 1947, series: "Walking Liberty" },
+    { denom: "50C", yearStart: 1916, yearEnd: 1951, series: "Walking Liberty Type" },
     { denom: "50C", yearStart: 1948, yearEnd: 1963, series: "Franklin" },
     { denom: "50C", yearStart: 1964, yearEnd: 1964, series: "Kennedy Silver" },
     { denom: "50C", yearStart: 1965, yearEnd: 1970, series: "Kennedy 40% Silver" },
     { denom: "50C", yearStart: 1971, yearEnd: 2026, series: "Kennedy Clad" },
     { denom: "50C", yearStart: 1976, yearEnd: 1976, series: "Kennedy Bicentennial" },
+    { denom: "50C", yearStart: 1982, yearEnd: 1982, series: "Washington Half Dollar" },
+    { denom: "50C", yearStart: 1982, yearEnd: 2026, series: "Various Issues" },
+    { denom: "50C", yearStart: 2019, yearEnd: 2019, series: "Apollo 11 Curved" },
     { denom: "$1", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
     { denom: "$1", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
     { denom: "$1", yearStart: 1795, yearEnd: 1798, series: "Draped Bust Small Eagle" },
@@ -7233,20 +7323,72 @@
     { denom: "$1", yearStart: 1866, yearEnd: 1873, series: "Seated Liberty Motto" },
     { denom: "$1", yearStart: 1873, yearEnd: 1885, series: "Trade" },
     { denom: "$1", yearStart: 1878, yearEnd: 1921, series: "Morgan" },
+    { denom: "$1", yearStart: 1900, yearEnd: 1900, series: "Lafayette Dollar" },
     { denom: "$1", yearStart: 1921, yearEnd: 1935, series: "Peace" },
     { denom: "$1", yearStart: 1971, yearEnd: 1978, series: "Eisenhower Clad" },
     { denom: "$1", yearStart: 1971, yearEnd: 1976, series: "Eisenhower 40% Silver" },
     { denom: "$1", yearStart: 1976, yearEnd: 1976, series: "Eisenhower Bicentennial" },
     { denom: "$1", yearStart: 1979, yearEnd: 1999, series: "Susan B. Anthony" },
+    { denom: "$1", yearStart: 1983, yearEnd: 2026, series: "Various Issues" },
     { denom: "$1", yearStart: 2000, yearEnd: 2008, series: "Sacagawea" },
+    { denom: "$1", yearStart: 2000, yearEnd: 2000, series: "2000-P Sacagawea Cheerios" },
     { denom: "$1", yearStart: 2007, yearEnd: 2020, series: "Presidential" },
+    { denom: "$1", yearStart: 2007, yearEnd: 2007, series: "2007-P Washington Missing Edge" },
     { denom: "$1", yearStart: 2009, yearEnd: 2026, series: "Native American" },
     { denom: "$1", yearStart: 2018, yearEnd: 2032, series: "American Innovation" },
+    { denom: "$1", yearStart: 2019, yearEnd: 2019, series: "Apollo 11 Curved" },
+    { denom: "$1", yearStart: 2020, yearEnd: 2020, series: "Basketball HOF Curved" },
     { denom: "$1", yearStart: 2021, yearEnd: 2023, series: "Morgan 100th Anniversary" },
-    { denom: "$1", yearStart: 2021, yearEnd: 2023, series: "Peace 100th Anniversary" }
+    { denom: "$1", yearStart: 2021, yearEnd: 2023, series: "Peace 100th Anniversary" },
+    { denom: "Medal", yearStart: 2015, yearEnd: 2015, series: "American Liberty High Relief Gold" },
+    { denom: "Medal", yearStart: 2015, yearEnd: 2026, series: "American Liberty High Relief Silver" },
+    { denom: "Medal", yearStart: 2018, yearEnd: 2018, series: "World War I Centennial Silver" },
+    { denom: "Medal", yearStart: 2020, yearEnd: 2020, series: "Women's Suffrage Centennial Silver" },
+    { denom: "Medal", yearStart: 2021, yearEnd: 2021, series: "Purple Heart Silver" },
+    { denom: "Medal", yearStart: 2026, yearEnd: 2026, series: "Semiquincentennial Gold" },
+    { denom: "Medal", yearStart: 2026, yearEnd: 2026, series: "Semiquincentennial Silver" }
   ];
 
-  // Representative stand-in for DB_Coins  ];
+  // Canonical denomination code metadata (label + face-value order), used
+  // to DERIVE Add Coin's Denomination dropdown from FAKE_DENOMINATIONS
+  // itself (retest #8) instead of a separately hand-maintained HTML option
+  // list — a code only ever appears in the dropdown if some real
+  // Ref_Denominations row actually maps onto it (via DENOM_NAME_TO_CODE
+  // above), so the two can never silently drift apart again the way the
+  // original six-code hardcoded list did against the fuller reference
+  // data. Medal is included even though it has no real "diameter" — it's
+  // still a legitimate Denomination value elsewhere in the app (Browse's
+  // Medal filter, Stats & Value's coins-vs-medals split).
+  const DENOM_CODE_INFO = [
+    { code: "0.5C", label: "Half Cent" },
+    { code: "1C",   label: "Cent" },
+    { code: "2C",   label: "Two Cent" },
+    { code: "3C",   label: "Three Cent" },
+    { code: "H5C",  label: "Half Dime" },
+    { code: "5C",   label: "Nickel" },
+    { code: "10C",  label: "Dime" },
+    { code: "20C",  label: "Twenty Cent" },
+    { code: "25C",  label: "Quarter" },
+    { code: "50C",  label: "Half Dollar" },
+    { code: "$1",   label: "Dollar" },
+    { code: "Medal", label: "Medal" }
+  ];
+
+  // Populates Add Coin's #denomination <select> from DENOM_CODE_INFO,
+  // filtered to only codes actually present in FAKE_DENOMINATIONS — called
+  // once at init, replacing the six <option>s that used to be hardcoded
+  // directly in the HTML. Edit Coin's own Denomination dropdown is
+  // deliberately NOT changed here — it's a separate, smaller, static list
+  // (the six original codes + Medal, minus "Multiple") scoped to editing an
+  // ALREADY-OWNED coin, where a newly-added reference denomination isn't
+  // relevant until a coin of that type is actually saved.
+  function populateAddCoinDenominationDropdown() {
+    const select = document.getElementById("denomination");
+    const present = new Set(FAKE_DENOMINATIONS.map(d => d.denom));
+    DENOM_CODE_INFO.filter(d => present.has(d.code)).forEach(d => {
+      select.appendChild(new Option(d.code + " — " + d.label, d.code));
+    });
+  }
 
   // Representative stand-in for DB_Coins (~3,753 rows in reality) — just enough rows to
   // demo a match and a miss. Matching is denom + year + mint (blank = P) + variety (blank ok).
@@ -7284,7 +7426,14 @@
   // Relative sizing so coin discs/photos read as roughly the right size next to each
   // other — proportional to real diameters (dime is genuinely smaller than a cent,
   // e.g.), but floored at 70% so nothing gets illegibly tiny on a phone screen.
-  const DENOM_SCALE = { "1C": 0.72, "5C": 0.75, "10C": 0.70, "25C": 0.79, "50C": 0.89, "$1": 1.0 };
+  // Retest #8: Half Cent/Two Cent/Twenty Cent (~22-23mm real diameter),
+  // Three Cent (14-18mm depending on the silver vs. nickel type), and Half
+  // Dime (15.5mm) all compute below the 70% legibility floor on their real
+  // diameters relative to a Dollar (38.1mm) — so all five simply floor to
+  // 0.70, same as Dime already does. Medal is deliberately left unset (no
+  // fixed real diameter exists for "a medal" the way it does for a coined
+  // denomination) and keeps the existing `|| 1.0` fallback, unchanged.
+  const DENOM_SCALE = { "0.5C": 0.70, "1C": 0.72, "2C": 0.70, "3C": 0.70, "H5C": 0.70, "5C": 0.75, "10C": 0.70, "20C": 0.70, "25C": 0.79, "50C": 0.89, "$1": 1.0 };
 
   function denomScale(denom) {
     return DENOM_SCALE[denom] || 1.0;
@@ -7524,6 +7673,42 @@
     clearTimeout(toastTimer);
     const duration = Math.max(2600, Math.min(7000, 1800 + msg.length * 40));
     toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
+  }
+
+  // ==================================================================
+  // SECTION LOADING INDICATOR (retest #10) — a small, generic, reusable
+  // loading indicator for a slower async section transition (a real Graph
+  // fetch, not the free synchronous in-memory renders most of this app
+  // does), so a container doesn't read as frozen/blank while it's in
+  // flight. Visually matches the initial splash screen's own spinning-disc
+  // + status-text language (same coin-flip @keyframes splashSpin), just at
+  // section scale — one shared mechanism rather than a bespoke spinner per
+  // screen. showSectionLoading() creates the element once (reusing it on a
+  // repeat call) and inserts it as the container's first child;
+  // hideSectionLoading() removes it outright. Callers wrap their own real
+  // awaits with these — see renderStagingList() and renderNeedsAttentionHub()
+  // for the two real (Graph-backed) call sites this shipped with.
+  // ensureLiveNavDataFetch() was deliberately NOT wired the same way — see
+  // its own comment for why an indicator there would never actually be
+  // seen.
+  // ==================================================================
+  function showSectionLoading(containerId, text) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    let el = container.querySelector(":scope > .section-loading");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "section-loading";
+      el.innerHTML = '<span class="section-loading-disc" aria-hidden="true">🪙</span><span class="section-loading-text"></span>';
+      container.insertBefore(el, container.firstChild);
+    }
+    el.querySelector(".section-loading-text").textContent = text || "Loading…";
+  }
+  function hideSectionLoading(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const el = container.querySelector(":scope > .section-loading");
+    if (el) el.remove();
   }
 
   // ==================================================================
@@ -8238,6 +8423,32 @@
     });
   }
 
+  // Retest #15: Catalog filter by grading service, same multi-select/OR
+  // pattern as Metal (ANDs with Denomination/Metal/Commemorative/Year/
+  // Search, same as every other Catalog filter axis). Built from
+  // FAKE_LOOKUP_GRADERS directly — same "generate UI enumeration from the
+  // static grader list" precedent Add Coin's own Grader dropdown and
+  // buildGradeSourceOptions() already follow, not activeLookupGraders() —
+  // the per-coin TEST itself (a plain string comparison against
+  // coin.gradeSource) works identically against live or mock data either
+  // way, so this only affects which service CHIPS render, not matching
+  // correctness. "Ungraded/Other" catches every non-service GradeSource
+  // (Seller/Owner/AI-est) and a genuinely blank one — mirrors Metal's own
+  // "Other" catch-all bucket.
+  const BROWSE_GRADING_SERVICE_CHIPS = [
+    { key: "all", label: "All", isAll: true, test: () => true },
+    ...FAKE_LOOKUP_GRADERS.map(g => ({ key: g.code, label: g.code, test: c => c.gradeSource === g.code })),
+    { key: "ungraded", label: "Ungraded/Other", test: c => !FAKE_LOOKUP_GRADERS.some(g => g.code === c.gradeSource) }
+  ];
+  let browseSelectedGradingServiceKeys = new Set();
+  function browseGradingServiceTest(coin) {
+    if (browseSelectedGradingServiceKeys.size === 0) return true;
+    return [...browseSelectedGradingServiceKeys].some(key => {
+      const chip = BROWSE_GRADING_SERVICE_CHIPS.find(g => g.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
+
   // Sets tab: Category pills. Two kinds of pill now coexist on this one
   // single-select row:
   //   - LINEAGE pills (Proof Set / Uncirculated Coin Set / Silver Proof Set)
@@ -8503,7 +8714,8 @@
   function applyCoinsTabFilters() {
     const base = coinsTabBaseRows();
     const filtered = base.filter(c =>
-      browseFilterTest(c) && browseMetalTest(c) && (!browseCommemorativeOnly || c.category === "Commemorative") &&
+      browseFilterTest(c) && browseMetalTest(c) && browseGradingServiceTest(c) &&
+      (!browseCommemorativeOnly || c.category === "Commemorative") &&
       yearRowTest(c) && browseSearchTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
     );
     renderBrowseGrid(sortCoinsTabRows(filtered));
@@ -8726,6 +8938,9 @@
     browseSelectedMetalKeys.clear();
     updateMetalChipsUI("browseMetalFilters", browseSelectedMetalKeys);
 
+    browseSelectedGradingServiceKeys.clear();
+    updateMetalChipsUI("browseGradingServiceFilters", browseSelectedGradingServiceKeys);
+
     rollsSelectedDenomKeys.clear();
     updateRollsFilterChipsUI();
     rollsSelectedMetalKeys.clear();
@@ -8900,6 +9115,26 @@
         if (info && browseSelectedMetalKeys.has(m.key)) showToast(m.label + ": " + info);
       });
       metalRow.appendChild(chip);
+    });
+
+    const gradingServiceRow = document.getElementById("browseGradingServiceFilters");
+    BROWSE_GRADING_SERVICE_CHIPS.forEach(g => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (g.isAll ? " active" : "");
+      chip.textContent = g.label;
+      chip.dataset.key = g.key;
+      chip.addEventListener("click", () => {
+        if (g.isAll) {
+          browseSelectedGradingServiceKeys.clear();
+        } else if (browseSelectedGradingServiceKeys.has(g.key)) {
+          browseSelectedGradingServiceKeys.delete(g.key);
+        } else {
+          browseSelectedGradingServiceKeys.add(g.key);
+        }
+        updateMetalChipsUI("browseGradingServiceFilters", browseSelectedGradingServiceKeys);
+        applyCoinsTabFilters();
+      });
+      gradingServiceRow.appendChild(chip);
     });
 
     const setCategoryRow = document.getElementById("browseSetsCategoryFilters");
@@ -9448,13 +9683,23 @@
     return coin.grade + (coin.gradeSource ? " (" + coin.gradeSource + ")" : "");
   }
 
-  // Cert number as a real link when CertLink is populated (a stored URL,
-  // All/DB_Coins schema field) — never a URL constructed from the cert
-  // number. Plain text when there's a cert number but no CertLink on file.
+  // Cert number as a real link, preferring the STORED CertLink (a real URL,
+  // All/DB_Coins schema field) when it's populated — never overriding a
+  // curated link that's already on file. Retest #14: root-caused as a real
+  // gap, not by design — the Overview page only ever showed a link when
+  // CertLink itself was already populated, and never computed one live the
+  // way Add Coin and Browse Edit already do for their own cert-link
+  // buttons. Falls back to computing one live via the same grader-agnostic
+  // buildCertLookupUrl(gradeSource, cert) those forms already use whenever
+  // CertLink is blank but GradeSource + a cert number are both present —
+  // one shared resolver, not a second implementation. Plain text only when
+  // neither a stored link nor a computable one exists (no GradeSource on
+  // file, or that GradeSource has no base URL yet — see Lookup_Graders).
   function certDisplayHtml(coin) {
     if (!coin.serNo) return "";
-    return coin.certLink
-      ? `<a href="${coin.certLink}" target="_blank" rel="noopener">${coin.serNo} 🔗</a>`
+    const url = coin.certLink || buildCertLookupUrl(coin.gradeSource, coin.serNo);
+    return url
+      ? `<a href="${url}" target="_blank" rel="noopener">${coin.serNo} 🔗</a>`
       : coin.serNo;
   }
 
@@ -10659,6 +10904,28 @@
     });
   }
 
+  // The set of Finish values DB_Coins itself actually uses anywhere in the
+  // catalog (e.g. "Business Strike", "Proof") — as opposed to All-only
+  // wear-state/finish values like "Circulated"/"Various" that DB_Coins
+  // never carries at all. Used by the Finish tier below to tell "this
+  // value carries no identity signal for any coin" apart from "this value
+  // is real, it just doesn't apply to THIS coin's own candidates" (retest
+  // #2). Memoized against the active catalog array's own identity so it's
+  // only recomputed when the underlying data actually changes (a real
+  // fetch resolving, or a test swapping __setLiveDbCoinsForTest) rather
+  // than on every keystroke that re-runs the matcher.
+  let _knownDbCoinsFinishCache = { forArray: undefined, set: null };
+  function knownDbCoinsFinishValues() {
+    const arr = activeDbCoins();
+    if (_knownDbCoinsFinishCache.forArray !== arr) {
+      _knownDbCoinsFinishCache = {
+        forArray: arr,
+        set: new Set(arr.map(c => normField(c.finish || "")).filter(Boolean))
+      };
+    }
+    return _knownDbCoinsFinishCache.set;
+  }
+
   // The DB_Coins rows sharing a coin's base Year+MintMark+Denom+Variety key
   // — shared between checkDesignationReresolution() (Designation edits) and
   // resolveCoinIdForEdit() (identity edits), since both are really the same
@@ -10671,6 +10938,27 @@
       normField(c.denom) === normField(shape.denom) && String(c.year) === String(shape.year) &&
       normField(c.mint) === normField(shape.mint) && normField(c.variety || "") === normField(shape.variety || "")
     );
+    // --- Description tier (retest #3). ONLY ever set by Add Coin's own
+    // addCoinIdentityShape() — and only when the current Description value
+    // is a CONTROLLED value (one of Ref_Denominations' own enumerated
+    // series candidates for this exact Year+Denomination), never
+    // free-typed text. Browse Edit and the Docket never populate
+    // `shape.description` at all, so they are completely unaffected — this
+    // is deliberately narrower than a general "Description narrows the
+    // matcher" change, which would reopen the documented risk that
+    // All.Description (free-typed or Ref_Denominations-derived) and
+    // DB_Coins.Description are different sources with no guaranteed
+    // correspondence (see "Commemorative / Description blind spot" above).
+    // A controlled series pick IS a real, useful identity signal though —
+    // it's often the ONLY thing distinguishing two otherwise-identical
+    // commemorative rows. Still soft: a real spelling/formatting mismatch
+    // between the two sources (a known, accepted risk — CLAUDE.md: "no
+    // reliable shortcut... only looked up") falls back to the full set
+    // rather than a false miss.
+    if (candidates.length > 1 && normField(shape.description || "")) {
+      const byDescription = candidates.filter(c => normField(c.description || "") === normField(shape.description || ""));
+      if (byDescription.length) candidates = byDescription;
+    }
     // --- Finish tier. Narrows further where it can. Measured against the
     // real catalog, Denom+Year+Mint+Variety alone leaves 577 ambiguous
     // groups covering 1,629 rows (~43% of DB_Coins); adding Finish cuts that
@@ -10686,8 +10974,33 @@
     // guard (a blank owned Finish skips this tier entirely) plus the
     // empty-result fallback. This tier can only ever reduce ambiguity.
     if (candidates.length > 1 && normField(shape.finish || "")) {
-      const byFinish = candidates.filter(c => normField(c.finish || "") === normField(shape.finish || ""));
-      if (byFinish.length) candidates = byFinish;
+      const finishNorm = normField(shape.finish);
+      const byFinish = candidates.filter(c => normField(c.finish || "") === finishNorm);
+      if (byFinish.length) {
+        candidates = byFinish;
+      } else if (knownDbCoinsFinishValues().has(finishNorm)) {
+        // Retest #2: distinguish "this Finish value isn't a real DB_Coins
+        // category at all" (Circulated/Various — All-only wear-state
+        // values, never a valid strike method DB_Coins tracks; the
+        // original reason this tier falls back softly) from "this IS a
+        // real DB_Coins Finish category, it just genuinely has zero rows
+        // for THIS coin's exact date/mint/denom/variety" (e.g. Proof
+        // recorded on a date DB_Coins has no Proof row for). The first
+        // case carries no identity signal for this coin and must keep
+        // falling back to the full set, unchanged. The second case IS a
+        // real signal — the recorded Finish and this candidate group
+        // disagree — and narrowing to zero here is what the Finish field's
+        // own tooltip already promises ("recording this narrows the
+        // match"); previously it silently ignored Finish and returned the
+        // still-ambiguous full set instead, which contradicted that
+        // promise. Still never creates a false miss on an All-only value —
+        // only a value DB_Coins itself recognizes can narrow to zero.
+        candidates = [];
+      }
+      // else: `shape.finish` matches no candidate AND isn't a recognized
+      // DB_Coins category anywhere in the catalog — falls through with
+      // `candidates` unchanged (the original soft-fallback-to-full-set
+      // behavior), exactly as before for Circulated/Various.
     }
     // --- Designation tier. Same "reduce ambiguity, never create a miss"
     // spirit as Finish, but DELIBERATELY STRONGER in one specific way: a
@@ -11929,6 +12242,16 @@
     const myRenderToken = ++needsAttentionRenderToken;
     const actionContainer = document.getElementById("needsActionContainer");
     const researchContainer = document.getElementById("needsResearchContainer");
+    // Retest #10: this function's own comment already documents several
+    // real Graph reads ahead (listSetDrafts/listCoinDrafts/
+    // docketOpenEntries/getCachedWorkbookWebUrl) before either container
+    // gets touched — clear the stale prior render and show the shared
+    // loading indicator so the Docket doesn't look frozen/showing-old-data
+    // while those are in flight. A losing (superseded) call still bails
+    // out at its own staleness check below before writing real rows, so it
+    // can never clobber a newer call's own loading state or result.
+    actionContainer.innerHTML = "";
+    showSectionLoading("needsActionContainer", "Loading Docket…");
 
     const actionRows = [];   // { html, onClick?, onDismiss? }
     const researchRows = []; // { html }
@@ -12236,6 +12559,10 @@
 
     let rows;
     if (real) {
+      // Retest #10: a real Graph read is about to run, and the container
+      // was just emptied above — show the shared loading indicator so this
+      // doesn't read as a blank/broken screen while it's in flight.
+      showSectionLoading("stagingContainer", "Loading Staging Review…");
       try {
         LIVE_COIN_DRAFTS = await listCoinDrafts();
       } catch (e) {
@@ -12243,6 +12570,7 @@
         LIVE_COIN_DRAFTS = LIVE_COIN_DRAFTS || [];
       }
       if (myToken !== stagingRenderToken) return; // a newer render started mid-read
+      hideSectionLoading("stagingContainer");
       rows = LIVE_COIN_DRAFTS.map(coinDraftToStagingRow);
     } else {
       rows = FAKE_STAGING.map(r => Object.assign({}, r, { _mock: true }));
@@ -12460,8 +12788,14 @@
   // and dropped earlier — see CLAUDE.md).
   // ==================================================================
 
-  const STATS_DENOM_ORDER = ["1C", "5C", "10C", "25C", "50C", "$1"];
-  const DENOM_LABELS = { "1C": "Cents", "5C": "Nickels", "10C": "Dimes", "25C": "Quarters", "50C": "Halves", "$1": "Dollars" };
+  // Retest #8: extended with the five denom codes Add Coin can now record
+  // (Half Cent/Two Cent/Three Cent/Twenty Cent/Half Dime), in face-value
+  // order, so a coin of one of these — currently none exist in FAKE_COINS —
+  // gets a real breakdown row/sort position instead of silently falling
+  // through STATS_DENOM_ORDER.indexOf() as -1 (which would sort it before
+  // everything, wrongly, in the Rolls "Denomination" sort).
+  const STATS_DENOM_ORDER = ["0.5C", "1C", "2C", "3C", "H5C", "5C", "10C", "20C", "25C", "50C", "$1"];
+  const DENOM_LABELS = { "0.5C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3C": "Three Cents", "H5C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars" };
 
   function formatMoney(n) {
     return "$" + Math.round(n).toLocaleString();
@@ -14504,14 +14838,31 @@
   // coin entered here gets the same protection against a soft Designation
   // signal overriding a real certification that an edited coin already gets.
   function addCoinIdentityShape() {
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    // Retest #3: Description is only passed through to the matcher when
+    // it's a CONTROLLED value — one of Ref_Denominations' own enumerated
+    // series candidates for this exact Year+Denomination (the series
+    // picker's own vocabulary, see lookupDescriptionCandidates()), never
+    // free-typed text. This is deliberately narrower than a general
+    // "Description narrows the matcher" change: the project's standing
+    // rule (see "Commemorative / Description blind spot" in CLAUDE.md) is
+    // that All.Description and DB_Coins.Description are different sources
+    // with no guaranteed correspondence, so free-typed Description must
+    // never narrow — this only ever fires for the picker's own controlled
+    // selection, and dbCoinsCandidatesFor() only reads it when set, so
+    // Browse Edit/Docket (which never set this field) are unaffected.
+    const descValue = document.getElementById("description").value.trim();
+    const isControlledDescription = descValue &&
+      lookupDescriptionCandidates(denom, year).some(c => normField(c.series) === normField(descValue));
     return {
-      denom: document.getElementById("denomination").value,
-      year: document.getElementById("year").value.trim(),
+      denom, year,
       mint: document.getElementById("mintMark").value,
       variety: document.getElementById("variety").value,
       finish: document.getElementById("finish").value,
       designation: document.getElementById("designation").value,
-      gradeSource: document.getElementById("gradeSource").value
+      gradeSource: document.getElementById("gradeSource").value,
+      description: isControlledDescription ? descValue : ""
     };
   }
 
@@ -14530,7 +14881,7 @@
   let addCoinResolvedPick = null; // { row, forShape, candidateCount }
 
   function addCoinIdentityShapeKey(shape) {
-    return JSON.stringify([shape.denom, shape.year, shape.mint, shape.variety, shape.finish, shape.designation, shape.gradeSource]);
+    return JSON.stringify([shape.denom, shape.year, shape.mint, shape.variety, shape.finish, shape.designation, shape.gradeSource, shape.description]);
   }
 
   // Single source of truth for "what does the catalog say about this
@@ -15457,6 +15808,7 @@
       }
     });
 
+    populateAddCoinDenominationDropdown();
     document.getElementById("denomination").addEventListener("change", () => {
       maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
       const denom = document.getElementById("denomination").value;

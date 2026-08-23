@@ -5407,6 +5407,221 @@ Ray's own framing when he sent this retest.
 - **Not verified: any real device, any real OneDrive session against these
   specific fixes** — same standing caveat as the first bug-fix round.
 
+### Add Coin Phase 1: batch 3 (BUILT, same branch, still held)
+Six items built, one flagged as a real conflict with existing documented
+research rather than guessed at. Same posture as every prior round: the
+structural Docket/Staging-Review IA redesign stays untouched, separate,
+Opus-tier, held for its own go-ahead.
+
+- **#2 — Finish tier now distinguishes "this value isn't a real DB_Coins
+  category" from "this value is real, it just genuinely has zero matches
+  for this coin."** The prior soft-fallback rule (never narrow to zero on a
+  Finish mismatch) was built to protect All-only wear-state values like
+  `Circulated`/`Various`, which DB_Coins never carries at all — narrowing
+  strictly there would falsely miss real rows. But it was also silently
+  swallowing the OPPOSITE case: a real DB_Coins Finish category (e.g.
+  `Proof`) that simply has no row for this exact date, which the Finish
+  field's own tooltip already promised would narrow the match. New
+  `knownDbCoinsFinishValues()` (memoized against the active catalog array's
+  identity, so it's not recomputed on every keystroke) answers "does
+  DB_Coins use this Finish value ANYWHERE in the catalog." The tier now: a
+  Finish match among candidates narrows normally (unchanged); a Finish with
+  zero matches among candidates but a KNOWN DB_Coins category narrows to
+  zero (new — a real signal); a Finish that's not a DB_Coins category at
+  all keeps the original soft fallback to the full set (unchanged,
+  Circulated/Various still protected). Tooltip updated to say so
+  explicitly. Since every option in Add Coin's own Finish dropdown
+  (Business Strike/Proof/Reverse Proof/SMS/Specimen) is itself a real
+  DB_Coins category, this makes the field behave exactly as its tooltip
+  always claimed for anything enterable there — the old silent-fallback
+  behavior only really mattered for Browse Edit's All-only legacy values,
+  which are unaffected.
+- **#3 — the series (Description) picker now narrows DB_Coins candidates,
+  scoped narrowly to stay consistent with the standing rule it's an
+  exception to.** The project's firm rule (see "Commemorative / Description
+  blind spot" above) is that free-typed `All.Description` must never narrow
+  the matcher, since it and `DB_Coins.Description` are different sources
+  with no guaranteed correspondence. Ray's framing for this item is real
+  and different: the SERIES PICKER's own value is a controlled, enumerated
+  selection (one of Ref_Denominations' own candidates for the exact
+  Year+Denomination on the form), not free text — so the concern the
+  standing rule guards against doesn't apply to it specifically.
+  `addCoinIdentityShape()` now checks whether the current Description value
+  is EXACTLY one of `lookupDescriptionCandidates(denom, year)`'s own series
+  names before passing it through as `shape.description`; a manually-typed
+  override that doesn't match any real candidate is left blank in the
+  shape, same as before. `dbCoinsCandidatesFor()` gained a new soft tier
+  reading `shape.description` — **only Add Coin ever populates this field**;
+  Browse Edit and the Docket build their own identity shapes without it, so
+  they are completely unaffected (verified directly: `dbCoinsCandidatesFor()`
+  with no `description` key at all is a true no-op for this tier). Still
+  soft — a real spelling/formatting mismatch between Ref_Denominations and
+  DB_Coins' own Description text (a known, documented risk) falls back to
+  the full candidate set rather than a false miss.
+- **#8 — Denomination dropdown now derives from Ref_Denominations instead
+  of a separately hand-maintained list.** Root cause of the gap: the Phase
+  1 Q3 load had filtered Ref_Denominations DOWN to only the six codes the
+  dropdown already had, backwards from what should drive what. Fixed
+  properly: **all 187 rows** are now evaluated, mapped through a new
+  `DENOM_NAME_TO_CODE` table, with `FAKE_DENOMINATIONS` now holding 130 of
+  them (the rest are a real, flagged scope boundary — see below). Five
+  denom codes that never existed before are now real, working values
+  throughout the app — `0.5C` (Half Cent), `2C` (Two Cent), `3C` (Three
+  Cent), `20C` (Twenty Cent), `H5C` (Half Dime, deliberately not reusing
+  `5C` — already flagged in this file as a needed-eventually decision under
+  "Browse filters") — plus `Medal` picked up as a low-risk side effect
+  (it's a real Ref_Denominations row and was already a real Denomination
+  value elsewhere in the app; Add Coin's own dropdown had simply never
+  offered it). New `DENOM_CODE_INFO` (label + order) and
+  `populateAddCoinDenominationDropdown()` GENERATE the `<select>`'s options
+  at init from whatever codes are actually present in `FAKE_DENOMINATIONS`
+  — the HTML now holds only the blank option, so the dropdown and the
+  reference data can never silently drift apart again the way the original
+  six-code hardcoded list did. `DENOM_SCALE` (disc sizing — all five new
+  codes floor to 0.70, the same legibility floor Dime already uses, since
+  all five real diameters compute below it), `STATS_DENOM_ORDER`, and
+  `DENOM_LABELS` were extended to match, so Stats & Value and the Rolls
+  sort behave correctly the moment a coin of one of these denominations
+  exists (none do yet in the demo data).
+  - **A "Commemorative X"/"Error X" row in the source sheet is NOT a new
+    denomination** — it's really an ordinary Dollar/Half Dollar/Quarter/
+    Cent/Nickel row describing a commemorative or error variety, so it's
+    folded onto that denomination's own existing code rather than invented
+    as something new. This keeps the app's Denomination vocabulary exactly
+    what the naming-conventions section already documents it as — a short,
+    controlled set of codes — rather than letting a reference sheet's own
+    descriptive bucketing leak into it.
+  - **Deliberately still excluded, flagged rather than guessed at: the
+    gold/bullion tier** (Half Eagle, Quarter Eagle, Eagle, Double Eagle,
+    Three Dollar, Gold Dollar, Gold Buffalo, Commemorative Gold,
+    Commemorative $5 Gold, First Spouse $10, American Gold/Silver/
+    Platinum/Palladium Eagle bullion, and "Special" — 57 rows). Ray's own
+    ask named "the gold/bullion denominations" as a group; a face-value-
+    based code scheme genuinely doesn't work cleanly here — a classic Half
+    Eagle and a modern bullion coin can share a face value with nothing
+    else in common, and a bullion Silver/Gold Eagle's legal-tender face
+    value has no relationship to how it's actually tracked or valued (same
+    reasoning this file already recorded for why Silver Eagles were kept
+    out of the Dollar code, back when Ref_Denominations was first loaded).
+    Assigning real codes here is Ray's numismatic judgment call, not a
+    mechanical column-to-dropdown mapping — flagged in chat rather than
+    guessed. Once he picks a scheme, it's a `DENOM_NAME_TO_CODE` addition
+    and the array grows to the full 187 rows; no other code changes needed.
+  - **Edit Coin's own Denomination dropdown is unchanged** — still its
+    original small static list (the six original codes + Medal, minus
+    Multiple), scoped to editing an already-owned coin, where a
+    newly-addable reference denomination isn't relevant until a coin of
+    that type is actually saved.
+- **#10 — a shared, reusable loading indicator for slower async section
+  transitions**, visually matching the splash screen's own language (same
+  `@keyframes splashSpin` coin-flip spin, at section scale instead of
+  full-screen). New `showSectionLoading(containerId, text)` /
+  `hideSectionLoading(containerId)` — creates/reuses one `.section-loading`
+  element as the container's first child; a repeat call updates its text in
+  place rather than stacking a second one. Wired into the two real,
+  Graph-backed renders where the container is genuinely empty/stale until
+  the fetch resolves: `renderStagingList()` (Staging Review) and
+  `renderNeedsAttentionHub()` (the Docket).
+  - **Deliberately NOT wired into `ensureLiveNavDataFetch()` (Catalog/Sets'
+    first live-data load)** — tried first, then reverted on a real finding:
+    `showBrowseTab()` calls `ensureLiveNavDataFetch()` and then immediately
+    renders `FAKE_*`-backed cards SYNCHRONOUSLY in the same tick, by
+    existing design (that function's own comment: "never blocks"). An
+    indicator inserted there gets wiped out by that synchronous render
+    before a human could ever see it — confirmed directly in a headless
+    reproduction (a monkey-patched, artificially-slowed fetch still never
+    showed the indicator, because the synchronous grid re-render — not the
+    fetch itself — was what cleared it). This call site's whole point is
+    showing something immediately and swapping in real data invisibly
+    later, which is the opposite of what a loading indicator is for — so
+    it was left out rather than shipped inert.
+- **#13 — NGC/ANACS label decode: a real conflict with this file's own
+  prior research, flagged rather than built.** This file's "ANACS/ICG/CAC
+  label format" section already states, as a CLOSED finding: "NGC is
+  confirmed to have no equivalent decodable identity number — its cert
+  number is an invoice/sequence ID only, with grade as separate printed
+  text." Verified this is still current, not stale — [NGC's own
+  documentation](https://www.ngccoin.com/certlookup/) confirms the
+  certification number is "the invoice number of the submission and the
+  sequence of each coin in that order," which carries no encoded
+  denomination/date/mint identity the way PCGS's `SPEC.GRADE/CERT` format
+  does; decoding coin identity from an NGC cert number requires a live
+  lookup against NGC's own database, which is a live-API integration this
+  project has already ruled out elsewhere (see "External data sources" —
+  the PCGS OAuth-credentials decision applies here too). Building a "decode"
+  function against a number that carries no encoded identity would mean
+  either faking a parser that decodes nothing real, or quietly building a
+  live NGC API call this project's own rules already say not to. Neither
+  is right to do without Ray's explicit steer, so nothing was built — see
+  the open question in the chat reply for what to ask him. ANACS is in the
+  same unconfirmed-format state this file already documented before this
+  batch (0 coins graded by it in the collection, "waits until a coin
+  graded by one of them is actually acquired") and wasn't independently
+  investigated further this round, per Ray's own "ANACS... at your
+  discretion" framing — deferred alongside NGC rather than guessed at
+  separately.
+- **#14 — Browse detail's Overview cert link now falls back to a live-
+  computed URL, root-caused and fixed as asked.** `certDisplayHtml()`
+  previously showed a real link ONLY when `CertLink` was already populated
+  on the row, and fell to plain text otherwise — even when GradeSource and
+  a cert number were both on file and a link was fully computable. Fixed to
+  prefer the stored `CertLink` when present (never overriding a curated
+  link already on file) and fall back to the exact same
+  `buildCertLookupUrl(gradeSource, cert)` Add Coin and Browse Edit already
+  use for their own cert-link buttons — one shared resolver, not a second
+  implementation. Still renders plain text when neither a stored link nor a
+  computable one exists (no GradeSource on file, or that GradeSource has no
+  base URL yet in `Lookup_Graders`) — no throw, no broken link.
+  `getGraderBaseUrl()` itself still reads `FAKE_LOOKUP_GRADERS` directly
+  rather than the live table — a pre-existing, separately-flagged
+  limitation this task didn't touch (out of scope; the five real services'
+  codes are the same either way, so this doesn't block the fix working
+  correctly against live coins today).
+- **#15 — Catalog gained a grading-service filter**, same multi-select/OR
+  chip pattern Metal already uses (ANDs with Denomination/Metal/
+  Commemorative/Year/Search, same as every other Catalog filter axis). New
+  `BROWSE_GRADING_SERVICE_CHIPS` (All + one chip per `FAKE_LOOKUP_GRADERS`
+  entry + an "Ungraded/Other" catch-all for Seller/Owner/AI-est/blank),
+  `browseSelectedGradingServiceKeys`, `browseGradingServiceTest()`. Built
+  from the static grader list (not `activeLookupGraders()`) — same
+  precedent Add Coin's own Grader dropdown and `buildGradeSourceOptions()`
+  already follow; the per-coin test is a plain string comparison against
+  `coin.gradeSource`, which works identically against live or mock data, so
+  this only affects which CHIPS render, never matching correctness. Lives
+  inside `#browseCoinsHeader` alongside Denomination/Metal, so it shows/
+  hides with the Coins/Medal tab exactly like those two already do, no new
+  visibility logic needed; resets to All on external Browse entry via the
+  same `resetBrowseFilters()`/`updateMetalChipsUI()` mechanism Metal
+  already uses (that helper was already fully generic by container ID).
+  Interpreted as a FILTER, not a sort control — this project's own history
+  has moved consistently away from sort dropdowns toward filter pills
+  (Rolls' own sort-to-pills conversion is the clearest precedent), so a
+  new pill row was the design-consistent reading of "sort/filter by
+  grading service," flagged here as a real interpretive call.
+- **Verified headless — 32 new assertions (`tests/verify_batch3.js`), all
+  passing, zero page errors**, alongside all prior suites re-run clean
+  (180 total across 3 suites). Covers: the Finish tier's three-way split
+  (real match, real-zero-match, unrecognized-fallback) with a synthetic
+  cross-denomination catalog; the series-picker narrowing a real pair down
+  to one candidate, a non-matching typed value NOT narrowing, and the tier
+  being a genuine no-op with no `description` key at all; the five new
+  denom codes present as dropdown options plus DENOM_SCALE/STATS_DENOM_ORDER/
+  DENOM_LABELS coverage, and confirming no gold/bullion code leaked in; the
+  loading indicator's DOM mechanics (first-child insertion, real computed-
+  style visibility, reuse-not-duplicate on a repeat call, text update, clean
+  removal) plus a real Staging-Review integration test (an artificially
+  slowed mock `listChildren()` call proving the indicator is genuinely
+  visible mid-fetch and gone after); the cert-link fallback's four cases
+  (stored link wins, live-computed link appears, no-GradeSource stays
+  plain, a GradeSource with no base URL stays plain) with no throw; and the
+  grading-service filter's chip rendering, real narrowing against
+  `FAKE_COINS`, ANDing with Metal, and reset-on-external-entry. Screenshots
+  reviewed at both viewports for the new Denomination dropdown, the
+  Grading Service filter row, and the Docket's loading indicator — no
+  horizontal overflow either width.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as every prior Add Coin round.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
