@@ -2954,8 +2954,24 @@
                special flip sources; everything else lives here. -->
           <div class="gallery-capture" id="addCoinGallery"></div>
 
-          <div class="section-label" style="margin-top:0;">Grading Service (optional)</div>
-          <label>Grader</label>
+          <!-- Real, deliberate call (Ray, batch 7): the "GRADING SERVICE
+               (OPTIONAL)" section-label was removed because it read as
+               though Denomination/Year/etc. below all fell under it — the
+               header had nothing else visually grouped under it once the
+               conditionally-hidden PCGS Label #/Cert-Type-Number blocks are
+               considered as "already there, just hidden" rather than a
+               real second field. Ray's own option (b): drop the header AND
+               rename this field's own label to "Grading Service," styled
+               the same plain way any other field label is — one clearly-
+               labeled field instead of two mismatched headers. Position is
+               UNCHANGED — still right here, near the top, ahead of
+               Denomination, since a grader needs to be picked before the
+               PCGS label-decode flow can run. A real restructure (matching
+               Edit Coin's accordion section layout, with Grading Service
+               pulled into its own bounded card) is a separate, bigger,
+               explicitly deferred task — see the ParkingLot entry in the
+               session log below. -->
+          <label>Grading Service</label>
           <select id="addCoinGrader">
             <option value="">— none / not slabbed —</option>
           </select>
@@ -2993,20 +3009,6 @@
           </div>
 
           <label>Denomination</label>
-          <!-- Moved back here (batch 6, Ray's live-device review corrected
-               batch 4's move to below Notes) — this checkbox determines
-               how Denomination/Category get captured together, and reads
-               disconnected from that field when it sits down near Notes. -->
-          <label class="grade-range-toggle" style="margin-top:0;">
-            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
-          </label>
-          <p class="placeholder-note" style="margin:4px 0 8px;">
-            Picking an option here sets Denomination AND Category together —
-            these coins are catalogued by their real face value plus a type
-            (e.g. Denomination "$1", Category "Silver Eagle"), same as the
-            workbook already does for Morgan/Peace/Silver Eagle. Off shows
-            everyday circulating denominations only.
-          </p>
           <select id="denomination">
             <option value="">— select —</option>
             <!-- The rest are generated at init (and on Bullion toggle) by
@@ -3014,6 +3016,20 @@
                  FAKE_DENOMINATIONS (retest #8) — not hand-maintained here
                  anymore. -->
           </select>
+          <!-- Moved here, underneath the Denomination dropdown itself
+               (batch 7, Ray's explicit confirmation — this is the actual
+               "original" spot, not sandwiched between the label and the
+               dropdown the way every prior placement had it). -->
+          <label class="grade-range-toggle" style="margin-top:8px;">
+            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
+          </label>
+          <p class="placeholder-note" style="margin:4px 0 16px;">
+            Picking an option from the dropdown above sets Denomination AND
+            Category together — these coins are catalogued by their real
+            face value plus a type (e.g. Denomination "$1", Category "Silver
+            Eagle"), same as the workbook already does for Morgan/Peace/
+            Silver Eagle. Off shows everyday circulating denominations only.
+          </p>
 
           <label>Year</label>
           <div class="year-field-row">

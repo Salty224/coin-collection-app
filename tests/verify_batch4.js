@@ -7,25 +7,50 @@ const { defineSuite } = require("./harness");
 module.exports = defineSuite("batch4", async ({ ok, openApp, PHONE }) => {
   const page = await openApp(PHONE);
 
-  // ---------- #1: Bullion toggle sits directly above Denomination ----------
-  // Superseded (batch 6): batch 4 moved this below Notes; Ray's live-device
-  // review corrected that back -- the toggle determines how Denomination/
-  // Category get captured together and reads disconnected from that field
-  // when it sits down near Notes. This assertion now checks the CORRECTED
-  // (original) placement, not weakened -- see CLAUDE.md "batch 6".
+  // ---------- #1: Bullion toggle sits underneath the Denomination dropdown ----------
+  // Superseded again (batch 7, Ray's explicit confirmation): batch 6 put
+  // this back BETWEEN the "Denomination" label and the dropdown -- Ray's
+  // actual ask (stated twice) was for it to sit AFTER/underneath the
+  // dropdown itself, which no prior version had ever done. This assertion
+  // checks that placement, following the real design change, not weakened
+  // -- see CLAUDE.md "batch 7".
   const B1 = await page.evaluate(() => {
     navigate('addcoin');
     const toggle = document.getElementById('addCoinBullionToggle');
     const denomination = document.getElementById('denomination');
     const notes = document.getElementById('notesField');
-    // The toggle must sit immediately above Denomination (only the note
-    // paragraph between them) and BEFORE Notes -- not down near it anymore.
-    const immediatelyAboveDenom = !!(toggle.compareDocumentPosition(denomination) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const year = document.getElementById('year');
+    // The toggle must sit AFTER the Denomination select itself, and before
+    // Year -- not sandwiched between the label and the dropdown anymore.
+    const afterDenomSelect = !!(denomination.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const beforeYear = !!(toggle.compareDocumentPosition(year) & Node.DOCUMENT_POSITION_FOLLOWING);
     const beforeNotes = !!(toggle.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING);
-    return { immediatelyAboveDenom, beforeNotes };
+    return { afterDenomSelect, beforeYear, beforeNotes };
   });
-  ok(B1.immediatelyAboveDenom, "4.1.1 Bullion toggle sits directly above Denomination (batch 6: corrected back from batch 4's move)");
-  ok(B1.beforeNotes, "4.1.2 Bullion toggle is no longer positioned down near Notes");
+  ok(B1.afterDenomSelect, "4.1.1 Bullion toggle sits AFTER the Denomination dropdown itself (batch 7: Ray's explicit, confirmed placement)");
+  ok(B1.beforeYear, "4.1.2 Bullion toggle sits before Year (immediately under Denomination, not further down the form)");
+  ok(B1.beforeNotes, "4.1.3 Bullion toggle is nowhere near Notes");
+
+  // ---------- #2: Grading Service section-label header removed ----------
+  const B1B = await page.evaluate(() => {
+    navigate('addcoin');
+    const grader = document.getElementById('addCoinGrader');
+    // No element anywhere in the Add Coin view should carry the old
+    // "Grading Service" section-label text -- confirmed removed, not just
+    // restyled.
+    const stillHasHeader = [...document.querySelectorAll('#view-addcoin .section-label')]
+      .some(el => /grading service/i.test(el.textContent));
+    const denomination = document.getElementById('denomination');
+    const graderBeforeDenom = !!(grader.compareDocumentPosition(denomination) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return {
+      stillHasHeader,
+      graderLabelText: grader.previousElementSibling && grader.previousElementSibling.textContent,
+      graderBeforeDenom
+    };
+  });
+  ok(B1B.stillHasHeader === false, "4.1.4 the old bold \"Grading Service\" section-label header is gone (Ray: it read as though Denomination/Year/etc. fell under it)");
+  ok(B1B.graderLabelText === "Grading Service", "4.1.5 the Grader field's own label is renamed to \"Grading Service\" (Ray's option b), styled the same plain way as any other field label");
+  ok(B1B.graderBeforeDenom, "4.1.6 Grading Service is still positioned near the top, ahead of Denomination");
 
   // ---------- #2: series picker must not fire once Category already resolves identity ----------
   const B2 = await page.evaluate(() => {

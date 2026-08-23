@@ -5952,6 +5952,11 @@ Two findings from Ray's live-device review of batch 4's changes.
   same element id, same listener, same
   `populateAddCoinDenominationDropdown()` call; markup position only, both
   times.
+  **Superseded by batch 7 below — corrected again, per Ray's explicit,
+  twice-repeated instruction**, to sit UNDERNEATH the Denomination dropdown
+  itself rather than sandwiched between the label and the dropdown. This
+  round's placement was a reasonable-looking guess at "the original spot"
+  that turned out not to be what Ray meant — kept here only for history.
 - **#2 — Grading Service section header: kept, not dropped.** Investigated
   rather than guessed: the "GRADING SERVICE (OPTIONAL)" header currently
   reads as sitting above a single field (Grader) because the section's
@@ -5965,6 +5970,14 @@ Two findings from Ray's live-device review of batch 4's changes.
   Number row with no header of their own once revealed, or require
   re-adding one at that point anyway — so option (a) was the clear fit.
   **No code change** — the header stays exactly as it is.
+  **Superseded by batch 7 below — Ray corrected this call too.** His actual
+  objection wasn't about whether more fields exist under the hood; it's
+  that the header visually reads as though Denomination/Year/etc. below it
+  all fall under "Grading Service," which is genuinely confusing regardless
+  of what's conditionally hidden. He also named a larger goal (matching
+  Edit Coin's page structure) that this task's own analysis should have
+  surfaced as a real, decidable factor rather than reasoning about the
+  header in isolation.
 - Verified headless: `tests/verify_batch4.js`'s own toggle-position
   assertions were rewritten to check the corrected (original) placement,
   following the real design change rather than weakening the suite (batch
@@ -5976,6 +5989,49 @@ Two findings from Ray's live-device review of batch 4's changes.
   same standing caveat as every prior round in this feature; this round
   itself was a direct response to Ray's own device review, so the loop is
   already closer than usual.
+
+### Add Coin Phase 1: batch 7 (BUILT, same branch, still held)
+Ray corrected both of batch 6's calls directly, after explicitly asking to
+be consulted before either was touched again — this round is exactly what
+he confirmed, not a further guess.
+
+- **#1 — Bullion toggle: the ACTUAL original/intended spot.** Every prior
+  placement (original build, batch 3, batch 6) put the checkbox BETWEEN the
+  "Denomination" `<label>` and the `<select>` itself. Ray's ask, stated
+  twice, was for it to sit AFTER the dropdown — `<label>Denomination</label>
+  <select>...</select>` first, THEN the checkbox + its explanatory note,
+  THEN Year. No behavior change, markup position only.
+- **#2 — "GRADING SERVICE (OPTIONAL)" bold section-label removed, `Grader`
+  renamed to `Grading Service`.** Ray's confirmed direction is his own
+  option (b) from the batch-6 question, in full — not just the header
+  removal: drop the bold header, AND rename the field's own label from
+  "Grader" to "Grading Service," styled the same plain way any other field
+  label is (`<label>Grading Service</label>`, no special styling) — one
+  clearly-labeled field instead of two mismatched headers. **Position is
+  UNCHANGED** — still the first real field in the form, ahead of
+  Denomination, since a grader needs to be picked before the PCGS
+  label-decode flow can run. Only the element id (`addCoinGrader`) and
+  every function that reads it are untouched — this is a visible label
+  text change only, same "rename is label-only" pattern as every other
+  pure relabel in this file. A real restructure to match Edit Coin's
+  accordion-section layout (with Grading Service pulled into its own
+  bounded card) is Ray's stated bigger goal — logged as ParkingLot Row 5
+  above, explicitly scoped as a SEPARATE future task, not started here.
+- Verified headless: `tests/verify_batch4.js`'s toggle-position assertions
+  rewritten again for the corrected (AFTER-the-dropdown) placement, plus
+  three assertions confirming no `.section-label` element anywhere in Add
+  Coin still reads "Grading Service," that the field's own label text is
+  now genuinely "Grading Service" (not left as "Grader"), and that its
+  position ahead of Denomination is unchanged. 227 assertions across all 4
+  suites, zero failures. Screenshots reviewed at both viewports (phone +
+  tablet) — "Grading Service" sits plain near the top with no bold header
+  above it, Denomination dropdown is immediately followed by the Bullion
+  checkbox and its note, no overflow at either width.
+- **Not verified: any real device against this specific correction** —
+  same standing caveat as every round in this feature. **This time the
+  placement was confirmed in writing by Ray before building**, not guessed
+  — if it's still wrong, that's new information from an actual device, not
+  a repeat of the same back-and-forth.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
@@ -7639,6 +7695,12 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
 - **Status:** `Open`
 - **Description:** `Feature suggestion from the Add Coin Phase 1 live-run session, not a bug: nothing today cross-checks a PCGS/NGC cert number entered on a new coin against SerNo on already-owned coins to flag a likely duplicate entry (a coin re-added by mistake, or a cert typo colliding with a real existing coin). Could live in Add Coin's live matcher (a warning banner alongside the DB_Coins match banner) or as a save-time check. No design work done yet — flagging the idea, not scoping the build.`
+
+**Row 5:**
+- **Item/Title:** `Restructure Add Coin's field layout to match Edit Coin's accordion sections`
+- **Category:** `App`  · **Priority:** `Medium`  · **Date:** `2026-08-23`
+- **Status:** `Open`
+- **Description:** `Ray's explicit ask (Add Coin batch 7 review): Add Coin should look nearly identical in structure to the Edit Coin / Browse detail page (see "Detail/Edit accordion redesign" — RECORD_SECTIONS: Overview, Photos, Specifications, Notes & Facts, Purchase Details, Storage), rather than its current one long flat form. Grading Service specifically should become its own clearly-bounded section (a real card/accordion, not just a text label) since it functionally drives the PCGS Label #/Cert-Type-Number fields beneath it, and should stay positioned near the top since a grader needs to be picked before the label-decode flow can run. This is a real, deliberate restructure — needs its own scoping pass (which fields land in which section, whether Purchase Details/Storage's existing drill-down pattern is kept or folded into the new accordion shape) before building, not a quick follow-on to the batch-7 header removal. Explicitly deferred, not started.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
