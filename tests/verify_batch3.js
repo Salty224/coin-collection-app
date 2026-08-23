@@ -68,6 +68,61 @@ module.exports = defineSuite("batch3", async ({ ok, openApp, PHONE }) => {
   ok(B3.typedIsControlled === "", "3.3 free-typed text is never treated as a controlled value in the identity shape");
   ok(B3.noDescriptionLen === 2, "3.4 dbCoinsCandidatesFor() with no `description` field at all (Browse Edit/Docket's shape) is a true no-op for this tier");
 
+  // ---------- #8 follow-up: Category tier narrows a Bullion-tier pick ----------
+  const BCAT = await page.evaluate(() => {
+    __setLiveDbCoinsForTest([
+      { denom:"$1", year:1986, mint:"", variety:"", description:"American Silver Eagle", finish:"Business Strike", designation:"", coinId:"C-ASE", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$1", year:1986, mint:"", variety:"", description:"Statue of Liberty Commemorative Dollar", finish:"", designation:"", coinId:"C-COMM", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    // Real match: category "Silver Eagle" narrows to the ASE row alone.
+    const realMatch = dbCoinsCandidatesFor({ denom:"$1", year:"1986", mint:"", variety:"", category:"Silver Eagle" });
+    // Real DB_Coins zero-match for this exact identity: a recognized
+    // category (per BULLION_CATEGORY_MATCH_HINTS) that finds no candidate
+    // among these two rows must NOT clear to zero -- this tier is
+    // deliberately soft-only, unlike Finish's hard-zero.
+    const noHitStillSoft = dbCoinsCandidatesFor({ denom:"$1", year:"1986", mint:"", variety:"", category:"Gold Dollar" });
+    // No category at all (an ordinary/non-bullion Add Coin entry, or Browse
+    // Edit/Docket's shape, which never sets this field) is a true no-op.
+    const noCategory = dbCoinsCandidatesFor({ denom:"$1", year:"1986", mint:"", variety:"" });
+    __setLiveDbCoinsForTest(null);
+    return {
+      realMatchLen: realMatch.length, realMatchId: realMatch[0] && realMatch[0].coinId,
+      noHitStillSoftLen: noHitStillSoft.length,
+      noCategoryLen: noCategory.length
+    };
+  });
+  ok(BCAT.realMatchLen === 1 && BCAT.realMatchId === "C-ASE", "8c.1 a bullion-tier Category pick narrows to the matching DB_Coins row via Description hints");
+  ok(BCAT.noHitStillSoftLen === 2, "8c.2 a recognized Category with zero hits among these candidates soft-falls-back to the full set (never a false zero)");
+  ok(BCAT.noCategoryLen === 2, "8c.3 dbCoinsCandidatesFor() with no `category` field at all is a true no-op for this tier");
+
+  // End-to-end through the real form: picking "American Silver Eagle" from
+  // the Bullion dropdown feeds addCoinIdentityShape()'s real `category`
+  // field, which the matcher above actually reads.
+  const BCAT2 = await page.evaluate(() => {
+    __setLiveDbCoinsForTest([
+      { denom:"$1", year:"1986", mint:"", variety:"", description:"American Silver Eagle", finish:"", designation:"", coinId:"C-ASE-LIVE", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$1", year:"1986", mint:"", variety:"", description:"Peace Dollar", finish:"", designation:"", coinId:"C-PEACE", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    navigate('addcoin');
+    document.getElementById('addCoinBullionToggle').checked = true;
+    document.getElementById('addCoinBullionToggle').dispatchEvent(new Event('change'));
+    const select = document.getElementById('denomination');
+    // Several BULLION_TIER_OPTIONS share one plain denom value ("$1" is
+    // both Gold Dollar and American Silver Eagle) -- setting select.value
+    // would resolve to whichever shares that value FIRST, not necessarily
+    // the intended option. Select the exact <option> element instead.
+    const opt = [...select.options].find(o => o.textContent.trim() === 'American Silver Eagle');
+    opt.selected = true;
+    select.dispatchEvent(new Event('change'));
+    document.getElementById('year').value = '1986';
+    const shape = addCoinIdentityShape();
+    const candidates = dbCoinsCandidatesFor(shape);
+    __setLiveDbCoinsForTest(null);
+    return { category: shape.category, len: candidates.length, id: candidates[0] && candidates[0].coinId };
+  });
+  ok(BCAT2.category === "Silver Eagle", "8c.4 picking American Silver Eagle from the real Bullion dropdown sets addCoinIdentityShape().category");
+  ok(BCAT2.len === 1 && BCAT2.id === "C-ASE-LIVE", "8c.5 end-to-end: the real form's identity shape narrows via the Category tier through the actual UI, not just a synthetic shape");
+
   // ---------- #8: Denomination dropdown derived from Ref_Denominations ----------
   const B8 = await page.evaluate(() => {
     navigate('addcoin');

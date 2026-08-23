@@ -5723,17 +5723,14 @@ direct-write path will need `Category` added to `ALL_WRITABLE_COLUMNS`
 before a picked Category can actually persist to the real All sheet** —
 that is real future work, not implied or started by this change.
 
-**Known, real scope gap, flagged rather than silently left**:
-`dbCoinsCandidatesFor()`'s base-key match (denom+year+mint+variety) has NO
-Category awareness, so entering a real Silver Eagle today (`denom="$1"`)
-will match/mismatch against DB_Coins using the same key an ordinary Dollar
-would, with no way to tell them apart at the catalog-matching level. This
-mirrors the exact tension the Description-auto-fill fix above had to work
-around, but for DB_Coins matching instead of the series picker — and
-extending `dbCoinsCandidatesFor()` with a Category tier is a real,
-separate matcher change this task did not make (deliberately, to stay
-scoped to what was asked: the dropdown/Category-capture mechanism). Worth
-Ray's explicit call before building.
+**Scope gap flagged above — now CLOSED, same session, follow-up build.**
+The gap this section originally left open ("`dbCoinsCandidatesFor()` has NO
+Category awareness... worth Ray's explicit call before building") was
+raised back to Ray immediately and he confirmed it should be fixed now
+rather than deferred — real data made it concrete, not theoretical:
+DB_Coins carries 487 rows for American Silver/Gold/Platinum Eagle coins
+alone, and 49 real Silver Eagles are already in the collection. See "Add
+Coin Phase 1: Category narrows the DB_Coins matcher" below for the fix.
 
 **Verified headless — `tests/verify_batch3.js` rewritten for the corrected
 design (42 assertions in that suite now, 190 across all 3 suites, zero
@@ -5751,6 +5748,77 @@ at both viewports for the corrected toggle label/note and a real
 Silver-Eagle pick — no overflow, no layout collision.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every prior round in this feature.
+
+### Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT, same branch, still held)
+Closes the scope gap flagged immediately above, same session, on Ray's
+explicit "fix now" call. `dbCoinsCandidatesFor()` gains a Category tier,
+following the exact pattern the Finish tier already established
+(`knownDbCoinsFinishValues()`), applied to the same real problem: several
+Bullion-tier entries deliberately SHARE one plain Denomination — `$1` is
+Peace Dollar, Morgan Dollar, Gold Dollar, AND American Silver Eagle; `$50`
+is a classic commemorative, American Buffalo, Gold Eagle 1oz, AND Platinum
+Eagle 1/2oz — so the base Denom+Year+Mint+Variety key alone can't tell
+them apart, and without this fix a Silver Eagle would match/mismatch
+against DB_Coins on the same key as an ordinary Dollar.
+
+- **DB_Coins has no Category column of its own** — confirmed via source,
+  `mapWorkbookRowToDbCoin()` maps no such field, and this task did not add
+  one (a real DB_Coins Category column, if it existed, would need a
+  workbook-side change, out of scope for an app-only session). The 487-row
+  American Silver/Gold/Platinum Eagle figure Ray confirmed is presumably
+  identifiable via `DB_Coins.Description` text (the field that already
+  names the coin TYPE — "American Silver Eagle," etc.), not a dedicated
+  category field.
+- **New `BULLION_CATEGORY_MATCH_HINTS`** — a keyword list per
+  `BULLION_TIER_OPTIONS` category (e.g. `"Silver Eagle" -> ["SILVER
+  EAGLE"]`, `"Half Eagle" -> ["HALF EAGLE"]`), matched against
+  `DB_Coins.Description` via substring containment. **Deliberately
+  soft-only, never narrows to zero** — this is a real, flagged difference
+  from the Finish tier's hard-zero-on-a-recognized-value behavior. The
+  reason: Finish's known values are exactly enumerated and confirmed
+  against the real catalog; the exact real DB_Coins Description WORDING
+  for each bullion/gold type (e.g. whether a classic Half Eagle's
+  Description is prefixed "Liberty Head"/"Indian Head") has NOT been
+  confirmed against the live workbook from this environment — only the row
+  COUNT was confirmed by Ray. A wrong or incomplete hint must never
+  silently clear a real coin's candidates to zero and wrongly route it to
+  the Docket, so this tier can only ever narrow when it actually finds a
+  hit; otherwise candidates pass through unchanged, same fail-safe posture
+  the Description tier above already uses for its own "no guaranteed
+  correspondence" risk. **Revisit as a hard filter only once the real
+  Description text for these DB_Coins rows is confirmed against the live
+  workbook** — flagged here rather than assumed.
+- **`addCoinIdentityShape()` gained a `category` field**, sourced from
+  `addCoinBullionCategory` (blank for every everyday/classic pick, exactly
+  like the Description tier's `isControlledDescription` gate) — the same
+  "only Add Coin ever populates this field" pattern the Description tier
+  already established, so Browse Edit and the Docket (which build their
+  own identity shapes and never set `category`) are completely unaffected.
+  `addCoinIdentityShapeKey()` includes it too, so a Category change (e.g.
+  toggling Bullion off, or picking a different bullion type) correctly
+  invalidates a stale `addCoinResolvedPick`, same as every other
+  identity-affecting field.
+- **No new call sites needed** — `checkDbCoinsMatch()` (the live banner)
+  and `resolveAddCoinCatalogMatch()` (the save-time resolution) both
+  already route through `currentAddCoinMatchState()` -> `addCoinIdentityShape()`,
+  so both picked up the new tier automatically once the shape carried
+  `category`.
+- Verified headless (5 new assertions in `tests/verify_batch3.js`, 195
+  across all 3 suites, zero failures): a real Category match narrows a
+  synthetic Silver-Eagle-vs-commemorative-Dollar pair to the correct row; a
+  recognized Category with zero hits among the current candidates
+  soft-falls-back to the full set rather than a false zero; the tier is a
+  true no-op with no `category` field at all (Browse Edit/Docket's shape,
+  and any ordinary non-bullion Add Coin entry); and — end-to-end through
+  the real UI, not just a synthetic shape — picking "American Silver
+  Eagle" from the actual Bullion dropdown correctly sets
+  `addCoinIdentityShape().category` and the real matcher narrows to the
+  matching DB_Coins row.
+- **Not verified: the real DB_Coins Description wording for any bullion/
+  gold type, and no real device/OneDrive session** — same standing caveat
+  as every prior round in this feature. This tier's soft-only design is
+  specifically what protects against that wording being wrong; it should
+  be revisited once a live session can confirm the real text.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
