@@ -302,7 +302,11 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     const afterPromote = await mock.getJson(base + "/AY-00801/coin.json");
     const rowStillOnSheet = !!mock._grids["All"];
 
-    await rejectStagedCoin("AY-00801");
+    // Bug #9 (live-run) put a confirmation dialog in front of
+    // rejectStagedCoin() — this test targets the actual deletion behavior,
+    // covered separately by its own test, so it calls the underlying
+    // function directly rather than clicking through the dialog.
+    await performRejectStagedCoin("AY-00801");
     const leftover = [...mock._store.keys()].filter(k => k.includes("AY-00801"));
     __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
     return { interimShown, mockNoteHidden, promoteLabel, status: afterPromote && afterPromote.status, rowStillOnSheet, leftover };

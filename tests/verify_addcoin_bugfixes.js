@@ -108,7 +108,12 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
   ok(B2.options.length >= 2, "3.2 multiple real candidates offered");
   ok(B2.descWhileAmbiguous === '', "3.3 Description left blank while ambiguous, never guessed");
   ok(B2.options.includes(B2.descAfterPick), "3.4 picking an option sets Description to it");
-  ok(B2.panelHiddenAfterPick === true, "3.5 panel hides after a pick");
+  // Live-run bug #5: the panel used to be one-shot (hid itself the instant
+  // a series was picked), so reconsidering meant re-touching Year/Denom to
+  // re-trigger the whole lookup. It now stays open/live as long as the same
+  // genuine ambiguity exists, so a second thought is just picking a
+  // different option from the same dropdown.
+  ok(B2.panelHiddenAfterPick === false, "3.5 panel stays open/reconsiderable after a pick (bug #5 fix)");
 
   // ---------- #4: PCGS decode reads live catalog ----------
   const B4 = await page.evaluate(() => {
@@ -353,9 +358,13 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
     await mock.uploadJson(base + "/AY-00100/coin.json", { type:"coin", version:1, collectionID:"AY-00100", status:"Draft — awaiting review" });
     await mock.uploadJson(base + "/AY-00101/coin.json", { type:"coin", version:1, collectionID:"AY-00101", status:"Draft — awaiting review" });
     await mock.uploadJson(base + "/AY-00102/coin.json", { type:"coin", version:1, collectionID:"AY-00102", status:"Draft — awaiting review" });
-    await rejectStagedCoin("AY-00100"); // mid-sequence
+    // Bug #9 added a confirmation dialog in front of rejectStagedCoin() —
+    // this test targets the reservation logic behind Reject, not the
+    // confirmation UI itself (covered separately below), so it calls the
+    // actual deletion function directly, bypassing the dialog.
+    await performRejectStagedCoin("AY-00100"); // mid-sequence
     const nextAfterMidReject = await reserveCoinCollectionId();
-    await rejectStagedCoin("AY-00102"); // now the highest remaining
+    await performRejectStagedCoin("AY-00102"); // now the highest remaining
     const nextAfterHighestReject = await reserveCoinCollectionId();
     __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
     return { nextAfterMidReject, nextAfterHighestReject };
@@ -416,7 +425,115 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
   ok(BVIS.initialDescDisplay === 'none', "VIS.1 description picker panel is ACTUALLY hidden (not just classList) on a fresh form");
   ok(BVIS.initialMatchDisplay === 'none', "VIS.2 catalog ambiguous picker panel is ACTUALLY hidden on a fresh form");
   ok(BVIS.shownDescDisplay !== 'none', "VIS.3 description picker panel ACTUALLY renders when genuinely ambiguous");
-  ok(BVIS.afterPickDescDisplay === 'none', "VIS.4 description picker panel ACTUALLY hides again after a pick");
+  // Bug #5 fix: stays open/reconsiderable after a pick — see 3.5 above.
+  ok(BVIS.afterPickDescDisplay !== 'none', "VIS.4 description picker panel ACTUALLY stays visible after a pick (bug #5 fix)");
+
+  // ---------- Retest round 2 ----------
+
+  // Retest #1: PCGS decode is authoritative — Save takes the decoded row
+  // with no picker shown, even when the general matcher would otherwise
+  // see 2+ candidates for the same identity.
+  const R1 = await page.evaluate(() => {
+    __setLiveDbCoinsForTest([
+      { denom:"10C", year:1945, mint:"D", variety:"", description:"Mercury Dime",
+        finish:"Business Strike", designation:"", coinId:"C-1945-D-10C-01", pcgs:"5058", mintage:null, gsid:"" },
+      { denom:"10C", year:1945, mint:"D", variety:"", description:"Mercury Dime",
+        finish:"Business Strike", designation:"", coinId:"C-1945-D-10C-02", pcgs:"5059", mintage:null, gsid:"" }
+    ]);
+    navigate('addcoin');
+    document.getElementById('pcgsLabelInput').value = '5058.65/99999999';
+    handlePcgsLabelApply();
+    const state = currentAddCoinMatchState();
+    __setLiveDbCoinsForTest(null);
+    return { resolvedPick: state.resolvedPick, coinId: state.candidates[0] && state.candidates[0].coinId };
+  });
+  ok(R1.resolvedPick === true, "R1.1 PCGS decode sets a resolved pick, skipping the general re-derivation");
+  ok(R1.coinId === 'C-1945-D-10C-01', "R1.2 the resolved pick is the exact row the label decoded to (5058), not whichever the general matcher would pick");
+
+  // Retest #4: ambiguous picker offers "None of these" as a real, distinct
+  // resolution — routes to the same "none" outcome as a genuine 0-match.
+  const R4 = await page.evaluate(() => {
+    return new Promise((resolve) => {
+      __setLiveDbCoinsForTest([
+        { denom:"25C", year:1986, mint:"", variety:"", description:"Washington Quarter", finish:"", designation:"", coinId:"C-A", pcgs:"", mintage:null, gsid:"" },
+        { denom:"25C", year:1986, mint:"", variety:"", description:"Washington Quarter", finish:"", designation:"", coinId:"C-B", pcgs:"", mintage:null, gsid:"" }
+      ]);
+      navigate('addcoin');
+      document.getElementById('denomination').value = '25C';
+      document.getElementById('year').value = '1986';
+      checkDbCoinsMatch();
+      const btn = document.getElementById('addCoinMatchNoneBtn');
+      resolveAddCoinCatalogMatch((result) => {
+        __setLiveDbCoinsForTest(null);
+        resolve({ panelVisibleBeforeClick, how: result.how, coinId: result.coinId, hasNoneBtn: !!btn });
+      }, () => resolve({ error: 'cancel called instead' }));
+      // resolveAddCoinCatalogMatch renders/shows the panel synchronously for
+      // the 2+ case (it only actually resolves once a candidate — or None —
+      // is clicked), so the panel's real visibility is checked right here.
+      const panelVisibleBeforeClick = !document.getElementById('addCoinMatchAmbiguousPanel').classList.contains('hidden');
+      btn.click();
+    });
+  });
+  ok(R4.hasNoneBtn, "R4.1 the ambiguous picker has a 'None of these' button");
+  ok(R4.panelVisibleBeforeClick, "R4.2 the picker was genuinely showing before None was clicked");
+  ok(R4.how === 'none' && R4.coinId === '', "R4.3 'None of these' resolves exactly like a genuine 0-match — pending CoinID, not a forced pick");
+
+  // Retest #6: the Dashboard tile counts ALL Draft-status coins (matching
+  // what Staging Review's own "Needs a decision" section shows), not just
+  // the subset with a DB_Coins match — while an unmatched one still also
+  // gets its own informational research row (bug #8, unaffected).
+  const R6 = await page.evaluate(async () => {
+    const mock = createMockGraphClient({});
+    __setGraphClientForTest(mock);
+    __setAddCoinWriteEnabledForTest(true);
+    const base = writePaths().stagingBase;
+    await mock.uploadJson(base + "/AY-00710/coin.json",
+      { type:"coin", version:1, collectionID:"AY-00710", status:COIN_DRAFT_STATUS.DRAFT,
+        denom:"10C", year:"1916", mint:"S", variety:"", description:"Mercury Dime", photos:[], createdDate:new Date().toISOString() });
+    await mock.uploadJson(base + "/AY-00711/coin.json",
+      { type:"coin", version:1, collectionID:"AY-00711", status:COIN_DRAFT_STATUS.DRAFT,
+        denom:"9Z", year:"1", mint:"", variety:"", description:"Definitely no catalog match", photos:[], createdDate:new Date().toISOString() });
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 400));
+    const actionText = document.getElementById('needsActionContainer').textContent;
+    const researchText = document.getElementById('needsResearchContainer').textContent;
+    __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+    return { actionText, researchText };
+  });
+  ok(/2 coins? awaiting your decision/.test(R6.actionText), "R6.1 the action tile counts both Draft-status coins, matched or not (" + R6.actionText + ")");
+  ok(R6.researchText.includes('AY-00711'), "R6.2 the unmatched one still separately shows in the research section (bug #8 intact)");
+
+  // Retest #9: Reject opens a confirmation dialog rather than deleting
+  // immediately; Cancel leaves the draft untouched, Reject in the dialog
+  // performs the real delete.
+  const R9 = await page.evaluate(async () => {
+    const mock = createMockGraphClient({});
+    __setGraphClientForTest(mock);
+    __setAddCoinWriteEnabledForTest(true);
+    const base = writePaths().stagingBase;
+    await mock.uploadJson(base + "/AY-00720/coin.json",
+      { type:"coin", version:1, collectionID:"AY-00720", status:COIN_DRAFT_STATUS.DRAFT,
+        denom:"1C", year:"1950", mint:"", variety:"", description:"Lincoln", photos:[], createdDate:new Date().toISOString() });
+    rejectStagedCoin("AY-00720");
+    const dialogShownOnReject = !document.getElementById('writeGuardOverlay').classList.contains('hidden');
+    const stillThereBeforeAnyClick = await mock.getJson(base + "/AY-00720/coin.json");
+    // Cancel — first button in the row per showWriteGuard's button order.
+    document.querySelectorAll('#writeGuardBtns button')[0].click();
+    await new Promise(r => setTimeout(r, 50));
+    const dialogHiddenAfterCancel = document.getElementById('writeGuardOverlay').classList.contains('hidden');
+    const stillThereAfterCancel = await mock.getJson(base + "/AY-00720/coin.json");
+    // Reopen and actually confirm.
+    rejectStagedCoin("AY-00720");
+    document.querySelectorAll('#writeGuardBtns button')[1].click();
+    await new Promise(r => setTimeout(r, 400));
+    const goneAfterConfirm = await mock.getJson(base + "/AY-00720/coin.json");
+    __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+    return { dialogShownOnReject, stillThereBeforeAnyClick: !!stillThereBeforeAnyClick, dialogHiddenAfterCancel, stillThereAfterCancel: !!stillThereAfterCancel, goneAfterConfirm: !!goneAfterConfirm };
+  });
+  ok(R9.dialogShownOnReject, "R9.1 clicking Reject opens a confirmation dialog instead of deleting immediately");
+  ok(R9.stillThereBeforeAnyClick, "R9.2 nothing is deleted just from opening the dialog");
+  ok(R9.dialogHiddenAfterCancel && R9.stillThereAfterCancel, "R9.3 Cancel closes the dialog and leaves the draft untouched");
+  ok(R9.goneAfterConfirm === false, "R9.4 confirming Reject in the dialog performs the real delete");
 
   // ---------- nav smoke ----------
   const H = await page.evaluate(() => {

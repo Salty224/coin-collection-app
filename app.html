@@ -1430,6 +1430,7 @@
   .staging-btn {
     padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 6px;
     cursor: pointer; white-space: nowrap;
+    user-select: none; /* live-run bug #11, same reasoning as .save-btn */
   }
   .staging-btn.promote {
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
@@ -2049,6 +2050,12 @@
     width: 100%; padding: 15px; margin-top: 22px; font-size: 15px; font-weight: 700;
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
     color: #241c05; border: none; border-radius: 8px; cursor: pointer;
+    /* Live-run bug #11: fast/repeated tapping on these action buttons
+       (Save, Mark ready, Reject, a picker's Cancel/None) could highlight
+       their own label text like a text-selection drag — not editable
+       content, so this is chrome, not a text field this needs to preserve
+       select behavior for. */
+    user-select: none;
   }
   .placeholder-note {
     text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; font-style: italic;
@@ -2956,14 +2963,14 @@
               <div id="pcgsLabelAmbiguousList"></div>
             </div>
           </div>
-          <p class="placeholder-note" id="nonPcgsGraderNote" style="display:none; margin:-8px 0 16px;">
+          <p class="placeholder-note" id="nonPcgsGraderNote" style="display:none; margin:4px 0 16px;">
             No auto-decode for this grader yet — enter the coin's details and cert number manually below.
           </p>
 
           <div id="certTypeNumberRow" style="display:none;">
             <label>Cert / Type Number</label>
             <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
-            <p class="placeholder-note" style="margin:-8px 0 16px;">
+            <p class="placeholder-note" style="margin:4px 0 16px;">
               Just captures the number here — the cert-lookup link lives on the saved coin's
               Browse detail view, not during entry.
             </p>
@@ -3022,7 +3029,7 @@
           </select>
           <input type="text" id="varietyOther" style="display:none; margin-top:8px;" placeholder="Enter variety manually — e.g. Type 2, Micro S, Large Date">
           <input type="hidden" id="variety">
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
+          <p class="placeholder-note" style="margin:4px 0 16px;">
             Options are filtered to varieties that actually exist for the
             Year + Mint Mark + Denomination entered above. Unlike Error,
             Variety IS identity-defining — an unrecognized/manually-typed
@@ -3039,7 +3046,7 @@
             <option value="SMS">SMS</option>
             <option value="Specimen">Specimen</option>
           </select>
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
+          <p class="placeholder-note" style="margin:4px 0 16px;">
             A Proof and a Business Strike of the same date are different coins
             in the catalog, so recording this narrows the DB_Coins match and
             avoids being asked to pick between otherwise-identical entries on
@@ -3093,7 +3100,7 @@
           </select>
           <input type="text" id="errorOther" style="display:none; margin-top:8px;" placeholder="Describe the error — e.g. off-center strike, broadstrike">
           <input type="hidden" id="errorDesc">
-          <p class="placeholder-note" style="margin:-8px 0 16px;">
+          <p class="placeholder-note" style="margin:4px 0 16px;">
             Optional, for mint errors. Applies to any coin — not tied to what's
             entered above, and doesn't affect whether this coin can be saved
             directly (an error is incidental to the specimen, not
@@ -3141,6 +3148,7 @@
           <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
             <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
             <div id="addCoinMatchAmbiguousList"></div>
+            <button type="button" class="save-btn" id="addCoinMatchNoneBtn" style="background:var(--bg-elevated); color:var(--text); border:1px solid var(--case-border-bright); margin-top:8px;">None of these — save as unmatched</button>
             <button type="button" class="save-btn" id="addCoinMatchCancelBtn" style="background:var(--bg-elevated); color:var(--text); border:1px solid var(--case-border-bright); margin-top:8px;">Cancel — don't save yet</button>
           </div>
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
@@ -11966,7 +11974,22 @@
       stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY);
     }
     const stagingResearch = stagedCoins.filter(c => !findDbCoinsMatch(c));
-    const stagingActionable = stagedCoins.filter(c => !!findDbCoinsMatch(c));
+    // Live-run bug #6: on the real draft path, EVERY Draft-status coin is
+    // fully actionable in Staging Review (Mark ready / Reject) regardless
+    // of whether it has a DB_Coins match — status alone gates that screen,
+    // exactly like draftSets above (no confidence axis there either). This
+    // tile used to count only the matched subset, so its own displayed
+    // number disagreed with what Staging Review's "Needs a decision"
+    // section actually shows for the same coins (a real undercount Ray hit
+    // live). An unmatched Draft coin now counts here AND still gets its own
+    // informational research row below (unchanged, bug #8's territory) —
+    // that's not a disagreement the way #7 was: "needs a decision" and "no
+    // catalog entry yet" are two independently-true facts about the same
+    // coin, not two sources describing its status differently. The
+    // match-based split is KEPT for the flag-off mock path (FAKE_STAGING
+    // predates Phase 1's real drafts and has no Ready status of its own) —
+    // this only changes real-draft behavior.
+    const stagingActionable = addCoinWriteEnabled() ? stagedCoins : stagedCoins.filter(c => !!findDbCoinsMatch(c));
     if (stagingActionable.length) {
       actionRows.push({
         html: `<div class="wish-desc">${stagingActionable.length} coin${stagingActionable.length === 1 ? "" : "s"} awaiting your decision</div><div class="wish-notes">Promote or reject in Staging Review</div>`,
@@ -12386,7 +12409,30 @@
   // On the real path that rule needs no separate bookkeeping: the reservation
   // scan reads Staging FOLDER NAMES, so deleting the folder simply stops it
   // being counted, and a mid-sequence deletion leaves the max untouched.
-  async function rejectStagedCoin(collectionId) {
+  // Live-run bug #9: Reject had no confirmation at all, despite being
+  // permanent on the real path (deletes the whole draft folder — JSON AND
+  // every captured photo/receipt — with no undo, unlike the new
+  // Revert-to-Draft escape hatch for an over-eager "Mark ready"). Reuses
+  // the shared write-guard dialog shell rather than a bare confirm() to
+  // match this app's existing guard-dialog look, and names what's actually
+  // at stake (photos included) so the real-path warning isn't generic.
+  function rejectStagedCoin(collectionId) {
+    const real = addCoinWriteEnabled();
+    showWriteGuard({
+      title: "Reject " + collectionId + "?",
+      bodyHtml: real
+        ? "<p>This permanently deletes " + escapeHtmlText(collectionId) + "'s Staging draft, " +
+          "including any captured photos or receipt. This cannot be undone.</p>"
+        : "<p>This removes " + escapeHtmlText(collectionId) + " from Staging. Placeholder-only in this mockup — " +
+          "nothing is written to OneDrive.</p>",
+      buttons: [
+        { label: "Cancel", onClick: () => {} },
+        { label: "Reject", primary: true, onClick: () => performRejectStagedCoin(collectionId) }
+      ]
+    });
+  }
+
+  async function performRejectStagedCoin(collectionId) {
     if (!addCoinWriteEnabled()) {
       const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
       if (idx === -1) return;
@@ -14611,12 +14657,24 @@
     panel.classList.remove("hidden");
     panel.scrollIntoView({ block: "center", behavior: "auto" });
     addCoinMatchCancelHandler = () => { panel.classList.add("hidden"); if (onCancel) onCancel(); };
+    // Live-run bug #4: the picker previously forced a choice among the
+    // listed candidates with no way to say "none of these are actually it"
+    // — a real option when the catalog rows shown are all wrong (e.g. a
+    // genuine new variety DB_Coins hasn't caught up to yet). This resolves
+    // exactly like a real 0-candidate miss: CoinID left pending, routed to
+    // the Docket for research, same as any other unmatched save.
+    addCoinMatchNoneHandler = () => {
+      panel.classList.add("hidden");
+      onResolved({ coinId: "", row: null, how: "none", candidateCount: state.candidates.length });
+    };
   }
 
   // Set fresh by each resolveAddCoinCatalogMatch() call that actually shows
-  // the picker; the Cancel button delegates here so the handler is never
-  // stale (same teardown discipline showWriteGuard() uses for its buttons).
+  // the picker; the Cancel/None buttons delegate here so the handlers are
+  // never stale (same teardown discipline showWriteGuard() uses for its
+  // buttons).
   let addCoinMatchCancelHandler = null;
+  let addCoinMatchNoneHandler = null;
 
   // Varieties that actually exist in DB_Coins for the exact Year+MintMark+
   // Denomination already entered — e.g. a 1909 cent offers VDB, a 1920
@@ -14765,6 +14823,21 @@
     // saved coin (Browse detail), not entry. parsed.cert is already isolated to
     // the portion after "/" (see parsePcgsLabel) — never SPEC.GRADE.
     document.getElementById("certTypeNumber").value = parsed.cert;
+
+    // Make the decode authoritative (live-run bug #1): a PCGS label decode
+    // already identified exactly one DB_Coins row via its own SPEC/PCGS#
+    // lookup, which is stronger evidence than the general denom+year+mint+
+    // variety+finish+designation matcher used at save time — that matcher
+    // can legitimately still see 2+ candidates for the same identity (e.g.
+    // real ~43%-of-catalog base-key duplicates) and would otherwise re-pop
+    // the ambiguous picker for a coin that was just unambiguously decoded.
+    // Reuses the same "remembered pick" mechanism a manual picker choice
+    // uses (Q4) so Save takes the already-resolved shortcut with no picker
+    // shown. Any identity field changed after this point invalidates it
+    // exactly the same way a manual pick would (see currentAddCoinMatchState).
+    const pcgsDecodedShape = addCoinIdentityShape();
+    addCoinResolvedPick = { row, forShape: addCoinIdentityShapeKey(pcgsDecodedShape), candidateCount: 1 };
+    checkDbCoinsMatch();
 
     updateFlipLabels();
 
@@ -15249,6 +15322,7 @@
     document.getElementById("dbAmbiguousBanner").classList.add("hidden");
     document.getElementById("addCoinMatchAmbiguousPanel").classList.add("hidden");
     addCoinMatchCancelHandler = null;
+    addCoinMatchNoneHandler = null;
 
     // --- Grade
     document.getElementById("gradeFrom").value = "";
@@ -15402,6 +15476,9 @@
     document.getElementById("addCoinMatchCancelBtn").addEventListener("click", () => {
       if (addCoinMatchCancelHandler) addCoinMatchCancelHandler();
     });
+    document.getElementById("addCoinMatchNoneBtn").addEventListener("click", () => {
+      if (addCoinMatchNoneHandler) addCoinMatchNoneHandler();
+    });
 
     // Variety: dropdown filtered to this exact coin's valid varieties, plus a
     // manual "Other" override. #variety (hidden) is the actual value every
@@ -15429,7 +15506,15 @@
       if (!e.target.value) return;
       document.getElementById("description").value = e.target.value;
       descriptionAutoFilled = true; // picking a real option is still an autofill, not a manual override — a later Year/Denom change is free to replace it
-      hideDescriptionAmbiguousPanel();
+      // Live-run bug #5: this used to hide the panel the instant a series
+      // was picked, one-shot — reconsidering meant re-triggering the whole
+      // lookup by re-touching Year/Denom. The panel now stays open/live as
+      // long as the same genuine multi-series ambiguity exists, so a
+      // second thought is just picking a different option from the same
+      // dropdown. It only closes via hideDescriptionAmbiguousPanel() when
+      // the ambiguity itself resolves (0/1 candidates) or the user types
+      // directly into Description (a real manual override, handled by
+      // #description's own "input" listener above).
       updateFlipLabels();
       checkDbCoinsMatch();
     });

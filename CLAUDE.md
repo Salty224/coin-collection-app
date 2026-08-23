@@ -5264,6 +5264,149 @@ no horizontal overflow either width.
 specific fixes.** `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md` covers the original
 Phase 1 build; a second pass against these fixes specifically hasn't run yet.
 
+### Add Coin Phase 1: second live-run retest pass (BUILT, same branch, still held)
+Ray retested the first bug-fix pass live against `_Testing` and confirmed
+most of it working; this round covers the new findings from that retest.
+Six items fixed; one (#2) investigated and confirmed working-as-designed
+rather than changed; the structural Docket/Staging-Review IA redesign Ray
+flagged as a separate idea is deliberately **not** part of this round — it
+stays its own future Opus-tier proposal, held for explicit go-ahead, per
+Ray's own framing when he sent this retest.
+
+- **#1 — PCGS label decode is now authoritative, not just a starting
+  point.** A decoded label already identifies exactly one DB_Coins row via
+  its own SPEC/PCGS# lookup — stronger evidence than the general denom+
+  year+mint+variety+finish+designation matcher, which can still legitimately
+  see 2+ candidates for that same identity on real data (real base-key
+  duplicates are common — see the Part-F live-pass note above, ~43% of
+  DB_Coins). Before this fix, decoding a label filled the form correctly but
+  Save still re-derived candidates from scratch and could pop the ambiguous
+  picker for a coin that had just been unambiguously decoded.
+  `resolvePcgsLabelMatch()` now sets `addCoinResolvedPick` (the same
+  "remembered pick" mechanism a manual picker choice already uses, Q4) the
+  moment it resolves, so Save takes the already-resolved shortcut with no
+  picker shown. Still invalidated by any later identity-field edit, exactly
+  like a manual pick.
+- **#2 — Finish's soft fallback is deliberate, hardened behavior, not a
+  bug.** Ray's report described Finish "not narrowing" the match in some
+  case. Read the matcher directly rather than changing it: `dbCoinsCandidatesFor()`'s
+  Finish tier is a SOFT narrow — if the recorded Finish matches zero
+  candidates (e.g. an All-only value like `Circulated` that DB_Coins simply
+  doesn't carry), it falls back to the FULL candidate set rather than to
+  zero. This is exactly the Part-F live-pass fix from the Browse Edit write
+  layer (documented above): a strict filter would turn a good match into a
+  false miss and wrongly clear/deny a CoinID link for real rows. Making
+  Finish narrow strictly would reintroduce that exact regression. No code
+  change here — flagging it as intentional so a future session doesn't
+  "fix" it back into the bug it was built to avoid.
+- **#4 — the ambiguous picker now offers "None of these — save as
+  unmatched."** Previously the 2+ picker forced a choice among the listed
+  candidates with no way to say none of them are actually right — a real
+  gap when the catalog rows shown are all wrong for a genuinely new
+  variety. Clicking it resolves exactly like a real 0-candidate miss:
+  CoinID left pending, routed to Docket research, same as any other
+  unmatched save. Sits alongside the existing Cancel button; both are torn
+  down/reset the same way (`addCoinMatchNoneHandler`, same discipline
+  `addCoinMatchCancelHandler` already uses).
+- **#5 — the series (Description) ambiguous picker is now persistent/
+  reconsiderable, not one-shot.** It used to hide itself the instant a
+  series was picked — reconsidering meant re-touching Year/Denom to
+  re-trigger the whole lookup from scratch. It now stays open as long as
+  the same genuine multi-series ambiguity exists, so changing your mind is
+  just picking a different option from the same dropdown. It still closes
+  the normal way once the ambiguity itself resolves (0/1 candidates on a
+  later Year/Denom change) or the user types directly into Description (a
+  real manual override).
+- **#6 — the Dashboard's "N coins awaiting your decision" tile undercounted
+  relative to what Staging Review's own "Needs a decision" section actually
+  shows.** Root cause: the tile counted only Draft-status coins WITH a
+  DB_Coins match (`stagingActionable`), while Staging Review's own
+  Draft-vs-Ready split (added in the prior round) shows every Draft-status
+  coin under "Needs a decision" regardless of match — a real status-alone
+  signal is what actually gates that screen (Mark ready/Reject apply either
+  way), same as `draftSets`' own count above has no confidence axis at all.
+  Fixed by counting all Draft-status coins for the real-draft path
+  (`addCoinWriteEnabled()`), matching Staging Review exactly. **An unmatched
+  Draft coin now counts in this aggregate tile AND still gets its own
+  individual "Staged, no DB_Coins match" research row** (unchanged,
+  `stagingResearch` — bug #8's territory from the first retest round) —
+  deliberately NOT collapsed into one or the other, since "needs a
+  decision" and "no catalog entry yet" are two independently-true facts
+  about the same coin, not two sources disagreeing about its status the way
+  the original #7 bug was. The match-based split is kept as-is for the
+  flag-off mock path (`FAKE_STAGING` predates Phase 1's real drafts and has
+  no Ready status of its own) — this only changes real-draft behavior.
+- **#7 (this round) — helper-text spacing overlapped the field above it.**
+  Five `.placeholder-note` elements (the PCGS-grader note, the manual
+  Cert/Type Number note, and the notes under Variety, Finish, and Error)
+  carried an inline `margin:-8px 0 16px;` override — a negative top margin
+  large enough to overlap the `<select>`/`<input>` directly above, which
+  itself has no bottom margin of its own. Changed to `margin:4px 0 16px;`
+  (a small positive gap) on all five; verified via screenshot at both
+  viewports that the note text now sits clear of the field's own border.
+- **#9 — Reject had no confirmation, despite being permanent on the real
+  path.** Reject deletes a draft's entire Staging folder — JSON and every
+  captured photo/receipt — with no undo, unlike the Revert-to-Draft escape
+  hatch the prior round added for an over-eager "Mark ready." `rejectStagedCoin()`
+  now opens the shared `showWriteGuard()` dialog first (same shell Browse
+  Edit's own guard dialogs use), naming what's actually at stake; the real
+  deletion moved to a new `performRejectStagedCoin()`, called only from the
+  dialog's Reject button. The flag-off mock path gets the same confirmation
+  shell with mockup-appropriate wording (nothing is actually written either
+  way, so the message says so).
+- **#11 — fast/repeated tapping on action buttons could visibly
+  text-select their own label.** Added `user-select: none` to `.save-btn`
+  and `.staging-btn` (Save/Mark ready/Reject/the picker's Cancel/None) —
+  chrome, not editable content, so nothing about text inputs, textareas, or
+  Notes/Description fields was touched. Deliberately NOT applied to the
+  ambiguous-picker candidate cards themselves (`.ambiguous-match`) — their
+  text (CoinID/PCGS#/Mintage) is exactly what Ray might want to select and
+  copy to cross-check against PCGS/the Red Book before picking.
+- **Flagged for Ray's decision, not built this round** (real tension with
+  established rules, per this project's "investigate, don't guess" standing
+  instruction):
+  - **#3 (series-picker narrowing DB_Coins candidates)** — would mean
+    letting `Description`/series-name text narrow a DB_Coins match, which
+    runs directly against the Add Coin Phase 1 "commemorative/Description
+    blind spot" assessment above (deliberately NOT folded into
+    `dbCoinsCandidatesFor()`, since `All.Description` and
+    `DB_Coins.Description` are different sources with no guaranteed
+    correspondence, and the project's own firm rule is "2+ always reaches a
+    human"). Needs Ray's explicit call before any code changes here.
+  - **#8 (denomination dropdown breadth)** — CLAUDE.md already carries a
+    standing deferral for exactly this class of gap ("half dimes/three-cent
+    pieces will need their own Denomination code... deal with it when the
+    first one is catalogued" — see "Browse filters" above); widening Add
+    Coin's dropdown is a scope decision for Ray, not an assumed default.
+  - **#12–#16 (open design questions from the retest)** — discussion only,
+    no code without further direction, consistent with every other
+    "needs Ray's explicit decision" item in this file.
+  - The structural **Docket/Staging-Review IA redesign** Ray separately
+    proposed is explicitly out of scope for this round, per his own
+    framing — stays a distinct, larger, Opus-tier effort held for go-ahead.
+- **Verified headless — 9 new assertions added to `verify_addcoin_bugfixes.js`**
+  (R1/R4/R6/R9), all passing, alongside every prior assertion from both
+  committed Add Coin suites re-run clean (148 total across the two suites,
+  zero failures) — R1 covers the PCGS-decode-authoritative fix directly
+  against a synthetic real base-key duplicate; R4 covers the "None of
+  these" button existing, the panel genuinely visible before it's clicked,
+  and its resolution matching a real 0-match outcome; R6 covers the
+  Dashboard tile counting both a matched and an unmatched Draft coin while
+  the unmatched one still separately appears in research; R9 covers the
+  full reject-confirmation round trip (dialog shown, nothing deleted on
+  open, Cancel leaves the draft untouched, confirming actually deletes it).
+  Three existing assertions (3.5, VIS.4 in `addcoin-bugfixes`) were updated
+  to assert the panel STAYS open after a pick, following the #5 design
+  change rather than weakening the suite; two direct-logic tests (21.2 in
+  `addcoin-bugfixes`, F6 in `addcoin-phase1`) were updated to call the new
+  `performRejectStagedCoin()` directly, since they test the reservation/
+  deletion logic itself rather than the new confirmation dialog. Screenshots
+  reviewed at both viewports for the description picker's new spacing, the
+  ambiguous picker's new "None of these" button, and the reject
+  confirmation dialog — no horizontal overflow at either width.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as the first bug-fix round.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
