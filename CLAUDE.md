@@ -5868,6 +5868,76 @@ individual words in a different order/context.
   wording is confirmed AND checked against the same false-positive list
   above.
 
+### Add Coin Phase 1: batch 4 (BUILT, same branch, still held)
+Three findings from Ray's live spot-check of batch 3's Category-narrowing
+fix against the real `_Testing` copy (2017 American Silver Eagle, blank
+Finish, correctly narrowed to 2 genuine candidates; Finish=Proof resolved
+to one — confirming the fix itself works).
+
+- **#1 — Bullion toggle relocated.** Moved from directly above the
+  Denomination field to below the main data-entry window (after Notes,
+  before the collapsed Purchase Details/Storage rows) — it's a mode switch
+  for the Denomination field, not a field of its own, and reads better as
+  a standalone control after the identification fields than interrupting
+  them. No behavior change — same element id, same listener, same
+  `populateAddCoinDenominationDropdown()` call.
+- **#2 — series picker not Category-aware, a real bug.** After picking
+  "American Silver Eagle" via the Bullion toggle, editing Year afterward
+  re-triggered the classic denom+year series lookup against the shared
+  `"$1"` code (which legitimately spans Peace/Morgan/Presidential/Native
+  American dollars) and popped the classic-dollar ambiguous picker for a
+  coin whose identity Category had already fully resolved — the exact same
+  class of gap the DB_Coins matcher's own Category tier (batch 3) fixed,
+  just on the Description auto-fill function instead. Root cause: the
+  denomination change handler's own bullion branch correctly sets
+  Description and skips the lookup, but `maybeAutoFillDescription()` is
+  ALSO called from the Year field's own input listener with no Category
+  awareness at all. **Fixed at the function itself, not the call site** —
+  `maybeAutoFillDescription()` now returns immediately when
+  `addCoinBullionCategory` is set, so every caller (present or future) is
+  protected the same way, not just the one call site that happened to
+  trigger this repro.
+- **#3 — Finish dropdown didn't match real DB_Coins values.** Confirmed
+  against the real catalog: missing `Burnished` (48 rows, confirmed
+  against a real `C-2017-W-$1-03` case), `Satin Finish` (88 rows),
+  `Enhanced Reverse Proof` (2 rows), `Enhanced Uncirculated` (2 rows — a
+  distinct, real West Point 75th Anniversary product name, kept as its own
+  option, never conflated with plain "Uncirculated"). `Specimen` removed —
+  matches zero real rows. Fixed the same way the Denomination dropdown was
+  fixed: options now reflect the real, confirmed catalog rather than a
+  hand-guessed list.
+  - **Explicitly NOT added: plain `Uncirculated` (172 rows).** Same class
+    of issue as the already-confirmed `Circulated` case (139 rows,
+    "Browse Edit real write layer" above) at larger scale — a
+    condition-vs-finish data mix-up in the catalog itself, a future
+    data-cleanup project, not a dropdown gap. Both stay excluded from the
+    dropdown; the matcher's existing soft-fallback-to-full-list behavior
+    (`dbCoinsCandidatesFor()`'s Finish tier) already covers a blank Finish
+    for those rows, unchanged.
+  - `FINISH_GRADE_PREFIX` (the PCGS-label-decode grade-prefix table) was
+    deliberately left untouched — it defaults unrecognized Finish values to
+    `"MS"`, a safe fallback, and none of the four new values were reported
+    as needing a specific prefix. Out of scope for this pass; flag if a
+    real coin with one of these Finishes is ever decoded from a PCGS label
+    and needs a different prefix.
+- Verified headless — new suite `tests/verify_batch4.js` (22 assertions,
+  all passing): the toggle's new DOM position (after Notes, before
+  Purchase Details, no longer immediately above Denomination); the series
+  picker never firing after a Bullion pick, including after an explicit
+  Year edit and a direct `maybeAutoFillDescription()` call; a control case
+  confirming a genuine classic multi-series year still shows the picker
+  (the fix is scoped to Bullion picks only, not a blanket suppression); all
+  8 confirmed Finish values present, `Specimen`/`Uncirculated`/`Circulated`
+  all absent, exactly 9 options total; and `Enhanced Uncirculated`
+  narrowing the Finish tier correctly without being conflated with
+  Business Strike. Screenshots reviewed at both viewports (a real Bullion
+  pick with the toggle checked) confirming the new layout and no overflow/
+  collision. All 3 prior suites (202 assertions) re-run clean alongside it
+  — 224 total, zero failures.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as every prior round in this
+  feature.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new

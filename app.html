@@ -2993,16 +2993,6 @@
           </div>
 
           <label>Denomination</label>
-          <label class="grade-range-toggle" style="margin-top:0;">
-            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
-          </label>
-          <p class="placeholder-note" style="margin:4px 0 8px;">
-            Picking an option here sets Denomination AND Category together —
-            these coins are catalogued by their real face value plus a type
-            (e.g. Denomination "$1", Category "Silver Eagle"), same as the
-            workbook already does for Morgan/Peace/Silver Eagle. Off shows
-            everyday circulating denominations only.
-          </p>
           <select id="denomination">
             <option value="">— select —</option>
             <!-- The rest are generated at init (and on Bullion toggle) by
@@ -3061,6 +3051,24 @@
             saved directly (see Save options below).
           </p>
 
+          <!-- Options confirmed against the real DB_Coins Finish column
+               (live spot-check, batch 4 follow-up), same "derive from the
+               real catalog, don't hand-guess" fix as the Denomination
+               dropdown. Confirmed real values kept here: Business Strike,
+               Proof, Reverse Proof, SMS, Burnished (48 rows, confirmed
+               against C-2017-W-$1-03), Satin Finish (88 rows), Enhanced
+               Reverse Proof (2 rows), Enhanced Uncirculated (2 rows — a
+               distinct real West Point 75th Anniversary product name, kept
+               as its own option, never conflated with plain "Uncirculated").
+               "Specimen" removed — matches zero real rows. "Uncirculated"
+               (172 rows) and "Circulated" (139 rows) are BOTH deliberately
+               excluded — real workbook data carries them as a
+               condition-vs-finish mix-up (the same class of issue as the
+               already-confirmed Circulated case, just larger), a future
+               data-cleanup project for the catalog itself, not a dropdown
+               gap. The matcher's existing soft-fallback-to-full-list
+               behavior already covers a blank Finish for those rows —
+               see dbCoinsCandidatesFor()'s Finish tier. -->
           <label>Finish</label>
           <select id="finish">
             <option value="">— not recorded —</option>
@@ -3068,7 +3076,10 @@
             <option value="Proof">Proof</option>
             <option value="Reverse Proof">Reverse Proof</option>
             <option value="SMS">SMS</option>
-            <option value="Specimen">Specimen</option>
+            <option value="Burnished">Burnished</option>
+            <option value="Satin Finish">Satin Finish</option>
+            <option value="Enhanced Reverse Proof">Enhanced Reverse Proof</option>
+            <option value="Enhanced Uncirculated">Enhanced Uncirculated</option>
           </select>
           <p class="placeholder-note" style="margin:4px 0 16px;">
             A Proof and a Business Strike of the same date are different coins
@@ -3135,6 +3146,22 @@
 
           <label>Notes</label>
           <textarea id="notesField" placeholder="Anything else worth remembering"></textarea>
+
+          <!-- Moved below the main data-entry window (live spot-check
+               finding, batch 4 follow-up) — it's a mode switch for the
+               Denomination field above, not a field of its own, and reads
+               better as a standalone control after everything else rather
+               than interrupting the identification fields. -->
+          <label class="grade-range-toggle" style="margin-top:0;">
+            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
+          </label>
+          <p class="placeholder-note" style="margin:4px 0 16px;">
+            Picking an option from Denomination above sets it AND Category
+            together — these coins are catalogued by their real face value
+            plus a type (e.g. Denomination "$1", Category "Silver Eagle"),
+            same as the workbook already does for Morgan/Peace/Silver Eagle.
+            Off shows everyday circulating denominations only.
+          </p>
 
           <div class="case form-row" id="purchaseInfoRow">
             <span class="fr-icon">💵</span>
@@ -14984,6 +15011,19 @@
   // own value directly into Description.
   function maybeAutoFillDescription() {
     const descEl = document.getElementById("description");
+    // Real bug, live spot-check (batch 4 follow-up): a Bullion-tier pick
+    // already fully identifies the coin (Denomination + Category together
+    // — see the denomination change handler's own comment) and sets
+    // Description directly from the option's own label. But this function
+    // is ALSO called from the Year field's own input listener, with no
+    // awareness of that — editing Year after picking e.g. "American Silver
+    // Eagle" would re-run the classic denom+year series lookup against the
+    // shared "$1" code (which legitimately spans Peace/Morgan/Presidential/
+    // Native American dollars) and pop the classic-dollar ambiguous picker
+    // for a coin whose series was never actually ambiguous. Guard the
+    // function itself, not just the denomination handler's own call site,
+    // so every caller (present or future) is protected the same way.
+    if (addCoinBullionCategory) { hideDescriptionAmbiguousPanel(); return; }
     if (!descriptionAutoFilled && descEl.value) { hideDescriptionAmbiguousPanel(); return; }
     const candidates = lookupDescriptionCandidates(document.getElementById("denomination").value, document.getElementById("year").value);
     if (candidates.length === 0) {
