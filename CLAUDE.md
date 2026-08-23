@@ -357,6 +357,10 @@ CoinCollection/
   none of it functions until that exists.** Confirmed: every Save button in the
   app is currently a stub (Add Coin, Browse Edit, Wishlist, Batch Receipt all just
   toast "nothing saved yet") — no OneDrive writes happen anywhere in the app yet.
+  **Superseded:** Browse Edit now writes the workbook, and Add Coin's Phase 1
+  layer writes Staging drafts + photos. This crop-commit naming is still
+  unimplemented, but it is now Add Coin **Phase 2**'s to implement, not a
+  wholly unbuilt write layer's.
   When that write layer gets built, this naming/renaming/fallback logic is what
   it needs to implement — not a separate future feature on top of it.
 
@@ -714,9 +718,11 @@ together rather than mixed in at the top level.
   and the crop is gone — this is true whether the adjustment happens during Add
   Coin or later via Browse Edit's "reopen adjuster." This isn't a gap specific
   to the crop tool — it's the same underlying gap as every other Save button in
-  the app (Add Coin, Browse Edit, Wishlist, Batch Receipt all currently just
-  toast "nothing saved yet"): no real OneDrive/Graph API write layer exists
-  anywhere yet. Once that write layer gets built, the crop-commit/original-
+  the app (Wishlist and Batch Receipt still just toast "nothing saved yet";
+  **superseded for Browse Edit and Add Coin**, which now have real write
+  layers — though Add Coin's Phase 1 stores captured photos in its Staging
+  draft rather than applying this crop-commit naming, which is Phase 2's
+  job). Once that write layer gets built, the crop-commit/original-
   preservation/display-fallback behavior is fully spec'd — see the crop
   commit / display rule under "OneDrive folder structure" above — not an open
   question anymore.
@@ -3269,7 +3275,8 @@ adapts stage.html's proven `Files.ReadWrite` PUT pattern and adds
 `getFileBytes`/`getItemMeta`/`listChildren`/`deleteItem`/`readWorkbookColumn`.
 
 **Reservation module (`reserveNextCollectionId`, standalone/reusable per
-Part 1 — Add Coin migrates to it LATER, not this round, Q11):**
+Part 1 — Add Coin migrates to it LATER, not this round, Q11 — **superseded:
+that migration is done, see "Add Coin write layer — Phase 1" below**):**
 - Next parent ID = `max(All!CollectionID, open Staging draft parent IDs) + 1`,
   zero-padded `AY-#####`. The All read is the one unavoidable live-workbook
   touch and is **read-only** (Graph workbook `usedRange`, Q2=a); a counter
@@ -4254,7 +4261,10 @@ other form's write layer should follow. (The Add Set write layer writes
 Staging JSON + photo files and deliberately never touches the workbook — a
 different thing entirely.) **Scope is Browse Edit's Save button only** — Add
 Coin, Edit Set, Wishlist and Batch Receipt all still have exactly the stub
-Saves they had before, untouched.
+Saves they had before, untouched. **Partly superseded: Add Coin now has its
+own Phase 1 write layer** (Staging drafts + photos — see "Add Coin write
+layer — Phase 1" below); Edit Set, Wishlist and Batch Receipt are still
+stubs.
 
 **Gate (`ENABLE_BROWSE_EDIT_WRITE = false`, localhost-dev only)** — its own
 flag, deliberately NOT riding `ENABLE_SET_WRITE_LAYER`, since the two write
@@ -4741,6 +4751,224 @@ step-by-step this was run against, for reference on how a future live pass
   resets). Expected MSAL redirect behavior, same as the reference-image
   feature's own first fetch — not a bug; reopen the coin and it's silent
   from then on.
+
+### Add Coin write layer — Phase 1 (BUILT, held on branch `claude/add-coin-write-path-fs2rf8`, NOT merged)
+Add Coin's Save was the last pure placeholder in the app ("Nothing written to
+OneDrive yet"), and the actual blocker on logging a new physical coin in-app.
+This is **Phase 1 of a deliberately phased build** — architectural/cross-cutting,
+so per the merge policy it's held pending Ray's explicit go-ahead, same standing
+as Thread A and the original Docket build.
+
+**The phasing, and why.** Scoped as three branches rather than one:
+- **Phase 1 (this build)** — Staging drafts only. Reservation unified, real
+  `coin.json` drafts with photos, real Staging Review, matcher integration.
+  Zero new Graph primitives; everything reuses Add Set's proven draft pattern.
+- **Phase 2** — the real direct-write path into `All`.
+- **Phase 3** — nothing further; photo capture already lands in Phase 1.
+
+Phase 1 first defers the one genuinely novel capability while delivering
+durable value, and matches the project's own risk posture: it has written
+Staging JSON safely for months and has **never created a workbook row**.
+
+**The Phase 2 approach is decided, and it is NOT the obvious one.** The
+obvious call — `POST /workbook/tables('AllCoins')/rows/add` with a values
+array — is wrong here: that array must supply a value for every one of the
+49 columns, **including the two live formula columns** (`Total` at U,
+`SpotValue` at Z). That's the same "a rectangle write must fill every cell"
+hazard `buildRowCellEdits()` exists to prevent, and this workbook has already
+lost all 1,084 formula cells once. It would also mean a second write
+mechanism able to address never-write columns, breaking the "an unlisted
+column has no code path to a PATCH" guarantee.
+- **Instead: append a BLANK row, then reuse `saveCoinRowToWorkbook()`
+  unchanged.** Reading it closely, it already handles creation correctly with
+  no modification — `detectRowConflicts()` opens with `if (!snapshot) return []`,
+  so a `null` snapshot against a fresh blank row skips the conflict check,
+  counts every populated field as changed, and stamps `Reviewed`/`LastModified`
+  (both correct for an app-created row). Formula columns are untouched because
+  they aren't on the allow-list. **The only genuinely new primitive Phase 2
+  needs is "append a blank row and tell me its row number."**
+- **Accepted tradeoff: it is not atomic.** A blank add that lands followed by
+  a failed PATCH leaves an orphan row. Deliberate: an orphan row carrying a
+  CollectionID and a blank `Reviewed` is visible and recoverable, whereas a
+  clobbered formula is silent and catastrophic.
+- **Phase 2 will also need `Finish` added to `ALL_WRITABLE_COLUMNS`** — it's
+  captured now (below) but is currently read-only context
+  (`ALL_CONTEXT_COLUMNS`), so a new row can't yet carry it. Deliberately NOT
+  added in Phase 1, since that would make it editable in Browse Edit too — a
+  scope change nobody asked for.
+
+**Gate: `ENABLE_ADDCOIN_WRITE = false`**, its own flag for the same reason
+every other one is (it writes a different thing again), folded into
+`WRITE_LAYER_ENABLED`. `WRITE_TARGET` stays `"copy"`. With the flag off the
+shipped build behaves **exactly** as before — asserted, not assumed: a save
+makes zero Graph calls, still pushes to `FAKE_STAGING`, and both interim
+notices stay hidden.
+
+**Reservation unified — the mock authority is retired.** `readMaxReservedIdFromStaging()`
+used to call `listSetDrafts()`, which drops anything without `type === "set"`.
+Once Add Coin writes `coin.json` drafts, **every coin reservation would have
+been invisible to it and the two features would have collided in the same
+`AY-#####` namespace.** It now reads the Staging **folder names** instead:
+- One authority across every draft kind — the folder name is the CollectionID
+  by construction for both `setDraftFolder()` and `coinDraftFolder()`, so
+  this covers set drafts, coin drafts, and any future kind with no per-kind
+  maintenance.
+- One Graph call instead of one per draft.
+- **Fails in the safe direction**: a folder whose JSON was deleted or is
+  unreadable still counts as reserved, so a part-cleaned-up folder can never
+  hand its id to a different coin. Non-draft folders (`_Docket`) parse to NaN
+  and are skipped.
+- `getNextCollectionId()` is renamed `getNextCollectionIdInMemory()` and is
+  now **the flag-off fallback only**, reached solely through
+  `reserveCoinCollectionId()`. The two never run in the same session — the
+  flag picks one — so there is no window in which two authorities coexist.
+  This resolves the Add Set write layer's own deferred Q11 ("Add Coin
+  migrates to it LATER").
+
+**Coin drafts: `{stagingBase}/{CollectionID}/coin.json` + that coin's photos
+as siblings.** Per-coin FOLDER rather than the Docket's one-document shape,
+because of photos: the Docket queue is pure metadata, a coin draft carries
+real image bytes, and a folder named for the CollectionID is exactly where
+Add Set already puts a Set's photos. Safe alongside set drafts structurally —
+each lister drops anything without its own `type` marker, so neither can ever
+see the other's drafts.
+
+**Photos are captured for real, and the temp-id problem is fixed.** Add Coin's
+gallery is keyed by `ADDCOIN_GALLERY_ID` (`"__addcoin_draft__"`) because no
+CollectionID exists until save, so every filename in it is built against that
+temp id. `uploadCoinDraftPhotos()` re-derives each filename against the real
+reserved id before uploading — the reconciliation the gallery module's own
+comment always said a real write layer would need. Uploads the cropped image
+plus, for flip sources, the untouched `_original` (per the crop-commit
+convention); raw bytes come back via `fetch(rawUrl)`, the same trick the
+Adjust button uses. Receipts upload as `{CollectionID}_receipt.pdf` from the
+existing `receiptFiles` registry — the "ready-but-unconsumed" registry finally
+has a consumer. **A single file failing never loses the capture**: each upload
+is caught individually, the draft still lands, and its research note says what
+didn't upload. The in-progress gallery is cleared after a real save, or the
+next coin would re-upload the previous coin's photos under its own id.
+
+**The silent first-candidate bug — the most important fix here.**
+`findDbCoinsMatch()` returns `dbCoinsCandidatesFor(record)[0]`, and Add Coin's
+banner and save both ran off it. On the real ~3,753-row catalog a base key
+routinely has several rows (227 ambiguous groups even after the Finish tier),
+so this silently picked one. Harmless while the save was a mockup that wrote
+no CoinID anywhere; **the moment a save records a CoinID it becomes a silent
+wrong-link — exactly the failure behind this project's two historical mislink
+incidents.**
+- `findDbCoinsMatch()` is now documented as answering "is there a match at
+  all", never "which row is it", and is left returning `[0]` for that
+  boolean-ish use.
+- New `resolveAddCoinCatalogMatch()` resolves at save time: 0 → CoinID pending
+  + Docket entry; 1 → linked; **2+ → the shared ambiguous picker, always, per
+  the firm rule.** Nothing is reserved or written until the user picks;
+  cancelling writes nothing and keeps everything typed.
+- New `addCoinIdentityShape()` is the Add Coin counterpart of Browse Edit's
+  `identityShape`, so the live banner and the save-time resolution can never
+  match on different keys. It carries `gradeSource`, which **engages Thread
+  A's cert-protection guard on Add Coin too**.
+- The banner is now honest about multiplicity ("2 catalog entries match this
+  coin — you'll be asked to pick when you save") instead of claiming a match.
+- `matchedHow` (`single`/`picked`/`none`) is recorded on the draft, because
+  reconciliation needs to know whether a link was a human judgement or an
+  unambiguous catalog hit.
+
+**Finish input added to Add Coin** (Business Strike / Proof / Reverse Proof /
+SMS / Specimen / Circulated). Add Coin had none, so `shape.finish` was always
+blank and **the Finish tier never ran at all** — new entries resolved on a
+strictly weaker key than edited ones, and a Proof vs. a Business Strike of the
+same date were indistinguishable. Verified: the pair goes 2 candidates → 1
+with Finish set, and an All-only value (`Circulated`, absent from DB_Coins)
+still falls back softly rather than to zero. A matched catalog row also
+carries its Finish onto the form. Optional — blank never blocks a save.
+
+**Staging Review is real, and labelled as interim.** Reads durable drafts when
+the flag is on; the action is labelled **"Mark ready"**, not "Promote", and an
+interim banner states plainly that the app does not write the workbook yet and
+Copilot moves the row across. Reject deletes the whole draft folder (JSON +
+photos). The monotonic max+1 gap rule needs no separate bookkeeping on the real
+path: the reservation scan reads folder names, so a deleted folder simply stops
+being counted and a mid-sequence rejection leaves the max untouched. **Add
+Coin carries the same interim notice**, because in Phase 1 "Save to Database"
+writes a draft like the other option — `savedVia` records which was chosen.
+- **`#stagingBadge` no longer exists** (retired when the Needs Attention hub
+  absorbed Staging Review's dashboard tile); `updateStagingBadge()` is
+  vestigial but harmless and was left wired.
+
+**Two real integration gaps found while testing, both fixed:**
+- **The Docket couldn't see real drafts.** `renderNeedsAttentionHub()` read
+  only `FAKE_STAGING`, so once staged coins became durable drafts every one of
+  them would have been **invisible in the Docket** — the same class of gap as
+  the reservation one. It now reads coin drafts when the flag is on; a draft's
+  own field names are already the shape `findDbCoinsMatch()` wants. A draft
+  marked ready is no longer Ray's to decide on, so it renders in the research
+  section as "waiting on the All-sheet row". A second bug fell out of this: the
+  research-row label read `c.name`, which exists on a `FAKE_STAGING` row but
+  **not** on a draft (it has `description`) — so real drafts rendered with no
+  name at all.
+- **The mock Graph client's `deleteItem()` wasn't faithful.** It deleted only
+  the exact key, while Graph's DELETE on a folder is recursive — so a test
+  could not see that rejecting a draft also removes its photos. Fixed to sweep
+  descendants; a file path has none, so it's a no-op there.
+
+**Commemorative / `Description` blind spot — assessed, and deliberately NOT
+folded into the matcher.** Four owned coins are mis-linked because their
+correct and incorrect candidate rows differ only in `Description`. The
+recommendation went the opposite way from where it started, on evidence:
+- **The picker already renders `row.description`**, so those candidates are
+  already distinguishable to a human. The commemorative exposure was never
+  that the matcher can't narrow — it was that `findDbCoinsMatch()` never
+  reached the picker. **Fixing that (above) closes the hole for new coins**;
+  a Description tier would only *suppress* the prompt.
+- Suppressing it would contradict the project's own firm rule ("2+ always
+  reach a human"), whose sole exception (the Designation tier) had a crisp
+  verified semantic and *still* needed the cert-protection guard bolted on
+  after live testing. `Description` has no such semantic: free text,
+  user-editable on the `All` side, auto-filled from Ref_Denominations — a
+  *different source* than `DB_Coins.Description`.
+- The four existing mis-links are themselves evidence that Description-based
+  identity for commemoratives is fragile.
+- Cost of not narrowing: one picker prompt on a rare event (~22 individual
+  commemorative rows of 542).
+- Benefit: **zero change to `dbCoinsCandidatesFor()`'s tier logic**, so Thread
+  A's live-tested behaviour for Browse Edit and Docket isn't re-opened.
+- Browse Edit was already safe here — its `checkDesignationReresolution()`
+  path already sends 2+ to the picker.
+- **If picker frequency ever becomes annoying, the follow-on is to surface
+  Description more prominently, not to auto-resolve on it.**
+
+**A real defect in that reasoning, caught by screenshot and fixed.** The
+premise above only holds if the Description is actually *readable*, and
+`.form-row .fr-summary` carried `white-space: nowrap` + `text-overflow:
+ellipsis` — so a differentiator late in the string would be truncated away,
+recreating the Part-F "both options look identical" bug by another route.
+`renderAmbiguousMatchList()` now tags its rows `.ambiguous-match`, which opts
+them out of the one-line ellipsis. Fixed at the shared renderer, so Browse
+Edit and the Docket get it too. Presentation only — no matching logic changed.
+
+**Verified headless — 66 assertions (`verify_addcoin_phase1.js`), all passing,
+zero page errors**, at 412x915 and 1024x768, driven by the mock Graph client:
+flag-off inertness (no Graph call, in-memory path intact, nothing written);
+the reservation seeing a coin draft that `listSetDrafts()` cannot, `_Docket`
+never counting, and each lister ignoring the other's drafts; a full real save
+writing `coin.json` at the reserved id with photos uploaded **under the real
+CollectionID** and no `__addcoin_draft__` filename leaking; ambiguity opening
+the picker with **nothing written before the pick**, the **second** candidate
+(not the first) being what gets recorded, cancel writing nothing while keeping
+the typed entry; Finish narrowing including the soft All-only fallback;
+promote marking ready **without** creating an All row, and reject removing the
+draft and its photos; the Docket showing both an unmatched draft and a
+handed-off one; the picker not truncating a late differentiator; "Save to
+Database" writing a draft in Phase 1 with `savedVia: "direct"`; and a 12-route
+nav smoke with no horizontal overflow.
+- **Prior committed regression suites could not be re-run** — per this
+  project's convention the `verify_*.js` scripts live in per-session
+  scratchpads and none survived into this session. The nav smoke check is a
+  substitute, not an equivalent (same caveat the photo-gallery-crop branch
+  carried).
+- **Not verified: any real device, and any real OneDrive session.** This is a
+  new write path and needs a live run against `_Testing` before it's trusted —
+  see `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

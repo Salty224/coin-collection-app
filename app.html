@@ -1527,6 +1527,21 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .form-row .chevron { color: var(--text-muted); font-size: 18px; flex-shrink: 0; }
+  /* An ambiguous-match candidate row must never truncate its own summary.
+     The generic one-line ellipsis above is right for a drill-down row, but
+     here the summary carries the fields that DISTINGUISH two candidates —
+     and on real data the differentiator is often the Description, late in
+     the line (the commemorative pairs whose rows are identical on
+     Year/Mint/Denomination/Variety). Truncating it recreates the exact
+     "both options look identical" problem the picker was already fixed for
+     once. Wrap instead: a taller card is a fair price for a decidable one. */
+  .form-row.ambiguous-match .fr-summary {
+    white-space: normal; overflow: visible; text-overflow: clip;
+  }
+
+  /* A draft already marked ready has no action left; without this it rendered
+     identically to the live "Mark ready" button next to it. */
+  .staging-btn:disabled { opacity: 0.5; cursor: default; filter: grayscale(0.6); }
 
   .grade-range-toggle {
     display: flex; align-items: center; gap: 8px; margin-top: 10px;
@@ -3004,6 +3019,28 @@
             <span class="icon">⚠️</span>
             <span class="msg"><strong>No matching DB_Coins entry</strong> — this coin will still be added, but needs a catalog entry added later.</span>
           </div>
+          <div class="banner pending-banner hidden" id="dbAmbiguousBanner">
+            <span class="icon">🔀</span>
+            <span class="msg" id="dbAmbiguousMsg"></span>
+          </div>
+
+          <label>Finish</label>
+          <select id="finish">
+            <option value="">— not recorded —</option>
+            <option value="Business Strike">Business Strike</option>
+            <option value="Proof">Proof</option>
+            <option value="Reverse Proof">Reverse Proof</option>
+            <option value="SMS">SMS</option>
+            <option value="Specimen">Specimen</option>
+            <option value="Circulated">Circulated</option>
+          </select>
+          <p class="placeholder-note" style="margin:-8px 0 16px;">
+            A Proof and a Business Strike of the same date are different coins
+            in the catalog, so recording this narrows the DB_Coins match and
+            avoids being asked to pick between otherwise-identical entries on
+            save. Optional — leaving it blank never blocks a save, it just
+            matches on a weaker key.
+          </p>
 
           <div style="display:flex; align-items:center; justify-content:space-between;">
             <label style="margin:0;">Grade</label>
@@ -3068,6 +3105,20 @@
           <div class="banner pending-banner hidden" id="saveNotConfidentBanner">
             <span class="icon">⚠️</span>
             <span class="msg" id="saveNotConfidentMsg">This coin needs a closer look before it can be saved directly.</span>
+          </div>
+          <div class="banner pending-banner hidden" id="addCoinInterimBanner">
+            <span class="icon">🚧</span>
+            <span class="msg"><strong>Interim behaviour (Phase 1).</strong> Both save options
+            write a real Staging draft on OneDrive — the app does not add All-sheet rows yet,
+            so Copilot reconciliation moves the row across. Which option you chose is recorded
+            on the draft, so a direct save stays distinguishable from a staged one. Once
+            Phase 2's direct-write path lands, <em>Save to Database</em> creates the row itself
+            and this notice goes away.</span>
+          </div>
+          <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
+            <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
+            <div id="addCoinMatchAmbiguousList"></div>
+            <button type="button" class="save-btn" id="addCoinMatchCancelBtn" style="background:none; color:var(--text-muted); border:none; margin-top:4px;">Cancel — don't save yet</button>
           </div>
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
           <button class="save-btn" id="saveToStagingBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border);">Save to Staging</button>
@@ -3180,13 +3231,22 @@
         <h2 class="display" style="margin-top:0;">Staging Review</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
           Coins saved to Staging already hold a reserved CollectionID (assigned at
-          save time, not deferred). <strong>Promote</strong> moves a row into the
-          collection with that same ID carried forward unchanged; <strong>Reject</strong>
-          removes it and frees its ID. IDs never backfill — only the highest reserved
-          ID becomes reusable when rejected; a rejected mid-sequence ID stays a
-          permanent gap (deliberate, to avoid ever reusing an ID a photo/receipt may
-          already reference). Placeholder only — nothing is written to OneDrive yet.
+          save time, not deferred), and it is carried forward unchanged — never
+          re-reserved or re-validated. <strong>Reject</strong> removes the entry and
+          frees its ID. IDs never backfill — only the highest reserved ID becomes
+          reusable when rejected; a rejected mid-sequence ID stays a permanent gap
+          (deliberate, to avoid ever reusing an ID a photo/receipt may already
+          reference).
         </p>
+        <div class="banner pending-banner hidden" id="stagingInterimBanner">
+          <span class="icon">🚧</span>
+          <span class="msg"><strong>Interim behaviour (Phase 1).</strong> These are real
+          Staging drafts on OneDrive, but the app does not write the workbook yet.
+          <strong>Mark ready</strong> flags a draft for Copilot reconciliation to move
+          into the All sheet — it does not add the row itself. Once Phase 2's direct-write
+          path lands, this action becomes a real promotion and this notice goes away.</span>
+        </div>
+        <p class="placeholder-note" id="stagingMockNote">Placeholder only — nothing is written to OneDrive yet.</p>
         <div id="stagingContainer"></div>
         <p class="placeholder-note" id="stagingEmptyNote" style="display:none;">Nothing in Staging right now.</p>
       </section>
@@ -3876,6 +3936,8 @@
   //   ENABLE_BROWSE_EDIT_WRITE — Browse Edit row writes (writes the workbook)
   //   ENABLE_DOCKET_WRITE      — Docket research queue (writes a Staging file,
   //                              plus a CoinID cell on resolve)
+  //   ENABLE_ADDCOIN_WRITE     — Add Coin's own write layer (Phase 1: writes a
+  //                              Staging coin draft + its photos)
   const ENABLE_LIVE_NAV_DATA = devFlagOverride("ENABLE_LIVE_NAV_DATA", false); // localhost-dev only — same story/re-enable steps as ENABLE_REFERENCE_IMAGES above.
   const ENABLE_SET_WRITE_LAYER = devFlagOverride("ENABLE_SET_WRITE_LAYER", false); // localhost-dev only for now (Q6=a)
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
@@ -3893,9 +3955,24 @@
   // narrow writeCoinIdCell() path Browse Edit already uses). Independently
   // enable-able, same localhost-dev-only posture.
   const ENABLE_DOCKET_WRITE = devFlagOverride("ENABLE_DOCKET_WRITE", false);
+  // Add Coin's own write layer. Its OWN flag for the same reason as every
+  // other one — it writes a different thing again: a per-coin Staging draft
+  // (coin.json) plus that coin's captured photos, following Add Set's proven
+  // draft pattern rather than inventing a second one.
+  //
+  // PHASED, deliberately (see CLAUDE.md "Add Coin write layer"):
+  //   Phase 1 (this build) — Staging drafts only. Nothing here creates or
+  //     touches an All-sheet row; "Promote" means "mark ready for external
+  //     reconciliation," exactly the model Add Set already uses.
+  //   Phase 2 — the real direct-write path (append a blank All row, then
+  //     reuse saveCoinRowToWorkbook() unchanged for the field writes).
+  //   Phase 3 — nothing further for this flag; photo capture already lands
+  //     in Phase 1.
+  // Same localhost-dev-only posture as every other flag here.
+  const ENABLE_ADDCOIN_WRITE = devFlagOverride("ENABLE_ADDCOIN_WRITE", false);
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE;
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE;
   const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
 
   // **ONE PublicClientApplication for the whole app.** This is not a
@@ -4772,7 +4849,18 @@
         }
         return Promise.resolve([...names]);
       },
-      deleteItem(path) { store.delete(path); return Promise.resolve(true); },
+      deleteItem(path) {
+        // Graph's DELETE on a folder removes the folder AND everything under
+        // it. Modelling only the exact key made a folder delete look like it
+        // orphaned its children, which is not what the real API does — and
+        // Add Coin's reject path depends on the recursive behaviour to avoid
+        // leaving a rejected draft's photos behind. A file path simply has no
+        // descendants, so the prefix sweep is a no-op there.
+        store.delete(path);
+        const prefix = path.endsWith("/") ? path : path + "/";
+        for (const key of [...store.keys()]) { if (key.startsWith(prefix)) store.delete(key); }
+        return Promise.resolve(true);
+      },
       readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); },
       getWorkbookWebUrl() { return Promise.resolve(workbookWebUrl); },
       readWorkbookRange(workbookPath, sheet, address) {
@@ -5574,13 +5662,34 @@
     return max;
   }
 
-  // Highest parent AY already reserved among open Staging drafts (durable,
-  // survives app close/reopen and other devices — Part 1 #3, since drafts
-  // are real Staging files, not in-memory state).
+  // Highest AY already reserved among open Staging drafts (durable, survives
+  // app close/reopen and other devices — Part 1 #3, since drafts are real
+  // Staging files, not in-memory state).
+  //
+  // Reads the FOLDER NAMES under the Staging base rather than opening each
+  // draft and reading its `collectionID` field. Three reasons, and the first
+  // is the one that matters:
+  //
+  //   1. ONE RESERVATION AUTHORITY ACROSS EVERY DRAFT KIND. This used to call
+  //      listSetDrafts(), which drops anything without `type === "set"` — so
+  //      once Add Coin started writing its own coin.json drafts, every coin
+  //      reservation would have been INVISIBLE here and the two features
+  //      would have collided in the same AY-##### namespace. A folder name is
+  //      the one thing both kinds share by construction (setDraftFolder() and
+  //      coinDraftFolder() both name the folder for the CollectionID), so
+  //      reading names covers set drafts, coin drafts, and any future draft
+  //      kind with no per-kind maintenance.
+  //   2. One Graph call instead of one per draft.
+  //   3. It fails in the SAFE direction. A folder whose draft JSON was
+  //      deleted or is unreadable still counts as reserved, so a
+  //      part-cleaned-up folder can never hand its id to a different coin.
+  //
+  // Non-draft folders under Staging (e.g. the Docket's own `_Docket`) parse
+  // to NaN and are skipped, same as any other unparseable name.
   async function readMaxReservedIdFromStaging() {
-    const drafts = await listSetDrafts();
+    const names = await graph().listChildren(writePaths().stagingBase);
     let max = 0;
-    for (const d of drafts) { const n = reservationIdNumber(d.collectionID); if (!isNaN(n)) max = Math.max(max, n); }
+    for (const name of names) { const n = reservationIdNumber(name); if (!isNaN(n)) max = Math.max(max, n); }
     return max;
   }
 
@@ -5748,6 +5857,165 @@
     if (!draft.dismissedGaps.includes(gapKey)) draft.dismissedGaps.push(gapKey);
     await writeSetDraft(draft);
     return draft;
+  }
+
+  // ==================================================================
+  // ADD COIN — coin-draft persistence (ENABLE_ADDCOIN_WRITE, Phase 1)
+  // ==================================================================
+  // Add Coin's "Save to Staging" made real, following Add Set's already-
+  // proven draft pattern rather than inventing a second one: one folder per
+  // reserved CollectionID under the Staging base, holding a coin.json plus
+  // that coin's captured photo/receipt files as siblings.
+  //
+  //   {stagingBase}/{CollectionID}/coin.json
+  //   {stagingBase}/{CollectionID}/{CollectionID}_obverse_cropped.png   (etc.)
+  //
+  // WHY A PER-COIN FOLDER rather than the Docket's one-document shape:
+  // photos. The Docket queue is pure metadata (tens of small entries, no
+  // binaries), so one docket.json is right there. A coin draft carries real
+  // image bytes, and a folder named for the CollectionID is exactly where
+  // Add Set already puts a Set's photos — so the two draft kinds sit side by
+  // side under Staging with the same layout, and the promotion-time file
+  // move (Phase 2/3) has the same shape for both.
+  //
+  // SAFE ALONGSIDE SET DRAFTS, structurally: listSetDrafts() getJson()s
+  // `{base}/{child}/set.json` for every child and drops anything that isn't
+  // `type === "set"`, so a coin-draft folder yields null there and is
+  // skipped. This module is the mirror image — it reads coin.json and drops
+  // anything that isn't `type === "coin"`. Neither can ever see the other's
+  // drafts, and the folder NAME (the CollectionID) is what the shared
+  // reservation scan reads, so both kinds reserve from one authority.
+  //
+  // PHASE 1 SCOPE: this writes Staging only. Nothing here creates or edits
+  // an All-sheet row — "Promote" means "mark ready for external Copilot
+  // reconciliation," the same model Add Set uses today. Phase 2 replaces
+  // that with the real direct-write path.
+
+  const COIN_DRAFT_TYPE = "coin";
+  const COIN_DRAFT_VERSION = 1;
+  function coinDraftPath(collectionId) { return writePaths().stagingBase + "/" + collectionId + "/coin.json"; }
+  function coinDraftFolder(collectionId) { return writePaths().stagingBase + "/" + collectionId; }
+
+  // Draft lifecycle. Deliberately parallel to SET_STATUS, and deliberately
+  // NOT identical in wording: a Set draft's "Complete — pending research" is
+  // about finishing a multi-coin capture, whereas a coin draft is complete
+  // the moment it's saved — what's pending is Ray's own review, then
+  // reconciliation. READY is the Phase 1 interim terminal state (see the
+  // module header); the app never sets PROMOTED itself, exactly as with Sets.
+  const COIN_DRAFT_STATUS = {
+    DRAFT: "Draft — awaiting review",
+    READY: "Ready for reconciliation",
+    PROMOTED: "Promoted"
+  };
+
+  let addCoinWriteEnabledOverride = null;
+  function addCoinWriteEnabled() {
+    return addCoinWriteEnabledOverride === null ? ENABLE_ADDCOIN_WRITE : addCoinWriteEnabledOverride;
+  }
+  function __setAddCoinWriteEnabledForTest(v) { addCoinWriteEnabledOverride = v; } // test-only seam
+
+  // The draft record. Field names deliberately match the shapes already in
+  // use elsewhere so a promoted coin needs no translation: the identity/
+  // grade/storage fields mirror buildCoinRecordFromForm()'s own record, and
+  // the purchase fields mirror FAKE_COIN_DETAILS / the Set draft's.
+  //
+  // `matchedCoinId` records which DB_Coins row this resolved to AT SAVE TIME
+  // and how (see resolveAddCoinCatalogMatch): "single" when exactly one
+  // candidate matched, "picked" when Ray chose from the ambiguous picker,
+  // "none" when the catalog had nothing. Reconciliation needs to know the
+  // difference — a picked link was a human judgement, a single-match link
+  // was not.
+  function buildCoinDraft(collectionId, form, match) {
+    const researchLines = [];
+    if (!match || !match.coinId) {
+      researchLines.push("No DB_Coins match at capture — CoinID pending, needs a catalog entry.");
+    } else if (match.how === "picked") {
+      researchLines.push("CoinID " + match.coinId + " chosen from " + match.candidateCount +
+        " ambiguous DB_Coins candidates at capture — confirm at reconciliation.");
+    }
+    if (!form.finish) {
+      researchLines.push("Finish not recorded at capture — narrows the DB_Coins match if backfilled.");
+    }
+    return {
+      collectionID: collectionId,
+      type: COIN_DRAFT_TYPE,
+      version: COIN_DRAFT_VERSION,
+      status: COIN_DRAFT_STATUS.DRAFT,
+      // --- identity / catalog
+      denom: form.denom || "",
+      year: form.year || "",
+      mint: form.mint || "",
+      variety: form.variety || "",
+      description: form.description || "",
+      finish: form.finish || "",
+      designation: form.designation || "",
+      errorDesc: form.errorDesc || "",
+      coinId: (match && match.coinId) || "",
+      matchedHow: (match && match.how) || "none",
+      // --- grade / cert
+      grade: form.grade || "",
+      gradeSource: form.gradeSource || "",
+      serNo: form.serNo || "",
+      // --- purchase
+      cost: form.cost != null ? form.cost : null,
+      shippingCost: form.shippingCost != null ? form.shippingCost : null,
+      purchaseDate: form.purchaseDate || "",
+      vendor: form.vendor || "",
+      // --- storage / album
+      storageLocation: form.storageLocation || "",
+      container: form.container || "",
+      assignAlbum: form.assignAlbum || "",
+      // --- free text
+      remarks: form.notes || "",
+      researchNote: researchLines.join("\n"),
+      // Filenames only, never bytes — the files themselves are siblings in
+      // this draft's own folder (same convention as a Set draft's photos).
+      photos: [],
+      receiptPhoto: "",
+      createdDate: new Date().toISOString(),
+      updatedDate: new Date().toISOString()
+    };
+  }
+
+  async function writeCoinDraft(draft) {
+    draft.updatedDate = new Date().toISOString();
+    await graph().uploadJson(coinDraftPath(draft.collectionID), draft);
+    return draft;
+  }
+  async function readCoinDraft(collectionId) { return graph().getJson(coinDraftPath(collectionId)); }
+
+  async function listCoinDrafts() {
+    const base = writePaths().stagingBase;
+    const folders = await graph().listChildren(base); // folder names are CollectionIDs
+    const drafts = [];
+    for (const name of folders) {
+      const draft = await graph().getJson(base + "/" + name + "/coin.json");
+      if (draft && draft.type === COIN_DRAFT_TYPE) drafts.push(draft);
+    }
+    return drafts;
+  }
+
+  // Marks a coin draft ready for external reconciliation. PHASE 1 INTERIM —
+  // this is what the Staging Review "Promote" action does until Phase 2's
+  // direct-write path exists; it deliberately does NOT touch the All sheet.
+  async function markCoinDraftReady(collectionId) {
+    const draft = await readCoinDraft(collectionId);
+    if (!draft) throw new Error("Coin draft not found: " + collectionId);
+    draft.status = COIN_DRAFT_STATUS.READY;
+    await writeCoinDraft(draft);
+    return draft;
+  }
+
+  // Rejecting deletes the whole draft folder — coin.json AND its photos, so
+  // no orphaned image bytes are left behind under Staging. The freed
+  // CollectionID follows the same monotonic max+1 rule as everywhere else:
+  // it only becomes reusable if it was the highest reserved id, because the
+  // reservation scan reads folder names and a deleted folder simply stops
+  // being counted. A mid-sequence rejection therefore stays a permanent gap
+  // automatically, with no separate bookkeeping.
+  async function deleteCoinDraft(collectionId) {
+    await graph().deleteItem(coinDraftFolder(collectionId));
+    return true;
   }
 
   // ==================================================================
@@ -6231,12 +6499,30 @@
   // either one is unavailable, since a coin's real identity is decided at
   // Staging entry (not deferred to promotion) and two different entries must
   // never collide on the same ID while one is still in flight.
-  function getNextCollectionId() {
+  //
+  // MOCKUP-PATH ONLY as of the Add Coin write layer. The real authority is
+  // reserveNextCollectionId() (max of the live All sheet and every reserved
+  // Staging folder); this in-memory max+1 is what reserveCoinCollectionId()
+  // falls back to when ENABLE_ADDCOIN_WRITE is off, so the shipped
+  // flag-off build keeps behaving exactly as it always has. The two never
+  // run in the same session — the flag picks one — so there is no window in
+  // which two authorities could hand out the same id. Renamed from the bare
+  // getNextCollectionId() so its mockup-only role is visible at every call
+  // site rather than implied.
+  function getNextCollectionIdInMemory() {
     const used = [...FAKE_COINS, ...FAKE_STAGING]
       .map(c => parseInt(c.id.replace("AY-", ""), 10))
       .filter(n => !isNaN(n));
     const next = (used.length ? Math.max(...used) : 0) + 1;
     return "AY-" + String(next).padStart(5, "0");
+  }
+
+  // The single entry point Add Coin reserves through, in either mode.
+  // Flag on  -> the real durable authority (live All + every Staging folder).
+  // Flag off -> the in-memory mockup max+1 above, unchanged behaviour.
+  async function reserveCoinCollectionId() {
+    if (!addCoinWriteEnabled()) return getNextCollectionIdInMemory();
+    return reserveNextCollectionId();
   }
 
   // CollectionIDs whose Obverse/Reverse are blank because the only photo on file is
@@ -11499,8 +11785,28 @@
     // --- Coin-side Staging rows: split by the same research-need signal
     // used everywhere else in this app (findDbCoinsMatch — same predicate
     // checkDbCoinsMatch() runs live on the Add Coin form).
-    const stagingResearch = FAKE_STAGING.filter(c => !findDbCoinsMatch(c));
-    const stagingActionable = FAKE_STAGING.filter(c => !!findDbCoinsMatch(c));
+    //
+    // Source depends on the write layer, for the same reason the reservation
+    // scan had to widen: once Add Coin writes durable coin.json drafts, a
+    // staged coin no longer exists in FAKE_STAGING at all, so reading only
+    // that array would leave every real staged coin INVISIBLE in the Docket.
+    // A draft's own field names (denom/year/mint/variety/finish/designation/
+    // gradeSource) are already exactly the shape findDbCoinsMatch() wants, so
+    // the split below is unchanged either way.
+    //
+    // A draft already marked ready for reconciliation is no longer Ray's to
+    // decide on — it's waiting on Copilot — so it belongs in the research
+    // section regardless of whether it has a catalog match.
+    let stagedCoins = FAKE_STAGING;
+    let stagedHandedOff = [];
+    if (addCoinWriteEnabled()) {
+      try { LIVE_COIN_DRAFTS = await listCoinDrafts(); } catch (e) { /* degrade to none, same as Sets above */ }
+      const all = LIVE_COIN_DRAFTS || [];
+      stagedCoins = all.filter(d => d.status === COIN_DRAFT_STATUS.DRAFT);
+      stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY);
+    }
+    const stagingResearch = stagedCoins.filter(c => !findDbCoinsMatch(c));
+    const stagingActionable = stagedCoins.filter(c => !!findDbCoinsMatch(c));
     if (stagingActionable.length) {
       actionRows.push({
         html: `<div class="wish-desc">${stagingActionable.length} coin${stagingActionable.length === 1 ? "" : "s"} awaiting your decision</div><div class="wish-notes">Promote or reject in Staging Review</div>`,
@@ -11560,8 +11866,17 @@
 
     // --- Research section content ---
     stagingResearch.forEach(c => {
-      const label = (c.name || c.denom) + " · " + c.year + (c.mint ? "-" + c.mint : "") + (c.variety ? " · " + c.variety : "");
+      // `name` on an in-memory FAKE_STAGING row, `description` on a durable
+      // coin draft — both sources flow through here, so read either.
+      const label = (c.name || c.description || c.denom) + " · " + c.year + (c.mint ? "-" + c.mint : "") + (c.variety ? " · " + c.variety : "");
       researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
+    });
+    // Drafts already marked ready: nothing left for Ray to decide, they're
+    // waiting on Copilot to move the row into All (Phase 1 has no in-app
+    // promotion — see the ENABLE_ADDCOIN_WRITE flag comment).
+    stagedHandedOff.forEach(d => {
+      const label = (d.description || d.denom) + " · " + d.year + (d.mint ? "-" + d.mint : "") + (d.variety ? " · " + d.variety : "");
+      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(label)}</div><div class="wish-notes">${escapeHtmlText(d.collectionID)} ready for reconciliation — waiting on the All-sheet row</div>` });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
     // directly — durable Staging file when ENABLE_DOCKET_WRITE is on, the
@@ -11661,16 +11976,20 @@
   // ==================================================================
   // STAGING REVIEW — Promotion (Staging -> All, ID carried forward
   // unchanged) and Rejection (delete -> ID freed). The reservation ENGINE
-  // (getNextCollectionId, scanning FAKE_COINS + FAKE_STAGING together) was
-  // already built earlier; this is the two remaining reservation rules
-  // (4 and 5) plus the minimal review surface that actually triggers a
-  // promote or a reject. Dashboard-only destination, same standing as
-  // Needs Attention. Still a mockup — both arrays are in-memory, nothing
-  // is written to OneDrive.
+  // (reserveCoinCollectionId — the live All sheet plus every reserved
+  // Staging folder when ENABLE_ADDCOIN_WRITE is on, getNextCollectionIdInMemory
+  // scanning FAKE_COINS + FAKE_STAGING when it's off) was already built
+  // earlier; this is the two remaining reservation rules (4 and 5) plus the
+  // minimal review surface that actually triggers a promote or a reject.
+  // Dashboard-only destination, same standing as Needs Attention.
+  //
+  // Real when ENABLE_ADDCOIN_WRITE is on: the list reads durable coin.json
+  // drafts, and the two actions write/delete real Staging files. With the
+  // flag off it stays the original in-memory mockup over FAKE_STAGING.
   // ==================================================================
 
   // Numeric part of a plain AY-##### id — ignores -Set/-A/-B lineage
-  // suffixes exactly the way getNextCollectionId does. NaN if unparseable.
+  // suffixes exactly the way reservationIdNumber does. NaN if unparseable.
   function collectionIdNumber(id) {
     return parseInt(String(id).replace("AY-", ""), 10);
   }
@@ -11684,31 +12003,88 @@
     return used.length ? Math.max(...used) : 0;
   }
 
-  function renderStagingList() {
+  // Real coin drafts read from Staging when ENABLE_ADDCOIN_WRITE is on,
+  // cached so a re-render doesn't re-fetch on every action. Null = not
+  // loaded yet (or the feature is off, in which case it stays null and the
+  // list falls back to the in-memory FAKE_STAGING mockup).
+  let LIVE_COIN_DRAFTS = null;
+  function __setLiveCoinDraftsForTest(v) { LIVE_COIN_DRAFTS = v; } // test-only seam
+
+  // Re-reads the Staging folder into the cache and refreshes the badge.
+  // Never throws — a badge that's briefly stale must not be able to fail a
+  // save that already succeeded.
+  async function refreshCoinDraftCache() {
+    try {
+      LIVE_COIN_DRAFTS = await listCoinDrafts();
+    } catch (e) {
+      console.warn("Couldn't refresh the coin-draft cache:", e);
+    }
+    updateStagingBadge();
+  }
+
+  // Same render-generation guard the Needs Attention hub needed: this
+  // function clears its container synchronously but only appends after an
+  // awaited Graph read, so two overlapping calls (a launch-time render and a
+  // navigate-triggered one) would otherwise both clear-then-append and stack
+  // their rows. Only the most-recently-STARTED call may touch the DOM.
+  let stagingRenderToken = 0;
+
+  async function renderStagingList() {
+    const myToken = ++stagingRenderToken;
     const container = document.getElementById("stagingContainer");
+    const interimBanner = document.getElementById("stagingInterimBanner");
+    const mockNote = document.getElementById("stagingMockNote");
+    const real = addCoinWriteEnabled();
+    interimBanner.classList.toggle("hidden", !real);
+    mockNote.style.display = real ? "none" : "block";
     container.innerHTML = "";
-    document.getElementById("stagingEmptyNote").style.display = FAKE_STAGING.length ? "none" : "block";
+
+    let rows;
+    if (real) {
+      try {
+        LIVE_COIN_DRAFTS = await listCoinDrafts();
+      } catch (e) {
+        console.warn("Couldn't read coin drafts from Staging:", e);
+        LIVE_COIN_DRAFTS = LIVE_COIN_DRAFTS || [];
+      }
+      if (myToken !== stagingRenderToken) return; // a newer render started mid-read
+      rows = LIVE_COIN_DRAFTS.map(coinDraftToStagingRow);
+    } else {
+      rows = FAKE_STAGING.map(r => Object.assign({}, r, { _mock: true }));
+    }
+
+    document.getElementById("stagingEmptyNote").style.display = rows.length ? "none" : "block";
 
     // Newest staged first, matching the Needs Attention list's ordering.
-    FAKE_STAGING.slice().reverse().forEach(row => {
+    rows.slice().reverse().forEach(row => {
       const yearMint = (row.year || "") + (row.mint ? "-" + row.mint : "");
       const label = [row.name, yearMint, row.variety].filter(Boolean).join(" · ");
       const gradeLine = row.grade ? row.grade + (row.gradeSource ? " " + row.gradeSource : "") : "No grade recorded";
+      const extra = row._mock ? "" : [
+        row.status,
+        row.coinId ? "CoinID " + row.coinId : "CoinID pending",
+        row.photoCount ? row.photoCount + " file" + (row.photoCount === 1 ? "" : "s") : "no files"
+      ].filter(Boolean).join(" · ");
+      const promoteLabel = row._mock ? "Promote" : "Mark ready";
+      const alreadyReady = !row._mock && row.status === COIN_DRAFT_STATUS.READY;
       const item = document.createElement("div");
       item.className = "case wish-item";
-      item.innerHTML = `
-        <div>
-          <div class="staging-id">${row.id}</div>
-          <div class="wish-desc">${label}</div>
-          <div class="wish-notes">${gradeLine}</div>
-          <div class="wish-date">Staged ${row.stagedDate}</div>
-        </div>
-        <div class="staging-actions">
-          <button class="staging-btn promote">Promote</button>
-          <button class="staging-btn reject">Reject</button>
-        </div>
-      `;
-      item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
+      item.innerHTML =
+        '<div>' +
+          '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
+          '<div class="wish-desc">' + escapeHtmlText(label) + '</div>' +
+          '<div class="wish-notes">' + escapeHtmlText(gradeLine) + '</div>' +
+          (extra ? '<div class="wish-notes">' + escapeHtmlText(extra) + '</div>' : '') +
+          '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
+        '</div>' +
+        '<div class="staging-actions">' +
+          '<button class="staging-btn promote"' + (alreadyReady ? ' disabled' : '') + '>' +
+            escapeHtmlText(alreadyReady ? "Ready" : promoteLabel) + '</button>' +
+          '<button class="staging-btn reject">Reject</button>' +
+        '</div>';
+      if (!alreadyReady) {
+        item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
+      }
       item.querySelector(".reject").addEventListener("click", () => rejectStagedCoin(row.id));
       container.appendChild(item);
     });
@@ -11716,23 +12092,62 @@
     updateStagingBadge();
   }
 
-  function updateStagingBadge() {
-    const badge = document.getElementById("stagingBadge");
-    if (badge) badge.textContent = FAKE_STAGING.length ? "(" + FAKE_STAGING.length + ")" : "";
+  // A durable coin.json draft rendered in the same row shape the in-memory
+  // mockup rows already use, so the list itself needs no branching.
+  function coinDraftToStagingRow(draft) {
+    return {
+      id: draft.collectionID,
+      name: draft.description || "Unidentified coin",
+      year: draft.year,
+      mint: draft.mint,
+      variety: draft.variety,
+      grade: draft.grade,
+      gradeSource: draft.gradeSource,
+      status: draft.status,
+      coinId: draft.coinId,
+      photoCount: (draft.photos || []).length + (draft.receiptPhoto ? 1 : 0),
+      stagedDate: (draft.createdDate || "").slice(0, 10),
+      _mock: false
+    };
   }
 
-  // Rule 4: move the row Staging -> All, carrying its reserved CollectionID
-  // forward UNCHANGED — the ID is not re-reserved or re-validated, it was
-  // decided at Staging entry. Staging-only fields (stagedDate, remarks) are
-  // dropped so the promoted row matches an All-sheet record's shape.
-  function promoteStagedCoin(collectionId) {
-    const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
-    if (idx === -1) return;
-    const { stagedDate, remarks, ...coinRecord } = FAKE_STAGING[idx];
-    FAKE_STAGING.splice(idx, 1);
-    FAKE_COINS.push(coinRecord);
-    renderStagingList();
-    showToast("Placeholder only — " + collectionId + " promoted to the collection (ID carried forward). Nothing written to OneDrive yet.");
+  function updateStagingBadge() {
+    const badge = document.getElementById("stagingBadge");
+    if (!badge) return;
+    const count = addCoinWriteEnabled()
+      ? (LIVE_COIN_DRAFTS ? LIVE_COIN_DRAFTS.length : 0)
+      : FAKE_STAGING.length;
+    badge.textContent = count ? "(" + count + ")" : "";
+  }
+
+  // Rule 4: carry the reserved CollectionID forward UNCHANGED — the ID is not
+  // re-reserved or re-validated, it was decided at Staging entry.
+  //
+  // PHASE 1 INTERIM: with the real write layer on, this marks the draft ready
+  // for external Copilot reconciliation rather than moving it into All
+  // itself — the app has no row-creation path until Phase 2 (see the
+  // ENABLE_ADDCOIN_WRITE flag comment). The mockup path below is unchanged
+  // and still does the in-memory move.
+  async function promoteStagedCoin(collectionId) {
+    if (!addCoinWriteEnabled()) {
+      const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
+      if (idx === -1) return;
+      const { stagedDate, remarks, ...coinRecord } = FAKE_STAGING[idx];
+      FAKE_STAGING.splice(idx, 1);
+      FAKE_COINS.push(coinRecord);
+      renderStagingList();
+      showToast("Placeholder only — " + collectionId + " promoted to the collection (ID carried forward). Nothing written to OneDrive yet.");
+      return;
+    }
+    try {
+      await markCoinDraftReady(collectionId);
+      await renderStagingList();
+      showToast(collectionId + " marked ready for reconciliation — its CollectionID is unchanged. " +
+        "The app doesn't write the All sheet yet, so Copilot moves the row across.");
+    } catch (e) {
+      console.error("Couldn't mark draft ready:", e);
+      showToast("Couldn't update " + collectionId + ": " + String(e && e.message || e));
+    }
   }
 
   // Rule 5: delete the Staging row and free its CollectionID. Per the
@@ -11740,15 +12155,30 @@
   // becomes reusable if it was the highest reserved ID — a rejected
   // mid-sequence ID stays a permanent gap, so an ID that a photo/receipt
   // may already reference is never handed back out to a different coin.
-  function rejectStagedCoin(collectionId) {
-    const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
-    if (idx === -1) return;
-    const wasHighest = collectionIdNumber(collectionId) === highestReservedIdNumber();
-    FAKE_STAGING.splice(idx, 1);
-    renderStagingList();
-    showToast(wasHighest
-      ? "Placeholder only — " + collectionId + " rejected; it was the highest ID, so it's free to reuse now."
-      : "Placeholder only — " + collectionId + " rejected; its slot stays a permanent gap (IDs never backfill).");
+  //
+  // On the real path that rule needs no separate bookkeeping: the reservation
+  // scan reads Staging FOLDER NAMES, so deleting the folder simply stops it
+  // being counted, and a mid-sequence deletion leaves the max untouched.
+  async function rejectStagedCoin(collectionId) {
+    if (!addCoinWriteEnabled()) {
+      const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
+      if (idx === -1) return;
+      const wasHighest = collectionIdNumber(collectionId) === highestReservedIdNumber();
+      FAKE_STAGING.splice(idx, 1);
+      renderStagingList();
+      showToast(wasHighest
+        ? "Placeholder only — " + collectionId + " rejected; it was the highest ID, so it's free to reuse now."
+        : "Placeholder only — " + collectionId + " rejected; its slot stays a permanent gap (IDs never backfill).");
+      return;
+    }
+    try {
+      await deleteCoinDraft(collectionId);
+      await renderStagingList();
+      showToast(collectionId + " rejected — its draft and any captured files were deleted from Staging.");
+    } catch (e) {
+      console.error("Couldn't delete coin draft:", e);
+      showToast("Couldn't reject " + collectionId + ": " + String(e && e.message || e));
+    }
   }
 
   // ==================================================================
@@ -13712,52 +14142,149 @@
   // Needs Attention hub can run the identical check against an already-
   // saved/staged record (denom/year/mint/variety fields) without re-deriving
   // the matching rule a second time.
+  //
+  // "IS THERE A MATCH AT ALL", not "which row is it". Returning
+  // candidates[0] is only ever safe for a boolean-ish question, because on
+  // the real ~3,753-row catalog a base key routinely has several rows (227
+  // ambiguous groups even after the Finish tier narrows). Any caller that
+  // needs the SPECIFIC row must go through dbCoinsCandidatesFor() and
+  // handle 2+ itself — see resolveAddCoinCatalogMatch(), which surfaces the
+  // ambiguous picker rather than silently taking the first candidate.
+  //
+  // This distinction is load-bearing. While Add Coin's save was a mockup
+  // that never wrote a CoinID anywhere, first-of-N here was harmless. The
+  // moment a save records a CoinID it becomes a silent wrong-link — exactly
+  // the failure behind this project's two historical mislink incidents, and
+  // the reason "2+ candidates always reach a human" is a firm rule rather
+  // than a preference.
   function findDbCoinsMatch(record) {
     if (!record.denom || !record.year) return null;
     // Same shared candidate rule dbCoinsCandidatesFor() uses (and the same
-    // activeDbCoins() source) — this is just "the first candidate, if any",
-    // so the two can never disagree about what counts as a match.
+    // activeDbCoins() source), so the two can never disagree about what
+    // counts as a match.
     return dbCoinsCandidatesFor(record)[0] || null;
   }
+
+  // The Add Coin form's current identity, in exactly the shape
+  // dbCoinsCandidatesFor() expects — the direct counterpart of Browse Edit's
+  // own identityShape, built once here so the live banner and the save-time
+  // resolution can never match on different keys.
+  //
+  // gradeSource rides along deliberately: it is what engages the
+  // cert-protection guard inside dbCoinsCandidatesFor(), so a PCGS/NGC-graded
+  // coin entered here gets the same protection against a soft Designation
+  // signal overriding a real certification that an edited coin already gets.
+  function addCoinIdentityShape() {
+    return {
+      denom: document.getElementById("denomination").value,
+      year: document.getElementById("year").value.trim(),
+      mint: document.getElementById("mintMark").value,
+      variety: document.getElementById("variety").value,
+      finish: document.getElementById("finish").value,
+      designation: document.getElementById("designation").value,
+      gradeSource: document.getElementById("gradeSource").value
+    };
+  }
+
+  // Every candidate for the identity currently on the form. `lastDbMatch`
+  // holds the single unambiguous row when there is exactly one, and stays
+  // null otherwise — so "no match" and "several matches" are distinguishable
+  // at save time instead of collapsing into the same null.
+  let lastDbCandidates = [];
 
   function checkDbCoinsMatch() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
-    const mint = document.getElementById("mintMark").value;
-    const variety = document.getElementById("variety").value;
 
     updateSaveConfidenceUI();
 
     const matchBanner = document.getElementById("dbMatchBanner");
     const noMatchBanner = document.getElementById("dbNoMatchBanner");
+    const ambiguousBanner = document.getElementById("dbAmbiguousBanner");
 
     if (!denom || !year) {
       matchBanner.classList.add("hidden");
       noMatchBanner.classList.add("hidden");
+      ambiguousBanner.classList.add("hidden");
       lastDbMatch = null;
+      lastDbCandidates = [];
       return;
     }
 
-    const found = findDbCoinsMatch({ denom, year, mint, variety });
+    const candidates = dbCoinsCandidatesFor(addCoinIdentityShape());
+    lastDbCandidates = candidates;
+    lastDbMatch = candidates.length === 1 ? candidates[0] : null;
 
-    if (found) {
-      lastDbMatch = found;
+    if (candidates.length === 1) {
+      const found = candidates[0];
       document.getElementById("dbMatchMsg").innerHTML =
         // Mintage/PCGS# are only PARTIALLY populated on the real DB_Coins
         // sheet, so neither can be assumed present now that this reads the
         // live catalog — an unguarded .toLocaleString() on a null Mintage
         // would throw and take the whole match banner down.
-        "Matched DB_Coins — <strong>" + found.coinId + "</strong>" +
-        (found.pcgs ? " · PCGS# " + found.pcgs : "") +
-        (found.mintage != null ? " · Mintage " + found.mintage.toLocaleString() : "");
+        "Matched DB_Coins — <strong>" + escapeHtmlText(found.coinId) + "</strong>" +
+        (found.pcgs ? " · PCGS# " + escapeHtmlText(found.pcgs) : "") +
+        (found.mintage != null ? " · Mintage " + Number(found.mintage).toLocaleString() : "");
       matchBanner.classList.remove("hidden");
       noMatchBanner.classList.add("hidden");
-    } else {
-      lastDbMatch = null;
+      ambiguousBanner.classList.add("hidden");
+    } else if (candidates.length > 1) {
+      // Deliberately NOT resolved here. Announcing it live (rather than
+      // popping the picker on every keystroke while a year is still being
+      // typed) keeps entry quiet; the picker itself fires once, at save.
+      document.getElementById("dbAmbiguousMsg").innerHTML =
+        "<strong>" + candidates.length + " catalog entries match this coin</strong> — " +
+        "you'll be asked to pick the right one when you save." +
+        (document.getElementById("finish").value ? "" : " Recording Finish above may narrow it on its own.");
       matchBanner.classList.add("hidden");
+      noMatchBanner.classList.add("hidden");
+      ambiguousBanner.classList.remove("hidden");
+    } else {
+      matchBanner.classList.add("hidden");
+      ambiguousBanner.classList.add("hidden");
       noMatchBanner.classList.remove("hidden");
     }
   }
+
+  // Resolves the form's identity to at most ONE DB_Coins row, asking the user
+  // when the catalog genuinely can't decide. Calls back with:
+  //   { coinId, row, how: "single" | "picked" | "none", candidateCount }
+  // and never calls back at all if the user cancels the picker — the save
+  // that invoked it simply doesn't happen, nothing is written, and the form
+  // keeps everything typed into it.
+  //
+  // `how` is recorded on the draft because reconciliation needs to know
+  // whether a CoinID link was a human judgement ("picked") or an unambiguous
+  // catalog hit ("single").
+  function resolveAddCoinCatalogMatch(onResolved, onCancel) {
+    const panel = document.getElementById("addCoinMatchAmbiguousPanel");
+    const candidates = dbCoinsCandidatesFor(addCoinIdentityShape());
+
+    if (candidates.length === 0) {
+      panel.classList.add("hidden");
+      onResolved({ coinId: "", row: null, how: "none", candidateCount: 0 });
+      return;
+    }
+    if (candidates.length === 1) {
+      panel.classList.add("hidden");
+      onResolved({ coinId: candidates[0].coinId || "", row: candidates[0], how: "single", candidateCount: 1 });
+      return;
+    }
+    // 2+ — the firm rule: always a human, never auto-resolved, even when one
+    // candidate looks like an exact match on some field.
+    renderAmbiguousMatchList(document.getElementById("addCoinMatchAmbiguousList"), candidates, (row) => {
+      panel.classList.add("hidden");
+      onResolved({ coinId: row.coinId || "", row, how: "picked", candidateCount: candidates.length });
+    });
+    panel.classList.remove("hidden");
+    panel.scrollIntoView({ block: "center", behavior: "auto" });
+    addCoinMatchCancelHandler = () => { panel.classList.add("hidden"); if (onCancel) onCancel(); };
+  }
+
+  // Set fresh by each resolveAddCoinCatalogMatch() call that actually shows
+  // the picker; the Cancel button delegates here so the handler is never
+  // stale (same teardown discipline showWriteGuard() uses for its buttons).
+  let addCoinMatchCancelHandler = null;
 
   // Varieties that actually exist in DB_Coins for the exact Year+MintMark+
   // Denomination already entered — e.g. a 1909 cent offers VDB, a 1920
@@ -13850,6 +14377,10 @@
     document.getElementById("description").value = row.description || "";
     descriptionAutoFilled = false;
     document.getElementById("variety").value = row.variety || "";
+    // The matched catalog row knows this specimen's Finish; carrying it onto
+    // the form both records it on the draft and lets the Finish tier narrow
+    // any later re-match, instead of leaving a field the catalog just told us.
+    if (row.finish) document.getElementById("finish").value = row.finish;
     refreshVarietyOptions();
     checkDbCoinsMatch();
     sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 210, null);
@@ -13924,7 +14455,10 @@
     container.innerHTML = "";
     rows.forEach(row => {
       const card = document.createElement("div");
-      card.className = "case form-row";
+      // .ambiguous-match opts this row out of the generic one-line ellipsis
+      // (see its CSS) — every consumer of this shared renderer needs that,
+      // so it belongs here rather than in any one panel's own styles.
+      card.className = "case form-row ambiguous-match";
       card.style.cursor = "pointer";
       const yearMint = row.year + (row.mint ? "-" + row.mint : "");
       // The CoinID leads, because on real data the candidates are otherwise
@@ -13992,6 +14526,12 @@
   }
 
   function updateSaveConfidenceUI() {
+    // Phase 1 honesty: "Save to Database" cannot create an All-sheet row yet,
+    // so say so rather than letting the button's own label imply otherwise.
+    // Hidden entirely in the mockup build, where the existing
+    // "no OneDrive write happens yet" note already covers it.
+    const interim = document.getElementById("addCoinInterimBanner");
+    if (interim) interim.classList.toggle("hidden", !addCoinWriteEnabled());
     const hasEnoughToEvaluate = document.getElementById("denomination").value && document.getElementById("year").value.trim();
     const confident = isConfidentMatch();
     // Before Denomination+Year are even filled in, there's nothing to
@@ -14019,6 +14559,7 @@
       cost: Number(document.getElementById("purchasePrice").value) || 0,
       category: "",
       rollId: "",
+      finish: document.getElementById("finish").value,
       gradeSource: document.getElementById("gradeSource").value,
       serNo: document.getElementById("certTypeNumber").value,
       designation: document.getElementById("designation").value,
@@ -14027,40 +14568,199 @@
     };
   }
 
-  function saveAddCoinForm(destination) {
-    const denom = document.getElementById("denomination").value;
-    const year = document.getElementById("year").value.trim();
+  // Everything the coin-draft writer needs, read off the form in one place so
+  // the draft and the in-memory record can't drift apart on field names.
+  function readAddCoinFormForDraft() {
+    const num = (id) => {
+      const raw = document.getElementById(id).value;
+      return raw === "" ? null : Number(raw);
+    };
+    return {
+      denom: document.getElementById("denomination").value,
+      year: document.getElementById("year").value.trim(),
+      mint: document.getElementById("mintMark").value,
+      variety: document.getElementById("variety").value,
+      description: document.getElementById("description").value,
+      finish: document.getElementById("finish").value,
+      designation: document.getElementById("designation").value,
+      errorDesc: document.getElementById("errorDesc").value,
+      grade: resolveGrade(),
+      gradeSource: document.getElementById("gradeSource").value,
+      serNo: document.getElementById("certTypeNumber").value,
+      cost: num("purchasePrice"),
+      shippingCost: num("shippingCost"),
+      purchaseDate: document.getElementById("purchaseDate").value,
+      vendor: document.getElementById("vendor").value,
+      storageLocation: document.getElementById("storageLocation").value,
+      container: document.getElementById("container").value,
+      assignAlbum: document.getElementById("assignAlbum").value,
+      notes: document.getElementById("notesField") ? document.getElementById("notesField").value : ""
+    };
+  }
 
-    // Reserve the ID FIRST, so an unmatched-coin flag can carry it. This
-    // push used to run before getNextCollectionId(), so every entry it
-    // created had no collectionId at all — fine while the queue was a
-    // display-only backlog, but a Re-check needs to know which row to write
-    // a resolved CoinID back to. Reordering is safe: getNextCollectionId()
-    // is a pure max+1 scan over FAKE_COINS/FAKE_STAGING and doesn't depend
-    // on anything the flag-push did.
-    const collectionId = getNextCollectionId();
-    const record = buildCoinRecordFromForm(collectionId);
-
-    if (denom && year && !lastDbMatch) {
-      // Routed through appendDocketEntry() — durable Staging file when
-      // ENABLE_DOCKET_WRITE is on, in-memory exactly as before when it's
-      // off. Fire-and-forget like the render call below it; the append
-      // handles its own failures.
-      appendDocketEntry({
-        kind: "no-db-coins-match",
-        collectionId,
-        denom, year,
-        mint: document.getElementById("mintMark").value,
-        variety: document.getElementById("variety").value,
-        // No Finish: Add Coin has no Finish input (it's an All/DB_Coins
-        // column, never captured at intake), and this branch only runs when
-        // there's no matched DB_Coins row to read one off either. A blank
-        // finish is handled correctly downstream — dbCoinsCandidatesFor()
-        // only narrows by finish when one is actually present.
-        desc: document.getElementById("description").value
-      }).then(() => renderNeedsAttentionHub()); // badge/list catch up whenever this resolves
+  // ---- Photo upload for a coin draft ---------------------------------
+  // Add Coin's gallery is keyed by a temp draft id (ADDCOIN_GALLERY_ID)
+  // because no CollectionID exists until save, so every filename in it is
+  // built against "__addcoin_draft__". This re-derives each filename against
+  // the REAL reserved id before uploading — the reconciliation step the
+  // gallery module's own comment always said a real write layer would need.
+  //
+  // Uploads the cropped image plus, for the flip sources, the untouched
+  // original (the "_original is never deleted" rule from the crop-commit
+  // convention). rawUrl is a blob: URL rather than a Blob, so its bytes come
+  // back via fetch() — the same trick the Adjust button already uses.
+  //
+  // A single photo failing must not lose the whole capture: each upload is
+  // caught individually and reported, so the draft still lands with whatever
+  // did upload and its research note says what didn't.
+  async function uploadCoinDraftPhotos(collectionId) {
+    const entries = galleryFor(ADDCOIN_GALLERY_ID);
+    const uploaded = [];
+    const failed = [];
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const def = galleryTypeDef(entry.type);
+      if (!def) continue;
+      const indexAmongType = entries.slice(0, i).filter(e => e.type === entry.type).length;
+      const names = galleryFilenameFor(collectionId, entry.type, indexAmongType, entry.subGroupId);
+      if (!names) continue;
+      try {
+        if (entry.blob) {
+          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.cropped, entry.blob);
+          uploaded.push({ type: entry.type, filename: names.cropped, caption: entry.caption || "" });
+        }
+        if (names.raw && entry.rawUrl) {
+          const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
+          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.raw, rawBlob);
+          uploaded.push({ type: entry.type, filename: names.raw, caption: "original" });
+        }
+      } catch (e) {
+        console.warn("Coin draft photo upload failed:", names.cropped, e);
+        failed.push(names.cropped);
+      }
     }
+    return { uploaded, failed };
+  }
 
+  async function uploadCoinDraftReceipt(collectionId) {
+    const receipt = receiptFiles["receiptPreview"];
+    if (!receipt || !receipt.blob) return "";
+    // Same {CollectionID}_receipt.pdf convention the rest of the project
+    // already uses — see CLAUDE.md "Receipt photos auto-convert to PDF".
+    const filename = collectionId + "_receipt.pdf";
+    await graph().uploadFile(coinDraftFolder(collectionId) + "/" + filename, receipt.blob);
+    return filename;
+  }
+
+  // ==================================================================
+  // ADD COIN SAVE — Phase 1
+  // ==================================================================
+  // Flow, in order, and the order matters:
+  //   1. Resolve the catalog match FIRST, before anything is reserved or
+  //      written. A 2+ ambiguous result opens the picker and the save simply
+  //      stops until Ray picks (or cancels) — so a cancelled save has
+  //      reserved no id, written no file, and left no trace.
+  //   2. Reserve the CollectionID (real durable authority when the flag is
+  //      on, in-memory mockup when it's off).
+  //   3. Write the draft, then upload photos, then rewrite the draft with the
+  //      photo filenames. Draft-first means a photo failure leaves a real,
+  //      findable draft rather than orphaned image bytes with nothing
+  //      pointing at them.
+  //
+  // "database" vs "staging" in Phase 1: both destinations write the SAME
+  // coin.json draft. Nothing here creates an All-sheet row — that's Phase 2.
+  // The distinction is recorded on the draft's status so the two are
+  // distinguishable at reconciliation, and the toast says plainly which one
+  // happened, rather than implying a workbook write that didn't occur.
+  function saveAddCoinForm(destination) {
+    resolveAddCoinCatalogMatch(
+      (match) => { completeAddCoinSave(destination, match); },
+      () => { showToast("Save cancelled — nothing was written, and your entry is still here."); }
+    );
+  }
+
+  async function completeAddCoinSave(destination, match) {
+    const btnId = destination === "database" ? "saveToDatabaseBtn" : "saveToStagingBtn";
+    const btn = document.getElementById(btnId);
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    try {
+      const collectionId = await reserveCoinCollectionId();
+      const form = readAddCoinFormForDraft();
+
+      // A genuine catalog miss still goes to the Docket, exactly as before —
+      // but now it's driven by the resolved match rather than a live banner
+      // flag, so "several candidates, one picked" is correctly NOT treated as
+      // a miss. designation/gradeSource ride along so a later Re-check
+      // engages the cert-protection guard (the same gap already fixed for
+      // Browse Edit's own flag push).
+      if (form.denom && form.year && match.how === "none") {
+        appendDocketEntry({
+          kind: "no-db-coins-match",
+          collectionId,
+          denom: form.denom, year: form.year, mint: form.mint,
+          variety: form.variety,
+          finish: form.finish,
+          designation: form.designation,
+          gradeSource: form.gradeSource,
+          desc: form.description
+        }).then(() => renderNeedsAttentionHub());
+      }
+
+      if (!addCoinWriteEnabled()) {
+        completeAddCoinSaveInMemory(destination, collectionId, match);
+        return;
+      }
+
+      const draft = buildCoinDraft(collectionId, form, match);
+      draft.savedVia = destination === "database" ? "direct" : "staging";
+      await writeCoinDraft(draft);
+
+      const photos = await uploadCoinDraftPhotos(collectionId);
+      let receiptName = "";
+      try {
+        receiptName = await uploadCoinDraftReceipt(collectionId);
+      } catch (e) {
+        console.warn("Coin draft receipt upload failed:", e);
+        photos.failed.push("receipt");
+      }
+      draft.photos = photos.uploaded;
+      draft.receiptPhoto = receiptName;
+      if (photos.failed.length) {
+        draft.researchNote = [draft.researchNote,
+          "Some captured files failed to upload at capture: " + photos.failed.join(", ") + "."]
+          .filter(Boolean).join("\n");
+      }
+      await writeCoinDraft(draft);
+
+      resetAddCoinAfterSave();
+      // Re-read the folder rather than pushing onto the cache: the cache can
+      // legitimately be null here (nothing has opened Staging Review yet, or
+      // the launch-time prime failed), and appending to an unprimed cache
+      // would report "1 draft" on a folder that already holds several. One
+      // extra folder walk per save is cheap; saves are rare.
+      await refreshCoinDraftCache();
+      showToast("Saved " + collectionId + " to Staging on OneDrive (" + WRITE_TARGET + ")" +
+        (photos.uploaded.length ? " with " + photos.uploaded.length + " file" + (photos.uploaded.length === 1 ? "" : "s") : "") +
+        (match.coinId ? " · CoinID " + match.coinId : " · CoinID pending research") +
+        ". Review it under Staging Review." +
+        (photos.failed.length ? " " + photos.failed.length + " file(s) didn't upload — see the draft's research note." : ""));
+    } catch (e) {
+      console.error("Add Coin save failed:", e);
+      showToast("Couldn't save: " + String(e && e.message || e) + " — nothing was written; your entry is still here.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+
+  // The original mockup path, unchanged in behaviour — what runs whenever
+  // ENABLE_ADDCOIN_WRITE is off, so the shipped build keeps working exactly
+  // as it always has.
+  function completeAddCoinSaveInMemory(destination, collectionId, match) {
+    const record = buildCoinRecordFromForm(collectionId);
+    if (match && match.coinId) record.coinId = match.coinId;
     if (destination === "database") {
       FAKE_COINS.push(record);
       showToast("Placeholder only — " + collectionId + " saved to Database. Nothing written to OneDrive yet.");
@@ -14073,7 +14773,17 @@
       updateStagingBadge();
       showToast("Placeholder only — " + collectionId + " reserved and saved to Staging for review.");
     }
+    clearAlbumContext();
+    clearWishlistContext();
+  }
 
+  // After a REAL save the captured photos now live in OneDrive under the
+  // draft's own folder, so the in-progress gallery has to be cleared —
+  // otherwise the next coin entered in the same session would re-upload the
+  // previous coin's photos under its own CollectionID.
+  function resetAddCoinAfterSave() {
+    delete galleryStore[ADDCOIN_GALLERY_ID];
+    delete receiptFiles["receiptPreview"];
     clearAlbumContext();
     clearWishlistContext();
   }
@@ -14172,6 +14882,17 @@
     });
     document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("mintMark").addEventListener("change", () => { refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
+    // Finish/Designation/GradeSource are all real inputs to
+    // dbCoinsCandidatesFor() (the Finish tier, the Designation tier, and the
+    // cert-protection guard respectively), so each has to re-run the match —
+    // otherwise the banner would go on reporting a count derived from a
+    // weaker key than the save will actually use.
+    document.getElementById("finish").addEventListener("change", checkDbCoinsMatch);
+    document.getElementById("designation").addEventListener("input", checkDbCoinsMatch);
+    document.getElementById("gradeSource").addEventListener("change", checkDbCoinsMatch);
+    document.getElementById("addCoinMatchCancelBtn").addEventListener("click", () => {
+      if (addCoinMatchCancelHandler) addCoinMatchCancelHandler();
+    });
 
     // Variety: dropdown filtered to this exact coin's valid varieties, plus a
     // manual "Other" override. #variety (hidden) is the actual value every
@@ -15623,6 +16344,11 @@
   initBatchReceipt();
   renderNeedsAttentionHub();
   updateStagingBadge();
+  // With the real write layer on, the badge's count lives in a cache that is
+  // only filled when Staging Review is opened — so prime it once at launch,
+  // fire-and-forget, the same way renderNeedsAttentionHub() already reads
+  // Staging at init. Flag-gated, so a disabled build makes no Graph call.
+  if (addCoinWriteEnabled()) refreshCoinDraftCache();
   updateInProgressSetsBadge();
   renderStats();
   navigate("dashboard");
