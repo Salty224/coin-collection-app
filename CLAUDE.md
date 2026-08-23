@@ -4970,6 +4970,23 @@ nav smoke with no horizontal overflow.
   new write path and needs a live run against `_Testing` before it's trusted —
   see `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`.
 
+**Four review decisions confirmed by Ray (2026-08-23), recorded so a future
+session doesn't reopen them:**
+- **"Save to Database" keeps its wording in Phase 1.** The interim banner
+  already states that both options write a Staging draft; relabelling the
+  button now would only mean relabelling it again at Phase 2 for no real
+  benefit.
+- **A draft marked ready STAYS VISIBLE in the Docket's research section**
+  while it waits on the real `All` row. The Docket's job is "what still needs
+  attention," and hiding a genuinely-pending draft would create a silent gap.
+  (This had been flagged as my own call rather than a specified behaviour —
+  it is now confirmed as intended.)
+- **`Finish` stays out of `ALL_WRITABLE_COLUMNS` until Phase 2** — correct not
+  to widen Browse Edit's editable scope as a side effect of an Add Coin build.
+- **Album assignment / post-save slot-fill is a backlog item, not a phase.**
+  UX polish on a working save, no urgency — logged as ParkingLot Row 3 in the
+  session log below.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
@@ -6600,7 +6617,7 @@ reference-image-second, then the bare placeholder third.
 
 ## Session log — carried-forward state (not app architecture, tracked here for continuity)
 
-### ParkingLot entries to transfer (2 rows, as of 2026-08-22)
+### ParkingLot entries to transfer (3 rows, as of 2026-08-23)
 **Needs adding to the workbook's ParkingLot sheet — logged here because this
 coding session has no write access to the live OneDrive workbook.** Recorded
 verbatim in ParkingLot's own column shape (Item/Title, Category, Priority,
@@ -6620,6 +6637,12 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-22`
 - **Status:** `Open`
 - **Description:** `Catalog's grid and list views don't surface fields that distinguish otherwise-identical-looking catalog entries. Confirmed for two cases: Designation (FB Mercury dimes show bare Grade, e.g. "MS-64" instead of "MS-64FB") and Variety (1909 VDB vs non-VDB Wheat cents both show plain "1909 Wheat 1C" with no way to tell them apart). Individual Browse detail's flip card handles both fields correctly — only Catalog's grid/list views are missing them. Not blocking, cosmetic/data-clarity issue only.`
+
+**Row 3:**
+- **Item/Title:** `Add Coin album assignment is captured but never acted on`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
+- **Status:** `Open`
+- **Description:** `Add Coin's "Assign to Album" selection is now recorded on the Phase 1 Staging coin draft (assignAlbum), but nothing consumes it — no slot is filled, and the separately-specced post-save Albums matching flow (offer to fill a matching open slot; surface both coins on an already-filled slot; never auto-fill silently) is still unbuilt. Deliberately NOT scoped into any Add Coin write-layer phase: it is UX polish on a save that already works, not core to logging a coin. Pick up whenever. See CLAUDE.md "Post-save Albums matching" for the behaviour already agreed.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
