@@ -123,6 +123,98 @@ module.exports = defineSuite("batch3", async ({ ok, openApp, PHONE }) => {
   ok(BCAT2.category === "Silver Eagle", "8c.4 picking American Silver Eagle from the real Bullion dropdown sets addCoinIdentityShape().category");
   ok(BCAT2.len === 1 && BCAT2.id === "C-ASE-LIVE", "8c.5 end-to-end: the real form's identity shape narrows via the Category tier through the actual UI, not just a synthetic shape");
 
+  // ---------- #8 follow-up round 2: confirmed categories hard-zero, real wording, false-positive guards ----------
+  const BCAT3 = await page.evaluate(() => {
+    const results = {};
+
+    // Real confirmed DB_Coins wording (Ray, 2026-08-23) narrows correctly
+    // for all three now-hard categories.
+    __setLiveDbCoinsForTest([
+      { denom:"$1", year:2021, mint:"", variety:"", description:"American Silver Eagle Dollar", finish:"", designation:"", coinId:"C-ASE-1", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$1", year:2021, mint:"", variety:"", description:"American Silver Eagle Burnished Dollar", finish:"", designation:"", coinId:"C-ASE-2", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$1", year:2021, mint:"", variety:"", description:"Morgan Dollar", finish:"", designation:"", coinId:"C-MORGAN", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    results.realWording = dbCoinsCandidatesFor({ denom:"$1", year:"2021", mint:"", variety:"", category:"Silver Eagle" }).map(c => c.coinId).sort();
+    __setLiveDbCoinsForTest(null);
+
+    // Hard-zero: a CONFIRMED category (Silver Eagle) genuinely absent from
+    // this coin's candidates now narrows to zero -- a real signal, same as
+    // Finish's own hard-zero for a recognized value. Two candidates so the
+    // tier's own `candidates.length > 1` guard actually runs.
+    __setLiveDbCoinsForTest([
+      { denom:"$1", year:1999, mint:"", variety:"", description:"Susan B. Anthony Dollar", finish:"", designation:"", coinId:"C-SBA", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$1", year:1999, mint:"", variety:"", description:"Peace Dollar", finish:"", designation:"", coinId:"C-PEACE-99", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    results.hardZeroSilverEagle = dbCoinsCandidatesFor({ denom:"$1", year:"1999", mint:"", variety:"", category:"Silver Eagle" }).length;
+    __setLiveDbCoinsForTest(null);
+
+    // Palladium Eagle: fixed from a bare "PALLADIUM" hint (real wording
+    // confirmed "Palladium Eagle Dollar") -- also hard-zero-capable now.
+    __setLiveDbCoinsForTest([
+      { denom:"$25", year:2018, mint:"", variety:"", description:"Palladium Eagle Dollar", finish:"", designation:"", coinId:"C-PALL", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$25", year:2018, mint:"", variety:"", description:"Some Other $25 Row", finish:"", designation:"", coinId:"C-OTHER", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    const pallMatch = dbCoinsCandidatesFor({ denom:"$25", year:"2018", mint:"", variety:"", category:"Palladium Eagle" });
+    results.palladiumMatchLen = pallMatch.length;
+    results.palladiumMatchId = pallMatch[0] && pallMatch[0].coinId;
+    __setLiveDbCoinsForTest(null);
+
+    // Gold Eagle real wording ("American Gold Eagle") narrows correctly.
+    __setLiveDbCoinsForTest([
+      { denom:"$50", year:2020, mint:"", variety:"", description:"American Gold Eagle", finish:"", designation:"", coinId:"C-AGE", pcgs:"", mintage:null, gsid:"" },
+      { denom:"$50", year:2020, mint:"", variety:"", description:"American Buffalo Gold", finish:"", designation:"", coinId:"C-BUFF", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    const geMatch = dbCoinsCandidatesFor({ denom:"$50", year:"2020", mint:"", variety:"", category:"Gold Eagle" });
+    results.goldEagleMatchLen = geMatch.length;
+    results.goldEagleMatchId = geMatch[0] && geMatch[0].coinId;
+    __setLiveDbCoinsForTest(null);
+
+    // False-positive/no-hard-zero guard: "Eagle" is a soft (unconfirmed,
+    // untested -- zero real DB_Coins rows yet) category. A genuine miss
+    // (neither candidate's Description contains "EAGLE" at all) must NOT
+    // hard-zero, unlike a CONFIRMED category -- it falls through to the
+    // full set instead, so an untested category can never wrongly clear a
+    // real coin's candidates and misroute it to the Docket.
+    __setLiveDbCoinsForTest([
+      { denom:"25C", year:1932, mint:"", variety:"", description:"Washington Quarter", finish:"", designation:"", coinId:"C-WASH", pcgs:"", mintage:null, gsid:"" },
+      { denom:"25C", year:1932, mint:"", variety:"", description:"Standing Liberty Quarter", finish:"", designation:"", coinId:"C-SLQ", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    results.eagleSoftFallback = dbCoinsCandidatesFor({ denom:"25C", year:"1932", mint:"", variety:"", category:"Eagle" }).length;
+    // A real false-positive case, kept as documentation of the accepted
+    // risk: "Bald Eagle Recovery" DOES contain the bare "EAGLE" substring,
+    // so a soft category CAN still narrow incorrectly on a coincidental
+    // word match (unlike a hard-zero MISS, which this tier protects
+    // against, a false-positive HIT on an untested single-word-risk hint is
+    // a known, accepted tradeoff of staying soft rather than removing the
+    // hint entirely).
+    __setLiveDbCoinsForTest([
+      { denom:"50C", year:2008, mint:"", variety:"", description:"Bald Eagle Recovery Half Dollar", finish:"", designation:"", coinId:"C-BALD", pcgs:"", mintage:null, gsid:"" },
+      { denom:"50C", year:2008, mint:"", variety:"", description:"Some Classic Half Dollar", finish:"", designation:"", coinId:"C-HALF", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    results.eagleKnownFalsePositiveHit = dbCoinsCandidatesFor({ denom:"50C", year:"2008", mint:"", variety:"", category:"Eagle" }).length;
+    __setLiveDbCoinsForTest(null);
+
+    // Gold Buffalo: fixed from a bare "BUFFALO" hint (would have
+    // false-positived against Buffalo Nickel) to "AMERICAN BUFFALO" --
+    // confirm a plain Buffalo Nickel row is NOT matched by it, and (since
+    // Gold Buffalo has zero confirmed real rows and stays soft) a genuine
+    // miss still soft-falls-back rather than hard-zeroing.
+    __setLiveDbCoinsForTest([
+      { denom:"5C", year:1937, mint:"D", variety:"", description:"Buffalo Nickel", finish:"", designation:"", coinId:"C-NICKEL", pcgs:"", mintage:null, gsid:"" }
+    ]);
+    results.goldBuffaloNoFalsePositive = dbCoinsCandidatesFor({ denom:"5C", year:"1937", mint:"D", variety:"", category:"Gold Buffalo" }).length;
+    __setLiveDbCoinsForTest(null);
+
+    return results;
+  });
+  ok(JSON.stringify(BCAT3.realWording) === JSON.stringify(["C-ASE-1", "C-ASE-2"]), "8c.6 real confirmed DB_Coins wording (\"American Silver Eagle Dollar\"/\"...Burnished Dollar\") narrows correctly, excluding Morgan Dollar");
+  ok(BCAT3.hardZeroSilverEagle === 0, "8c.7 a CONFIRMED category (Silver Eagle) genuinely absent from this coin's candidates now hard-zero-narrows, a real signal like Finish's own");
+  ok(BCAT3.palladiumMatchLen === 1 && BCAT3.palladiumMatchId === "C-PALL", "8c.8 Palladium Eagle hint fixed from bare \"PALLADIUM\" to the real confirmed \"PALLADIUM EAGLE\" phrase and narrows correctly");
+  ok(BCAT3.goldEagleMatchLen === 1 && BCAT3.goldEagleMatchId === "C-AGE", "8c.9 Gold Eagle real wording (\"American Gold Eagle\") narrows correctly, excluding American Buffalo Gold");
+  ok(BCAT3.eagleSoftFallback === 2, "8c.10 the unconfirmed \"Eagle\" category stays soft-only -- a genuine miss (no candidate contains \"EAGLE\" at all) does not hard-zero");
+  ok(BCAT3.eagleKnownFalsePositiveHit === 1, "8c.10b known, accepted tradeoff: a soft category's bare-word hint CAN still narrow on a coincidental match (Bald Eagle Recovery) -- this is the false-positive risk staying soft accepts, distinct from the hard-zero-on-a-genuine-miss case this pass actually protects against");
+  ok(BCAT3.goldBuffaloNoFalsePositive === 1, "8c.11 Gold Buffalo hint fixed from bare \"BUFFALO\" to \"AMERICAN BUFFALO\" -- a plain Buffalo Nickel row is not falsely matched, and the genuine miss still soft-falls-back (unconfirmed category)");
+
   // ---------- #8: Denomination dropdown derived from Ref_Denominations ----------
   const B8 = await page.evaluate(() => {
     navigate('addcoin');

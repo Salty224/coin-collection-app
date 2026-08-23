@@ -7460,29 +7460,65 @@
   // (confirmed via source — mapWorkbookRowToDbCoin() maps no such field),
   // so a bullion-tier Add Coin pick's Category is matched against
   // Description instead, which is the field that actually names the coin
-  // TYPE (e.g. "American Silver Eagle", "Liberty Head Half Eagle"). Kept as
-  // a plain keyword list, not an exact-string map, since the real DB_Coins
-  // wording per row (e.g. whether "Liberty Head"/"Indian Head" prefixes a
-  // classic Half Eagle's Description) hasn't been confirmed from this
-  // environment — only the row COUNT was confirmed (487 real American
-  // Silver/Gold/Platinum Eagle rows). See dbCoinsCandidatesFor()'s Category
-  // tier for why this stays soft (never narrows to zero) given that.
+  // TYPE (e.g. "American Silver Eagle Dollar").
+  //
+  // Ray confirmed real DB_Coins Description wording for the modern bullion
+  // rows (2026-08-23): "American Silver Eagle Dollar", "American Silver
+  // Eagle Burnished Dollar", "Silver Eagle Dollar", "American Gold Eagle",
+  // "Palladium Eagle Dollar", "American Buffalo Silver Dollar" (the last is
+  // flagged as a likely mislabeled catalog entry — the real American
+  // Buffalo program is gold-only, no silver Buffalo bullion issue exists;
+  // that's a workbook data issue for Ray to check directly, not something
+  // this matcher should try to work around). He also checked known
+  // false-positive risks: "Bald Eagle Recovery" (commemorative), "Flying
+  // Eagle Cent" (a classic 1850s cent), "Buffalo Nickel", and a Marine
+  // Corps commemorative containing "American Eagle" — none contain the
+  // exact two-word phrases below, only the individual words in a different
+  // order/context, so a bare single-word hint ("Eagle", "Buffalo") would
+  // have false-positived against them but a full two-word phrase doesn't.
+  //
+  // Every hint here is a full two-word-or-longer phrase for exactly that
+  // reason — NEVER collapse one to a single word.
   const BULLION_CATEGORY_MATCH_HINTS = {
+    // Zero DB_Coins rows exist yet for these six classic gold categories —
+    // untested, not wrong, pending an actual coin of that type being
+    // catalogued. Left as best-guess two-word phrases; kept in
+    // BULLION_CATEGORY_HARD_CATEGORIES's complement (soft-only) below until
+    // a real row confirms the wording.
     "Gold Dollar": ["GOLD DOLLAR"],
     "Quarter Eagle": ["QUARTER EAGLE"],
     "Three Dollar Gold": ["THREE DOLLAR"],
     "Half Eagle": ["HALF EAGLE"],
     "Eagle": ["EAGLE"],
     "Double Eagle": ["DOUBLE EAGLE"],
+    // "Commemorative" alone is a real, confirmed false-positive risk (Bald
+    // Eagle Recovery IS a commemorative) — stays soft-only, no exception.
     "Commemorative Gold": ["COMMEMORATIVE"],
     "Commemorative $5 Gold": ["COMMEMORATIVE"],
     "First Spouse $10": ["FIRST SPOUSE"],
-    "Gold Buffalo": ["BUFFALO"],
+    // "Buffalo" alone would false-positive against Buffalo Nickel — two
+    // words, still untested for a real Gold Buffalo row (only the
+    // mislabeled silver anomaly above exists today).
+    "Gold Buffalo": ["AMERICAN BUFFALO"],
+    // --- Confirmed against real DB_Coins wording, safe against every
+    // checked false positive — see dbCoinsCandidatesFor()'s Category tier
+    // for what this buys them (a real hard-zero-narrow, like Finish).
     "Silver Eagle": ["SILVER EAGLE"],
-    "Palladium Eagle": ["PALLADIUM"],
+    "Palladium Eagle": ["PALLADIUM EAGLE"],
     "Gold Eagle": ["GOLD EAGLE"],
-    "Platinum Eagle": ["PLATINUM EAGLE", "PLATINUM"]
+    // Platinum Eagle's own real wording was not among what Ray checked —
+    // best-guess phrase, stays soft-only until confirmed.
+    "Platinum Eagle": ["PLATINUM EAGLE"]
   };
+
+  // Categories whose hint phrase is CONFIRMED against real DB_Coins wording
+  // and CONFIRMED safe against every known false-positive risk (see the
+  // comment above) — only these get a real hard-zero-narrow in
+  // dbCoinsCandidatesFor() when the hint finds no hit among the current
+  // candidates. Every other category (untested wording, or a hint word
+  // with a known collision like "Commemorative"/"Eagle" alone) stays
+  // soft-only, same fail-safe posture as before this pass.
+  const BULLION_CATEGORY_HARD_CATEGORIES = new Set(["Silver Eagle", "Palladium Eagle", "Gold Eagle"]);
 
   // Populates Add Coin's #denomination <select> — from DENOM_CODE_INFO
   // filtered to codes actually present in FAKE_DENOMINATIONS (era
@@ -11107,17 +11143,21 @@
     // mapWorkbookRowToDbCoin() maps no such field), so this narrows against
     // Description instead, via BULLION_CATEGORY_MATCH_HINTS — a keyword list
     // per Category, since Description is the field that actually names the
-    // coin type. **Deliberately soft-only, never narrows to zero** — unlike
-    // the Finish tier's hard-zero for a recognized value, the real DB_Coins
-    // Description wording for each bullion type hasn't been confirmed
-    // against the live workbook from this environment (only the ROW COUNT
-    // was confirmed). A wrong/incomplete hint must never silently clear a
-    // real coin's candidates to zero and wrongly route it to the Docket — it
-    // can only ever narrow when it actually finds a match; otherwise it falls
-    // through unchanged, same fail-safe posture the Description tier above
-    // already uses for its own "no guaranteed correspondence" risk. Revisit
-    // as a hard filter only once the real Description text for these rows is
-    // confirmed against the live workbook.
+    // coin type.
+    //
+    // Ray confirmed real DB_Coins wording for the modern bullion rows
+    // (2026-08-23, see BULLION_CATEGORY_MATCH_HINTS' own comment for the
+    // full list and the false-positive risks checked against) — so a
+    // CONFIRMED category (BULLION_CATEGORY_HARD_CATEGORIES: Silver Eagle,
+    // Palladium Eagle, Gold Eagle) now gets the same real hard-zero-narrow
+    // the Finish tier already gives a recognized value: a hit narrows
+    // normally; a genuine miss (the hint matches nothing among THIS coin's
+    // candidates) narrows to zero, a real signal. Every OTHER category
+    // (untested wording, like the classic gold denominations with zero
+    // DB_Coins rows so far; or a hint word with a known collision risk,
+    // like "Commemorative" alone matching Bald Eagle Recovery) stays
+    // soft-only — a miss there falls through unchanged rather than risking
+    // a false zero that would wrongly route a real coin to the Docket.
     if (candidates.length > 1 && shape.category) {
       const hints = BULLION_CATEGORY_MATCH_HINTS[shape.category];
       if (hints) {
@@ -11125,7 +11165,11 @@
           const desc = normField(c.description || "");
           return hints.some(h => desc.indexOf(h) !== -1);
         });
-        if (byCategory.length) candidates = byCategory;
+        if (byCategory.length) {
+          candidates = byCategory;
+        } else if (BULLION_CATEGORY_HARD_CATEGORIES.has(shape.category)) {
+          candidates = [];
+        }
       }
     }
     // --- Finish tier. Narrows further where it can. Measured against the
