@@ -7,24 +7,25 @@ const { defineSuite } = require("./harness");
 module.exports = defineSuite("batch4", async ({ ok, openApp, PHONE }) => {
   const page = await openApp(PHONE);
 
-  // ---------- #1: Bullion toggle moved below the main data-entry window ----------
+  // ---------- #1: Bullion toggle sits directly above Denomination ----------
+  // Superseded (batch 6): batch 4 moved this below Notes; Ray's live-device
+  // review corrected that back -- the toggle determines how Denomination/
+  // Category get captured together and reads disconnected from that field
+  // when it sits down near Notes. This assertion now checks the CORRECTED
+  // (original) placement, not weakened -- see CLAUDE.md "batch 6".
   const B1 = await page.evaluate(() => {
     navigate('addcoin');
     const toggle = document.getElementById('addCoinBullionToggle');
     const denomination = document.getElementById('denomination');
     const notes = document.getElementById('notesField');
-    const purchaseRow = document.getElementById('purchaseInfoRow');
-    // The toggle must now sit AFTER Notes (the last field in the main
-    // identification block) and BEFORE the collapsed Purchase Details row
-    // -- not directly above Denomination anymore.
-    const afterNotes = !!(notes.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const beforePurchaseRow = !!(toggle.compareDocumentPosition(purchaseRow) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const notImmediatelyAboveDenom = toggle.compareDocumentPosition(denomination) !== Node.DOCUMENT_POSITION_FOLLOWING;
-    return { afterNotes, beforePurchaseRow, notImmediatelyAboveDenom };
+    // The toggle must sit immediately above Denomination (only the note
+    // paragraph between them) and BEFORE Notes -- not down near it anymore.
+    const immediatelyAboveDenom = !!(toggle.compareDocumentPosition(denomination) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const beforeNotes = !!(toggle.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return { immediatelyAboveDenom, beforeNotes };
   });
-  ok(B1.afterNotes, "4.1.1 Bullion toggle now sits after Notes (below the main data-entry window)");
-  ok(B1.beforePurchaseRow, "4.1.2 Bullion toggle sits before the Purchase Details row (a standalone control, not inside a collapsed section)");
-  ok(B1.notImmediatelyAboveDenom, "4.1.3 Bullion toggle is no longer immediately followed by Denomination -- no longer positioned directly above the field it controls");
+  ok(B1.immediatelyAboveDenom, "4.1.1 Bullion toggle sits directly above Denomination (batch 6: corrected back from batch 4's move)");
+  ok(B1.beforeNotes, "4.1.2 Bullion toggle is no longer positioned down near Notes");
 
   // ---------- #2: series picker must not fire once Category already resolves identity ----------
   const B2 = await page.evaluate(() => {

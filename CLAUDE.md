@@ -5881,6 +5881,8 @@ to one — confirming the fix itself works).
   a standalone control after the identification fields than interrupting
   them. No behavior change — same element id, same listener, same
   `populateAddCoinDenominationDropdown()` call.
+  **Superseded by batch 6 below — corrected back to directly above
+  Denomination** after Ray saw it live; kept here only for history.
 - **#2 — series picker not Category-aware, a real bug.** After picking
   "American Silver Eagle" via the Bullion toggle, editing Year afterward
   re-triggered the classic denom+year series lookup against the shared
@@ -5937,6 +5939,43 @@ to one — confirming the fix itself works).
 - **Not verified: any real device, any real OneDrive session against these
   specific fixes** — same standing caveat as every prior round in this
   feature.
+
+### Add Coin Phase 1: batch 6 (BUILT, same branch, still held)
+Two findings from Ray's live-device review of batch 4's changes.
+
+- **#1 — Bullion toggle placement, corrected.** Batch 4's move (checkbox +
+  note down near Notes, before Purchase Details) read wrong in hand — the
+  checkbox determines how Denomination/Category get captured together, so
+  it needs to sit next to that field, not disconnected from it near the
+  bottom of the identification block. **Moved back to directly above
+  Denomination**, exactly its pre-batch-4 position. No behavior change —
+  same element id, same listener, same
+  `populateAddCoinDenominationDropdown()` call; markup position only, both
+  times.
+- **#2 — Grading Service section header: kept, not dropped.** Investigated
+  rather than guessed: the "GRADING SERVICE (OPTIONAL)" header currently
+  reads as sitting above a single field (Grader) because the section's
+  other real content — the PCGS Label # block, the non-PCGS grader note,
+  and the Cert/Type Number row — is conditionally hidden (`display:none`)
+  until a Grader is actually picked. So at rest it *looks* like a
+  one-field section, but it already isn't one — those three blocks are
+  real, already-built content under this same header, not "planned soon"
+  fields that would need to arrive first to justify it. Dropping the
+  header (option b) would either leave the PCGS Label block/Cert-Type-
+  Number row with no header of their own once revealed, or require
+  re-adding one at that point anyway — so option (a) was the clear fit.
+  **No code change** — the header stays exactly as it is.
+- Verified headless: `tests/verify_batch4.js`'s own toggle-position
+  assertions were rewritten to check the corrected (original) placement,
+  following the real design change rather than weakening the suite (batch
+  4's now-superseded assertions are gone, not left conflicting). 223
+  assertions across all 4 suites, zero failures. Screenshots reviewed at
+  both viewports confirming the toggle sits directly under the
+  Denomination label with no overflow.
+- **Not verified: any real device against this specific correction** —
+  same standing caveat as every prior round in this feature; this round
+  itself was a direct response to Ray's own device review, so the loop is
+  already closer than usual.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

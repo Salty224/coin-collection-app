@@ -2993,6 +2993,20 @@
           </div>
 
           <label>Denomination</label>
+          <!-- Moved back here (batch 6, Ray's live-device review corrected
+               batch 4's move to below Notes) — this checkbox determines
+               how Denomination/Category get captured together, and reads
+               disconnected from that field when it sits down near Notes. -->
+          <label class="grade-range-toggle" style="margin-top:0;">
+            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
+          </label>
+          <p class="placeholder-note" style="margin:4px 0 8px;">
+            Picking an option here sets Denomination AND Category together —
+            these coins are catalogued by their real face value plus a type
+            (e.g. Denomination "$1", Category "Silver Eagle"), same as the
+            workbook already does for Morgan/Peace/Silver Eagle. Off shows
+            everyday circulating denominations only.
+          </p>
           <select id="denomination">
             <option value="">— select —</option>
             <!-- The rest are generated at init (and on Bullion toggle) by
@@ -3146,22 +3160,6 @@
 
           <label>Notes</label>
           <textarea id="notesField" placeholder="Anything else worth remembering"></textarea>
-
-          <!-- Moved below the main data-entry window (live spot-check
-               finding, batch 4 follow-up) — it's a mode switch for the
-               Denomination field above, not a field of its own, and reads
-               better as a standalone control after everything else rather
-               than interrupting the identification fields. -->
-          <label class="grade-range-toggle" style="margin-top:0;">
-            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
-          </label>
-          <p class="placeholder-note" style="margin:4px 0 16px;">
-            Picking an option from Denomination above sets it AND Category
-            together — these coins are catalogued by their real face value
-            plus a type (e.g. Denomination "$1", Category "Silver Eagle"),
-            same as the workbook already does for Morgan/Peace/Silver Eagle.
-            Off shows everyday circulating denominations only.
-          </p>
 
           <div class="case form-row" id="purchaseInfoRow">
             <span class="fr-icon">💵</span>
