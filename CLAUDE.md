@@ -735,6 +735,12 @@ together rather than mixed in at the top level.
   top level). Once filled in and closed, the row shows a one-line summary of
   what was entered (e.g. "$45.00 · eBay seller") instead of the raw fields, so
   the top level stays short.
+  **SUPERSEDED — Ray explicitly overturned this.** Both sections are inline
+  accordions now, like every other section on the form; the drill-down cards
+  and their one-line summary rows are gone, along with
+  `showAddCoinSubview()` and `updateFormRowSummaries()`. See "Add Coin:
+  accordion restructure" below. Add Set still uses the drill-down pattern —
+  it was deliberately NOT converted alongside Add Coin.
 - **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
   circular**, matching the Spotlight/Browse coin discs so they read as a coin
   rather than a square photo.
@@ -6017,6 +6023,8 @@ he confirmed, not a further guess.
   accordion-section layout (with Grading Service pulled into its own
   bounded card) is Ray's stated bigger goal — logged as ParkingLot Row 5
   above, explicitly scoped as a SEPARATE future task, not started here.
+  **Since BUILT** — see "Add Coin: accordion restructure" below; ParkingLot
+  Row 5 is resolved.
 - Verified headless: `tests/verify_batch4.js`'s toggle-position assertions
   rewritten again for the corrected (AFTER-the-dropdown) placement, plus
   three assertions confirming no `.section-label` element anywhere in Add
@@ -6127,6 +6135,102 @@ deliberate-duplication claims (`R6`), and three container-id reads.
 Screenshots reviewed at both viewports, no overflow at either width.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
+
+### Add Coin: accordion restructure (BUILT, same branch, still held)
+Add Coin was one long flat form; Edit Coin / Browse detail are accordion
+stacks. Since most of what Add Coin captures is exactly what Edit Coin
+later edits, the two now read as the same screen. Resolves ParkingLot
+Row 5.
+
+**Section order** — `Grading & Certification`, then the RECORD_SECTIONS
+order minus Specifications: `Overview`, `Photos`, `Notes & Facts`,
+`Purchase Details`, `Storage`. Overview defaults open, everything else
+collapsed, matching Edit Coin exactly.
+
+- **Specifications is omitted ENTIRELY — not even read-only** (Ray's call).
+  Composition/weight/diameter belong in DB_Coins, populated by Copilot
+  research or offline work straight into the database; Add Coin should
+  neither capture nor display them. This deliberately diverges from Edit
+  Coin's own section list, which does show them read-only.
+- **`Grading & Certification` is an extra section with no Edit Coin
+  equivalent, positioned FIRST** — ahead of Denomination, because a grader
+  must be picked before the PCGS label-decode flow can run and that decode
+  auto-fills the identity fields below it. It bundles the grader select,
+  the PCGS Label # block and the Cert/Type Number row (the latter two
+  conditionally shown, unchanged). It sits outside the RECORD_SECTIONS
+  order on purpose: it's entry-time machinery, not a record section.
+  - **Header wording is a real call worth knowing about.** Batch 7 removed
+    a bold "GRADING SERVICE (OPTIONAL)" label sitting on a near-synonymous
+    "Grader" field, and renamed the field to "Grading Service". Making it a
+    bounded section needs a header again, and reusing "Grading Service"
+    would recreate exactly the duplication Ray rejected. So the header
+    names the GROUP — **"Grading & Certification"** — and the field keeps
+    its batch-7 "Grading Service" label. Different words at different
+    levels, structurally identical to "Overview" → "Year".
+  - Collapsed by default despite being first: most coins aren't slabbed, so
+    a short form is the common case and a PCGS entry is one tap away. Worth
+    Ray's eyes on a device — it's the one default that trades a tap in the
+    slabbed flow for brevity in the unslabbed one.
+- **Purchase Details and Storage are inline accordions now**, overturning
+  the locked-in "drill-down, not an inline accordion" note (Ray explicitly
+  overturned it; see that note, now marked superseded). `showAddCoinSubview()`,
+  the two subview cards, their Back/Done buttons, the two summary rows and
+  `updateFormRowSummaries()` are all retired. **Add Set was deliberately
+  NOT converted** — it still drill-downs; that would be its own scoped
+  change, and its comment referencing Add Coin's retired pair was corrected
+  so a future session doesn't follow a dead pointer.
+- **The match-count indicator moved into Overview**, directly beneath the
+  identity fields that produce it (`dbMatchBanner`/`dbNoMatchBanner`/
+  `dbAmbiguousBanner`), instead of sitting adrift near the save buttons.
+  Change an identity field, watch the count react.
+- **Save controls stay OUTSIDE every accordion** — they act on the whole
+  form, and burying the primary action inside a collapsible section would
+  hide it.
+- **Add-Coin-only fields placed per Ray**: Error and Finish into Overview,
+  Assign to Album stays in Storage. Notes & Facts holds Notes alone — Fun
+  Fact is DB_Coins catalog data about the coin TYPE (read-only even in Edit
+  Coin), so there is nothing for Add Coin to capture there.
+- **New `ADD_COIN_SECTIONS`** — one `[headerId, bodyId, openByDefault]`
+  table driving both the init-time wiring and the reset-to-default in
+  `resetAddCoinForm()`, so the two can't drift. Sections now reset to their
+  defaults on re-entry, same rule live-run bug #1 established for the
+  fields themselves (leaving Purchase Details hanging open from the
+  previous coin is the same class of leftover, just structural).
+
+**A hazard checked rather than assumed.** CLAUDE.md warns that
+`renderTypeDenomCorner()`'s `scrollWidth`/`clientWidth` shortening "requires
+the element to already be visible/laid out — call sites that toggle
+visibility must do so BEFORE populating corner text". The flip labels now
+live inside a collapsed-by-default Photos section, which looks like exactly
+that trap. **It does not apply**: Add Coin's own `updateFlipLabels()` sets
+`textContent` directly and never calls `renderTypeDenomCorner()` — only the
+SAVED-coin renderer (`applyFlipCorners()`, Spotlight/Browse detail) does.
+Verified live, not reasoned about, and pinned by two assertions so a future
+change can't quietly introduce the dependency.
+
+**The whole restructure was low-risk for one specific reason: every field
+kept its element id.** The markup moved into accordion wrappers; no JS that
+reads a field by id needed touching. That is why 258 pre-existing assertions
+passed unchanged against the new layout.
+
+**Verified headless — new suite `tests/verify_addcoin_accordion.js` (29
+assertions), all passing; 287 across all 6 suites, zero failures.** Covers:
+exact section order with Grading first and no Specifications; the
+Overview-open/rest-collapsed defaults; the subview cards, summary rows and
+both retired functions genuinely gone from the DOM/global scope; every
+field landing in its intended section; the match banners in Overview and
+the save buttons outside every accordion; Grading still preceding
+Denomination and batch 7's Bullion-toggle placement surviving; expand/
+collapse with `aria-expanded` and reset-to-default on re-entry; flip labels
+populating correctly while Photos is collapsed AND unchanged once expanded;
+a real save collecting fields out of collapsed sections, through both the
+in-memory row and the durable-draft reader; and no horizontal overflow with
+every section expanded, at both viewports. Screenshots reviewed at both
+viewports.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature. Ray has not seen the
+  inline Purchase/Storage sections in hand yet and has said he'll flag them
+  if they don't feel right.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
@@ -7794,7 +7898,8 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 **Row 5:**
 - **Item/Title:** `Restructure Add Coin's field layout to match Edit Coin's accordion sections`
 - **Category:** `App`  · **Priority:** `Medium`  · **Date:** `2026-08-23`
-- **Status:** `Open`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-08-24`
+- **Resolution:** `BUILT — see CLAUDE.md "Add Coin: accordion restructure". Add Coin is now Grading & Certification + Overview / Photos / Notes & Facts / Purchase Details / Storage, matching Edit Coin. Specifications deliberately omitted (Ray's call). Held on claude/add-coin-write-path-fs2rf8 pending his go-ahead + a live retest pass. If this row was never transferred to the workbook in the first place, skip it rather than adding-then-closing it.`
 - **Description:** `Ray's explicit ask (Add Coin batch 7 review): Add Coin should look nearly identical in structure to the Edit Coin / Browse detail page (see "Detail/Edit accordion redesign" — RECORD_SECTIONS: Overview, Photos, Specifications, Notes & Facts, Purchase Details, Storage), rather than its current one long flat form. Grading Service specifically should become its own clearly-bounded section (a real card/accordion, not just a text label) since it functionally drives the PCGS Label #/Cert-Type-Number fields beneath it, and should stay positioned near the top since a grader needs to be picked before the label-decode flow can run. This is a real, deliberate restructure — needs its own scoping pass (which fields land in which section, whether Purchase Details/Storage's existing drill-down pattern is kept or folded into the new accordion shape) before building, not a quick follow-on to the batch-7 header removal. Explicitly deferred, not started.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)

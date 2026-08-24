@@ -2922,300 +2922,373 @@
           <button id="wishlistOriginClearBtn">Clear</button>
         </div>
 
+        <!-- ADD COIN — accordion redesign. Mirrors Edit Coin / Browse
+             detail section-for-section, in the RECORD_SECTIONS order
+             (Overview, Photos, Notes & Facts, Purchase Details, Storage),
+             so the screen you capture a coin on and the screen you later
+             edit it on read as the same screen. Two deliberate departures,
+             both Ray's explicit calls:
+
+             1. SPECIFICATIONS IS OMITTED ENTIRELY — not even read-only.
+                Composition/weight/diameter belong in DB_Coins, populated by
+                Copilot research or offline work straight into the database;
+                Add Coin should neither capture nor display them.
+             2. GRADING & CERTIFICATION is an extra section Edit Coin has no
+                equivalent of, positioned FIRST — ahead of Denomination —
+                because a grader must be picked before the PCGS label-decode
+                flow can run, and that decode auto-fills the identity fields
+                below it. It is entry-time machinery, not a record section,
+                which is why it sits outside the RECORD_SECTIONS order
+                rather than being squeezed into one.
+
+             SUPERSEDES the locked-in "drill-down, not an inline accordion"
+             note for Purchase Details and Storage (CLAUDE.md): both are now
+             inline accordions like every other section. showAddCoinSubview()
+             and updateFormRowSummaries() are retired with them. -->
         <div class="case form-card" id="addCoinMainView">
 
-          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Photos (optional)</div>
-          <div class="photo-toggle" id="photoToggle">
-            <button type="button" class="photo-toggle-btn active" id="showObverseBtn">
-              Obverse (front) <span class="photo-toggle-dot" id="obverseDot"></span>
+          <!-- GRADING & CERTIFICATION. Header names the GROUP (service +
+               label number + cert number); the field inside keeps the
+               "Grading Service" label Ray settled on in batch 7. Different
+               words at different levels, so this is not a return to the
+               "GRADING SERVICE (OPTIONAL)" / "Grader" pair he rejected —
+               that was one bold header sitting on one visible field with a
+               near-synonym for a name. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinGradingHeader" aria-expanded="false">
+              <span>Grading &amp; Certification</span><span class="accordion-chevron">›</span>
             </button>
-            <button type="button" class="photo-toggle-btn" id="showReverseBtn">
-              Reverse (back) <span class="photo-toggle-dot" id="reverseDot"></span>
+            <div class="accordion-body hidden" id="addCoinGradingBody">
+              <label>Grading Service</label>
+              <select id="addCoinGrader">
+                <option value="">— none / not slabbed —</option>
+              </select>
+
+              <div id="pcgsLabelBlock" style="display:none;">
+                <label>PCGS Label #</label>
+                <div class="year-field-row">
+                  <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT" autocomplete="off">
+                  <button type="button" id="pcgsLabelApplyBtn">Decode</button>
+                </div>
+                <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
+                  <span class="icon">⚠️</span>
+                  <span class="msg"><strong>PCGS# not found in DB_Coins</strong> — add manually, or research and add the DB_Coins row later.</span>
+                </div>
+                <div class="banner context-banner hidden" id="pcgsLabelAppliedBanner">
+                  <span class="icon">✅</span>
+                  <span class="msg" id="pcgsLabelAppliedMsg"></span>
+                </div>
+                <div class="case hidden" id="pcgsLabelAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+                  <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this PCGS# — pick one</div>
+                  <div id="pcgsLabelAmbiguousList"></div>
+                </div>
+              </div>
+              <p class="placeholder-note" id="nonPcgsGraderNote" style="display:none; margin:4px 0 16px;">
+                No auto-decode for this grader yet — enter the coin's details and cert number manually below.
+              </p>
+
+              <div id="certTypeNumberRow" style="display:none;">
+                <label>Cert / Type Number</label>
+                <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
+                <p class="placeholder-note" style="margin:4px 0 16px;">
+                  Just captures the number here — the cert-lookup link lives on the saved coin's
+                  Browse detail view, not during entry.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 1. OVERVIEW (defaults open, same as Edit Coin) -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinOverviewHeader" aria-expanded="true">
+              <span>Overview</span><span class="accordion-chevron">›</span>
             </button>
-          </div>
-          <div class="photo-box" id="obversePhotoBox">
-            <div class="flip-frame">
-              <span class="flip-label tl" id="flipObverseTL"></span>
-              <span class="flip-label tr" id="flipObverseTR"></span>
-              <div class="coin-photo-frame" id="obverseFrame">
-                <span class="placeholder-icon" id="obversePlaceholder">📷</span>
-                <img id="obversePreview">
+            <div class="accordion-body" id="addCoinOverviewBody">
+              <label>Denomination</label>
+              <select id="denomination">
+                <option value="">— select —</option>
+                <!-- The rest are generated at init (and on Bullion toggle) by
+                     populateAddCoinDenominationDropdown() from DENOM_CODE_INFO/
+                     FAKE_DENOMINATIONS (retest #8) — not hand-maintained here
+                     anymore. -->
+              </select>
+              <!-- Sits underneath the dropdown itself (batch 7, Ray's
+                   explicit confirmation) — not between the label and the
+                   select the way every earlier placement had it. -->
+              <label class="grade-range-toggle" style="margin-top:8px;">
+                <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
+              </label>
+              <p class="placeholder-note" style="margin:4px 0 16px;">
+                Picking an option from the dropdown above sets Denomination AND
+                Category together — these coins are catalogued by their real
+                face value plus a type (e.g. Denomination "$1", Category "Silver
+                Eagle"), same as the workbook already does for Morgan/Peace/
+                Silver Eagle. Off shows everyday circulating denominations only.
+              </p>
+
+              <label>Year</label>
+              <div class="year-field-row">
+                <input type="text" inputmode="numeric" pattern="[0-9]*" id="year" placeholder="e.g. 1943" autocomplete="off">
+                <button type="button" class="year-pick-btn" id="yearPickBtn" aria-label="Pick year">📅</button>
               </div>
-              <span class="flip-label bl" id="flipObverseBL"></span>
-              <span class="flip-label br" id="flipObverseBR"></span>
-            </div>
-            <div class="photo-btns">
-              <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="obverseLibraryInput" accept="image/*">
-          </div>
-          <div class="photo-box" id="reversePhotoBox" style="display:none;">
-            <div class="flip-frame">
-              <span class="flip-label tl" id="flipReverseTL"></span>
-              <div class="coin-photo-frame" id="reverseFrame">
-                <span class="placeholder-icon" id="reversePlaceholder">📷</span>
-                <img id="reversePreview">
+              <div class="year-picker hidden" id="yearPicker">
+                <div id="yearPickerDecades"></div>
+                <div id="yearPickerYears" style="display:none;">
+                  <button class="back-link" id="yearPickerBackBtn" style="padding:0 0 8px;">← Back</button>
+                  <div class="year-grid" id="yearPickerYearGrid"></div>
+                </div>
               </div>
-              <span class="flip-label br" id="flipReverseBR"></span>
+
+              <label>Mint Mark</label>
+              <select id="mintMark">
+                <option value="">— none (Philadelphia) —</option>
+                <!-- See Browse Edit's identical dropdown for why "P" is a real,
+                     separate option from the default blank. -->
+                <option value="P">P — Philadelphia (explicit)</option>
+                <option value="D">D — Denver</option>
+                <option value="S">S — San Francisco</option>
+                <option value="CC">CC — Carson City</option>
+                <option value="O">O — New Orleans</option>
+                <option value="W">W — West Point</option>
+              </select>
+
+              <label>Description</label>
+              <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)" autocomplete="off">
+              <div class="case hidden" id="descriptionAmbiguousPanel" style="margin:4px 0 12px; padding:10px;">
+                <div class="placeholder-note" style="margin:0 0 8px;">This Year + Denomination matches more than one series — pick one, or type your own above.</div>
+                <select id="descriptionAmbiguousSelect">
+                  <option value="">— choose a series —</option>
+                </select>
+              </div>
+
+              <label>Variety</label>
+              <select id="varietySelect">
+                <option value="">— none —</option>
+                <option value="__other__">Other / not listed…</option>
+              </select>
+              <input type="text" id="varietyOther" style="display:none; margin-top:8px;" placeholder="Enter variety manually — e.g. Type 2, Micro S, Large Date">
+              <input type="hidden" id="variety">
+              <p class="placeholder-note" style="margin:4px 0 16px;">
+                Options are filtered to varieties that actually exist for the
+                Year + Mint Mark + Denomination entered above. Unlike Error,
+                Variety IS identity-defining — an unrecognized/manually-typed
+                value here means this coin needs a closer look before it can be
+                saved directly (see Save options below).
+              </p>
+
+              <!-- Options confirmed against the real DB_Coins Finish column
+                   (live spot-check, batch 4 follow-up), same "derive from the
+                   real catalog, don't hand-guess" fix as the Denomination
+                   dropdown. "Uncirculated" (172 rows) and "Circulated" (139
+                   rows) are BOTH deliberately excluded — real workbook data
+                   carries them as a condition-vs-finish mix-up, a future
+                   data-cleanup project for the catalog itself, not a dropdown
+                   gap. The matcher's soft-fallback-to-full-list already covers
+                   a blank Finish for those rows. -->
+              <label>Finish</label>
+              <select id="finish">
+                <option value="">— not recorded —</option>
+                <option value="Business Strike">Business Strike</option>
+                <option value="Proof">Proof</option>
+                <option value="Reverse Proof">Reverse Proof</option>
+                <option value="SMS">SMS</option>
+                <option value="Burnished">Burnished</option>
+                <option value="Satin Finish">Satin Finish</option>
+                <option value="Enhanced Reverse Proof">Enhanced Reverse Proof</option>
+                <option value="Enhanced Uncirculated">Enhanced Uncirculated</option>
+              </select>
+              <p class="placeholder-note" style="margin:4px 0 16px;">
+                A Proof and a Business Strike of the same date are different coins
+                in the catalog, so recording this narrows the DB_Coins match and
+                avoids being asked to pick between otherwise-identical entries on
+                save — including down to no match at all if the catalog genuinely
+                has no row with this Finish for this exact date (a real signal,
+                not an error). Optional — leaving it blank never blocks a save,
+                it just matches on a weaker key.
+              </p>
+
+              <!-- The live catalog match-count indicator. Sits directly under
+                   the identity fields that PRODUCE the match (Denomination
+                   through Finish) rather than adrift near the save buttons,
+                   which is where it used to live — you change an identity
+                   field, you see the count react. -->
+              <div class="banner context-banner hidden" id="dbMatchBanner">
+                <span class="icon">✅</span>
+                <span class="msg" id="dbMatchMsg"></span>
+              </div>
+              <div class="banner pending-banner hidden" id="dbNoMatchBanner">
+                <span class="icon">⚠️</span>
+                <span class="msg"><strong>No matching DB_Coins entry</strong> — this coin will still be added, but needs a catalog entry added later.</span>
+              </div>
+              <div class="banner pending-banner hidden" id="dbAmbiguousBanner">
+                <span class="icon">🔀</span>
+                <span class="msg" id="dbAmbiguousMsg"></span>
+              </div>
+
+              <div style="display:flex; align-items:center; justify-content:space-between;">
+                <label style="margin:0;">Grade</label>
+                <button type="button" class="cert-link-btn small" id="gradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
+              </div>
+              <select id="gradeFrom"></select>
+              <label class="grade-range-toggle">
+                <input type="checkbox" id="gradeRangeToggle">
+                Combine with a second grade (range, e.g. G-4-VG-8)
+              </label>
+              <select id="gradeTo" style="display:none; margin-top:8px;"></select>
+              <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
+              <div class="grade-resolved" id="gradeResolvedPreview"></div>
+
+              <div id="gradeSourceRow">
+                <label>GradeSource</label>
+                <select id="gradeSource"></select>
+              </div>
+
+              <label>Designation</label>
+              <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
+
+              <label>Error</label>
+              <select id="errorSelect">
+                <option value="">— none —</option>
+                <option value="__other__">Other / not listed…</option>
+              </select>
+              <input type="text" id="errorOther" style="display:none; margin-top:8px;" placeholder="Describe the error — e.g. off-center strike, broadstrike">
+              <input type="hidden" id="errorDesc">
+              <p class="placeholder-note" style="margin:4px 0 16px;">
+                Optional, for mint errors. Applies to any coin — not tied to what's
+                entered above, and doesn't affect whether this coin can be saved
+                directly (an error is incidental to the specimen, not
+                identity-defining).
+              </p>
             </div>
-            <div class="photo-btns">
-              <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-              <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-            </div>
-            <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="reverseLibraryInput" accept="image/*">
           </div>
 
-          <!-- General photo gallery (slab/COA/box/other) — supersedes the old
-               fixed "Additional Photo" slot. Obverse/Reverse above are the two
-               special flip sources; everything else lives here. -->
-          <div class="gallery-capture" id="addCoinGallery"></div>
+          <!-- 2. PHOTOS -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinPhotosHeader" aria-expanded="false">
+              <span>Photos</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="addCoinPhotosBody">
+              <div class="photo-toggle" id="photoToggle">
+                <button type="button" class="photo-toggle-btn active" id="showObverseBtn">
+                  Obverse (front) <span class="photo-toggle-dot" id="obverseDot"></span>
+                </button>
+                <button type="button" class="photo-toggle-btn" id="showReverseBtn">
+                  Reverse (back) <span class="photo-toggle-dot" id="reverseDot"></span>
+                </button>
+              </div>
+              <div class="photo-box" id="obversePhotoBox">
+                <div class="flip-frame">
+                  <span class="flip-label tl" id="flipObverseTL"></span>
+                  <span class="flip-label tr" id="flipObverseTR"></span>
+                  <div class="coin-photo-frame" id="obverseFrame">
+                    <span class="placeholder-icon" id="obversePlaceholder">📷</span>
+                    <img id="obversePreview">
+                  </div>
+                  <span class="flip-label bl" id="flipObverseBL"></span>
+                  <span class="flip-label br" id="flipObverseBR"></span>
+                </div>
+                <div class="photo-btns">
+                  <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                  <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                  <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+                </div>
+                <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="obverseLibraryInput" accept="image/*">
+              </div>
+              <div class="photo-box" id="reversePhotoBox" style="display:none;">
+                <div class="flip-frame">
+                  <span class="flip-label tl" id="flipReverseTL"></span>
+                  <div class="coin-photo-frame" id="reverseFrame">
+                    <span class="placeholder-icon" id="reversePlaceholder">📷</span>
+                    <img id="reversePreview">
+                  </div>
+                  <span class="flip-label br" id="flipReverseBR"></span>
+                </div>
+                <div class="photo-btns">
+                  <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                  <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                  <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+                </div>
+                <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="reverseLibraryInput" accept="image/*">
+              </div>
 
-          <!-- Real, deliberate call (Ray, batch 7): the "GRADING SERVICE
-               (OPTIONAL)" section-label was removed because it read as
-               though Denomination/Year/etc. below all fell under it — the
-               header had nothing else visually grouped under it once the
-               conditionally-hidden PCGS Label #/Cert-Type-Number blocks are
-               considered as "already there, just hidden" rather than a
-               real second field. Ray's own option (b): drop the header AND
-               rename this field's own label to "Grading Service," styled
-               the same plain way any other field label is — one clearly-
-               labeled field instead of two mismatched headers. Position is
-               UNCHANGED — still right here, near the top, ahead of
-               Denomination, since a grader needs to be picked before the
-               PCGS label-decode flow can run. A real restructure (matching
-               Edit Coin's accordion section layout, with Grading Service
-               pulled into its own bounded card) is a separate, bigger,
-               explicitly deferred task — see the ParkingLot entry in the
-               session log below. -->
-          <label>Grading Service</label>
-          <select id="addCoinGrader">
-            <option value="">— none / not slabbed —</option>
-          </select>
-
-          <div id="pcgsLabelBlock" style="display:none;">
-            <label>PCGS Label #</label>
-            <div class="year-field-row">
-              <input type="text" id="pcgsLabelInput" placeholder="e.g. 4905.65/12345678 — SPEC.GRADE/CERT" autocomplete="off">
-              <button type="button" id="pcgsLabelApplyBtn">Decode</button>
-            </div>
-            <div class="banner pending-banner hidden" id="pcgsLabelNotFoundBanner">
-              <span class="icon">⚠️</span>
-              <span class="msg"><strong>PCGS# not found in DB_Coins</strong> — add manually, or research and add the DB_Coins row later.</span>
-            </div>
-            <div class="banner context-banner hidden" id="pcgsLabelAppliedBanner">
-              <span class="icon">✅</span>
-              <span class="msg" id="pcgsLabelAppliedMsg"></span>
-            </div>
-            <div class="case hidden" id="pcgsLabelAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
-              <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this PCGS# — pick one</div>
-              <div id="pcgsLabelAmbiguousList"></div>
-            </div>
-          </div>
-          <p class="placeholder-note" id="nonPcgsGraderNote" style="display:none; margin:4px 0 16px;">
-            No auto-decode for this grader yet — enter the coin's details and cert number manually below.
-          </p>
-
-          <div id="certTypeNumberRow" style="display:none;">
-            <label>Cert / Type Number</label>
-            <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
-            <p class="placeholder-note" style="margin:4px 0 16px;">
-              Just captures the number here — the cert-lookup link lives on the saved coin's
-              Browse detail view, not during entry.
-            </p>
-          </div>
-
-          <label>Denomination</label>
-          <select id="denomination">
-            <option value="">— select —</option>
-            <!-- The rest are generated at init (and on Bullion toggle) by
-                 populateAddCoinDenominationDropdown() from DENOM_CODE_INFO/
-                 FAKE_DENOMINATIONS (retest #8) — not hand-maintained here
-                 anymore. -->
-          </select>
-          <!-- Moved here, underneath the Denomination dropdown itself
-               (batch 7, Ray's explicit confirmation — this is the actual
-               "original" spot, not sandwiched between the label and the
-               dropdown the way every prior placement had it). -->
-          <label class="grade-range-toggle" style="margin-top:8px;">
-            <input type="checkbox" id="addCoinBullionToggle"> Gold/Bullion (classic gold, Silver/Gold/Platinum/Palladium Eagle, Buffalo)
-          </label>
-          <p class="placeholder-note" style="margin:4px 0 16px;">
-            Picking an option from the dropdown above sets Denomination AND
-            Category together — these coins are catalogued by their real
-            face value plus a type (e.g. Denomination "$1", Category "Silver
-            Eagle"), same as the workbook already does for Morgan/Peace/
-            Silver Eagle. Off shows everyday circulating denominations only.
-          </p>
-
-          <label>Year</label>
-          <div class="year-field-row">
-            <input type="text" inputmode="numeric" pattern="[0-9]*" id="year" placeholder="e.g. 1943" autocomplete="off">
-            <button type="button" class="year-pick-btn" id="yearPickBtn" aria-label="Pick year">📅</button>
-          </div>
-          <div class="year-picker hidden" id="yearPicker">
-            <div id="yearPickerDecades"></div>
-            <div id="yearPickerYears" style="display:none;">
-              <button class="back-link" id="yearPickerBackBtn" style="padding:0 0 8px;">← Back</button>
-              <div class="year-grid" id="yearPickerYearGrid"></div>
+              <!-- General photo gallery (slab/COA/box/other) — supersedes the old
+                   fixed "Additional Photo" slot. Obverse/Reverse above are the two
+                   special flip sources; everything else lives here. -->
+              <div class="gallery-capture" id="addCoinGallery"></div>
             </div>
           </div>
 
-          <label>Mint Mark</label>
-          <select id="mintMark">
-            <option value="">— none (Philadelphia) —</option>
-            <!-- See Browse Edit's identical dropdown for why "P" is a real,
-                 separate option from the default blank. -->
-            <option value="P">P — Philadelphia (explicit)</option>
-            <option value="D">D — Denver</option>
-            <option value="S">S — San Francisco</option>
-            <option value="CC">CC — Carson City</option>
-            <option value="O">O — New Orleans</option>
-            <option value="W">W — West Point</option>
-          </select>
-
-          <label>Description</label>
-          <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)" autocomplete="off">
-          <div class="case hidden" id="descriptionAmbiguousPanel" style="margin:4px 0 12px; padding:10px;">
-            <div class="placeholder-note" style="margin:0 0 8px;">This Year + Denomination matches more than one series — pick one, or type your own above.</div>
-            <select id="descriptionAmbiguousSelect">
-              <option value="">— choose a series —</option>
-            </select>
-          </div>
-
-          <label>Variety</label>
-          <select id="varietySelect">
-            <option value="">— none —</option>
-            <option value="__other__">Other / not listed…</option>
-          </select>
-          <input type="text" id="varietyOther" style="display:none; margin-top:8px;" placeholder="Enter variety manually — e.g. Type 2, Micro S, Large Date">
-          <input type="hidden" id="variety">
-          <p class="placeholder-note" style="margin:4px 0 16px;">
-            Options are filtered to varieties that actually exist for the
-            Year + Mint Mark + Denomination entered above. Unlike Error,
-            Variety IS identity-defining — an unrecognized/manually-typed
-            value here means this coin needs a closer look before it can be
-            saved directly (see Save options below).
-          </p>
-
-          <!-- Options confirmed against the real DB_Coins Finish column
-               (live spot-check, batch 4 follow-up), same "derive from the
-               real catalog, don't hand-guess" fix as the Denomination
-               dropdown. Confirmed real values kept here: Business Strike,
-               Proof, Reverse Proof, SMS, Burnished (48 rows, confirmed
-               against C-2017-W-$1-03), Satin Finish (88 rows), Enhanced
-               Reverse Proof (2 rows), Enhanced Uncirculated (2 rows — a
-               distinct real West Point 75th Anniversary product name, kept
-               as its own option, never conflated with plain "Uncirculated").
-               "Specimen" removed — matches zero real rows. "Uncirculated"
-               (172 rows) and "Circulated" (139 rows) are BOTH deliberately
-               excluded — real workbook data carries them as a
-               condition-vs-finish mix-up (the same class of issue as the
-               already-confirmed Circulated case, just larger), a future
-               data-cleanup project for the catalog itself, not a dropdown
-               gap. The matcher's existing soft-fallback-to-full-list
-               behavior already covers a blank Finish for those rows —
-               see dbCoinsCandidatesFor()'s Finish tier. -->
-          <label>Finish</label>
-          <select id="finish">
-            <option value="">— not recorded —</option>
-            <option value="Business Strike">Business Strike</option>
-            <option value="Proof">Proof</option>
-            <option value="Reverse Proof">Reverse Proof</option>
-            <option value="SMS">SMS</option>
-            <option value="Burnished">Burnished</option>
-            <option value="Satin Finish">Satin Finish</option>
-            <option value="Enhanced Reverse Proof">Enhanced Reverse Proof</option>
-            <option value="Enhanced Uncirculated">Enhanced Uncirculated</option>
-          </select>
-          <p class="placeholder-note" style="margin:4px 0 16px;">
-            A Proof and a Business Strike of the same date are different coins
-            in the catalog, so recording this narrows the DB_Coins match and
-            avoids being asked to pick between otherwise-identical entries on
-            save — including down to no match at all if the catalog genuinely
-            has no row with this Finish for this exact date (a real signal,
-            not an error). Optional — leaving it blank never blocks a save,
-            it just matches on a weaker key.
-          </p>
-
-          <!-- Moved below Finish (real live-run finding, #13): Finish is one
-               of the fields the match below is actually computed from, so
-               showing the match banner ABOVE the field that helps determine
-               it read backwards — recording Finish, then seeing the banner
-               react, is the order that actually makes sense. -->
-          <div class="banner context-banner hidden" id="dbMatchBanner">
-            <span class="icon">✅</span>
-            <span class="msg" id="dbMatchMsg"></span>
-          </div>
-          <div class="banner pending-banner hidden" id="dbNoMatchBanner">
-            <span class="icon">⚠️</span>
-            <span class="msg"><strong>No matching DB_Coins entry</strong> — this coin will still be added, but needs a catalog entry added later.</span>
-          </div>
-          <div class="banner pending-banner hidden" id="dbAmbiguousBanner">
-            <span class="icon">🔀</span>
-            <span class="msg" id="dbAmbiguousMsg"></span>
-          </div>
-
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <label style="margin:0;">Grade</label>
-            <button type="button" class="cert-link-btn small" id="gradeHelpBtn" aria-label="Grading help for this coin" title="Grading help">❓</button>
-          </div>
-          <select id="gradeFrom"></select>
-          <label class="grade-range-toggle">
-            <input type="checkbox" id="gradeRangeToggle">
-            Combine with a second grade (range, e.g. G-4-VG-8)
-          </label>
-          <select id="gradeTo" style="display:none; margin-top:8px;"></select>
-          <input type="text" id="gradeOther" style="display:none; margin-top:8px;" placeholder="Enter grade manually">
-          <div class="grade-resolved" id="gradeResolvedPreview"></div>
-
-          <div id="gradeSourceRow">
-            <label>GradeSource</label>
-            <select id="gradeSource"></select>
-          </div>
-
-          <label>Designation</label>
-          <input type="text" id="designation" placeholder="e.g. FBL, DDO — optional">
-
-          <label>Error</label>
-          <select id="errorSelect">
-            <option value="">— none —</option>
-            <option value="__other__">Other / not listed…</option>
-          </select>
-          <input type="text" id="errorOther" style="display:none; margin-top:8px;" placeholder="Describe the error — e.g. off-center strike, broadstrike">
-          <input type="hidden" id="errorDesc">
-          <p class="placeholder-note" style="margin:4px 0 16px;">
-            Optional, for mint errors. Applies to any coin — not tied to what's
-            entered above, and doesn't affect whether this coin can be saved
-            directly (an error is incidental to the specimen, not
-            identity-defining).
-          </p>
-
-          <label>Notes</label>
-          <textarea id="notesField" placeholder="Anything else worth remembering"></textarea>
-
-          <div class="case form-row" id="purchaseInfoRow">
-            <span class="fr-icon">💵</span>
-            <div class="fr-info">
-              <div class="fr-title">Purchase Details</div>
-              <div class="fr-summary" id="purchaseInfoSummary">Tap to add price, seller, shipping</div>
+          <!-- 3. NOTES & FACTS. Notes only — Fun Fact is DB_Coins catalog data
+               about the coin TYPE (read-only even in Edit Coin), so there is
+               nothing for Add Coin to capture there. -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinNotesHeader" aria-expanded="false">
+              <span>Notes &amp; Facts</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="addCoinNotesBody">
+              <label>Notes</label>
+              <textarea id="notesField" placeholder="Anything else worth remembering"></textarea>
             </div>
-            <span class="chevron">›</span>
           </div>
 
-          <div class="case form-row" id="storageAlbumRow">
-            <span class="fr-icon">📦</span>
-            <div class="fr-info">
-              <div class="fr-title">Storage</div>
-              <div class="fr-summary" id="storageAlbumSummary">Tap to add storage location or assign an album</div>
+          <!-- 4. PURCHASE DETAILS (was a drill-down subview) -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinPurchaseHeader" aria-expanded="false">
+              <span>Purchase Details</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="addCoinPurchaseBody">
+              <label>Purchase Price</label>
+              <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
+
+              <label>Shipping Cost</label>
+              <input type="number" step="0.01" id="shippingCost" placeholder="e.g. 6.50">
+
+              <label>Purchase Date</label>
+              <input type="date" id="purchaseDate">
+
+              <label>Vendor / Seller</label>
+              <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name" autocomplete="off">
+
+              <div class="photo-box" style="margin-top:14px; max-width:220px;">
+                <div class="name">🧾 Receipt Photo</div>
+                <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
+                <img id="receiptPreview">
+                <div class="photo-btns">
+                  <button type="button" id="receiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
+                  <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                </div>
+                <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
+                <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
+              </div>
             </div>
-            <span class="chevron">›</span>
           </div>
 
+          <!-- 5. STORAGE (was a drill-down subview) -->
+          <div class="detail-accordion">
+            <button type="button" class="accordion-header" id="addCoinStorageHeader" aria-expanded="false">
+              <span>Storage</span><span class="accordion-chevron">›</span>
+            </button>
+            <div class="accordion-body hidden" id="addCoinStorageBody">
+              <label>Storage Location</label>
+              <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A" autocomplete="off">
+
+              <label>Container</label>
+              <input type="text" id="container" placeholder="e.g. display case, capsule tray" autocomplete="off">
+
+              <label>Assign to Album</label>
+              <select id="assignAlbum">
+                <option value="">— not part of an album —</option>
+              </select>
+              <!-- The old "Additional Photo" slot here is superseded by the
+                   Photo Gallery in the Photos section above (its "Other" type). -->
+            </div>
+          </div>
+
+          <!-- Save area — deliberately OUTSIDE the accordions: it acts on the
+               whole form, and burying it in a collapsible section would hide
+               the primary action. -->
           <div class="banner context-banner hidden" id="saveConfidentBanner">
             <span class="icon">✅</span>
             <span class="msg">No unrecognized Variety flagged — ready for a direct save. (A missing DB_Coins catalog entry, if noted above, won't block this on its own.)</span>
@@ -3242,58 +3315,6 @@
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
           <button class="save-btn" id="saveToStagingBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border);">Save to Staging</button>
           <div class="placeholder-note">Layout preview only — no OneDrive write happens yet; Staging/CollectionID reservation is simulated in-memory for this mockup.</div>
-        </div>
-
-        <div class="case form-card" id="addCoinPurchaseView" style="display:none;">
-          <button class="back-link" id="purchaseBackBtn" style="padding-top:0;">← Back</button>
-          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Details</div>
-
-          <label>Purchase Price</label>
-          <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
-
-          <label>Shipping Cost</label>
-          <input type="number" step="0.01" id="shippingCost" placeholder="e.g. 6.50">
-
-          <label>Purchase Date</label>
-          <input type="date" id="purchaseDate">
-
-          <label>Vendor / Seller</label>
-          <input type="text" id="vendor" placeholder="e.g. eBay seller, local shop name" autocomplete="off">
-
-          <div class="photo-box" style="margin-top:14px; max-width:220px;">
-            <div class="name">🧾 Receipt Photo</div>
-            <div class="placeholder-icon" id="receiptPlaceholder">🧾</div>
-            <img id="receiptPreview">
-            <div class="photo-btns">
-              <button type="button" id="receiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-              <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-            </div>
-            <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
-            <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
-          </div>
-
-          <button class="save-btn" id="purchaseDoneBtn">Done</button>
-        </div>
-
-        <div class="case form-card" id="addCoinStorageView" style="display:none;">
-          <button class="back-link" id="storageBackBtn" style="padding-top:0;">← Back</button>
-          <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Storage</div>
-
-          <label>Storage Location</label>
-          <input type="text" id="storageLocation" placeholder="e.g. Safe, Box 2, Album A" autocomplete="off">
-
-          <label>Container</label>
-          <input type="text" id="container" placeholder="e.g. display case, capsule tray" autocomplete="off">
-
-          <label>Assign to Album</label>
-          <select id="assignAlbum">
-            <option value="">— not part of an album —</option>
-          </select>
-
-          <!-- The old "Additional Photo" slot here is superseded by the Photo
-               Gallery on the Add Coin main view (its "Other" type). -->
-
-          <button class="save-btn" id="storageDoneBtn">Done</button>
         </div>
       </section>
 
@@ -12123,14 +12144,12 @@
     for (const opt of assignSelect.options) {
       if (opt.value === matchValue) { assignSelect.value = matchValue; break; }
     }
-    updateFormRowSummaries();
   }
 
   function clearAlbumContext() {
     albumContext = null;
     document.getElementById("albumContextBanner").classList.add("hidden");
     document.getElementById("assignAlbum").value = "";
-    updateFormRowSummaries();
   }
 
   let wishlistContext = null; // { desc, denom, year, mint, variety } when arriving at Add Coin from a Wishlist item
@@ -15065,47 +15084,36 @@
   }
 
   // ==================================================================
-  // ADD COIN — main view + two drill-down subviews (Purchase Details, Storage)
+  // ADD COIN — one accordion-sectioned form (no drill-down subviews)
   // ==================================================================
 
+  // Add Coin's accordion sections, in render order: [headerId, bodyId,
+  // openByDefault]. One table drives both the init-time wiring and the
+  // reset-to-default in resetAddCoinForm(), so the two can't drift.
+  // Mirrors Edit Coin's own defaults — Overview open, everything else
+  // collapsed. Grading & Certification is collapsed too despite sitting
+  // first: most coins aren't slabbed, and a PCGS entry is one tap away.
+  const ADD_COIN_SECTIONS = [
+    ["addCoinGradingHeader", "addCoinGradingBody", false],
+    ["addCoinOverviewHeader", "addCoinOverviewBody", true],
+    ["addCoinPhotosHeader", "addCoinPhotosBody", false],
+    ["addCoinNotesHeader", "addCoinNotesBody", false],
+    ["addCoinPurchaseHeader", "addCoinPurchaseBody", false],
+    ["addCoinStorageHeader", "addCoinStorageBody", false]
+  ];
+
+  // Purchase Details and Storage used to be separate drill-down CARDS that
+  // replaced the whole form, with a one-line summary row standing in for
+  // each while closed. They are inline accordion sections now, matching
+  // Edit Coin — so there is nothing left to show or hide here, and
+  // showAddCoinSubview()/updateFormRowSummaries() are retired along with
+  // them. This function survives purely as the one place Add Coin's
+  // shallow up-one-level Back target is set.
   function showAddCoinMain() {
     document.getElementById("addCoinMainView").style.display = "block";
-    document.getElementById("addCoinPurchaseView").style.display = "none";
-    document.getElementById("addCoinStorageView").style.display = "none";
-    updateFormRowSummaries();
     setNavBack(() => navigate("acquisitions")); // Add Coin's parent is the Acquisitions hub
   }
 
-  function showAddCoinSubview(which) {
-    document.getElementById("addCoinMainView").style.display = "none";
-    document.getElementById("addCoinPurchaseView").style.display = which === "purchase" ? "block" : "none";
-    document.getElementById("addCoinStorageView").style.display = which === "storage" ? "block" : "none";
-    setNavBack(() => showAddCoinMain()); // drill-down subview → Add Coin main
-    window.scrollTo({ top: 0 });
-  }
-
-  function updateFormRowSummaries() {
-    const price = document.getElementById("purchasePrice").value;
-    const shipping = document.getElementById("shippingCost").value;
-    const vendor = document.getElementById("vendor").value;
-    const purchaseParts = [];
-    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
-    if (vendor) purchaseParts.push(vendor);
-    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
-    document.getElementById("purchaseInfoSummary").textContent =
-      purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
-
-    const storageLocation = document.getElementById("storageLocation").value;
-    const container = document.getElementById("container").value;
-    const assignSelect = document.getElementById("assignAlbum");
-    const assignText = assignSelect.selectedIndex > 0 ? assignSelect.options[assignSelect.selectedIndex].textContent : "";
-    const storageParts = [];
-    if (storageLocation) storageParts.push(storageLocation);
-    if (container) storageParts.push(container);
-    if (assignText) storageParts.push(assignText);
-    document.getElementById("storageAlbumSummary").textContent =
-      storageParts.length ? storageParts.join(" · ") : "Tap to add storage location or assign an album";
-  }
 
   // ==================================================================
   // GRADE PICKER — standard grade dropdown, optional range combine, "Other" free text
@@ -16184,7 +16192,19 @@
 
     updateFlipLabels();
     updateSaveConfidenceUI();
-    updateFormRowSummaries();
+
+    // Accordion sections go back to their default open/closed state too.
+    // Live-run bug #1 established that Add Coin must start genuinely blank
+    // on every fresh entry; leaving Purchase Details hanging open from the
+    // previous coin is the same class of leftover, just structural rather
+    // than field-level.
+    ADD_COIN_SECTIONS.forEach(([headerId, bodyId, openByDefault]) => {
+      const header = document.getElementById(headerId);
+      const body = document.getElementById(bodyId);
+      if (!header || !body) return;
+      body.classList.toggle("hidden", !openByDefault);
+      header.setAttribute("aria-expanded", String(!!openByDefault));
+    });
   }
 
   function resetAddCoinAfterSave() {
@@ -16246,12 +16266,10 @@
     initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin");
     refreshVarietyOptions();
 
-    document.getElementById("purchaseInfoRow").addEventListener("click", () => showAddCoinSubview("purchase"));
-    document.getElementById("storageAlbumRow").addEventListener("click", () => showAddCoinSubview("storage"));
-    document.getElementById("purchaseBackBtn").addEventListener("click", showAddCoinMain);
-    document.getElementById("storageBackBtn").addEventListener("click", showAddCoinMain);
-    document.getElementById("purchaseDoneBtn").addEventListener("click", showAddCoinMain);
-    document.getElementById("storageDoneBtn").addEventListener("click", showAddCoinMain);
+    // Accordion sections, wired once — static markup, like Edit Coin's.
+    // Replaces the six listeners the two drill-down subviews needed
+    // (two open rows, two Backs, two Dones).
+    ADD_COIN_SECTIONS.forEach(([headerId, bodyId]) => wireStaticAccordionToggle(headerId, bodyId));
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
     document.getElementById("wishlistOriginClearBtn").addEventListener("click", clearWishlistContext);
@@ -17152,9 +17170,10 @@
     return isNaN(n) ? null : n;
   }
 
-  // Add Set's Purchase Details / Storage drill-downs — mirrors Add Coin's
-  // showAddCoinMain()/showAddCoinSubview() pair, including the shallow
-  // up-one-level Back target while a subview is open.
+  // Add Set's Purchase Details / Storage drill-downs. NOTE: Add Coin used
+  // to use this same pattern and no longer does — its sections are inline
+  // accordions now (see showAddCoinMain()'s comment). Add Set was NOT
+  // converted with it; that would be its own scoped change.
   function showAddSetStep1Main() {
     document.getElementById("addSetStep1Main").style.display = "block";
     document.getElementById("addSetPurchaseView").style.display = "none";
