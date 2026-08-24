@@ -6033,6 +6033,101 @@ he confirmed, not a further guess.
   — if it's still wrong, that's new information from an actual device, not
   a repeat of the same back-and-forth.
 
+### Docket: three collapsible sections (BUILT, same branch, still held)
+The Docket opened onto one long flat list of everything needing action —
+undigestible in practice. Replaced with three collapsed-by-default
+accordion sections, each with its own item count in the header:
+**Staging**, **Awaiting Copilot Research**, **Other / Requires Photos**.
+
+**Presentation only — the classification logic is untouched.** The same
+signals decide the same things (`SET_STATUS`, `COIN_DRAFT_STATUS`,
+`findDbCoinsMatch`, `coinMissingPhoto`); what changed is which bucket each
+row is presented in, and that rows are now per-item instead of aggregated.
+
+- **Accordion-in-place, not three routes** (Ray's confirmed call). This is
+  the app's established grouping pattern everywhere else — Browse detail,
+  Edit Coin and Edit Set are all accordion stacks — and a separate page is
+  reserved for a destination with its own actions and back-target. Staging
+  Review already IS such a destination and **a Staging row still drills
+  through to it on tap**, so the existing precedent is preserved rather
+  than duplicated. Three more routes would have meant three more nav-back
+  targets for no gain. Wired once at init via `wireStaticAccordionToggle()`
+  (static markup — only the section CONTENTS re-render).
+- **Counts are per-coin, and the badge number goes UP.** Confirmed with Ray
+  as a deliberate, visible change: staged coins used to collapse into a
+  single "N coins awaiting your decision" row that contributed **1** to the
+  fob regardless of N, so the Docket under-reported real work. Every coin
+  now counts as itself, and the three header counts sum to the fob exactly,
+  by construction.
+- **In-progress Set drafts fold into Staging**, not a fourth section — a
+  Set draft lives in the same OneDrive Staging folder as a coin draft, so
+  it belongs there. Tapping one still goes to In Progress Sets.
+- **An unmatched staged coin is listed in Staging ONLY, never also in
+  Research.** The old layout showed it twice (an aggregate action row plus
+  its own research row); with real per-item rows in both sections that
+  becomes the same coin appearing and being counted twice — exactly the
+  redundancy this redesign exists to remove. Its unmatched state is
+  surfaced inline on its own row instead, with Re-check right there. Same
+  reasoning that removed the redundant Docket push on save (live-run
+  finding #7: "the draft's own presence in the hub already represents
+  'needs a catalog entry'"). Research therefore holds only what is
+  genuinely waiting on someone else: drafts marked ready, real Docket queue
+  entries, and Complete-pending-research Sets.
+- **The old flat containers are gone, not hidden** — `needsActionContainer`
+  / `needsResearchContainer` / their empty+workbook notes are replaced by
+  `docketStaging*` / `docketResearch*` / `docketOther*`. `needsAttentionBadge`
+  keeps its id (it is the drawer fob, not a section).
+- New `.docket-count` pill styling — deliberately quiet, and NOT the fob's
+  brass-tag treatment: the fob is the cabinet's own hardware, these are
+  counts inside a list. It tints gold while its section is expanded.
+
+**Mark-ready signal — soft/advisory, not a hard gate (Ray's confirmed
+call).** Most coins land in Staging precisely because they couldn't be
+confidently mapped to a CoinID at capture, so a resolved CoinID is the
+natural "ready to promote" signal. A draft with no `coinId` now shows a
+flag on its Staging Review row plus a **Re-check** button; **Mark ready
+stays enabled**. Deliberately not hard-blocked: a genuinely new variety may
+have no DB_Coins row at all and never will until Copilot adds one, so
+hard-gating on CoinID would strand that coin in Staging permanently.
+- **New `recheckCoinDraftMatch(draft)`** — the coin-draft counterpart of
+  `docketRecheckEntry()`, sharing its exact three-outcome contract (0 = say
+  so and touch nothing; 1 = confirm dialog, never auto-applied; 2+ = the
+  shared ambiguous picker, where the deliberate pick IS the confirmation —
+  the firm project rule, per two historical mislinks). Reachable from both
+  the Docket's Staging rows and Staging Review's own rows.
+- **`description` is deliberately NOT passed into the re-check shape.** The
+  Description tier in `dbCoinsCandidatesFor()` is documented as firing ONLY
+  for Add Coin's controlled series-picker value; a draft's stored
+  description may be free-typed, and `All.Description` /
+  `DB_Coins.Description` are different sources with no guaranteed
+  correspondence. `category` IS passed — it can only ever have come from
+  the controlled Bullion-tier dropdown, so it carries the guarantee the
+  Description tier needs and free text doesn't.
+- **`matchedHow` gains a fourth value, `"recheck"`**, alongside
+  single/picked/none — reconciliation needs to know a link was established
+  AFTER capture by a later catalog addition rather than at capture time.
+  Verified safe: nothing in the app branches on the old three values.
+
+**Verified headless — new suite `tests/verify_docket_sections.js` (30
+assertions), all passing; 258 across all 5 suites, zero failures.** Covers:
+the three sections' exact order and labels, all collapsed by default,
+expand/collapse with `aria-expanded`, the old containers genuinely removed;
+the three counts summing to the badge AND each matching its own rendered
+row count; per-coin rows rather than an aggregate line; a resolved draft
+showing its CoinID and an unresolved one flagged inline; an unmatched coin
+NOT duplicated into Research; a marked-ready draft moving to Research and
+out of Staging; photo gaps confined to Other with their Dismiss action
+intact; a Staging row still drilling through to Staging Review; the
+soft-not-hard Mark-ready gate (button enabled, flagged, Re-check offered);
+Re-check writing nothing on zero candidates and nothing until confirmed on
+one; and the resolved CoinID plus `"recheck"` provenance landing on the
+draft. Four prior assertions were rewritten to follow the real design
+change rather than weakened — the superseded aggregate-row and
+deliberate-duplication claims (`R6`), and three container-id reads.
+Screenshots reviewed at both viewports, no overflow at either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new

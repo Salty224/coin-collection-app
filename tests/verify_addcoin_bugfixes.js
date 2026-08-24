@@ -157,8 +157,14 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
     await new Promise(r => setTimeout(r, 800));
     navigate('needsdbcoins');
     await new Promise(r => setTimeout(r, 900));
-    const research = document.getElementById('needsResearchContainer').textContent;
-    const occurrences = research.split(id).length - 1;
+    // Section redesign: a marked-ready draft is a Research item. The point
+    // of this test -- exactly ONE row for the coin, not two conflicting
+    // ones -- is now checked across ALL three sections, which is a stronger
+    // version of the original claim, not a weaker one.
+    const research = document.getElementById('docketResearchContainer').textContent;
+    const whole = ['docketStagingContainer', 'docketResearchContainer', 'docketOtherContainer']
+      .map(i => document.getElementById(i).textContent).join(' ');
+    const occurrences = whole.split(id).length - 1;
     __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
     return { research, occurrences, id };
   });
@@ -177,7 +183,10 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
         denom:"10C", year:"1916", mint:"S", variety:"", description:"Mercury Dime", photos:[], createdDate:new Date().toISOString() });
     await renderNeedsAttentionHub();
     await new Promise(r => setTimeout(r, 400));
-    const text = document.getElementById('needsResearchContainer').textContent;
+    // Section redesign: a no-match Draft coin is a Staging item now, not a
+    // Research one. The assertion itself (its CollectionID is visible) is
+    // unchanged -- only which section it's read from.
+    const text = document.getElementById('docketStagingContainer').textContent;
     __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
     return text;
   });
@@ -495,13 +504,26 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
         denom:"9Z", year:"1", mint:"", variety:"", description:"Definitely no catalog match", photos:[], createdDate:new Date().toISOString() });
     await renderNeedsAttentionHub();
     await new Promise(r => setTimeout(r, 400));
-    const actionText = document.getElementById('needsActionContainer').textContent;
-    const researchText = document.getElementById('needsResearchContainer').textContent;
+    const stagingText = document.getElementById('docketStagingContainer').textContent;
+    const stagingCount = document.getElementById('docketStagingCount').textContent;
+    const researchText = document.getElementById('docketResearchContainer').textContent;
     __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
-    return { actionText, researchText };
+    return { stagingText, stagingCount, researchText };
   });
-  ok(/2 coins? awaiting your decision/.test(R6.actionText), "R6.1 the action tile counts both Draft-status coins, matched or not (" + R6.actionText + ")");
-  ok(R6.researchText.includes('AY-00711'), "R6.2 the unmatched one still separately shows in the research section (bug #8 intact)");
+  // SUPERSEDED by the Docket section redesign, both halves, deliberately:
+  //   - the single aggregate "N coins awaiting your decision" row is gone;
+  //     every staged coin is now its own row and the section count is the
+  //     coin count. The original claim (both Draft coins are counted,
+  //     matched or not) still holds -- it's just read off the count now.
+  //   - the unmatched coin is no longer ALSO listed in Research. With real
+  //     per-item rows in both sections that was the same coin appearing and
+  //     counting twice, which is exactly the redundancy this redesign
+  //     removes; its unmatched state is surfaced inline on its Staging row
+  //     instead (with Re-check right there).
+  ok(R6.stagingCount === '2' && /AY-00710/.test(R6.stagingText) && /AY-00711/.test(R6.stagingText),
+    "R6.1 Staging counts and lists both Draft-status coins individually, matched or not (count=" + R6.stagingCount + ")");
+  ok(/CoinID pending/.test(R6.stagingText), "R6.2 the unmatched one is flagged inline on its own Staging row");
+  ok(!R6.researchText.includes('AY-00711'), "R6.3 ... and is NOT duplicated into Research (no double-count)");
 
   // Retest #9: Reject opens a confirmation dialog rather than deleting
   // immediately; Cancel leaves the draft untouched, Reject in the dialog

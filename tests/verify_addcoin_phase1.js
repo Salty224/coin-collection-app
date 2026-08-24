@@ -323,7 +323,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     const mock = createMockGraphClient({});
     __setGraphClientForTest(mock);
     __setAddCoinWriteEnabledForTest(true);
-    __setLiveDbCoinsForTest([]); // nothing matches -> research row
+    __setLiveDbCoinsForTest([]); // nothing matches -> stays in Staging, CoinID pending
     const base = writePaths().stagingBase;
     await mock.uploadJson(base + "/AY-00901/coin.json",
       { type:"coin", version:1, collectionID:"AY-00901", status:COIN_DRAFT_STATUS.DRAFT,
@@ -333,11 +333,17 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
         denom:"5C", year:"1937", mint:"D", variety:"", description:"Handed Off Nickel", photos:[], createdDate:new Date().toISOString() });
     await renderNeedsAttentionHub();
     await new Promise(r => setTimeout(r, 250));
-    const text = document.getElementById('needsResearchContainer').textContent;
+    // Docket section redesign: the flat needsAction/needsResearch pair is
+    // now three named sections. A Draft-status coin (matched or not) is a
+    // Staging item; only a handed-off draft is Research. Following the real
+    // design change, not weakening -- the same two facts are still asserted,
+    // just against the section each row genuinely belongs to now.
+    const staging = document.getElementById('docketStagingContainer').textContent;
+    const text = document.getElementById('docketResearchContainer').textContent;
     __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
-    return { text };
+    return { text, staging };
   });
-  ok(/Unmatched Cent/.test(G.text), "G1 a real staged draft with no catalog match reaches the Docket");
+  ok(/Unmatched Cent/.test(G.staging), "G1 a real staged draft with no catalog match reaches the Docket (Staging section)");
   // Label ordering fix (#17, real live-run finding): Year-Mint now leads
   // ("1937-D · Buffalo Nickel"), and the CollectionID sits at the front of
   // the label line rather than glued onto "ready for reconciliation" in the

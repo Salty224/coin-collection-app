@@ -1452,6 +1452,14 @@
     background: var(--bg-elevated); color: var(--text-muted);
     border: 1px solid var(--case-border);
   }
+  /* Re-check on a staged draft whose CoinID is still pending — same quiet
+     outline treatment as .reject (it's a secondary action next to the
+     primary Mark ready), but tinted so it doesn't read as another Reject. */
+  .staging-btn.staging-recheck {
+    background: var(--bg-elevated); color: var(--gold-bright);
+    border: 1px solid var(--case-border-bright);
+  }
+  .staging-pending-flag { color: var(--gold-bright); }
   /* Docket research rows carry TWO actions (Re-check / Dismiss), unlike the
      action-section rows' single Dismiss. .wish-item is already
      flex/space-between, so the pair just needs its own column to sit in —
@@ -1649,6 +1657,19 @@
     border-radius: 0 0 10px 10px; margin-top: -1px;
   }
   .accordion-body.hidden { display: none; }
+  /* Per-section item count in a Docket accordion header. Deliberately a
+     quiet inline pill rather than the drawer fob's brass tag treatment —
+     the fob is the cabinet's own physical hardware, these are just counts
+     inside a list. */
+  .docket-count {
+    display: inline-block; margin-left: 6px; padding: 1px 7px;
+    border-radius: 9px; background: var(--bg-elevated);
+    border: 1px solid var(--case-border); color: var(--text-muted);
+    font-size: 11px; font-weight: 700; vertical-align: 1px;
+  }
+  .accordion-header[aria-expanded="true"] .docket-count {
+    color: var(--gold-bright); border-color: var(--case-border-bright);
+  }
   .accordion-body .detail-row:first-child { padding-top: 10px; }
   .accordion-body p { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
 
@@ -3309,18 +3330,58 @@
         <button class="back-link" id="needsDbCoinsBackBtn">← Back</button>
         <h2 class="display" style="margin-top:0;">Docket</h2>
         <p style="margin-top:0; font-size:13px; color:var(--text-muted);">
-          Where any discrepancy gets identified, worked, and tracked — unfinished entries,
-          gaps only you can resolve, and anything sitting with Copilot for research.
+          Where any discrepancy gets identified, worked, and tracked. Each section is
+          collapsed until you open it; the counts add up to the Docket drawer's own tag.
         </p>
 
-        <div class="section-label">Needs your action</div>
-        <div id="needsActionContainer"></div>
-        <p class="placeholder-note" id="needsActionEmptyNote" style="display:none;">Nothing needs your action right now.</p>
+        <!-- Three collapsible sections, replacing the old flat two-list
+             layout ("Needs your action" / "Waiting on Copilot research").
+             The BUCKETING was already correct — this is purely how it's
+             presented: one long undigestible list became three named,
+             collapsed-by-default groups, each with its own count in the
+             header. The three counts sum to the Docket drawer's own fob.
 
-        <div class="section-label">Waiting on Copilot research</div>
-        <p style="font-size:12px; color:var(--text-muted); margin-top:0;" id="needsResearchWorkbookNote"></p>
-        <div id="needsResearchContainer"></div>
-        <p class="placeholder-note" id="needsResearchEmptyNote" style="display:none;">Nothing waiting on research right now.</p>
+             Accordion-in-place (not three separate routes) because that's
+             this app's established grouping pattern everywhere else —
+             Browse detail, Edit Coin and Edit Set are all accordion stacks,
+             and a separate page is reserved for a destination with its own
+             actions and back-target. Staging Review already IS such a
+             destination, and a Staging row still drills through to it on
+             tap, so the existing precedent is preserved rather than
+             duplicated. -->
+        <div class="detail-accordion">
+          <button type="button" class="accordion-header" id="docketStagingHeader" aria-expanded="false">
+            <span>Staging <span class="docket-count" id="docketStagingCount">0</span></span>
+            <span class="accordion-chevron">›</span>
+          </button>
+          <div class="accordion-body hidden" id="docketStagingBody">
+            <div id="docketStagingContainer"></div>
+            <p class="placeholder-note" id="docketStagingEmptyNote" style="display:none;">Nothing sitting in Staging right now.</p>
+          </div>
+        </div>
+
+        <div class="detail-accordion">
+          <button type="button" class="accordion-header" id="docketResearchHeader" aria-expanded="false">
+            <span>Awaiting Copilot Research <span class="docket-count" id="docketResearchCount">0</span></span>
+            <span class="accordion-chevron">›</span>
+          </button>
+          <div class="accordion-body hidden" id="docketResearchBody">
+            <p style="font-size:12px; color:var(--text-muted); margin-top:0;" id="docketResearchWorkbookNote"></p>
+            <div id="docketResearchContainer"></div>
+            <p class="placeholder-note" id="docketResearchEmptyNote" style="display:none;">Nothing waiting on research right now.</p>
+          </div>
+        </div>
+
+        <div class="detail-accordion">
+          <button type="button" class="accordion-header" id="docketOtherHeader" aria-expanded="false">
+            <span>Other / Requires Photos <span class="docket-count" id="docketOtherCount">0</span></span>
+            <span class="accordion-chevron">›</span>
+          </button>
+          <div class="accordion-body hidden" id="docketOtherBody">
+            <div id="docketOtherContainer"></div>
+            <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
+          </div>
+        </div>
       </section>
 
       <!-- ============ STAGING REVIEW ============ -->
@@ -12494,54 +12555,56 @@
   let needsAttentionRenderToken = 0;
   async function renderNeedsAttentionHub() {
     const myRenderToken = ++needsAttentionRenderToken;
-    const actionContainer = document.getElementById("needsActionContainer");
-    const researchContainer = document.getElementById("needsResearchContainer");
+    const stagingContainerEl = document.getElementById("docketStagingContainer");
+    const researchContainerEl = document.getElementById("docketResearchContainer");
+    const otherContainerEl = document.getElementById("docketOtherContainer");
     // Retest #10: this function's own comment already documents several
     // real Graph reads ahead (listSetDrafts/listCoinDrafts/
-    // docketOpenEntries/getCachedWorkbookWebUrl) before either container
-    // gets touched — clear the stale prior render and show the shared
-    // loading indicator so the Docket doesn't look frozen/showing-old-data
-    // while those are in flight. A losing (superseded) call still bails
-    // out at its own staleness check below before writing real rows, so it
-    // can never clobber a newer call's own loading state or result.
-    actionContainer.innerHTML = "";
-    showSectionLoading("needsActionContainer", "Loading Docket…");
+    // docketOpenEntries/getCachedWorkbookWebUrl) before any container gets
+    // touched — clear the stale prior render and show the shared loading
+    // indicator so the Docket doesn't look frozen/showing-old-data while
+    // those are in flight. A losing (superseded) call still bails out at
+    // its own staleness check below before writing real rows, so it can
+    // never clobber a newer call's own loading state or result.
+    stagingContainerEl.innerHTML = "";
+    showSectionLoading("docketStagingContainer", "Loading Docket…");
 
-    const actionRows = [];   // { html, onClick?, onDismiss? }
-    const researchRows = []; // { html }
+    // Three sections now, replacing the old actionRows/researchRows split.
+    // The classification itself is UNCHANGED — the same signals decide the
+    // same things — this is purely which bucket each row is presented in:
+    //   stagingRows   — anything sitting in the Staging folder awaiting
+    //                   Ray's own decision (coin drafts + in-progress Set
+    //                   drafts; a Set draft lives in the same Staging
+    //                   folder, so it belongs here rather than in a fourth
+    //                   section of its own).
+    //   researchRows  — anything handed off and waiting on someone else.
+    //   otherRows     — photo gaps (the only non-Staging, non-research
+    //                   category that exists today).
+    const stagingRows = [];  // { html, onClick?, onRecheck? }
+    const researchRows = []; // { html, onRecheck?, onDismiss? }
+    const otherRows = [];    // { html, onClick?, onDismiss? }
 
     // --- Set drafts: status alone decides the section (not researchNote
     // content — every new Set carries a "GSID pending" note by design, so
     // using that to classify would wrongly send every in-progress Draft to
-    // the research section). Draft = still Ray's to finish; Complete =
-    // handed off to Copilot, matches the original spec's literal wording.
+    // the research section). Draft = still Ray's to finish, so it sits in
+    // Staging alongside the coin drafts; Complete = handed off to Copilot.
     let setDrafts = [];
     try { setDrafts = await listSetDrafts(); } catch (e) { /* write layer disabled/unavailable — degrade to "no Sets" below, same as In Progress Sets does */ }
     const draftSets = setDrafts.filter(d => d.status === SET_STATUS.DRAFT);
     const completeSets = setDrafts.filter(d => d.status === SET_STATUS.COMPLETE);
 
-    if (draftSets.length) {
-      actionRows.push({
-        html: `<div class="wish-desc">${draftSets.length} Set${draftSets.length === 1 ? "" : "s"} in progress</div><div class="wish-notes">Resume where you left off</div>`,
-        onClick: () => navigate("inprogresssets")
-      });
-    }
-
-    // --- Coin-side Staging rows: split by the same research-need signal
-    // used everywhere else in this app (findDbCoinsMatch — same predicate
-    // checkDbCoinsMatch() runs live on the Add Coin form).
+    // --- Coin-side Staging rows.
     //
     // Source depends on the write layer, for the same reason the reservation
     // scan had to widen: once Add Coin writes durable coin.json drafts, a
     // staged coin no longer exists in FAKE_STAGING at all, so reading only
     // that array would leave every real staged coin INVISIBLE in the Docket.
     // A draft's own field names (denom/year/mint/variety/finish/designation/
-    // gradeSource) are already exactly the shape findDbCoinsMatch() wants, so
-    // the split below is unchanged either way.
+    // gradeSource) are already exactly the shape the matcher wants.
     //
     // A draft already marked ready for reconciliation is no longer Ray's to
-    // decide on — it's waiting on Copilot — so it belongs in the research
-    // section regardless of whether it has a catalog match.
+    // decide on — it's waiting on Copilot — so it moves to Research.
     let stagedCoins = FAKE_STAGING;
     let stagedHandedOff = [];
     if (addCoinWriteEnabled()) {
@@ -12550,43 +12613,68 @@
       stagedCoins = all.filter(d => d.status === COIN_DRAFT_STATUS.DRAFT);
       stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY);
     }
-    const stagingResearch = stagedCoins.filter(c => !findDbCoinsMatch(c));
-    // Live-run bug #6: on the real draft path, EVERY Draft-status coin is
-    // fully actionable in Staging Review (Mark ready / Reject) regardless
-    // of whether it has a DB_Coins match — status alone gates that screen,
-    // exactly like draftSets above (no confidence axis there either). This
-    // tile used to count only the matched subset, so its own displayed
-    // number disagreed with what Staging Review's "Needs a decision"
-    // section actually shows for the same coins (a real undercount Ray hit
-    // live). An unmatched Draft coin now counts here AND still gets its own
-    // informational research row below (unchanged, bug #8's territory) —
-    // that's not a disagreement the way #7 was: "needs a decision" and "no
-    // catalog entry yet" are two independently-true facts about the same
-    // coin, not two sources describing its status differently. The
-    // match-based split is KEPT for the flag-off mock path (FAKE_STAGING
-    // predates Phase 1's real drafts and has no Ready status of its own) —
-    // this only changes real-draft behavior.
-    const stagingActionable = addCoinWriteEnabled() ? stagedCoins : stagedCoins.filter(c => !!findDbCoinsMatch(c));
-    if (stagingActionable.length) {
-      actionRows.push({
-        html: `<div class="wish-desc">${stagingActionable.length} coin${stagingActionable.length === 1 ? "" : "s"} awaiting your decision</div><div class="wish-notes">Promote or reject in Staging Review</div>`,
-        onClick: () => navigate("staging")
-      });
-    }
 
-    // --- Dismissible photo gaps (Needs your action only) — Rolls are never
-    // nag-worthy here (Q5b), though they still appear in the standing
-    // Missing Photos audit filter regardless of any dismissal below.
+    // Every in-Staging coin gets its OWN row now, not a single aggregate
+    // "N coins awaiting your decision" line — the counts in the section
+    // headers are item counts, so the whole point is being able to see and
+    // act on the individual coins.
+    //
+    // **A coin with no catalog match is listed HERE ONLY, not additionally
+    // in Research.** The old layout showed it in both places (an aggregate
+    // action row plus its own research row); with real per-item rows in
+    // both sections that becomes the same coin literally appearing twice
+    // and being counted twice, which is exactly the redundancy this
+    // redesign exists to remove. Its unmatched state is surfaced inline on
+    // the row instead, with the Re-check affordance right there — same
+    // reasoning that removed the redundant Docket push on save (live-run
+    // finding #7: "the draft's own presence in the hub already represents
+    // 'needs a catalog entry'").
+    stagedCoins.forEach(c => {
+      const idPart = c.id || c.collectionID || "";
+      const yearMint = c.year + (c.mint ? "-" + c.mint : "");
+      // Year-Mint leads (real live-run finding, #17) — "1916-D Mercury Dime"
+      // reads correctly, "Mercury Dime 1916-D" is backwards from how a
+      // collector actually refers to a coin.
+      const label = (idPart ? escapeHtmlText(idPart) + " · " : "") +
+        escapeHtmlText(yearMint + " · " + (c.name || c.description || c.denom) + (c.variety ? " · " + c.variety : ""));
+      // A real draft carries its own resolved CoinID (written at save time
+      // by resolveAddCoinCatalogMatch); a FAKE_STAGING mock row doesn't, so
+      // fall back to the live matcher there rather than reporting every
+      // mock row as pending.
+      const resolved = c.coinId || (c.coinId === undefined ? (findDbCoinsMatch(c) || {}).coinId : "");
+      const note = resolved
+        ? "CoinID " + escapeHtmlText(resolved) + " — ready to mark for promotion"
+        : "CoinID pending — no DB_Coins match yet";
+      stagingRows.push({
+        html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div>`,
+        onClick: () => navigate("staging"),
+        // Re-check only where there's actually something unresolved to
+        // re-check, and only on a real durable draft (a mock row has
+        // nothing to write a resolved CoinID back to).
+        onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null
+      });
+    });
+
+    draftSets.forEach(d => {
+      stagingRows.push({
+        html: `<div class="wish-desc">${escapeHtmlText(d.setName || d.collectionID)}</div>` +
+              `<div class="wish-notes">${escapeHtmlText(d.collectionID)} · Set capture in progress — resume where you left off</div>`,
+        onClick: () => navigate("inprogresssets")
+      });
+    });
+
+    // --- Other / Requires Photos. Rolls are never nag-worthy here (Q5b),
+    // though they still appear in the standing Missing Photos audit filter
+    // regardless of any dismissal below.
     FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
-      actionRows.push({
+      otherRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
         // This row's flagged gap IS a photo gap, so it routes to Manage
         // Photos — more direct than the old jump into Edit Coin scrolled to
         // the obverse slot, and it can now REPLACE as well as fill. Rows
-        // flagging a non-photo gap (none exist yet — see the note in
-        // renderNeedsAttentionHub) must keep their own routing; each row
-        // already carries its own onClick, so there's no shared branch to
-        // get wrong.
+        // flagging a non-photo gap (none exist yet) must keep their own
+        // routing; each row already carries its own onClick, so there's no
+        // shared branch to get wrong.
         onClick: () => {
           const parent = resolveChildParentSet(coin);
           openManagePhotos({
@@ -12606,7 +12694,7 @@
     // a Promoted set is done and out of the app's concern.
     [...draftSets, ...completeSets].forEach(draft => {
       if (draft.wholeSetPhoto || draft.dismissedGaps.includes("wholeSetPhoto")) return;
-      actionRows.push({
+      otherRows.push({
         html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">Missing whole-set photo — ${draft.collectionID}</div>`,
         // Also a photo gap, so also routes to Manage Photos rather than
         // re-entering Step 1 — which matters most for a Complete-pending-
@@ -12625,23 +12713,6 @@
     });
 
     // --- Research section content ---
-    stagingResearch.forEach(c => {
-      // `name` on an in-memory FAKE_STAGING row, `description` on a durable
-      // coin draft — both sources flow through here, so read either.
-      // CollectionID is now always shown: docketEntryLabel() (used a few
-      // lines below for real Docket entries) already includes it, and this
-      // builder didn't — a real staged coin rendered here with no way to
-      // tell which CollectionID it actually was.
-      // Year-Mint leads (real live-run finding, #17) — "1916-D Mercury Dime"
-      // reads correctly, "Mercury Dime 1916-D" is backwards from how a
-      // collector actually refers to a coin. Same ordering docketEntryLabel()
-      // now uses for real Docket entries, kept consistent across both.
-      const idPart = c.id || c.collectionID || "";
-      const yearMint = c.year + (c.mint ? "-" + c.mint : "");
-      const label = (idPart ? escapeHtmlText(idPart) + " · " : "") +
-        escapeHtmlText(yearMint + " · " + (c.name || c.description || c.denom) + (c.variety ? " · " + c.variety : ""));
-      researchRows.push({ html: `<div class="wish-desc">${label}</div><div class="wish-notes">Staged, no DB_Coins match — needs a catalog entry</div>` });
-    });
     // Drafts already marked ready: nothing left for Ray to decide, they're
     // waiting on Copilot to move the row into All (Phase 1 has no in-app
     // promotion — see the ENABLE_ADDCOIN_WRITE flag comment).
@@ -12690,57 +12761,60 @@
     // resolve first.
     if (myRenderToken !== needsAttentionRenderToken) return;
 
-    actionContainer.innerHTML = "";
-    researchContainer.innerHTML = "";
+    stagingContainerEl.innerHTML = "";
+    researchContainerEl.innerHTML = "";
+    otherContainerEl.innerHTML = "";
 
-    document.getElementById("needsResearchWorkbookNote").textContent =
+    document.getElementById("docketResearchWorkbookNote").textContent =
       (researchRows.length && !webUrl) ? "Workbook link unavailable right now (write layer disabled, or not signed in)." : "";
 
-    document.getElementById("needsActionEmptyNote").style.display = actionRows.length ? "none" : "block";
-    actionRows.forEach(r => {
-      const row = document.createElement("div");
-      row.className = "case wish-item";
-      row.style.cursor = r.onClick ? "pointer" : "default";
-      row.innerHTML = `<div>${r.html}</div>` + (r.onDismiss ? `<button type="button" class="staging-btn reject">Dismiss</button>` : "");
-      if (r.onClick) row.addEventListener("click", r.onClick);
-      if (r.onDismiss) {
-        row.querySelector(".staging-btn").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
-      }
-      actionContainer.appendChild(row);
-    });
+    // One shared row builder for all three sections — the sections differ
+    // in which optional actions their rows carry, not in how a row looks.
+    function appendDocketRows(container, rows, opts) {
+      rows.forEach(r => {
+        const row = document.createElement("div");
+        row.className = "case wish-item";
+        row.style.cursor = r.onClick ? "pointer" : "default";
+        const actions = (r.onRecheck || r.onDismiss)
+          ? `<div class="docket-row-actions">` +
+              (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
+              (r.onDismiss ? `<button type="button" class="staging-btn reject docket-dismiss">Dismiss</button>` : "") +
+            `</div>`
+          : "";
+        const linkHtml = (opts && opts.workbookLink && webUrl)
+          ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : "";
+        row.innerHTML = `<div>${r.html}${linkHtml}</div>` + actions;
+        if (r.onClick) row.addEventListener("click", r.onClick);
+        // stopPropagation so an action button inside a tappable row can't
+        // also trigger the row's own navigation.
+        if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
+        if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
+        container.appendChild(row);
+      });
+    }
 
-    document.getElementById("needsResearchEmptyNote").style.display = researchRows.length ? "none" : "block";
-    researchRows.forEach(r => {
-      const row = document.createElement("div");
-      row.className = "case wish-item";
-      // Re-check/Dismiss only exist on rows backed by a real Docket queue
-      // entry. The other two kinds of research row (a coin-side Staging row
-      // with no match, a Set draft pending research) aren't queue entries —
-      // they're derived live from their own sources, so there'd be nothing
-      // to resolve or dismiss.
-      const actions = (r.onRecheck || r.onDismiss)
-        ? `<div class="docket-row-actions">` +
-            (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
-            (r.onDismiss ? `<button type="button" class="staging-btn reject docket-dismiss">Dismiss</button>` : "") +
-          `</div>`
-        : "";
-      row.innerHTML = `<div>${r.html}${webUrl ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : ""}</div>` + actions;
-      if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
-      if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
-      researchContainer.appendChild(row);
-    });
+    appendDocketRows(stagingContainerEl, stagingRows);
+    appendDocketRows(researchContainerEl, researchRows, { workbookLink: true });
+    appendDocketRows(otherContainerEl, otherRows);
+
+    document.getElementById("docketStagingEmptyNote").style.display = stagingRows.length ? "none" : "block";
+    document.getElementById("docketResearchEmptyNote").style.display = researchRows.length ? "none" : "block";
+    document.getElementById("docketOtherEmptyNote").style.display = otherRows.length ? "none" : "block";
+
+    document.getElementById("docketStagingCount").textContent = String(stagingRows.length);
+    document.getElementById("docketResearchCount").textContent = String(researchRows.length);
+    document.getElementById("docketOtherCount").textContent = String(otherRows.length);
 
     const badge = document.getElementById("needsAttentionBadge");
-    // Counts BOTH sections — everything in the Docket, not just the
-    // directly-actionable half. **Supersedes the earlier action-only rule**
-    // ("the badge should only reflect things Ray can actually resolve
-    // himself"): a research item still needs Ray to hand it to Copilot and
-    // then reconcile the result, so it's his action too, just a different
-    // kind. An item sitting in the Docket uncounted reads as "nothing to
-    // do here" when there genuinely is.
+    // Counts every ITEM across all three sections — the three header counts
+    // sum to exactly this number, by construction. **This is a deliberate,
+    // visible increase over the old total**: staged coins used to collapse
+    // into a single "N coins awaiting your decision" row that contributed
+    // 1 regardless of N, so the fob under-reported real work. Now every
+    // coin counts as itself.
     // Rendered as the Docket drawer's hanging fob (a plain number, not
     // "(N)", since it's a physical tag on the cabinet, not inline nav text).
-    const docketCount = actionRows.length + researchRows.length;
+    const docketCount = stagingRows.length + researchRows.length + otherRows.length;
     if (badge) badge.textContent = docketCount ? String(docketCount) : "";
     updateDocketFob(docketCount);
   }
@@ -12843,6 +12917,16 @@
       ].filter(Boolean).join(" · ");
       const promoteLabel = row._mock ? "Promote" : "Mark ready";
       const alreadyReady = !row._mock && row.status === COIN_DRAFT_STATUS.READY;
+      // Mark-ready advisory. Most coins land in Staging precisely because
+      // they couldn't be confidently mapped to a CoinID at capture, so a
+      // resolved CoinID is the natural signal that a draft is genuinely
+      // ready to promote. **Deliberately soft, not a hard block**: a
+      // genuinely new variety may have no DB_Coins row at all and never
+      // will until Copilot adds one, so hard-gating on CoinID would strand
+      // that coin in Staging permanently. The button stays enabled; the
+      // row just says what's still unresolved and offers Re-check to close
+      // the loop once the catalog row appears.
+      const pendingCoinId = !row._mock && !alreadyReady && !row.coinId;
       const item = document.createElement("div");
       item.className = "case wish-item";
       // A draft already marked ready gets "Revert to Draft" in place of the
@@ -12855,22 +12939,33 @@
       const primaryBtnHtml = alreadyReady
         ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
         : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
+      const pendingNoteHtml = pendingCoinId
+        ? '<div class="wish-notes staging-pending-flag">⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.</div>'
+        : '';
+      const recheckBtnHtml = pendingCoinId
+        ? '<button class="staging-btn staging-recheck">Re-check</button>'
+        : '';
       item.innerHTML =
         '<div>' +
           '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
           '<div class="wish-desc">' + escapeHtmlText(label) + '</div>' +
           '<div class="wish-notes">' + escapeHtmlText(gradeLine) + '</div>' +
           (extra ? '<div class="wish-notes">' + escapeHtmlText(extra) + '</div>' : '') +
+          pendingNoteHtml +
           '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
         '</div>' +
         '<div class="staging-actions">' +
           primaryBtnHtml +
+          recheckBtnHtml +
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
       if (alreadyReady) {
         item.querySelector(".promote").addEventListener("click", () => revertStagedCoinToDraft(row.id));
       } else {
         item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
+      }
+      if (pendingCoinId && row._draft) {
+        item.querySelector(".staging-recheck").addEventListener("click", () => recheckCoinDraftMatch(row._draft));
       }
       item.querySelector(".reject").addEventListener("click", () => rejectStagedCoin(row.id));
       return item;
@@ -12924,7 +13019,10 @@
       coinId: draft.coinId,
       photoCount: (draft.photos || []).length + (draft.receiptPhoto ? 1 : 0),
       stagedDate: (draft.createdDate || "").slice(0, 10),
-      _mock: false
+      _mock: false,
+      // The draft itself, so a row action (Re-check) can work from the real
+      // stored identity rather than the flattened display row.
+      _draft: draft
     };
   }
 
@@ -12980,6 +13078,103 @@
       console.error("Couldn't revert draft:", e);
       showToast("Couldn't revert " + collectionId + ": " + String(e && e.message || e));
     }
+  }
+
+  // Re-runs the DB_Coins matcher against a STAGED COIN DRAFT's own stored
+  // identity, and writes the resolved CoinID back onto the draft. The
+  // coin-draft counterpart of docketRecheckEntry() (which does the same job
+  // for a Docket queue entry), sharing its exact three-outcome contract:
+  //   0 candidates  — nothing found, draft untouched, say so.
+  //   1 candidate   — show it for CONFIRMATION; never auto-applied.
+  //   2+ candidates — the shared ambiguous picker; the deliberate pick IS
+  //                   the confirmation. Firm project rule, not a
+  //                   preference (see CLAUDE.md's two historical mislinks).
+  //
+  // Why this exists: most coins sit in Staging precisely because they
+  // couldn't be confidently mapped to a CoinID at capture. Once Copilot
+  // adds the catalog row, nothing in the app noticed — the draft kept
+  // saying "CoinID pending" forever, and the only way forward was to mark
+  // it ready anyway (or reject and re-enter it). This closes that loop.
+  //
+  // **`description` is deliberately NOT passed into the shape.** The
+  // Description tier in dbCoinsCandidatesFor() is documented as firing ONLY
+  // for Add Coin's own controlled series-picker value — a draft's stored
+  // description may be free-typed, and All.Description / DB_Coins.Description
+  // are different sources with no guaranteed correspondence. `category` IS
+  // passed: it can only ever have come from the controlled Bullion-tier
+  // dropdown, so it carries the same guarantee the Description tier needs
+  // and doesn't have.
+  async function recheckCoinDraftMatch(draft) {
+    const label = draft.collectionID + " · " +
+      (draft.year || "") + (draft.mint ? "-" + draft.mint : "") + " " + (draft.description || draft.denom || "");
+    const candidates = dbCoinsCandidatesFor({
+      denom: draft.denom, year: draft.year, mint: draft.mint,
+      variety: draft.variety, finish: draft.finish,
+      designation: draft.designation, gradeSource: draft.gradeSource,
+      category: draft.category
+    });
+
+    if (!candidates.length) {
+      showToast("Still no DB_Coins match for " + label + " — leaving its CoinID pending.");
+      return;
+    }
+    if (candidates.length === 1) {
+      const row = candidates[0];
+      const detail = [
+        row.pcgs ? "PCGS# " + row.pcgs : "",
+        row.gsid ? "GSID " + row.gsid : "",
+        row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
+      ].filter(Boolean).join(" · ");
+      showWriteGuard({
+        title: "One match found",
+        bodyHtml:
+          "<p style=\"margin:0 0 10px;\">DB_Coins now has a match for <strong>" +
+            escapeHtmlText(label) + "</strong>:</p>" +
+          "<div class=\"case\" style=\"padding:10px; margin-bottom:10px;\">" +
+            "<div style=\"font-weight:700;\">" + escapeHtmlText(row.coinId || "(no CoinID)") + "</div>" +
+            "<div style=\"color:var(--text-muted);\">" +
+              escapeHtmlText([row.year + (row.mint ? "-" + row.mint : "") + " " + row.denom,
+                row.description, row.variety, row.finish].filter(Boolean).join(" · ")) +
+            "</div>" +
+            (detail ? "<div style=\"color:var(--text-muted);\">" + escapeHtmlText(detail) + "</div>" : "") +
+          "</div>" +
+          "<p style=\"margin:0;\">Link this staged coin to it?</p>",
+        buttons: [
+          { label: "Cancel" },
+          { label: "Link CoinID", primary: true, onClick: () => applyCoinDraftMatch(draft, row) }
+        ]
+      });
+      return;
+    }
+    showDocketMatchOverlay({
+      title: "Pick the matching catalog entry",
+      body: candidates.length + " DB_Coins rows match " + label +
+        ". Pick the right one — this writes its CoinID onto the staged coin.",
+      rows: candidates,
+      onPick: (row) => applyCoinDraftMatch(draft, row)
+    });
+  }
+
+  // Writes a re-check's resolved CoinID onto the draft. `matchedHow` gains
+  // a fourth value, "recheck", alongside single/picked/none — reconciliation
+  // needs to know a link was established AFTER capture (by a later catalog
+  // addition) rather than at capture time, and nothing in the app branches
+  // on the old three values, so widening the vocabulary is safe.
+  async function applyCoinDraftMatch(draft, row) {
+    try {
+      const fresh = await readCoinDraft(draft.collectionID);
+      if (!fresh) throw new Error("Coin draft not found: " + draft.collectionID);
+      fresh.coinId = row.coinId || "";
+      fresh.matchedHow = "recheck";
+      await writeCoinDraft(fresh);
+      showToast(draft.collectionID + " linked to " + (row.coinId || "(no CoinID)") + " — ready to mark for promotion.");
+    } catch (e) {
+      console.error("Couldn't write the re-checked CoinID:", e);
+      showToast("Couldn't update " + draft.collectionID + ": " + String(e && e.message || e));
+    }
+    await refreshCoinDraftCache();
+    renderNeedsAttentionHub();
+    if (document.getElementById("view-staging").classList.contains("active")) await renderStagingList();
   }
 
   // Rule 5: delete the Staging row and free its CollectionID. Per the
@@ -17607,6 +17802,11 @@
   initAddCoin();
   initAddSet();
   initBatchReceipt();
+  // Docket's three collapsible sections — static markup, so they wire once
+  // here rather than being rebuilt per render (only their CONTENTS change).
+  wireStaticAccordionToggle("docketStagingHeader", "docketStagingBody");
+  wireStaticAccordionToggle("docketResearchHeader", "docketResearchBody");
+  wireStaticAccordionToggle("docketOtherHeader", "docketOtherBody");
   renderNeedsAttentionHub();
   updateStagingBadge();
   // With the real write layer on, the badge's count lives in a cache that is
