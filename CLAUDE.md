@@ -6232,6 +6232,54 @@ viewports.
   inline Purchase/Storage sections in hand yet and has said he'll flag them
   if they don't feel right.
 
+### U.S. Mint Item Number: naming standardized across DB_Coins/DB_Sets (BUILT, same branch, still held)
+`DB_Coins.USMint#` — a real column, confirmed by Ray, that carries the
+Mint's own catalog identifier for a specific coin PRODUCT — was not read by
+`mapWorkbookRowToDbCoin()` at all before this. Per Ray's explicit direction,
+standardized to the same naming DB_Sets already uses for the identical
+concept (`ItemNumber`), and to the term the Mint's own catalog uses ("Item
+Number"), rather than inventing a third name for the same thing.
+
+- **Exposed internally as `itemNumber`** on the mapped DB_Coins row shape —
+  matching `DB_Sets`' own `itemNumber` field name exactly, so the two read
+  as siblings in code (a Mint product identifier), not as two differently-
+  named things that happen to mean the same thing.
+- **`colVal()`'s candidate list covers the real header (`USMint#`) plus
+  the standardized name (`ItemNumber`/`Item Number`)** — this keeps working
+  whichever the workbook column ends up named after Ray's own standardization
+  pass on the sheet itself (not done by this app-only session; workbook
+  header renames are Ray/Copilot's territory, same boundary as every other
+  schema change in this file).
+- **Add Set's own field label renamed** from "Mint product code (if known)"
+  to **"U.S. Mint Item Number (if known)"** — label-only, matching the term
+  now used consistently on both sides; element id (`addSetProductCode`) and
+  every function reading it are untouched, same "rename is label-only"
+  pattern as every other pure relabel in this file.
+- **`FAKE_DB_COINS` gained a sparse `itemNumber` field** (blank on the one
+  seeded row so far), matching the sparse-field convention every other
+  optional DB_Coins attribute (`gsid`, `pcgs`) already follows in the mock.
+
+**Deliberately NOT done in this pass, flagged rather than assumed:**
+Add Coin has no capture field for this yet, and DB_Coins.itemNumber is not
+wired into any matcher tier (`dbCoinsCandidatesFor()` doesn't read it). This
+was purely the naming/mapping standardization Ray asked for as a first
+step — see the open questions in the session log for what a real Add Coin
+capture field + matching wiring would need to decide (single field vs. the
+two-part `ItemNumber`/`ProductOption` structure DB_Sets uses; where it lives
+on the Add Coin form; whether it should also fold into the Docket research
+note for an unmatched coin).
+
+Verified headless — new suite `tests/verify_usmint_itemnumber.js` (5
+assertions): the real column reads correctly, both fallback candidate
+names work, a row with none of the three maps to a blank string rather
+than throwing, and the Add Set label reads the standardized text. 292
+assertions across all 7 suites, zero failures.
+- **Not verified: any real device, any real OneDrive session, or the real
+  DB_Coins column's exact current name** — Ray confirmed the column exists
+  and is called `USMint#` today; whether/when he renames it on the sheet
+  itself is his call, and the fallback candidates exist specifically so
+  this code doesn't care either way.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new

@@ -3487,7 +3487,14 @@
              reliable identifier when Ray buys directly from the Mint, and
              it drives Name/Year/Category below rather than being a late
              optional aside — see the input listener in initAddSet(). -->
-        <label for="addSetProductCode">Mint product code (if known)</label>
+        <!-- Label standardized to the Mint's own terminology (Ray's
+             explicit ask) — "Item Number" is what catalog.usmint.gov and
+             DB_Sets.ItemNumber both already call this, so the field name
+             and the visible label now agree with each other and with the
+             coin-side field below. Element id/functions untouched, same
+             "rename is label-only" pattern as every other pure relabel in
+             this file. -->
+        <label for="addSetProductCode">U.S. Mint Item Number (if known)</label>
         <input type="text" id="addSetProductCode" placeholder="e.g. 1999RG — optional">
         <div id="addSetMatchNote" style="font-size:12px; margin-top:4px;"></div>
 
@@ -4617,7 +4624,18 @@
       // had no such column. FAKE_DB_COINS carries its own designation values
       // (the 1909-S RD/BN mock pair), so the mock path is unaffected — this
       // only changes what a LIVE-fetched DB_Coins row exposes.
-      designation: String(colVal(row, "Designation"))
+      designation: String(colVal(row, "Designation")),
+      // DB_Coins.USMint# — the Mint's own catalog identifier for a specific
+      // coin product (as distinct from DB_Sets.ItemNumber, the same concept
+      // for a SET product). Exposed internally as `itemNumber`, matching
+      // DB_Sets' own field name — the two are the same kind of value (a
+      // Mint product identifier) and should read as siblings in code, not
+      // as two differently-named things that happen to mean the same
+      // thing. `colVal()`'s candidate list covers the real header
+      // ("USMint#") plus the naming Ray asked to standardize toward
+      // ("ItemNumber"/"Item Number"), so this keeps working whichever the
+      // workbook column is actually named after that standardization.
+      itemNumber: String(colVal(row, "USMint#", "ItemNumber", "Item Number"))
     };
   }
 
@@ -7684,7 +7702,12 @@
   // finish/description/gsid are here to support the PCGS Label Auto-Populate feature below;
   // two rows deliberately share pcgs "5000" to demo the PCGS_Duplicate_Queue ambiguous-match flow.
   const FAKE_DB_COINS = [
-    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "" },
+    // itemNumber demos DB_Coins.USMint# (a real column, exposed internally
+    // as `itemNumber` to match DB_Sets' own field name — see
+    // mapWorkbookRowToDbCoin()'s comment). Sparse by design, same
+    // convention as gsid/pcgs on the rows below — only seeded where a test
+    // needs it.
+    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "", itemNumber: "" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000,  designation: "" },
     // Plain (non-VDB) 1909-S Lincoln Wheat Cent exists as two Designation-specific
     // DB_Coins rows (RD vs. BN) sharing the same Year+MintMark+Denom+Variety —
