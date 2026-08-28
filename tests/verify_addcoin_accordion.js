@@ -23,9 +23,12 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
       fnsRetired: typeof showAddCoinSubview === 'undefined' && typeof updateFormRowSummaries === 'undefined'
     };
   });
+  // "Grading & Certification" was renamed to "Identification" in a later
+  // pass (it grew beyond PCGS decode alone — Mint Item Number and GSID
+  // lookups joined it) -- following the real design change, not weakened.
   ok(JSON.stringify(A.order) === JSON.stringify(
-      ["Grading & Certification", "Overview", "Photos", "Notes & Facts", "Purchase Details", "Storage"]),
-    "A1 sections in RECORD_SECTIONS order with Grading & Certification first: " + A.order.join(" | "));
+      ["Identification", "Overview", "Photos", "Notes & Facts", "Purchase Details", "Storage"]),
+    "A1 sections in RECORD_SECTIONS order with Identification first: " + A.order.join(" | "));
   ok(!A.order.includes("Specifications"),
     "A2 no Specifications section — composition/weight/diameter belong in DB_Coins, not Add Coin");
   ok(JSON.stringify(A.expanded) === JSON.stringify(["false", "true", "false", "false", "false", "false"]),

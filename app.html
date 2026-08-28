@@ -1748,6 +1748,12 @@
      in. */
   #descriptionAmbiguousPanel.hidden { display: none; }
   #addCoinMatchAmbiguousPanel.hidden { display: none; }
+  /* Same trap, caught BEFORE shipping this time (screenshot review during
+     the Identification-section build, not left for a later pass to find):
+     these two copy the same class="case hidden" markup and need the exact
+     same scoped rule as every panel above. */
+  #mintItemAmbiguousPanel.hidden { display: none; }
+  #gsidAmbiguousPanel.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
   /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
@@ -2933,13 +2939,15 @@
                 Composition/weight/diameter belong in DB_Coins, populated by
                 Copilot research or offline work straight into the database;
                 Add Coin should neither capture nor display them.
-             2. GRADING & CERTIFICATION is an extra section Edit Coin has no
+             2. IDENTIFICATION (originally "Grading & Certification",
+                renamed once it grew beyond PCGS decode alone — see its own
+                section comment) is an extra section Edit Coin has no
                 equivalent of, positioned FIRST — ahead of Denomination —
-                because a grader must be picked before the PCGS label-decode
-                flow can run, and that decode auto-fills the identity fields
-                below it. It is entry-time machinery, not a record section,
-                which is why it sits outside the RECORD_SECTIONS order
-                rather than being squeezed into one.
+                because any of its ID lookups (Mint Item Number, PCGS label,
+                GSID) can auto-fill the identity fields below it. It is
+                entry-time machinery, not a record section, which is why it
+                sits outside the RECORD_SECTIONS order rather than being
+                squeezed into one.
 
              SUPERSEDES the locked-in "drill-down, not an inline accordion"
              note for Purchase Details and Storage (CLAUDE.md): both are now
@@ -2947,18 +2955,41 @@
              and updateFormRowSummaries() are retired with them. -->
         <div class="case form-card" id="addCoinMainView">
 
-          <!-- GRADING & CERTIFICATION. Header names the GROUP (service +
-               label number + cert number); the field inside keeps the
-               "Grading Service" label Ray settled on in batch 7. Different
-               words at different levels, so this is not a return to the
-               "GRADING SERVICE (OPTIONAL)" / "Grader" pair he rejected —
-               that was one bold header sitting on one visible field with a
-               near-synonym for a name. -->
+          <!-- IDENTIFICATION. Renamed from "Grading & Certification" — it's
+               no longer just about a graded slab, it hosts every
+               authoritative external ID that can decode a coin's identity:
+               a U.S. Mint product number, a PCGS label, and a GSID. Header
+               names the GROUP; each field keeps its own specific label
+               (same "different words at different levels" reasoning batch
+               7 already established for "Grading Service" vs. this
+               section's own header). -->
           <div class="detail-accordion">
             <button type="button" class="accordion-header" id="addCoinGradingHeader" aria-expanded="false">
-              <span>Grading &amp; Certification</span><span class="accordion-chevron">›</span>
+              <span>Identification</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="addCoinGradingBody">
+              <!-- U.S. Mint Item Number — positioned FIRST, ahead of Grader,
+                   since a growing share of purchases come directly from the
+                   Mint and this is often the only identifier on hand before
+                   DB_Coins has a catalog row at all. Single free-text field:
+                   DB_Coins.itemNumber (USMint#) is one column, not the
+                   two-part ItemNumber/ProductOption split DB_Sets uses for
+                   SET products, so one field is enough here. -->
+              <label for="mintItemNumber">U.S. Mint Item Number</label>
+              <input type="text" id="mintItemNumber" placeholder="e.g. 21RJ — optional" autocomplete="off">
+              <div class="banner pending-banner hidden" id="mintItemNotFoundBanner">
+                <span class="icon">⚠️</span>
+                <span class="msg"><strong>Not found in DB_Coins</strong> — likely a new release not yet catalogued. Captured on the draft either way; add manually below, or leave it and Copilot can add the DB_Coins row later.</span>
+              </div>
+              <div class="banner context-banner hidden" id="mintItemAppliedBanner">
+                <span class="icon">✅</span>
+                <span class="msg" id="mintItemAppliedMsg"></span>
+              </div>
+              <div class="case hidden" id="mintItemAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+                <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this Item Number — pick one</div>
+                <div id="mintItemAmbiguousList"></div>
+              </div>
+
               <label>Grading Service</label>
               <select id="addCoinGrader">
                 <option value="">— none / not slabbed —</option>
@@ -2994,6 +3025,24 @@
                   Just captures the number here — the cert-lookup link lives on the saved coin's
                   Browse detail view, not during entry.
                 </p>
+              </div>
+
+              <!-- GSID — a Greysheet catalog identifier, unrelated to any
+                   grading service, so it sits last and independent of the
+                   Grader/PCGS block above rather than nested inside it. -->
+              <label for="gsidInput">GSID</label>
+              <input type="text" id="gsidInput" placeholder="e.g. GS-1044 — optional" autocomplete="off">
+              <div class="banner pending-banner hidden" id="gsidNotFoundBanner">
+                <span class="icon">⚠️</span>
+                <span class="msg"><strong>Not found in DB_Coins</strong> — captured on the draft either way; add manually below, or leave it and Copilot can add the DB_Coins row later.</span>
+              </div>
+              <div class="banner context-banner hidden" id="gsidAppliedBanner">
+                <span class="icon">✅</span>
+                <span class="msg" id="gsidAppliedMsg"></span>
+              </div>
+              <div class="case hidden" id="gsidAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+                <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows share this GSID — pick one</div>
+                <div id="gsidAmbiguousList"></div>
               </div>
             </div>
           </div>
@@ -6137,6 +6186,22 @@
     const researchLines = [];
     if (!match || !match.coinId) {
       researchLines.push("No DB_Coins match at capture — CoinID pending, needs a catalog entry.");
+      // List every authoritative ID actually captured, even though none of
+      // them resolved — any ONE of these is what lets Copilot create the
+      // right catalog row, so all of them belong in the note, not just
+      // whichever one happened to be tried first. Deliberately checked only
+      // in the no-match branch: if the coin DID resolve (via any one of
+      // these, or the general matcher), there's nothing left to hand to
+      // reconciliation, even if some other captured ID also came back
+      // unmatched — see CLAUDE.md for why (a real Category-narrowing
+      // "disagreement" case is scoped as a separate future item, not this).
+      const capturedIds = [];
+      if (form.itemNumber) capturedIds.push("U.S. Mint Item Number " + form.itemNumber);
+      if (form.gsid) capturedIds.push("GSID " + form.gsid);
+      if (form.pcgsLabelRaw) capturedIds.push("PCGS label " + form.pcgsLabelRaw);
+      if (capturedIds.length) {
+        researchLines.push("Captured but unresolved: " + capturedIds.join("; ") + ".");
+      }
     } else if (match.how === "picked") {
       researchLines.push("CoinID " + match.coinId + " chosen from " + match.candidateCount +
         " ambiguous DB_Coins candidates at capture — confirm at reconciliation.");
@@ -6165,6 +6230,11 @@
       finish: form.finish || "",
       designation: form.designation || "",
       errorDesc: form.errorDesc || "",
+      // Persisted regardless of match outcome — same "capture it either
+      // way" posture as every other identity field on this draft. Blank
+      // for a coin where neither was ever entered, same as today.
+      itemNumber: form.itemNumber || "",
+      gsid: form.gsid || "",
       coinId: (match && match.coinId) || "",
       matchedHow: (match && match.how) || "none",
       // --- grade / cert
@@ -7706,8 +7776,10 @@
     // as `itemNumber` to match DB_Sets' own field name — see
     // mapWorkbookRowToDbCoin()'s comment). Sparse by design, same
     // convention as gsid/pcgs on the rows below — only seeded where a test
-    // needs it.
-    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "", itemNumber: "" },
+    // needs it. This row's own "GS-1044"-equivalent for gsid is the VDB
+    // Lincoln row two down, which already carried a real gsid value before
+    // this pass — reused rather than duplicated.
+    { denom: "10C", year: 1916, mint: "D",  variety: "",        description: "Mercury Dime",        finish: "Business Strike", gsid: "",       coinId: "C-1916-M-10C-01", pcgs: "4682",  mintage: 264000,  designation: "", itemNumber: "21RJ" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "VDB",     description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "GS-1044", coinId: "C-1909-M-1C-02",  pcgs: "2427",  mintage: 484000,  designation: "" },
     // Plain (non-VDB) 1909-S Lincoln Wheat Cent exists as two Designation-specific
     // DB_Coins rows (RD vs. BN) sharing the same Year+MintMark+Denom+Variety —
@@ -12687,8 +12759,14 @@
       const note = resolved
         ? "CoinID " + escapeHtmlText(resolved) + " — ready to mark for promotion"
         : "CoinID pending — no DB_Coins match yet";
+      // researchNote lists every captured-but-unresolved ID (Mint Item
+      // Number, GSID, PCGS label) — computed at save time (buildCoinDraft())
+      // but never actually surfaced anywhere before this; shown here as its
+      // own line, same spot Staging Review's own row list shows it.
+      const researchNoteHtml = (!resolved && c.researchNote)
+        ? `<div class="wish-notes staging-pending-flag">${escapeHtmlText(c.researchNote)}</div>` : "";
       stagingRows.push({
-        html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div>`,
+        html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div>${researchNoteHtml}`,
         onClick: () => navigate("staging"),
         // Re-check only where there's actually something unresolved to
         // re-check, and only on a real durable draft (a mock row has
@@ -12982,7 +13060,12 @@
         ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
         : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
       const pendingNoteHtml = pendingCoinId
-        ? '<div class="wish-notes staging-pending-flag">⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.</div>'
+        ? '<div class="wish-notes staging-pending-flag">⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.</div>' +
+          // researchNote lists every captured-but-unresolved ID (Mint Item
+          // Number, GSID, PCGS label) — same content the Docket's Staging
+          // row shows, surfaced here too since this is the other real place
+          // Ray reviews a pending draft.
+          (row.researchNote ? '<div class="wish-notes staging-pending-flag">' + escapeHtmlText(row.researchNote) + '</div>' : '')
         : '';
       const recheckBtnHtml = pendingCoinId
         ? '<button class="staging-btn staging-recheck">Re-check</button>'
@@ -13061,6 +13144,7 @@
       coinId: draft.coinId,
       photoCount: (draft.photos || []).length + (draft.receiptPhoto ? 1 : 0),
       stagedDate: (draft.createdDate || "").slice(0, 10),
+      researchNote: draft.researchNote || "",
       _mock: false,
       // The draft itself, so a row action (Re-check) can work from the real
       // stored identity rather than the flattened display row.
@@ -15747,6 +15831,78 @@
     });
   }
 
+  // Shared by the two new single-field ID lookups (Mint Item Number, GSID)
+  // below — deliberately NOT the same function PCGS uses
+  // (resolvePcgsLabelMatch), which also forces Grader/GradeSource to "PCGS".
+  // Neither a Mint product number nor a Greysheet ID implies PCGS
+  // certification, so this only fills identity fields and makes the pick
+  // authoritative for Save — the same "remembered pick" mechanism PCGS
+  // decode uses (Q4), reused rather than re-implemented.
+  function applyIdentifierDbCoinsMatch(row) {
+    applyDbCoinsRowToForm(row);
+    const shape = addCoinIdentityShape();
+    addCoinResolvedPick = { row, forShape: addCoinIdentityShapeKey(shape), candidateCount: 1 };
+    checkDbCoinsMatch();
+    updateFlipLabels();
+    return row;
+  }
+
+  // One generic single-field exact-match handler, parameterized per field —
+  // Mint Item Number and GSID are structurally identical lookups (no
+  // parsing, unlike PCGS's SPEC.GRADE/CERT format), so this is one
+  // implementation rather than two near-duplicates. matchField is the
+  // DB_Coins row property to compare against (already trimmed/case-folded
+  // via normField() — the standard "forgiving" match every other identity
+  // comparison in this file uses, not a stricter literal match).
+  function handleIdentifierLookup(opts) {
+    const raw = document.getElementById(opts.inputId).value.trim();
+    document.getElementById(opts.notFoundId).classList.add("hidden");
+    document.getElementById(opts.appliedId).classList.add("hidden");
+    document.getElementById(opts.ambiguousPanelId).classList.add("hidden");
+    if (!raw) return;
+    const norm = normField(raw);
+    const matches = activeDbCoins().filter(c => c[opts.matchField] && normField(c[opts.matchField]) === norm);
+    const showApplied = (row) => {
+      applyIdentifierDbCoinsMatch(row);
+      document.getElementById(opts.appliedMsgId).innerHTML =
+        "Matched via " + opts.label + " — <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>";
+      document.getElementById(opts.appliedId).classList.remove("hidden");
+    };
+    if (matches.length === 0) {
+      document.getElementById(opts.notFoundId).classList.remove("hidden");
+    } else if (matches.length === 1) {
+      showApplied(matches[0]);
+    } else {
+      // Rare (two DB_Coins rows sharing an Item Number/GSID would itself be
+      // a catalog issue), but handled the same way any 2+ match is
+      // everywhere else in this app: never auto-resolve, always a human
+      // pick — reuses the shared ambiguous-list renderer, not a new one.
+      renderAmbiguousMatchList(document.getElementById(opts.ambiguousListId), matches, (row) => {
+        document.getElementById(opts.ambiguousPanelId).classList.add("hidden");
+        showApplied(row);
+      });
+      document.getElementById(opts.ambiguousPanelId).classList.remove("hidden");
+    }
+  }
+
+  function handleMintItemNumberApply() {
+    handleIdentifierLookup({
+      inputId: "mintItemNumber", matchField: "itemNumber", label: "Mint Item Number",
+      notFoundId: "mintItemNotFoundBanner", appliedId: "mintItemAppliedBanner",
+      appliedMsgId: "mintItemAppliedMsg", ambiguousPanelId: "mintItemAmbiguousPanel",
+      ambiguousListId: "mintItemAmbiguousList"
+    });
+  }
+
+  function handleGsidApply() {
+    handleIdentifierLookup({
+      inputId: "gsidInput", matchField: "gsid", label: "GSID",
+      notFoundId: "gsidNotFoundBanner", appliedId: "gsidAppliedBanner",
+      appliedMsgId: "gsidAppliedMsg", ambiguousPanelId: "gsidAmbiguousPanel",
+      ambiguousListId: "gsidAmbiguousList"
+    });
+  }
+
   function handlePcgsLabelApply() {
     const raw = document.getElementById("pcgsLabelInput").value;
     const parsed = parsePcgsLabel(raw);
@@ -15870,7 +16026,19 @@
       storageLocation: document.getElementById("storageLocation").value,
       container: document.getElementById("container").value,
       assignAlbum: document.getElementById("assignAlbum").value,
-      notes: document.getElementById("notesField") ? document.getElementById("notesField").value : ""
+      notes: document.getElementById("notesField") ? document.getElementById("notesField").value : "",
+      // Raw captured values, regardless of whether they resolved to a
+      // DB_Coins row — buildCoinDraft() needs these even on a miss, so the
+      // Docket's research note can list exactly which IDs were captured
+      // but still need a catalog entry.
+      itemNumber: document.getElementById("mintItemNumber").value.trim(),
+      gsid: document.getElementById("gsidInput").value.trim(),
+      // Add Coin only ever PERSISTS the CERT portion of a PCGS label
+      // (serNo, above) — the full raw label text is captured here too,
+      // purely for the research note, so a slabbed coin whose PCGS# came
+      // back with no DB_Coins match still leaves Copilot the actual label
+      // to work from, not just a bare cert number.
+      pcgsLabelRaw: document.getElementById("pcgsLabelInput") ? document.getElementById("pcgsLabelInput").value.trim() : ""
     };
   }
 
@@ -16149,6 +16317,16 @@
     document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
     document.getElementById("certTypeNumber").value = "";
 
+    // --- Mint Item Number / GSID lookups
+    document.getElementById("mintItemNumber").value = "";
+    document.getElementById("mintItemNotFoundBanner").classList.add("hidden");
+    document.getElementById("mintItemAppliedBanner").classList.add("hidden");
+    document.getElementById("mintItemAmbiguousPanel").classList.add("hidden");
+    document.getElementById("gsidInput").value = "";
+    document.getElementById("gsidNotFoundBanner").classList.add("hidden");
+    document.getElementById("gsidAppliedBanner").classList.add("hidden");
+    document.getElementById("gsidAmbiguousPanel").classList.add("hidden");
+
     // --- Identity
     document.getElementById("addCoinBullionToggle").checked = false;
     populateAddCoinDenominationDropdown("classic");
@@ -16305,6 +16483,19 @@
     document.getElementById("pcgsLabelApplyBtn").addEventListener("click", handlePcgsLabelApply);
     document.getElementById("pcgsLabelInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); handlePcgsLabelApply(); }
+    });
+
+    // Mint Item Number / GSID: no Decode button (no parsing to trigger,
+    // unlike PCGS's SPEC.GRADE/CERT format) — the lookup fires on blur
+    // ("change") and on Enter, same trigger points, just without the
+    // explicit button PCGS needs to make its parse step visible.
+    document.getElementById("mintItemNumber").addEventListener("change", handleMintItemNumberApply);
+    document.getElementById("mintItemNumber").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); handleMintItemNumberApply(); }
+    });
+    document.getElementById("gsidInput").addEventListener("change", handleGsidApply);
+    document.getElementById("gsidInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); handleGsidApply(); }
     });
 
     initGradePicker();

@@ -6268,6 +6268,9 @@ capture field + matching wiring would need to decide (single field vs. the
 two-part `ItemNumber`/`ProductOption` structure DB_Sets uses; where it lives
 on the Add Coin form; whether it should also fold into the Docket research
 note for an unmatched coin).
+**Since BUILT** — see "Add Coin: Identification section — Mint Item Number +
+GSID matching" below; every open question there was resolved and a real
+capture field now exists for both.
 
 Verified headless — new suite `tests/verify_usmint_itemnumber.js` (5
 assertions): the real column reads correctly, both fallback candidate
@@ -6280,7 +6283,122 @@ assertions across all 7 suites, zero failures.
   itself is his call, and the fallback candidates exist specifically so
   this code doesn't care either way.
 
+### Add Coin: Identification section — Mint Item Number + GSID matching (BUILT, same branch, still held)
+Extends the existing PCGS-label-decode pattern with two more independent
+identification paths, since a growing share of Ray's purchases come
+directly from the Mint (a product often not yet in DB_Coins at all) and
+DB_Coins.GSID was already a real column with no entry point of its own.
+
+- **"Grading & Certification" renamed to "Identification."** It's no
+  longer just about a graded slab — it hosts every authoritative external
+  ID that can decode a coin's identity (Mint Item Number, PCGS label,
+  GSID). Header text/id (`addCoinGradingHeader`) otherwise unchanged, same
+  "different words at different levels" pattern batch 7 already
+  established for "Grading Service" vs. this section's own header.
+- **Field order inside the section**: U.S. Mint Item Number FIRST (ahead of
+  Grader — Ray's own point that Mint purchases are his common case and
+  often the only identifier on hand pre-catalogue), then the existing
+  Grader/PCGS block unchanged, then GSID LAST (a Greysheet catalog ID,
+  unrelated to any grading service, so it sits independent of that block
+  rather than nested inside it).
+- **One shared `handleIdentifierLookup()`, not two near-duplicate
+  handlers** — Mint Item Number and GSID are structurally identical
+  lookups (no parsing step, unlike PCGS's `SPEC.GRADE/CERT` format), so one
+  parameterized function drives both `handleMintItemNumberApply()`/
+  `handleGsidApply()`. Match is case-insensitive/trimmed via `normField()`
+  (the same "forgiving" comparison every other identity match in this file
+  already uses) against `activeDbCoins()` — live catalog when loaded,
+  `FAKE_DB_COINS` otherwise, same source PCGS/Finish/Category already read.
+  Fires on blur (`change`) and Enter — no Decode button, since there's
+  nothing to parse the way PCGS's label format needs one.
+  - **0 matches** → a non-blocking "not found" banner (expected to be the
+    common case for a genuinely new Mint release); the typed value is
+    still captured onto the draft either way.
+  - **1 match** → `applyIdentifierDbCoinsMatch()` autofills identity
+    fields (denom/year/mint/description/variety/finish) and makes the pick
+    authoritative for Save, reusing the exact "remembered pick" mechanism
+    PCGS decode uses (Q4) — so Save doesn't re-open the ambiguous picker
+    for an identity that already resolved unambiguously.
+  - **2+ matches** (two DB_Coins rows sharing an Item Number/GSID would
+    itself be a catalog issue, but handled anyway) → the same shared
+    `renderAmbiguousMatchList()` every other 2+ case in this app uses —
+    never auto-resolve, always a human pick.
+  - **Deliberately NOT the same function PCGS decode uses**
+    (`resolvePcgsLabelMatch`), which also forces Grader/GradeSource to
+    `"PCGS"`. Neither a Mint product number nor a Greysheet ID implies PCGS
+    certification, so a match via either of these two fields autofills
+    identity only — Grader/GradeSource are untouched. Verified directly
+    (assertions B3/C2).
+- **Two real, persisted draft fields, `itemNumber` and `gsid`** — captured
+  regardless of match outcome (same "capture it either way" posture every
+  other identity field on this draft already has). `readAddCoinFormForDraft()`
+  also captures `pcgsLabelRaw` (the full, unparsed PCGS Label # field text)
+  purely for the research note below — Add Coin has only ever persisted the
+  CERT portion of a decoded label (`serNo`), so without this a slabbed
+  coin whose PCGS# came back with no DB_Coins match would leave nothing
+  of the actual label for Copilot to work from.
+- **The Docket research note now lists every captured-but-unresolved ID**,
+  not just a generic "no match" line — Mint Item Number, GSID, and the raw
+  PCGS label text (if entered) all appear when present, since any ONE of
+  them is what lets Copilot create the right catalog row. Checked only in
+  the no-match branch: a coin that DID resolve (by any path) has nothing
+  left to hand to reconciliation, even if some other field it also carried
+  happened not to match anything — a genuine disagreement between two
+  resolved IDs is the separate, deliberately deferred conflict-detection
+  item (see below).
+- **`researchNote` is now actually surfaced in the UI — a real, separate
+  gap this task found and fixed.** It was already computed and written to
+  every draft, but nothing displayed it: neither the Docket's Staging rows
+  nor Staging Review's own row list ever read `draft.researchNote` back.
+  Now shown as its own line in both places — the Docket's Staging row
+  (`renderNeedsAttentionHub()`) and Staging Review's row list
+  (`coinDraftToStagingRow()`/`buildStagingRowEl()`), reusing the existing
+  `.staging-pending-flag` styling.
+- **A real bug caught by screenshot before shipping, not left for a later
+  pass to find** — the exact same trap this file has hit before (no
+  generic `.hidden` rule; every `.hidden` is scoped to its own component).
+  The two new ambiguous panels (`mintItemAmbiguousPanel`,
+  `gsidAmbiguousPanel`) were built with `class="case hidden"` copying the
+  existing PCGS/Description panels' look, but needed their own
+  `#id.hidden` rule same as those — without it, `classList.contains
+  ("hidden")` read `true` while the panels stayed fully visible at rest.
+  Fixed with two scoped rules; the committed suite checks the real
+  computed style (`getComputedStyle().display`), not just `classList`, so
+  this class of bug can't hide behind a green suite again.
+- **Deliberately deferred, not built here (Ray's explicit call)**: if two
+  or more of PCGS#/Mint Item Number/GSID are entered and resolve to
+  DIFFERENT DB_Coins rows, nothing detects or surfaces that conflict yet —
+  each lookup is independent, and whichever one is filled in/re-triggered
+  last simply overwrites `addCoinResolvedPick`. This project has a real
+  history of PCGS#/GSID mismatches turning out to be genuine catalog bugs
+  (see the Designation-matcher cert-protection guard elsewhere in this
+  file), so a silent overwrite is a known, accepted gap for now, not an
+  oversight — scoping the actual disagreement-resolution UI is explicitly
+  held for a follow-up once Ray has seen the first four pieces live.
+
+**Verified headless — new suite `tests/verify_addcoin_identification.js`
+(22 assertions), all passing; 314 across all 8 suites, zero failures.**
+Covers: the section rename and exact field order; a Mint Item Number match
+autofilling identity with no Grader/GradeSource side effect, and a genuine
+miss touching nothing; the same for GSID (including case-insensitive
+matching); the resolved pick actually being what Save commits; the raw
+captures (`itemNumber`/`gsid`/`pcgsLabelRaw`) being read off the form and
+persisted onto the draft regardless of match outcome; the research note
+listing all three captured-but-unresolved IDs together, and NOT appearing
+at all for a coin that did resolve; `researchNote` genuinely rendering in
+both the Docket and Staging Review; `resetAddCoinForm()` clearing both new
+fields and their banners; the two ambiguous panels' GENUINE hidden state
+(computed style, not just class); and a full nav smoke with no overflow.
+Screenshots reviewed at both viewports, before and after the visibility
+fix.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature. `FAKE_DB_COINS` gained a
+  real `itemNumber` ("21RJ") on the existing Mercury Dime demo row, reusing
+  its already-real `gsid` ("GS-1044") on the neighboring VDB Lincoln row
+  rather than inventing new demo rows.
+
 ## Quick-capture notes → ParkingLot
+Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
 ParkingLot row (same lock/fallback pattern as coin writes): Source, Screen, Related
