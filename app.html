@@ -1594,9 +1594,20 @@
 
   /* CAC Bean status — two mutually-exclusive checkboxes standing in for one
      underlying value (All!CACBean: blank/Green/Gold). Reused identically by
-     Add Coin and Edit Coin, positioned to the right of the Cert/Type Number
-     field in both — see wireMutuallyExclusiveCheckboxes(). */
-  .cac-bean-group { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+     Add Coin and Edit Coin — see wireMutuallyExclusiveCheckboxes(). Add
+     Coin's group is its own standalone row (#cacBeanRow); Edit Coin's still
+     lives inline inside .cert-badge-row, beside the Cert/Type Number input
+     and lookup-link icon — this component carries its OWN internal caption
+     rather than a block-level <label> above it, specifically so it works
+     correctly in both contexts: a block label would misread as labeling the
+     whole cert-badge-row (input + link + checkboxes) in Edit Coin, not just
+     the checkbox pair. */
+  .cac-bean-group { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+  .cac-bean-heading {
+    font-size: 11px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .cac-bean-group .cac-bean-checks { display: flex; gap: 10px; align-items: center; }
   .cac-bean-group label {
     display: flex; align-items: center; gap: 3px; margin: 0;
     font-size: 12px; font-weight: 400; color: var(--text-muted);
@@ -2093,24 +2104,18 @@
   .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
   .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
 
-  /* The two saved-coin BR corners hold a composition string, which is
-     routinely longer than any other corner value ("99.95% Platinum",
-     ".9995 Fine Palladium") — measured, not assumed. At the shared 27px those
-     run 145-192px against this box's 50%-of-frame cap (140px), and because
-     .flip-label is `white-space: nowrap` with no `overflow: hidden` and is
-     anchored by `right`, the excess spills RIGHTWARD past the frame's own
-     edge and gets visually cut — confirmed by screenshot, and the same
-     clipped-corner failure this file has fought before.
-     Composition is genuinely secondary to the identity/grade values in the
-     other three corners, so it takes a smaller size rather than a wider box:
-     22px brings every realistic value inside the existing cap with no
-     geometry change at all, so it cannot collide with the coin disc or with
-     the Grade label sharing its row. 22px is also deliberately clear of the
-     20px that drew Ray's original "too small to read on phone" report.
-     Scoped by ID, not by class, so it can never reach Add Coin's own
-     flipObverseBR/flipReverseBR — a different corner with different content
-     that must stay at 27px. */
-  #browseDetailBR, #spotlightBR { font-size: 22px; }
+  /* Superseded — a blanket "#browseDetailBR, #spotlightBR { font-size: 22px }"
+     rule used to live here, shrinking EVERY coin's composition text
+     uniformly regardless of whether that specific coin's actual value
+     needed it. Removed per Ray's explicit request: sizing is now
+     collision-based and per-instance (setCompositionCornerText(), called
+     from JS after the two-line stacking/reduction chain already does its
+     work) — a short value like "90% Silver" now legibly renders at the
+     corner's own natural size (27px full flip-frame, 14px Catalog
+     grid-mini), and only a coin whose specific text still doesn't fit
+     after stacking gets stepped down, and only as far as it actually
+     needs. No CSS override remains at this selector; BR/TL/TR/BL all share
+     one base font-size from .flip-label above, same as originally. */
 
   /* A corner holding two related values (Type/Denom, Variety/Designation)
      stacks them as two lines rather than crowding one line. */
@@ -2547,10 +2552,20 @@
                 <a href="#" target="_blank" rel="noopener" class="cert-link-btn small hidden" id="browseEditCertLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
                 <!-- CAC Bean status — same two-checkbox pattern as Add Coin
                      (see its own comment), writable for real here via
-                     ALL_WRITABLE_COLUMNS/CACBean. -->
+                     ALL_WRITABLE_COLUMNS/CACBean. Row structure here is
+                     deliberately UNTOUCHED — still inline inside
+                     .cert-badge-row, not pulled into its own standalone
+                     row the way Add Coin's was (that move was forced by
+                     Add Coin's own PCGS-visibility bug; this row was never
+                     affected by it, and .cac-bean-group's own internal
+                     caption already gives it a real label without needing
+                     any structural change here. -->
                 <div class="cac-bean-group">
-                  <label><input type="checkbox" id="browseEditCacGreen"> Green</label>
-                  <label><input type="checkbox" id="browseEditCacGold"> Gold</label>
+                  <span class="cac-bean-heading">CAC Bean</span>
+                  <div class="cac-bean-checks">
+                    <label><input type="checkbox" id="browseEditCacGreen"> Green</label>
+                    <label><input type="checkbox" id="browseEditCacGold"> Gold</label>
+                  </div>
                 </div>
               </div>
 
@@ -2659,10 +2674,16 @@
             </button>
             <div class="accordion-body hidden" id="editCoinPurchaseBody">
               <label>Purchase Price</label>
-              <input type="number" step="0.01" id="browseEditCost" placeholder="e.g. 450.00">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="browseEditCost" placeholder="e.g. 450.00">
+              </div>
 
               <label>Shipping Cost</label>
-              <input type="number" step="0.01" id="browseEditShippingCost" placeholder="e.g. 12.50">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="browseEditShippingCost" placeholder="e.g. 12.50">
+              </div>
 
               <label>Vendor / Seller</label>
               <input type="text" id="browseEditVendor" placeholder="e.g. eBay seller, local shop name">
@@ -2819,10 +2840,16 @@
             </button>
             <div class="accordion-body hidden" id="editSetPurchaseBody">
               <label>Purchase Price</label>
-              <input type="number" step="0.01" id="editSetCost" placeholder="e.g. 450.00">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="editSetCost" placeholder="e.g. 450.00">
+              </div>
 
               <label>Shipping Cost</label>
-              <input type="number" step="0.01" id="editSetShippingCost" placeholder="e.g. 12.50">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="editSetShippingCost" placeholder="e.g. 12.50">
+              </div>
 
               <label>Vendor / Seller</label>
               <input type="text" id="editSetVendor" placeholder="e.g. eBay seller, local shop name">
@@ -2912,10 +2939,16 @@
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Details</div>
 
           <label>Purchase Price</label>
-          <input type="number" step="0.01" id="wishlistPurchasePrice" placeholder="e.g. 1800.00">
+          <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="wishlistPurchasePrice" placeholder="e.g. 1800.00">
+              </div>
 
           <label>Shipping Cost</label>
-          <input type="number" step="0.01" id="wishlistShippingCost" placeholder="e.g. 12.00">
+          <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="wishlistShippingCost" placeholder="e.g. 12.00">
+              </div>
 
           <label>Purchase Date</label>
           <input type="date" id="wishlistPurchaseDate">
@@ -3104,23 +3137,37 @@
 
               <div id="certTypeNumberRow" style="display:none;">
                 <label>Cert / Type Number</label>
-                <div class="cert-input-row">
-                  <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
-                  <!-- CAC Bean status — two mutually-exclusive checkboxes for one
-                       underlying value (All!CACBean: blank/Green/Gold). Add Coin
-                       has no write path to All in Phase 1 (see buildCoinDraft());
-                       this is captured on the Staging draft the same way
-                       Category/itemNumber/gsid already are, flagged for
-                       ALL_WRITABLE_COLUMNS ahead of Phase 2. -->
-                  <div class="cac-bean-group">
-                    <label><input type="checkbox" id="cacGreen"> Green</label>
-                    <label><input type="checkbox" id="cacGold"> Gold</label>
-                  </div>
-                </div>
+                <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
                 <p class="placeholder-note" style="margin:4px 0 16px;">
                   Just captures the number here — the cert-lookup link lives on the saved coin's
                   Browse detail view, not during entry.
                 </p>
+              </div>
+
+              <!-- CAC Bean status — real bug fix: this used to live INSIDE
+                   certTypeNumberRow above, which only shows for a
+                   non-PCGS grader (PCGS's cert number is auto-decoded from
+                   the label, so that row hides for PCGS specifically) — so
+                   the CAC checkboxes were hidden exactly when PCGS was
+                   picked, backwards, since CAC almost exclusively stickers
+                   PCGS/NGC coins. Pulled out into its own row, gated on
+                   "any grader picked" alone (a raw/ungraded coin can't
+                   carry a CAC bean), independent of which grader or of
+                   whether the Cert/Type Number row itself is showing. Two
+                   mutually-exclusive checkboxes for one underlying value
+                   (All!CACBean: blank/Green/Gold). Add Coin has no write
+                   path to All in Phase 1 (see buildCoinDraft()); this is
+                   captured on the Staging draft the same way
+                   Category/itemNumber/gsid already are, flagged for
+                   ALL_WRITABLE_COLUMNS ahead of Phase 2. -->
+              <div id="cacBeanRow" style="display:none;">
+                <div class="cac-bean-group">
+                  <span class="cac-bean-heading">CAC Bean</span>
+                  <div class="cac-bean-checks">
+                    <label><input type="checkbox" id="cacGreen"> Green</label>
+                    <label><input type="checkbox" id="cacGold"> Gold</label>
+                  </div>
+                </div>
               </div>
 
               <!-- GSID — a Greysheet catalog identifier, unrelated to any
@@ -3385,10 +3432,16 @@
             </button>
             <div class="accordion-body hidden" id="addCoinPurchaseBody">
               <label>Purchase Price</label>
-              <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="purchasePrice" placeholder="e.g. 45.00">
+              </div>
 
               <label>Shipping Cost</label>
-              <input type="number" step="0.01" id="shippingCost" placeholder="e.g. 6.50">
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="shippingCost" placeholder="e.g. 6.50">
+              </div>
 
               <label>Purchase Date</label>
               <input type="date" id="purchaseDate">
@@ -3774,10 +3827,16 @@
           <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Purchase Details</div>
 
           <label>Purchase Price</label>
-          <input type="number" step="0.01" id="addSetCost" placeholder="e.g. 450.00">
+          <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="addSetCost" placeholder="e.g. 450.00">
+              </div>
 
           <label>Shipping Cost</label>
-          <input type="number" step="0.01" id="addSetShippingCost" placeholder="e.g. 12.50">
+          <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="addSetShippingCost" placeholder="e.g. 12.50">
+              </div>
 
           <label>Purchase Date</label>
           <input type="date" id="addSetPurchaseDate">
@@ -9124,16 +9183,20 @@
   // pair to stack. Confirmed with Ray: no coin in this collection is
   // bimetallic today, so this falls back to the joined string as ONE line
   // rather than inventing a layout for zero real rows — same call as
-  // compositionLabelCandidates' own stage-2 behavior for that case.
-  // KNOWN, ACCEPTED GAP: that joined line has no further reduction beyond
-  // what compositionLabelCandidates already does (which keeps both metals
-  // rather than dropping either), so a genuinely long two-metal string can
-  // measure wider than its box (confirmed: "50% Gold, 50% Silver" overflows
-  // by ~20px at phone width). Same "not worth the tradeoff for a case that
-  // basically never happens" call as several other documented gaps in this
-  // file — building real shrink logic for a coin type nothing in this
-  // collection has would be exactly the unrequested layout work Ray said
-  // not to do here.
+  // compositionLabelCandidates' own stage-2 behavior for that case. That
+  // joined line has no further TEXT reduction beyond what
+  // compositionLabelCandidates already does (keeps both metals rather than
+  // dropping either) — but it DOES still go through
+  // setCompositionCornerText()'s own per-instance font-size shrink below,
+  // same as every other composition value. MEASURED, not assumed: this
+  // actually closed the ~20px overflow this exact string used to have
+  // before that shrink existed ("50% Gold, 50% Silver" now fits at 18.09px,
+  // the 67% step, on the real flip-frame) — the shrink mechanism was built
+  // for item 6, not for this case specifically, but it happens to resolve
+  // it as a side effect. Only a truly extreme two-metal string (long alloy
+  // names on both sides) can still outrun the smallest step; that residual
+  // is the real, accepted gap now, confirmed by forcing it directly rather
+  // than assumed.
   const COMPOSITION_VALUE_METAL_RE = /^([.\d][.\d,%]*)\s*(?:Fine\s+)?(.+)$/i;
   function splitCompositionForStacking(text) {
     const candidates = compositionLabelCandidates(text);
@@ -9144,16 +9207,41 @@
     return m ? [m[1], m[2]] : [source]; // doesn't match "value metal" shape — one line, unsplit
   }
 
-  // Sets the BR corner from a composition string, stacked when it splits
-  // cleanly into a value + metal name, single-line (still measured/fitted,
-  // for the rare fallback case) otherwise.
+  // Collision-based, per-instance sizing (supersedes a blanket
+  // "#browseDetailBR, #spotlightBR { font-size: 22px }" CSS rule that used
+  // to shrink EVERY coin's composition text uniformly — see that rule's own
+  // now-historical CSS comment). A coin whose composition fits fine at the
+  // corner's own natural size (27px full flip-frame, 14px Catalog grid-mini
+  // — read fresh from the element's OWN computed style, never hardcoded, so
+  // this one function serves both contexts) renders there and stops; only a
+  // coin whose specific text still doesn't fit gets stepped down, and only
+  // as far as it actually needs.
+  //
+  // el.style.fontSize is cleared FIRST, before measuring the natural size —
+  // browseDetailBR/spotlightBR (and each Catalog card's own BR span) are
+  // real DOM elements re-used across many different coins as the user
+  // browses/flips, so a previous coin's shrink must never leak into this
+  // coin's render or its "natural size" measurement.
+  const COMPOSITION_SHRINK_STEPS = [1, 0.82, 0.67]; // fractions of the corner's own natural size
   function setCompositionCornerText(el, text) {
+    el.style.fontSize = "";
+    const naturalSize = parseFloat(getComputedStyle(el).fontSize);
     const lines = splitCompositionForStacking(text);
-    if (lines.length === 2) {
-      renderCornerLines(el, lines);
-    } else {
-      setFittedCornerText(el, lines[0] || "");
+    if (!lines.length) { el.innerHTML = ""; return; }
+    const render = () => {
+      if (lines.length === 2) renderCornerLines(el, lines);
+      else setFittedCornerText(el, lines[0]); // single-line fallback re-runs its own text-reduction loop at whatever size is current
+    };
+    for (let i = 0; i < COMPOSITION_SHRINK_STEPS.length; i++) {
+      if (i > 0) el.style.fontSize = (naturalSize * COMPOSITION_SHRINK_STEPS[i]) + "px";
+      render();
+      if (el.scrollWidth <= el.clientWidth) return;
     }
+    // Still doesn't fit at the smallest step — leave the last rendering as
+    // it is rather than shrinking indefinitely; a known, accepted gap for
+    // whatever coin (if any) is extreme enough to reach this, same posture
+    // as every other "not worth chasing further" gap already documented in
+    // this file.
   }
 
   // Reference info per MetalCategory bucket — static, not per-coin — shown as
@@ -9307,6 +9395,7 @@
           <span class="flip-label tr"></span>
           <div class="coin-disc"></div>
           <span class="flip-label bl">${coin.grade || ""}</span>
+          <span class="flip-label br"></span>
         </div>
         <div class="coin-card-text">
           <div class="name">${coin.name}</div>
@@ -9331,6 +9420,15 @@
       // cards dropped this for previously (see CLAUDE.md). Must run after
       // appendChild (needs real layout to measure scrollWidth against).
       renderTypeDenomCorner(card.querySelector(".flip-label.tr"), coin);
+      // Composition — same rule and same shared renderer as the full
+      // flip-frame's BR corner (Browse detail/Spotlight): precious metal
+      // only, stacked value/metal lines when it splits cleanly, sized
+      // per-instance rather than a blanket shrink (see
+      // setCompositionCornerText()'s own comment). This card is a genuinely
+      // separate render path from applyFlipCorners() (Catalog's own
+      // renderBrowseGrid(), not shared code), which is why it never
+      // inherited Composition automatically when that was first built.
+      setCompositionCornerText(card.querySelector(".flip-label.br"), preciousMetalCompositionFor(coin));
     });
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
@@ -10520,6 +10618,12 @@
       const gradeText = gradeWithSourceText(coin);
       if (gradeText) overviewRows.push(["Grade", gradeText]);
       if (coin.designation) overviewRows.push(["Designation", coin.designation]);
+      // Read-only display — deliberate reversal of the earlier "edit-surface
+      // only" scope call for CACBean (not an oversight). Same pattern as
+      // Grade/GradeSource above: a plain fact row, omitted entirely when
+      // blank. A Set bundle has no CAC status of its own, same scoping as
+      // Grade/Designation just above.
+      if (coin.cacBean) overviewRows.push(["CAC Bean", coin.cacBean]);
     }
     const certHtml = certDisplayHtml(coin);
     if (certHtml) overviewRows.push(["Cert", certHtml]);
@@ -16408,6 +16512,12 @@
     // twice. Only a grader with no auto-decode (NGC/ANACS/ICG/CAC) needs the
     // manual box.
     document.getElementById("certTypeNumberRow").style.display = (grader && grader !== "PCGS") ? "block" : "none";
+    // CAC Bean shows whenever ANY grader is picked, including PCGS — unlike
+    // certTypeNumberRow above, this is NOT specific to graders lacking
+    // auto-decode. A raw/ungraded coin (Grader blank) can't carry a CAC
+    // bean, so gating on "a grader is picked" stays correct; gating on
+    // WHICH grader (the bug this fixes) does not.
+    document.getElementById("cacBeanRow").style.display = grader ? "block" : "none";
   }
 
   function resolvePcgsLabelMatch(row, parsed) {

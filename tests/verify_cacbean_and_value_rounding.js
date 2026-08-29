@@ -23,8 +23,28 @@ module.exports = defineSuite("cacbean-and-value-rounding", async ({ ok, openApp,
     navigate("addcoin");
     const green = document.getElementById("cacGreen");
     const gold = document.getElementById("cacGold");
-    const inCertRow = !!document.getElementById("certTypeNumberRow").querySelector("#cacGreen") &&
-      !!document.getElementById("certTypeNumberRow").querySelector("#cacGold");
+    // Real bug fix (batch round 2): the CAC checkboxes used to live INSIDE
+    // certTypeNumberRow, which only shows for a non-PCGS grader — so they
+    // were hidden exactly when PCGS was picked, backwards, since CAC almost
+    // exclusively stickers PCGS/NGC coins. Now they're their own row
+    // (#cacBeanRow), gated on "any grader picked" alone, independent of
+    // certTypeNumberRow's own narrower visibility.
+    const inOwnRow = !!document.getElementById("cacBeanRow").querySelector("#cacGreen") &&
+      !!document.getElementById("cacBeanRow").querySelector("#cacGold");
+    const notInCertRow = !document.getElementById("certTypeNumberRow").contains(document.getElementById("cacGreen"));
+
+    document.getElementById("addCoinGrader").value = "";
+    applyGraderDependentVisibility("");
+    const visibleNoGrader = getComputedStyle(document.getElementById("cacBeanRow")).display !== "none";
+
+    document.getElementById("addCoinGrader").value = "PCGS";
+    applyGraderDependentVisibility("PCGS");
+    const visiblePcgs = getComputedStyle(document.getElementById("cacBeanRow")).display !== "none";
+    const certRowVisiblePcgs = getComputedStyle(document.getElementById("certTypeNumberRow")).display !== "none";
+
+    document.getElementById("addCoinGrader").value = "NGC";
+    applyGraderDependentVisibility("NGC");
+    const visibleNgc = getComputedStyle(document.getElementById("cacBeanRow")).display !== "none";
 
     // Mutual exclusivity
     green.checked = true; green.dispatchEvent(new Event("change", { bubbles: true }));
@@ -43,15 +63,35 @@ module.exports = defineSuite("cacbean-and-value-rounding", async ({ ok, openApp,
     resetAddCoinForm();
     const afterReset = { green: green.checked, gold: gold.checked };
 
-    return { inCertRow, afterGreen, afterGold, afterUncheck, draftCacBean: draft.cacBean, afterReset };
+    return {
+      inOwnRow, notInCertRow, visibleNoGrader, visiblePcgs, certRowVisiblePcgs, visibleNgc,
+      afterGreen, afterGold, afterUncheck, draftCacBean: draft.cacBean, afterReset
+    };
   });
-  ok(A.inCertRow, "A1 cacGreen/cacGold checkboxes exist, positioned inside certTypeNumberRow (to the right of Cert/Type Number)");
+  ok(A.inOwnRow, "A1 cacGreen/cacGold checkboxes exist inside their own #cacBeanRow");
+  ok(A.notInCertRow, "A1b -- and are genuinely NOT inside certTypeNumberRow anymore (the bug's root cause)");
+  ok(!A.visibleNoGrader, "A1c hidden when no grader is picked (a raw/ungraded coin can't carry a CAC bean)");
+  ok(A.visiblePcgs, "A1d THE BUG FIX: visible for PCGS specifically — this is exactly the grader it was wrongly hidden for before");
+  ok(!A.certRowVisiblePcgs, "A1e -- while certTypeNumberRow itself correctly stays hidden for PCGS (its own cert number is auto-decoded, unrelated to this fix)");
+  ok(A.visibleNgc, "A1f -- and still visible for a non-PCGS grader too, same as before this fix");
   ok(A.afterGreen.green === true && A.afterGreen.gold === false, "A2 checking Green leaves Gold unchecked");
   ok(A.afterGold.green === false && A.afterGold.gold === true, "A3 checking Gold clears Green — mutually exclusive despite being two separate elements");
   ok(A.afterUncheck.green === false && A.afterUncheck.gold === false && A.afterUncheck.value === "",
     "A4 unchecking the currently-checked box directly leaves both unchecked (blank state), not a forced fallback");
   ok(A.draftCacBean === "Green", "A5 buildCoinDraft() captures cacBean on the Staging draft, same posture as category/itemNumber/gsid");
   ok(A.afterReset.green === false && A.afterReset.gold === false, "A6 resetAddCoinForm() clears both checkboxes");
+
+  // Item 2: a visible "CAC Bean" caption above the pair, in both forms.
+  const A2 = await page.evaluate(() => {
+    const addCoinHeading = document.querySelector("#cacBeanRow .cac-bean-heading");
+    const browseEditHeading = document.querySelector(".cert-badge-row .cac-bean-heading");
+    return {
+      addCoinText: addCoinHeading ? addCoinHeading.textContent : null,
+      browseEditText: browseEditHeading ? browseEditHeading.textContent : null
+    };
+  });
+  ok(A2.addCoinText === "CAC Bean", "A7 Add Coin's CAC group has a visible 'CAC Bean' caption");
+  ok(A2.browseEditText === "CAC Bean", "A8 Edit Coin's CAC group has the identical caption, without needing any structural change to its own row");
 
   // ================================================================
   // B. Edit Coin — CACBean UI mechanics
@@ -142,6 +182,30 @@ module.exports = defineSuite("cacbean-and-value-rounding", async ({ ok, openApp,
     return { workbookField: form.workbook.CACBean, isPresent: "CACBean" in form.workbook };
   });
   ok(B4.isPresent && B4.workbookField === "", "B15 clearing both checkboxes writes CACBean:'' — a real write, not a dropped key");
+
+  // Item 3: read-only in Browse detail's Overview — a deliberate reversal
+  // of the earlier "edit-surface only" scope call, not an oversight.
+  const B5 = await page.evaluate(() => {
+    const rowText = id => {
+      const coin = FAKE_COINS.find(c => c.id === id);
+      showBrowseDetail(coin);
+      const rows = Array.from(document.querySelectorAll(".detail-row"));
+      const row = rows.find(r => (r.querySelector(".detail-label") || {}).textContent === "CAC Bean");
+      return row ? row.querySelector(".detail-value").textContent.trim() : null;
+    };
+    const gold = rowText("AY-00001"); // seeded "Gold"
+    const green = rowText("AY-00003"); // seeded "Green"
+    // AY-00004, not AY-00002: AY-00002 was mutated to cacBean:"Gold" by B3's
+    // own applyEditsToRecord() call earlier in this suite (a genuine
+    // in-memory session-only write, working as intended) and B4 never wrote
+    // a blank value back over it — so it's no longer actually blank by the
+    // time this runs. AY-00004 is untouched anywhere else in this file.
+    const blank = rowText("AY-00004"); // no cacBean seeded
+    return { gold, green, blank };
+  });
+  ok(B5.gold === "Gold", "B16 Browse detail's Overview shows a 'CAC Bean' row reading 'Gold' for a seeded Gold coin");
+  ok(B5.green === "Green", "B17 -- 'Green' for a seeded Green coin");
+  ok(B5.blank === null, "B18 -- and the row is omitted entirely (not shown blank) when CACBean is blank, same as Grade/Designation");
 
   // ================================================================
   // C. Edit Coin — the REAL write path (mock Graph client, end-to-end)
@@ -278,16 +342,53 @@ module.exports = defineSuite("cacbean-and-value-rounding", async ({ ok, openApp,
     valueInput.dispatchEvent(new Event("input", { bubbles: true }));
     const afterTyping = valueInput.value;
 
-    // Scope check (Q3a): Cost/Shipping/Purchase Price never received this
-    // treatment — nothing else is ever fed a computed value today.
-    const costWrapped = !!document.getElementById("browseEditCost").closest(".currency-input-row");
-
-    return { browseEditPrefix, editSetPrefix, afterTyping, costWrapped };
+    return { browseEditPrefix, editSetPrefix, afterTyping };
   });
   ok(D4.browseEditPrefix === "$", "D9 browseEditValue sits in a .currency-input-row with a '$' prefix label");
   ok(D4.editSetPrefix === "$", "D10 -- and editSetValue has the identical wrapper");
   ok(D4.afterTyping === "12.3456789", "D11 a user's own typed entry is left completely alone — rounding is populate-time only, never applied to live typing");
-  ok(!D4.costWrapped, "D12 scope check: browseEditCost (Purchase Price) was NOT given the $ treatment — nothing feeds it a computed value today, per the narrower fix Ray confirmed (Q3)");
+
+  // Item 4 (batch round 2): the $ prefix treatment EXTENDED to Purchase
+  // Price and Shipping Cost, across every form instance of the two fields
+  // — supersedes the earlier D12 scope check ("Cost was NOT given the $
+  // treatment"), which was correct for round 1 and is now a deliberate,
+  // real extension, not a regression. Static markup, so no navigation
+  // needed — these elements exist in the DOM from load, just hidden until
+  // their section is opened.
+  const D5 = await page.evaluate(() => {
+    const wrapped = id => !!document.getElementById(id).closest(".currency-input-row");
+    const prefixOf = id => {
+      const wrap = document.getElementById(id).closest(".currency-input-row");
+      return wrap ? wrap.querySelector(".currency-prefix").textContent : null;
+    };
+    const fields = ["browseEditCost", "browseEditShippingCost", "editSetCost", "editSetShippingCost",
+      "wishlistPurchasePrice", "wishlistShippingCost", "purchasePrice", "shippingCost",
+      "addSetCost", "addSetShippingCost"];
+    return {
+      allWrapped: fields.every(wrapped),
+      allDollar: fields.every(id => prefixOf(id) === "$"),
+      missing: fields.filter(id => !wrapped(id))
+    };
+  });
+  ok(D5.allWrapped, "D12 all 10 Purchase Price/Shipping Cost instances across every form now sit in a .currency-input-row: " + JSON.stringify(D5.missing));
+  ok(D5.allDollar, "D13 -- each with a '$' prefix label, same as Value");
+
+  // Scope boundary held: item 4 is the VISUAL treatment only — Purchase
+  // Price/Shipping Cost are hand-typed, never computed, so they get no
+  // roundToCents() call anywhere. A populate from a stored (already
+  // full-precision-free, since it was typed) value stays exactly what was
+  // stored.
+  const D6b = await page.evaluate(() => {
+    __setBrowseEditWriteEnabledForTest(false);
+    const coin = FAKE_COINS.find(c => c.id === "AY-00001");
+    const origCost = coin.cost;
+    coin.cost = 12.3456789; // a hypothetical unrounded value, same shape as the real Value bug
+    showBrowseDetail(coin); showBrowseEditView(coin);
+    const shown = document.getElementById("browseEditCost").value;
+    coin.cost = origCost;
+    return { shown };
+  });
+  ok(D6b.shown === "12.3456789", "D14 -- confirmed: browseEditCost populates VERBATIM, no rounding applied (item 4 never touched roundToCents' call sites)");
 
   // Full nav smoke + overflow, both new UI additions visible at once.
   const N = await page.evaluate(() => {

@@ -6927,6 +6927,181 @@ collision into a comfortable 49-77px gap.
   splitting logic. 79 assertions total in the suite (was 74), zero
   failures. **Not verified: any real device.**
 
+### CACBean visibility fix, read-only Overview row, $ on Purchase/Shipping, Catalog composition, collision-based sizing (BUILT, same branch, still held)
+Batch of small, independent fixes/polish from live testing. Eight items
+total; items 1-6 below are built. Item 7 (reverse-flip investigation) needed
+no code — see its own note. Item 8 (Mint Mark "None (Other)") is a separate,
+still-open item pending a data-population check — see the end of this
+section.
+
+**1. Real bug fix: CAC Bean checkboxes were hidden specifically for PCGS in
+Add Coin.** `#certTypeNumberRow` — holding BOTH the manual Cert/Type Number
+input and the CAC checkboxes — only shows when `grader && grader !== "PCGS"`,
+correct for the cert input (PCGS's cert is auto-decoded from the label, no
+manual entry needed) but backwards for CAC, which almost exclusively
+stickers PCGS/NGC coins. The checkboxes were nested inside that same
+conditional block, so they were hidden exactly when PCGS was picked. Fixed
+by pulling `.cac-bean-group` out into its own row (`#cacBeanRow`), gated on
+`grader` truthy alone (in `applyGraderDependentVisibility()`) — shown for
+ANY grader, hidden only when Grader is blank (a raw/ungraded coin can't
+carry a CAC bean). Browse Edit's own checkboxes were already unconditional
+and needed no fix.
+
+**2. "CAC Bean" caption added to the checkbox pair, both forms.** An
+internal `.cac-bean-heading` span inside `.cac-bean-group` itself (not a
+block-level `<label>` above it) — deliberately, so the same markup works
+correctly whether the group is its own standalone row (Add Coin, forced by
+item 1's fix) or still inline inside Browse Edit's `.cert-badge-row`
+alongside the cert input and lookup-link icon, where a block-level label
+would have misread as labeling the whole row rather than just the
+checkboxes. Browse Edit's row structure is otherwise completely untouched —
+no structural symmetry was required between the two forms, only the visible
+caption.
+
+**3. CACBean now read-only in Browse detail's Overview — a deliberate
+reversal of the earlier "edit-surface only" scope call, not an oversight.**
+`overviewRows.push(["CAC Bean", coin.cacBean])`, same pattern as Grade/
+Designation just above it: a plain fact row, omitted entirely when blank,
+scoped to individual coins only (a Set bundle has no CAC status of its own).
+
+**4. `$` prefix extended to Purchase Price and Shipping Cost, every form
+instance of both fields** — the same `.currency-input-row`/`.currency-prefix`
+treatment Value already had. Ten fields across five forms (Browse Edit, Edit
+Set, Wishlist, Add Coin, Add Set). **Visual only, no rounding** — unlike
+Value, none of these ten fields are ever populated from a computed source
+(confirmed in an earlier round and re-confirmed here with a direct test:
+`roundToCents()`'s call sites are completely untouched by this item), so
+they still populate verbatim, exactly as typed/stored.
+
+**5. Composition wired into the Catalog grid-mini flip card.**
+`renderBrowseGrid()` is a genuinely separate render path from
+`applyFlipCorners()` (Browse detail/Spotlight), which is why it never
+inherited Composition automatically when that was first built — confirmed
+via source before assuming it was a shared path. A new BR span added to the
+card markup, wired to the exact same `setCompositionCornerText()` /
+`preciousMetalCompositionFor()` the full flip-frame uses — same rule
+(precious metal only), same stacking mechanism, at whatever size cascades to
+it (14px, the existing grid-mini corner font). The retired `.set-child-grid`
+mini-flips (dead CSS, confirmed via grep — no JS references it, consistent
+with CLAUDE.md's own "RETIRED" note for that surface) were correctly left
+untouched.
+
+**6. Composition font-size: collision-based, per-instance — supersedes the
+blanket smaller size.** The prior round's `#browseDetailBR, #spotlightBR {
+font-size: 22px; }` shrank EVERY coin's composition text uniformly,
+regardless of whether that specific coin's actual value needed it. Removed
+entirely. `setCompositionCornerText()` now: reads the corner's own natural
+size fresh from computed style (27px full flip-frame, 14px Catalog
+grid-mini — no context-specific hardcoding, one function serves both);
+renders at that natural size first; measures `scrollWidth > clientWidth`
+(the same measurement already used everywhere else in this corner system —
+`compositionLabelCandidates`, `renderTypeDenomCorner`'s shortening — per
+Ray's explicit confirmation this is what "per-instance overflow" meant, not
+new BL-vs-BR box-overlap machinery); and only if it doesn't fit, steps down
+through `COMPOSITION_SHRINK_STEPS = [1, 0.82, 0.67]` (fractions of the
+natural size), re-rendering and re-measuring at each step, stopping the
+moment it fits.
+- **Real, measured result, not assumed: every realistic single-metal
+  composition now fits at the FULL natural size once stacked** — the
+  two-line layout from the prior round already solved the width problem for
+  the common case; the blanket 22px shrink was penalizing legibility for
+  coins that never needed it. Verified directly: "90% Silver", ".9995 Fine
+  Palladium", "99.95% Platinum", and "40% Silver" all render at 27px with no
+  shrink applied.
+- **A genuine side effect, also measured**: the bimetallic single-line
+  fallback's own previously-documented "~20px overflow, known accepted gap"
+  (from the composition-restack round) is now CLOSED for the demonstrated
+  case — "50% Gold, 50% Silver" fits at 18.09px (the 67% step) on the real
+  flip-frame. This mechanism was built for item 6, not for that case
+  specifically, but resolves it as a side effect. Only a genuinely extreme
+  two-metal string (long alloy names on both sides) can still outrun the
+  smallest step — confirmed directly by forcing one; it degrades to the
+  smallest step and stops, no infinite loop, same "known, accepted gap for
+  an extreme case" posture as everywhere else in this file.
+- **`el.style.fontSize` is cleared FIRST**, before measuring the natural
+  size — `browseDetailBR`/`spotlightBR`/each Catalog card's own BR span are
+  real DOM elements reused across many different coins as Ray browses/
+  flips, so a previous coin's shrink must never leak into the next coin's
+  render or its "natural size" measurement. Verified directly: rendering an
+  extreme value then a short one back-to-back on the same reused element
+  returns cleanly to full size for the second coin.
+
+**Verified headless — both existing suites extended, not forked**:
+`tests/verify_cacbean_and_value_rounding.js` (50 assertions, was 38) gained
+items 1-4's coverage — the real bug repro (visible for PCGS specifically,
+still hidden with no grader, still visible for NGC), the caption on both
+forms, the Overview row for Gold/Green/blank-omitted, and all ten currency
+fields wrapped with a verified-verbatim (non-rounded) populate. One real
+test-ordering bug was found and fixed while writing this: the "blank
+CACBean" Overview check originally reused AY-00002, which an EARLIER
+assertion in the same suite (session-only save path) had already mutated to
+`cacBean:"Gold"` via `applyEditsToRecord()` — switched to AY-00004
+(untouched anywhere else in the file). `tests/verify_composition.js` (88
+assertions, was 79) gained items 5-6 — the Catalog grid-mini BR span
+existing and stacking a silver coin's composition correctly while staying
+empty for clad, and the full collision-based-sizing mechanism: natural-size-
+by-default across every realistic value, genuine per-instance shrink for an
+extreme value, correct reset on a reused element, and the mini-card's own
+14px natural size confirmed unaffected by any full-flip-frame-specific
+logic. Both new mechanisms (item 1's visibility fix, item 6's shrink loop)
+have verified negative controls — reintroducing the old PCGS-hiding
+condition fails the exact repro assertion; neutering the shrink loop fails
+the two assertions that depend on it. 488 assertions across 13 suites, zero
+failures, zero page errors. Screenshots reviewed at phone width for every
+new UI piece (Add Coin's CAC row under PCGS, Browse Edit's captioned inline
+group, the Overview CAC Bean row, Browse Edit's $-prefixed Purchase Details,
+the Catalog grid showing "90% / Silver" on several cards, and Add Set's own
+$-prefixed Purchase Details drill-down) — no overflow, no collision.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch.
+
+**Item 7 — reverse-flip on a saved coin: investigated, NOT a code bug, no
+fix built.** Repro was AY-00001, Browse detail/Spotlight, four consecutive
+flip captures all showing the same content. Driven directly and logged:
+`browseDetailSide`/`spotlightSide` genuinely alternate every toggle, the
+`.reverse-face` CSS class genuinely toggles, and the disc's radial-gradient
+highlight genuinely shifts (`circle at 35% 30%` obverse vs `circle at 65%
+30%` reverse) — the state machine and its wiring both work exactly as
+coded. Two things combine to make it look like nothing happens: (a)
+`applyFlipCorners()` takes no side parameter and renders once, unconditionally
+— by design, per this file's own "corner labels stay the same on both faces
+since they describe the coin, not which face is showing"; (b) since no coin
+in this mockup has a real captured photo, the ONLY visual difference between
+faces is that gradient shift, which is genuinely subtle and easy to read as
+"no change" in a screenshot comparison. Reported back as a real, working
+mechanism producing a UX gap worth a future decision, not a bug — no fix
+proposed or built, per the explicit "ask, don't guess" instruction for this
+item.
+
+**Item 8 — Mint Mark "— none (Other) —": STILL OPEN, blocked on a data
+question only Ray can answer.** His revised spec (replacing both the
+original follow-up-picker idea and the plain-fallback-with-Remarks-breadcrumb
+alternative) is conditional: build a real DB_Coins-backed disambiguation
+(`Mint` column full-name match against blank-`MintMark` rows, surfaced
+through the existing ambiguous-candidate picker) ONLY IF that column is
+populated/reliable enough on blank-MintMark rows to actually work; otherwise
+fall back to a plain "— none —" option with no persisted distinction.
+- **Confirmed via source: `DB_Coins.Mint` (column AG, full name — "San
+  Francisco"/"Denver"/"Philadelphia") is a real column but is NOT currently
+  mapped anywhere** — `mapWorkbookRowToDbCoin()` only reads `MintMark`
+  (the abbreviation) into `mint`; the full-name `Mint` column has never been
+  exposed on the mapped row shape. This file's own prior guidance (Matcher
+  hardening / Designation section) is explicit that "the matcher reads
+  MintMark to match All.MintMark; the new full-name Mint column is not used
+  by any match logic and must not be" — that constraint is about NOT
+  substituting Mint into the PRIMARY join key, and this item doesn't touch
+  that join at all (it would be a new, separate, narrow lookup fired only
+  when the user explicitly picks "None (Other)"), so it doesn't conflict
+  with that rule — but it's directly adjacent to it and worth flagging
+  clearly rather than silently building near a documented hard constraint.
+- **The one thing this session cannot determine: whether `Mint` is actually
+  populated/reliable on blank-MintMark rows specifically.** This environment
+  has no live OneDrive/Graph access — CLAUDE.md documents that the column
+  exists, not its population rate on this particular subset. Ray's own
+  instruction was explicit: confirm this BEFORE building either path. Not
+  built yet, either the full version or the fallback — waiting on his
+  answer.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

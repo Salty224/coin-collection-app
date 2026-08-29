@@ -417,4 +417,73 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   ok(N.gap > 0, "N1 the exact real-measured collision case (long BL Details grade + unreduced BR composition, 360px) no longer overlaps — gap: " + N.gap + "px");
   ok(JSON.stringify(N.lines) === JSON.stringify(["99.95%", "Platinum"]), "N2 -- via the real two-line stack, not a coincidence of some other change");
   await pn.close();
+
+  // --------------- O. Composition on Catalog grid-mini flip cards (item 5)
+  // renderBrowseGrid() is a genuinely separate render path from
+  // applyFlipCorners() (Browse detail/Spotlight), which is why it never
+  // inherited Composition automatically when that was first built.
+  const O = await page.evaluate(() => {
+    navigate("browse"); showBrowseTab("coins");
+    const cards = Array.from(document.querySelectorAll(".coin-card"));
+    const silverCard = cards.find(c => c.querySelector(".card-id").textContent === "AY-00001");
+    const cladCard = cards.find(c => c.querySelector(".card-id").textContent === "AY-00013");
+    const lines = el => Array.from(el.querySelectorAll(".flip-label.br .corner-line")).map(x => x.textContent);
+    return {
+      brExists: !!silverCard.querySelector(".flip-label.br"),
+      silverLines: lines(silverCard),
+      cladText: cladCard.querySelector(".flip-label.br").textContent
+    };
+  });
+  ok(O.brExists, "O1 the Catalog grid-mini card's BR span exists (it never had one before this pass)");
+  ok(JSON.stringify(O.silverLines) === JSON.stringify(["90%", "Silver"]), "O2 a silver coin's mini card shows its composition, stacked the same way as the full flip-frame");
+  ok(O.cladText === "", "O3 -- and stays empty for a clad coin, same precious-metal-only rule");
+
+  // --------------- P. Collision-based per-instance sizing (item 6)
+  // Supersedes a blanket "#browseDetailBR, #spotlightBR { font-size: 22px }"
+  // CSS rule that used to shrink EVERY coin uniformly. Now: natural size by
+  // default, shrunk only for the specific coin whose text actually needs it.
+  const P = await page.evaluate(() => {
+    navigate("browse");
+    showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00001"));
+    const br = document.getElementById("browseDetailBR");
+    const naturalSize = () => { br.style.fontSize = ""; return parseFloat(getComputedStyle(br).fontSize); };
+    const base = naturalSize();
+
+    // Every realistic single-metal composition now fits at the CORNER'S OWN
+    // natural size (27px) once stacked — no shrink needed at all. This is
+    // the actual, measured reason the blanket 22px rule became removable.
+    const noShrinkNeeded = [];
+    ["90% Silver", ".9995 Fine Palladium", "99.95% Platinum", "40% Silver"].forEach(t => {
+      setCompositionCornerText(br, t);
+      noShrinkNeeded.push({ input: t, size: getComputedStyle(br).fontSize, fits: br.scrollWidth <= br.clientWidth });
+    });
+
+    // A genuinely extreme value (both stack candidates still too wide) DOES
+    // get shrunk, and shrunk only as far as needed.
+    setCompositionCornerText(br, "50% Really Long Gold Alloy Name, 50% Another Really Long Silver Alloy Name");
+    const extreme = { size: getComputedStyle(br).fontSize, smallerThanBase: parseFloat(getComputedStyle(br).fontSize) < base };
+
+    // Reset behaviour: browseDetailBR is a real, reused DOM element across
+    // many different coins as Ray browses — a previous coin's shrink must
+    // never leak into the next coin's render.
+    const afterExtreme = getComputedStyle(br).fontSize;
+    setCompositionCornerText(br, "90% Silver");
+    const afterShortAgain = getComputedStyle(br).fontSize;
+
+    // Catalog grid-mini gets the identical mechanism at its own natural
+    // size (14px) — same function, no context-specific hardcoding.
+    navigate("browse"); showBrowseTab("coins");
+    const miniBr = document.querySelector(".coin-card .flip-frame-mini .flip-label.br");
+    miniBr.style.fontSize = "";
+    const miniNatural = getComputedStyle(miniBr).fontSize;
+
+    return { base, noShrinkNeeded, extreme, afterExtreme, afterShortAgain, miniNatural };
+  });
+  ok(P.base === 27, "P1 the full flip-frame's BR corner has NO font-size override at rest — its natural size is the shared 27px every other corner uses");
+  ok(P.noShrinkNeeded.every(x => x.size === "27px" && x.fits),
+    "P2 every realistic single-metal composition fits at that full natural size — no shrink applied: " + JSON.stringify(P.noShrinkNeeded));
+  ok(P.extreme.smallerThanBase, "P3 a genuinely extreme composition DOES get shrunk, per-instance, only when its own text actually needs it");
+  ok(P.afterExtreme !== P.afterShortAgain, "P4 -- and reset correctly: the SAME reused DOM element returns to full size for the next coin, not stuck at the previous coin's shrink");
+  ok(P.afterShortAgain === "27px", "P4b -- specifically back to 27px, not some other stale value");
+  ok(P.miniNatural === "14px", "P5 the Catalog grid-mini corner's own natural size (14px) is likewise unaffected — one shared mechanism, no per-context hardcoding");
 }, module);
