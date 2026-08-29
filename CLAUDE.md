@@ -6517,6 +6517,55 @@ check its uploaded photos without hunting for it by hand).
   OneDrive session, same "needs a real click-through" caveat the workbook
   link itself already carries.
 
+### Docket: Research row tags (BUILT, same branch, still held)
+Live-testing item 4 of Ray's 4-item batch: Staging vs. Awaiting Copilot
+Research read as nearly identical in live testing — apart from the
+Set-in-progress case, both sections just show a coin/Set name and a status
+line. Ray gave explicit latitude to either rename the Research section or
+visually distinguish the row kinds within it.
+
+- **Kept as one Research section, three sections total — a small per-row
+  tag distinguishes row kinds instead of a rename or a fourth section.**
+  Reasoning: the section's real name ("Awaiting Copilot Research") is
+  still accurate for every row in it — a Handed-Off draft genuinely IS
+  waiting on Copilot's reconciliation pass, same as a genuine no-catalog-
+  match entry is waiting on Copilot's research. Renaming the section would
+  have meant picking a name that's honest for only one of the two row
+  kinds. A fourth section would also have meant a fourth badge count to
+  track down, when the actual ask is just "let me tell these apart at a
+  glance" — which a tag solves directly.
+- **Two kinds, matching the exact classification already implicit in the
+  three research push sites**: **"Handed Off"** = a coin draft already
+  marked ready (`stagedHandedOff`, `COIN_DRAFT_STATUS.READY`) or a Set
+  draft with `status = "Complete — pending research"` (`completeSets`) —
+  finished capture, waiting on someone else to act, nothing left for Ray
+  to decide. **"Research"** = a real Docket queue entry from
+  `docketOpenEntries()` (including a `kind: "coinid-relink"` entry) —
+  genuinely no catalog match yet, needs Copilot's actual research.
+- **Rendered by one shared `appendDocketRows()`**, not duplicated per push
+  site — each research row object now carries its own `kind: "handoff"`
+  or `kind: "research"` field; `appendDocketRows()` renders a small
+  `.docket-tag` pill (`Handed Off` / `Research`) at the top of any row
+  that has one, so Staging and Other rows (which never set `kind`) are
+  completely unaffected with no extra opt-in check needed.
+- **New `.docket-tag` CSS** — same "quiet inline pill, not the drawer
+  fob's brass-tag treatment" posture `.docket-count` already established:
+  `.docket-tag-handoff` reads muted/neutral (waiting, nothing urgent from
+  Ray); `.docket-tag-research` picks up the gold accent (a real Copilot
+  research item).
+- Verified headless — new suite `tests/verify_docket_row_tags.js` (11
+  assertions, all passing; 350 across all 11 suites, zero failures): the
+  section count/order is still exactly three (no rename, no split); a
+  real seeded Docket queue entry tags "Research" with the research CSS
+  class; a coin draft marked ready tags "Handed Off"; a Complete Set
+  draft also tags "Handed Off"; Staging/Other rows never carry the tag at
+  all; and a nav/overflow smoke check with Research expanded. Screenshots
+  reviewed at both viewports — the tag sits cleanly above each row's
+  title with clear visual contrast between the two kinds, no overflow at
+  either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

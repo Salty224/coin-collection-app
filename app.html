@@ -1670,6 +1670,21 @@
   .accordion-header[aria-expanded="true"] .docket-count {
     color: var(--gold-bright); border-color: var(--case-border-bright);
   }
+  /* Per-row classification tag, Research section only — "Handed Off"
+     (finished capture, waiting on someone else to act: a Mark-ready coin
+     draft or a Complete Set) vs "Research" (a real Docket queue entry —
+     genuinely no catalog match yet, needs Copilot's own research). Live-
+     testing item 4: the two row kinds read as visually identical without
+     this. Small and quiet, same "not the fob's brass-tag treatment"
+     posture as .docket-count above, not a section split. */
+  .docket-tag {
+    display: inline-block; padding: 1px 7px; margin-bottom: 4px;
+    border-radius: 9px; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    border: 1px solid var(--case-border); background: var(--bg-elevated);
+  }
+  .docket-tag-handoff { color: var(--text-muted); }
+  .docket-tag-research { color: var(--gold-bright); border-color: var(--case-border-bright); }
   .accordion-body .detail-row:first-child { padding-top: 10px; }
   .accordion-body p { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
 
@@ -12891,7 +12906,7 @@
     stagedHandedOff.forEach(d => {
       const yearMint = d.year + (d.mint ? "-" + d.mint : "");
       const label = yearMint + " · " + (d.description || d.denom) + (d.variety ? " · " + d.variety : "");
-      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">Ready for reconciliation — waiting on the All-sheet row</div>` });
+      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">Ready for reconciliation — waiting on the All-sheet row</div>`, kind: "handoff" });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
     // directly — durable Staging file when ENABLE_DOCKET_WRITE is on, the
@@ -12910,11 +12925,12 @@
       researchRows.push({
         html: `<div class="wish-desc">${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div><div class="wish-date">Flagged ${escapeHtmlText(String(item.dateFlagged || ""))}</div>`,
         onRecheck: () => docketRecheckEntry(item),
-        onDismiss: () => promptDocketDismiss(item)
+        onDismiss: () => promptDocketDismiss(item),
+        kind: "research"
       });
     });
     completeSets.forEach(draft => {
-      researchRows.push({ html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">${draft.collectionID} · Complete — pending research</div>` });
+      researchRows.push({ html: `<div class="wish-desc">${draft.setName || draft.collectionID}</div><div class="wish-notes">${draft.collectionID} · Complete — pending research</div>`, kind: "handoff" });
     });
 
     // Fetched/cached once (Task 2) — only bother if there's something to
@@ -12955,7 +12971,15 @@
           : "";
         const linkHtml = (opts && opts.workbookLink && webUrl)
           ? `<div class="wish-notes"><a href="${webUrl}" target="_blank" rel="noopener">Open workbook in Excel ↗</a></div>` : "";
-        row.innerHTML = `<div>${r.html}${linkHtml}</div>` + actions;
+        // Live-testing item 4: Research-section rows read as nearly
+        // identical to each other apart from context — this small tag
+        // distinguishes a finished capture waiting on someone else
+        // ("Handed Off") from a genuine no-catalog-match research item
+        // ("Research"), without splitting into a fourth section.
+        const tagHtml = r.kind
+          ? `<span class="docket-tag docket-tag-${r.kind}">${r.kind === "handoff" ? "Handed Off" : "Research"}</span>`
+          : "";
+        row.innerHTML = `<div>${tagHtml}${r.html}${linkHtml}</div>` + actions;
         if (r.onClick) row.addEventListener("click", r.onClick);
         // stopPropagation so an action button inside a tappable row can't
         // also trigger the row's own navigation.
