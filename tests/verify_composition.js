@@ -486,4 +486,57 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   ok(P.afterExtreme !== P.afterShortAgain, "P4 -- and reset correctly: the SAME reused DOM element returns to full size for the next coin, not stuck at the previous coin's shrink");
   ok(P.afterShortAgain === "27px", "P4b -- specifically back to 27px, not some other stale value");
   ok(P.miniNatural === "14px", "P5 the Catalog grid-mini corner's own natural size (14px) is likewise unaffected — one shared mechanism, no per-context hardcoding");
+
+  // --------------- Q. renderTypeDenomCorner(): shrink-then-wrap, never a
+  // destructive last-word truncation (real cases already in the data).
+  // Real measurement, not a guess: "Martha Washington First Spouse Gold $10"
+  // is 401px unclamped against a 139px box — no DENOM_NAME_SUFFIXES word
+  // matches "$10", so nothing strips, and the OLD last-word fallback reduced
+  // this to literally "$10", losing which spouse the coin is entirely.
+  const Q = await page.evaluate(() => {
+    navigate("browse");
+    showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00001"));
+    const tr = document.getElementById("browseDetailTR");
+    const linesOf = () => Array.from(tr.querySelectorAll(".corner-line")).map(el => el.textContent);
+    const fits = () => tr.scrollWidth <= tr.clientWidth;
+
+    // Q-A: First Spouse — no suffix strips at all, worst case.
+    renderTypeDenomCorner(tr, { name: "Martha Washington First Spouse Gold $10", denom: "$10" });
+    const firstSpouse = { lines: linesOf(), fits: fits(), size: getComputedStyle(tr).fontSize };
+
+    // Q-B: a long ATB/quarter name — suffix IS stripped ("Quarter"), but the
+    // remainder ("Washington Crossing the Delaware") still overflows on its
+    // own and must wrap rather than truncate.
+    renderTypeDenomCorner(tr, { name: "Washington Crossing the Delaware Quarter", denom: "25C" });
+    const atb = { lines: linesOf(), fits: fits(), size: getComputedStyle(tr).fontSize };
+
+    // Q-C: regression guard — the ORIGINAL motivating case for the shrink
+    // mechanism ("Lincoln Memorial") must still resolve via shrink ALONE,
+    // never wrapped, and must NOT end up taller than the untouched baseline.
+    renderTypeDenomCorner(tr, { name: "Lincoln Memorial Cent", denom: "1C" });
+    const lincolnMemorial = { lines: linesOf(), fits: fits(), size: getComputedStyle(tr).fontSize, height: tr.getBoundingClientRect().height };
+
+    // Q-D: untouched baseline — a short type name that always fit — stays
+    // completely unshrunk, un-wrapped, one line.
+    renderTypeDenomCorner(tr, { name: "Morgan Dollar", denom: "$1" });
+    const baseline = { lines: linesOf(), fits: fits(), size: getComputedStyle(tr).fontSize, height: tr.getBoundingClientRect().height };
+
+    return { firstSpouse, atb, lincolnMemorial, baseline };
+  });
+  ok(Q.firstSpouse.lines.length === 3 && Q.firstSpouse.lines.join(" ").includes("Martha Washington") &&
+     Q.firstSpouse.lines.join(" ").includes("First Spouse Gold $10") && Q.firstSpouse.lines[2] === "$10",
+    "Q1 First Spouse (no suffix strips at all): full identity preserved across wrapped lines, never truncated to just \"$10\" — " + JSON.stringify(Q.firstSpouse.lines));
+  ok(Q.firstSpouse.fits, "Q2 -- and the rendered box actually fits (no overflow) at whatever size it landed on: " + Q.firstSpouse.size);
+  ok(Q.atb.lines.length === 3 && Q.atb.lines[0] + " " + Q.atb.lines[1] === "Washington Crossing the Delaware" && Q.atb.lines[2] === "25C",
+    "Q3 long ATB/quarter name: suffix (\"Quarter\") correctly stripped, remainder wraps rather than truncating to one word — " + JSON.stringify(Q.atb.lines));
+  ok(Q.atb.fits, "Q4 -- and fits: " + Q.atb.size);
+  ok(Q.lincolnMemorial.lines.length === 2 && JSON.stringify(Q.lincolnMemorial.lines) === JSON.stringify(["Lincoln Memorial", "1C"]),
+    "Q5 regression guard: \"Lincoln Memorial\" (the original motivating case) still resolves via SHRINK ALONE, never wrapped to a 3rd line — " + JSON.stringify(Q.lincolnMemorial.lines));
+  ok(Q.lincolnMemorial.fits && Q.lincolnMemorial.size !== "27px",
+    "Q6 -- fits by shrinking below the natural 27px (not by wrapping): " + Q.lincolnMemorial.size);
+  ok(Q.lincolnMemorial.height <= Q.baseline.height,
+    "Q7 -- and the shrunk-only case is no taller than the untouched baseline (no unnecessary vertical creep toward the coin disc): " +
+    Q.lincolnMemorial.height + " vs baseline " + Q.baseline.height);
+  ok(JSON.stringify(Q.baseline.lines) === JSON.stringify(["Morgan", "$1"]) && Q.baseline.fits && Q.baseline.size === "27px",
+    "Q8 untouched baseline (\"Morgan Dollar\" -> seriesLabel strips \"Dollar\", always fit): stays one type line, natural 27px, no shrink and no wrap — " + JSON.stringify(Q.baseline));
 }, module);

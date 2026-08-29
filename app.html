@@ -849,9 +849,10 @@
   }
   .coin-card .flip-frame-mini .coin-disc { margin: 0; }
   /* Corner-label font on the Catalog/Coins grid cards — bumped 11px -> 14px
-     per Ray's request; the JS last-word shortening (renderTypeDenomCorner,
-     measured via scrollWidth/clientWidth) still guards the one long field
-     (series/type name), so a bigger font can't produce unbounded overflow. */
+     per Ray's request; renderTypeDenomCorner()'s own shrink-then-wrap
+     fallback (measured via scrollWidth/clientWidth, see its own comment)
+     still guards the one long field (series/type name), so a bigger font
+     can't produce unbounded overflow. */
   .coin-card .flip-frame-mini .flip-label { font-size: 14px; max-width: 46%; }
 
   .coin-grid:not(.list-view) .coin-card .coin-card-text,
@@ -2086,11 +2087,13 @@
        real-device report (Ray, Samsung S25) of slight right-side clipping on
        every corner — including short text nowhere near max-width, and
        scrollWidth === clientWidth on every local repro attempt here, so it
-       was never genuine text overflow to begin with. The JS-side shortening
-       (renderTypeDenomCorner, measured against scrollWidth/clientWidth) is
-       what actually prevents unbounded overflow for the one field prone to
-       being long (the series/type name) — that measurement doesn't depend
-       on `overflow: hidden` at all. Dropping `overflow: hidden` here just
+       was never genuine text overflow to begin with. The JS-side handling
+       (renderTypeDenomCorner()'s shrink-then-wrap fallback and
+       setCompositionCornerText()'s own, both measured against
+       scrollWidth/clientWidth) is what actually prevents unbounded overflow
+       for the fields prone to being long (the series/type name; the
+       composition value) — that measurement doesn't depend on
+       `overflow: hidden` at all. Dropping `overflow: hidden` here just
        stops the CSS from hard-clipping whatever the real cause of the
        overshoot was; any small overshoot now spills a few px into the
        surrounding empty corner space instead of visibly cutting off a
@@ -8485,12 +8488,17 @@
   // Medal" (e.g. "Lincoln Bicentennial Medal") — so without stripping it,
   // the top line repeated the bottom line verbatim: "Lincoln Bicentennial
   // Medal" / "Medal". Confirmed live (not guessed): the corner's own
-  // last-word-shortening overflow fallback (renderTypeDenomCorner, for a
-  // type name too long to fit on one line) then compounded it further —
-  // since the untrimmed name's own LAST WORD is "Medal", the shortening
-  // fallback collapsed the top line down to just "Medal" too, producing an
-  // even more literal "Medal" / "Medal" than the unshortened two-line
-  // overflow alone would have. Adding "Medal" here fixes both layers at
+  // overflow fallback (renderTypeDenomCorner, for a type name too long to
+  // fit on one line) then compounded it further — **at the time**, that
+  // fallback shortened to the LAST WORD, which for an untrimmed name is
+  // always "Medal", collapsing the top line down to just "Medal" too and
+  // producing an even more literal "Medal" / "Medal" than the unshortened
+  // two-line overflow alone would have. (Superseded since: the fallback
+  // itself is no longer last-word-shortening — see renderTypeDenomCorner()'s
+  // own comment — but the reasoning for adding "Medal" here is unchanged
+  // either way, since it fixes the collision at its actual source, the
+  // unstripped name, rather than relying on whatever the overflow fallback
+  // happens to do.) Adding "Medal" here fixes both layers at
   // once: the type line becomes "Lincoln Bicentennial" (shorter, usually
   // fits without the fallback ever triggering), and even if some future
   // medal's name still needed shortening, the fallback would then pick ITS
@@ -8701,17 +8709,79 @@
     el.innerHTML = nonEmpty.map(line => `<div class="corner-line">${line}</div>`).join("");
   }
 
-  // Type name (top line of the TR stack) shortens to its last word if the full
-  // name still doesn't fit even on its own line (e.g. "Lincoln Memorial" →
-  // "Memorial") — measured against the actual rendered box, not guessed from
-  // character count, so it only kicks in when genuinely needed.
+  // Superseded — a last-word-shortening fallback used to live here
+  // ("Lincoln Memorial" -> "Memorial" when it didn't fit). That was a
+  // reasonable stopgap while Description values were short place/series
+  // names, but it breaks badly now that some carry real per-design identity
+  // with fixed suffix text attached: "Martha Washington First Spouse Gold
+  // $10" doesn't end in any DENOM_NAME_SUFFIXES word, so nothing gets
+  // stripped, it overflows, and the old fallback reduced it to literally
+  // "$10" — total loss of which spouse the coin actually is. See
+  // renderTypeDenomCorner()'s own comment for the real fix.
+
+  // Greedily wraps `text` across two lines using REAL measurement against
+  // `measureEl` (an already-laid-out `.corner-line`), not a guessed
+  // character count — grows line 1 word by word until the next word would
+  // overflow, puts the remainder on line 2. Never splits a single word: if
+  // even the first word alone doesn't fit, line 1 is just that one word and
+  // line 2 carries the rest. Returns a ONE-element array (unchanged) when
+  // there's nothing to wrap (a single word, or it already fits).
+  function wrapTextToTwoLines(text, measureEl) {
+    const words = text.trim().split(/\s+/);
+    if (words.length <= 1) return [text];
+    let line1 = words[0];
+    let i = 1;
+    for (; i < words.length; i++) {
+      const candidate = line1 + " " + words[i];
+      measureEl.textContent = candidate;
+      if (measureEl.scrollWidth > measureEl.clientWidth) break;
+      line1 = candidate;
+    }
+    const line2 = words.slice(i).join(" ");
+    return line2 ? [line1, line2] : [line1];
+  }
+
+  // Type name (top line[s] of the TR stack). Graceful degradation, never
+  // destructive truncation to one arbitrary word — real measurement drove
+  // the fix, not a guess: "Martha Washington First Spouse Gold $10" is
+  // 401px unclamped against a 139px box, and even shrinkCornerToFit()'s
+  // smallest step (67%) only gets a string that long down to ~269px, still
+  // nowhere close to fitting on one line at a legible size. So this is a
+  // genuine two-tier fallback, each tier suited to what it actually fixes,
+  // and SHRINK IS TRIED FIRST, WRAP ONLY AS THE LAST RESORT — measured, not
+  // assumed, to be the right order: wrapping before shrinking was the first
+  // version of this fix, and it made even the original motivating case
+  // ("Lincoln Memorial", which a small shrink alone fully resolves) grow a
+  // whole extra line and 28px taller for no reason, unnecessarily closer to
+  // the coin disc — exactly the vertical-creep risk this corner system has
+  // fought before. Order:
+  //   1. shrinkCornerToFit() on the PLAIN single-line type — same
+  //      collision-based per-instance mechanism Composition's BR corner
+  //      uses. Resolves modest overflow (the "Lincoln Memorial" class of
+  //      case, which fits at its 82% step) with a small, still-comfortably-
+  //      legible shrink and nothing else needs to happen — box height stays
+  //      exactly what it always was, two lines.
+  //   2. Only if the type STILL doesn't fit on one line even at the
+  //      smallest shrink step (the First-Spouse/long-ATB-quarter class of
+  //      case, where shrinking alone would mean an illegibly tiny font) —
+  //      wrap it across two real lines (wrapTextToTwoLines(), measured, at
+  //      whatever size shrinkCornerToFit() left it at) instead of
+  //      continuing to shrink into illegibility or truncating to one word.
+  // Denom rides along on whatever line count results — it never wraps or
+  // shrinks independently of the type line(s) it's stacked with.
   function renderTypeDenomCorner(el, coin) {
     const type = seriesLabel(coin);
-    renderCornerLines(el, [type, coin.denom || ""]);
-    const typeLine = el.querySelector(".corner-line");
-    if (typeLine && typeLine.scrollWidth > typeLine.clientWidth) {
-      const words = type.trim().split(/\s+/);
-      if (words.length > 1) typeLine.textContent = words[words.length - 1];
+    const denom = coin.denom || "";
+    let stillOverflowing = false;
+    shrinkCornerToFit(el, () => {
+      renderCornerLines(el, [type, denom]);
+      const typeLine = el.querySelector(".corner-line");
+      stillOverflowing = !!typeLine && typeLine.scrollWidth > typeLine.clientWidth;
+    });
+    if (stillOverflowing) {
+      const typeLine = el.querySelector(".corner-line");
+      const wrapped = wrapTextToTwoLines(type, typeLine);
+      if (wrapped.length === 2) renderCornerLines(el, wrapped.concat(denom ? [denom] : []));
     }
   }
 
@@ -8733,9 +8803,13 @@
     // A Roll's coin.name is a full descriptive sentence ("Roll of 20 Silver
     // Dollars (mixed dates)"), not the "{Series} {Denomination word}" shape
     // seriesLabel()/renderTypeDenomCorner() assume — stripping a denom-word
-    // suffix from it does nothing useful, and the last-word shortening
-    // fallback (meant for an overlong series name) picks whatever token
-    // happens to be last, garbling into things like "dates)". Rolls get the
+    // suffix from it does nothing useful, and even renderTypeDenomCorner()'s
+    // current graceful-degradation fallback (shrink, then wrap at real word
+    // boundaries — see its own comment; the OLD last-word-only fallback used
+    // to garble this into things like "dates)", which no longer applies, but
+    // the underlying mismatch does) is still the wrong tool for a full
+    // sentence — wrapping a run-on sentence across corner lines is no more
+    // meaningful than truncating it was. Rolls get the
     // same denom-code-only treatment Browse's grid-mini cards already use
     // for every card (see CLAUDE.md "Coin-flip corner labels" exception) —
     // the full descriptive name is already the page's own title above the
@@ -9207,34 +9281,38 @@
     return m ? [m[1], m[2]] : [source]; // doesn't match "value metal" shape — one line, unsplit
   }
 
-  // Collision-based, per-instance sizing (supersedes a blanket
-  // "#browseDetailBR, #spotlightBR { font-size: 22px }" CSS rule that used
-  // to shrink EVERY coin's composition text uniformly — see that rule's own
-  // now-historical CSS comment). A coin whose composition fits fine at the
-  // corner's own natural size (27px full flip-frame, 14px Catalog grid-mini
-  // — read fresh from the element's OWN computed style, never hardcoded, so
-  // this one function serves both contexts) renders there and stops; only a
-  // coin whose specific text still doesn't fit gets stepped down, and only
-  // as far as it actually needs.
+  // Collision-based, per-instance sizing — shared by every corner that can
+  // overflow with real content it must not lose (Composition's BR value/
+  // metal stack below, and TR's type/denom stack — see
+  // renderTypeDenomCorner()). One mechanism, not a per-corner reinvention.
+  // Supersedes a blanket "#browseDetailBR, #spotlightBR { font-size: 22px }"
+  // CSS rule that used to shrink EVERY coin's composition text uniformly —
+  // see that rule's own now-historical CSS comment. A coin whose content
+  // fits fine at the corner's own natural size (27px full flip-frame, 14px
+  // Catalog grid-mini — read fresh from the element's OWN computed style,
+  // never hardcoded, so this one function serves both contexts and both
+  // corners) renders there and stops; only a coin whose specific text still
+  // doesn't fit gets stepped down, and only as far as it actually needs.
   //
   // el.style.fontSize is cleared FIRST, before measuring the natural size —
-  // browseDetailBR/spotlightBR (and each Catalog card's own BR span) are
-  // real DOM elements re-used across many different coins as the user
-  // browses/flips, so a previous coin's shrink must never leak into this
-  // coin's render or its "natural size" measurement.
-  const COMPOSITION_SHRINK_STEPS = [1, 0.82, 0.67]; // fractions of the corner's own natural size
-  function setCompositionCornerText(el, text) {
+  // browseDetailBR/spotlightBR/browseDetailTR/spotlightTR (and each Catalog
+  // card's own BR/TR span) are real DOM elements re-used across many
+  // different coins as the user browses/flips, so a previous coin's shrink
+  // must never leak into this coin's render or its "natural size"
+  // measurement.
+  //
+  // `renderFn` re-renders the element's content at the CURRENT font-size
+  // (called once per step) since some render paths do their own internal
+  // measurement-dependent logic (Composition's single-line fallback text-
+  // reduction; TR's own line-wrap decision) that has to re-evaluate against
+  // whatever width the box now measures at that size.
+  const CORNER_SHRINK_STEPS = [1, 0.82, 0.67]; // fractions of the corner's own natural size
+  function shrinkCornerToFit(el, renderFn) {
     el.style.fontSize = "";
     const naturalSize = parseFloat(getComputedStyle(el).fontSize);
-    const lines = splitCompositionForStacking(text);
-    if (!lines.length) { el.innerHTML = ""; return; }
-    const render = () => {
-      if (lines.length === 2) renderCornerLines(el, lines);
-      else setFittedCornerText(el, lines[0]); // single-line fallback re-runs its own text-reduction loop at whatever size is current
-    };
-    for (let i = 0; i < COMPOSITION_SHRINK_STEPS.length; i++) {
-      if (i > 0) el.style.fontSize = (naturalSize * COMPOSITION_SHRINK_STEPS[i]) + "px";
-      render();
+    for (let i = 0; i < CORNER_SHRINK_STEPS.length; i++) {
+      if (i > 0) el.style.fontSize = (naturalSize * CORNER_SHRINK_STEPS[i]) + "px";
+      renderFn();
       if (el.scrollWidth <= el.clientWidth) return;
     }
     // Still doesn't fit at the smallest step — leave the last rendering as
@@ -9242,6 +9320,15 @@
     // whatever coin (if any) is extreme enough to reach this, same posture
     // as every other "not worth chasing further" gap already documented in
     // this file.
+  }
+
+  function setCompositionCornerText(el, text) {
+    const lines = splitCompositionForStacking(text);
+    if (!lines.length) { el.style.fontSize = ""; el.innerHTML = ""; return; }
+    shrinkCornerToFit(el, () => {
+      if (lines.length === 2) renderCornerLines(el, lines);
+      else setFittedCornerText(el, lines[0]); // single-line fallback re-runs its own text-reduction loop at whatever size is current
+    });
   }
 
   // Reference info per MetalCategory bucket — static, not per-coin — shown as
@@ -9415,10 +9502,12 @@
       sizeCoinElement(disc, coin.denom, 64, 11);
       // Series/type name restored here (top-right, stacked over the denom
       // code) via the same renderTypeDenomCorner() the full flip-frame uses —
-      // reused specifically because it already carries the last-word
-      // shortening fallback that fixes the exact truncation problem grid-mini
-      // cards dropped this for previously (see CLAUDE.md). Must run after
-      // appendChild (needs real layout to measure scrollWidth against).
+      // reused specifically because it already carries the graceful-
+      // degradation overflow fallback (shrink, then wrap at real word
+      // boundaries — see its own comment) that fixes the exact truncation
+      // problem grid-mini cards dropped this for previously (see CLAUDE.md).
+      // Must run after appendChild (needs real layout to measure scrollWidth
+      // against).
       renderTypeDenomCorner(card.querySelector(".flip-label.tr"), coin);
       // Composition — same rule and same shared renderer as the full
       // flip-frame's BR corner (Browse detail/Spotlight): precious metal

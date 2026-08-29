@@ -7102,6 +7102,79 @@ fall back to a plain "— none —" option with no persisted distinction.
   built yet, either the full version or the fallback — waiting on his
   answer.
 
+### TR corner (type/series name): graceful degradation, not destructive truncation (BUILT, same branch, still held)
+Real bug: `renderTypeDenomCorner()`'s overflow fallback used to shorten an
+overlong type name to its LAST WORD when it didn't fit on one line —
+reasonable when Description values were short place/series names, but wrong
+for a real per-design identity with fixed suffix text attached. Worst case,
+confirmed real data: **"Martha Washington First Spouse Gold $10"** doesn't
+end in any `DENOM_NAME_SUFFIXES` word (`"$10"` isn't one), so nothing
+strips, it overflows, and the old fallback reduced it to literally `"$10"`
+— total loss of which spouse the coin actually is.
+
+- **Fix is a genuine two-tier fallback, shrink first, wrap only as the last
+  resort — measured into that order, not guessed.** `renderTypeDenomCorner()`
+  now: (1) runs the type+denom pair through `shrinkCornerToFit()` — the same
+  collision-based per-instance mechanism Composition's BR corner already
+  uses (see above), generalized out of `setCompositionCornerText()` into a
+  shared helper (`CORNER_SHRINK_STEPS = [1, 0.82, 0.67]`); (2) only if the
+  type line STILL overflows at the smallest shrink step does it fall to a
+  new `wrapTextToTwoLines(text, measureEl)` — a real, measured greedy word
+  wrap (grows line 1 word-by-word against `scrollWidth`/`clientWidth`, never
+  splits a single word, never guesses from a character count) — producing a
+  genuine 3-line corner (two type lines + the denom code) via the existing
+  `renderCornerLines()`/`.corner-line` stacking mechanism TL already uses.
+- **The order was arrived at by measurement, not assumption, after the
+  first version got it backwards.** A first pass tried wrap-before-shrink
+  (attempt the two-line wrap at full size, shrink only if that still didn't
+  fit) — direct geometry measurement caught that this made the ORIGINAL
+  motivating case ("Lincoln Memorial", which a small shrink alone fully
+  resolves) grow to 3 unshrunk lines instead of shrinking to 2, measured
+  28px TALLER for no reason — unnecessary vertical creep toward the coin
+  disc, exactly the risk this corner system has fought before (see the
+  "Coin-flip corner labels" clipping history above). Rebuilt shrink-first;
+  re-measured to confirm "Lincoln Memorial" now resolves via the 82% shrink
+  step alone, 2 lines, height at or below the untouched baseline.
+- **Real-data verification, both named worst cases:**
+  "Martha Washington First Spouse Gold $10" (no suffix strips, 401px
+  unclamped against a 139px box) now wraps to `["Martha Washington", "First
+  Spouse Gold $10"]` + the `"$10"` denom line, shrunk to the smallest step,
+  full identity intact, fits with no overflow. "Washington Crossing the
+  Delaware Quarter" (suffix `"Quarter"` correctly stripped by
+  `seriesLabel()`, but the remaining "Washington Crossing the Delaware"
+  still overflows on its own, 326px) wraps identically rather than
+  collapsing to one trailing word. Both landed at the same 3-line, same
+  shrink-step outcome — confirmed via screenshot, not just measurement, on
+  the real flip-card UI (1889-CC obverse, "Martha Washington" / "First
+  Spouse Gold $10" / "$10" all fully legible, no truncation, no clipping).
+- **Denom rides along on whatever line count results** — it never wraps or
+  shrinks independently of the type line(s) it's stacked with, same rule
+  the original design already followed.
+- **Every stale code comment referencing the old last-word mechanism was
+  found and corrected** (`grep`'d, not left to drift) — the Catalog
+  grid-mini `.flip-label` CSS comment (×2 locations), the historical
+  "Medal" `DENOM_NAME_SUFFIXES` note, the Rolls corner-treatment comment
+  (its underlying reasoning for excluding Rolls still holds independently
+  of the old garbling behavior it originally cited), and
+  `renderBrowseGrid()`'s own comment.
+- Verified headless — 8 new assertions added to `tests/verify_composition.js`
+  (block Q, 96 assertions in that suite now; 496 across all 13 suites, zero
+  failures): the First Spouse case (full identity preserved across 3 wrapped
+  lines, never truncated to `"$10"`, fits); the ATB/quarter case (suffix
+  correctly stripped, remainder wraps rather than truncating to one word,
+  fits); a regression guard confirming "Lincoln Memorial" still resolves via
+  shrink ALONE (2 lines, not 3, no taller than the untouched baseline); and
+  the untouched-baseline case ("Morgan Dollar" → `seriesLabel()` strips
+  "Dollar" to "Morgan", always fit, stays at natural 27px, no shrink, no
+  wrap). **Verified negative control**: temporarily reintroduced the exact
+  old last-word-truncation behavior and confirmed all 4 new assertions fail
+  with the exact reported symptom (`["$10","$10"]` for First Spouse), then
+  restored the real fix and re-confirmed all pass — proves the new coverage
+  actually catches this class of regression, not just documents intent.
+- **Not verified: any real device.** Screenshots reviewed in this
+  environment's headless Chromium only, same standing caveat as every round
+  on this branch.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
