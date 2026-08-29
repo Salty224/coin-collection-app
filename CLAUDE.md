@@ -7073,34 +7073,12 @@ mechanism producing a UX gap worth a future decision, not a bug — no fix
 proposed or built, per the explicit "ask, don't guess" instruction for this
 item.
 
-**Item 8 — Mint Mark "— none (Other) —": STILL OPEN, blocked on a data
-question only Ray can answer.** His revised spec (replacing both the
-original follow-up-picker idea and the plain-fallback-with-Remarks-breadcrumb
-alternative) is conditional: build a real DB_Coins-backed disambiguation
-(`Mint` column full-name match against blank-`MintMark` rows, surfaced
-through the existing ambiguous-candidate picker) ONLY IF that column is
-populated/reliable enough on blank-MintMark rows to actually work; otherwise
-fall back to a plain "— none —" option with no persisted distinction.
-- **Confirmed via source: `DB_Coins.Mint` (column AG, full name — "San
-  Francisco"/"Denver"/"Philadelphia") is a real column but is NOT currently
-  mapped anywhere** — `mapWorkbookRowToDbCoin()` only reads `MintMark`
-  (the abbreviation) into `mint`; the full-name `Mint` column has never been
-  exposed on the mapped row shape. This file's own prior guidance (Matcher
-  hardening / Designation section) is explicit that "the matcher reads
-  MintMark to match All.MintMark; the new full-name Mint column is not used
-  by any match logic and must not be" — that constraint is about NOT
-  substituting Mint into the PRIMARY join key, and this item doesn't touch
-  that join at all (it would be a new, separate, narrow lookup fired only
-  when the user explicitly picks "None (Other)"), so it doesn't conflict
-  with that rule — but it's directly adjacent to it and worth flagging
-  clearly rather than silently building near a documented hard constraint.
-- **The one thing this session cannot determine: whether `Mint` is actually
-  populated/reliable on blank-MintMark rows specifically.** This environment
-  has no live OneDrive/Graph access — CLAUDE.md documents that the column
-  exists, not its population rate on this particular subset. Ray's own
-  instruction was explicit: confirm this BEFORE building either path. Not
-  built yet, either the full version or the fallback — waiting on his
-  answer.
+**Item 8 — Mint Mark "— none (Other) —": BUILT.** Was flagged STILL OPEN,
+blocked on confirming `DB_Coins.Mint` was populated/reliable enough on
+blank-MintMark rows to disambiguate on — Ray confirmed via Copilot that all
+236 real blank-MintMark rows now carry a value, unblocking the real
+disambiguation-picker path (not the plain fallback). See "Mint Mark 'None
+(Other)': real DB_Coins.Mint disambiguation" below for the full build.
 
 ### TR corner (type/series name): graceful degradation, not destructive truncation (BUILT, same branch, still held)
 Real bug: `renderTypeDenomCorner()`'s overflow fallback used to shorten an
@@ -7174,6 +7152,122 @@ strips, it overflows, and the old fallback reduced it to literally `"$10"`
 - **Not verified: any real device.** Screenshots reviewed in this
   environment's headless Chromium only, same standing caveat as every round
   on this branch.
+
+### Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT, same branch, still held)
+Closes item 8 from the earlier batch, unblocked once Ray confirmed via
+Copilot that `DB_Coins.Mint` (the FULL facility name — "San Francisco",
+"Denver", "Philadelphia" — distinct from `MintMark`, the abbreviation) is
+now backfilled on all 236 real blank-MintMark rows. Built the real
+DB_Coins-backed disambiguation picker (Q1–Q4 confirmed), not the plain
+"— none —" fallback.
+
+- **A new "— none (Other) —" option** sits right after "— none
+  (Philadelphia) —" in Add Coin's Mint Mark dropdown, above the real codes
+  (P/D/S/CC/O/W, all unchanged). **Scoped to Add Coin only** (Q1) — same
+  footprint as the Mint Item Number/GSID lookups this is modeled on; Edit
+  Coin's identical dropdown is untouched, a separate future build if wanted.
+- **"Other" never writes a persisted MintMark value of its own** (Q2,
+  confirmed) — its option value is a one-shot sentinel (`__OTHER_MINT__`),
+  normalized straight back to `""` the instant the `change` handler fires,
+  BEFORE `refreshVarietyOptions()`/`checkDbCoinsMatch()`/`updateFlipLabels()`
+  or any other reader of `#mintMark.value` runs. It's purely a UI trigger
+  for the one-time lookup below; the draft's MintMark stays blank, exactly
+  like an ordinary Philadelphia coin — verified directly (a saved draft
+  through this path carries `mint: ""`).
+- **`mapWorkbookRowToDbCoin()` now reads `DB_Coins.Mint` into a new
+  `mintFull` field**, kept completely separate from `mint` (the abbreviation
+  the base matcher's join key already uses). This is a NEW, narrow lookup —
+  used only by `handleMintMarkOtherApply()` — and does not touch the
+  existing hard constraint that the full-name `Mint` column must never
+  substitute into the primary MintMark join key; `dbCoinsCandidatesFor()`
+  itself is completely unchanged.
+- **`handleMintMarkOtherApply()` is deliberately its own function, not
+  routed through the shared `handleIdentifierLookup()`** (Mint Item Number/
+  GSID's helper) — this is a filtered SEARCH keyed on Year+Denomination
+  (MintMark blank, Mint populated and not Philadelphia), not a single
+  scalar field-equality match, and it has a third outcome
+  (`handleIdentifierLookup` and its two callers have only two). Requires
+  Year AND Denomination already entered (a toast asks for them otherwise,
+  Q-implied by the search key) — variety, if already typed, is a SOFT
+  narrow only (Q4, confirmed), same pattern the Finish/Category tiers in
+  `dbCoinsCandidatesFor()` already use: can only reduce ambiguity, never
+  produce a false miss.
+- **Philadelphia rows are explicitly excluded from the candidate set**, even
+  when `Mint` is populated and literally says "Philadelphia" — those are
+  the ordinary Philadelphia case the ✱plain✱ blank option already covers,
+  not what "Other" exists to disambiguate. Verified directly against a
+  seeded blank-MintMark/Mint="Philadelphia" row: correctly reports
+  not-found rather than a false match.
+- **"Multiple Facilities" (Copilot's new value for an anonymous bullion
+  Eagle documented as struck at more than one facility with no
+  distinguishing mark) is a real DB_Coins.Mint value like any other — the
+  disambiguation logic branches on it, not a separate flag anywhere.**
+  Three outcomes (Q3, confirmed):
+  - **Sole match, real facility** → applies directly (same single-match
+    banner every other lookup uses), naming the actual mint.
+  - **Sole match, Multiple Facilities** → applies directly too (nothing to
+    disambiguate), but with its OWN distinct wording — "Struck at multiple
+    facilities — mint not individually identifiable for this issue" —
+    never worded as if "Multiple Facilities" were a place name.
+  - **2+ total candidates, in any mix** → the shared ambiguous picker shows
+    ONLY the real-facility candidates in its normal list; if a
+    Multiple-Facilities row also exists for this Year+Denomination, it's
+    offered as its own separate, clearly-labeled card below the list
+    (`#mintMarkOtherMultipleFacilitiesOption`) — reachable, but never mixed
+    in as if it were just another named mint. Verified for a real 1-real+
+    1-MF mix ($1 2001): the picker's list shows exactly the one real
+    candidate (West Point), the MF card renders separately, and clicking it
+    applies the MF row's own CoinID with the MF wording, not the real
+    candidate's.
+  - A single Multiple-Facilities DB_Coins row is the expected shape; two or
+    more sharing one Year+Denomination (presumably a Variety split) is
+    treated pragmatically — the first is used rather than building a second
+    nested picker for data this sparse, flagged in a code comment rather
+    than silently assumed correct.
+- **Resolved pick uses the same "remembered pick" mechanism** every other
+  lookup in this section already relies on (`applyIdentifierDbCoinsMatch`),
+  so it sticks through Save with no picker re-shown, and correctly
+  invalidates if a relevant identity field changes afterward — no new
+  mechanism needed.
+- **A real, useful side effect, not a separate change**: since a matched
+  Silver Eagle row's Description contains "American Silver Eagle Dollar",
+  applying it also correctly flips the existing Bullion toggle and infers
+  Category via `applyInferredBullionCategoryToForm()` (unchanged, already
+  built) — confirmed via screenshot, not assumed.
+- **Same recurring `.hidden`-scoping trap this file has hit before, caught
+  before shipping this time**: the two new elements
+  (`#mintMarkOtherAmbiguousPanel`, `#mintMarkOtherMultipleFacilitiesOption`)
+  needed their own `#id.hidden { display:none }` CSS rules, same as every
+  other panel built this way in this section — added alongside the markup,
+  verified via real computed style, not just `classList`.
+- **Six new synthetic `FAKE_DB_COINS` rows** cover every branch (a sole
+  real match, a real 2-way ambiguity, a Variety-narrowable ambiguity, a
+  sole Multiple-Facilities match, a mixed real+MF ambiguity, and a
+  blank-mint Philadelphia row proving the exclusion) — flagged in a comment
+  as representative test data, not claims about real historical mintages.
+- Verified headless — new committed suite
+  `tests/verify_addcoin_mintmark_other.js` (27 assertions, all passing;
+  523 across all 14 suites, zero failures): the dropdown option and its
+  position; the missing-prerequisites case firing nothing; a single
+  real-facility match; a real 2-way ambiguity (picking the SECOND candidate,
+  not the first, to prove it's a genuine unforced choice); the Variety soft
+  narrow in both directions (narrows when typed, stays ambiguous when
+  blank); the sole Multiple-Facilities outcome and its distinct wording; the
+  mixed real+MF case (real candidate alone in the list, MF offered
+  separately, clicking MF applies the MF row specifically); the Philadelphia
+  exclusion; a genuine no-data miss; the resolved pick surviving Save with a
+  blank persisted MintMark; `resetAddCoinForm()` clearing every new element;
+  `mapWorkbookRowToDbCoin()` reading the real column into `mintFull`
+  (including the blank-Mint case not throwing); the genuine-hidden-state
+  check for both new elements; and a nav/overflow smoke check.
+  **Verified negative control**: temporarily removed the Philadelphia
+  exclusion and the MF/real split, confirmed 5 assertions fail with the
+  exact wrong-outcome symptoms, then restored the real fix and re-confirmed
+  all pass.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch — `DB_Coins.Mint`'s real
+  population was confirmed by Ray via Copilot, not independently verified
+  from this environment.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

@@ -1800,6 +1800,8 @@
      same scoped rule as every panel above. */
   #mintItemAmbiguousPanel.hidden { display: none; }
   #gsidAmbiguousPanel.hidden { display: none; }
+  #mintMarkOtherAmbiguousPanel.hidden { display: none; }
+  #mintMarkOtherMultipleFacilitiesOption.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
   /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
@@ -3237,6 +3239,19 @@
               <label>Mint Mark</label>
               <select id="mintMark">
                 <option value="">— none (Philadelphia) —</option>
+                <!-- "— none (Other) —": a coin with genuinely no mint mark
+                     struck somewhere OTHER than Philadelphia (item 8, Q1-Q4
+                     confirmed). Its option value is a one-shot SENTINEL
+                     (MINT_MARK_OTHER_SENTINEL), never a real, persisted
+                     MintMark — the moment this fires, the select's own
+                     value is normalized straight back to "" (Q2: this still
+                     writes a blank MintMark, same as Philadelphia; "Other"
+                     is purely a UI trigger for the one-time DB_Coins.Mint
+                     lookup below, not a distinct stored value). Every other
+                     reader of #mintMark.value in this file — the base
+                     matcher, the draft, the flip labels — therefore only
+                     ever sees "" or a real code, exactly as before. -->
+                <option value="__OTHER_MINT__">— none (Other) —</option>
                 <!-- See Browse Edit's identical dropdown for why "P" is a real,
                      separate option from the default blank. -->
                 <option value="P">P — Philadelphia (explicit)</option>
@@ -3246,6 +3261,27 @@
                 <option value="O">O — New Orleans</option>
                 <option value="W">W — West Point</option>
               </select>
+              <div class="banner pending-banner hidden" id="mintMarkOtherNotFoundBanner">
+                <span class="icon">⚠️</span>
+                <span class="msg"><strong>No non-Philadelphia blank-mint-mark match</strong> in DB_Coins for this Year + Denomination — add manually below, or leave it and Copilot can add the DB_Coins row later.</span>
+              </div>
+              <div class="banner context-banner hidden" id="mintMarkOtherAppliedBanner">
+                <span class="icon">✅</span>
+                <span class="msg" id="mintMarkOtherAppliedMsg"></span>
+              </div>
+              <div class="case hidden" id="mintMarkOtherAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+                <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">No mint mark, not Philadelphia — pick the actual mint</div>
+                <div id="mintMarkOtherAmbiguousList"></div>
+                <!-- Deliberately NOT part of the list above — surfaced as
+                     its own clearly-labeled option (Q3, confirmed), never
+                     mixed in as if it were just another named mint. -->
+                <div class="case form-row ambiguous-match hidden" id="mintMarkOtherMultipleFacilitiesOption" style="cursor:pointer; margin-top:8px;">
+                  <div class="fr-info">
+                    <div class="fr-title">Struck at multiple facilities</div>
+                    <div class="fr-summary">No single mint identifiable for this issue — documented as struck at more than one facility with no distinguishing mark.</div>
+                  </div><span class="chevron">›</span>
+                </div>
+              </div>
 
               <label>Description</label>
               <input type="text" id="description" placeholder="Auto-fills from Year + Denomination — e.g. Mercury (Winged Liberty)" autocomplete="off">
@@ -4818,6 +4854,16 @@
       coinId: String(colVal(row, "CoinID")),
       year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
       mint: String(colVal(row, "MintMark")),
+      // DB_Coins.Mint — the FULL facility name ("San Francisco", "Denver",
+      // "Multiple Facilities" for an anonymous bullion Eagle documented as
+      // struck at more than one facility), distinct from `mint` above (the
+      // abbreviation). Confirmed backfilled on all 236 real blank-MintMark
+      // rows (2026-08-29). This is a NEW, separate, narrow lookup — used
+      // ONLY by handleMintMarkOtherApply() when the user explicitly picks
+      // "— none (Other) —" — and must NEVER be substituted into the
+      // primary MintMark join key itself (`mint`), per the existing hard
+      // constraint noted elsewhere in this file.
+      mintFull: String(colVal(row, "Mint")),
       denom: String(colVal(row, "Denomination")),
       variety: String(colVal(row, "Variety")),
       description: String(colVal(row, "Description")),
@@ -8060,7 +8106,26 @@
     // pair). 1999-S Roosevelt Dime is a genuine example of the real pattern:
     // the Mint issued both a clad and a 90% silver proof that year.
     { denom: "10C", year: 1999, mint: "S",  variety: "",        description: "Roosevelt Dime",       finish: "Proof",           gsid: "",       coinId: "C-1999-M-10C-01", pcgs: "5399",  mintage: 2543401, designation: "", composition: "Copper-Nickel Clad" },
-    { denom: "10C", year: 1999, mint: "S",  variety: "",        description: "Roosevelt Dime",       finish: "Proof",           gsid: "",       coinId: "C-1999-M-10C-02", pcgs: "5400",  mintage: 804565,  designation: "", composition: "90% Silver" }
+    { denom: "10C", year: 1999, mint: "S",  variety: "",        description: "Roosevelt Dime",       finish: "Proof",           gsid: "",       coinId: "C-1999-M-10C-02", pcgs: "5400",  mintage: 804565,  designation: "", composition: "90% Silver" },
+    // --- Mint Mark "None (Other)" disambiguation (item 8) — DB_Coins.Mint
+    // (the FULL facility name, backfilled on all 236 real blank-MintMark
+    // rows) is what tells these apart; `mint` (the abbreviation) stays
+    // blank on every one of them, same as an ordinary Philadelphia row.
+    // Synthetic, representative rows — not claims about real historical
+    // mintages — covering every branch handleMintMarkOtherApply() takes:
+    // a single non-Philadelphia match, a real 2-way ambiguity, a
+    // Variety-narrowable ambiguity, a sole "Multiple Facilities" match
+    // (the anonymous-bullion-Eagle case), a mixed real+MF ambiguity, and a
+    // blank-mint Philadelphia row proving Philadelphia itself is excluded.
+    { denom: "1C",  year: 1875, mint: "",   variety: "",        description: "Indian Head Cent",     finish: "Business Strike", gsid: "",       coinId: "C-1875-M-1C-01",  pcgs: "2110",  mintage: 13000,   designation: "", mintFull: "San Francisco" },
+    { denom: "5C",  year: 1913, mint: "",   variety: "",        description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1913-M-5C-05",  pcgs: "3900",  mintage: 5000000, designation: "", mintFull: "Denver" },
+    { denom: "5C",  year: 1913, mint: "",   variety: "",        description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1913-M-5C-06",  pcgs: "3901",  mintage: 4000000, designation: "", mintFull: "San Francisco" },
+    { denom: "10C", year: 1944, mint: "",   variety: "",             description: "Mercury Dime",    finish: "Business Strike", gsid: "",       coinId: "C-1944-M-10C-07", pcgs: "4700",  mintage: 6000000, designation: "", mintFull: "Denver" },
+    { denom: "10C", year: 1944, mint: "",   variety: "Doubled Die",  description: "Mercury Dime",    finish: "Business Strike", gsid: "",       coinId: "C-1944-M-10C-08", pcgs: "4701",  mintage: 12000,   designation: "", mintFull: "San Francisco" },
+    { denom: "$1",  year: 1986, mint: "",   variety: "",        description: "American Silver Eagle Dollar", finish: "Business Strike", gsid: "", coinId: "C-1986-M-$1-05", pcgs: "9800",  mintage: 5393005, designation: "", mintFull: "Multiple Facilities" },
+    { denom: "$1",  year: 2001, mint: "",   variety: "",        description: "American Silver Eagle Dollar", finish: "Business Strike", gsid: "", coinId: "C-2001-M-$1-07", pcgs: "9801",  mintage: 1000000, designation: "", mintFull: "West Point" },
+    { denom: "$1",  year: 2001, mint: "",   variety: "",        description: "American Silver Eagle Dollar", finish: "Business Strike", gsid: "", coinId: "C-2001-M-$1-08", pcgs: "9802",  mintage: 500000,  designation: "", mintFull: "Multiple Facilities" },
+    { denom: "10C", year: 2005, mint: "",   variety: "",        description: "Roosevelt Dime",       finish: "Business Strike", gsid: "",       coinId: "C-2005-M-10C-09", pcgs: "5401",  mintage: 8000000, designation: "", mintFull: "Philadelphia" }
   ];
 
   // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
@@ -16787,6 +16852,93 @@
     });
   }
 
+  // "— none (Other) —" in the Mint Mark dropdown (item 8, Q1-Q4 confirmed).
+  // A coin with genuinely no mint mark struck at a facility OTHER than
+  // Philadelphia. DB_Coins.MintMark is blank for these rows too (same as an
+  // ordinary Philadelphia coin), so the base matcher's normal MintMark key
+  // can't tell them apart — this reads DB_Coins.Mint (the FULL facility
+  // name, `mintFull`) directly instead, which the base matcher never
+  // touches.
+  //
+  // NOT the same shape as handleIdentifierLookup() (Mint Item Number/GSID):
+  // this is a filtered SEARCH keyed on Year+Denomination, not a single
+  // scalar field match, and it has a third outcome (Multiple Facilities —
+  // an anonymous bullion Eagle documented as struck at more than one
+  // facility with no distinguishing mark) those two don't need to handle.
+  function handleMintMarkOtherApply() {
+    const notFound = document.getElementById("mintMarkOtherNotFoundBanner");
+    const applied = document.getElementById("mintMarkOtherAppliedBanner");
+    const panel = document.getElementById("mintMarkOtherAmbiguousPanel");
+    const mfOption = document.getElementById("mintMarkOtherMultipleFacilitiesOption");
+    notFound.classList.add("hidden");
+    applied.classList.add("hidden");
+    panel.classList.add("hidden");
+    mfOption.classList.add("hidden");
+    mfOption.onclick = null;
+
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    if (!denom || !year) {
+      showToast("Enter Year and Denomination first, then pick — none (Other) — to look up the mint.");
+      return;
+    }
+
+    let candidates = activeDbCoins().filter(c =>
+      normField(c.denom) === normField(denom) && String(c.year) === String(year) &&
+      normField(c.mint || "") === "" && normField(c.mintFull || "") !== "" &&
+      normField(c.mintFull) !== normField("Philadelphia")
+    );
+    // Variety, if already typed, is a SOFT narrow only (Q4, confirmed) —
+    // same pattern as the Finish/Category tiers in dbCoinsCandidatesFor():
+    // can only reduce ambiguity, never produce a false miss.
+    const variety = document.getElementById("variety").value;
+    if (candidates.length > 1 && normField(variety || "")) {
+      const byVariety = candidates.filter(c => normField(c.variety || "") === normField(variety));
+      if (byVariety.length) candidates = byVariety;
+    }
+
+    const mfCandidates = candidates.filter(c => normField(c.mintFull) === normField("Multiple Facilities"));
+    const realCandidates = candidates.filter(c => normField(c.mintFull) !== normField("Multiple Facilities"));
+
+    const showApplied = (row, mf) => {
+      applyIdentifierDbCoinsMatch(row);
+      document.getElementById("mintMarkOtherAppliedMsg").innerHTML = mf
+        ? "<strong>Struck at multiple facilities</strong> — mint not individually identifiable for this issue. Linked to <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>."
+        : "No mint mark, struck at <strong>" + escapeHtmlText(row.mintFull || "") + "</strong> — <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>";
+      applied.classList.remove("hidden");
+    };
+    // 2+ DB_Coins rows both carrying "Multiple Facilities" for the same
+    // Year+Denomination would itself be a real, separate catalog-data
+    // question (presumably a Variety split) — sparse enough in practice
+    // that a second nested picker isn't worth building for it; take the
+    // first and let it flow through the normal single-match path.
+    const applyMultipleFacilities = () => showApplied(mfCandidates[0], true);
+
+    if (realCandidates.length === 0 && mfCandidates.length === 0) {
+      notFound.classList.remove("hidden");
+    } else if (realCandidates.length === 1 && mfCandidates.length === 0) {
+      showApplied(realCandidates[0], false);
+    } else if (realCandidates.length === 0 && mfCandidates.length >= 1) {
+      applyMultipleFacilities();
+    } else {
+      // 2+ real candidates, OR one-or-more real candidates alongside a
+      // Multiple-Facilities row — either way this needs a deliberate human
+      // pick (Q3, confirmed): real candidates in the normal ambiguous-
+      // picker list, Multiple Facilities offered as its own clearly-
+      // labeled option below — never mixed in as if it were just another
+      // named mint.
+      renderAmbiguousMatchList(document.getElementById("mintMarkOtherAmbiguousList"), realCandidates, (row) => {
+        panel.classList.add("hidden");
+        showApplied(row, false);
+      });
+      if (mfCandidates.length) {
+        mfOption.classList.remove("hidden");
+        mfOption.onclick = () => { panel.classList.add("hidden"); applyMultipleFacilities(); };
+      }
+      panel.classList.remove("hidden");
+    }
+  }
+
   function handlePcgsLabelApply() {
     const raw = document.getElementById("pcgsLabelInput").value;
     const parsed = parsePcgsLabel(raw);
@@ -17224,6 +17376,10 @@
     document.getElementById("denomination").value = "";
     document.getElementById("year").value = "";
     document.getElementById("mintMark").value = "";
+    document.getElementById("mintMarkOtherNotFoundBanner").classList.add("hidden");
+    document.getElementById("mintMarkOtherAppliedBanner").classList.add("hidden");
+    document.getElementById("mintMarkOtherAmbiguousPanel").classList.add("hidden");
+    document.getElementById("mintMarkOtherMultipleFacilitiesOption").classList.add("hidden");
     document.getElementById("description").value = "";
     hideDescriptionAmbiguousPanel();
     descriptionAutoFilled = true;
@@ -17446,7 +17602,18 @@
       sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
     });
     document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
-    document.getElementById("mintMark").addEventListener("change", () => { refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("mintMark").addEventListener("change", (e) => {
+      // "— none (Other) —" is a one-shot sentinel, never a real persisted
+      // value (Q2, confirmed) — normalize straight back to "" BEFORE
+      // anything else reads .value, so refreshVarietyOptions()/
+      // checkDbCoinsMatch()/updateFlipLabels() below (and every other
+      // reader in the file) only ever see "" or a real code.
+      if (e.target.value === "__OTHER_MINT__") {
+        e.target.value = "";
+        handleMintMarkOtherApply();
+      }
+      refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
+    });
     // Finish/Designation/GradeSource are all real inputs to
     // dbCoinsCandidatesFor() (the Finish tier, the Designation tier, and the
     // cert-protection guard respectively), so each has to re-run the match —
