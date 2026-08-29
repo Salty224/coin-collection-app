@@ -18,9 +18,13 @@ module.exports = defineSuite("addcoin-identification", async ({ ok, openApp, PHO
     return { header, labels };
   });
   ok(A.header === "Identification", "A1 section renamed from \"Grading & Certification\" to \"Identification\"");
+  // "Green"/"Gold" are the CAC Bean checkboxes' own <label> wrappers,
+  // positioned to the right of Cert/Type Number (see CLAUDE.md "CACBean UI
+  // in Add Coin and Edit Coin") — real, expected additions to this list,
+  // not a regression.
   ok(JSON.stringify(A.labels) === JSON.stringify(
-      ["U.S. Mint Item Number", "Grading Service", "PCGS Label #", "Cert / Type Number", "GSID"]),
-    "A2 field order: Mint Item Number first, Grader/PCGS block unchanged, GSID last: " + A.labels.join(" | "));
+      ["U.S. Mint Item Number", "Grading Service", "PCGS Label #", "Cert / Type Number", "Green", "Gold", "GSID"]),
+    "A2 field order: Mint Item Number first, Grader/PCGS block unchanged, CAC Bean checkboxes beside Cert/Type Number, GSID last: " + A.labels.join(" | "));
 
   // Real bug caught by screenshot before shipping, same recurring trap this
   // file has hit before (no generic .hidden rule -- every .hidden is scoped

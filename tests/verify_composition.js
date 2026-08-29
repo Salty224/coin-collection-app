@@ -190,12 +190,18 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   ok(H.categoryFallbackClad === "", "H8 -- and the fallback does not fire for a non-precious category");
 
   // ------------------------------------------------- I. The flip card itself
+  // BR now stacks a value/metal split across two lines (renderCornerLines(),
+  // same mechanism TL/TR already use) rather than one reduced line — see
+  // splitCompositionForStacking()'s own comment for the measured collision-
+  // risk reasoning against a long "Details" grade in BL. .textContent
+  // concatenates the two .corner-line children with no separator ("90%" +
+  // "Silver" = "90%Silver"), so these checks read the lines themselves.
   const I = await page.evaluate(() => {
     const brExists = !!document.getElementById("browseDetailBR");
     const spotExists = !!document.getElementById("spotlightBR");
     navigate("browse");
     showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00001"));
-    const silver = document.getElementById("browseDetailBR").textContent;
+    const silverLines = Array.from(document.getElementById("browseDetailBR").querySelectorAll(".corner-line")).map(el => el.textContent);
     const sr = document.getElementById("browseDetailSR").textContent;
     showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00013"));
     const clad = document.getElementById("browseDetailBR").textContent;
@@ -203,7 +209,7 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
     showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00018"));
     const set = document.getElementById("browseDetailBR").textContent;
     return {
-      brExists, spotExists, silver, clad, set,
+      brExists, spotExists, silverLines, clad, set,
       srHasComposition: sr.indexOf("composition 90% Silver") !== -1,
       cladSrHasNoComposition: cladSr.indexOf("composition") === -1,
       brAriaHidden: document.getElementById("browseDetailBR").getAttribute("aria-hidden") === "true"
@@ -211,7 +217,8 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   });
   ok(I.brExists, "I1 browseDetailBR exists (there was no BR span on this frame at all before this pass)");
   ok(I.spotExists, "I2 spotlightBR exists — Spotlight shares applyFlipCorners(), so it gets the same corner");
-  ok(I.silver === "90% Silver", "I3 Browse detail's BR corner shows a silver coin's composition");
+  ok(JSON.stringify(I.silverLines) === JSON.stringify(["90%", "Silver"]),
+    "I3 Browse detail's BR corner stacks a silver coin's composition as value/metal lines: " + I.silverLines.join(" / "));
   ok(I.clad === "", "I4 -- and stays empty for a clad coin");
   ok(I.set === "", "I5 -- and stays empty for a Set bundle");
   ok(I.brAriaHidden, "I6 the BR span is aria-hidden like every other flip label");
@@ -222,33 +229,60 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   // out the carousel's own timer.
   const J = await page.evaluate(() => {
     applyFlipCorners("spotlight", FAKE_COINS.find(c => c.id === "AY-00001"));
-    const silver = document.getElementById("spotlightBR").textContent;
+    const silverLines = Array.from(document.getElementById("spotlightBR").querySelectorAll(".corner-line")).map(el => el.textContent);
     applyFlipCorners("spotlight", FAKE_COINS.find(c => c.id === "AY-00013"));
-    return { silver, clad: document.getElementById("spotlightBR").textContent };
+    return { silverLines, clad: document.getElementById("spotlightBR").textContent };
   });
-  ok(J.silver === "90% Silver" && J.clad === "", "J1 Spotlight's BR corner behaves identically (one shared render path)");
+  ok(JSON.stringify(J.silverLines) === JSON.stringify(["90%", "Silver"]) && J.clad === "",
+    "J1 Spotlight's BR corner behaves identically (one shared render path)");
 
-  // applyFlipCorners() must FIT the text, not just write it. Asserted through
-  // the real render path rather than by calling setFittedCornerText()
-  // directly — otherwise the suite would still pass if applyFlipCorners()
-  // stopped using the fitter and went back to plain textContent, which is
-  // exactly the "green suite hiding a real bug" trap this project has hit
-  // before (see CLAUDE.md's visibility-gap note).
+  // applyFlipCorners() must actually STACK/FIT the text, not just write it
+  // raw. Asserted through the real render path rather than by calling
+  // setCompositionCornerText() directly — otherwise the suite would still
+  // pass if applyFlipCorners() stopped using it and went back to plain
+  // textContent, the exact "green suite hiding a real bug" trap this
+  // project has hit before (see CLAUDE.md's visibility-gap note).
   const JF = await page.evaluate(() => {
     const mk = composition => ({ id: "AY-TEST", denom: "$1", year: 1889, mint: "CC",
       name: "Test Dollar", grade: "MS-64", variety: "", designation: "", composition });
     const br = document.getElementById("browseDetailBR");
-    const run = c => { applyFlipCorners("browseDetail", mk(c));
-      return { shown: br.textContent, fits: br.scrollWidth <= br.clientWidth }; };
-    return { long: run(".9995 Fine Palladium"), multi: run("90% Silver, 10% Copper"),
-             short: run("91.67% Gold") };
+    const runStacked = c => {
+      applyFlipCorners("browseDetail", mk(c));
+      return { lines: Array.from(br.querySelectorAll(".corner-line")).map(el => el.textContent),
+        fits: br.scrollWidth <= br.clientWidth };
+    };
+    const runSingle = c => {
+      applyFlipCorners("browseDetail", mk(c));
+      return { shown: br.textContent, fits: br.scrollWidth <= br.clientWidth };
+    };
+    return {
+      long: runStacked(".9995 Fine Palladium"), multi: runStacked("90% Silver, 10% Copper"),
+      short: runStacked("91.67% Gold"),
+      // Q5, confirmed: 2+ precious metals named has no single value/metal
+      // pair to stack, so it falls back to ONE fitted line — no coin in
+      // this collection is bimetallic, but the fallback itself is real code.
+      bimetal: runSingle("50% Gold, 50% Silver")
+    };
   });
-  ok(JF.long.shown === ".9995 Palladium" && JF.long.fits,
-    "J2 applyFlipCorners() itself fits an overlong composition (not just setFittedCornerText called directly)");
-  ok(JF.multi.shown === "90% Silver" && JF.multi.fits,
-    "J3 -- and drops a balance metal through the real render path");
-  ok(JF.short.shown === "91.67% Gold" && JF.short.fits,
-    "J4 -- while a value that already fits goes through untouched");
+  ok(JSON.stringify(JF.long.lines) === JSON.stringify([".9995", "Palladium"]) && JF.long.fits,
+    "J2 applyFlipCorners() itself stacks an overlong composition (not just splitCompositionForStacking called directly), \"Fine\" dropped");
+  ok(JSON.stringify(JF.multi.lines) === JSON.stringify(["90%", "Silver"]) && JF.multi.fits,
+    "J3 -- and drops a balance metal through the real render path before splitting");
+  ok(JSON.stringify(JF.short.lines) === JSON.stringify(["91.67%", "Gold"]) && JF.short.fits,
+    "J4 -- and a value that already fit under the old single-line design still splits cleanly");
+  // Real, measured finding: this exact synthetic string does NOT fit its box
+  // (scrollWidth 159 vs clientWidth 139 at phone width) — the single-line
+  // fallback has no further reduction to shrink into once both terms are
+  // precious metals (compositionLabelCandidates() correctly keeps both per
+  // its own M3 coverage). Confirmed with Ray (Q5): build no layout for this
+  // — no coin in the collection is bimetallic. A documented, accepted
+  // known-gap for a zero-real-rows case, same posture as several other
+  // "not worth the tradeoff" calls already recorded in this file — not
+  // silently ignored, and not requiring it to fit here, which would demand
+  // either unrequested display logic or a false failure on a case nothing
+  // exercises.
+  ok(JF.bimetal.shown === "50% Gold, 50% Silver",
+    "J5 -- while a composition naming 2+ precious metals falls back to ONE joined, UNSPLIT line (may not itself fit the box — known, accepted gap for a case zero real coins exercise)");
 
   // ------------------------------- K. Scope guard: Add Coin deliberately untouched
   const K = await page.evaluate(() => {
@@ -310,18 +344,22 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
       // means the excess spills RIGHTWARD past the frame and gets cut), that
       // it stays inside the frame, and that it sits in the same vertical band
       // as the Grade label it shares a row with.
+      const shownOf = el => {
+        const lines = Array.from(el.querySelectorAll(".corner-line")).map(x => x.textContent);
+        return lines.length ? lines.join(" ") : el.textContent;
+      };
       const worst = [];
       [".9995 Fine Palladium", "99.95% Platinum", "90% Silver, 10% Copper",
        ".999 Fine Silver", "91.67% Gold"].forEach(t => {
-        setFittedCornerText(br, t);
+        setCompositionCornerText(br, t);
         const wb = br.getBoundingClientRect();
-        worst.push({ input: t, shown: br.textContent,
+        worst.push({ input: t, shown: shownOf(br), stacked: br.querySelectorAll(".corner-line").length === 2,
           fits: br.scrollWidth <= br.clientWidth,
           insideFrame: wb.right <= frame.right + 1 && wb.left >= frame.left - 1 });
       });
-      setFittedCornerText(br, "90% Silver");
+      setCompositionCornerText(br, "90% Silver");
       return {
-        text: br.textContent,
+        shown: shownOf(br),
         visible: getComputedStyle(br).display !== "none" && b.width > 0,
         fitsBox: br.scrollWidth <= br.clientWidth,
         sameBandAsGrade: Math.abs(b.bottom - l.bottom) <= 1,
@@ -332,7 +370,7 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
         worst
       };
     });
-    ok(L.text === "90% Silver" && L.visible, `L1-${name} the BR corner renders visibly at ${name} width`);
+    ok(L.shown === "90% Silver" && L.visible, `L1-${name} the BR corner renders visibly at ${name} width`);
     ok(L.fitsBox, `L2-${name} -- with its text inside its own box (no rightward spill past the frame)`);
     ok(L.clearsGradeLabel && L.sameBandAsGrade, `L3-${name} -- sharing the Grade label's band without running into it`);
     ok(L.insideFrame && L.belowDiscCentre, `L4-${name} -- anchored in the frame's bottom-right corner space`);
@@ -340,12 +378,43 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
     ok(L.worst.every(w => w.fits && w.insideFrame),
       `L6-${name} every realistic composition fits, incl. the measured worst cases: ` +
       L.worst.filter(w => !w.fits || !w.insideFrame).map(w => w.input).join(", "));
+    ok(L.worst.every(w => w.stacked), `L6b-${name} -- and every one of them stacks as two lines (all five split cleanly)`);
     ok(L.worst.find(w => w.input === "90% Silver, 10% Copper").shown === "90% Silver",
       `L7-${name} a balance metal is dropped rather than overflowing ("90% Silver, 10% Copper" -> "90% Silver")`);
     ok(L.worst.find(w => w.input === ".9995 Fine Palladium").shown === ".9995 Palladium",
-      `L8-${name} the filler word "Fine" is dropped only when needed to fit`);
+      `L8-${name} the filler word "Fine" is always dropped for the split, not just when needed to fit`);
     ok(L.worst.find(w => w.input === "99.95% Platinum").shown === "99.95% Platinum",
-      `L9-${name} -- and a value that already fits is shown verbatim, unreduced`);
+      `L9-${name} -- and a value that already fit under the old single-line design still splits, verbatim per line`);
     await p.close();
   }
+
+  // --------------- N. The actual motivating case: BL/BR collision safety
+  // Real measurement (not assumed) drove the switch to two-line stacking: at
+  // 360px, a long free-typed "Details" grade in BL (which has NO overflow
+  // protection of its own, unlike TR and now BR) genuinely overlapped an
+  // unreduced single-line composition in BR (-9px gap). The two-line layout
+  // turns that into a comfortable positive gap. BL's own lack of protection
+  // is a separate, pre-existing gap (flagged in CLAUDE.md, not fixed here) —
+  // this only proves BR's own footprint shrank enough to matter.
+  const pn = await openApp({ width: 360, height: 800 });
+  const N = await pn.evaluate(() => {
+    navigate("browse");
+    showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00001"));
+    const bl = document.getElementById("browseDetailBL");
+    const br = document.getElementById("browseDetailBR");
+    // The exact worst-case pairing measured during this build: BL's longest
+    // realistic free-typed "Details" string, BR's own worst-case composition
+    // (one requiring no reduction, so the old single-line design gave BR no
+    // help from its own shortening).
+    bl.textContent = "XF Details - Improperly Cleaned";
+    setCompositionCornerText(br, "99.95% Platinum");
+    const b = bl.getBoundingClientRect(), c = br.getBoundingClientRect();
+    return {
+      gap: Math.round(c.left - b.right),
+      lines: Array.from(br.querySelectorAll(".corner-line")).map(el => el.textContent)
+    };
+  });
+  ok(N.gap > 0, "N1 the exact real-measured collision case (long BL Details grade + unreduced BR composition, 360px) no longer overlaps — gap: " + N.gap + "px");
+  ok(JSON.stringify(N.lines) === JSON.stringify(["99.95%", "Platinum"]), "N2 -- via the real two-line stack, not a coincidence of some other change");
+  await pn.close();
 }, module);

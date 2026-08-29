@@ -1592,6 +1592,25 @@
   }
   .cert-link-btn.small { width: 28px; height: 28px; border-radius: 14px; font-size: 12px; }
 
+  /* CAC Bean status — two mutually-exclusive checkboxes standing in for one
+     underlying value (All!CACBean: blank/Green/Gold). Reused identically by
+     Add Coin and Edit Coin, positioned to the right of the Cert/Type Number
+     field in both — see wireMutuallyExclusiveCheckboxes(). */
+  .cac-bean-group { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+  .cac-bean-group label {
+    display: flex; align-items: center; gap: 3px; margin: 0;
+    font-size: 12px; font-weight: 400; color: var(--text-muted);
+    cursor: pointer; white-space: nowrap;
+  }
+  .cac-bean-group input[type=checkbox] { width: auto; margin: 0; }
+
+  /* A computed currency value (Value/SpotValue) shown next to a plain
+     number input, which can't display a "$" of its own. Reused by Edit
+     Coin's Value field and Edit Set's — see roundToCents(). */
+  .currency-input-row { display: flex; align-items: center; gap: 6px; }
+  .currency-input-row .currency-prefix { font-size: 14px; color: var(--text-muted); flex-shrink: 0; }
+  .currency-input-row input { flex: 1; min-width: 0; }
+
   /* Full detail panel below the flip — Browse Detail's "everything about this
      coin" area: Value, Purchase Info, Fun Facts, Notes, Additional Photos. */
   .detail-panel { margin-top: 14px; padding: 16px; }
@@ -2526,6 +2545,13 @@
               <div class="cert-badge-row">
                 <input type="text" class="cert-badge-input" id="browseEditCertTypeNumber" placeholder="cert #">
                 <a href="#" target="_blank" rel="noopener" class="cert-link-btn small hidden" id="browseEditCertLinkBtn" aria-label="Open cert lookup" title="Open cert lookup">🔗</a>
+                <!-- CAC Bean status — same two-checkbox pattern as Add Coin
+                     (see its own comment), writable for real here via
+                     ALL_WRITABLE_COLUMNS/CACBean. -->
+                <div class="cac-bean-group">
+                  <label><input type="checkbox" id="browseEditCacGreen"> Green</label>
+                  <label><input type="checkbox" id="browseEditCacGold"> Gold</label>
+                </div>
               </div>
 
               <label>Designation</label>
@@ -2536,7 +2562,17 @@
               </div>
 
               <label>Value</label>
-              <input type="number" step="0.01" id="browseEditValue" placeholder="e.g. 850.00">
+              <!-- Value/SpotValue is often a live formula chain (metal
+                   content x spot price); a raw computed cell can carry full
+                   float precision ("0.039914798") with no formatting of its
+                   own. Rounded to the cent wherever this field is populated
+                   PROGRAMMATICALLY (see roundToCents()) — a user's own typed
+                   entry is untouched. The $ prefix is a plain label, since a
+                   number input can't show one inline. -->
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="browseEditValue" placeholder="e.g. 850.00">
+              </div>
 
               <!-- Read-only computed linkage chips, same as detail. -->
               <div id="browseEditLinkageWrap" class="edit-linkage-wrap hidden">
@@ -2694,7 +2730,12 @@
               <input type="text" id="editSetDescription" placeholder="e.g. 2021 Silver Proof Set">
 
               <label>Value</label>
-              <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
+              <!-- See browseEditValue's own comment — same computed-precision
+                   gap, same fix. -->
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
+              </div>
 
               <!-- Read-only computed linkage chips, same as detail. -->
               <div id="editSetLinkageWrap" class="edit-linkage-wrap hidden">
@@ -3063,7 +3104,19 @@
 
               <div id="certTypeNumberRow" style="display:none;">
                 <label>Cert / Type Number</label>
-                <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
+                <div class="cert-input-row">
+                  <input type="text" id="certTypeNumber" placeholder="e.g. 12345678 — the cert number, matches SerNo" autocomplete="off">
+                  <!-- CAC Bean status — two mutually-exclusive checkboxes for one
+                       underlying value (All!CACBean: blank/Green/Gold). Add Coin
+                       has no write path to All in Phase 1 (see buildCoinDraft());
+                       this is captured on the Staging draft the same way
+                       Category/itemNumber/gsid already are, flagged for
+                       ALL_WRITABLE_COLUMNS ahead of Phase 2. -->
+                  <div class="cac-bean-group">
+                    <label><input type="checkbox" id="cacGreen"> Green</label>
+                    <label><input type="checkbox" id="cacGold"> Gold</label>
+                  </div>
+                </div>
                 <p class="placeholder-note" style="margin:4px 0 16px;">
                   Just captures the number here — the cert-lookup link lives on the saved coin's
                   Browse detail view, not during entry.
@@ -4615,6 +4668,9 @@
       originSetId: String(colVal(row, "OriginSetID")),
       setId: String(colVal(row, "SetID")),
       designation: String(colVal(row, "Designation")),
+      // All!CACBean — a single cell, data-validated to exactly "Green"/"Gold"
+      // (confirmed against the real workbook, All!R2:R1543) or blank.
+      cacBean: String(colVal(row, "CACBean")),
       storageLocation: String(colVal(row, "StorageLocation")),
       container: String(colVal(row, "Container")),
       variety: String(colVal(row, "Variety")),
@@ -5337,7 +5393,7 @@
     "Year", "MintMark", "Denomination", "Variety", "Description",
     "Value", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
-    "SerNo", "Remarks", "Reviewed", "LastModified"
+    "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified"
   ];
 
   // Never written, under any circumstance. Total and SpotValue are LIVE
@@ -5954,6 +6010,10 @@
     Description: "browseEditDescription", Variety: "browseEditVariety",
     Grade: "browseEditGradeFrom", GradeSource: "browseEditGradeSource",
     Designation: "browseEditDesignation", SerNo: "browseEditCertTypeNumber",
+    // CACBean is backed by two checkbox elements, same as Grade's
+    // dropdown/"Other" pair — this maps to the primary one (Green), and the
+    // function below OR's in the other, mirroring Grade's own pattern.
+    CACBean: "browseEditCacGreen",
     Value: "browseEditValue", Cost: "browseEditCost", Shipping: "browseEditShippingCost",
     Seller_Link: "browseEditVendor", PurchaseDate: "browseEditPurchaseDate",
     StorageLocation: "browseEditStorageLocation", Container: "browseEditContainer",
@@ -5963,7 +6023,8 @@
     const id = CONFLICT_FIELD_TO_INPUT[field];
     if (!id) return false;
     if (browseEditTouchedFields.has(id)) return true;
-    return field === "Grade" && browseEditTouchedFields.has("browseEditGradeOther");
+    if (field === "Grade" && browseEditTouchedFields.has("browseEditGradeOther")) return true;
+    return field === "CACBean" && browseEditTouchedFields.has("browseEditCacGold");
   }
 
   // The identity-overwrite confirmation. Separate concern from the conflict
@@ -6362,6 +6423,13 @@
       grade: form.grade || "",
       gradeSource: form.gradeSource || "",
       serNo: form.serNo || "",
+      // All!CACBean (blank/Green/Gold) — captured now, same forward-looking
+      // posture as `category` a few lines up: no producer of a write to All
+      // exists in Phase 1, so this needs an ALL_WRITABLE_COLUMNS entry
+      // before Phase 2 can promote it onto a real row. Flagged, not
+      // silently assumed — same standing note Category and Finish already
+      // carry here.
+      cacBean: form.cacBean || "",
       // --- purchase
       cost: form.cost != null ? form.cost : null,
       shippingCost: form.shippingCost != null ? form.shippingCost : null,
@@ -6747,9 +6815,9 @@
   // CoinPhotos presence check eventually replaces this should read the same
   // two flags' *meaning*, not this literal field.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    storageLocation: "Safe", container: "Capsule tray", variety: "", hasObversePhoto: true, hasReversePhoto: true },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    cacBean: "Gold", storageLocation: "Safe", container: "Capsule tray", variety: "", hasObversePhoto: true, hasReversePhoto: true },
     { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    cacBean: "Green", storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true },
     { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "", hasObversePhoto: true, hasReversePhoto: false },
     { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
@@ -8646,14 +8714,17 @@
     // always differed field-for-field (see CLAUDE.md "Saved-coin flip
     // corners"); this widens that gap on purpose.
     //
-    // setFittedCornerText(), not renderCornerLines() — this is a single value,
-    // and renderCornerLines() exists for pairing two related values in one
-    // corner. The fitting matters: composition is the longest thing any
-    // corner carries, and an unfitted one spills past the frame edge (see
-    // .flip-label's CSS comment). Guarded because a caller may render into a
-    // frame that predates the BR span.
+    // setCompositionCornerText() — stacks a value+metal split across two
+    // lines (renderCornerLines(), same mechanism TL/TR already use) when it
+    // splits cleanly, single-line-and-fitted otherwise (see its own comment
+    // for why: measured to reduce collision risk against a long "Details"
+    // grade string in the BL corner opposite it). Composition is the
+    // longest thing any corner carries, and an unfitted single line spills
+    // past the frame edge (see .flip-label's CSS comment) — the fitting
+    // still matters for whichever path a given value takes. Guarded because
+    // a caller may render into a frame that predates the BR span.
     const brEl = document.getElementById(prefix + "BR");
-    if (brEl) setFittedCornerText(brEl, preciousMetalCompositionFor(coin));
+    if (brEl) setCompositionCornerText(brEl, preciousMetalCompositionFor(coin));
 
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
     if (combinedBadge) {
@@ -9028,6 +9099,61 @@
       if (el.scrollWidth <= el.clientWidth) return;
     }
     el.textContent = candidates[candidates.length - 1];
+  }
+
+  // Optional two-line layout for the composition corner: the fineness/
+  // percentage value right-justified on its own line, the metal name below
+  // — same renderCornerLines()/.corner-line stacking mechanism TL (Year-Mint/
+  // Variety) and TR (Type/Denom) already use. Measured against real
+  // "Details"-graded strings in the BL corner opposite it (that corner's
+  // grade text runs noticeably longer, and has no shortening of its own):
+  // this genuinely reduces collision risk over the single-line-with-
+  // reduction approach (42-70px vs 98-139px for realistic values), so it's
+  // the one in use — not left as a fallback.
+  //
+  // Splits off the PRECIOUS-METAL-ONLY reduced candidate (stage 2 of
+  // compositionLabelCandidates — balance metal already dropped) rather than
+  // the verbatim value, so a value/metal split never has a stray ", 10%
+  // Copper" balance clause to reckon with. "Fine" is always dropped for the
+  // split (unconditionally, not just when needed to fit) — it isn't part of
+  // either the fineness value or the metal name the two lines are meant to
+  // show.
+  //
+  // A composition naming MORE than one precious metal (comma-separated —
+  // e.g. a hypothetical "50% Gold, 50% Silver") has no single value/metal
+  // pair to stack. Confirmed with Ray: no coin in this collection is
+  // bimetallic today, so this falls back to the joined string as ONE line
+  // rather than inventing a layout for zero real rows — same call as
+  // compositionLabelCandidates' own stage-2 behavior for that case.
+  // KNOWN, ACCEPTED GAP: that joined line has no further reduction beyond
+  // what compositionLabelCandidates already does (which keeps both metals
+  // rather than dropping either), so a genuinely long two-metal string can
+  // measure wider than its box (confirmed: "50% Gold, 50% Silver" overflows
+  // by ~20px at phone width). Same "not worth the tradeoff for a case that
+  // basically never happens" call as several other documented gaps in this
+  // file — building real shrink logic for a coin type nothing in this
+  // collection has would be exactly the unrequested layout work Ray said
+  // not to do here.
+  const COMPOSITION_VALUE_METAL_RE = /^([.\d][.\d,%]*)\s*(?:Fine\s+)?(.+)$/i;
+  function splitCompositionForStacking(text) {
+    const candidates = compositionLabelCandidates(text);
+    if (!candidates.length) return [];
+    const source = candidates.length > 1 ? candidates[1] : candidates[0];
+    if (/[,;]/.test(source)) return [source]; // 2+ metals named — one line, unsplit
+    const m = COMPOSITION_VALUE_METAL_RE.exec(source.trim());
+    return m ? [m[1], m[2]] : [source]; // doesn't match "value metal" shape — one line, unsplit
+  }
+
+  // Sets the BR corner from a composition string, stacked when it splits
+  // cleanly into a value + metal name, single-line (still measured/fitted,
+  // for the rare fallback case) otherwise.
+  function setCompositionCornerText(el, text) {
+    const lines = splitCompositionForStacking(text);
+    if (lines.length === 2) {
+      renderCornerLines(el, lines);
+    } else {
+      setFittedCornerText(el, lines[0] || "");
+    }
   }
 
   // Reference info per MetalCategory bucket — static, not per-coin — shown as
@@ -10807,12 +10933,20 @@
 
     setSel("browseEditGradeSource", values.GradeSource);
     set("browseEditDesignation", values.Designation);
-    set("browseEditValue", values.Value);
+    // Value/SpotValue is a live formula chain — see roundToCents()'s own
+    // comment. This is the raw workbook cell landing straight in the field
+    // with no formatting of its own, unrounded until this call.
+    set("browseEditValue", roundToCents(values.Value));
 
     if (!skip("browseEditCertTypeNumber")) {
       const certInput = document.getElementById("browseEditCertTypeNumber");
       certInput.value = values.SerNo == null ? "" : String(values.SerNo);
       certInput.dispatchEvent(new Event("input", { bubbles: true })); // refreshes the cert-link button
+    }
+    // CACBean, same dual-id skip check as the Grade dropdown/"Other" pair —
+    // only re-base when the user hasn't touched EITHER checkbox.
+    if (!skip("browseEditCacGreen") && !skip("browseEditCacGold")) {
+      applyCacBeanToCheckboxes("browseEditCacGreen", "browseEditCacGold", values.CACBean);
     }
 
     set("browseEditCost", values.Cost);
@@ -10870,6 +11004,7 @@
     assign("gradeSource", str(values.GradeSource));
     assign("designation", str(values.Designation));
     assign("serNo", str(values.SerNo));
+    assign("cacBean", str(values.CACBean));
     assign("storageLocation", str(values.StorageLocation));
     assign("container", str(values.Container));
     assign("value", num(values.Value));
@@ -10935,7 +11070,10 @@
 
     document.getElementById("browseEditGradeSource").value = coin.gradeSource || "";
     document.getElementById("browseEditDesignation").value = coin.designation || "";
-    document.getElementById("browseEditValue").value = coin.value != null ? coin.value : "";
+    applyCacBeanToCheckboxes("browseEditCacGreen", "browseEditCacGold", coin.cacBean);
+    // Rounded — see roundToCents()'s own comment; coin.value can carry the
+    // same unrounded computed precision the live snapshot re-base does.
+    document.getElementById("browseEditValue").value = roundToCents(coin.value);
 
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
@@ -11054,7 +11192,8 @@
     // --- Overview
     document.getElementById("editSetYearField").value = coin.year != null ? coin.year : "";
     document.getElementById("editSetDescription").value = coin.name || "";
-    document.getElementById("editSetValue").value = coin.value != null ? coin.value : "";
+    // Rounded — see roundToCents()'s own comment (browseEditValue's site).
+    document.getElementById("editSetValue").value = roundToCents(coin.value);
     fillEditLinkage("editSetLinkageWrap", "editSetLinkageChips", coin);
 
     // --- Photos. The Manage-Photos list's OWN "Coins in this Set" row is
@@ -11116,6 +11255,39 @@
     });
   }
 
+  // Two checkbox elements standing in for one mutually-exclusive value (only
+  // one of two states can ever be true at once — e.g. All!CACBean's
+  // blank/Green/Gold). Checking one clears the other; unchecking the
+  // currently-checked one just leaves both unchecked (the blank state).
+  // Reused identically by Add Coin's and Edit Coin's CAC Bean checkboxes —
+  // one implementation rather than two near-duplicates, same posture as
+  // every other small shared UI helper in this file.
+  function wireMutuallyExclusiveCheckboxes(aId, bId) {
+    const a = document.getElementById(aId), b = document.getElementById(bId);
+    if (!a || !b) return;
+    a.addEventListener("change", () => { if (a.checked) b.checked = false; });
+    b.addEventListener("change", () => { if (b.checked) a.checked = false; });
+  }
+
+  // The one place a checked-state pair like the above is turned into the
+  // single stored value both forms actually write/persist. "" means neither
+  // is checked (the blank state) — never write undefined here, since a
+  // blanked pair genuinely means "clear this," same as any other optional
+  // field on these forms (Designation, Container, etc.).
+  function cacBeanValueFrom(greenId, goldId) {
+    if (document.getElementById(greenId).checked) return "Green";
+    if (document.getElementById(goldId).checked) return "Gold";
+    return "";
+  }
+
+  // The inverse — sets the checkbox pair FROM a stored value. Shared by both
+  // forms' initial-populate and (Edit Coin only) the live-snapshot re-base.
+  function applyCacBeanToCheckboxes(greenId, goldId, value) {
+    const v = value == null ? "" : String(value);
+    document.getElementById(greenId).checked = (v === "Green");
+    document.getElementById(goldId).checked = (v === "Gold");
+  }
+
   // Applies edited values onto the in-memory record. NOT a OneDrive write —
   // this is deliberately session-only (lost on reload), the same posture the
   // crop tool's blob URLs already have. It exists so an edit visibly
@@ -11148,6 +11320,20 @@
     return Number.isFinite(n) ? n : undefined;
   }
 
+  // Rounds a computed value to the nearest cent for POPULATING a currency
+  // field programmatically — never for what a user types. Value/SpotValue is
+  // often a live formula chain (metal content x spot price), and the raw
+  // cell can carry full float precision ("0.039914798") with nothing else
+  // rounding it before it lands in a plain number input, which just
+  // stringifies the exact float. null/undefined/"" and a non-finite value
+  // pass through as "" (blank), same "nothing to show" convention every
+  // other populate-from-workbook helper here already uses.
+  function roundToCents(v) {
+    if (v === null || v === undefined || v === "") return "";
+    const n = Number(v);
+    return Number.isFinite(n) ? (Math.round(n * 100) / 100) : "";
+  }
+
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
 
@@ -11169,6 +11355,8 @@
     document.getElementById("browseEditGradeFrom").addEventListener("change", (e) => {
       document.getElementById("browseEditGradeOther").style.display = e.target.value === "__other__" ? "block" : "none";
     });
+
+    wireMutuallyExclusiveCheckboxes("browseEditCacGreen", "browseEditCacGold");
 
     buildGradeSourceOptions(document.getElementById("browseEditGradeSource"));
 
@@ -11296,6 +11484,10 @@
       GradeSource: val("browseEditGradeSource"),
       Designation: val("browseEditDesignation").trim(),
       SerNo: val("browseEditCertTypeNumber").trim(),
+      // "" is a real, writable value here (both boxes unchecked = clear the
+      // status) — same as Designation/Container above, never filtered out
+      // by the undefined/null cleanup below.
+      CACBean: cacBeanValueFrom("browseEditCacGreen", "browseEditCacGold"),
       Value: numOrUndefined(val("browseEditValue")),
       Cost: numOrUndefined(val("browseEditCost")),
       Shipping: numOrUndefined(val("browseEditShippingCost")),
@@ -11322,6 +11514,7 @@
           gradeSource: val("browseEditGradeSource"),
           serNo: val("browseEditCertTypeNumber").trim(),
           designation: val("browseEditDesignation").trim(),
+          cacBean: cacBeanValueFrom("browseEditCacGreen", "browseEditCacGold"),
           value: numOrUndefined(val("browseEditValue")),
           cost: numOrUndefined(val("browseEditCost")),
           storageLocation: storageDerived ? undefined : val("browseEditStorageLocation").trim(),
@@ -16511,6 +16704,10 @@
       grade: resolveGrade(),
       gradeSource: document.getElementById("gradeSource").value,
       serNo: document.getElementById("certTypeNumber").value,
+      // All!CACBean — captured on the draft the same "capture it either
+      // way" posture as every other identity/grade field here. No write
+      // path to All exists in Phase 1 (see buildCoinDraft()'s own comment).
+      cacBean: cacBeanValueFrom("cacGreen", "cacGold"),
       cost: num("purchasePrice"),
       shippingCost: num("shippingCost"),
       purchaseDate: document.getElementById("purchaseDate").value,
@@ -16808,6 +17005,8 @@
     document.getElementById("pcgsLabelAppliedBanner").classList.add("hidden");
     document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
     document.getElementById("certTypeNumber").value = "";
+    document.getElementById("cacGreen").checked = false;
+    document.getElementById("cacGold").checked = false;
 
     // --- Mint Item Number / GSID lookups
     document.getElementById("mintItemNumber").value = "";
@@ -16989,6 +17188,8 @@
     document.getElementById("gsidInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); handleGsidApply(); }
     });
+
+    wireMutuallyExclusiveCheckboxes("cacGreen", "cacGold");
 
     initGradePicker();
 

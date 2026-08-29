@@ -6774,6 +6774,159 @@ strings.
   1999-S Clad/Silver pair seeded in `FAKE_DB_COINS` are representative
   stand-ins so both halves are exercisable with `ENABLE_LIVE_NAV_DATA` off.
 
+### CACBean UI, Value field rounding, composition corner restacked (BUILT, same branch, still held)
+Three items from Ray's live-testing session, one directly following the
+Composition matcher/flip-card work.
+
+**1. CACBean UI (Add Coin + Edit Coin).** `All!CACBean` is a real, new
+single-cell column Copilot added — data-validated on the real sheet
+(`All!R2:R1543`) to exactly `Green`/`Gold`/blank, confirmed by Ray reading
+the workbook directly. Two checkboxes, positioned to the right of the
+Cert/Type Number field in both forms, mutually exclusive despite being two
+separate elements.
+- **`wireMutuallyExclusiveCheckboxes(aId, bId)`** — one shared helper, not
+  two near-duplicates: checking one clears the other via a plain `change`
+  listener (no event dispatched on the programmatic clear, so it can't
+  double-count as user input). Unchecking the currently-checked box directly
+  leaves both unchecked — the blank state, not a forced fallback.
+  `cacBeanValueFrom(greenId, goldId)`/`applyCacBeanToCheckboxes(...)` are the
+  two halves of the value <-> checkbox-pair conversion, shared by both forms.
+- **Add Coin and Edit Coin have genuinely different write situations —
+  confirmed by reading the code before building, not assumed identical.**
+  Add Coin (Phase 1) has ZERO write path to All; everything is a Staging
+  draft. Edit Coin (Browse Edit) has a REAL, flag-gated write path
+  (`ALL_WRITABLE_COLUMNS`, `buildRowCellEdits()`, the live snapshot
+  re-base). The two builds reflect that:
+  - **Add Coin**: `cacBeanValueFrom("cacGreen", "cacGold")` feeds
+    `readAddCoinFormForDraft()` -> `buildCoinDraft()`, captured on the
+    Staging draft the same "capture it either way" posture as
+    Category/itemNumber/gsid — flagged in both the code comment and here
+    that it needs an `ALL_WRITABLE_COLUMNS` entry before Phase 2 can
+    promote it onto a real row. `resetAddCoinForm()` clears both checkboxes.
+  - **Edit Coin**: `"CACBean"` added to `ALL_WRITABLE_COLUMNS` — the same
+    structurally-enforced allow-list every other real Browse Edit field
+    goes through, so it's automatically covered by `detectRowConflicts()`
+    with no extra code. **Not** an identity field (no overwrite-confirmation
+    dialog for a CAC status change, same as Designation). The checkbox pair
+    threads through the same dual-id pattern the Grade dropdown/"Other" pair
+    already established: `CONFLICT_FIELD_TO_INPUT` maps to the Green id,
+    `conflictFieldIsUserEdited()` ORs in the Gold id; `applySnapshotToEditFormInner()`
+    only re-bases the pair when NEITHER has been touched;
+    `applySnapshotToRecord()`/`mapWorkbookRowToCoin()`/`showBrowseEditViewInner()`
+    all carry `cacBean` the same way every other field does. **`""` (both
+    boxes unchecked) is a real, written value** — the same "clearing a field
+    is a genuine write, not a dropped key" rule Designation/Container already
+    follow — verified via a real save through the mock Graph client
+    end-to-end, not just asserted in isolation.
+- **`FAKE_COINS` seeded sparsely** (AY-00001: `"Gold"`, AY-00003: `"Green"`)
+  for exercisability, same convention every other sparse demo field in this
+  file already follows.
+- Verified headless — new committed suite
+  `tests/verify_cacbean_and_value_rounding.js`: mutual exclusivity on both
+  forms (with a real negative-control regression — the first pass on Edit
+  Coin's own check started from both-unchecked, which would have silently
+  passed even with exclusivity broken; fixed to start from Gold genuinely
+  checked so the assertion actually exercises the clear); the blank-state
+  case; the draft capture; `ALL_WRITABLE_COLUMNS`/never-write/identity-list
+  membership; prefill from three seeded states (Gold/Green/blank); the
+  touched-field OR-check in both directions; the session-only apply path;
+  and a full end-to-end run through the REAL Save button via
+  `createMockGraphClient` — the live snapshot re-base pre-filling from the
+  workbook cell (not the in-memory stub), a real Gold save landing in the
+  mock grid, and a real clear-to-blank save landing too. **Not verified: any
+  real device, any real OneDrive session.**
+
+**2. Value field currency formatting.** `browseEditValue` had TWO
+populate sites feeding it a raw, unrounded computed value with no
+formatting of its own (a plain `<input type="number">` just stringifies
+the exact float) — the initial `coin.value` populate AND the live snapshot
+re-base (`values.Value`, straight off the Graph cell). `editSetValue` had
+the identical bug at its own single populate site. Checked every other
+currency `<input type="number">` in the app (Cost/Shipping/Purchase Price
+across every form) — **none of them are ever fed a computed value**; always
+either blank-on-reset or literally typed/persisted-verbatim, so the fix is
+scoped to the two Value fields alone, not applied defensively everywhere.
+- **`roundToCents(v)`** — rounds to the nearest cent for POPULATING a field
+  programmatically; null/undefined/blank/non-finite pass through as `""`,
+  same convention every other populate-from-workbook helper already uses. A
+  user's own typed entry is never touched — populate-time only, verified
+  directly (typing `12.3456789` into the field leaves it exactly that).
+- **`$` prefix**: `.currency-input-row` (flex wrapper) + `.currency-prefix`
+  (the `$` label) — a number input can't show one inline. Applied
+  identically to `browseEditValue` and `editSetValue`; deliberately NOT
+  applied to Cost/Shipping/Purchase Price fields anywhere, per the narrower
+  scope above.
+- Verified headless (same committed suite as CACBean, above — one session,
+  one suite): `roundToCents()` in isolation including the exact reported bug
+  value (`0.039914798` -> `0.04`); both populate sites for `browseEditValue`
+  (the initial `coin.value` site AND the live snapshot re-base, via a real
+  mock-Graph-client end-to-end save) each independently regression-guarded
+  (a negative control reverting either site fails its own assertion);
+  `editSetValue`'s own site; the `$` wrapper present on both fields; a
+  user's own typed value surviving untouched; and a scope check confirming
+  Cost was NOT given the same treatment.
+
+**3. Composition corner restacked — two lines, not one (supersedes the
+single-line-with-reduction layout from the Composition build immediately
+prior).** Prompted by a real, MEASURED collision risk, not a guess: a long
+free-typed "Details"-graded value in the BL corner (which has **no**
+overflow protection of its own, unlike TR and now BR) genuinely overlapped
+an unreduced composition in BR at 360px width (`-9px` gap, reproduced
+directly before touching any code). The two-line layout — fineness
+right-justified on its own line, metal name below, same
+`renderCornerLines()` mechanism TL/TR already use — measured 42-70px wide
+against the old single-line-with-reduction's 98-139px, turning that exact
+collision into a comfortable 49-77px gap.
+- **`splitCompositionForStacking(text)`** — splits the precious-metal-only
+  reduced candidate (stage 2 of `compositionLabelCandidates()`, so a balance
+  metal is never part of the split) into `[value, metal]` via
+  `/^([.\d][.\d,%]*)\s*(?:Fine\s+)?(.+)$/i`. "Fine" is always dropped for
+  the split — unconditionally, not just when needed to fit — since it isn't
+  part of either the fineness value or the metal name the two lines exist
+  to show.
+- **A composition naming 2+ precious metals** (comma-separated — no coin in
+  this collection is bimetallic today) has no single value/metal pair to
+  stack. Confirmed with Ray (Q5): falls back to the joined string as ONE
+  line rather than inventing a layout for zero real rows.
+  **KNOWN, ACCEPTED GAP, found and left deliberately, not silently**: that
+  joined fallback line has no further reduction beyond what
+  `compositionLabelCandidates()` already does (which keeps both metals
+  rather than dropping either), so a genuinely long two-metal string can
+  overflow its box — measured directly (`"50% Gold, 50% Silver"` overflows
+  by ~20px at phone width). Same "not worth the tradeoff for a case that
+  basically never happens" call as several other documented gaps in this
+  file (the mirrored-EXIF-rotation gap, the deferred copper-color pass) —
+  building real shrink logic for a coin type nothing in this collection has
+  would be exactly the unrequested layout work Ray said not to do here.
+- **`setCompositionCornerText(el, text)`** is what `applyFlipCorners()`
+  actually calls now — stacks when the split is clean, falls through to the
+  existing `setFittedCornerText()` (single-line, measured) otherwise.
+  `setFittedCornerText()`/`compositionLabelCandidates()` themselves are
+  UNCHANGED — still exactly what the fallback path and (independently)
+  every other corner's own reduction logic already relied on.
+- **Item 6 flag, confirmed out of scope for this pass (Ray's explicit
+  call):** BL's own total lack of overflow protection is a real,
+  pre-existing gap this measurement surfaced — a sufficiently long
+  free-typed Grade+Designation string has no shortening of its own the way
+  TR (word-drop) and now BR (the stack/reduction chain) do. Not fixed here;
+  logged as ParkingLot Row 6 in the session log below.
+- Verified headless (composition suite, `tests/verify_composition.js`,
+  rewritten in place following this real design change — not weakened;
+  every assertion that checked single-line `.textContent` now checks the
+  two `.corner-line` children instead, since a stacked corner's
+  `.textContent` concatenates both lines with no separator): the split in
+  isolation (a long value, a balance-metal value, an already-short value,
+  the bimetallic fallback with its own known-gap noted rather than silently
+  passed); the real render path through `applyFlipCorners()` (not just the
+  splitter called directly — the same "green suite hiding a real bug" trap
+  this file has hit before); Browse detail AND Spotlight both stacking
+  identically; and a **new, dedicated N-block reproducing the exact
+  real-measured collision case at 360px** (the same BL/BR pairing that
+  motivated this whole item) and confirming it no longer overlaps — proof
+  the fix addresses the actual motivating scenario, not just the unit-level
+  splitting logic. 79 assertions total in the suite (was 74), zero
+  failures. **Not verified: any real device.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
@@ -8444,6 +8597,12 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 - **Status:** `Resolved`  · **Resolved Date:** `2026-08-24`
 - **Resolution:** `BUILT — see CLAUDE.md "Add Coin: accordion restructure". Add Coin is now Grading & Certification + Overview / Photos / Notes & Facts / Purchase Details / Storage, matching Edit Coin. Specifications deliberately omitted (Ray's call). Held on claude/add-coin-write-path-fs2rf8 pending his go-ahead + a live retest pass. If this row was never transferred to the workbook in the first place, skip it rather than adding-then-closing it.`
 - **Description:** `Ray's explicit ask (Add Coin batch 7 review): Add Coin should look nearly identical in structure to the Edit Coin / Browse detail page (see "Detail/Edit accordion redesign" — RECORD_SECTIONS: Overview, Photos, Specifications, Notes & Facts, Purchase Details, Storage), rather than its current one long flat form. Grading Service specifically should become its own clearly-bounded section (a real card/accordion, not just a text label) since it functionally drives the PCGS Label #/Cert-Type-Number fields beneath it, and should stay positioned near the top since a grader needs to be picked before the label-decode flow can run. This is a real, deliberate restructure — needs its own scoping pass (which fields land in which section, whether Purchase Details/Storage's existing drill-down pattern is kept or folded into the new accordion shape) before building, not a quick follow-on to the batch-7 header removal. Explicitly deferred, not started.`
+
+**Row 6:**
+- **Item/Title:** `Saved-coin flip card: BL (Grade+Designation) corner has no overflow protection`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-30`
+- **Status:** `Open`
+- **Description:** `Found while measuring the composition-corner restack (see CLAUDE.md "CACBean UI, Value field rounding, composition corner restacked"): applyFlipCorners()'s BL corner (Grade+Designation, concatenated with no space) is plain textContent with no shortening logic at all — unlike TR (renderTypeDenomCorner()'s last-word-drop) and now BR (the composition split/reduction chain). A long free-typed "Details"-graded value (e.g. a PCGS Genuine-holder note like "XF Details - Improperly Cleaned") measured a genuine overlap with an unreduced BR value at 360px width before the BR restack (-9px gap); the restack fixed the specific collision by shrinking BR, not by giving BL any protection of its own, so a sufficiently long BL string could still in principle run close to whatever's in BR. Ray's explicit call: flag it, don't fix it here — out of scope for the composition-corner task. Would need its own scoping pass (truncate? shorten to last word like TR? something else for a Grade+Designation string specifically) if ever picked up.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,
