@@ -6566,6 +6566,214 @@ visually distinguish the row kinds within it.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
+### Composition: a real matcher input + flip-card display (BUILT, same branch, still held)
+Two related pieces from Copilot's composition research (2026-08-29) plus a
+live-testing observation that the flip card's bottom-right corner was unused.
+
+**The bug being fixed.** `DB_Coins.Composition` is a real, populated column
+that `mapWorkbookRowToDbCoin()` **never read at all** — it was listed in that
+function's own header comment and then not mapped, so the matcher was
+structurally blind to it. Copilot found **109 true Clad/Silver Proof pairs**
+in the catalog, **99 of which collide on the matcher's own
+Year+Denom+MintMark+Variety key** with the SAME Finish ("Proof") and the SAME
+Description. For those, Composition is the only field that tells the two rows
+apart — so a Silver Proof coin could silently link to the Clad catalog row,
+taking its CoinID, Mintage and PCGS# with it (and, since SpotValue's formula
+chains through CoinID, its spot value too) with nothing visibly wrong on
+screen. That is the same silent-mislink class as this project's two
+historical incidents. (Copilot also found and already fixed 2 real catalog
+gaps; those were workbook-side and needed nothing here.)
+
+**1. Composition narrows `dbCoinsCandidatesFor()` — the one HARD tier.**
+- **Hard, deliberately** (Ray's Q4): a supplied Composition matching no
+  candidate returns **zero — No Match**, never a soft fall back to a
+  different-composition row. Every other tier is soft or
+  conditionally-hard; this one is not, because a soft fallback here IS the
+  bug.
+- **Not guarded by `candidates.length > 1`** — the only tier that isn't, and
+  it matters. Every other tier is a *disambiguator*, earning its keep only
+  when there's something to disambiguate. This is a *correctness check on the
+  match itself*: if exactly one candidate exists and its Composition
+  contradicts the supplied one, that lone candidate is still the wrong row,
+  and "there was only one option" is not a reason to accept it.
+- **Runs first**, immediately after the base filter, ahead of the
+  Description/Category/Finish/Designation tiers — Composition is part of the
+  identity key here, not a heuristic. Everything downstream is `length > 1`
+  guarded, so a Composition narrow to 0 or 1 correctly short-circuits them.
+- **`normComposition()`** — string-normalize ONLY (Q2): `normField()`'s
+  trim+uppercase, plus collapsing internal whitespace and `,;/` separators so
+  the sheet's hand-entered variants compare equal. It deliberately does
+  **not** canonicalize across wordings — `.999 Fine Silver` and
+  `99.9% Silver` stay distinct, and it never buckets to the
+  Silver/Clad/Gold MetalCategory (bucketing would merge two genuinely
+  different coins back into one match, the very bug this fixes).
+- **Nothing feeds it yet, and that's intended** (Q1). There is no producer for
+  `shape.composition`: Add Coin deliberately has no Composition input
+  (Specifications is catalog data, not hand-entered — the accordion redesign
+  excluded it on purpose), **All has no Composition column**, and an ID lookup
+  (PCGS/Mint Item Number/GSID) already resolves to one authoritative row
+  without re-running the matcher. Built now as the correct forward-looking
+  contract, same posture as Category being captured on the draft ahead of
+  `ALL_WRITABLE_COLUMNS`. **Until a producer exists, the reachable behavior is
+  the Ambiguous path, not the No-Match one.**
+- **FOR WHOEVER ADDS THAT PRODUCER (Ray's explicit flag, Phase 2):** verify
+  DB_Coins' Composition wording is actually clean for whatever it will match
+  against BEFORE relying on it — the same diligence the Category hard-zero
+  tier required, where each hint had to be confirmed against real wording and
+  checked against known false positives first. A hard tier fed by
+  inconsistent data creates false Docket misses.
+- **Composition unknown + candidates differing only by it => Ambiguous**, with
+  **no silent preference of any kind** (Q3) — not even a plausible one like
+  "prefer clad for a business strike". This needed no routing code: 2+
+  candidates already means the shared picker. What it needed was making
+  Composition *visible* there.
+
+**Confirmed scope of the fix against Copilot's own three cases** (checked
+before assuming Composition resolves everything):
+- **The 109 Clad/Silver Proof pairs** — Composition alone fully resolves.
+- **1982-D/S 50C Washington commemorative vs. Kennedy half** — Composition
+  alone *also* fully resolves it (the Washington commem is 90% silver, the
+  1982 Kennedy is clad, at both D and S). Description would separate them too,
+  but isn't needed.
+- **1999-P $1, multiple silver dollar programs vs. Susan B. Anthony** —
+  Composition does **NOT** fully resolve this one. It splits SBA (clad) away
+  from the two commemoratives, but **Dolley Madison and Yellowstone are both
+  90% silver** at the same year/mint/denom/variety, and both exist in Proof
+  and Uncirculated so Finish doesn't separate them either. Description is
+  their only true differentiator.
+  **Deliberate call (confirmed): that residual pair stays a PICKER case, not
+  a new auto-narrowing Description tier.** Three reasons: the standing firm
+  rule is "2+ always reaches a human"; the existing Description tier is
+  gated to Ref_Denominations' controlled series vocabulary, which is not
+  guaranteed to carry commemorative program names for `$1`+1999 so it likely
+  wouldn't fire anyway; and CLAUDE.md's own "Commemorative / Description
+  blind spot" assessment already concluded that if picker frequency becomes
+  annoying the fix is to *surface Description more prominently, not
+  auto-resolve on it* — which the picker already does. **Do not reopen this
+  as "Composition didn't fix 1999-P."** It isn't meant to; the picker is the
+  answer there, by design.
+
+**Composition surfaced in the candidate displays.** Added to
+`renderAmbiguousMatchList()` **and** to both single-candidate Re-check confirm
+dialogs (the Docket's `docketRecheckEntry()` and `recheckCoinDraftMatch()`) —
+all three are "what am I about to link this coin to" displays and were
+inconsistent otherwise. **Composition LEADS the detail line, ahead of
+PCGS#/GSID/Mintage**: on those 99 colliding pairs every other displayed fact
+is byte-identical between the two candidates, so burying the one
+differentiator behind three catalog reference numbers would recreate the
+Part-F "both options look identical" bug by another route.
+
+**2. Composition on the saved coin's flip card, bottom-right corner.**
+- **That corner did not exist.** `applyFlipCorners()` wrote TL/TR/BL/SR only —
+  there was no `browseDetailBR`/`spotlightBR` span at all, so the corner was
+  empty by absence, not by choice. Both spans are new.
+- **Browse detail AND Spotlight**, which share `applyFlipCorners()` — one
+  render path, both get it.
+- **Add Coin is deliberately EXCLUDED** (Ray's explicit scoping, correcting
+  the original ask): `updateFlipLabels()` is a different function with a
+  different corner mapping, its `flipObverseBR` already carries
+  Variety+Designation as two stacked lines, composition often isn't known
+  until an Identification match resolves, and this corner has a documented
+  real-device clipping history that a third stacked line would be poking at.
+  A regression assertion pins Add Coin's BR to Variety/Designation only.
+- **Precious metal only** — gold/silver/platinum/palladium. A clad quarter or
+  zinc cent has a composition, but it isn't worth a corner of the coin's own
+  graphic; purity is what matters for a coin held for its metal.
+- **Detection reads the composition STRING, not `metalCategoryFor()`** (Q6),
+  because **Lookup_MetalContent buckets Palladium under "Other"** (a
+  documented, intentional call there) — so a palladium coin is structurally
+  invisible to the category path, and palladium is one of the four metals
+  this covers. `metalCategoryFor()` is the fallback, used only when there is
+  no composition string: a live coin can have a MetalCategory (via the
+  MetalContentType join) while its DB_Coins Composition cell is blank, and
+  showing the bare metal name is strictly more informative than nothing and
+  never wrong — it omits the purity rather than inventing one.
+  **Note the correction worth remembering: the Specifications panel does NOT
+  use `metalCategoryFor()`** — it uses `compositionTextFor()` →
+  `FAKE_METAL_CONTENT` (ounce-based, demo rows only). Those are two different
+  mechanisms and were conflated in the original ask.
+- **Displayed as fineness/percentage, the stored value.** Karat is
+  deliberately not used: it's a gold-only convention with no meaning for
+  silver, platinum or palladium, so it could not be applied consistently.
+- **Excluded: Sets** (`Denomination="Multiple"` — several different coins, no
+  single composition). **Included: Rolls** (a roll is one denomination
+  throughout, and melt value is exactly why composition is already promoted
+  for rolls elsewhere in this file).
+- **A coin whose CoinID never resolved shows nothing, silently** (Q5,
+  confirmed — no fallback wanted). Composition lives only on DB_Coins, joined
+  onto a live coin by `coin.coinId` in `ensureLiveNavDataFetch()` alongside
+  the existing `metalCategory` join.
+- **Composition rides into the `.sr-only` summary too** — the visible corner
+  spans are all `aria-hidden`, so a fact appearing only in a corner would
+  otherwise be invisible to a screen reader (the locked-in rule for this
+  card).
+
+**A real overflow bug found and fixed during the build, by screenshot, not by
+measurement.** Composition is the longest thing any corner carries. At the
+shared 27px, realistic values run **145–192px** (`.999 Fine Silver` 145,
+`99.95% Platinum` 157, `.9995 Fine Palladium` 192, `90% Silver, 10% Copper`
+219) against this box's 50%-of-frame cap of **140px** — and because
+`.flip-label` is `white-space: nowrap` with **no `overflow: hidden`** (removed
+deliberately, see its CSS comment) and is anchored by `right`, the excess
+spills **RIGHTWARD past the frame's own edge and gets visually cut**. 4 of 8
+realistic strings overflowed. Fixed two ways, both measured:
+- **`#browseDetailBR, #spotlightBR { font-size: 22px; }`** — scoped by ID, so
+  it can never reach Add Coin's own BR corners, which must stay at 27px.
+  Composition is genuinely secondary to the identity/grade values in the other
+  three corners, so it takes a smaller size rather than a wider box: this
+  brings every realistic value inside the *existing* cap with **no geometry
+  change at all**, so it cannot collide with the coin disc or with the Grade
+  label sharing its row. 22px is deliberately clear of the 20px that drew
+  Ray's original "too small to read on phone" report.
+- **`compositionLabelCandidates()` + `setFittedCornerText()`** — the same
+  `scrollWidth`/`clientWidth` measured shortening `renderTypeDenomCorner()`
+  uses, which that CSS comment already names as the thing that actually
+  prevents unbounded corner overflow. The chain only ever **reduces**, never
+  rewords or recalculates a purity: stored value verbatim → precious-metal
+  terms only (`90% Silver, 10% Copper` → `90% Silver`, dropping a balance
+  metal this corner exists to say nothing about) → without the filler word
+  "Fine" (`.9995 Fine Palladium` → `.9995 Palladium`). A value that already
+  fits is shown untouched.
+- **Worth remembering:** a corner label's BOX always overlaps the disc's box —
+  the disc is a circle and the labels sit in the empty corners around it — so
+  a box-intersection test is meaningless here and a first version of the
+  suite failed on exactly that bad assertion. What actually matters is that
+  the text stays inside its own box, inside the frame, and in the same
+  vertical band as the label opposite it.
+
+**Verified headless — new committed suite `tests/verify_composition.js`, 74
+assertions, all passing; 424 across all 12 suites, zero failures, zero page
+errors.** No prior assertion needed changing — nothing in this pass altered
+existing behavior. Coverage: the mapper reading Composition; every
+`normComposition()` rule including the deliberate non-canonicalization;
+the hard tier's five branches (each composition resolving to its own row,
+normalized matching, the No-Match case, and the single-candidate
+contradiction); the tier being a true no-op with no/blank `composition` so
+Browse Edit and the Docket are unaffected; the ambiguous path returning 2
+candidates that are identical on every other displayed field; the picker
+rendering both compositions, the two cards no longer being textually
+identical, and Composition leading the detail line; precious-metal detection
+including palladium and the confirmation that the category path could not
+have caught it; Set/Roll/unresolved-CoinID handling and the category
+fallback; the BR spans existing and rendering on Browse detail and Spotlight;
+the sr-only summary; **Add Coin's BR pinned to Variety+Designation** (scope
+guard); the reduction chain in isolation including purity never being
+altered; and layout at both viewports with the measured worst-case strings.
+**Both halves have verified negative controls** — neutering the hard tier
+fails 5 assertions, and neutering the fitting *in `applyFlipCorners()`
+specifically* fails 3 more. That second control was added after a first
+version of the suite passed with the fitting removed, because it called
+`setFittedCornerText()` directly instead of going through the real render
+path — the same "green suite hiding a real bug" trap this file has recorded
+before. Screenshots reviewed at both viewports for all four worst-case
+strings.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round on this branch. In particular the real
+  DB_Coins Composition wording has not been independently checked from this
+  environment; the demo values seeded on `FAKE_METAL_CONTENT` and the
+  1999-S Clad/Silver pair seeded in `FAKE_DB_COINS` are representative
+  stand-ins so both halves are exercisable with `ENABLE_LIVE_NAV_DATA` off.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

@@ -2074,6 +2074,25 @@
   .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
   .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
 
+  /* The two saved-coin BR corners hold a composition string, which is
+     routinely longer than any other corner value ("99.95% Platinum",
+     ".9995 Fine Palladium") — measured, not assumed. At the shared 27px those
+     run 145-192px against this box's 50%-of-frame cap (140px), and because
+     .flip-label is `white-space: nowrap` with no `overflow: hidden` and is
+     anchored by `right`, the excess spills RIGHTWARD past the frame's own
+     edge and gets visually cut — confirmed by screenshot, and the same
+     clipped-corner failure this file has fought before.
+     Composition is genuinely secondary to the identity/grade values in the
+     other three corners, so it takes a smaller size rather than a wider box:
+     22px brings every realistic value inside the existing cap with no
+     geometry change at all, so it cannot collide with the coin disc or with
+     the Grade label sharing its row. 22px is also deliberately clear of the
+     20px that drew Ray's original "too small to read on phone" report.
+     Scoped by ID, not by class, so it can never reach Add Coin's own
+     flipObverseBR/flipReverseBR — a different corner with different content
+     that must stay at 27px. */
+  #browseDetailBR, #spotlightBR { font-size: 22px; }
+
   /* A corner holding two related values (Type/Denom, Variety/Designation)
      stacks them as two lines rather than crowding one line. */
   .flip-label .corner-line {
@@ -2202,6 +2221,12 @@
                   <span class="flip-label tr" id="spotlightTR" aria-hidden="true"></span>
                   <div class="coin-disc" id="spotlightDisc" aria-hidden="true"></div>
                   <span class="flip-label bl" id="spotlightBL" aria-hidden="true"></span>
+                  <!-- BR carried no element at all until the composition pass
+                       (2026-08-29) — applyFlipCorners() only ever wrote
+                       TL/TR/BL/SR, so this corner was empty by absence, not by
+                       choice. It now shows a precious-metal coin's own
+                       composition; see preciousMetalCompositionFor(). -->
+                  <span class="flip-label br" id="spotlightBR" aria-hidden="true"></span>
                   <span class="sr-only" id="spotlightSR"></span>
                 </div>
                 <div class="combined-photo-badge hidden" id="spotlightCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
@@ -2337,6 +2362,9 @@
             <span class="flip-label tr" id="browseDetailTR" aria-hidden="true"></span>
             <div class="coin-disc" id="browseDetailDisc" aria-hidden="true"></div>
             <span class="flip-label bl" id="browseDetailBL" aria-hidden="true"></span>
+            <!-- See spotlightBR above — same corner, same shared
+                 applyFlipCorners() render path, added in the same pass. -->
+            <span class="flip-label br" id="browseDetailBR" aria-hidden="true"></span>
             <span class="sr-only" id="browseDetailSR"></span>
           </div>
           <!-- Retired by the accordion redesign (locked in): a multi-child
@@ -4676,6 +4704,17 @@
       variety: String(colVal(row, "Variety")),
       description: String(colVal(row, "Description")),
       finish: String(colVal(row, "Finish")),
+      // DB_Coins.Composition — a real, populated column that this mapper
+      // never read until now, so the matcher was structurally blind to it.
+      // Copilot's composition research (2026-08-29) found 109 true
+      // Clad/Silver Proof pairs in the catalog, 99 of which collide on the
+      // matcher's own Year+Denom+MintMark+Variety key with the SAME Finish
+      // ("Proof") and the SAME Description — so Composition is the only
+      // field that tells them apart, and without it a Silver Proof could
+      // silently link to the Clad row (or vice versa). See
+      // dbCoinsCandidatesFor()'s Composition tier for how it's used, and
+      // renderAmbiguousMatchList() for where it's surfaced to a human.
+      composition: String(colVal(row, "Composition")),
       gsid: String(colVal(row, "GSID")),
       pcgs: String(colVal(row, "PCGS#")),
       // Mintage is only partially populated on the real sheet, so this is
@@ -4800,10 +4839,19 @@
       // entirely (Commemorative/one-off/Album reference rows — the exact
       // same filter dbSetLineageIncludes()'s callers already imply).
       const coinIdToContentType = {};
+      // CoinID -> DB_Coins.Composition, for the flip card's BR corner (see
+      // preciousMetalCompositionFor()). Composition lives ONLY on DB_Coins —
+      // All has no such column — so a saved coin can only reach its own
+      // composition through this join on its CoinID. Built in the same pass
+      // as the MetalContentType map above rather than a second walk of the
+      // same rows.
+      const coinIdToComposition = {};
       dbCoinsRows.forEach(row => {
         const coinId = colVal(row, "CoinID");
         const contentType = colVal(row, "MetalContentType");
         if (coinId && contentType) coinIdToContentType[coinId] = contentType;
+        const composition = colVal(row, "Composition");
+        if (coinId && composition) coinIdToComposition[coinId] = String(composition);
       });
       const contentTypeToCategory = {};
       metalContentRows.forEach(row => {
@@ -4826,6 +4874,12 @@
         // expected/no-op, not a new fallback to build.
         const contentType = coinIdToContentType[coin.coinId];
         coin.metalCategory = contentType ? (contentTypeToCategory[contentType] || "") : "";
+        // A coin whose CoinID is blank or doesn't resolve to a catalog row
+        // gets a blank composition and simply shows nothing in the flip
+        // card's BR corner — confirmed acceptable (Q5), no fallback wanted.
+        // Silent by design: the corner is supplementary, and inventing a
+        // composition for an unlinked coin would be worse than omitting it.
+        coin.composition = coinIdToComposition[coin.coinId] || "";
         return coin;
       });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
@@ -7864,7 +7918,19 @@
     // Washington's entry in the 50 State Quarters program) — confirmed
     // against the workbook, not to be conflated.
     { denom: "25C", year: 1932, mint: "",   variety: "",        description: "Washington Quarter",   finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-01", pcgs: "5000",  mintage: 5404000, designation: "" },
-    { denom: "25C", year: 1932, mint: "D",  variety: "",        description: "Washington Quarter",   finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-02", pcgs: "5000",  mintage: 436800,  designation: "" }
+    { denom: "25C", year: 1932, mint: "D",  variety: "",        description: "Washington Quarter",   finish: "Business Strike", gsid: "",       coinId: "C-1932-M-25C-02", pcgs: "5000",  mintage: 436800,  designation: "" },
+    // --- Clad/Silver Proof collision pair (composition matcher, 2026-08-29).
+    // A real, representative instance of the shape Copilot's research found
+    // 109 of: two catalog rows identical on EVERY field the matcher and the
+    // picker display — same Year, MintMark, Denomination, Variety (blank),
+    // Description, Finish ("Proof"), Designation (blank) — differing ONLY by
+    // Composition. Seeded here, not just relied on from live data, so the
+    // tier and the picker's differentiation are exercisable with
+    // ENABLE_LIVE_NAV_DATA off (the committed suite drives exactly this
+    // pair). 1999-S Roosevelt Dime is a genuine example of the real pattern:
+    // the Mint issued both a clad and a 90% silver proof that year.
+    { denom: "10C", year: 1999, mint: "S",  variety: "",        description: "Roosevelt Dime",       finish: "Proof",           gsid: "",       coinId: "C-1999-M-10C-01", pcgs: "5399",  mintage: 2543401, designation: "", composition: "Copper-Nickel Clad" },
+    { denom: "10C", year: 1999, mint: "S",  variety: "",        description: "Roosevelt Dime",       finish: "Proof",           gsid: "",       coinId: "C-1999-M-10C-02", pcgs: "5400",  mintage: 804565,  designation: "", composition: "90% Silver" }
   ];
 
   // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
@@ -8563,6 +8629,32 @@
     // Designation alone, same "just concatenate what's present" rule.
     document.getElementById(prefix + "BL").textContent = (coin.grade || "") + (coin.designation || "");
 
+    // BR: the coin's own composition, but ONLY when a precious metal is
+    // actually involved — see preciousMetalCompositionFor() for the rule and
+    // the Set/Roll/unresolved-CoinID cases. This corner had no element at all
+    // before 2026-08-29 (this function wrote TL/TR/BL/SR only), so nothing is
+    // being displaced here.
+    //
+    // Scope note: applyFlipCorners() is the SAVED-coin renderer, shared by
+    // Browse detail and Spotlight — both get this, deliberately, since they
+    // are the same card. Add Coin's own live-entry preview is a different
+    // function (updateFlipLabels()) with a different corner mapping, and is
+    // deliberately NOT wired: its BR already carries Variety+Designation as
+    // two stacked lines, composition often isn't known yet at entry time, and
+    // this corner has a documented real-device clipping history that a third
+    // stacked line would be poking at. The two flip-corner systems have
+    // always differed field-for-field (see CLAUDE.md "Saved-coin flip
+    // corners"); this widens that gap on purpose.
+    //
+    // setFittedCornerText(), not renderCornerLines() — this is a single value,
+    // and renderCornerLines() exists for pairing two related values in one
+    // corner. The fitting matters: composition is the longest thing any
+    // corner carries, and an unfitted one spills past the frame edge (see
+    // .flip-label's CSS comment). Guarded because a caller may render into a
+    // frame that predates the BR span.
+    const brEl = document.getElementById(prefix + "BR");
+    if (brEl) setFittedCornerText(brEl, preciousMetalCompositionFor(coin));
+
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
     if (combinedBadge) {
       combinedBadge.classList.toggle("hidden", !COMBINED_PHOTO_COIN_IDS.includes(coin.id));
@@ -8570,8 +8662,15 @@
 
     const srEl = document.getElementById(prefix + "SR");
     if (srEl) {
+      // Composition rides into the sr-only summary too. The visible corner
+      // spans are all aria-hidden by design (locked-in rule: the flip's
+      // corner labels are decorative-positioned text, and this line is the
+      // accessible equivalent), so a fact that only ever appeared in a corner
+      // would otherwise be invisible to a screen reader.
+      const srComposition = preciousMetalCompositionFor(coin);
       srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
+        (srComposition ? ", composition " + srComposition : "") +
         (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
         " (" + coin.id + ")" +
         (COMBINED_PHOTO_COIN_IDS.includes(coin.id) ? " — combined obverse/reverse photo, not yet cropped" : "");
@@ -8774,36 +8873,44 @@
   // Gold/Silver/Platinum/Copper/Zinc/Clad/Other) driving the expanded Metal
   // filter below — a different, coexisting concept from the Oz-based
   // Composition figures, not a replacement for them.
+  // `composition` (added 2026-08-29) is the demo stand-in for
+  // DB_Coins.Composition — the real column a LIVE coin gets joined onto it
+  // by CoinID in ensureLiveNavDataFetch(). It is a fineness/percentage
+  // STRING, deliberately not derived from the Oz figures beside it: the two
+  // answer different questions (purity vs. how much metal is in the coin),
+  // and the flip card's BR corner shows purity. Seeded on every row that has
+  // one so the corner is exercisable with ENABLE_LIVE_NAV_DATA off, matching
+  // each row's real historical composition.
   const FAKE_METAL_CONTENT = {
-    "AY-00001": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, thicknessMm: 2.4, edge: "Reeded", reedCount: 150 }, // Morgan Dollar — 90% silver
-    "AY-00002": { silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded" }, // Walking Liberty Half — 90% silver
-    "AY-00003": { silverOz: 0.0723, metalCategory: "Silver", weight: 2.5,   diameterMm: 17.9, edge: "Reeded" }, // Mercury Dime — 90% silver
-    "AY-00004": { metalCategory: "Copper", weight: 3.11, diameterMm: 19.05, edge: "Plain" }, // Lincoln Wheat Cent — bronze, pre-1982
-    "AY-00005": { metalCategory: "Copper", edge: "Plain" }, // Indian Head Cent — bronze
-    "AY-00006": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Barber Quarter — 90% silver
-    "AY-00007": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Peace Dollar — 90% silver
-    "AY-00008": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Buffalo Nickel — Cu-Ni, same bucket as the standard modern 5c
-    "AY-00009": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Standing Liberty Quarter — 90% silver
-    "AY-00010": { silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded", reedCount: 150 }, // Franklin Half Dollar — 90% silver
-    "AY-00011": { metalCategory: "Clad" }, // Statue of Liberty Half (1986 commemorative) — Cu-Ni clad, not silver
-    "AY-00012": { silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Washington Quarter — 2021 Silver Proof Set
-    "AY-00013": { metalCategory: "Clad", edge: "Reeded" }, // Roosevelt Dime (1999) — modern Cu-Ni clad
-    "AY-00014": { silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Statue of Liberty Dollar (1986 commemorative) — 90% silver
-    "AY-00017": { metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Jefferson Nickel — Cu-Ni
+    "AY-00001": { composition: "90% Silver", silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, thicknessMm: 2.4, edge: "Reeded", reedCount: 150 }, // Morgan Dollar — 90% silver
+    "AY-00002": { composition: "90% Silver", silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded" }, // Walking Liberty Half — 90% silver
+    "AY-00003": { composition: "90% Silver", silverOz: 0.0723, metalCategory: "Silver", weight: 2.5,   diameterMm: 17.9, edge: "Reeded" }, // Mercury Dime — 90% silver
+    "AY-00004": { composition: "Bronze", metalCategory: "Copper", weight: 3.11, diameterMm: 19.05, edge: "Plain" }, // Lincoln Wheat Cent — bronze, pre-1982
+    "AY-00005": { composition: "Bronze", metalCategory: "Copper", edge: "Plain" }, // Indian Head Cent — bronze
+    "AY-00006": { composition: "90% Silver", silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Barber Quarter — 90% silver
+    "AY-00007": { composition: "90% Silver", silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Peace Dollar — 90% silver
+    "AY-00008": { composition: "Copper-Nickel", metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Buffalo Nickel — Cu-Ni, same bucket as the standard modern 5c
+    "AY-00009": { composition: "90% Silver", silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Standing Liberty Quarter — 90% silver
+    "AY-00010": { composition: "90% Silver", silverOz: 0.3617, metalCategory: "Silver", weight: 12.5,  diameterMm: 30.6, edge: "Reeded", reedCount: 150 }, // Franklin Half Dollar — 90% silver
+    "AY-00011": { composition: "Copper-Nickel Clad", metalCategory: "Clad" }, // Statue of Liberty Half (1986 commemorative) — Cu-Ni clad, not silver
+    "AY-00012": { composition: "90% Silver", silverOz: 0.1808, metalCategory: "Silver", weight: 6.25,  diameterMm: 24.3, edge: "Reeded" }, // Washington Quarter — 2021 Silver Proof Set
+    "AY-00013": { composition: "Copper-Nickel Clad", metalCategory: "Clad", edge: "Reeded" }, // Roosevelt Dime (1999) — modern Cu-Ni clad
+    "AY-00014": { composition: "90% Silver", silverOz: 0.7734, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded" }, // Statue of Liberty Dollar (1986 commemorative) — 90% silver
+    "AY-00017": { composition: "Copper-Nickel", metalCategory: "Clad", weight: 5.0, diameterMm: 21.2, edge: "Plain" }, // Jefferson Nickel — Cu-Ni
     // All three Set-child rows have real spec data so every child's own
     // detail view exercises the Specifications accordion path (children are
     // keyed by their own -A/-B/-C CollectionID, same as any owned row).
-    "AY-00022-A": { metalCategory: "Clad", weight: 9.00, diameterMm: 30.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Dollar — copper-nickel clad, no precious-metal content (real historical composition, unlike its silver/gold set-mates)
-    "AY-00022-B": { silverOz: 0.7736, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded", reedCount: 150 }, // 1986 Statue of Liberty Dollar — 90% silver
-    "AY-00022-C": { goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Eagle — 90% gold $5
+    "AY-00022-A": { composition: "Copper-Nickel Clad", metalCategory: "Clad", weight: 9.00, diameterMm: 30.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Dollar — copper-nickel clad, no precious-metal content (real historical composition, unlike its silver/gold set-mates)
+    "AY-00022-B": { composition: "90% Silver", silverOz: 0.7736, metalCategory: "Silver", weight: 26.73, diameterMm: 38.1, edge: "Reeded", reedCount: 150 }, // 1986 Statue of Liberty Dollar — 90% silver
+    "AY-00022-C": { composition: "90% Gold", goldOz: 0.2419, metalCategory: "Gold", weight: 8.359, diameterMm: 21.6, edge: "Reeded" }, // 1986 Statue of Liberty Half Eagle — 90% gold $5
     // Roll rows: Composition here is the AGGREGATE oz for the whole roll, not
     // one coin — that's what actually matters for melt/junk-silver value
     // estimation (see isRollRow() and its always-visible Composition key
     // fact), and understating it 20x by showing a single coin's oz would
     // defeat the point of surfacing it prominently at all.
-    "AY-00023": { silverOz: 15.468, metalCategory: "Silver" }, // 1921 Morgan Dollar Roll (20 coins) — 90% silver, 0.7734 oz/coin x 20
-    "AY-00024": { silverOz: 7.232,  metalCategory: "Silver" }, // Roll of 40 Washington Quarters, 1964-D — last pre-clad year, 90% silver, 0.1808 oz/coin x 40 (same per-coin figure as AY-00012)
-    "AY-00026": { silverOz: 15.468, metalCategory: "Silver" }  // Roll of 20 Silver Dollars (mixed dates) — 90% silver dollars regardless of specific date, 0.7734 oz/coin x 20
+    "AY-00023": { composition: "90% Silver", silverOz: 15.468, metalCategory: "Silver" }, // 1921 Morgan Dollar Roll (20 coins) — 90% silver, 0.7734 oz/coin x 20
+    "AY-00024": { composition: "90% Silver", silverOz: 7.232,  metalCategory: "Silver" }, // Roll of 40 Washington Quarters, 1964-D — last pre-clad year, 90% silver, 0.1808 oz/coin x 40 (same per-coin figure as AY-00012)
+    "AY-00026": { composition: "90% Silver", silverOz: 15.468, metalCategory: "Silver" }  // Roll of 20 Silver Dollars (mixed dates) — 90% silver dollars regardless of specific date, 0.7734 oz/coin x 20
   };
 
   function metalContentFor(coin) {
@@ -8819,6 +8926,108 @@
     // ever has this property set).
     if (coin.metalCategory !== undefined && coin.metalCategory !== null) return coin.metalCategory;
     return metalContentFor(coin).metalCategory || "";
+  }
+
+  // A coin's own Composition string. Live coins carry it from the
+  // CoinID -> DB_Coins.Composition join in ensureLiveNavDataFetch(); demo
+  // rows fall back to the FAKE_METAL_CONTENT stand-in. Same precedence rule
+  // and same reasoning as metalCategoryFor() directly above — live real data
+  // always wins over the mockup lookup, which only ever applies to demo
+  // FAKE_COINS rows.
+  function compositionForCoin(coin) {
+    if (coin.composition) return String(coin.composition);
+    return metalContentFor(coin).composition || "";
+  }
+
+  // The four precious metals, matched against the composition STRING itself
+  // rather than the MetalCategory bucket. Q6 (confirmed): this is deliberately
+  // NOT metalCategoryFor(), because Lookup_MetalContent buckets Palladium
+  // under "Other" (a documented, intentional call there) — so a palladium coin
+  // is structurally invisible to the category path, and palladium is one of
+  // the four metals this corner is meant to cover. Matching the string is also
+  // self-consistent with what actually gets displayed: if the text says
+  // "Palladium", the corner shows it.
+  const PRECIOUS_METAL_WORDS = ["GOLD", "SILVER", "PLATINUM", "PALLADIUM"];
+  function isPreciousMetalComposition(text) {
+    const t = normField(text);
+    return !!t && PRECIOUS_METAL_WORDS.some(w => t.indexOf(w) !== -1);
+  }
+
+  // What the flip card's BR corner shows, or "" for a coin that shouldn't
+  // show anything there. Precious metal only — a clad quarter or a zinc cent
+  // has a composition, but it isn't the kind of fact worth spending a corner
+  // of the coin's own graphic on; purity is what matters for a coin held for
+  // its metal.
+  //
+  // Displayed as fineness/percentage — the stored value, verbatim. Karat is
+  // deliberately NOT used: it's a gold-only convention with no meaning for
+  // silver, platinum or palladium, so a karat display could not be applied
+  // consistently across the four metals this covers.
+  //
+  // Two exclusions, both deliberate:
+  //  - A Set bundle (Denomination="Multiple") is several different coins, so
+  //    it has no single composition to state. Rolls DO show one (a roll is
+  //    one denomination throughout, and melt value is exactly why composition
+  //    is already promoted for rolls elsewhere in this file).
+  //  - A coin whose CoinID never resolved to a catalog row has no composition
+  //    at all and silently shows nothing (Q5, confirmed — no fallback).
+  //
+  // The metalCategoryFor() fallback only fires when there is no composition
+  // string to read: a live coin can legitimately have a MetalCategory (via
+  // the MetalContentType join) while its DB_Coins row's Composition cell is
+  // blank. Showing the bare metal name there is strictly more informative
+  // than showing nothing and is never wrong — it just omits the purity,
+  // rather than inventing one. Palladium can't reach this branch (bucketed
+  // under "Other" — see above), which is correct: with no composition string
+  // there is genuinely nothing to prove it's palladium.
+  function preciousMetalCompositionFor(coin) {
+    if (!coin || isSetRow(coin)) return "";
+    const composition = compositionForCoin(coin);
+    if (composition) return isPreciousMetalComposition(composition) ? composition : "";
+    const category = metalCategoryFor(coin);
+    return isPreciousMetalComposition(category) ? category : "";
+  }
+
+  // Progressively shorter renderings of a composition, longest first. Only
+  // ever REDUCES — it never rewords or recalculates a purity, so whatever it
+  // shows is still the stored DB_Coins value, just with material the corner
+  // isn't for removed:
+  //   1. the stored value, verbatim — used whenever it fits;
+  //   2. precious-metal terms only. "90% Silver, 10% Copper" states a balance
+  //      metal that this corner exists to say nothing about, and dropping it
+  //      makes the label both shorter AND more to the point (219px -> 98px).
+  //      A composition listing two precious metals keeps both;
+  //   3. without the filler word "Fine". ".9995 Fine Palladium" and
+  //      ".9995 Palladium" say the same thing; the second fits.
+  // Duplicates collapse, so a value already at its shortest yields one entry.
+  function compositionLabelCandidates(text) {
+    const full = String(text || "").trim();
+    if (!full) return [];
+    const terms = full.split(/[,;]+/).map(t => t.trim()).filter(Boolean);
+    const precious = terms.filter(isPreciousMetalComposition);
+    const preciousOnly = (precious.length && precious.length < terms.length)
+      ? precious.join(", ") : full;
+    const noFiller = preciousOnly.replace(/\bFine\b\s*/gi, "").replace(/\s+/g, " ").trim();
+    return [full, preciousOnly, noFiller].filter((v, i, a) => v && a.indexOf(v) === i);
+  }
+
+  // Sets the longest candidate that actually fits the element's own box,
+  // measured rather than guessed — the same scrollWidth/clientWidth approach
+  // renderTypeDenomCorner() uses for an overlong series name, and (per
+  // .flip-label's own CSS comment) the thing that actually prevents unbounded
+  // corner overflow now that `overflow: hidden` is gone. Falls back to the
+  // shortest candidate if none fit, so the label degrades rather than
+  // spilling past the frame. Requires the element to be laid out, which every
+  // caller of applyFlipCorners() satisfies (opacity, not display, is what
+  // Spotlight animates).
+  function setFittedCornerText(el, text) {
+    const candidates = compositionLabelCandidates(text);
+    if (!candidates.length) { el.textContent = ""; return; }
+    for (let i = 0; i < candidates.length; i++) {
+      el.textContent = candidates[i];
+      if (el.scrollWidth <= el.clientWidth) return;
+    }
+    el.textContent = candidates[candidates.length - 1];
   }
 
   // Reference info per MetalCategory bucket — static, not per-coin — shown as
@@ -11365,6 +11574,22 @@
   // only recomputed when the underlying data actually changes (a real
   // fetch resolving, or a test swapping __setLiveDbCoinsForTest) rather
   // than on every keystroke that re-runs the matcher.
+  // Composition normalizer. Q2 (confirmed): string-normalize ONLY — never
+  // collapse to the Silver/Clad/Gold MetalCategory bucket. "90% Silver" and
+  // ".999 Fine Silver" are genuinely different purities and must stay
+  // distinct values; bucketing them would merge two real coins back into one
+  // match, which is the same class of bug this tier exists to fix.
+  //
+  // Beyond normField()'s trim+uppercase, this also collapses internal
+  // whitespace and strips separator punctuation, so the real sheet's
+  // hand-entered variants ("90% Silver, 10% Copper" vs.
+  // "90% Silver,10% Copper") compare equal. It deliberately does NOT
+  // canonicalize across wordings — ".999 Fine Silver" and "99.9% Silver"
+  // stay different, per Q2.
+  function normComposition(v) {
+    return normField(v).replace(/[,;/]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   let _knownDbCoinsFinishCache = { forArray: undefined, set: null };
   function knownDbCoinsFinishValues() {
     const arr = activeDbCoins();
@@ -11389,6 +11614,62 @@
       normField(c.denom) === normField(shape.denom) && String(c.year) === String(shape.year) &&
       normField(c.mint) === normField(shape.mint) && normField(c.variety || "") === normField(shape.variety || "")
     );
+    // --- Composition tier. THE ONE HARD TIER, and the only tier that is NOT
+    // guarded by `candidates.length > 1` — both deliberate, both load-bearing.
+    //
+    // WHY HARD (Q4, confirmed): Copilot's 2026-08-29 composition research
+    // found 109 true Clad/Silver Proof pairs, 99 of them colliding on this
+    // matcher's own base key with identical Finish AND identical Description.
+    // For those, Composition is the ONLY differentiator, so a soft
+    // fall-back-to-the-full-set would mean a Silver Proof coin silently
+    // linking to the Clad catalog row — a wrong CoinID, wrong Mintage, wrong
+    // PCGS#, and (since SpotValue's formula chains through CoinID) a wrong
+    // spot value, with nothing visibly wrong on screen. That is precisely the
+    // silent-mislink failure class behind this project's two historical
+    // incidents. So: a supplied Composition that matches no candidate returns
+    // ZERO, never a different-composition row.
+    //
+    // WHY NOT GUARDED BY `length > 1`: every other tier is a disambiguator —
+    // it only earns its keep when there is something to disambiguate. This one
+    // is a correctness check on the match itself. If exactly ONE candidate
+    // exists and its Composition contradicts the supplied one, that single
+    // candidate is still the wrong row, and "there was only one option" is not
+    // a reason to accept it. Returning No Match routes the coin to the Docket
+    // for a real catalog entry, which is the honest answer.
+    //
+    // WHY NOTHING FEEDS IT YET (Q1, confirmed): there is no producer for
+    // `shape.composition` in the app today — Add Coin deliberately has no
+    // Composition input (Specifications is catalog data, not hand-entered),
+    // All has no Composition column, and an ID lookup (PCGS/Mint Item
+    // Number/GSID) already resolves to one authoritative row without
+    // re-running the matcher. This is built now as the correct forward-looking
+    // contract, same posture as Category being captured on the draft ahead of
+    // ALL_WRITABLE_COLUMNS. Until a producer exists, the reachable behavior is
+    // the Ambiguous path below, not this one.
+    //
+    // FOR WHOEVER ADDS THAT PRODUCER (Ray's flag): verify DB_Coins'
+    // Composition wording is actually clean for whatever it will match
+    // against BEFORE turning it on — the same diligence the Category
+    // hard-zero tier required, where each hint had to be confirmed against
+    // real wording and checked against known false positives first. A hard
+    // tier fed by inconsistent data creates false Docket misses.
+    //
+    // A blank/absent shape.composition skips this entirely, so Browse Edit,
+    // the Docket re-check, and every ordinary Add Coin entry are unaffected.
+    if (normComposition(shape.composition || "")) {
+      const compNorm = normComposition(shape.composition);
+      candidates = candidates.filter(c => normComposition(c.composition || "") === compNorm);
+    }
+    // NOTE on the AMBIGUOUS case (Q3, confirmed): when Composition is UNKNOWN
+    // and 2+ candidates differ only by it, there is deliberately no code here
+    // — no silent preference of any kind, not even a plausible one like
+    // "prefer clad for a business strike". Those candidates simply survive to
+    // the end of this function, which is what every 2+ result already means:
+    // the shared ambiguous picker, where a human decides. The only change
+    // needed for that path was making Composition VISIBLE as a
+    // differentiator, which renderAmbiguousMatchList() now does — otherwise a
+    // Clad/Silver Proof pair renders as two identical-looking rows, the exact
+    // Part-F "nothing to choose between" bug.
     // --- Description tier (retest #3). ONLY ever set by Add Coin's own
     // addCoinIdentityShape() — and only when the current Description value
     // is a CONTROLLED value (one of Ref_Denominations' own enumerated
@@ -12632,6 +12913,18 @@
     if (candidates.length === 1) {
       const row = candidates[0];
       const detail = [
+        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
+        // displayed fact is byte-identical between the two candidates —
+        // same year-mint, same denom, same Description, same Finish, blank
+        // Variety/Designation — so Composition is the single fact that
+        // distinguishes them, and a person reading "90% Silver" vs.
+        // "Copper-Nickel Clad" can tell instantly which slab is in their
+        // hand. Burying it behind three catalog reference numbers would
+        // recreate the Part-F "both options look identical" bug by another
+        // route. Blank Composition simply drops out, same as every other
+        // entry in this list.
+        row.composition ? row.composition : "",
         row.pcgs ? "PCGS# " + row.pcgs : "",
         row.gsid ? "GSID " + row.gsid : "",
         row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
@@ -13356,6 +13649,18 @@
     if (candidates.length === 1) {
       const row = candidates[0];
       const detail = [
+        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
+        // displayed fact is byte-identical between the two candidates —
+        // same year-mint, same denom, same Description, same Finish, blank
+        // Variety/Designation — so Composition is the single fact that
+        // distinguishes them, and a person reading "90% Silver" vs.
+        // "Copper-Nickel Clad" can tell instantly which slab is in their
+        // hand. Burying it behind three catalog reference numbers would
+        // recreate the Part-F "both options look identical" bug by another
+        // route. Blank Composition simply drops out, same as every other
+        // entry in this list.
+        row.composition ? row.composition : "",
         row.pcgs ? "PCGS# " + row.pcgs : "",
         row.gsid ? "GSID " + row.gsid : "",
         row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
@@ -15986,10 +16291,23 @@
       // 1945-D Mercury Dime rows both render as "1945-D 10C · Mercury Dime ·
       // Business Strike", leaving nothing to choose between. CoinID is also
       // the value this pick actually writes, so it's the honest headline.
-      // PCGS#/GSID/Mintage follow as the real differentiators (5058 vs 5059,
-      // GSID 4623 vs 4624 for that pair) — the only way to check a candidate
-      // against PCGS/the Red Book before committing.
+      // Composition then PCGS#/GSID/Mintage follow as the real
+      // differentiators (5058 vs 5059, GSID 4623 vs 4624 for that pair) —
+      // the only way to check a candidate against PCGS/the Red Book before
+      // committing. Composition leads that list; see its own note below.
       const detail = [
+        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
+        // displayed fact is byte-identical between the two candidates —
+        // same year-mint, same denom, same Description, same Finish, blank
+        // Variety/Designation — so Composition is the single fact that
+        // distinguishes them, and a person reading "90% Silver" vs.
+        // "Copper-Nickel Clad" can tell instantly which slab is in their
+        // hand. Burying it behind three catalog reference numbers would
+        // recreate the Part-F "both options look identical" bug by another
+        // route. Blank Composition simply drops out, same as every other
+        // entry in this list.
+        row.composition ? row.composition : "",
         row.pcgs ? "PCGS# " + row.pcgs : "",
         row.gsid ? "GSID " + row.gsid : "",
         row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
