@@ -6457,6 +6457,66 @@ DB_Coins row unambiguously names it a Silver Eagle. Confirmed live by Ray.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
+### Staging Review: workbook + per-coin folder links (BUILT, same branch, still held)
+Live-testing item 3 of Ray's 4-item batch: the Docket's Research section
+already shows an "Open workbook in Excel" link, but Staging Review — the
+other real screen he reviews pending drafts from — had no equivalent, and
+he also wanted a direct link to a coin's own OneDrive Staging folder (to
+check its uploaded photos without hunting for it by hand).
+
+- **The workbook link renders ONCE, near the top of the page — not
+  repeated per row (Ray's explicit call).** It's the exact same link
+  regardless of which coin is being reviewed, unlike the Docket's Research
+  rows, which repeat it per-row because each row there can drift out of
+  view independently in a longer, ungrouped list. Reuses
+  `getCachedWorkbookWebUrl()` completely as-is (no new fetch logic, no
+  second cache) — same one-shot-per-session caching the Docket already
+  relies on. Degrades to the same "Workbook link unavailable right now
+  (write layer disabled, or not signed in)" note as the Docket when
+  `null` comes back, rather than a broken link.
+- **The coin's own OneDrive Staging folder link is per-row, since it
+  genuinely differs per draft.** New `RealGraphClient.getFolderWebUrl(path)`
+  mirrors `getWorkbookWebUrl()`'s exact pattern (a plain read-only Graph
+  item-metadata GET, `null` on a 404) but takes any path — used here with
+  `coinDraftFolder(collectionId)`. New `getCachedFolderWebUrl(collectionId)`
+  caches per-CollectionID in a `Map` for the session (same
+  undefined/null-are-both-falsy convention as the workbook cache, just
+  keyed since there are many folders instead of one workbook). This is a
+  genuinely new, dedicated method — not an overload of `getItemMeta()`,
+  which carries different (null-if-never-uploaded) semantics elsewhere in
+  this file.
+- **Both links are computed once per `renderStagingList()` render, before
+  any row markup is built** — the page-level link via one
+  `getCachedWorkbookWebUrl()` call, the per-row links via one
+  `Promise.all()` over every REAL (non-mock) draft's own
+  `getCachedFolderWebUrl()` — rather than each row kicking off its own
+  independent fetch. Both fetches respect the existing
+  `stagingRenderToken` staleness guard (a newer render superseding a
+  slower in-flight one bails out before touching the DOM), same pattern
+  `renderNeedsAttentionHub()` already established.
+- **Mock (flag-off) `FAKE_STAGING` rows show neither link** — there's no
+  real Staging folder for a mock row to link to, and no real workbook
+  write layer backing the page-level link either; this is unchanged from
+  every other real-Graph feature's flag-off behavior in this file.
+- Verified headless — new suite `tests/verify_staging_workbook_links.js`
+  (10 assertions, all passing; 339 across all 10 suites, zero failures):
+  the page-level link renders exactly once in the whole `#view-staging`
+  DOM (not once per row); two real drafts each get their own,
+  genuinely-different folder link, correctly derived from their own
+  CollectionID's Staging folder path; the flag-off mock path shows
+  neither link with no crash; an unavailable workbook link (mock seeded
+  `workbookWebUrl: null`) degrades to the explanatory note; and a nav/
+  overflow smoke check. Screenshots reviewed at both viewports (phone +
+  tablet) — the workbook link sits directly under the interim banner,
+  each row's folder link sits inline with its other detail lines, no
+  overflow at either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature; this is a new Graph
+  read path (`getFolderWebUrl`) and needs a live click-through to confirm
+  it actually lands on the coin's own Staging subfolder in an editable
+  OneDrive session, same "needs a real click-through" caveat the workbook
+  link itself already carries.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

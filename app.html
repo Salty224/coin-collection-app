@@ -3476,6 +3476,8 @@
           path lands, this action becomes a real promotion and this notice goes away.</span>
         </div>
         <p class="placeholder-note" id="stagingMockNote">Placeholder only — nothing is written to OneDrive yet.</p>
+        <p style="font-size:13px; margin-top:0;" id="stagingWorkbookLinkRow"></p>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:0;" id="stagingWorkbookNote"></p>
         <div id="stagingContainer"></div>
         <p class="placeholder-note" id="stagingEmptyNote" style="display:none;">Nothing in Staging right now.</p>
       </section>
@@ -5054,6 +5056,25 @@
       if (!res.ok) throw new Error("Workbook metadata fetch failed: " + res.status);
       const data = await res.json();
       return data.webUrl || null;
+    },
+
+    // Staging Review (live-testing item 3): the same read-only webUrl
+    // lookup as getWorkbookWebUrl() above, generalized to any OneDrive
+    // path — used for a coin draft's own Staging folder
+    // (coinDraftFolder(collectionId)) so Ray can jump straight to that
+    // coin's photos/JSON without hunting for it in OneDrive by hand.
+    // Deliberately a NEW method mirroring getWorkbookWebUrl()'s exact
+    // pattern rather than overloading getItemMeta(), which has different
+    // (null-if-never-uploaded) semantics elsewhere in this file.
+    async getFolderWebUrl(path) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path),
+        { headers: { Authorization: "Bearer " + token } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("Folder metadata fetch failed: " + res.status);
+      const data = await res.json();
+      return data.webUrl || null;
     }
   };
 
@@ -5066,6 +5087,12 @@
     const store = new Map();          // path -> { kind:"json"|"bytes", value }
     const workbookColumns = (seed && seed.workbookColumns) || {}; // "Sheet::Header" -> [values]
     const workbookWebUrl = (seed && "workbookWebUrl" in seed) ? seed.workbookWebUrl : "https://mock.onedrive.example/workbook";
+    // Per-path folder webUrls (Staging Review's per-row OneDrive-folder
+    // link) — seed.folderWebUrls lets a test override a SPECIFIC path (e.g.
+    // to simulate one draft's folder being unavailable); anything else gets
+    // a synthetic-but-truthy default, same "real link by default, only
+    // fails if a test asks for that" posture workbookWebUrl already has.
+    const folderWebUrls = (seed && seed.folderWebUrls) || {};
     // A real 2-D cell grid per sheet ("All" -> [[header row], [row 2], ...]),
     // so the Browse Edit write layer's read/compare/write cycle can be driven
     // end-to-end headlessly: a test can mutate the grid between form-open and
@@ -5120,6 +5147,10 @@
       },
       readWorkbookColumn(workbookPath, sheet, header) { return Promise.resolve((workbookColumns[sheet + "::" + header] || []).slice()); },
       getWorkbookWebUrl() { return Promise.resolve(workbookWebUrl); },
+      getFolderWebUrl(path) {
+        if (path in folderWebUrls) return Promise.resolve(folderWebUrls[path]);
+        return Promise.resolve("https://mock.onedrive.example/folder?path=" + encodeURIComponent(path));
+      },
       readWorkbookRange(workbookPath, sheet, address) {
         const g = grids[sheet] || [];
         const a = parseA1(address);
@@ -5182,6 +5213,27 @@
     return cachedWorkbookWebUrl;
   }
   function __resetWorkbookWebUrlCacheForTest() { cachedWorkbookWebUrl = undefined; } // test-only seam
+
+  // Staging Review (live-testing item 3): per-draft OneDrive-folder webUrl,
+  // cached per CollectionID for the session — same one-shot-per-key caching
+  // as getCachedWorkbookWebUrl() above, just keyed since there are many
+  // folders instead of one workbook. undefined (map miss) = not yet tried;
+  // null = tried and unavailable (write layer disabled, signed out, or a
+  // real fetch failure) — both are falsy, every caller just treats them as
+  // "no link yet."
+  const cachedFolderWebUrls = new Map();
+  async function getCachedFolderWebUrl(collectionId) {
+    if (cachedFolderWebUrls.has(collectionId)) return cachedFolderWebUrls.get(collectionId);
+    let url = null;
+    try {
+      url = await graph().getFolderWebUrl(coinDraftFolder(collectionId));
+    } catch (e) {
+      url = null;
+    }
+    cachedFolderWebUrls.set(collectionId, url);
+    return url;
+  }
+  function __resetFolderWebUrlCacheForTest() { cachedFolderWebUrls.clear(); } // test-only seam
 
   // ==================================================================
   // BROWSE EDIT WRITE LAYER — real single-row writes into All
@@ -13026,6 +13078,29 @@
 
     document.getElementById("stagingEmptyNote").style.display = rows.length ? "none" : "block";
 
+    // Live-testing item 3: the same "Open workbook in Excel" link the
+    // Docket's Research section already shows per-row — here it's the SAME
+    // link regardless of which coin, so it renders ONCE near the top of the
+    // page instead of being repeated on every row (per Ray's explicit
+    // instruction — the coin's own OneDrive folder link below, by contrast,
+    // DOES differ per draft, so it stays per-row). Reuses
+    // getCachedWorkbookWebUrl() as-is rather than rebuilding it.
+    const workbookUrl = (real && rows.length) ? await getCachedWorkbookWebUrl() : null;
+    if (myToken !== stagingRenderToken) return;
+    document.getElementById("stagingWorkbookLinkRow").innerHTML = workbookUrl
+      ? '<a href="' + workbookUrl + '" target="_blank" rel="noopener">Open workbook in Excel ↗</a>' : "";
+    document.getElementById("stagingWorkbookNote").textContent =
+      (real && rows.length && !workbookUrl) ? "Workbook link unavailable right now (write layer disabled, or not signed in)." : "";
+
+    // Per-row OneDrive folder links — genuinely differ per draft, so each is
+    // resolved and cached by its own CollectionID. Real drafts only; a mock
+    // FAKE_STAGING row has no real Staging folder to link to.
+    const folderUrlPairs = real
+      ? await Promise.all(rows.filter(r => !r._mock).map(async r => [r.id, await getCachedFolderWebUrl(r.id)]))
+      : [];
+    if (myToken !== stagingRenderToken) return;
+    const folderUrls = new Map(folderUrlPairs);
+
     function buildStagingRowEl(row) {
       const yearMint = (row.year || "") + (row.mint ? "-" + row.mint : "");
       const label = [row.name, yearMint, row.variety].filter(Boolean).join(" · ");
@@ -13070,6 +13145,15 @@
       const recheckBtnHtml = pendingCoinId
         ? '<button class="staging-btn staging-recheck">Re-check</button>'
         : '';
+      // Live-testing item 3: this coin's own OneDrive Staging folder — genuinely
+      // differs per row (unlike the page-level workbook link above), so it's
+      // resolved per-row via getCachedFolderWebUrl() and rendered here only
+      // when a real link came back (never shown for a mock row, which has no
+      // real folder at all).
+      const folderUrl = row._mock ? null : folderUrls.get(row.id);
+      const folderLinkHtml = folderUrl
+        ? '<div class="wish-notes"><a href="' + folderUrl + '" target="_blank" rel="noopener">Open this coin’s folder in OneDrive ↗</a></div>'
+        : '';
       item.innerHTML =
         '<div>' +
           '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
@@ -13077,6 +13161,7 @@
           '<div class="wish-notes">' + escapeHtmlText(gradeLine) + '</div>' +
           (extra ? '<div class="wish-notes">' + escapeHtmlText(extra) + '</div>' : '') +
           pendingNoteHtml +
+          folderLinkHtml +
           '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
         '</div>' +
         '<div class="staging-actions">' +
