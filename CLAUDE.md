@@ -6397,6 +6397,66 @@ fix.
   its already-real `gsid` ("GS-1044") on the neighboring VDB Lincoln row
   rather than inventing new demo rows.
 
+### Add Coin Identification: a matched ID now carries Category too (BUILT, same branch, still held)
+Live-testing finding: matching a coin via Mint Item Number, GSID, or a PCGS
+label decode all autofilled identity fields (denom/year/mint/description/
+variety/finish) through the one shared `applyDbCoinsRowToForm()`, but none
+of them ever set Category or checked the Bullion toggle — so matching a real
+bullion coin (e.g. a 2017 American Silver Eagle) left the form showing a
+bare `$1` classic Dollar with Bullion unchecked, even though the matched
+DB_Coins row unambiguously names it a Silver Eagle. Confirmed live by Ray.
+
+- **DB_Coins has no Category column** (confirmed via source, unchanged from
+  the batch-3/Category-tier work) — so Category is inferred from the
+  matched row's own `description`, using the EXACT SAME
+  `BULLION_CATEGORY_MATCH_HINTS` table `dbCoinsCandidatesFor()`'s Category
+  tier already reads, just run in the opposite direction: there,
+  category → narrow candidates; here, `inferBullionCategoryFromDescription()`
+  does description → category.
+- **Longest-matching-hint wins, not first-match-in-iteration-order** — the
+  same trap the hints table's own comment already warns about for a single
+  bare word, just re-encountered at the table level instead of within one
+  hint list. The generic `"Eagle"` category's own hint (`"EAGLE"`) is a
+  substring of `"American Silver Eagle Dollar"` and sits earlier in the
+  object than `"Silver Eagle"`'s own more specific `"SILVER EAGLE"` hint —
+  a naive first-match scan would incorrectly infer plain `"Eagle"`. Picking
+  the longest matching hint across every category (not the first one found)
+  is what actually gets this right; confirmed as the correct approach
+  before building, not discovered by a failing test.
+- **Fixed once, inside `applyDbCoinsRowToForm()` itself** — a new
+  `applyInferredBullionCategoryToForm(row)` runs first thing inside it, so
+  all three callers (PCGS decode via `resolvePcgsLabelMatch`, Mint Item
+  Number and GSID via the shared `applyIdentifierDbCoinsMatch`) are fixed
+  uniformly, with no per-caller duplication.
+- **Never dispatches a `"change"` event on `#denomination`** when
+  programmatically selecting the matching `BULLION_TIER_OPTIONS` entry —
+  that handler's own bullion branch sets Description from the OPTION's
+  generic label text, which would clobber the real, more specific DB_Coins
+  `row.description` this function is called right alongside setting.
+  Instead the matching `<option>` (matched on both `value === row.denom`
+  AND `dataset.category === category`) is selected directly and
+  `addCoinBullionCategory` is set by hand.
+- **A non-bullion match explicitly restores classic mode** — unchecks the
+  toggle, repopulates the classic dropdown, clears `addCoinBullionCategory`
+  — so a bullion match earlier in the same form session (a Mint Item Number
+  match, then a different, unrelated GSID/PCGS match to a plain coin) can't
+  leave a stale bullion selection behind.
+- Verified headless — new suite `tests/verify_addcoin_category_autofill.js`
+  (15 assertions, all passing; 329 across all 9 suites, zero failures):
+  `inferBullionCategoryFromDescription()` in isolation (the longest-hint
+  case against a synthetic "American Silver Eagle Dollar" description, a
+  Gold Eagle case, a plain Morgan Dollar inferring nothing, blank/undefined
+  never throwing); a Mint Item Number match against a synthetic Silver
+  Eagle row checking the toggle, landing on the correct `$1`/`"Silver
+  Eagle"` option, and Description staying the real DB_Coins text (not the
+  option's own generic label); the identical outcome via GSID and via a
+  PCGS label decode (confirming the one-shared-function fix covers all
+  three); a subsequent plain-coin match correctly un-checking the toggle
+  and clearing Category with no stale carry-over; and a nav/overflow smoke
+  check. Full 9-suite regression re-run clean alongside it.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

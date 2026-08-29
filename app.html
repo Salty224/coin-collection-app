@@ -15701,8 +15701,73 @@
     return { spec: m[1], grade: parseInt(m[2], 10), cert: m[3] };
   }
 
+  // Infers a bullion Category from a matched DB_Coins row's own Description
+  // text, using the exact same BULLION_CATEGORY_MATCH_HINTS table
+  // dbCoinsCandidatesFor()'s Category tier already reads — just run in the
+  // opposite direction (there: category -> narrow candidates; here:
+  // description -> category). Deliberately picks the LONGEST matching hint
+  // across every category rather than the first one found in object
+  // iteration order: "Eagle"'s own hint ("EAGLE") is a substring of
+  // "American Silver Eagle Dollar" and would win a first-match scan before
+  // "Silver Eagle"'s own more specific ("SILVER EAGLE") hint ever got a
+  // chance — the same trap BULLION_CATEGORY_MATCH_HINTS' own comment warns
+  // about for single-word hints, just re-encountered at the table level
+  // instead of within one hint list. Returns "" for an ordinary, non-bullion
+  // row (no hint matches at all).
+  function inferBullionCategoryFromDescription(description) {
+    const normed = normField(description || "");
+    if (!normed) return "";
+    let best = "";
+    let bestLen = 0;
+    Object.keys(BULLION_CATEGORY_MATCH_HINTS).forEach(category => {
+      BULLION_CATEGORY_MATCH_HINTS[category].forEach(hint => {
+        if (normed.indexOf(hint) !== -1 && hint.length > bestLen) {
+          best = category;
+          bestLen = hint.length;
+        }
+      });
+    });
+    return best;
+  }
+
+  // Applies an inferred bullion Category (or its absence) onto the
+  // Denomination field/toggle, mirroring exactly what picking a
+  // BULLION_TIER_OPTIONS entry by hand would set — addCoinBullionCategory,
+  // the toggle's checked state, and the dropdown's own option set/era. Never
+  // dispatches a "change" event on #denomination: that handler would
+  // overwrite Description with the option's own generic label text,
+  // clobbering the real, more specific DB_Coins row.description this
+  // function is called right after setting. A row with no inferable
+  // category explicitly restores classic mode, in case a PRIOR match in the
+  // same form session had left it in bullion mode.
+  function applyInferredBullionCategoryToForm(row) {
+    const category = inferBullionCategoryFromDescription(row.description);
+    const toggle = document.getElementById("addCoinBullionToggle");
+    const select = document.getElementById("denomination");
+    if (category) {
+      toggle.checked = true;
+      populateAddCoinDenominationDropdown("bullion");
+      const opt = [...select.options].find(o => o.value === row.denom && o.dataset.category === category);
+      if (opt) {
+        opt.selected = true;
+        addCoinBullionCategory = category;
+      } else {
+        // No BULLION_TIER_OPTIONS entry matches this denom+category combo —
+        // shouldn't happen given a confirmed hint, but fail safe rather than
+        // leaving the dropdown on a stale/blank selection.
+        select.value = row.denom;
+        addCoinBullionCategory = "";
+      }
+    } else {
+      toggle.checked = false;
+      populateAddCoinDenominationDropdown("classic");
+      select.value = row.denom;
+      addCoinBullionCategory = "";
+    }
+  }
+
   function applyDbCoinsRowToForm(row) {
-    document.getElementById("denomination").value = row.denom;
+    applyInferredBullionCategoryToForm(row);
     document.getElementById("year").value = row.year;
     document.getElementById("mintMark").value = row.mint || "";
     document.getElementById("description").value = row.description || "";
