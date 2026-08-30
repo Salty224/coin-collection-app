@@ -5701,13 +5701,21 @@
   // before they had anywhere to land, every one of them carrying a standing
   // "needs an ALL_WRITABLE_COLUMNS entry before Phase 2" note. Phase 2 is
   // here, so they are added — otherwise promoting a draft would silently
-  // drop three real captured values on the floor. Confirmed side effect,
-  // accepted deliberately rather than discovered later: this also makes all
-  // three editable through Browse Edit, since that form derives its own
-  // writable set from this same list.
+  // drop three real captured values on the floor. This puts all three
+  // (plus Error, added the same way just after) within the general PATCH
+  // machinery's reach, which the write-guard/conflict logic depends on for
+  // its "an unlisted column has no code path to a PATCH" guarantee — but
+  // reach is not the same as a live UI path: CACBean has real dual-checkbox
+  // wiring in Browse Edit (readBrowseEditForm()), but Category and Finish do
+  // NOT — readBrowseEditForm() never collects either from any form input, so
+  // being on this list alone doesn't add an editable field for them. Error
+  // is the same as Category/Finish here: on the allow-list (so a value
+  // arriving another way, e.g. Add Coin's promotion write, isn't dropped),
+  // but no Browse Edit input exists to set it. Adding a real Browse Edit UI
+  // field for any of the three is separate, undone work.
   const ALL_WRITABLE_COLUMNS = [
     "Year", "MintMark", "Denomination", "Variety", "Description",
-    "Category", "Finish",
+    "Category", "Finish", "Error",
     "Value", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
     "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified"
@@ -6931,14 +6939,15 @@
   // here; buildRowCellEdits() would filter anything else out regardless,
   // but keeping the map honest means the two can't quietly disagree.
   //
-  // KNOWN GAP, flagged rather than silently widened: the draft also
-  // captures `errorDesc`, and All has a real Error column (Browse detail's
-  // reverse flip face and Overview both read it), but Error is NOT on the
-  // allow-list — CLAUDE.md records it as "entry-time only, never
-  // persisted". Adding it is a one-line change to ALL_WRITABLE_COLUMNS
-  // plus one line here; deliberately NOT done unilaterally, since that
-  // decision is documented and the three columns added for Phase 2
-  // (Category/Finish/CACBean) were named explicitly.
+  // Error was previously a KNOWN GAP here: the draft captures `errorDesc`,
+  // and All has a real Error column (Browse detail's reverse flip face and
+  // Overview both read it), but it wasn't on the allow-list — CLAUDE.md
+  // recorded it as "entry-time only, never persisted" and this comment
+  // deliberately withheld the one-line change pending an explicit decision.
+  // Ray has since explicitly authorized it (2026-08-30 follow-up to the
+  // Phase 2 batch): Error is on ALL_WRITABLE_COLUMNS now and mapped below,
+  // same treatment as Category/Finish/CACBean before it — captured on the
+  // draft either way, written through on promotion.
   function coinDraftToAllValues(draft) {
     const v = {
       Denomination: draft.denom || "",
@@ -6949,6 +6958,7 @@
       Description: draft.description || "",
       Finish: draft.finish || "",
       Designation: draft.designation || "",
+      Error: draft.errorDesc || "",
       Grade: draft.grade || "",
       GradeSource: draft.gradeSource || "",
       SerNo: draft.serNo || "",

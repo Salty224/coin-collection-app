@@ -68,6 +68,7 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     categoryWritable: ALL_WRITABLE_COLUMNS.indexOf("Category") !== -1,
     finishWritable: ALL_WRITABLE_COLUMNS.indexOf("Finish") !== -1,
     cacWritable: ALL_WRITABLE_COLUMNS.indexOf("CACBean") !== -1,
+    errorWritable: ALL_WRITABLE_COLUMNS.indexOf("Error") !== -1,
     formulasNeverWrite: ["Total", "SpotValue"].every(c => ALL_NEVER_WRITE_COLUMNS.indexOf(c) !== -1),
     disjoint: ALL_WRITABLE_COLUMNS.every(c => ALL_NEVER_WRITE_COLUMNS.indexOf(c) === -1)
   }));
@@ -75,6 +76,8 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     "B1 CollectionID/CoinID stay on the never-write list and off the allow-list — the general machinery still cannot touch them");
   ok(B.categoryWritable && B.finishWritable && B.cacWritable,
     "B2 Category, Finish and CACBean are on the allow-list (Q2) so promotion stops dropping captured data");
+  ok(B.errorWritable,
+    "B2b Error is on the allow-list too (2026-08-30 follow-up authorization)");
   ok(B.formulasNeverWrite && B.disjoint,
     "B3 the two live formula columns remain unwritable, and the two lists stay disjoint");
 
@@ -95,6 +98,7 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
       serNo: "12345678", cacBean: "Green", cost: 950, shippingCost: 12.5,
       purchaseDate: "2024-05-02", vendor: "Great Collections",
       storageLocation: "Safe", container: "", remarks: "test note",
+      errorDesc: "Off-Center Strike, approx. 5%",
       coinId: "C-1916-M-10C-01", photos: [], allRowWritten: false, forceAdded: false,
       createdDate: new Date().toISOString()
     });
@@ -113,6 +117,7 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
       denom: row[idx("Denomination")], grade: row[idx("Grade")],
       cac: row[idx("CACBean")], finish: row[idx("Finish")],
       cost: row[idx("Cost")], seller: row[idx("Seller_Link")],
+      error: row[idx("Error")],
       total: row[idx("Total")], spot: row[idx("SpotValue")],
       reviewed: row[idx("Reviewed")], lastModified: row[idx("LastModified")],
       draftStatus: draftAfter.status
@@ -125,6 +130,8 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     "C3 the captured data lands in the right columns: " + JSON.stringify(C));
   ok(C.cac === "Green" && C.finish === "Business Strike",
     "C4 -- including the three columns added to the allow-list for Phase 2");
+  ok(C.error === "Off-Center Strike, approx. 5%",
+    "C4b Error is now on the allow-list too (2026-08-30 follow-up) and lands correctly on promotion");
   ok(C.total === null && C.spot === null,
     "C5 THE SAFETY PROPERTY: both live formula cells are untouched by the whole create-and-populate cycle");
   ok(C.reviewed === "" && C.lastModified != null,

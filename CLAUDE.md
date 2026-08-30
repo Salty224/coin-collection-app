@@ -7493,17 +7493,30 @@ client had no append-row primitive at all.
 - **Category, Finish and CACBean added to `ALL_WRITABLE_COLUMNS` (Q2,
   confirmed).** All three were captured on the draft carrying a standing
   "needs an allow-list entry before Phase 2" note; without them promotion
-  would silently drop three real captured values. **Confirmed side effect,
-  accepted deliberately: they are now editable in Browse Edit too.** Finish
-  also moved OUT of `ALL_CONTEXT_COLUMNS`, since listing it in both would
-  read the same column twice.
-- **KNOWN GAP, flagged rather than silently widened: `Error` is still not
-  written.** The draft captures `errorDesc`, All has a real Error column,
-  and item 5 below makes it visible on Overview — but CLAUDE.md records
-  Error as "entry-time only, never persisted", and Q2 named exactly three
-  columns. Promotion therefore drops it. One line in
-  `ALL_WRITABLE_COLUMNS` plus one in `coinDraftToAllValues()` if wanted;
-  deliberately not taken unilaterally.
+  would silently drop three real captured values. Finish also moved OUT of
+  `ALL_CONTEXT_COLUMNS`, since listing it in both would read the same column
+  twice. **Correction to this section's original claim: being on the
+  allow-list does NOT by itself make a field editable in Browse Edit.**
+  CACBean genuinely is — it has real dual-checkbox wiring in
+  `readBrowseEditForm()`. Category and Finish are NOT — `readBrowseEditForm()`
+  never collects either from any form input, so the allow-list entry only
+  means the general PATCH machinery could write them if a value arrived some
+  other way (which it now does, via Add Coin's own promotion write); no
+  Browse Edit UI exists to set either one. Found while adding Error, below,
+  and worth knowing before assuming any of the three is user-editable there.
+- **`Error` added to `ALL_WRITABLE_COLUMNS` too (2026-08-30 follow-up,
+  Ray's explicit authorization) — the KNOWN GAP this section originally
+  flagged is now closed.** Same treatment as Category/Finish/CACBean:
+  `coinDraftToAllValues()` now maps `draft.errorDesc` onto `Error`, so a
+  captured Error description survives promotion instead of being silently
+  dropped. Same caveat as Category/Finish immediately above — no Browse Edit
+  UI input exists for Error either, so it isn't independently editable
+  there; the allow-list entry only means the general PATCH machinery can
+  carry it through when a value arrives via Add Coin's own write. Verified
+  headless (`tests/verify_phase2_and_retest_batch.js`, B2b/C4b): the
+  allow-list membership and a full promotion end-to-end with a real
+  `errorDesc` landing correctly in the Error column, both with a verified
+  negative control. All 635 assertions across 16 suites re-run clean.
 
 **Q4's model, implemented as Ray specified** (his correction to my proposed
 "clean match skips Staging" boundary): Staging is a genuine working area for
