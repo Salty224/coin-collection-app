@@ -7445,6 +7445,257 @@ passing.
   geometry spot-check confirmed the same TL fit with zero page overflow) —
   same standing caveat as every round on this branch.
 
+### Add Coin Phase 2 + live-device retest batch (BUILT, same branch, still held)
+The first real-device pass this branch has had. CAC Bean, Mint Mark "None
+(Other)" and the reverse-face flip content all came back clean. Seven items
+came out of it; all seven are built here.
+
+**1. THE CRITICAL ONE — Add Coin's write path dead-ended after hand-off.**
+Ray built a coin, saved to Staging, marked it Ready, and found nothing
+further to do — the coin sat in "Awaiting Copilot Research" even though its
+CoinID had resolved cleanly. Confirmed by reading the code rather than
+guessing: `markCoinDraftReady()` set a status and rewrote the draft JSON,
+full stop. Its own comment said so outright ("PHASE 1 INTERIM — deliberately
+does NOT touch the All sheet"). **No coin, matched or not, had any path into
+All**, and match status had never been consulted at that point. The Graph
+client had no append-row primitive at all.
+
+- **`addTableRow()` — the one genuinely new primitive.** Appends a
+  GENUINELY BLANK row. Graph's `rows/add` does accept a values array and
+  using it is the obvious-looking approach; it is also wrong here, because
+  that array must supply a value for every column **including the two live
+  formula columns** (Total at U, SpotValue at Z) — the exact
+  fill-every-cell hazard that cost this workbook all 1,084 of its formula
+  cells once. Appending blank lets Excel fill calculated columns from the
+  table's own `calculatedColumnFormula`, and every real value then lands
+  through the existing allow-list-filtered `saveCoinRowToWorkbook()` with
+  no new write surface. **Accepted, deliberate tradeoff: not atomic.** A
+  blank add followed by a failed PATCH leaves an orphan row — visible,
+  recoverable, and carrying a blank `Reviewed`; a clobbered formula would
+  be silent and catastrophic.
+- **`writeNewRowKeyCells()` (Q1, confirmed as the permanent mechanism).**
+  CollectionID and CoinID are on `ALL_NEVER_WRITE_COLUMNS`, correctly, for
+  EDITING. A newly CREATED row is the one genuine exception. Rather than
+  loosen the allow-list — which would weaken the "an unlisted column has no
+  code path to a general PATCH" guarantee every other write rests on — this
+  follows `writeCoinIdCell()`'s precedent: a separate, narrow,
+  explicitly-audited path that can write nothing but those two columns.
+  **`ALL_NEVER_WRITE_COLUMNS` is untouched.**
+- **`createAllSheetRow()` re-resolves by CollectionID** before a single
+  data value is written, rather than trusting arithmetic on Graph's
+  data-body index — rule 1 of this layer is "a row is located by
+  CollectionID at write time, never by a remembered or derived position",
+  and this honours it at creation too.
+- **`saveCoinRowToWorkbook()` gained `opts.gate`** so Add Coin's own flag
+  authorizes its write. Hard-wiring it to `browseEditWriteEnabled()` would
+  have meant Add Coin's promote silently requiring Browse Edit's flag —
+  exactly the coupling this file's standing rule forbids.
+- **Category, Finish and CACBean added to `ALL_WRITABLE_COLUMNS` (Q2,
+  confirmed).** All three were captured on the draft carrying a standing
+  "needs an allow-list entry before Phase 2" note; without them promotion
+  would silently drop three real captured values. **Confirmed side effect,
+  accepted deliberately: they are now editable in Browse Edit too.** Finish
+  also moved OUT of `ALL_CONTEXT_COLUMNS`, since listing it in both would
+  read the same column twice.
+- **KNOWN GAP, flagged rather than silently widened: `Error` is still not
+  written.** The draft captures `errorDesc`, All has a real Error column,
+  and item 5 below makes it visible on Overview — but CLAUDE.md records
+  Error as "entry-time only, never persisted", and Q2 named exactly three
+  columns. Promotion therefore drops it. One line in
+  `ALL_WRITABLE_COLUMNS` plus one in `coinDraftToAllValues()` if wanted;
+  deliberately not taken unilaterally.
+
+**Q4's model, implemented as Ray specified** (his correction to my proposed
+"clean match skips Staging" boundary): Staging is a genuine working area for
+EVERY coin regardless of match status.
+- **No new status enum and no migration** — where a READY draft is listed
+  derives from whether it has a CoinID. READY + CoinID stays in **Staging**
+  with **Promote** offered right there (and in Staging Review, where Mark
+  ready was pressed). READY without one moves to **Research** with
+  **Re-check / Force Add / Dismiss**.
+- **Force Add** writes the coin with CoinID and SetID genuinely blank, sets
+  `forceAdded`, and **deliberately keeps the card** in Research as "written
+  to the All sheet with no CoinID" until Re-check resolves it or the user
+  Dismisses.
+- **Dismiss requires a reason**, on the same reasoning `promptDocketDismiss()`
+  already enforces, and sets status PROMOTED (the row genuinely IS on the
+  sheet) with the reason kept on the draft as the audit trail.
+- **Two deliberate divergences, confirmed with Ray, recorded so neither
+  looks like an oversight later**: the app now sets `PROMOTED` ITSELF for
+  coins (the Set-side rule that only external reconciliation may set it
+  exists because the app never wrote a Set's row — here the app IS what
+  wrote it), and **a force-added row is a real, unlinked All row** —
+  visible in Catalog, counted in Ledger — until Re-check closes the gap.
+
+**Q4.1 — attaching a CoinID to an already-written row: the mechanism
+already existed.** `applyDocketResolution()` has done exactly this since the
+Docket work: `findAllSheetRowNumber()` then `writeCoinIdCell()`. The gap was
+reach, not capability — it was wired only to Docket **queue entries**, while
+the coin-draft Re-check path wrote the draft JSON alone (correct, until Force
+Add made a row exist). `applyCoinDraftMatch()` now also writes the cell when
+`allRowWritten` is set, reusing that same audited path — no new write
+surface, and no re-entry of the coin's data.
+
+**Q4.2 — two data models, one already-shared renderer.** Worth knowing
+before touching this area again: the Research section is fed by three
+independent sources. A "no DB_Coins match" card like "1943-S Lincoln Wheat
+Steel" is a **Docket queue entry** (`_Docket/docket.json`, keyed `entryId`,
+identity fields only, can originate from Browse Edit's re-link as well as
+Add Coin). A per-coin "Handed Off" card is a **coin draft**
+(`Staging/{ID}/coin.json`, keyed `collectionID`, carrying the whole capture
+— photos, cost, grade, cert). Different files, different keys, different
+lifecycles. **`appendDocketRows()` is already generic though**, taking
+per-row callbacks, so Promote/Force Add were two more optional callbacks
+plus two buttons — the records need reconciling, the card rendering does
+not. Note also that the per-coin Handed Off card previously had **neither**
+Re-check nor Dismiss (Re-check lived on the per-coin *Draft* row and on the
+Docket-entry card; Dismiss only on the latter), so this added four actions
+to it, not two.
+
+**Q3 — photo relocation is fully app-driven**, confirmed by reading
+`movePromotedSetFiles()`: `getItemMeta` → `getFileBytes` → `uploadBytes` →
+`getItemMeta` (verify) → `deleteItem`, all the app's own Graph calls, with a
+failed or unverifiable copy always leaving the source intact.
+`plannedCoinPromotionMoves()`/`movePromotedCoinFiles()` mirror it exactly.
+One refinement over the Set path: because the app itself promotes a coin, the
+move runs **immediately after the write** rather than only at launch;
+`processPromotedCoinDrafts()` still runs at launch to resume anything that
+failed or was interrupted.
+
+**2. Sets: the flip-card removal was genuinely incomplete.** The prior pass
+cleared the corner TEXT and neutered the flip gesture but left
+`#browseDetailFlipFrame` and its interactive `.coin-disc` rendering — Ray was
+right that this wasn't the removal that was asked for. The frame is now
+hidden outright and a genuinely separate `#browseDetailSetPhoto` element
+takes its place: square, static, no interaction, no corner labels, showing
+the real whole-set/OGP photo via `setFlipPhotoUrl()`'s existing priority or a
+plain 📦 placeholder. Individual coins — including a Set's own children
+reached through "Coins in this Set" — are untouched.
+- **Year now rides in the page title** (`detailTitleText()`): "1957 United
+  States Proof Set", per Ray's Q5 correction. Skipped when the name already
+  starts with the year, and for a Roll's literal `"Various"`.
+- **Edit Set gained a "Link a coin to this Set" accordion** (Q6:
+  session-only). Candidates are owned coins that are neither Sets nor
+  already claimed by one; linking mutates the same in-memory
+  `FAKE_SET_CHILDREN` model the read side uses, so it round-trips visibly
+  everywhere. **Deliberately not persisted**: real linkage is
+  `All.OriginSetID` on the CHILD's row, and OriginSetID is on
+  `ALL_NEVER_WRITE_COLUMNS` — a second never-write exception on a different
+  row than the one being edited, held for its own later pass. "Back"
+  collapses the control and returns to the plain list.
+
+**3. Long-name corner text overlapping the coin — root cause was that
+nothing ever checked.** Reproduced against the reported AY-00463-B and it
+was worse than reported: BOTH the wrapped second line and the third line
+intersected the disc (91px and 72px from its centre against a 105px radius).
+The fit test only ever asked "does the text fit its own box"; the box is
+anchored 10px from the frame corner and grows DOWNWARD as lines are added,
+straight into the disc's band, and no amount of box-fitting can see that. So
+this was a **predicate** fix, not the tolerance/spacing nudge it looked
+like:
+- **`cornerClearsDisc()`** measures each rendered line against the disc's
+  actual circle (nearest-point-to-centre against the radius — a bounding-box
+  test would report the corners as hits exactly where corner labels live),
+  and `cornerFits()` now requires both.
+- **`.corner-line` boxes hug their own text** (`width: fit-content`) so the
+  measurement is honest — a short line stacked under a long one used to
+  inherit the long one's width and report reaching much further across the
+  card than its ink did. **`max-width: 100%` is not optional there**: these
+  lines are `nowrap`, which makes min-content equal max-content, so
+  `fit-content` resolves to max-content and overflows the parent instead of
+  being clamped — without the cap the overflow test that drives wrapping
+  silently never fired.
+- **The two-line wrap is now balanced, not greedy.** Greedy turned the First
+  Spouse name into "Martha" / "Washington First Spouse Gold $10", whose
+  second line was nearly as wide as the unwrapped original, so wrapping
+  bought almost nothing. Choosing the split that minimises the WIDER line is
+  what actually earns font size back.
+- **Shrink prefers a comfortable floor before wrapping** (`CORNER_COMFORTABLE_FRACTION`
+  = 0.82), then re-shrinks the wrapped layout from natural size, then falls
+  back to the full range on a single line for a one-word value that has
+  nothing to wrap. Two extra shrink steps were added (0.56, 0.48) because
+  with clearance enforced a three-line corner genuinely needs them.
+- Measured outcomes: "Morgan" untouched at 27px; "Lincoln Memorial" still
+  resolves by shrink ALONE at 22.14px without gaining a third line (last
+  round's regression guard still holds); the ATB quarter wraps at 15.12px;
+  First Spouse wraps at 12.96px — all four now clearing the coin.
+- **A real side effect worth knowing**: the BR composition corner now
+  shrinks for "99.95% Platinum", because measurement showed its first line
+  sat 94.1px from the disc centre against a 105px radius at full size — it
+  was genuinely overlapping and nothing could see it. A prior assertion that
+  claimed "no shrink applied" was asserting that bug.
+
+**4. Dimes + Silver hiding a real silver dime — NOT a stale cache.** The
+filter and the flip card read two DIFFERENT joins: `metalCategory` comes
+from a four-hop chain (`All.CoinID → DB_Coins.CoinID → MetalContentType →
+Lookup_MetalContent.CoinType → MetalCategory`), `composition` from a two-hop
+one (`All.CoinID → DB_Coins.Composition`). The reported coin had Composition
+populated and MetalContentType blank, so the filter saw a blank category
+(bucketed "Other") while the card saw real silver. The workbook-side fix is
+to populate MetalContentType; the app should not silently disagree with
+itself meanwhile, so **`metalCategoryFor()` now derives from the composition
+string** via `metalCategoryFromComposition()` when the primary join yields
+nothing. Compound terms are tested first so "Copper-Nickel Clad" lands on
+Clad, not Copper; Bronze/Brass bucket under Copper exactly as
+Lookup_MetalContent does. **Also fixed the genuine staleness half**:
+`refreshLiveCoinsAfterWrite()` clears the once-per-session memo so a
+just-promoted coin is immediately browsable and filterable without a reload.
+
+**5-7. The three smaller items.**
+- **Error on the Overview** — a plain fact row, coin-only, omitted when
+  blank. It was previously reachable ONLY by flipping the card, so invisible
+  to anyone who never did.
+- **Purchase Details finally populates for real coins.** The Seller and
+  Purchase Date rows already existed — they read `FAKE_COIN_DETAILS`, which
+  is empty for every live coin, because `mapWorkbookRowToCoin()` never read
+  `Seller_Link`, `Shipping` or `PurchaseDate` back even though Browse Edit
+  has been able to WRITE all three since the write layer landed. The rows
+  existed; the data never reached them. Now mapped (dates converted from
+  Excel serials to ISO), with the coin's own values winning over the demo
+  lookup.
+- **Prev/next stepping at the detail level.** The list is captured at
+  grid-render time (`browseStepIds`), so it is exactly what the user is
+  looking at — same filters, same sort, same order — rather than re-derived
+  later from filter state that an external Browse entry may since have
+  reset. Stored by id, not object reference, since a live refresh rebuilds
+  `LIVE_COINS` wholesale. A coin reached outside any list (a "Belongs to"
+  chip) falls back to CollectionID order; a **Set child gets no arrows at
+  all**, since it lives in its own nested lookup and stepping into an
+  unrelated top-level coin would be a jump, not a step. Arrows hide at each
+  end rather than wrapping.
+
+**Verified headless — new committed suite
+`tests/verify_phase2_and_retest_batch.js` (70 assertions); 633 across all 16
+suites, zero failures.** Covers: the blank-row primitive and the untouched
+formula cells through a full create-and-populate cycle; the allow-list/
+never-write invariants; a clean-match promotion end to end with Add Coin's
+own flag authorizing it while Browse Edit's is OFF; Promote refusing an
+unmatched draft while writing nothing, and Force Add writing the same coin
+with a genuinely blank CoinID; **Q4.1 end to end** — a force-added row
+getting its CoinID from a later Re-check with nothing else disturbed;
+Dismiss refusing a blank reason and keeping a real one; the photo move's
+copy-verify-delete and its completion flag; total inertness with the flag
+off; the Docket's Staging-vs-Research split by CoinID with the right actions
+on each; both Set shapes losing the frame AND the disc while an ordinary
+coin keeps both; the title's year rules; the session-only linking round trip
+including its no-double-claim and no-Sets-as-children rules; all four
+measured corner cases clearing the disc; the balanced wrap; the
+composition-derived metal categories and the reported filter bug; the Error
+row; the three newly-mapped purchase columns and the Total they produce; and
+stepping through a filtered list, an unfiltered fallback, and a child's
+correct absence of arrows.
+**Verified negative control**: disc clearance removed from the fit
+predicate, the composition-derived category removed, the Set frame restored,
+and Promote's no-match guard disabled — 7 assertions failed with exactly the
+reported symptoms (`clears: false` on both long-name cases, the metal filter
+blind again, the Set frame back), then all four were restored and every
+assertion re-confirmed.
+- **`WRITE_TARGET` stays `"copy"` throughout — untouched.**
+- **Not verified: any real device, and no real OneDrive session against the
+  Phase 2 write.** This is a genuinely new write path (the first thing in
+  this app that CREATES an All-sheet row) and needs a live run against
+  `_Testing` before it is trusted.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

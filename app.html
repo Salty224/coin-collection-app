@@ -2114,6 +2114,43 @@
      on the obverse face, stays at the standard 50%. */
   .flip-label.corner-wide { max-width: 90%; }
 
+  /* A Set's static photo, in place of the flip card. Same footprint as
+     .flip-frame so the page doesn't reflow between a coin and a Set, but
+     deliberately NOT a .coin-disc: square rather than a circle, no
+     interaction, no corner labels, no gradient "coin" treatment. */
+  .set-static-photo {
+    width: 100%;
+    max-width: 280px;
+    height: 280px;
+    margin: 0 auto 14px;
+    border-radius: 10px;
+    border: 1px solid var(--case-border);
+    background: var(--bg-elevated) center/cover no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 56px;
+    color: var(--text-muted);
+  }
+  .set-static-photo.hidden { display: none; }
+
+  /* Detail title row + its prev/next step arrows (item 7). */
+  .detail-title-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .detail-step-btn {
+    flex: 0 0 auto;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 1px solid var(--case-border);
+    background: var(--bg-elevated);
+    color: var(--gold-bright);
+    font-size: 22px; line-height: 1;
+    cursor: pointer;
+  }
+  .detail-step-btn:hover { border-color: var(--case-border-bright); }
+  /* No generic .hidden rule exists in this file — every one is scoped to
+     its own component (a trap this file has hit repeatedly). */
+  .detail-step-btn.hidden { display: none; }
+
   /* Superseded — a blanket "#browseDetailBR, #spotlightBR { font-size: 22px }"
      rule used to live here, shrinking EVERY coin's composition text
      uniformly regardless of whether that specific coin's actual value
@@ -2401,7 +2438,15 @@
                Share/CollectionID/Edit read as one action row together — see
                that row's own comment further down. Title is now alone on
                its own line. -->
-          <h2 class="display" style="margin-top:0;" id="browseDetailName"></h2>
+          <!-- Item 7: step to the neighbouring coin without going back to
+               the grid first. Arrows sit with the title rather than on the
+               card, so they read as page navigation, not as something that
+               acts on the coin. Each hides itself at its end of the list. -->
+          <div class="detail-title-row">
+            <button type="button" class="detail-step-btn" id="browseDetailPrevBtn" aria-label="Previous coin" title="Previous coin">‹</button>
+            <h2 class="display" style="margin:0; flex:1;" id="browseDetailName"></h2>
+            <button type="button" class="detail-step-btn" id="browseDetailNextBtn" aria-label="Next coin" title="Next coin">›</button>
+          </div>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
                button layered on it. The Set gallery region that used to sit
@@ -2430,6 +2475,14 @@
                child's own detail page) supersedes what the grid was doing.
                This is what makes Coin and Set detail structurally
                identical. -->
+          <!-- A Set's own detail view shows THIS instead of the flip card
+               above (which is hidden outright for a Set, element and coin
+               graphic together). A Set is a box of coins — there is no
+               obverse/reverse to turn over and no single coin to render as
+               a disc, so the interactive card was never meaningful here.
+               Plain static image: the real captured whole-set/OGP photo
+               when one exists, the generic placeholder otherwise. -->
+          <div class="set-static-photo hidden" id="browseDetailSetPhoto" aria-hidden="true"></div>
           <div class="combined-photo-badge hidden" id="browseDetailCombinedBadge">📎 Combined obverse/reverse — not yet cropped</div>
 
           <div class="case detail-panel" id="browseDetailPanel">
@@ -2829,14 +2882,37 @@
           </div>
 
           <!-- 3. COINS IN THIS SET — identity list, same as detail (tapping a
-               row drills into that child's own detail page). Read-only:
-               membership editing is out of scope. -->
+               row drills into that child's own detail page), plus a linking
+               control. SESSION-ONLY linkage (Ray's Q6 call): real
+               persistence would mean writing All.OriginSetID on the CHILD's
+               row, and OriginSetID is on ALL_NEVER_WRITE_COLUMNS — a second
+               never-write exception, held for its own later pass rather
+               than stacked into this one. Everything here operates on the
+               same in-memory FAKE_SET_CHILDREN model the read side already
+               uses, so it round-trips visibly and resets on reload. -->
           <div class="detail-accordion">
             <button type="button" class="accordion-header" id="editSetChildrenHeader" aria-expanded="false">
               <span>Coins in this Set</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="editSetChildrenBody">
               <div id="editSetChildrenRows"></div>
+              <div class="detail-accordion" id="editSetLinkCoinAccordion" style="margin-top:10px;">
+                <button type="button" class="accordion-header" id="editSetLinkCoinHeader" aria-expanded="false">
+                  <span>Link a coin to this Set</span><span class="accordion-chevron">›</span>
+                </button>
+                <div class="accordion-body hidden" id="editSetLinkCoinBody">
+                  <label for="editSetLinkCoinSelect">Coin</label>
+                  <select id="editSetLinkCoinSelect"><option value="">— choose a coin —</option></select>
+                  <p class="placeholder-note" style="margin:4px 0 10px;">
+                    Lists owned coins not already linked to a Set. Linking is kept for
+                    this session only — it isn't written to the workbook yet.
+                  </p>
+                  <div class="staging-actions">
+                    <button type="button" class="staging-btn promote" id="editSetLinkCoinBtn">Link coin</button>
+                    <button type="button" class="staging-btn" id="editSetLinkCoinBackBtn">Back</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -4817,7 +4893,26 @@
       // different sides has both descriptions in the one string, informally
       // "Obv. X, Rev. Y" — see splitErrorBySide()/applyReverseFlipCorners(),
       // the reverse face's own corner content.
-      error: String(colVal(row, "Error"))
+      error: String(colVal(row, "Error")),
+      // Purchase columns (item 6). All three are real, long-standing All
+      // columns that Browse Edit has been able to WRITE since the write
+      // layer landed — but this mapper never read them back, so Browse
+      // detail's Purchase Details section could only ever show Cost, and
+      // Seller/Purchase Date/Shipping/Total silently fell through to the
+      // sparse FAKE_COIN_DETAILS demo lookup, which is empty for every real
+      // coin. The rows existed; the data never reached them.
+      //
+      // Seller_Link holds seller NAMES far more often than URLs despite the
+      // column name (7 of 233 populated values are http…), so it maps onto
+      // the same `vendor` field name the demo/draft shapes already use, and
+      // is rendered as plain text.
+      vendor: String(colVal(row, "Seller_Link")),
+      shippingCost: colVal(row, "Shipping") === "" ? null : Number(colVal(row, "Shipping")),
+      // Dates come back from Graph as raw Excel serials; convert to ISO so
+      // every consumer reads one shape regardless of source (the demo
+      // lookup and the Add Coin draft both store ISO already).
+      purchaseDate: colVal(row, "PurchaseDate") === ""
+        ? "" : excelSerialToISODate(Number(colVal(row, "PurchaseDate")))
     };
   }
 
@@ -7736,6 +7831,26 @@
     return ogp ? ogp.url : null;
   }
 
+  // Paints a Set's own static photo — the real captured whole-set/OGP shot
+  // when one exists, a plain placeholder glyph otherwise. Deliberately NOT
+  // applyDiscContent()/applyDiscOwnPhoto(): those paint a circular coin
+  // disc with the reference-image tiers behind them, none of which applies
+  // to a box of coins. Reuses setFlipPhotoUrl()'s existing whole-set-then-
+  // OGP priority (obverse side only — there is no flipping here).
+  function renderSetStaticPhoto(el, coin) {
+    if (!el) return;
+    const url = setFlipPhotoUrl(coin, "obverse");
+    if (url) {
+      el.style.backgroundImage = `url("${url}")`;
+      el.textContent = "";
+      el.title = "Photo of this set";
+    } else {
+      el.style.backgroundImage = "";
+      el.textContent = "📦";
+      el.title = "";
+    }
+  }
+
   // Add Coin / Add Set have no assigned CollectionID until save, so their
   // in-progress galleries key off a stable temp-draft id. A real write layer
   // would reconcile these entries to the assigned CollectionID at save time.
@@ -10175,7 +10290,21 @@
   // DOM). Null until initBrowse() runs once at startup.
   let setBrowseSideUI = null;
 
+  // Item 7: the list the detail view's prev/next arrows step through.
+  // Captured at grid-render time so it is EXACTLY what the user is looking
+  // at — same filters, same sort, same order — rather than something
+  // re-derived later from filter state that may since have been reset (an
+  // external Browse entry clears every filter, so re-deriving would silently
+  // step through a different list than the one arrived from).
+  //
+  // Rows are stored by id, not by object reference: LIVE_COINS is rebuilt
+  // wholesale by a refresh (see refreshLiveCoinsAfterWrite), which would
+  // leave held references pointing at replaced objects.
+  let browseStepIds = [];
+  function setBrowseStepContext(coins) { browseStepIds = coins.map(c => c.id); }
+
   function renderBrowseGrid(coins) {
+    setBrowseStepContext(coins);
     const grid = document.getElementById("browseGrid");
     grid.classList.toggle("list-view", browseViewMode === "list");
     grid.classList.remove("sets-mode", "checklist-mode");
@@ -10244,6 +10373,7 @@
   // Coins tab's own render path) always clears this class first, so it
   // can't leak into another tab's grid layout.
   function renderSetsGrid(rows) {
+    setBrowseStepContext(rows);
     const grid = document.getElementById("browseGrid");
     grid.classList.remove("list-view", "checklist-mode");
     grid.classList.add("sets-mode");
@@ -10277,6 +10407,7 @@
   // detail. Reuses "sets-mode" for the same full-width stacked layout — see
   // its CSS comment, generic despite the name.
   function renderRollsGrid(rows) {
+    setBrowseStepContext(rows);
     const grid = document.getElementById("browseGrid");
     grid.classList.remove("list-view", "checklist-mode");
     grid.classList.add("sets-mode");
@@ -10995,6 +11126,8 @@
     showBrowseTab("coins");
 
     document.getElementById("browseDetailBackBtn").addEventListener("click", () => browseDetailBackHandler());
+    document.getElementById("browseDetailPrevBtn").addEventListener("click", () => stepBrowseDetail(-1));
+    document.getElementById("browseDetailNextBtn").addEventListener("click", () => stepBrowseDetail(1));
     document.getElementById("browseDetailEditBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       if (isSetRow(currentBrowseCoin)) {
@@ -11091,6 +11224,74 @@
     return FAKE_SET_CHILDREN[coin.originSetId] || [];
   }
 
+  // Item 7: prev/next at the detail level.
+  //
+  // The list is whatever the user actually arrived from (browseStepIds,
+  // captured at grid-render time). Arriving from somewhere with no list at
+  // all — a Spotlight tap, an Album slot, a "Belongs to" chip — falls back
+  // to every owned coin in CollectionID order, which is the natural
+  // "unfiltered" reading and keeps the arrows useful rather than absent.
+  //
+  // Set children are deliberately NOT steppable: they live in their own
+  // nested lookup, never in a browse list, and stepping from a child into
+  // an unrelated top-level coin would be a jump, not a step. A child simply
+  // gets no arrows.
+  function browseStepListFallback() {
+    return activeCoins().slice()
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      .map(c => c.id);
+  }
+
+  function browseStepList(coin) {
+    // The list the user actually arrived from, whenever this coin is
+    // genuinely part of it. Arriving from somewhere that isn't a list at all
+    // — a "Belongs to" chip, a first load before any grid has rendered —
+    // leaves the coin absent from it, and CollectionID order is the natural
+    // "unfiltered" reading rather than showing no arrows at all.
+    if (coin && browseStepIds.indexOf(coin.id) !== -1) return browseStepIds;
+    return browseStepListFallback();
+  }
+
+  function browseStepNeighbour(coin, delta) {
+    if (!coin) return null;
+    const ids = browseStepList(coin);
+    const i = ids.indexOf(coin.id);
+    // Not in ANY list — a Set child, which lives in its own nested lookup
+    // and never in an owned-rows list. Stepping from a child into an
+    // unrelated top-level coin would be a jump, not a step, so a child
+    // simply gets no arrows.
+    if (i === -1) return null;
+    const j = i + delta;
+    if (j < 0 || j >= ids.length) return null;
+    return activeCoins().find(c => c.id === ids[j]) || null;
+  }
+
+  function updateBrowseStepButtons(coin) {
+    const prev = document.getElementById("browseDetailPrevBtn");
+    const next = document.getElementById("browseDetailNextBtn");
+    if (!prev || !next) return;
+    prev.classList.toggle("hidden", !browseStepNeighbour(coin, -1));
+    next.classList.toggle("hidden", !browseStepNeighbour(coin, 1));
+  }
+
+  function stepBrowseDetail(delta) {
+    const target = browseStepNeighbour(currentBrowseCoin, delta);
+    // Deliberately re-enters through showBrowseDetail() rather than patching
+    // the open view in place, so every per-record reset it owns (flip side,
+    // corner clearing, Set-vs-coin branch, accordion rebuild) runs exactly
+    // as it does on a normal open. The back handler is left alone: stepping
+    // sideways shouldn't change where Back goes.
+    if (target) showBrowseDetail(target);
+  }
+
+  function detailTitleText(coin) {
+    const name = coin.name || "";
+    const year = coin.year == null ? "" : String(coin.year).trim();
+    if (!year || year === "Various") return name;
+    if (!name) return year;
+    return name.indexOf(year) === 0 ? name : year + " " + name;
+  }
+
   function showBrowseDetail(coin) {
     currentBrowseCoin = coin;
     document.getElementById("browseGridView").style.display = "none";
@@ -11102,7 +11303,15 @@
     // Spotlight click-through) — read live via arrow since it's reassigned.
     setNavBack(() => browseDetailBackHandler());
 
-    document.getElementById("browseDetailName").textContent = coin.name;
+    // Year rides in the title alongside the Description — "1957 United
+    // States Proof Set" rather than the bare description with the year
+    // floating over the coin graphic (which no longer exists for a Set
+    // anyway, see below). Only prefixed when the name doesn't already
+    // start with it, so an already-dated name isn't doubled up; a Roll's
+    // literal "Various" year is skipped, since "Various Roll of 20..."
+    // reads as nonsense.
+    document.getElementById("browseDetailName").textContent = detailTitleText(coin);
+    updateBrowseStepButtons(coin);
 
     // A multi-child Set used to branch here and replace its own flip with a
     // grid of child mini-flips — that's retired (accordion redesign); a Set
@@ -11113,38 +11322,56 @@
     // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a
     // display:none subtree, which would always look "overflowing" and
     // wrongly trigger the shrink/wrap fallback.
-    document.getElementById("browseDetailFlipFrame").style.display = "";
-    // Always starts on Obverse when entering (or re-entering) any detail
-    // view — the flip trigger itself (click or tap/swipe, wired once in
-    // initBrowse() via IS_COARSE_POINTER) reads currentBrowseCoin/
-    // browseDetailSide live, so nothing needs re-binding here.
-    browseDetailSide = "obverse";
-    sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
-    applyBrowseDetailSide();
+    // A Set's own detail view has NO flip card at all — the frame and its
+    // coin graphic are both hidden outright, and a plain static image takes
+    // their place. A first pass at this only cleared the corner TEXT and
+    // neutered the flip gesture, which left the interactive coin disc still
+    // rendering; live device testing caught that as an incomplete removal.
+    // Individual coins reached via Catalog or a Set's own "Coins in this
+    // Set" accordion are NOT in scope — they keep their normal flip card,
+    // unchanged, since setChildrenFor() returns ordinary coin rows with a
+    // real denom and isSetRow() is false for every one of them.
+    //
+    // Worth knowing: this also removes the long-name corner-fitting problem
+    // for Sets entirely rather than needing it chased there — Set names are
+    // routinely the longest in the catalog, and none of them now reach any
+    // corner-rendering code.
+    const flipFrame = document.getElementById("browseDetailFlipFrame");
+    const setPhotoEl = document.getElementById("browseDetailSetPhoto");
     if (isSetRow(coin)) {
-      // A Set's own detail view is a PLAIN STATIC IMAGE now, not a flip
-      // card — no corner text, no tap/swipe/click interaction. Reuses the
-      // same disc element (so sizing and the existing own-photo/reference-
-      // image/placeholder priority chain in applyDiscContent() stay
-      // identical to every other coin — nothing new needed there, since
-      // browseDetailSide is fixed at "obverse" and toggleBrowseDetailSide()
-      // now no-ops for a Set, this always shows the Set's own front/OGP
-      // photo, or the placeholder). Individual coins reached via Browse or
-      // a Set's own "Coins in this Set" accordion are NOT in scope — they
-      // keep their normal flip card, unchanged. Set names are also often
-      // the longest in the catalog (a real driver behind the TR corner's
-      // own shrink/wrap work) — removing the flip card removes that
-      // problem for Sets entirely, rather than needing to be chased there
-      // too.
+      flipFrame.style.display = "none";
+      // Reset even though a Set never flips: this is shared module state,
+      // and leaving a previous coin's "reverse" sitting in it would mean the
+      // variable no longer describes what is on screen.
+      browseDetailSide = "obverse";
+      renderSetStaticPhoto(setPhotoEl, coin);
+      setPhotoEl.classList.remove("hidden");
+      const combinedBadge = document.getElementById("browseDetailCombinedBadge");
+      if (combinedBadge) combinedBadge.classList.add("hidden");
+      // Cleared rather than merely left alone: these are persistent
+      // elements shared with every coin's own render, so stale corner text
+      // or a leftover .corner-wide from the last coin viewed would still be
+      // sitting there inside the (now hidden) frame.
       ["TL", "TR", "BL", "BR"].forEach(c => {
         const el = document.getElementById("browseDetail" + c);
         if (el) { el.classList.remove("corner-wide"); el.style.fontSize = ""; el.innerHTML = ""; }
       });
       const srEl = document.getElementById("browseDetailSR");
       if (srEl) srEl.textContent = "";
-      const combinedBadge = document.getElementById("browseDetailCombinedBadge");
-      if (combinedBadge) combinedBadge.classList.add("hidden");
     } else {
+      setPhotoEl.classList.add("hidden");
+      // Visibility must be set before applyFlipCorners: its corner
+      // measurements (both the box-overflow test and the disc-clearance
+      // one) read as 0 on a display:none subtree, which would make every
+      // corner look like it fits.
+      flipFrame.style.display = "";
+      // Always starts on Obverse when entering (or re-entering) any detail
+      // view — the flip trigger itself (click or tap/swipe, wired once in
+      // initBrowse() via IS_COARSE_POINTER) reads currentBrowseCoin/
+      // browseDetailSide live, so nothing needs re-binding here.
+      browseDetailSide = "obverse";
+      sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
+      applyBrowseDetailSide();
       applyFlipCorners("browseDetail", coin, browseDetailSide);
     }
 
@@ -11456,6 +11683,13 @@
       // blank. A Set bundle has no CAC status of its own, same scoping as
       // Grade/Designation just above.
       if (coin.cacBean) overviewRows.push(["CAC Bean", coin.cacBean]);
+      // Item 5: Error was only ever visible on the flip card's reverse
+      // face, which means it was invisible to anyone who never flipped the
+      // card — and invisible entirely on any surface without one. Plain
+      // fact row, coin-only, omitted when blank, same as every other row
+      // here. Still read-only: All.Error has no edit input anywhere by
+      // design (see CLAUDE.md), and this doesn't change that.
+      if (coin.error) overviewRows.push(["Error", coin.error]);
     }
     const certHtml = certDisplayHtml(coin);
     if (certHtml) overviewRows.push(["Cert", certHtml]);
@@ -11570,14 +11804,22 @@
     // and Shipping listed underneath as the two components that sum to it.
     // Value deliberately does NOT live here (it moved to Overview) — this
     // section stays scoped purely to what was paid.
+    // Item 6: the coin's OWN values win, with the demo lookup as fallback.
+    // Shipping/Seller/Purchase Date are real All columns that
+    // mapWorkbookRowToCoin() now reads (it never did before), so these rows
+    // finally populate for a real coin instead of only ever for the handful
+    // of demo rows FAKE_COIN_DETAILS covers.
+    const shippingCost = coin.shippingCost != null ? coin.shippingCost : details.shippingCost;
+    const vendor = coin.vendor || details.vendor;
+    const purchaseDate = coin.purchaseDate || details.purchaseDate;
     const purchaseRows = [];
-    if (coin.cost && details.shippingCost != null) {
-      purchaseRows.push(["Total", "$" + (coin.cost + details.shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (coin.cost && shippingCost != null) {
+      purchaseRows.push(["Total", "$" + (coin.cost + shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     }
     if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
-    if (details.shippingCost != null) purchaseRows.push(["Shipping", "$" + details.shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
-    if (details.vendor) purchaseRows.push(["Seller", details.vendor]);
-    if (details.purchaseDate) purchaseRows.push(["Purchase Date", details.purchaseDate]);
+    if (shippingCost != null) purchaseRows.push(["Shipping", "$" + shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (vendor) purchaseRows.push(["Seller", vendor]);
+    if (purchaseDate) purchaseRows.push(["Purchase Date", purchaseDate]);
     // details.receipt holds the actual stored path directly (same
     // stored-value-used-directly pattern as coin.certLink) — a real link
     // when populated, row omitted entirely when blank.
@@ -11711,6 +11953,57 @@
       host.appendChild(buildSetChildRow(child, parentSet, onBeforeNavigate));
     });
     return children.length;
+  }
+
+  // --- Edit Set: session-only child linking (Q6) -----------------------
+  // Linkage lives in FAKE_SET_CHILDREN, keyed by the parent's originSetId —
+  // the same in-memory model setChildrenFor() already reads, so a link made
+  // here shows up immediately everywhere children are listed (Edit Set,
+  // Browse detail's own "Coins in this Set", the derived coin count).
+  //
+  // NOT persisted, deliberately and per Ray's explicit call: real linkage is
+  // All.OriginSetID on the CHILD's row, and OriginSetID is on
+  // ALL_NEVER_WRITE_COLUMNS. Writing it would mean a second narrow
+  // never-write exception in the same round as Phase 2's own, on a different
+  // row than the one being edited — held for its own pass.
+  //
+  // Candidates are owned coins that are neither Sets themselves nor already
+  // linked to some Set, so a coin can't end up claimed by two parents.
+  function linkableCoinsForSet(parentSet) {
+    return activeCoins().filter(c =>
+      !isSetRow(c) && c.id !== parentSet.id && !c.originSetId && !c.rollId);
+  }
+
+  function populateEditSetLinkCoinOptions(parentSet) {
+    const sel = document.getElementById("editSetLinkCoinSelect");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— choose a coin —</option>';
+    linkableCoinsForSet(parentSet).forEach(c => {
+      const label = [c.id, yearMintText(c), c.name].filter(Boolean).join(" · ");
+      sel.appendChild(new Option(label, c.id));
+    });
+  }
+
+  // A Set with no originSetId yet gets one derived from its own
+  // CollectionID, so the very first link has something to key on. Real
+  // originSetIds follow an OS-YYYY-XXX-## shape; a derived one is clearly
+  // marked as app-generated rather than imitating that format, since it
+  // isn't a catalogued provenance id and shouldn't be mistaken for one.
+  function ensureOriginSetId(parentSet) {
+    if (!parentSet.originSetId) parentSet.originSetId = "OS-LOCAL-" + parentSet.id;
+    return parentSet.originSetId;
+  }
+
+  function linkCoinToSet(parentSet, coinId) {
+    const child = activeCoins().find(c => c.id === coinId);
+    if (!child) { showToast("Couldn't find " + coinId + "."); return false; }
+    const originSetId = ensureOriginSetId(parentSet);
+    const list = FAKE_SET_CHILDREN[originSetId] || (FAKE_SET_CHILDREN[originSetId] = []);
+    if (list.some(c => c.id === child.id)) { showToast(child.id + " is already linked to this Set."); return false; }
+    child.originSetId = originSetId;
+    list.push(child);
+    showToast(child.id + " linked to " + parentSet.id + " — this session only, not written to the workbook.");
+    return true;
   }
 
   // One child row: name + identity (year/mint · denom · variety) + grade and
@@ -12145,6 +12438,7 @@
     renderSetChildRowsInto("editSetChildrenRows", coin, () => {
       document.getElementById("browseEditSetView").style.display = "none";
     });
+    populateEditSetLinkCoinOptions(coin);
 
     // --- Notes & Facts: the Set-level facts block stays read-only; Fun Fact
     // and Notes are editable, same as Edit Coin.
@@ -12658,6 +12952,32 @@
     wireStaticAccordionToggle("editSetOverviewHeader", "editSetOverviewBody");
     wireStaticAccordionToggle("editSetPhotosHeader", "editSetPhotosBody");
     wireStaticAccordionToggle("editSetChildrenHeader", "editSetChildrenBody");
+    // Nested inside the Coins-in-this-Set accordion — its own disclosure, so
+    // the linking control doesn't add height to the list until it's wanted.
+    wireStaticAccordionToggle("editSetLinkCoinHeader", "editSetLinkCoinBody");
+    document.getElementById("editSetLinkCoinBtn").addEventListener("click", () => {
+      const sel = document.getElementById("editSetLinkCoinSelect");
+      if (!sel.value) { showToast("Pick a coin to link first."); return; }
+      if (!currentBrowseCoin) return;
+      if (!linkCoinToSet(currentBrowseCoin, sel.value)) return;
+      // Re-render the list and re-populate the picker so the just-linked
+      // coin appears above and disappears from the candidates below.
+      renderSetChildRowsInto("editSetChildrenRows", currentBrowseCoin, () => {
+        document.getElementById("browseEditSetView").style.display = "none";
+      });
+      populateEditSetLinkCoinOptions(currentBrowseCoin);
+      // Set-level facts (coin count) are derived from the children, so they
+      // go stale the moment one is added.
+      const factRows = setDetailsFactsRows(currentBrowseCoin);
+      fillReadOnlySection("editSetFactsRows", factRows.length ? detailRowsHtml(factRows) : "");
+    });
+    // "Back" collapses the linking control and returns to the plain
+    // Coins-in-this-Set list — the individual Set level, still inside Edit
+    // Set rather than navigating anywhere.
+    document.getElementById("editSetLinkCoinBackBtn").addEventListener("click", () => {
+      document.getElementById("editSetLinkCoinBody").classList.add("hidden");
+      document.getElementById("editSetLinkCoinHeader").setAttribute("aria-expanded", "false");
+    });
     wireStaticAccordionToggle("editSetNotesHeader", "editSetNotesBody");
     wireStaticAccordionToggle("editSetPurchaseHeader", "editSetPurchaseBody");
     wireStaticAccordionToggle("editSetStorageHeader", "editSetStorageBody");

@@ -221,14 +221,24 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
       BR: document.getElementById("browseDetailBR").textContent,
       SR: document.getElementById("browseDetailSR").textContent,
       combinedBadgeHidden: document.getElementById("browseDetailCombinedBadge").classList.contains("hidden"),
-      frameVisible: document.getElementById("browseDetailFlipFrame").style.display !== "none"
+      frameVisible: document.getElementById("browseDetailFlipFrame").style.display !== "none",
+      setPhotoVisible: !document.getElementById("browseDetailSetPhoto").classList.contains("hidden"),
+      discVisible: document.getElementById("browseDetailDisc").getBoundingClientRect().width > 0
     };
   });
   ok(L.TL === "" && L.TR === "" && L.BL === "" && L.BR === "",
     "L1 a childless Set shows NO corner text at all, even though it has its own Cost: " + JSON.stringify(L));
   ok(L.SR === "", "L2 the sr-only span is cleared too -- nothing corner-driven left to announce");
   ok(L.combinedBadgeHidden, "L3 the combined-photo badge is defensively hidden (not left stale from a prior coin's view)");
-  ok(L.frameVisible, "L4 the frame/disc itself is still shown -- this is a static IMAGE, not a hidden element");
+  // Superseded by the completed removal. The first pass at this cleared the
+  // corner TEXT and neutered the flip gesture but left the flip frame and
+  // its interactive coin graphic rendering -- which live device testing
+  // correctly called an incomplete removal. The frame is now hidden
+  // outright and a genuinely separate static image element takes its place,
+  // so the old assertion asserted the half-finished state.
+  ok(!L.frameVisible && !L.discVisible,
+    "L4 the flip frame AND its coin graphic are both gone for a Set, not merely blanked");
+  ok(L.setPhotoVisible, "L4b -- and the plain static Set image is what renders in their place");
 
   // ---------- M. A multi-child Set gets the identical treatment ----------
   const M = await page.evaluate(() => {
