@@ -2131,7 +2131,26 @@
      stacks them as two lines rather than crowding one line. */
   .flip-label .corner-line {
     white-space: nowrap;
+    /* Each line's BOX hugs its own text rather than filling the parent
+       span's width (which is the width of the LONGEST line). Without this,
+       a short line like "$10" stacked under a long one carries a box as
+       wide as that long one — so any geometry measured against it reports
+       the short line reaching much further across the card than its ink
+       actually does. That mattered the moment corner fitting started
+       testing against the coin graphic (item 3): the disc-clearance check
+       has to see where the text really is, not where its inherited box
+       ends. margin-left:auto keeps the right-anchored corners right-
+       aligned once the box no longer spans the full width. */
+    /* max-width:100% is NOT optional: these lines are `white-space: nowrap`,
+       which makes min-content equal max-content, so `fit-content` resolves
+       to max-content and happily overflows the parent instead of being
+       clamped by it. Without the cap a long line's box reported its full
+       unclamped width, scrollWidth === clientWidth, and the overflow test
+       that drives wrapping silently never fired. */
+    width: fit-content;
+    max-width: 100%;
   }
+  .flip-label.tr .corner-line, .flip-label.br .corner-line { margin-left: auto; }
 
   /* Superseded (coin-flip interaction redesign): the per-card flip icon
      (.flip-toggle-btn) is gone everywhere it appeared — Spotlight now
@@ -5070,6 +5089,23 @@
     return liveNavDataFetchPromise;
   }
 
+  // Forces the next ensureLiveNavDataFetch() to genuinely re-fetch instead
+  // of returning its memoized promise, then awaits the new one.
+  //
+  // ensureLiveNavDataFetch() is deliberately once-per-session — it pulls
+  // four whole sheets, and nothing used to change All from inside the app.
+  // Add Coin Phase 2 changes that: a coin promoted into All would otherwise
+  // stay invisible in Catalog (and unfilterable on every axis) until a full
+  // page reload, because LIVE_COINS was built before the row existed.
+  // Clearing the memo is the whole mechanism — the fetch itself is
+  // unchanged, so the new row arrives through exactly the same mapping and
+  // metal/composition joins every other row does.
+  async function refreshLiveCoinsAfterWrite() {
+    if (!ENABLE_LIVE_NAV_DATA) return false;
+    liveNavDataFetchPromise = null;
+    return ensureLiveNavDataFetch();
+  }
+
   // ==================================================================
   // ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
   // (real first-write infrastructure for this file — see CLAUDE.md
@@ -5319,6 +5355,52 @@
       if (!res.ok) throw new Error("Folder metadata fetch failed: " + res.status);
       const data = await res.json();
       return data.webUrl || null;
+    },
+
+    // --- Add Coin Phase 2: the ONE genuinely new write primitive --------
+    // Appends a BLANK row to a table and returns its 1-based SHEET row
+    // number. Deliberately blank, never a values array.
+    //
+    // Graph's own rows/add DOES accept a values array, and using it is the
+    // obvious-looking approach — it is also wrong here. That array must
+    // supply a value for EVERY column in the table, including the two live
+    // formula columns (Total at U, SpotValue at Z). That is exactly the
+    // "a rectangle write must fill every cell" hazard buildRowCellEdits()
+    // exists to prevent, and this workbook has already lost all 1,084 of
+    // its formula cells once to precisely that class of mistake. It would
+    // also mean a second write mechanism able to address never-write
+    // columns, breaking the "an unlisted column has no code path to a
+    // PATCH" guarantee the rest of this layer rests on.
+    //
+    // Appending BLANK instead means Excel fills the new row's calculated
+    // columns from the table's own calculatedColumnFormula automatically,
+    // and every real value then lands through the existing, allow-list-
+    // filtered saveCoinRowToWorkbook() path with no new write surface.
+    //
+    // Accepted tradeoff (deliberate, not an oversight): this is NOT atomic.
+    // A blank add that lands followed by a failed PATCH leaves an orphan
+    // row. That is the safer failure: an orphan row carrying a
+    // CollectionID and a blank Reviewed is visible and recoverable, whereas
+    // a clobbered formula is silent and catastrophic.
+    async addTableRow(workbookPath, tableName) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/tables('" + encodeURIComponent(tableName) + "')/rows/add";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ values: null })
+      });
+      if (!res.ok) throw new Error("Row add failed: " + res.status + " " + (await res.text()));
+      const data = await res.json();
+      // Graph returns the new row's index RELATIVE TO THE TABLE'S DATA BODY
+      // (0-based, excluding the header). Resolving that to a sheet row
+      // needs the table's own header row position, which isn't in this
+      // response — so the caller re-resolves by CollectionID after writing
+      // the key cells instead of trusting an arithmetic conversion here.
+      // Returned for diagnostics only; never used as a write target.
+      return { index: data.index };
     }
   };
 
@@ -5430,6 +5512,18 @@
           }
         });
         return Promise.resolve({ written: edits.length });
+      },
+      // Mirrors the Real client: appends a genuinely BLANK row to the
+      // table's backing grid and reports its data-body index. A test can
+      // then assert both that the row exists and that nothing but the
+      // cells the write layer actually targeted got populated — which is
+      // the whole point of appending blank rather than supplying values.
+      addTableRow(workbookPath, tableName) {
+        const sheet = tableName === "AllCoins" ? "All" : tableName;
+        const g = grids[sheet] || (grids[sheet] = []);
+        const width = (g[0] || []).length;
+        g.push(new Array(width).fill(null));
+        return Promise.resolve({ index: g.length - 2 }); // 0-based within the data body (row 0 is the header)
       }
     };
   }
@@ -5508,8 +5602,17 @@
   // resolved from the sheet's own header row at run time (see
   // ensureAllHeaderMap), never hardcoded, so a future column insertion on
   // the Copilot side can't silently redirect a write to the wrong column.
+  // Category/Finish/CACBean were each captured on the Add Coin draft well
+  // before they had anywhere to land, every one of them carrying a standing
+  // "needs an ALL_WRITABLE_COLUMNS entry before Phase 2" note. Phase 2 is
+  // here, so they are added — otherwise promoting a draft would silently
+  // drop three real captured values on the floor. Confirmed side effect,
+  // accepted deliberately rather than discovered later: this also makes all
+  // three editable through Browse Edit, since that form derives its own
+  // writable set from this same list.
   const ALL_WRITABLE_COLUMNS = [
     "Year", "MintMark", "Denomination", "Variety", "Description",
+    "Category", "Finish",
     "Value", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
     "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified"
@@ -5660,7 +5763,13 @@
   // ALL_NEVER_WRITE_COLUMNS or simply absent from the allow-list, so
   // surfacing them here cannot make them writable — buildRowCellEdits()
   // filters by the allow-list regardless of what this returns.
-  const ALL_CONTEXT_COLUMNS = ["Finish", "CoinID"];
+  // Finish USED to live here as read-only context. It is on the allow-list
+  // as of Phase 2 (see ALL_WRITABLE_COLUMNS), so listing it here too would
+  // just read the same column twice — CoinID is now the only genuine
+  // read-only-context column: the row's current catalog link, needed to
+  // reason about the row, never written through the general machinery (only
+  // ever through writeCoinIdCell()'s own narrow audited path).
+  const ALL_CONTEXT_COLUMNS = ["CoinID"];
 
   async function readAllRowWritableValues(rowNumber) {
     const map = await ensureAllHeaderMap();
@@ -5791,9 +5900,16 @@
   //
   // `nextValues` is a full map of writable-column -> desired value; only
   // the ones that actually differ from the live row are written.
-  async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot) {
-    if (!browseEditWriteEnabled()) {
-      return { ok: false, reason: "disabled", message: "Browse Edit's write layer is off (localhost-dev only for now)." };
+  // `opts.gate` lets a DIFFERENT feature's own flag authorize this write.
+  // Add Coin's promotion path passes addCoinWriteEnabled, so the two
+  // features stay independently enable-able — the standing rule in this
+  // file is that independently-flagged features must not be coupled, and
+  // hard-wiring this to browseEditWriteEnabled() would have meant Add
+  // Coin's promote silently requiring Browse Edit's flag to be on too.
+  async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot, opts) {
+    const gate = (opts && opts.gate) || browseEditWriteEnabled;
+    if (!gate()) {
+      return { ok: false, reason: "disabled", message: "This write layer is off (localhost-dev only for now)." };
     }
     let rowNumber, fresh;
     try {
@@ -5912,6 +6028,67 @@
     if (!idx) return; // column genuinely absent from this workbook — nothing to do
     const address = columnIndexToLetters(idx) + rowNumber;
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, [{ address, values: [[coinId]] }]);
+  }
+
+  // --- Phase 2: creating a NEW All-sheet row ---------------------------
+  // CollectionID and CoinID are both on ALL_NEVER_WRITE_COLUMNS, and that
+  // is correct for EDITING an existing row: they are the row's own keys,
+  // and no ordinary edit (Grade, Cost, Storage, ...) has any business
+  // touching them. A newly CREATED row is the one genuine exception — it
+  // has to be given its keys exactly once, at creation.
+  //
+  // Rather than loosen the allow-list (which would weaken the "an unlisted
+  // column has no code path to a general PATCH" guarantee for every other
+  // write in this layer), this follows writeCoinIdCell()'s established
+  // precedent: a separate, narrow, single-purpose, explicitly-audited path
+  // that bypasses the allow-list machinery entirely and can write nothing
+  // but these two specific columns. ALL_NEVER_WRITE_COLUMNS is untouched.
+  //
+  // coinId is written only when there IS one. A Force Add (see
+  // forceAddCoinDraft) deliberately passes "" — the row is created real and
+  // visible with its catalog link genuinely blank, to be filled in later by
+  // a Re-check through writeCoinIdCell(), with no re-entry of the coin's
+  // data. SetID is likewise simply never written here: a newly added coin
+  // is not part of a Set until something links it, and blank is the honest
+  // representation of that.
+  async function writeNewRowKeyCells(rowNumber, collectionId, coinId) {
+    const map = await ensureAllHeaderMap();
+    const edits = [];
+    if (map.CollectionID) {
+      edits.push({ address: columnIndexToLetters(map.CollectionID) + rowNumber, values: [[collectionId]] });
+    }
+    if (coinId && map.CoinID) {
+      edits.push({ address: columnIndexToLetters(map.CoinID) + rowNumber, values: [[coinId]] });
+    }
+    if (!edits.length) return;
+    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
+  }
+
+  // Appends a blank row, gives it its keys, then re-resolves its position by
+  // CollectionID and returns that.
+  //
+  // The re-resolve is deliberate rather than trusting arithmetic on the add
+  // response: Graph reports the new row's index relative to the table's data
+  // body, converting that to a sheet row means assuming where the table
+  // starts, and rule 1 of this whole layer is "a row is located by
+  // CollectionID at write time, never by a remembered/derived position."
+  // Honouring that rule here means the returned row number is verified to
+  // actually hold this CollectionID before a single data value is written
+  // to it.
+  //
+  // The provisional row number used for the key write itself is derived from
+  // the column length (array index i <-> sheet row i+1, the same mapping
+  // findAllSheetRowNumber() uses) — if that were ever wrong, the re-resolve
+  // below simply fails to find the id and the caller reports it, rather than
+  // writing a coin's data into some other coin's row.
+  async function createAllSheetRow(collectionId, coinId) {
+    const before = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    await graph().addTableRow(writePaths().workbook, ALL_TABLE_NAME);
+    const provisionalRow = before.length + 1; // new data cell lands at array index before.length
+    await writeNewRowKeyCells(provisionalRow, collectionId, coinId);
+    const verified = await findAllSheetRowNumber(collectionId);
+    if (!verified) throw new Error("Created a row for " + collectionId + " but couldn't find it again — nothing further written.");
+    return verified;
   }
 
   // A "no DB_Coins match for the edited identity" is the same situation
@@ -6565,6 +6742,15 @@
       // this draft's own folder (same convention as a Set draft's photos).
       photos: [],
       receiptPhoto: "",
+      // --- Phase 2 promotion state. Declared up front rather than left to
+      // undefined-is-falsy, so a draft's shape says plainly what the
+      // promotion path tracks: whether an All row exists for it yet,
+      // whether that row was created deliberately WITHOUT a catalog match
+      // (Force Add), and whether its photos have been relocated out of
+      // Staging. See promoteCoinDraftToAllSheet()/movePromotedCoinFiles().
+      allRowWritten: false,
+      forceAdded: false,
+      filesMovedOnPromotion: false,
       createdDate: new Date().toISOString(),
       updatedDate: new Date().toISOString()
     };
@@ -6625,6 +6811,169 @@
   async function deleteCoinDraft(collectionId) {
     await graph().deleteItem(coinDraftFolder(collectionId));
     return true;
+  }
+
+  // ==================================================================
+  // ADD COIN PHASE 2 — promoting a draft into the All sheet
+  // ==================================================================
+  // Phase 1 ended at "Ready for reconciliation": the app wrote a Staging
+  // draft and a human/Copilot moved it into All by hand. Live-device
+  // testing found the real consequence — a coin whose CoinID resolved
+  // cleanly still dead-ended there, with no in-app action that would ever
+  // write it. This is the write.
+  //
+  // Everything real lands through the EXISTING saveCoinRowToWorkbook()
+  // path, unchanged: append a genuinely blank row (addTableRow), give it
+  // its keys through the narrow writeNewRowKeyCells() path, then let the
+  // ordinary allow-list-filtered save populate it. Reading that function
+  // closely, it already handles creation correctly with no modification —
+  // detectRowConflicts() opens with `if (!snapshot) return []`, so a null
+  // snapshot against a fresh blank row skips conflict detection, counts
+  // every populated field as changed, and stamps Reviewed/LastModified,
+  // all of which is exactly right for an app-created row.
+
+  // Draft field -> All column. Only columns on ALL_WRITABLE_COLUMNS appear
+  // here; buildRowCellEdits() would filter anything else out regardless,
+  // but keeping the map honest means the two can't quietly disagree.
+  //
+  // KNOWN GAP, flagged rather than silently widened: the draft also
+  // captures `errorDesc`, and All has a real Error column (Browse detail's
+  // reverse flip face and Overview both read it), but Error is NOT on the
+  // allow-list — CLAUDE.md records it as "entry-time only, never
+  // persisted". Adding it is a one-line change to ALL_WRITABLE_COLUMNS
+  // plus one line here; deliberately NOT done unilaterally, since that
+  // decision is documented and the three columns added for Phase 2
+  // (Category/Finish/CACBean) were named explicitly.
+  function coinDraftToAllValues(draft) {
+    const v = {
+      Denomination: draft.denom || "",
+      Category: draft.category || "",
+      Year: draft.year || "",
+      MintMark: draft.mint || "",
+      Variety: draft.variety || "",
+      Description: draft.description || "",
+      Finish: draft.finish || "",
+      Designation: draft.designation || "",
+      Grade: draft.grade || "",
+      GradeSource: draft.gradeSource || "",
+      SerNo: draft.serNo || "",
+      CACBean: draft.cacBean || "",
+      StorageLocation: draft.storageLocation || "",
+      Container: draft.container || "",
+      Remarks: draft.remarks || "",
+      Seller_Link: draft.vendor || ""
+    };
+    // Numeric/date fields only when actually captured — writing 0 or a
+    // bogus serial for "not recorded" would be worse than leaving blank,
+    // and Total's own live formula reads Cost/Shipping directly.
+    if (draft.cost != null && draft.cost !== "") v.Cost = Number(draft.cost);
+    if (draft.shippingCost != null && draft.shippingCost !== "") v.Shipping = Number(draft.shippingCost);
+    if (draft.purchaseDate) v.PurchaseDate = excelSerialFromISODate(draft.purchaseDate);
+    return v;
+  }
+
+  // Photo relocation on promotion — the coin-draft counterpart of
+  // plannedPromotionMoves()/movePromotedSetFiles(), reusing that exact
+  // copy-then-verify-then-delete-original discipline rather than a second
+  // implementation: a failed or unverifiable copy always leaves the source
+  // intact and the draft unflagged, so the next run resumes cleanly.
+  //
+  // A draft's photo filenames are already namespaced by its real
+  // CollectionID (uploadCoinDraftPhotos() re-derives them against the
+  // reserved id at save time), so the destination is the filename verbatim
+  // under CoinPhotos — no renaming step, unlike the Set path which has to
+  // compose child ids.
+  function plannedCoinPromotionMoves(draft) {
+    const p = writePaths(), folder = coinDraftFolder(draft.collectionID), moves = [];
+    (draft.photos || []).forEach(name => {
+      if (name) moves.push({ src: folder + "/" + name, dest: p.coinPhotos + "/" + name });
+    });
+    if (draft.receiptPhoto) moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.receiptPhoto });
+    return moves;
+  }
+
+  async function movePromotedCoinFiles(draft) {
+    const moves = plannedCoinPromotionMoves(draft);
+    const results = [];
+    for (const m of moves) {
+      const destMeta = await graph().getItemMeta(m.dest);
+      const srcBytes = await graph().getFileBytes(m.src);
+      if (destMeta && srcBytes === null) { results.push({ ...m, ok: true, reason: "already moved" }); continue; }
+      if (srcBytes === null) { results.push({ ...m, ok: false, reason: "source missing" }); continue; }
+      await graph().uploadBytes(m.dest, srcBytes);       // copy
+      const verify = await graph().getItemMeta(m.dest);   // verify
+      if (!verify) { results.push({ ...m, ok: false, reason: "verify failed — source kept" }); continue; }
+      await graph().deleteItem(m.src);                    // delete original ONLY after a verified copy
+      results.push({ ...m, ok: true });
+    }
+    const allOk = results.every(r => r.ok);
+    if (allOk) { draft.filesMovedOnPromotion = true; await writeCoinDraft(draft); }
+    return { collectionID: draft.collectionID, moves: results, allOk };
+  }
+
+  // Launch-time retry, mirroring processPromotedSetDrafts(). The normal
+  // case doesn't need it — a coin's move runs immediately after its write,
+  // because unlike a Set (whose PROMOTED status is set externally) the app
+  // itself is what promotes a coin, so it knows the moment it happens. This
+  // exists so a move that failed or was interrupted mid-way resumes.
+  async function processPromotedCoinDrafts() {
+    const out = [];
+    if (!addCoinWriteEnabled()) return out;
+    let drafts;
+    try { drafts = await listCoinDrafts(); } catch (e) { return out; } // never let this break launch
+    for (const d of drafts) {
+      if (d.status === COIN_DRAFT_STATUS.PROMOTED && !d.filesMovedOnPromotion) {
+        try { out.push(await movePromotedCoinFiles(d)); } catch (e) { out.push({ collectionID: d.collectionID, error: String(e) }); }
+      }
+    }
+    return out;
+  }
+
+  // The write. `opts.force` is the Force Add path: create the row with a
+  // deliberately BLANK CoinID rather than refusing, so a coin with a real
+  // catalog gap can still be recorded and browsed, and have its CoinID
+  // attached later by a Re-check with no re-entry of the coin's data.
+  //
+  // Returns { ok, rowNumber, written, coinId } or { ok:false, reason, message }.
+  // Never throws for an expected outcome, same contract as
+  // saveCoinRowToWorkbook() itself.
+  async function promoteCoinDraftToAllSheet(collectionId, opts) {
+    const force = !!(opts && opts.force);
+    if (!addCoinWriteEnabled()) {
+      return { ok: false, reason: "disabled", message: "Add Coin's write layer is off (localhost-dev only for now)." };
+    }
+    let draft;
+    try {
+      draft = await readCoinDraft(collectionId);
+    } catch (e) {
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+    if (!draft) return { ok: false, reason: "not-found", message: "Coin draft not found: " + collectionId };
+    if (!force && !draft.coinId) {
+      // Promote is only ever offered on a matched draft; this is the belt
+      // for a stale UI or a direct call, not a path the user can reach.
+      return { ok: false, reason: "no-match", message: collectionId + " has no CoinID yet — use Re-check, or Force Add to write it unlinked." };
+    }
+
+    // Already on the sheet? Then this draft was force-added earlier and is
+    // being promoted properly now — reuse the existing row rather than
+    // creating a duplicate.
+    let rowNumber;
+    try {
+      rowNumber = await findAllSheetRowNumber(collectionId);
+      if (!rowNumber) rowNumber = await createAllSheetRow(collectionId, force ? "" : (draft.coinId || ""));
+      else if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); // fill the key a Force Add left blank
+    } catch (e) {
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+
+    // snapshot === null: a fresh blank row has nothing to conflict with, so
+    // detectRowConflicts() short-circuits and every populated field counts
+    // as changed. See this section's own header comment.
+    const result = await saveCoinRowToWorkbook(collectionId, coinDraftToAllValues(draft), null, { gate: addCoinWriteEnabled });
+    if (!result.ok) return result;
+
+    return { ok: true, rowNumber: result.rowNumber || rowNumber, written: result.written, coinId: force ? "" : (draft.coinId || ""), draft };
   }
 
   // ==================================================================
@@ -8805,16 +9154,25 @@
   function wrapTextToTwoLines(text, measureEl) {
     const words = text.trim().split(/\s+/);
     if (words.length <= 1) return [text];
-    let line1 = words[0];
-    let i = 1;
-    for (; i < words.length; i++) {
-      const candidate = line1 + " " + words[i];
-      measureEl.textContent = candidate;
-      if (measureEl.scrollWidth > measureEl.clientWidth) break;
-      line1 = candidate;
+    const widthOf = (s) => { measureEl.textContent = s; return measureEl.scrollWidth; };
+    // BALANCED, not greedy. A greedy fill ("pack line 1, dump the rest on
+    // line 2") is fine when the text only just overflows, but badly lopsided
+    // when it overflows a lot: "Martha Washington First Spouse Gold $10"
+    // greedily became "Martha" / "Washington First Spouse Gold $10", whose
+    // second line is nearly as wide as the unwrapped original — so wrapping
+    // bought almost nothing, and the corner still had to shrink to a tiny
+    // size to clear the coin. Picking the split that MINIMISES the wider of
+    // the two lines makes both as short as they can be, which is what
+    // actually earns back font size. Measured per candidate split rather
+    // than estimated from character counts, same as every other fit
+    // decision in this corner system.
+    let best = null;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(" "), b = words.slice(i).join(" ");
+      const widest = Math.max(widthOf(a), widthOf(b));
+      if (!best || widest < best.widest) best = { widest, lines: [a, b] };
     }
-    const line2 = words.slice(i).join(" ");
-    return line2 ? [line1, line2] : [line1];
+    return best ? best.lines : [text];
   }
 
   // Type name (top line[s] of the TR stack). Graceful degradation, never
@@ -8848,17 +9206,27 @@
   function renderTypeDenomCorner(el, coin) {
     const type = seriesLabel(coin);
     const denom = coin.denom || "";
-    let stillOverflowing = false;
-    shrinkCornerToFit(el, () => {
-      renderCornerLines(el, [type, denom]);
-      const typeLine = el.querySelector(".corner-line");
-      stillOverflowing = !!typeLine && typeLine.scrollWidth > typeLine.clientWidth;
-    });
-    if (stillOverflowing) {
-      const typeLine = el.querySelector(".corner-line");
-      const wrapped = wrapTextToTwoLines(type, typeLine);
-      if (wrapped.length === 2) renderCornerLines(el, wrapped.concat(denom ? [denom] : []));
+    const renderSingle = () => renderCornerLines(el, [type, denom]);
+    // Pass 1: shrink, but only as far as still-comfortable.
+    shrinkCornerToFit(el, renderSingle, { minFraction: CORNER_COMFORTABLE_FRACTION });
+    if (cornerFits(el)) return;
+    // Pass 2: wrap the type across two real lines, then re-shrink THAT
+    // layout from natural size. Wrapping changes both the width and the
+    // height of what has to clear the coin, so the size that fits
+    // afterwards is a different question — and usually a kinder one, since
+    // two shorter lines sit at a larger font than one long line ever could.
+    const typeLine = el.querySelector(".corner-line");
+    const wrapped = typeLine ? wrapTextToTwoLines(type, typeLine) : [type];
+    if (wrapped.length === 2) {
+      shrinkCornerToFit(el, () => renderCornerLines(el, wrapped.concat(denom ? [denom] : [])));
+      if (cornerFits(el)) return;
     }
+    // Pass 3: nothing to wrap (a one-word type), or wrapping still didn't
+    // clear — run the full shrink range on the single-line layout, which
+    // may well fit at a size pass 1 was not allowed to reach. Ending here
+    // without fitting is the accepted floor, same posture as every other
+    // "shrunk as far as it goes" case in this file.
+    shrinkCornerToFit(el, renderSingle);
   }
 
   // Splits a free-typed All.Error string into its Obverse/Reverse halves
@@ -8905,21 +9273,17 @@
   function renderErrorCornerText(el, text, allowWide) {
     el.classList.toggle("corner-wide", !!allowWide);
     if (!text) { el.style.fontSize = ""; el.innerHTML = ""; return; }
-    let stillOverflowing = false;
-    shrinkCornerToFit(el, () => {
-      renderCornerLines(el, [text]);
-      const line = el.querySelector(".corner-line");
-      stillOverflowing = !!line && line.scrollWidth > line.clientWidth;
-    });
-    if (stillOverflowing) {
-      const line = el.querySelector(".corner-line");
-      const wrapped = wrapTextToTwoLines(text, line);
-      if (wrapped.length === 2) renderCornerLines(el, wrapped);
-      // else: a single unbreakable "word" — left at the smallest shrink
-      // step as the best available fit, same accepted-gap posture as
-      // every other corner's own smallest-step floor elsewhere in this
-      // file.
+    // Same three-pass shape as renderTypeDenomCorner() — see its comments.
+    const renderSingle = () => renderCornerLines(el, [text]);
+    shrinkCornerToFit(el, renderSingle, { minFraction: CORNER_COMFORTABLE_FRACTION });
+    if (cornerFits(el)) return;
+    const line = el.querySelector(".corner-line");
+    const wrapped = line ? wrapTextToTwoLines(text, line) : [text];
+    if (wrapped.length === 2) {
+      shrinkCornerToFit(el, () => renderCornerLines(el, wrapped));
+      if (cornerFits(el)) return;
     }
+    shrinkCornerToFit(el, renderSingle);
   }
 
   // Reverse face — deliberately its own distinct content, never a repeat of
@@ -9350,6 +9714,49 @@
     return FAKE_METAL_CONTENT[coin.id] || {};
   }
 
+  // Derives a MetalCategory bucket from a Composition STRING, for the case
+  // where the primary join has nothing to say.
+  //
+  // Live-device finding (item 4): a newly-added Silver dime showed under
+  // "Dimes" but vanished under "Dimes + Silver", while its own flip card
+  // correctly read "90% Silver". Not a stale cache — two DIFFERENT joins.
+  // metalCategory comes from a four-hop chain (All.CoinID -> DB_Coins.CoinID
+  // -> DB_Coins.MetalContentType -> Lookup_MetalContent.CoinType ->
+  // MetalCategory); composition comes from a two-hop one (All.CoinID ->
+  // DB_Coins.Composition). That coin's Composition was populated and its
+  // MetalContentType was not, so the filter saw a blank category (bucketed
+  // as "Other") while the card saw real silver.
+  //
+  // The workbook-side fix is to populate MetalContentType, but the app
+  // should not silently disagree with itself in the meantime: when the real
+  // join yields nothing and a composition string IS present, bucket from
+  // that instead, so the filter always agrees with what the coin visibly
+  // says it is made of.
+  //
+  // Order matters — "Copper-Nickel Clad" must land on Clad, not Copper, so
+  // the compound terms are tested before the single-metal ones. Anything
+  // unrecognised returns "" and keeps its existing "Other" behaviour.
+  const COMPOSITION_CATEGORY_RULES = [
+    { category: "Clad",     match: ["CLAD"] },
+    { category: "Platinum", match: ["PLATINUM"] },
+    { category: "Gold",     match: ["GOLD"] },
+    { category: "Silver",   match: ["SILVER"] },
+    { category: "Zinc",     match: ["ZINC"] },
+    // Bronze and Brass are copper alloys; the real Lookup_MetalContent
+    // buckets them under Copper, so matching the same way keeps a derived
+    // category consistent with a joined one rather than inventing a
+    // different answer for the same coin.
+    { category: "Copper",   match: ["COPPER", "BRONZE", "BRASS"] }
+  ];
+  function metalCategoryFromComposition(composition) {
+    const s = normField(composition || "");
+    if (!s) return "";
+    for (const rule of COMPOSITION_CATEGORY_RULES) {
+      if (rule.match.some(term => s.indexOf(term) !== -1)) return rule.category;
+    }
+    return "";
+  }
+
   function metalCategoryFor(coin) {
     // A live-nav-data coin (see ensureLiveNavDataFetch) carries its own real
     // metalCategory, computed via the All.CoinID -> DB_Coins.CoinID ->
@@ -9357,6 +9764,16 @@
     // — that always wins over the sparse FAKE_METAL_CONTENT mockup lookup,
     // which only ever applies to demo FAKE_COINS rows (no real coin object
     // ever has this property set).
+    if (coin.metalCategory) return coin.metalCategory;
+    // Blank/absent primary join: fall back to deriving from the coin's own
+    // composition string before giving up (item 4 — see
+    // metalCategoryFromComposition()). compositionForCoin() already covers
+    // both the live DB_Coins join and the FAKE_METAL_CONTENT mockup, so
+    // this one call serves real and demo rows alike.
+    const derived = metalCategoryFromComposition(compositionForCoin(coin));
+    if (derived) return derived;
+    // A live coin carries metalCategory (possibly "") from the real join;
+    // only a demo row falls through to the mockup lookup here.
     if (coin.metalCategory !== undefined && coin.metalCategory !== null) return coin.metalCategory;
     return metalContentFor(coin).metalCategory || "";
   }
@@ -9535,14 +9952,77 @@
   // measurement-dependent logic (Composition's single-line fallback text-
   // reduction; TR's own line-wrap decision) that has to re-evaluate against
   // whatever width the box now measures at that size.
-  const CORNER_SHRINK_STEPS = [1, 0.82, 0.67]; // fractions of the corner's own natural size
-  function shrinkCornerToFit(el, renderFn) {
+  // Does this corner's rendered text clear the coin graphic?
+  //
+  // Live-device finding (item 3, AY-00463-B): the shrink-then-wrap fallback
+  // worked — a First Spouse name did shrink, then wrap rather than truncate
+  // — but the wrapped lines still sat ON the coin. Reproduced here and it
+  // was worse than reported: BOTH the second and third lines intersected
+  // the disc (91px and 72px from its centre against a 105px radius).
+  //
+  // Root cause is that nothing ever checked. The fit test asked only "does
+  // the text fit its own box"; the box is anchored 10px from the frame's
+  // corner and grows DOWNWARD as lines are added, straight into the disc's
+  // band, and no amount of "does it fit its box" can see that. So the fix
+  // is the predicate, not the spacing: measure each rendered line against
+  // the disc's actual circle.
+  //
+  // Nearest-point-to-centre against the radius, per line — the disc is a
+  // circle, so a plain box-intersection test against its bounding square
+  // would report the corners as hits when the circle curves well away from
+  // them there, which is exactly where corner labels live.
+  //
+  // Returns true (clears) when there's no disc to measure against, so any
+  // caller rendering into a frame without one behaves exactly as before.
+  function cornerClearsDisc(el) {
+    const frame = el.closest(".flip-frame");
+    const disc = frame && frame.querySelector(".coin-disc");
+    if (!disc) return true;
+    const d = disc.getBoundingClientRect();
+    if (!d.width) return true; // not laid out (display:none subtree) — nothing meaningful to test
+    const cx = d.left + d.width / 2, cy = d.top + d.height / 2, radius = d.width / 2;
+    const boxes = el.querySelectorAll(".corner-line");
+    const rects = boxes.length ? [...boxes].map(b => b.getBoundingClientRect()) : [el.getBoundingClientRect()];
+    return rects.every(r => {
+      if (!r.width || !r.height) return true;
+      const nx = Math.max(r.left, Math.min(cx, r.right));
+      const ny = Math.max(r.top, Math.min(cy, r.bottom));
+      return Math.hypot(nx - cx, ny - cy) >= radius;
+    });
+  }
+
+  // A corner FITS when its text fits its own box AND that text clears the
+  // coin graphic. The second half is new (item 3) and is what the previous
+  // rounds were missing entirely.
+  function cornerFits(el) {
+    return el.scrollWidth <= el.clientWidth && cornerClearsDisc(el);
+  }
+
+  // Fractions of the corner's own natural size. The two smallest steps were
+  // added for item 3: with disc clearance now part of the test, a 3-line
+  // corner genuinely needs to get smaller than the old 0.67 floor before it
+  // stops sitting on the coin. Measured, not guessed — see the committed
+  // suite's own assertions for the real First Spouse and ATB-quarter cases.
+  const CORNER_SHRINK_STEPS = [1, 0.82, 0.67, 0.56, 0.48];
+  // How far a corner may shrink BEFORE wrapping is preferred instead.
+  // Shrinking is the gentler fix — it changes nothing structurally — but
+  // only while the result stays comfortably readable. Past this, two
+  // shorter lines at a larger size beat one long line at a tiny one, which
+  // is the whole reason the wrap fallback exists. Callers with nothing to
+  // wrap (a single-word value) simply run the full range instead.
+  const CORNER_COMFORTABLE_FRACTION = 0.82;
+  // `opts.minFraction` caps how small a given pass is allowed to go, so a
+  // caller can ask "fit this comfortably or tell me you couldn't" and then
+  // try something structurally different (wrapping) before conceding.
+  function shrinkCornerToFit(el, renderFn, opts) {
+    const floor = (opts && opts.minFraction) || 0;
     el.style.fontSize = "";
     const naturalSize = parseFloat(getComputedStyle(el).fontSize);
     for (let i = 0; i < CORNER_SHRINK_STEPS.length; i++) {
+      if (CORNER_SHRINK_STEPS[i] < floor) break;
       if (i > 0) el.style.fontSize = (naturalSize * CORNER_SHRINK_STEPS[i]) + "px";
       renderFn();
-      if (el.scrollWidth <= el.clientWidth) return;
+      if (cornerFits(el)) return;
     }
     // Still doesn't fit at the smallest step — leave the last rendering as
     // it is rather than shrinking indefinitely; a known, accepted gap for
@@ -13733,8 +14213,17 @@
     if (addCoinWriteEnabled()) {
       try { LIVE_COIN_DRAFTS = await listCoinDrafts(); } catch (e) { /* degrade to none, same as Sets above */ }
       const all = LIVE_COIN_DRAFTS || [];
-      stagedCoins = all.filter(d => d.status === COIN_DRAFT_STATUS.DRAFT);
-      stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY);
+      // Phase 2 (Q4, Ray's model): where a READY draft is listed derives
+      // from whether it actually has a catalog match, not from a second
+      // status value — no new enum, no migration.
+      //   READY + CoinID    -> stays in STAGING with Promote available
+      //                        right there, no detour through research.
+      //   READY, no CoinID  -> RESEARCH, where it can be re-checked,
+      //                        force-added, or dismissed.
+      // A PROMOTED draft is finished and is listed nowhere.
+      stagedCoins = all.filter(d => d.status === COIN_DRAFT_STATUS.DRAFT ||
+        (d.status === COIN_DRAFT_STATUS.READY && d.coinId));
+      stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY && !d.coinId);
     }
 
     // Every in-Staging coin gets its OWN row now, not a single aggregate
@@ -13774,13 +14263,21 @@
       // own line, same spot Staging Review's own row list shows it.
       const researchNoteHtml = (!resolved && c.researchNote)
         ? `<div class="wish-notes staging-pending-flag">${escapeHtmlText(c.researchNote)}</div>` : "";
+      // Phase 2: a draft already marked ready AND carrying a resolved
+      // CoinID has nothing left to decide — it is writable now, so Promote
+      // is offered on the row itself rather than sending the user off to
+      // Staging Review to find it.
+      const readyToPromote = c.status === COIN_DRAFT_STATUS.READY && !!c.coinId && !!c.collectionID;
       stagingRows.push({
-        html: `<div class="wish-desc">${label}</div><div class="wish-notes">${note}</div>${researchNoteHtml}`,
+        html: `<div class="wish-desc">${label}</div><div class="wish-notes">${
+          readyToPromote ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — ready to write to the All sheet" : note
+        }</div>${researchNoteHtml}`,
         onClick: () => navigate("staging"),
         // Re-check only where there's actually something unresolved to
         // re-check, and only on a real durable draft (a mock row has
         // nothing to write a resolved CoinID back to).
-        onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null
+        onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null,
+        onPromote: readyToPromote ? () => promoteCoinDraft(c.collectionID) : null
       });
     });
 
@@ -13845,10 +14342,26 @@
     // Drafts already marked ready: nothing left for Ray to decide, they're
     // waiting on Copilot to move the row into All (Phase 1 has no in-app
     // promotion — see the ENABLE_ADDCOIN_WRITE flag comment).
+    // Marked ready but with NO catalog match — the genuine research case.
+    // Phase 2 gives this card real actions instead of leaving it a bare
+    // informational row: Re-check to close the gap once the catalog row
+    // appears, Force Add to record the coin now with a blank CoinID, and
+    // (once force-added) Dismiss to stop being reminded.
     stagedHandedOff.forEach(d => {
       const yearMint = d.year + (d.mint ? "-" + d.mint : "");
       const label = yearMint + " · " + (d.description || d.denom) + (d.variety ? " · " + d.variety : "");
-      researchRows.push({ html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">Ready for reconciliation — waiting on the All-sheet row</div>`, kind: "handoff" });
+      const note = d.forceAdded
+        ? "Written to the All sheet with no CoinID — still needs a catalog match"
+        : "No DB_Coins match — research the catalog gap, or add it without a match";
+      researchRows.push({
+        html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div>`,
+        kind: "handoff",
+        onRecheck: () => recheckCoinDraftMatch(d),
+        // Force Add only while the row doesn't exist yet; once it does,
+        // Dismiss is what closes the card instead.
+        onForceAdd: d.forceAdded ? null : () => confirmForceAddCoinDraft(d.collectionID),
+        onDismiss: d.forceAdded ? () => promptDismissForceAdded(d.collectionID) : null
+      });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
     // directly — durable Staging file when ENABLE_DOCKET_WRITE is on, the
@@ -13905,9 +14418,11 @@
         const row = document.createElement("div");
         row.className = "case wish-item";
         row.style.cursor = r.onClick ? "pointer" : "default";
-        const actions = (r.onRecheck || r.onDismiss)
+        const actions = (r.onRecheck || r.onDismiss || r.onPromote || r.onForceAdd)
           ? `<div class="docket-row-actions">` +
+              (r.onPromote ? `<button type="button" class="staging-btn promote docket-promote">Promote</button>` : "") +
               (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
+              (r.onForceAdd ? `<button type="button" class="staging-btn docket-forceadd">Force Add</button>` : "") +
               (r.onDismiss ? `<button type="button" class="staging-btn reject docket-dismiss">Dismiss</button>` : "") +
             `</div>`
           : "";
@@ -13925,7 +14440,9 @@
         if (r.onClick) row.addEventListener("click", r.onClick);
         // stopPropagation so an action button inside a tappable row can't
         // also trigger the row's own navigation.
+        if (r.onPromote) row.querySelector(".docket-promote").addEventListener("click", (e) => { e.stopPropagation(); r.onPromote(); });
         if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
+        if (r.onForceAdd) row.querySelector(".docket-forceadd").addEventListener("click", (e) => { e.stopPropagation(); r.onForceAdd(); });
         if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
         container.appendChild(row);
       });
@@ -14097,9 +14614,18 @@
       // an easy, ordinary mistake (nothing gates it), so undoing it needs to
       // be non-destructive. Reject remains available for when the draft
       // itself is genuinely wrong, not just prematurely marked.
-      const primaryBtnHtml = alreadyReady
-        ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
-        : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
+      // Phase 2: a draft that's marked ready AND has a resolved CoinID is
+      // writable now — Promote is offered right here, which is where Mark
+      // ready was pressed, rather than sending the user somewhere else to
+      // find it. Revert stays available alongside it (marking ready a beat
+      // too early is still an ordinary mistake) as a secondary action.
+      const readyToPromote = alreadyReady && !!row.coinId;
+      const primaryBtnHtml = readyToPromote
+        ? '<button class="staging-btn promote staging-promote-row">Promote</button>' +
+          '<button class="staging-btn staging-revert">Revert to Draft</button>'
+        : alreadyReady
+          ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
+          : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
       const pendingNoteHtml = pendingCoinId
         ? '<div class="wish-notes staging-pending-flag">⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.</div>' +
           // researchNote lists every captured-but-unresolved ID (Mint Item
@@ -14135,7 +14661,10 @@
           recheckBtnHtml +
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
-      if (alreadyReady) {
+      if (readyToPromote) {
+        item.querySelector(".staging-promote-row").addEventListener("click", () => promoteCoinDraft(row.id));
+        item.querySelector(".staging-revert").addEventListener("click", () => revertStagedCoinToDraft(row.id));
+      } else if (alreadyReady) {
         item.querySelector(".promote").addEventListener("click", () => revertStagedCoinToDraft(row.id));
       } else {
         item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
@@ -14239,6 +14768,147 @@
     } catch (e) {
       console.error("Couldn't mark draft ready:", e);
       showToast("Couldn't update " + collectionId + ": " + String(e && e.message || e));
+    }
+  }
+
+  // --- Phase 2 user actions: Promote / Force Add / Dismiss -------------
+  // Shared tail for both write paths: mark the draft, move its photos, and
+  // get the newly-written row in front of the user without a reload.
+  async function finishCoinDraftWrite(draft, opts) {
+    const fresh = await readCoinDraft(draft.collectionID) || draft;
+    Object.assign(fresh, opts.patch);
+    await writeCoinDraft(fresh);
+    // Photos move immediately rather than waiting for the next launch —
+    // the app itself is what promoted this coin, so it knows now. A
+    // failure here leaves the sources intact and filesMovedOnPromotion
+    // unset, so processPromotedCoinDrafts() resumes it at next launch.
+    if (opts.movePhotos) {
+      try { await movePromotedCoinFiles(fresh); }
+      catch (e) { console.warn("Photo move after promotion failed — will retry at next launch:", e); }
+    }
+    // A just-written row isn't in LIVE_COINS (fetched once per session), so
+    // without this the coin is invisible in Catalog until a reload — and
+    // its Metal/Denomination filters would be equally blind to it. Same
+    // staleness class as item 4's filter bug, fixed at the source.
+    await refreshLiveCoinsAfterWrite();
+    await refreshCoinDraftCache();
+    renderNeedsAttentionHub();
+    if (document.getElementById("view-staging").classList.contains("active")) await renderStagingList();
+  }
+
+  // Promote: the real end-to-end write for a coin whose CoinID resolved
+  // cleanly. The draft becomes PROMOTED — note this is the app setting
+  // PROMOTED ITSELF, a deliberate divergence from the Set-side rule that
+  // only external reconciliation may set it. That rule exists because the
+  // app never wrote a Set's row; here the app IS what wrote the row, so it
+  // is the only thing that can honestly report the promotion happened.
+  async function promoteCoinDraft(collectionId) {
+    const result = await promoteCoinDraftToAllSheet(collectionId);
+    if (!result.ok) {
+      showToast("Couldn't promote " + collectionId + ": " + (result.message || result.reason));
+      return false;
+    }
+    await finishCoinDraftWrite(result.draft, {
+      patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: new Date().toISOString().slice(0, 10) },
+      movePhotos: true
+    });
+    showToast(collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
+      (result.coinId || "(no CoinID)") + ".");
+    return true;
+  }
+
+  // Force Add: write the coin's captured information with the CoinID (and
+  // SetID) left genuinely blank, for a coin whose catalog gap is real and
+  // may stay unresolved for a while. Deliberately does NOT clear the card —
+  // status stays READY and `forceAdded` marks it, so it keeps showing in
+  // Awaiting Research as "written, still needs a catalog match" until the
+  // user either resolves it via Re-check or explicitly Dismisses it.
+  async function forceAddCoinDraft(collectionId) {
+    const result = await promoteCoinDraftToAllSheet(collectionId, { force: true });
+    if (!result.ok) {
+      showToast("Couldn't add " + collectionId + ": " + (result.message || result.reason));
+      return false;
+    }
+    await finishCoinDraftWrite(result.draft, {
+      patch: { forceAdded: true, allRowWritten: true, forceAddedDate: new Date().toISOString().slice(0, 10) },
+      movePhotos: true
+    });
+    showToast(collectionId + " added to the All sheet (row " + result.rowNumber +
+      ") with no CoinID — still listed under research until a catalog match is found.");
+    return true;
+  }
+
+  function confirmForceAddCoinDraft(collectionId) {
+    showWriteGuard({
+      title: "Add without a catalog match",
+      bodyHtml:
+        "<p style=\"margin:0 0 10px;\">This writes <strong>" + escapeHtmlText(collectionId) +
+          "</strong> to the All sheet now, with its <strong>CoinID left blank</strong>.</p>" +
+        "<p style=\"margin:0 0 10px;\">The coin becomes real and browsable straight away, but stays " +
+          "listed here as needing a catalog match — Re-check can attach a CoinID later without re-entering anything.</p>" +
+        "<p style=\"margin:0;\">Photos move out of Staging as part of this.</p>",
+      buttons: [
+        { label: "Cancel" },
+        { label: "Force Add", primary: true, onClick: () => forceAddCoinDraft(collectionId) }
+      ]
+    });
+  }
+
+  // Dismiss: the user accepting that a force-added coin's catalog gap isn't
+  // going to close for now. Requires a reason, on exactly the same
+  // reasoning promptDocketDismiss() already enforces for the Docket queue —
+  // someone reading this later needs to be able to tell WHY a real catalog
+  // gap was closed unresolved, which a bare flag wouldn't convey. Status
+  // becomes PROMOTED because that is simply true at this point: the row is
+  // on the sheet. The reason rides along on the draft as the audit trail.
+  function promptDismissForceAdded(collectionId) {
+    showWriteGuard({
+      title: "Dismiss without a catalog match",
+      bodyHtml:
+        "<p style=\"margin:0 0 10px;\"><strong>" + escapeHtmlText(collectionId) +
+          "</strong> is already on the All sheet; this only stops it being listed here.</p>" +
+        "<label style=\"display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;\">Reason (required)</label>" +
+        "<input type=\"text\" id=\"forceAddDismissReason\" placeholder=\"e.g. new variety, catalog row not expected\" " +
+          "style=\"width:100%; box-sizing:border-box;\">" +
+        "<p class=\"placeholder-note\" id=\"forceAddDismissError\" style=\"display:none; color:var(--danger); margin:6px 0 0;\">" +
+          "A reason is required.</p>",
+      buttons: [
+        { label: "Cancel" },
+        {
+          label: "Dismiss", primary: true,
+          // keepOpenUnless takes no argument (it runs BEFORE collect) — it
+          // reads the input directly, same as promptDocketDismiss()'s own.
+          keepOpenUnless: () => {
+            const el = document.getElementById("forceAddDismissReason");
+            return !!(el && el.value.trim());
+          },
+          collect: () => {
+            const el = document.getElementById("forceAddDismissReason");
+            return el ? el.value.trim() : "";
+          },
+          onInvalid: () => { const e = document.getElementById("forceAddDismissError"); if (e) e.style.display = "block"; },
+          onClick: (reason) => dismissForceAddedDraft(collectionId, String(reason).trim())
+        }
+      ]
+    });
+  }
+
+  async function dismissForceAddedDraft(collectionId, reason) {
+    try {
+      const draft = await readCoinDraft(collectionId);
+      if (!draft) throw new Error("Coin draft not found: " + collectionId);
+      await finishCoinDraftWrite(draft, {
+        patch: {
+          status: COIN_DRAFT_STATUS.PROMOTED,
+          dismissedReason: reason,
+          dismissedDate: new Date().toISOString().slice(0, 10)
+        },
+        movePhotos: false // already moved at Force Add time
+      });
+      showToast(collectionId + " dismissed — it stays on the All sheet with no CoinID. Reason recorded.");
+    } catch (e) {
+      console.error("Couldn't dismiss force-added draft:", e);
+      showToast("Couldn't dismiss " + collectionId + ": " + String(e && e.message || e));
     }
   }
 
@@ -14355,8 +15025,35 @@
       if (!fresh) throw new Error("Coin draft not found: " + draft.collectionID);
       fresh.coinId = row.coinId || "";
       fresh.matchedHow = "recheck";
+      let wroteCell = false;
+      // A FORCE-ADDED coin already has a real All row, created deliberately
+      // with a blank CoinID. Resolving its catalog gap has to reach that
+      // row, not just the draft JSON — otherwise the sheet keeps an
+      // unlinked row forever and the whole point of Force Add ("attach the
+      // CoinID later without re-entering the coin") never lands.
+      //
+      // Reuses writeCoinIdCell(), the same narrow audited CoinID path
+      // Browse Edit's re-link and the Docket's own resolution already use —
+      // no new write surface. A draft that has NOT been written yet has no
+      // row to reach, which is the ordinary case and correctly a no-op:
+      // its CoinID travels into All later, through Promote.
+      if (fresh.allRowWritten && addCoinWriteEnabled()) {
+        const rowNumber = await findAllSheetRowNumber(fresh.collectionID);
+        if (rowNumber) { await writeCoinIdCell(rowNumber, fresh.coinId); wroteCell = true; }
+      }
+      // Once its catalog gap is closed there is nothing left for research
+      // to do, so a resolved force-added coin stops being listed. The row
+      // is on the sheet and now correctly linked — that is a completed
+      // promotion in every sense, so it is recorded as one.
+      if (wroteCell) {
+        fresh.forceAdded = false;
+        fresh.status = COIN_DRAFT_STATUS.PROMOTED;
+        fresh.promotedDate = new Date().toISOString().slice(0, 10);
+      }
       await writeCoinDraft(fresh);
-      showToast(draft.collectionID + " linked to " + (row.coinId || "(no CoinID)") + " — ready to mark for promotion.");
+      showToast(draft.collectionID + " linked to " + (row.coinId || "(no CoinID)") +
+        (wroteCell ? " — CoinID written to its All-sheet row." : " — ready to mark for promotion."));
+      if (wroteCell) await refreshLiveCoinsAfterWrite();
     } catch (e) {
       console.error("Couldn't write the re-checked CoinID:", e);
       showToast("Couldn't update " + draft.collectionID + ": " + String(e && e.message || e));
@@ -19313,6 +20010,10 @@
   // guarded — with the write layer disabled it catches and no-ops, so it can
   // never break launch or fire an auth redirect on the live site.
   processPromotedSetDrafts().catch(() => {});
+  // Coin-side equivalent — resumes a photo move that failed or was
+  // interrupted after a promotion write. A no-op unless ENABLE_ADDCOIN_WRITE
+  // is on and something is genuinely mid-move.
+  processPromotedCoinDrafts().catch(() => {});
 </script>
 
 </body>

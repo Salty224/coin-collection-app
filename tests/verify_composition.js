@@ -449,13 +449,21 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
     const naturalSize = () => { br.style.fontSize = ""; return parseFloat(getComputedStyle(br).fontSize); };
     const base = naturalSize();
 
-    // Every realistic single-metal composition now fits at the CORNER'S OWN
-    // natural size (27px) once stacked — no shrink needed at all. This is
-    // the actual, measured reason the blanket 22px rule became removable.
+    // Most realistic single-metal compositions fit at the corner's OWN
+    // natural size (27px) once stacked — the measured reason the blanket
+    // 22px rule became removable.
+    //
+    // "99.95% Platinum" is the deliberate exception now, and it is a real
+    // fix rather than a regression: measured directly, its "99.95%" line at
+    // 27px sits 94.1px from the disc's centre against a 105px radius — it
+    // genuinely overlapped the coin. Before disc clearance was part of the
+    // fit test (item 3) nothing could see that, so it "fit" while sitting on
+    // the graphic. It now steps down one notch and clears.
     const noShrinkNeeded = [];
     ["90% Silver", ".9995 Fine Palladium", "99.95% Platinum", "40% Silver"].forEach(t => {
       setCompositionCornerText(br, t);
-      noShrinkNeeded.push({ input: t, size: getComputedStyle(br).fontSize, fits: br.scrollWidth <= br.clientWidth });
+      noShrinkNeeded.push({ input: t, size: getComputedStyle(br).fontSize,
+        fits: br.scrollWidth <= br.clientWidth, clears: cornerClearsDisc(br) });
     });
 
     // A genuinely extreme value (both stack candidates still too wide) DOES
@@ -480,8 +488,10 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
     return { base, noShrinkNeeded, extreme, afterExtreme, afterShortAgain, miniNatural };
   });
   ok(P.base === 27, "P1 the full flip-frame's BR corner has NO font-size override at rest — its natural size is the shared 27px every other corner uses");
-  ok(P.noShrinkNeeded.every(x => x.size === "27px" && x.fits),
-    "P2 every realistic single-metal composition fits at that full natural size — no shrink applied: " + JSON.stringify(P.noShrinkNeeded));
+  ok(P.noShrinkNeeded.every(x => x.fits && x.clears),
+    "P2 every realistic single-metal composition both fits its box AND clears the coin graphic: " + JSON.stringify(P.noShrinkNeeded));
+  ok(P.noShrinkNeeded.filter(x => x.size === "27px").length === 3,
+    "P2b -- three of the four need no shrink at all; only the one that genuinely overlapped the disc steps down");
   ok(P.extreme.smallerThanBase, "P3 a genuinely extreme composition DOES get shrunk, per-instance, only when its own text actually needs it");
   ok(P.afterExtreme !== P.afterShortAgain, "P4 -- and reset correctly: the SAME reused DOM element returns to full size for the next coin, not stuck at the previous coin's shrink");
   ok(P.afterShortAgain === "27px", "P4b -- specifically back to 27px, not some other stale value");
@@ -523,8 +533,9 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
 
     return { firstSpouse, atb, lincolnMemorial, baseline };
   });
-  ok(Q.firstSpouse.lines.length === 3 && Q.firstSpouse.lines.join(" ").includes("Martha Washington") &&
-     Q.firstSpouse.lines.join(" ").includes("First Spouse Gold $10") && Q.firstSpouse.lines[2] === "$10",
+  ok(Q.firstSpouse.lines.length === 3 &&
+     Q.firstSpouse.lines.slice(0, 2).join(" ") === "Martha Washington First Spouse Gold $10" &&
+     Q.firstSpouse.lines[2] === "$10",
     "Q1 First Spouse (no suffix strips at all): full identity preserved across wrapped lines, never truncated to just \"$10\" — " + JSON.stringify(Q.firstSpouse.lines));
   ok(Q.firstSpouse.fits, "Q2 -- and the rendered box actually fits (no overflow) at whatever size it landed on: " + Q.firstSpouse.size);
   ok(Q.atb.lines.length === 3 && Q.atb.lines[0] + " " + Q.atb.lines[1] === "Washington Crossing the Delaware" && Q.atb.lines[2] === "25C",

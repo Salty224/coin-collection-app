@@ -349,7 +349,13 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   // the label line rather than glued onto "ready for reconciliation" in the
   // notes line -- both moved, so check for the id and the status text
   // separately rather than as one contiguous phrase.
-  ok(G.text.includes("AY-00902") && /Ready for reconciliation/.test(G.text), "G2 a handed-off draft shows as waiting on reconciliation");
+  // Phase 2: a marked-ready draft with no catalog match is a real research
+  // item with real actions, not a bare "waiting on reconciliation" line.
+  // Following the design change — the row is still asserted to be in
+  // Research and still identified by its CollectionID; only the claim about
+  // what it SAYS moved, because what it says stopped being a dead end.
+  ok(G.text.includes("AY-00902") && /needs a catalog match|No DB_Coins match/.test(G.text),
+    "G2 an unmatched marked-ready draft shows in Research as a real catalog gap");
 
   // ---------- J. Picker must not truncate away the differentiator ----------
   // The whole reason a Description tier was NOT added to the matcher is that

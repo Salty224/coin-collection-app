@@ -170,7 +170,15 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
   });
   ok(B7.occurrences === 1,
     "7.1 a saved-then-marked-ready coin appears exactly once in the Docket, not as two conflicting rows (" + B7.occurrences + " found)");
-  ok(/Ready for reconciliation/.test(B7.research), "7.2 the one row reflects its real current status");
+  // Phase 2 design change, followed rather than weakened: a marked-ready
+  // draft with NO catalog match no longer reads "Ready for reconciliation —
+  // waiting on the All-sheet row" (Phase 1's dead end, which is exactly the
+  // live-device bug this round fixed). It now states the real blocker and
+  // carries real actions. Same underlying claim as before — the one row
+  // reflects its genuine current status — checked against what that status
+  // actually is now.
+  ok(/needs a catalog match|No DB_Coins match/.test(B7.research),
+    "7.2 the one row reflects its real current status: " + B7.research.slice(0, 160));
 
   const B8 = await page.evaluate(async () => {
     const mock = createMockGraphClient({});
