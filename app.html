@@ -2108,6 +2108,11 @@
   .flip-label.bl { bottom: 10px; left: 10px; }
   .flip-label.tr { top: 10px;    right: 10px;  text-align: right; }
   .flip-label.br { bottom: 10px; right: 10px;  text-align: right; }
+  /* Reverse face only, TL — see applyReverseFlipCorners()/renderErrorCornerText().
+     TR carries nothing on the reverse face, so TL is allowed to use its
+     territory before ever shrinking/wrapping. Every other corner, and TL
+     on the obverse face, stays at the standard 50%. */
+  .flip-label.corner-wide { max-width: 90%; }
 
   /* Superseded — a blanket "#browseDetailBR, #spotlightBR { font-size: 22px }"
      rule used to live here, shrinking EVERY coin's composition text
@@ -4787,7 +4792,13 @@
       // approximation, not a bug, same class of tradeoff as everywhere else
       // in this app that infers presence from a filename field.
       hasObversePhoto: !!colVal(row, "Obverse"),
-      hasReversePhoto: !!colVal(row, "Reverse")
+      hasReversePhoto: !!colVal(row, "Reverse"),
+      // All.Error — a single free-text column (not separate Obverse-error/
+      // Reverse-error fields), so a coin with two different errors on two
+      // different sides has both descriptions in the one string, informally
+      // "Obv. X, Rev. Y" — see splitErrorBySide()/applyReverseFlipCorners(),
+      // the reverse face's own corner content.
+      error: String(colVal(row, "Error"))
     };
   }
 
@@ -6923,9 +6934,9 @@
   // CoinPhotos presence check eventually replaces this should read the same
   // two flags' *meaning*, not this literal field.
   const FAKE_COINS = [
-    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    cacBean: "Gold", storageLocation: "Safe", container: "Capsule tray", variety: "", hasObversePhoto: true, hasReversePhoto: true },
+    { id: "AY-00001", name: "Morgan Dollar",              denom: "$1",  year: 1889, mint: "CC", grade: "MS-64",  value: 850,  cost: 620,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "23456789", certLink: "https://www.pcgs.com/cert/23456789", designation: "",    cacBean: "Gold", storageLocation: "Safe", container: "Capsule tray", variety: "", hasObversePhoto: true, hasReversePhoto: true, error: "Obv. Die Polish Lines, Rev. Die Crack" },
     { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
-    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    cacBean: "Green", storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true },
+    { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    cacBean: "Green", storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true, error: "Off-Center Strike, approx. 5%" },
     { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "", hasObversePhoto: true, hasReversePhoto: false },
     { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
@@ -8850,11 +8861,158 @@
     }
   }
 
+  // Splits a free-typed All.Error string into its Obverse/Reverse halves
+  // when the shape is genuinely unambiguous — the informal "Obv. X, Rev. Y"
+  // dealer convention (there's no official industry standard for two
+  // different errors on two different sides: PCGS/NGC's own DDO/DDR-style
+  // codes already bake the side into the single-error case, but nothing
+  // covers this one). Forgiving on wording (Obv/Obverse/Obv., optional
+  // colon) and separator (comma or semicolon); Obv-before-Rev order only
+  // (confirmed — not building a Rev-first branch). Requires BOTH halves to
+  // actually be present; anything else — a single unprefixed error, a bare
+  // abbreviation like DDO/DDR, only one side prefixed, or genuinely
+  // unstructured text — returns null so the caller falls back to showing
+  // the whole string, unmangled, rather than guessing which side it's for.
+  //
+  // Each captured half keeps its OWN "Obv."/"Rev."-style prefix verbatim,
+  // rather than stripping it — TL and BL are stacked on the same (left)
+  // edge of the reverse face now, not the top-row left/right pairing an
+  // earlier mockup used, so there's no positional cue left to say which
+  // corner is which side; the prefix itself is what still says so at a
+  // glance. Shown exactly as typed (whatever capitalization/punctuation
+  // Ray or Copilot used), never reformatted to a canonical "Obv."/"Rev." —
+  // same "show real data verbatim, never invent" posture as every other
+  // free-text field in this app.
+  const ERROR_SPLIT_RE = /^\s*((?:Obv(?:erse)?\.?\s*:?\s*).+?)\s*[,;]\s*((?:Rev(?:erse)?\.?\s*:?\s*).+?)\s*$/i;
+  function splitErrorBySide(text) {
+    if (!text) return null;
+    const m = ERROR_SPLIT_RE.exec(text);
+    if (!m || !m[1] || !m[2]) return null;
+    return { obverse: m[1], reverse: m[2] };
+  }
+
+  // Renders one free-text Error value into a single flip corner with the
+  // same "shrink first, wrap only as a last resort" graceful degradation
+  // renderTypeDenomCorner() already established for TR — reused here
+  // rather than a third mechanism. `allowWide` (TL on the reverse face
+  // only — see applyReverseFlipCorners()) toggles a scoped modifier class
+  // letting the text use TR's own horizontal territory before ever
+  // shrinking, since TR carries nothing on that face; every other corner
+  // stays at the standard 50%-of-frame width. The class is explicitly
+  // toggled OFF when not wanted (not just left off), so a persistent
+  // element previously rendered wide can't leak that width into a later,
+  // narrower render of a different coin/face.
+  function renderErrorCornerText(el, text, allowWide) {
+    el.classList.toggle("corner-wide", !!allowWide);
+    if (!text) { el.style.fontSize = ""; el.innerHTML = ""; return; }
+    let stillOverflowing = false;
+    shrinkCornerToFit(el, () => {
+      renderCornerLines(el, [text]);
+      const line = el.querySelector(".corner-line");
+      stillOverflowing = !!line && line.scrollWidth > line.clientWidth;
+    });
+    if (stillOverflowing) {
+      const line = el.querySelector(".corner-line");
+      const wrapped = wrapTextToTwoLines(text, line);
+      if (wrapped.length === 2) renderCornerLines(el, wrapped);
+      // else: a single unbreakable "word" — left at the smallest shrink
+      // step as the best available fit, same accepted-gap posture as
+      // every other corner's own smallest-step floor elsewhere in this
+      // file.
+    }
+  }
+
+  // Reverse face — deliberately its own distinct content, never a repeat of
+  // the obverse's four corners (the actual bug behind "the reverse just
+  // shows the same thing" — applyFlipCorners() used to write these four
+  // spans unconditionally regardless of which face was showing). No
+  // obverse identity content is repeated here (Year-Mint, Variety, Type/
+  // Denom) — the coin's own name is already the page's own title above the
+  // flip card (same reasoning Rolls' own TR-corner exception already
+  // relies on), so nothing about "which coin is this" is lost by leaving a
+  // corner blank when there's nothing reverse-specific to say there.
+  //   TL: the Obverse-side half of a parsed Error split, or the WHOLE
+  //       Error string when it doesn't parse into a clean Obv./Rev. split
+  //       — blank when coin.error is blank.
+  //   TR: UNUSED. Confirmed nothing else claims it on the reverse face.
+  //   BL: the Reverse-side half of a parsed split — blank when TL is
+  //       already carrying the full unparsed string (nothing left for BL
+  //       to say), and blank when there's no error at all.
+  //   BR: Cost, stacked "Cost" / "$N" (same two-line renderCornerLines()
+  //       stacking Composition's own BR corner already uses) — blank when
+  //       coin.cost is falsy. Value is deliberately NOT shown here: it's
+  //       already always-visible in Browse detail's Overview accordion
+  //       (open by default), while Cost has no other visible home on a
+  //       saved coin's screen until Purchase Details is expanded — this is
+  //       the more useful use of the space.
+  // A coin with neither Cost nor Error renders a COMPLETELY BLANK reverse
+  // — confirmed intentional, not a bug to guard against.
+  function applyReverseFlipCorners(prefix, coin) {
+    const tlEl = document.getElementById(prefix + "TL");
+    const trEl = document.getElementById(prefix + "TR");
+    const blEl = document.getElementById(prefix + "BL");
+    const brEl = document.getElementById(prefix + "BR");
+
+    // Persistent elements, reused across coins/faces — clear stale content
+    // unconditionally rather than only when there's new content to set.
+    if (trEl) trEl.innerHTML = "";
+
+    const errorText = coin.error || "";
+    const split = splitErrorBySide(errorText);
+    if (split) {
+      if (tlEl) renderErrorCornerText(tlEl, split.obverse, true);
+      if (blEl) renderErrorCornerText(blEl, split.reverse, false);
+    } else if (errorText) {
+      if (tlEl) renderErrorCornerText(tlEl, errorText, true);
+      if (blEl) { blEl.classList.remove("corner-wide"); blEl.style.fontSize = ""; blEl.innerHTML = ""; }
+    } else {
+      if (tlEl) { tlEl.classList.remove("corner-wide"); tlEl.style.fontSize = ""; tlEl.innerHTML = ""; }
+      if (blEl) { blEl.classList.remove("corner-wide"); blEl.style.fontSize = ""; blEl.innerHTML = ""; }
+    }
+
+    if (brEl) {
+      if (coin.cost) {
+        renderCornerLines(brEl, ["Cost", "$" + Number(coin.cost).toLocaleString()]);
+      } else {
+        brEl.style.fontSize = ""; brEl.innerHTML = "";
+      }
+    }
+
+    const srEl = document.getElementById(prefix + "SR");
+    if (srEl) {
+      const parts = [coin.name];
+      // split.obverse/split.reverse already carry their own "Obv."/"Rev."
+      // prefix verbatim (see splitErrorBySide()), so no extra label is
+      // needed here — a "obverse error Obv. ..." double-label would just
+      // be redundant with the text itself.
+      if (split) parts.push(split.obverse, split.reverse);
+      else if (errorText) parts.push("error " + errorText);
+      if (coin.cost) parts.push("cost $" + Number(coin.cost).toLocaleString());
+      srEl.textContent = parts.join(", ") + " (" + coin.id + "), reverse";
+    }
+  }
+
   // Shared by every place a single *saved* coin gets the flip-label treatment
   // (Spotlight, Browse detail) — corner text plus a screen-reader-only summary,
   // since the overlay is the visible presentation but shouldn't be the only way
-  // the info exists.
-  function applyFlipCorners(prefix, coin) {
+  // the info exists. `side` ("obverse"/"reverse", defaults to "obverse" for any
+  // caller not yet passing it) decides which of the two completely distinct
+  // corner sets below actually gets written — see applyReverseFlipCorners()
+  // for the reverse face's own map.
+  function applyFlipCorners(prefix, coin, side) {
+    // Coin-level fact, not face-level — decided once, ahead of the
+    // obverse/reverse branch below, so it stays correct regardless of
+    // which face is showing or which render path called this.
+    const combinedBadge = document.getElementById(prefix + "CombinedBadge");
+    if (combinedBadge) {
+      combinedBadge.classList.toggle("hidden", !COMBINED_PHOTO_COIN_IDS.includes(coin.id));
+    }
+
+    if (side === "reverse") {
+      applyReverseFlipCorners(prefix, coin);
+      return;
+    }
+
     // Identification only, standard shorthand — same rule as Add Coin: coded
     // denomination, not the spelled-out name, and no price/value on this face.
     // Variety rides as a second stacked line beneath Year-Mint (same
@@ -8863,7 +9021,15 @@
     // corner value here. Coin object is the source (already resolved onto
     // it from All at fetch/save time; see CLAUDE.md "Browse detail / flip
     // card field sourcing"), no new data plumbing needed.
-    renderCornerLines(document.getElementById(prefix + "TL"),
+    const tlEl = document.getElementById(prefix + "TL");
+    // Real bug caught by the committed suite, not by inspection: TL is a
+    // persistent element shared with the reverse face's own render, which
+    // can leave it classed .corner-wide (see applyReverseFlipCorners()) —
+    // flipping straight back to obverse without clearing it would silently
+    // widen the obverse TL box too. TL never wants this class on the
+    // obverse face, unconditionally.
+    tlEl.classList.remove("corner-wide");
+    renderCornerLines(tlEl,
       [coin.year + (coin.mint ? "-" + coin.mint : ""), coin.variety || ""]);
     // A Roll's coin.name is a full descriptive sentence ("Roll of 20 Silver
     // Dollars (mixed dates)"), not the "{Series} {Denomination word}" shape
@@ -8924,10 +9090,8 @@
     const brEl = document.getElementById(prefix + "BR");
     if (brEl) setCompositionCornerText(brEl, preciousMetalCompositionFor(coin));
 
-    const combinedBadge = document.getElementById(prefix + "CombinedBadge");
-    if (combinedBadge) {
-      combinedBadge.classList.toggle("hidden", !COMBINED_PHOTO_COIN_IDS.includes(coin.id));
-    }
+    // (combinedBadge is toggled once, above, ahead of the obverse/reverse
+    // branch — it's a coin-level fact, not a face-level one.)
 
     const srEl = document.getElementById(prefix + "SR");
     if (srEl) {
@@ -8955,7 +9119,7 @@
       applyDiscContent(disc, coin, spotlightSide);
       disc.classList.toggle("reverse-face", spotlightSide === "reverse");
       sizeCoinElement(disc, coin.denom, 210, 32);
-      applyFlipCorners("spotlight", coin);
+      applyFlipCorners("spotlight", coin, spotlightSide);
       frame.dataset.side = spotlightSide;
       frame.style.opacity = 1;
     }, 150);
@@ -10421,8 +10585,17 @@
     // A Set-with-children swaps the child grid in for this same frame (see
     // showBrowseDetail()) and hides it — nothing to flip while that's active.
     if (document.getElementById("browseDetailFlipFrame").style.display === "none") return;
+    // A Set's own detail view shows a plain static image now, never a flip
+    // card (see showBrowseDetail()) — no tap/swipe/click response at all.
+    if (!currentBrowseCoin || isSetRow(currentBrowseCoin)) return;
     browseDetailSide = browseDetailSide === "obverse" ? "reverse" : "obverse";
     applyBrowseDetailSide();
+    // Real bug, fixed here: this used to only update the disc image/
+    // gradient on flip and never re-invoked applyFlipCorners() at all — so
+    // the corners were set once at open (always obverse) and then frozen,
+    // never actually re-rendering on a real flip. Now the reverse face
+    // gets its own real content (see applyReverseFlipCorners()).
+    applyFlipCorners("browseDetail", currentBrowseCoin, browseDetailSide);
   }
 
   // (setChildrenSide / setChildSideUI / applyBrowseDetailChildSide lived
@@ -10451,15 +10624,15 @@
 
     document.getElementById("browseDetailName").textContent = coin.name;
 
-    // ONE flip-card path for every record now (accordion redesign, locked
-    // in). A multi-child Set used to branch here and replace its own flip
-    // with a grid of child mini-flips — that's retired; a Set shows the same
-    // single generic "Multiple" flip a childless Set always did, and its
-    // children are listed in the "Coins in this Set" accordion instead.
+    // A multi-child Set used to branch here and replace its own flip with a
+    // grid of child mini-flips — that's retired (accordion redesign); a Set
+    // shows the same single generic "Multiple" flip a childless Set always
+    // did, and its children are listed in the "Coins in this Set" accordion
+    // instead.
     // Visibility must be set before applyFlipCorners: its corner-overflow
     // measurement (scrollWidth vs. clientWidth) reads as 0/0 on a
     // display:none subtree, which would always look "overflowing" and
-    // wrongly trigger the one-word shortening fallback.
+    // wrongly trigger the shrink/wrap fallback.
     document.getElementById("browseDetailFlipFrame").style.display = "";
     // Always starts on Obverse when entering (or re-entering) any detail
     // view — the flip trigger itself (click or tap/swipe, wired once in
@@ -10468,7 +10641,32 @@
     browseDetailSide = "obverse";
     sizeCoinElement(document.getElementById("browseDetailDisc"), coin.denom, 210, 32);
     applyBrowseDetailSide();
-    applyFlipCorners("browseDetail", coin);
+    if (isSetRow(coin)) {
+      // A Set's own detail view is a PLAIN STATIC IMAGE now, not a flip
+      // card — no corner text, no tap/swipe/click interaction. Reuses the
+      // same disc element (so sizing and the existing own-photo/reference-
+      // image/placeholder priority chain in applyDiscContent() stay
+      // identical to every other coin — nothing new needed there, since
+      // browseDetailSide is fixed at "obverse" and toggleBrowseDetailSide()
+      // now no-ops for a Set, this always shows the Set's own front/OGP
+      // photo, or the placeholder). Individual coins reached via Browse or
+      // a Set's own "Coins in this Set" accordion are NOT in scope — they
+      // keep their normal flip card, unchanged. Set names are also often
+      // the longest in the catalog (a real driver behind the TR corner's
+      // own shrink/wrap work) — removing the flip card removes that
+      // problem for Sets entirely, rather than needing to be chased there
+      // too.
+      ["TL", "TR", "BL", "BR"].forEach(c => {
+        const el = document.getElementById("browseDetail" + c);
+        if (el) { el.classList.remove("corner-wide"); el.style.fontSize = ""; el.innerHTML = ""; }
+      });
+      const srEl = document.getElementById("browseDetailSR");
+      if (srEl) srEl.textContent = "";
+      const combinedBadge = document.getElementById("browseDetailCombinedBadge");
+      if (combinedBadge) combinedBadge.classList.add("hidden");
+    } else {
+      applyFlipCorners("browseDetail", coin, browseDetailSide);
+    }
 
     renderBrowseDetailPanel(coin);
 

@@ -7269,6 +7269,182 @@ DB_Coins-backed disambiguation picker (Q1–Q4 confirmed), not the plain
   population was confirmed by Ray via Copilot, not independently verified
   from this environment.
 
+### Reverse face gets real content; Sets lose the flip card entirely (BUILT, same branch, still held)
+Two related fixes to the saved-coin flip card (Spotlight + Browse detail,
+`applyFlipCorners()`), following the Option 3 design exploration above.
+
+**1. Reverse face now has its own distinct corners.** Real bug, confirmed
+by reading the code before fixing it: `applyFlipCorners()` wrote the same
+TL/TR/BL/BR regardless of which face was showing, and — worse, found while
+tracing the render path — Browse detail's own flip toggle
+(`toggleBrowseDetailSide()`) never even re-invoked it at all, only the disc
+image/gradient. Spotlight already re-called `applyFlipCorners()` every
+auto-cycle, so it genuinely showed identical corners both faces, as
+originally reported; Browse detail was actually worse — frozen on whichever
+corners were set at open, forever, regardless of flips.
+- **`applyFlipCorners(prefix, coin, side)` now takes a side** (defaults to
+  `"obverse"`); `side === "reverse"` branches to a completely separate
+  function, `applyReverseFlipCorners()`, before any obverse-only rendering
+  runs. Both real callers now pass their own current side
+  (`renderSpotlight()` → `spotlightSide`; `showBrowseDetail()`'s initial
+  call → the freshly-reset `"obverse"`), and `toggleBrowseDetailSide()` now
+  ALSO calls `applyFlipCorners()` after flipping — the fix for the real
+  mechanical bug above, not just new content.
+- **No obverse identity content is repeated on reverse** (confirmed,
+  overturning this session's own earlier exploration-round proposal, which
+  had kept Year-Mint at TL as an "orientation anchor"): the coin's own name
+  is already the page's own title above the flip card, same reasoning
+  Rolls' own TR-corner exception already relies on.
+- **Final reverse corner map**: TL = the Obverse-side half of a parsed
+  Error split, or the WHOLE Error string when it doesn't parse cleanly —
+  blank if `coin.error` is blank. TR = unused, always. BL = the
+  Reverse-side half of a split — blank when TL already carries the whole
+  unparsed string, blank when there's no error at all. BR = Cost, stacked
+  "Cost" / "$N" (same two-line `renderCornerLines()` stacking Composition's
+  own BR corner already uses) — blank when `coin.cost` is falsy. **Value is
+  deliberately NOT shown** — it's already always-visible in Browse detail's
+  Overview accordion (open by default); Cost has no other visible home on a
+  saved coin's screen until Purchase Details is expanded, so the flip card
+  is the more useful place for it. **A coin with neither Cost nor Error
+  renders a completely blank reverse — confirmed intentional, not a bug to
+  guard against.**
+- **`splitErrorBySide(text)`** — the informal "Obv. X, Rev. Y" dealer
+  convention (there's no official industry standard for two different
+  errors on two different sides: PCGS/NGC's own DDO/DDR-style codes already
+  bake the side into the single-error case, but nothing covers this one).
+  Forgiving on wording (`Obv`/`Obverse`/`Obv.`, optional colon) and
+  separator (comma or semicolon); Obv-before-Rev order only (confirmed —
+  no Rev-first branch). Requires BOTH halves present; anything else — a
+  single unprefixed error, a bare abbreviation like DDO/DDR, only one side
+  prefixed, genuinely unstructured text — returns `null` so the caller
+  falls back to showing the whole string, unmangled, never guessing.
+  **Each captured half keeps its own "Obv."/"Rev." prefix verbatim, not
+  stripped** — a real design correction made while building, not part of
+  the original mockup: TL and BL are stacked on the same (left) edge now,
+  not the top-row left/right pairing the exploration-round screenshots
+  used, so there's no positional cue left saying which corner is which
+  side. The prefix itself is what still says so at a glance.
+- **`renderErrorCornerText(el, text, allowWide)`** — the same "shrink first,
+  wrap only as a last resort" graceful degradation `renderTypeDenomCorner()`
+  established for TR, reused rather than reinvented. `allowWide` (TL on the
+  reverse face only) toggles a new scoped `.corner-wide` CSS class
+  (`max-width: 90%`, up from the standard 50%) — TL is allowed to use TR's
+  own horizontal territory before ever shrinking, since TR carries nothing
+  on this face; every other corner stays at the standard width. **Real,
+  measured finding from the exploration round carried through into the
+  build**: even the "clean split" example (`"Obv. Die Polish Lines"` alone)
+  measured 192px against the old 139px (50%) box — already overflowing
+  before any of this — confirming the wide treatment isn't optional
+  polish, it's required for realistic Error text at any box width.
+- **Real bug caught by the committed suite itself, not by inspection**: TL
+  is a persistent DOM element shared between the reverse render (which can
+  add `.corner-wide`) and the obverse render (which never did anything
+  about that class) — flipping reverse → obverse left the obverse's own TL
+  silently widened, a leak from one face's render into the other's. Fixed
+  by having the obverse path explicitly `classList.remove("corner-wide")`
+  on TL before rendering, unconditionally, regardless of whether it was
+  already narrow. This is exactly the kind of bug this project's own
+  "write real assertions, not just documentation of intent" discipline
+  exists to catch — found because a genuine before/after/before flip
+  sequence was asserted, not just a single-direction render.
+- **The sr-only summary is face-aware too** — reverse gets its own text
+  (the Error split/fallback plus Cost, tagged "reverse" at the end) instead
+  of the obverse's grade/composition/value summary, so a screen reader
+  isn't left with stale obverse-face text once the visible corners have
+  changed.
+- **`coin.error` is new plumbing** — `mapWorkbookRowToCoin()` now reads
+  `All.Error` (it never did before this), and two `FAKE_COINS` rows were
+  seeded for exercisability: AY-00001 (`"Obv. Die Polish Lines, Rev. Die
+  Crack"`, the clean-split case) and AY-00003 (`"Off-Center Strike, approx.
+  5%"`, the unparseable-fallback case). Every other row stays sparse/blank,
+  same convention as every other optional field in this mockup.
+- **Correction to this session's own exploration-round speculation**: that
+  round guessed closing this would also close ParkingLot Row 6 (BL's own
+  lack of overflow protection) "as a byproduct." **That was wrong, and is
+  corrected here rather than silently carried forward.** Row 6 is
+  specifically about the OBVERSE's BL corner (Grade+Designation), which
+  this task never touches — obverse corners are completely unchanged.
+  BL/TL on the REVERSE face do get real shrink/wrap protection now, but
+  that's the same DOM element at a DIFFERENT time showing DIFFERENT
+  content; it does nothing for the obverse's own Grade+Designation
+  overflow risk. **Row 6 remains open, unaffected by this pass.**
+
+**2. A Set's own detail view is a plain static image — no flip card at
+all.** `showBrowseDetail()` now branches on `isSetRow(coin)` before doing
+any flip-related work:
+- **Reuses the SAME `#browseDetailFlipFrame`/`#browseDetailDisc` elements**
+  rather than building a parallel element — sizing and the existing
+  own-photo/reference-image/placeholder priority chain in
+  `applyDiscContent()` stay byte-identical to every other coin, since
+  `browseDetailSide` is simply fixed at `"obverse"` and never toggled for a
+  Set. This already resolves correctly to the Set's own real whole-set/OGP
+  photo when one exists (`setFlipPhotoUrl()`, built in an earlier pass), or
+  the existing generic placeholder when it doesn't — no new photo logic
+  needed.
+- **All four corner spans are explicitly cleared** (`classList.remove
+  ("corner-wide")` + blanked, matching the same defensive pattern the
+  reverse-face helpers use) rather than relying on `applyFlipCorners()`
+  simply not being called — a persistent-element leak guard, same class of
+  bug the `.corner-wide` fix above just caught. The sr-only span is
+  cleared too, and the combined-photo badge is defensively hidden (a Set's
+  `id` is never realistically in `COMBINED_PHOTO_COIN_IDS`, but this stays
+  correct regardless of a stale prior render).
+- **No tap/swipe/click response** — `toggleBrowseDetailSide()` now
+  early-returns when `!currentBrowseCoin || isSetRow(currentBrowseCoin)`,
+  so the frame's already-wired click/touch listeners genuinely do nothing
+  for a Set (verified via a real dispatched click event, not just by
+  calling the toggle function directly).
+- **Both childless and multi-child Sets are in scope, confirmed
+  identical** — verified against AY-00018 (childless) and AY-00022 (3 real
+  children).
+- **Individual coins are completely untouched**, including a Set's own
+  children reached via the "Coins in this Set" accordion — `setChildrenFor()`
+  returns ordinary coin-shaped rows (a real `denom`, never `"Multiple"`),
+  so `isSetRow()` is false for every child and the normal flip path applies
+  unchanged. Verified directly, not just asserted by construction.
+- **Spotlight was checked, not assumed safe**: `spotlightCoins` is
+  hardcoded to `FAKE_COINS.slice(0, 5)` — a fixed array literal, never
+  wired to live/filtered data — and none of the first five rows is a Set.
+  **Confirmed coins-only by construction, not by convention**; no guard was
+  added there, consistent with this project's standing "don't build ahead
+  of a scenario that can't currently occur" discipline (same posture as
+  the DB_Coins scope rule, ANACS/ICG/CAC research). If `spotlightCoins` is
+  ever wired to a live/filtered source that could include a Set, this
+  needs revisiting.
+- **A real side effect, confirmed rather than just claimed**: this
+  eliminates the long-name corner-fitting problem for Sets entirely, since
+  Set names (often the longest in the catalog) never reach any corner-
+  rendering code any more — there's nothing left to fit.
+
+**Verified headless — new committed suite
+`tests/verify_reverse_face_and_set_flip.js` (38 assertions), all passing;
+561 across all 15 suites, zero failures.** Covers: `splitErrorBySide()` in
+isolation (every forgiving wording variant, every case that must return
+null including reversed order); obverse corners completely unaffected even
+for a coin carrying Error+Cost data; the clean-split reverse render
+(prefix kept, TR unused, BR stacked, TL genuinely fits its widened box —
+real `scrollWidth`/`clientWidth` measurement, not just "doesn't look
+clipped"); the unstructured fallback (whole string in TL, BL blank); Error
+with no Cost and Cost with no Error, independently; the fully-blank
+reverse case; flipping reverse → obverse → confirming the real leak bug
+above, both that obverse content is restored AND `.corner-wide` is
+cleared; Spotlight getting the same reverse-specific content Browse detail
+does; the sr-only summary differing correctly per face;
+`mapWorkbookRowToCoin()` reading the real `Error` column; a childless AND
+a multi-child Set both showing zero corner text with the badge/SR
+defensively cleared; a real dispatched click on a Set's frame confirmed to
+do nothing; an ordinary coin's detail view confirmed unaffected in both
+directions; a Set's own children confirmed to never be `isSetRow()`
+themselves; and a nav/overflow smoke check. **Verified negative control**:
+temporarily removed the TR-clearing line and over-widened the split regex
+to accept reversed order — 7 assertions failed with exactly the wrong-
+content symptoms, then both were restored and every assertion re-confirmed
+passing.
+- **Not verified: any real device.** Screenshots reviewed in this
+  environment's headless Chromium at both required viewports (a tablet
+  geometry spot-check confirmed the same TL fit with zero page overflow) —
+  same standing caveat as every round on this branch.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
