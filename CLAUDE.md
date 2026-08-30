@@ -7704,10 +7704,125 @@ reported symptoms (`clears: false` on both long-name cases, the metal filter
 blind again, the Set frame back), then all four were restored and every
 assertion re-confirmed.
 - **`WRITE_TARGET` stays `"copy"` throughout — untouched.**
-- **Not verified: any real device, and no real OneDrive session against the
-  Phase 2 write.** This is a genuinely new write path (the first thing in
-  this app that CREATES an All-sheet row) and needs a live run against
-  `_Testing` before it is trusted.
+- **Superseded: the Phase 2 write HAS since had a real `_Testing` run, and
+  it found a duplicate-row bug.** See the section immediately below.
+
+### Phase 2 promote: duplicate-row bug (BUILT, same branch, still held)
+The first live `_Testing` Promote (AY-00706, `C-1943-S-1C-01`) wrote **two
+rows**: one holding the full coin, one holding nothing but CollectionID and
+CoinID. **Both calls reported success and nothing in the app could tell.**
+Ray's own hypothesis — a double-submission caused by Promote giving no
+feedback — was correct, and reproducing it turned up a **second, worse
+defect in the same function that needs no user error at all**.
+
+**Root cause 1 — check-then-act.** `promoteCoinDraftToAllSheet()` already
+checked `findAllSheetRowNumber()` before appending, so "add a check" was not
+the fix: two submissions both read the column before either had written its
+keys, both concluded no row existed, and both appended. Call 2 then
+re-resolved by CollectionID, got call 1's row (first match wins), abandoned
+its own row and wrote its data into call 1's — leaving row N complete and
+row N+1 holding only its keys. Reproduced headlessly against the mock client
+with real per-call latency; the artifact matched the live one exactly.
+
+**Root cause 2 — the write target was arithmetic on a stale read.**
+`createAllSheetRow()` computed `provisionalRow = before.length + 1` from a
+read taken BEFORE the append. **Any** row appended in between — a second
+promote, or Copilot working in Excel, which this workbook is explicitly
+co-managed with — shifted the real new row down, so the key write landed on
+**a different coin's row**, overwriting its CollectionID and CoinID;
+`saveCoinRowToWorkbook()` would then write the rest over the top. Verified
+directly with a single promote plus one external append: the neighbouring
+coin's identity was destroyed and the genuinely-appended row left blank. The
+old verify could not catch it — it looked the id up and found it exactly
+where it had just been written, unable to tell "found my new row" from
+"found the row I just clobbered."
+
+**Why there was no feedback.** `promoteCoinDraft()` did toast on success —
+but only after `finishCoinDraftWrite()`, which runs the photo move,
+`refreshLiveCoinsAfterWrite()` (a full re-fetch of All + DB_Coins + DB_Sets +
+Lookup_MetalContent) and two re-renders. On the real workbook that is easily
+ten-plus seconds of total silence after the click. Add Coin's own Save has
+had `btn.disabled` + `"Saving…"` since Phase 1; Promote never got it.
+
+**The fix — four parts, all confirmed by Ray before building:**
+- **A per-CollectionID in-flight lock** (`coinPromoteInFlight`), wrapping a
+  renamed `promoteCoinDraftToAllSheetUnlocked()`. A lock rather than a
+  disabled button because Promote renders on **two** surfaces (the Docket's
+  Staging section and Staging Review) plus Force Add, so no single button's
+  state can speak for the coin. A second call **coalesces onto the first**
+  rather than being rejected — the honest outcome of a double-submit is
+  "that coin got promoted", not an error — and the result carries
+  `coalesced: true` so `promoteCoinDraft()`/`forceAddCoinDraft()` skip
+  re-running the post-write chain (which would otherwise move photos twice
+  and toast twice for one coin). force vs. non-force cannot collide through
+  the UI: Promote only renders when the draft has a CoinID and Force Add
+  only when it does not.
+- **`createAllSheetRow()` rebuilt around three ordered guarantees**: the
+  column is read AFTER the append, never before; the write target comes from
+  **Graph's own reported index** for the row it just created (0-based within
+  the table's data body, so sheet row = `index + 2` given the header at
+  sheet row 1 — the same mapping `findAllSheetRowNumber()` already relies
+  on), falling back to the table's last row; and — **the guarantee that
+  actually matters** — the chosen row's CollectionID cell must be genuinely
+  EMPTY before anything is written to it. However wrong an index ever got,
+  this layer can no longer write a key over a populated one; it refuses and
+  reports. Confirmed with Ray: on this workbook an appended row always lands
+  at the literal last row of the table, from this app and from Copilot
+  alike, so the two candidates normally agree. Cost is unchanged — read,
+  append, patch, read either way. A tripwire also fires if the CollectionID
+  turns up on the sheet underneath the write.
+- **`findAllSheetRowNumbersFor()` / `collectionIdRowsInColumn()`** — a
+  duplicate-aware verify used by the create path only, asserting **exactly
+  one** row carries the id and that it is the row just claimed.
+  **`findAllSheetRowNumber()` is deliberately left byte-for-byte untouched**
+  (first-match, what Browse Edit's every save depends on), and the scan is
+  duplicated rather than shared so a future change to this verify can't
+  alter that hot path.
+- **Real Promote feedback** — a shared `runWithButtonPending(btn, label, fn)`
+  (disable + relabel immediately, restore in a `finally` **only if the button
+  is still `isConnected`**, since these rows are routinely re-rendered out
+  from under the click by the very operation finishing), wired into both
+  Promote surfaces; and the success toast **moved ahead of** the slow
+  follow-up chain, with that chain now wrapped so a bookkeeping failure
+  produces its own honest follow-up toast instead of an unhandled rejection
+  behind a success message. `forceAddCoinDraft()` got the same treatment for
+  consistency — same function shape, same slow chain.
+
+**Worth knowing: the fixes are defence in depth, not four independent
+patches.** Removing the lock alone no longer reproduces a duplicate *data*
+row — the blank-cell guard and the tripwire catch it — it just leaves a
+stray blank row and a spurious error. The lock is what makes a double-submit
+clean rather than merely non-destructive.
+
+**Cleanup of the live artifact:** Ray deleted sheet row 1545 himself in
+Excel (whole row, not cleared cells) after confirming 1544 was the complete
+one. A receipt attached during that same test transferred correctly from
+Staging to CoinReceipts; **photos were not exercised in that pass**.
+
+**Verified headless — new committed suite `tests/verify_promote_race.js`
+(25 assertions), all passing; 660 across 17 suites, zero failures.** Covers:
+the original double-submit reproduced end to end (exactly one row, holding
+real data, no stray blank row, second call coalesced onto the first); a
+coalesced promote firing exactly one success toast rather than two; the
+toast ordering asserted by event sequence rather than timing (the operation's
+first `uploadJson` can only come from `finishCoinDraftWrite()`); the external
+mid-write append leaving its own row intact while the new coin claims a
+genuinely-new one; the refuse-rather-than-clobber path leaving every existing
+cell untouched; the already-on-the-sheet tripwire; the duplicate-aware lookup
+against a seeded double alongside proof `findAllSheetRowNumber()` still
+returns the first match; the pending helper's four behaviours (immediate
+disable/relabel, repeat click starting nothing, restore when still attached,
+and leaving a detached button alone); both Promote surfaces genuinely wired
+through it via real `.click()`; and an ordinary single promote still landing
+with its data, its Error column, and both formula cells untouched.
+**Verified negative control, one per fix**: removing the lock fails A3/A5;
+restoring the stale-read arithmetic fails D1/E1/E2 with the exact reported
+symptom (neighbouring row clobbered); moving the toast back after the chain
+fails C1 with order `["chain","chain","toast"]`; unwiring the pending state
+fails I1/I2. Each was restored and re-confirmed.
+- **Not verified: any real device, and no live `_Testing` run against these
+  fixes specifically.** Ray has cleared live `_Testing` testing for his own
+  next pass; `WRITE_TARGET` stays `"copy"`.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

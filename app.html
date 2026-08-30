@@ -5854,6 +5854,38 @@
     return null;
   }
 
+  // Duplicate-aware sibling of findAllSheetRowNumber(). That one returns the
+  // FIRST match and is what every existing caller depends on (Browse Edit's
+  // save, the Docket's CoinID attach) — deliberately left exactly as it is.
+  //
+  // WHY THIS EXISTS. Returning the first match silently HIDES a duplicate
+  // CollectionID, and a live run proved that is not theoretical: a
+  // double-submitted Promote created two rows for AY-00706, and because
+  // every lookup resolved to the first one, both writes landed there and
+  // the second row sat orphaned holding nothing but the two key cells. Both
+  // calls reported success. Nothing in the app could tell. This scan returns
+  // EVERY match so the row-creation path can assert it produced exactly one
+  // and fail loudly otherwise.
+  //
+  // The scan is duplicated rather than factored out of findAllSheetRowNumber()
+  // on purpose: the two answer different questions ("where do I write?" vs.
+  // "is this sheet still sane?"), and sharing an implementation would mean a
+  // future change to this verify could alter the hot path Browse Edit's every
+  // save depends on.
+  function collectionIdRowsInColumn(col, collectionId) {
+    const want = String(collectionId).trim();
+    const rows = [];
+    for (let i = 1; i < col.length; i++) { // index 0 is the header cell
+      if (String(col[i] == null ? "" : col[i]).trim() === want) rows.push(i + 1);
+    }
+    return rows;
+  }
+
+  async function findAllSheetRowNumbersFor(collectionId) {
+    const col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    return collectionIdRowsInColumn(col, collectionId);
+  }
+
   // Reads exactly the writable columns of one row, keyed by header name.
   // Reads the whole row span in a single range (cheaper than N reads) but
   // only ever EXPOSES the writable columns, so nothing downstream can
@@ -6167,31 +6199,77 @@
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
   }
 
-  // Appends a blank row, gives it its keys, then re-resolves its position by
-  // CollectionID and returns that.
+  // Appends a blank row, claims it by writing its key cells, and returns its
+  // verified sheet row.
   //
-  // The re-resolve is deliberate rather than trusting arithmetic on the add
-  // response: Graph reports the new row's index relative to the table's data
-  // body, converting that to a sheet row means assuming where the table
-  // starts, and rule 1 of this whole layer is "a row is located by
-  // CollectionID at write time, never by a remembered/derived position."
-  // Honouring that rule here means the returned row number is verified to
-  // actually hold this CollectionID before a single data value is written
-  // to it.
+  // THIS USED TO CORRUPT A NEIGHBOURING COIN'S ROW. The original version
+  // read the CollectionID column, appended, and then computed its write
+  // target as `before.length + 1` — arithmetic on a read taken BEFORE the
+  // append. Any row appended in between (a second Promote, or Copilot
+  // working in Excel, which this workbook is explicitly co-managed with)
+  // shifted the real new row down by one, so the key write landed on a row
+  // that already belonged to a different coin, overwriting its CollectionID
+  // and CoinID — and then saveCoinRowToWorkbook() wrote the rest of this
+  // coin's data over the top of it. Reproduced directly. The old re-resolve
+  // could not catch it: it looked up the id and found it exactly where it
+  // had just been written, unable to tell "found my new row" from "found
+  // the row I just clobbered."
   //
-  // The provisional row number used for the key write itself is derived from
-  // the column length (array index i <-> sheet row i+1, the same mapping
-  // findAllSheetRowNumber() uses) — if that were ever wrong, the re-resolve
-  // below simply fails to find the id and the caller reports it, rather than
-  // writing a coin's data into some other coin's row.
+  // Three things make that unreachable now, in order of who catches what:
+  //
+  //   1. The column is read AFTER the append, never before, so what it says
+  //      about the table reflects the append itself.
+  //   2. The write target comes from Graph's own reported index for the row
+  //      it just created (0-based within the table's DATA BODY, so sheet row
+  //      = index + 2 given the header at sheet row 1 — the same mapping
+  //      findAllSheetRowNumber() already relies on), falling back to the
+  //      table's last row. Confirmed with Ray: on this workbook an appended
+  //      row always lands at the literal last row of the table, from this
+  //      app and from Copilot alike — no "next open row" search happens
+  //      anywhere, so the two candidates normally agree.
+  //   3. THE ONE THAT ACTUALLY MATTERS: the chosen row's CollectionID cell
+  //      must be genuinely EMPTY before anything is written to it. However
+  //      wrong an index ever got, this layer can no longer write a key over
+  //      a populated one. It refuses and reports instead.
+  //
+  // Cost is unchanged — read, append, patch, read either way.
   async function createAllSheetRow(collectionId, coinId) {
-    const before = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
-    await graph().addTableRow(writePaths().workbook, ALL_TABLE_NAME);
-    const provisionalRow = before.length + 1; // new data cell lands at array index before.length
-    await writeNewRowKeyCells(provisionalRow, collectionId, coinId);
-    const verified = await findAllSheetRowNumber(collectionId);
-    if (!verified) throw new Error("Created a row for " + collectionId + " but couldn't find it again — nothing further written.");
-    return verified;
+    const add = await graph().addTableRow(writePaths().workbook, ALL_TABLE_NAME);
+    const col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+
+    // Tripwire: the caller only reaches here when the id was absent a moment
+    // ago, so this can only fire if something added it underneath us.
+    const already = collectionIdRowsInColumn(col, collectionId);
+    if (already.length) {
+      throw new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
+        " — nothing written. A blank row was appended and can be deleted.");
+    }
+
+    const cellIsBlank = (sheetRow) =>
+      sheetRow >= 2 && sheetRow <= col.length &&
+      String(col[sheetRow - 1] == null ? "" : col[sheetRow - 1]).trim() === "";
+
+    const candidates = [];
+    if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
+    if (col.length > 1) candidates.push(col.length); // the table's last row
+    const targetRow = candidates.filter(cellIsBlank)[0];
+    if (!targetRow) {
+      throw new Error("Appended a row for " + collectionId + " but no blank row was available to claim" +
+        (candidates.length ? " (checked row " + candidates.join(" and row ") + ")" : "") +
+        " — nothing written. The table changed underneath this write; retry.");
+    }
+
+    await writeNewRowKeyCells(targetRow, collectionId, coinId);
+
+    // Duplicate-aware, unlike the old first-match re-resolve: exactly one row
+    // must now carry this id, and it must be the row we claimed.
+    const rows = await findAllSheetRowNumbersFor(collectionId);
+    if (rows.length !== 1 || rows[0] !== targetRow) {
+      throw new Error("Wrote keys for " + collectionId + " at row " + targetRow +
+        " but the sheet now reports it at row " + (rows.length ? rows.join(" and row ") : "(none)") +
+        " — no coin data was written. Check the All sheet for a duplicate row before retrying.");
+    }
+    return rows[0];
   }
 
   // A "no DB_Coins match for the edited identity" is the same situation
@@ -7042,7 +7120,10 @@
   // Returns { ok, rowNumber, written, coinId } or { ok:false, reason, message }.
   // Never throws for an expected outcome, same contract as
   // saveCoinRowToWorkbook() itself.
-  async function promoteCoinDraftToAllSheet(collectionId, opts) {
+  //
+  // Do not call this directly — promoteCoinDraftToAllSheet() below wraps it
+  // in the per-CollectionID lock that keeps two of these off the same coin.
+  async function promoteCoinDraftToAllSheetUnlocked(collectionId, opts) {
     const force = !!(opts && opts.force);
     if (!addCoinWriteEnabled()) {
       return { ok: false, reason: "disabled", message: "Add Coin's write layer is off (localhost-dev only for now)." };
@@ -7079,6 +7160,53 @@
     if (!result.ok) return result;
 
     return { ok: true, rowNumber: result.rowNumber || rowNumber, written: result.written, coinId: force ? "" : (draft.coinId || ""), draft };
+  }
+
+  // One write per CollectionID at a time.
+  //
+  // WHY. The "does a row already exist?" check at the top of the unlocked
+  // function is a real guard, but it is check-then-act: two Promotes for the
+  // same coin both read the column before either has written its keys, both
+  // conclude no row exists, and both append one. That is exactly what
+  // happened live to AY-00706 — two rows, the second left holding only its
+  // key cells, and BOTH calls reporting success. Adding more checks cannot
+  // fix a check-then-act race; making the sequence atomic per coin can.
+  //
+  // A lock rather than a disabled button because Promote is rendered on TWO
+  // surfaces (the Docket's Staging section and Staging Review) plus Force
+  // Add, so no single button's state can speak for the coin. The buttons do
+  // now show a pending state as well — that is the user-facing half of the
+  // same fix, not a substitute for this.
+  //
+  // A second call for a coin already being written COALESCES onto the first
+  // rather than being rejected: the honest outcome of a double-submit is
+  // "that coin got promoted", not an error. The result is flagged so the
+  // caller can skip re-running the post-write chain (photo move, cache
+  // refresh, toast) the original call is already running — see
+  // promoteCoinDraft().
+  //
+  // force vs. non-force cannot collide through the UI: Promote only renders
+  // when the draft has a CoinID and Force Add only when it does not, so the
+  // two are never offered for the same draft at the same time.
+  const coinPromoteInFlight = new Map(); // CollectionID -> in-flight promise
+
+  async function promoteCoinDraftToAllSheet(collectionId, opts) {
+    const key = String(collectionId);
+    const running = coinPromoteInFlight.get(key);
+    if (running) {
+      try {
+        const shared = await running;
+        return Object.assign({}, shared, { coalesced: true });
+      } catch (e) {
+        return { ok: false, reason: "error", message: String(e && e.message || e), coalesced: true };
+      }
+    }
+    // Registered before the first await, so a second call arriving in a
+    // later event turn always sees it.
+    const p = promoteCoinDraftToAllSheetUnlocked(collectionId, opts);
+    coinPromoteInFlight.set(key, p);
+    try { return await p; }
+    finally { coinPromoteInFlight.delete(key); }
   }
 
   // ==================================================================
@@ -14770,7 +14898,14 @@
         if (r.onClick) row.addEventListener("click", r.onClick);
         // stopPropagation so an action button inside a tappable row can't
         // also trigger the row's own navigation.
-        if (r.onPromote) row.querySelector(".docket-promote").addEventListener("click", (e) => { e.stopPropagation(); r.onPromote(); });
+        // Promote is the one action here that performs a real, slow, one-way
+        // workbook write, so it gets an immediate pending state (see
+        // runWithButtonPending) — the missing feedback is what caused the
+        // AY-00706 double-submit.
+        if (r.onPromote) row.querySelector(".docket-promote").addEventListener("click", (e) => {
+          e.stopPropagation();
+          runWithButtonPending(e.currentTarget, "Promoting…", () => r.onPromote());
+        });
         if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
         if (r.onForceAdd) row.querySelector(".docket-forceadd").addEventListener("click", (e) => { e.stopPropagation(); r.onForceAdd(); });
         if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
@@ -14992,7 +15127,8 @@
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
       if (readyToPromote) {
-        item.querySelector(".staging-promote-row").addEventListener("click", () => promoteCoinDraft(row.id));
+        item.querySelector(".staging-promote-row").addEventListener("click", (e) =>
+          runWithButtonPending(e.currentTarget, "Promoting…", () => promoteCoinDraft(row.id)));
         item.querySelector(".staging-revert").addEventListener("click", () => revertStagedCoinToDraft(row.id));
       } else if (alreadyReady) {
         item.querySelector(".promote").addEventListener("click", () => revertStagedCoinToDraft(row.id));
@@ -15104,6 +15240,27 @@
   // --- Phase 2 user actions: Promote / Force Add / Dismiss -------------
   // Shared tail for both write paths: mark the draft, move its photos, and
   // get the newly-written row in front of the user without a reload.
+  // Immediate, visible feedback on a button whose work takes real network
+  // time. Add Coin's own Save has done this since Phase 1 (btn.disabled +
+  // "Saving…" in a try/finally); Promote never got it, and that is the whole
+  // reason AY-00706 was double-submitted — the click looked like it had done
+  // nothing, so it got clicked again.
+  //
+  // Restores only if the button is still in the document: these rows are
+  // routinely re-rendered out from under the click by the very operation
+  // that is finishing, and touching a detached node would be pointless.
+  async function runWithButtonPending(btn, pendingLabel, fn) {
+    if (!btn) return fn();
+    if (btn.disabled) return undefined; // already running — ignore the repeat click
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = pendingLabel;
+    try { return await fn(); }
+    finally {
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = originalLabel; }
+    }
+  }
+
   async function finishCoinDraftWrite(draft, opts) {
     const fresh = await readCoinDraft(draft.collectionID) || draft;
     Object.assign(fresh, opts.patch);
@@ -15138,12 +15295,31 @@
       showToast("Couldn't promote " + collectionId + ": " + (result.message || result.reason));
       return false;
     }
-    await finishCoinDraftWrite(result.draft, {
-      patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: new Date().toISOString().slice(0, 10) },
-      movePhotos: true
-    });
+    // Coalesced onto a promote already in flight for this coin: the row is
+    // written, but the call that actually wrote it is running the post-write
+    // chain and will toast. Doing either again would move the photos twice
+    // and toast twice for one coin.
+    if (result.coalesced) return true;
+
+    // Toast BEFORE the follow-up chain, not after. The row is real the
+    // moment the write returns; finishCoinDraftWrite() then moves photos and
+    // re-fetches every live sheet, which on the real workbook is easily ten
+    // seconds of silence. Reporting success only at the end of that is what
+    // made a completed promote look like a no-op.
     showToast(collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
       (result.coinId || "(no CoinID)") + ".");
+    try {
+      await finishCoinDraftWrite(result.draft, {
+        patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: new Date().toISOString().slice(0, 10) },
+        movePhotos: true
+      });
+    } catch (e) {
+      // The row landed; only the bookkeeping after it failed. Say so plainly
+      // rather than leaving an unhandled rejection behind a success toast.
+      console.error("Post-promotion bookkeeping failed for " + collectionId + ":", e);
+      showToast(collectionId + " is on the All sheet, but tidying up afterwards failed: " +
+        String(e && e.message || e) + " — photos retry at next launch.");
+    }
     return true;
   }
 
@@ -15159,12 +15335,19 @@
       showToast("Couldn't add " + collectionId + ": " + (result.message || result.reason));
       return false;
     }
-    await finishCoinDraftWrite(result.draft, {
-      patch: { forceAdded: true, allRowWritten: true, forceAddedDate: new Date().toISOString().slice(0, 10) },
-      movePhotos: true
-    });
+    if (result.coalesced) return true; // see promoteCoinDraft() — same reasoning
     showToast(collectionId + " added to the All sheet (row " + result.rowNumber +
       ") with no CoinID — still listed under research until a catalog match is found.");
+    try {
+      await finishCoinDraftWrite(result.draft, {
+        patch: { forceAdded: true, allRowWritten: true, forceAddedDate: new Date().toISOString().slice(0, 10) },
+        movePhotos: true
+      });
+    } catch (e) {
+      console.error("Post-force-add bookkeeping failed for " + collectionId + ":", e);
+      showToast(collectionId + " is on the All sheet, but tidying up afterwards failed: " +
+        String(e && e.message || e) + " — photos retry at next launch.");
+    }
     return true;
   }
 
