@@ -3144,6 +3144,17 @@
           <button id="albumContextClearBtn">Clear</button>
         </div>
 
+        <!-- Editing an existing Staging draft rather than capturing a new
+             coin. Deliberately NOT clearable from here: unlike the album /
+             wishlist deep-link banners above (which pre-fill a NEW coin and
+             can sensibly be dismissed), this one reports which record the
+             form is bound to. Dismissing it would leave the form silently
+             editing a draft with no sign of it. -->
+        <div class="banner context-banner hidden" id="editDraftBanner">
+          <span class="icon">✏️</span>
+          <span class="msg" id="editDraftMsg"></span>
+        </div>
+
         <div class="banner context-banner hidden" id="wishlistOriginBanner">
           <span class="icon">⭐</span>
           <span class="msg" id="wishlistOriginMsg"></span>
@@ -8937,6 +8948,12 @@
       // as before; see resetAddCoinForm()'s own comment for why it must not
       // touch the pending context variable itself.
       resetAddCoinForm();
+      // Drop any edit binding too. Without this, leaving an edit part-way and
+      // entering Add Coin fresh would save the NEW coin over the draft that
+      // was being edited — the form would look blank but still be bound to
+      // it. beginCoinDraftEdit() re-establishes the binding immediately after
+      // its own navigate() call, so this never clears a live edit.
+      clearCoinDraftEditContext();
       showAddCoinMain();
       showObversePhoto();
     }
@@ -15119,6 +15136,15 @@
       const recheckBtnHtml = pendingCoinId
         ? '<button class="staging-btn staging-recheck">Re-check</button>'
         : '';
+      // Edit (Phase A): reopen this draft in Add Coin's own form rather than
+      // leaving Mark Ready a one-way blind commit. Only on a REAL draft — a
+      // mock FAKE_STAGING row has no coin.json to write back to — and never
+      // on a promoted one, whose row belongs to the All sheet now
+      // (beginCoinDraftEdit() re-checks that against the stored draft too,
+      // so a stale render can't get past it).
+      const editBtnHtml = (row._draft && row._draft.status !== COIN_DRAFT_STATUS.PROMOTED)
+        ? '<button class="staging-btn staging-edit">Edit</button>'
+        : '';
       // Live-testing item 3: this coin's own OneDrive Staging folder — genuinely
       // differs per row (unlike the page-level workbook link above), so it's
       // resolved per-row via getCachedFolderWebUrl() and rendered here only
@@ -15140,6 +15166,7 @@
         '</div>' +
         '<div class="staging-actions">' +
           primaryBtnHtml +
+          editBtnHtml +
           recheckBtnHtml +
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
@@ -15160,6 +15187,7 @@
       } else {
         wire(".promote", "Saving…", () => promoteStagedCoin(row.id));
       }
+      wire(".staging-edit", "Opening…", () => beginCoinDraftEdit(row.id));
       if (pendingCoinId && row._draft) {
         wire(".staging-recheck", "Checking…", () => recheckCoinDraftMatch(row._draft));
       }
@@ -18449,9 +18477,26 @@
     // Hidden entirely in the mockup build, where the existing
     // "no OneDrive write happens yet" note already covers it.
     const interim = document.getElementById("addCoinInterimBanner");
-    if (interim) interim.classList.toggle("hidden", !addCoinWriteEnabled());
     const hasEnoughToEvaluate = document.getElementById("denomination").value && document.getElementById("year").value.trim();
     const confident = isConfidentMatch();
+
+    // EDITING an existing draft has exactly one meaningful action: write the
+    // changes back to the draft this form is bound to. The two-destination
+    // choice belongs to CAPTURE — where the coin goes — and a screenshot
+    // caught the cost of not saying so: "Save to Database" sat next to "Save
+    // changes", implying a second, different outcome that does not exist
+    // (both route to saveCoinDraftEdit()). The interim notice goes too: it
+    // explains what each capture destination does, which is not the question
+    // being asked here.
+    if (editingCoinDraftId) {
+      if (interim) interim.classList.add("hidden");
+      document.getElementById("saveConfidentBanner").classList.add("hidden");
+      document.getElementById("saveNotConfidentBanner").classList.add("hidden");
+      document.getElementById("saveToDatabaseBtn").style.display = "none";
+      return;
+    }
+
+    if (interim) interim.classList.toggle("hidden", !addCoinWriteEnabled());
     // Before Denomination+Year are even filled in, there's nothing to
     // evaluate yet — stay quiet rather than flashing a premature warning.
     document.getElementById("saveConfidentBanner").classList.toggle("hidden", !hasEnoughToEvaluate || !confident);
@@ -18626,7 +18671,11 @@
     btn.disabled = true;
     btn.textContent = "Saving…";
     try {
-      const collectionId = await reserveCoinCollectionId();
+      // An EDIT reuses the draft's own CollectionID. Reserving here would
+      // burn a fresh id and write a second draft folder, orphaning the first
+      // along with its photos — the single most important difference between
+      // editing and capturing.
+      const collectionId = editingCoinDraftId || await reserveCoinCollectionId();
       const form = readAddCoinFormForDraft();
 
       if (!addCoinWriteEnabled()) {
@@ -18673,6 +18722,11 @@
       // second, static record would only ever go stale relative to it, not
       // add information. This is what the comment above found and fixed.
 
+      if (editingCoinDraftId) {
+        await saveCoinDraftEdit(collectionId, form, match);
+        return;
+      }
+
       const draft = buildCoinDraft(collectionId, form, match);
       draft.savedVia = destination === "database" ? "direct" : "staging";
       await writeCoinDraft(draft);
@@ -18713,6 +18767,51 @@
       btn.disabled = false;
       btn.textContent = originalLabel;
     }
+  }
+
+  // Writes an EDIT back over the draft it came from, rather than creating a
+  // new one. Built by re-reading the stored draft and overlaying only what
+  // the form owns, not by writing buildCoinDraft()'s output wholesale —
+  // buildCoinDraft() produces a NEW draft, and using it here would silently
+  // reset the four things an edit must never touch:
+  //
+  //   status              a Ready draft would drop back to Draft
+  //   photos/receiptPhoto Phase A does not edit files, and buildCoinDraft()
+  //                       returns them empty, so this would orphan every
+  //                       captured file in the folder
+  //   createdDate         when it was captured, not when it was last touched
+  //   allRowWritten /     Phase 2 bookkeeping; a force-added coin that is
+  //   forceAdded          already on the All sheet must stay marked as such
+  //
+  // The fields it DOES overlay are exactly the ones readAddCoinFormForDraft()
+  // captures, so the two stay in step by construction.
+  async function saveCoinDraftEdit(collectionId, form, match) {
+    const existing = await readCoinDraft(collectionId);
+    if (!existing) {
+      showToast("Couldn't save: " + collectionId + "'s draft is no longer in Staging. Nothing was written.");
+      return;
+    }
+    // Re-derive the research note against the edited values via the same
+    // function a fresh capture uses, so an edit that resolves a catalog gap
+    // clears the note instead of leaving a stale one behind.
+    const rebuilt = buildCoinDraft(collectionId, form, match);
+    const KEEP = ["status", "photos", "receiptPhoto", "createdDate", "savedVia",
+                  "allRowWritten", "forceAdded", "filesMovedOnPromotion",
+                  "promotedDate", "forceAddedDate", "dismissedReason", "readyDate"];
+    const updated = Object.assign({}, existing, rebuilt);
+    KEEP.forEach(k => {
+      if (k in existing) updated[k] = existing[k];
+      else delete updated[k];
+    });
+    updated.editedDate = new Date().toISOString();
+    await writeCoinDraft(updated);
+    await refreshCoinDraftCache();
+    clearCoinDraftEditContext();
+    resetAddCoinAfterSave();
+    navigate("staging");
+    showToast("Saved changes to " + collectionId +
+      (updated.coinId ? " · CoinID " + updated.coinId : " · CoinID still pending research") +
+      ". Photos and receipt are unchanged.");
   }
 
   // The original mockup path, unchanged in behaviour — what runs whenever
@@ -18908,6 +19007,208 @@
       body.classList.toggle("hidden", !openByDefault);
       header.setAttribute("aria-expanded", String(!!openByDefault));
     });
+  }
+
+  // ==================================================================
+  // EDITING AN EXISTING STAGING DRAFT (Phase A)
+  // ==================================================================
+  // Mark Ready used to be a one-way blind commit: once a coin was staged
+  // there was no way back into what had been captured, unlike an in-progress
+  // Set draft, which resumeSetDraftAtStep1() has always been able to reopen.
+  // This is the coin-side equivalent.
+  //
+  // PHASE A SCOPE, deliberately: identity/grade/purchase/storage FIELDS only.
+  // Photos and the receipt are carried forward untouched — adding or removing
+  // one during an edit is Phase B, held back on purpose because removing a
+  // photo needs a delete-from-OneDrive capability nothing in this flow has
+  // today. A Phase A edit can therefore never lose a captured file.
+  let editingCoinDraftId = null;
+
+  function clearCoinDraftEditContext() {
+    editingCoinDraftId = null;
+    const banner = document.getElementById("editDraftBanner");
+    if (banner) banner.classList.add("hidden");
+    const staging = document.getElementById("saveToStagingBtn");
+    if (staging) staging.textContent = "Save to Staging";
+  }
+
+  // Reverses resolveGrade(). That function collapses three different UI
+  // states into one string, so this has to work out which one produced it:
+  //   "VF-20"        -> a plain pick
+  //   "G-4-VG-8"     -> a range, and note BOTH halves contain a hyphen of
+  //                     their own, so the split point cannot be assumed —
+  //                     every candidate is tested against the real option
+  //                     list instead of guessing at the last/first hyphen
+  //   "XF Details …" -> free text, the "Other" path
+  function gradeFieldsFromValue(value) {
+    const raw = String(value == null ? "" : value).trim();
+    if (!raw) return { mode: "plain", from: "", to: "" };
+    const options = [...document.getElementById("gradeFrom").options]
+      .map(o => o.value).filter(v => v && v !== "__other__");
+    if (options.indexOf(raw) !== -1) return { mode: "plain", from: raw, to: "" };
+    for (let i = 1; i < raw.length - 1; i++) {
+      if (raw[i] !== "-") continue;
+      const from = raw.slice(0, i), to = raw.slice(i + 1);
+      if (options.indexOf(from) !== -1 && options.indexOf(to) !== -1) {
+        return { mode: "range", from, to };
+      }
+    }
+    return { mode: "other", from: "", to: "", other: raw };
+  }
+
+  // The inverse of readAddCoinFormForDraft(). Every field that function
+  // reads, this one writes back — including the derived UI state that is not
+  // stored anywhere (which dropdown option is selected, whether an "Other"
+  // override box is showing, which Grader-dependent rows are visible).
+  //
+  // Runs AFTER resetAddCoinForm(), never instead of it: navigate("addcoin")
+  // always resets first (live-run bug #1), so this lands on a clean form the
+  // same way applyAlbumContext() does.
+  function applyCoinDraftToForm(draft) {
+    // --- Identity. Bullion first: it REGENERATES the Denomination dropdown,
+    // so setting denomination before this would be undone. A bullion draft's
+    // denom is a plain face value ($1, $50) shared with other types, so the
+    // option is matched on denom AND category together.
+    addCoinBullionCategory = draft.category || "";
+    const isBullion = !!addCoinBullionCategory;
+    document.getElementById("addCoinBullionToggle").checked = isBullion;
+    populateAddCoinDenominationDropdown(isBullion ? "bullion" : "classic");
+    const denomSel = document.getElementById("denomination");
+    if (isBullion) {
+      const match = [...denomSel.options].find(o =>
+        o.value === (draft.denom || "") && o.dataset.category === addCoinBullionCategory);
+      denomSel.value = match ? match.value : (draft.denom || "");
+      if (match) denomSel.selectedIndex = match.index;
+    } else {
+      denomSel.value = draft.denom || "";
+    }
+
+    document.getElementById("year").value = draft.year || "";
+    setSelectValuePreservingUnknown(document.getElementById("mintMark"), draft.mint || "");
+    document.getElementById("description").value = draft.description || "";
+    // What was saved is the answer, not a starting guess — a later Year or
+    // Denomination edit must not silently overwrite it.
+    descriptionAutoFilled = false;
+
+    document.getElementById("variety").value = draft.variety || "";
+    refreshVarietyOptions(); // rebuilds the filtered list and picks Other if needed
+    document.getElementById("finish").value = draft.finish || "";
+    document.getElementById("designation").value = draft.designation || "";
+
+    // Error: hidden field is the source of truth, the select/override pair is
+    // the visible half. A value not in the list is an "Other" override.
+    const errValue = draft.errorDesc || "";
+    document.getElementById("errorDesc").value = errValue;
+    const errSelect = document.getElementById("errorSelect");
+    const errOther = document.getElementById("errorOther");
+    const errKnown = [...errSelect.options].some(o => o.value === errValue && o.value !== "__other__");
+    if (!errValue) {
+      errSelect.value = ""; errOther.style.display = "none"; errOther.value = "";
+    } else if (errKnown) {
+      errSelect.value = errValue; errOther.style.display = "none"; errOther.value = "";
+    } else {
+      errSelect.value = "__other__"; errOther.style.display = "block"; errOther.value = errValue;
+    }
+
+    document.getElementById("notesField").value = draft.remarks || "";
+
+    // --- Identification / grading. Grader drives which rows are visible, so
+    // it is set before the fields those rows contain.
+    document.getElementById("addCoinGrader").value =
+      isServiceGradeSource(draft.gradeSource || "") ? (draft.gradeSource || "") : "";
+    applyGraderDependentVisibility(document.getElementById("addCoinGrader").value);
+    document.getElementById("gradeSource").value = draft.gradeSource || "";
+    document.getElementById("certTypeNumber").value = draft.serNo || "";
+    applyCacBeanToCheckboxes("cacGreen", "cacGold", draft.cacBean || "");
+    document.getElementById("mintItemNumber").value = draft.itemNumber || "";
+    document.getElementById("gsidInput").value = draft.gsid || "";
+
+    // --- Grade
+    const g = gradeFieldsFromValue(draft.grade);
+    const gradeFrom = document.getElementById("gradeFrom");
+    const gradeTo = document.getElementById("gradeTo");
+    const gradeOther = document.getElementById("gradeOther");
+    const gradeToggle = document.getElementById("gradeRangeToggle");
+    if (g.mode === "other") {
+      gradeFrom.value = "__other__";
+      gradeOther.style.display = "block"; gradeOther.value = g.other;
+      gradeToggle.checked = false; gradeTo.style.display = "none"; gradeTo.value = "";
+    } else {
+      gradeFrom.value = g.from;
+      gradeOther.style.display = "none"; gradeOther.value = "";
+      gradeToggle.checked = g.mode === "range";
+      gradeTo.style.display = g.mode === "range" ? "block" : "none";
+      gradeTo.value = g.to || "";
+    }
+    updateGradePreview();
+
+    // --- Purchase / storage
+    document.getElementById("purchasePrice").value = draft.cost != null ? draft.cost : "";
+    document.getElementById("shippingCost").value = draft.shippingCost != null ? draft.shippingCost : "";
+    document.getElementById("purchaseDate").value = draft.purchaseDate || "";
+    document.getElementById("vendor").value = draft.vendor || "";
+    document.getElementById("storageLocation").value = draft.storageLocation || "";
+    document.getElementById("container").value = draft.container || "";
+    document.getElementById("assignAlbum").value = draft.assignAlbum || "";
+
+    // --- Match state. A draft that already resolved to a CoinID carries that
+    // decision forward, so saving an unrelated edit (a typo in Notes) doesn't
+    // re-open the ambiguous picker for a coin whose catalog row was already
+    // chosen. Stored in the SAME shape a live pick uses ({row, forShape,
+    // candidateCount}) and keyed to the identity now on the form, so editing
+    // Year/Mint/Denom invalidates it and the matcher runs again — exactly as
+    // it would for a pick made moments ago.
+    //
+    // The row is looked up rather than synthesised: if the catalog no longer
+    // has that CoinID (Copilot restructured DB_Coins since capture), there is
+    // nothing honest to restore, so the pick is dropped and the matcher gets
+    // to speak for itself.
+    const savedRow = draft.coinId
+      ? (activeDbCoins() || []).find(r => r && r.coinId === draft.coinId)
+      : null;
+    addCoinResolvedPick = savedRow
+      ? { row: savedRow, forShape: addCoinIdentityShapeKey(addCoinIdentityShape()), candidateCount: 1 }
+      : null;
+
+    updateFlipLabels();
+    checkDbCoinsMatch();
+    updateSaveConfidenceUI();
+  }
+
+  // Entry point. Reads the draft fresh rather than trusting a rendered row,
+  // guards on status, then navigates and applies — the same
+  // navigate()-then-apply order the album and wishlist deep-links use, which
+  // matters because navigate("addcoin") always resets the form first.
+  async function beginCoinDraftEdit(collectionId) {
+    let draft;
+    try { draft = await readCoinDraft(collectionId); }
+    catch (e) {
+      showToast("Couldn't open " + collectionId + " for editing: " + String(e && e.message || e));
+      return false;
+    }
+    if (!draft) { showToast("Coin draft not found: " + collectionId); return false; }
+    // A promoted draft's row is on the All sheet and Browse Edit owns it from
+    // that point — editing it here would write to a Staging file nothing
+    // reads any more, silently diverging from the real record.
+    if (draft.status === COIN_DRAFT_STATUS.PROMOTED) {
+      showToast(collectionId + " is already on the All sheet — edit it from its own record, not from Staging.");
+      return false;
+    }
+
+    navigate("addcoin");
+    editingCoinDraftId = collectionId;
+    applyCoinDraftToForm(draft);
+
+    const banner = document.getElementById("editDraftBanner");
+    document.getElementById("editDraftMsg").textContent =
+      "Editing " + collectionId + " — its photos and receipt are kept as they are.";
+    banner.classList.remove("hidden");
+    document.getElementById("saveToStagingBtn").textContent = "Save changes";
+    // Re-run now that editingCoinDraftId is set — applyCoinDraftToForm() ran
+    // before the binding existed, so it took the capture-mode branch.
+    updateSaveConfidenceUI();
+    setNavBack(() => navigate("staging"));
+    return true;
   }
 
   function resetAddCoinAfterSave() {

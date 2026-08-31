@@ -7856,6 +7856,92 @@ corrections came out of doing it, both worth knowing:
   restoring the always-wrap helper fails H5/K3/L2 with the exact flash;
   stripping the button pass-through from `rejectStagedCoin()` fails K4.
 
+### Editing a coin in Staging — Phase A (BUILT, same branch, still held)
+Mark Ready used to be a one-way blind commit: nothing could reopen what had
+been captured, unlike an in-progress Set draft, which `resumeSetDraftAtStep1()`
+has always been able to resume. This is the coin-side equivalent.
+
+**Phase A scope, deliberately: FIELDS only.** Photos and the receipt are
+carried forward untouched, so an edit can never lose a captured file. Phase B
+(add/remove a photo during an edit) is held back on Ray's instruction — it
+needs a delete-from-OneDrive capability nothing in this flow has today.
+
+- **`applyCoinDraftToForm(draft)` is the exact inverse of
+  `readAddCoinFormForDraft()`** — every field that reads, this writes back,
+  including the derived UI state that is stored nowhere: which dropdown
+  option is selected, whether an "Other" override box is showing, and which
+  Grader-dependent rows are visible. Runs AFTER `resetAddCoinForm()`, never
+  instead of it, the same way `applyAlbumContext()` does — `navigate("addcoin")`
+  always resets first (live-run bug #1).
+- **Ordering that matters, not incidental:** the Bullion toggle is restored
+  FIRST because it regenerates the Denomination dropdown; a bullion draft's
+  `denom` is a plain face value shared with other types, so the option is
+  matched on **denom AND `dataset.category` together**, never the face value
+  alone. Grader is set before the fields whose rows it shows/hides.
+- **`gradeFieldsFromValue()` reverses `resolveGrade()`'s three collapsed
+  states.** The range case is the trap: `"G-4-VG-8"` has hyphens inside BOTH
+  halves, so the split point cannot be guessed from the string — every
+  candidate split is tested against the real option list instead. A value
+  matching no option at all is the "Other" free-text path, so a Details grade
+  (`"XF Details - Improperly Cleaned"`) restores correctly rather than
+  becoming a bogus range.
+- **`addCoinResolvedPick` is restored in the SAME shape a live pick uses**
+  (`{row, forShape, candidateCount}`), keyed to the identity now on the form —
+  so an unrelated edit (a typo in Notes) doesn't re-open the ambiguous picker
+  for a coin whose catalog row was already chosen, while editing
+  Year/Mint/Denom correctly invalidates it. The row is **looked up** in
+  `activeDbCoins()`, not synthesised: if DB_Coins no longer carries that
+  CoinID, there is nothing honest to restore, so the pick is dropped and the
+  matcher speaks for itself.
+- **THE ONE THAT MATTERS — an edit reuses the draft's own CollectionID.**
+  `completeAddCoinSave()` unconditionally called `reserveCoinCollectionId()`;
+  editing through it unchanged would burn a fresh id and write a second draft
+  folder, orphaning the first along with its photos. Now
+  `editingCoinDraftId || await reserveCoinCollectionId()`.
+- **`saveCoinDraftEdit()` overlays onto the STORED draft rather than writing
+  `buildCoinDraft()`'s output wholesale.** `buildCoinDraft()` produces a NEW
+  draft, so using it directly would silently reset four things an edit must
+  never touch: `status` (a Ready draft would drop back to Draft), `photos`/
+  `receiptPhoto` (returned empty, orphaning every captured file),
+  `createdDate`, and the Phase 2 bookkeeping (`allRowWritten`/`forceAdded`/
+  `filesMovedOnPromotion` — a force-added coin already on the All sheet must
+  stay marked as such). It IS re-run for the research note, so an edit that
+  closes a catalog gap clears the note instead of leaving a stale one.
+- **The edit binding is dropped inside `navigate()`'s addcoin branch.**
+  Without it, leaving an edit part-way and entering Add Coin fresh would save
+  the NEW coin over the draft being edited — on a form that looks blank.
+  `beginCoinDraftEdit()` re-establishes the binding immediately after its own
+  `navigate()` call, so this never clears a live edit.
+- **Entry point: an Edit button on Staging Review rows**, offered on Draft and
+  Ready drafts and never on a `PROMOTED` one (whose row belongs to the All
+  sheet — Browse Edit owns it from then on). `beginCoinDraftEdit()` re-checks
+  status against the freshly-read draft too, so a stale render can't get past
+  the button's own condition.
+- **A real defect caught by screenshot, not by the suite:** "Save to Database"
+  stayed visible next to "Save changes" while editing, implying a second,
+  different outcome that does not exist (both route to `saveCoinDraftEdit()`).
+  `updateSaveConfidenceUI()` now takes an edit-mode branch that hides it along
+  with the capture-destination notices, which answer a question nobody is
+  asking mid-edit. Two assertions added so it can't come back.
+
+**Verified headless — new committed suite `tests/verify_staging_edit.js`
+(37 assertions), all passing; 705 across 18 suites, zero failures.** Covers
+every captured field round-tripping; the CollectionID reuse asserted by
+recording the paths the save actually writes (a folder count alone does NOT
+prove it — `saveCoinDraftEdit()` refuses outright when handed a draft that
+doesn't exist, so a wrongly-reserved id fails to write at all rather than
+leaving a visible second folder); photos and receipt carried forward; all
+four pieces of preserved bookkeeping on a Ready + force-added draft; the
+PROMOTED and not-found refusals; the binding not leaking into a fresh
+capture; all four grade shapes including the double-hyphen range; the
+variety and Error "Other" overrides; a bullion draft landing on the option
+matching denom AND category; which statuses get an Edit button and the
+button actually opening the editor; inertness with the write layer off; and
+no horizontal overflow at both viewports. **Verified negative control:**
+reserving a new id fails B1/B2/B4/B5/C4; writing `buildCoinDraft()` output
+wholesale fails B3/B4/C1/C2/C3; dropping the binding reset fails E2.
+- **Not verified: any real device or real OneDrive session.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
