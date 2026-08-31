@@ -335,8 +335,17 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
     document.body.appendChild(gone);
     await runWithButtonPending(gone, "Promoting…", async () => { gone.remove(); });
 
-    btn.remove();
-    return { during, afterRepeat, after, detachedStillDisabled: gone.disabled, detachedLabel: gone.textContent };
+    // A handler that does no async work (it opened a dialog and returned)
+    // must not go pending at all, not even for a frame.
+    const sync = document.createElement("button");
+    sync.textContent = "Reject";
+    document.body.appendChild(sync);
+    runWithButtonPending(sync, "Rejecting…", () => { /* opens a dialog, returns undefined */ });
+    const syncState = { disabled: sync.disabled, label: sync.textContent };
+
+    btn.remove(); sync.remove();
+    return { during, afterRepeat, after, syncState,
+             detachedStillDisabled: gone.disabled, detachedLabel: gone.textContent };
   });
 
   ok(H.during.disabled === true && H.during.label === "Promoting…",
@@ -347,6 +356,9 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
     "H3 -- and it is restored afterwards when it is still on the page");
   ok(H.detachedStillDisabled === true && H.detachedLabel === "Promoting…",
     "H4 a button its own operation removed from the DOM is left alone, not pointlessly restored");
+  ok(H.syncState.disabled === false && H.syncState.label === "Reject",
+    "H5 a handler that returns nothing (it only opened a dialog) gets no pending state at all — " +
+      "not even a one-frame flash before the user has decided");
 
   // ---------- I. Both Promote surfaces are wired through it ----------
   const I = await page.evaluate(async ({ seed, row, draft }) => {
@@ -396,6 +408,145 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
     "I1 the Docket's Promote button shows its pending state on click");
   ok(I.stagingHasPromote && I.stagingPending === true,
     "I2 Staging Review's Promote button does too — both surfaces, one helper");
+
+  // ---------- K. Every other action button shows pending too ----------
+  // Ray's follow-up: Re-check and Reject gave no sign anything had happened
+  // either. Both shapes are covered — Re-check does its work immediately, so
+  // pending shows on the click; Reject opens a confirmation first, so pending
+  // must appear only once the deletion actually starts, never while the user
+  // is still deciding.
+  const K = await page.evaluate(async ({ seed, draft }) => {
+    const mock = createMockGraphClient(seed);
+    const LAT = 40;
+    __setGraphClientForTest(__slowClient(mock, LAT));
+    __setAddCoinWriteEnabledForTest(true);
+    __setLiveDbCoinsForTest([]); // no catalog match -> the draft stays pending
+    __resetAllHeaderMapForTest();
+    const base = writePaths().stagingBase;
+    await mock.uploadJson(base + "/AY-00720/coin.json", Object.assign({}, draft, {
+      collectionID: "AY-00720", status: COIN_DRAFT_STATUS.DRAFT, coinId: "",
+      createdDate: new Date().toISOString()
+    }));
+    await refreshCoinDraftCache();
+    await renderStagingList();
+    await new Promise(r => setTimeout(r, 400));
+
+    const out = {};
+    const view = document.getElementById("view-staging");
+
+    // Re-check: async work on click.
+    const recheck = view.querySelector(".staging-recheck");
+    out.recheckExists = !!recheck;
+    if (recheck) {
+      recheck.click();
+      out.recheckPending = recheck.disabled === true && /Checking/.test(recheck.textContent);
+    }
+    await new Promise(r => setTimeout(r, 600));
+    // Clear whatever dialog the re-check may have raised.
+    document.getElementById("writeGuardOverlay").classList.add("hidden");
+    document.getElementById("docketMatchOverlay").classList.add("hidden");
+
+    // Mark ready: also a real write, also previously silent.
+    const markReady = view.querySelector(".staging-btn.promote:not(.staging-recheck)");
+    out.markReadyExists = !!markReady;
+    if (markReady) {
+      markReady.click();
+      out.markReadyPending = markReady.disabled === true && /Saving/.test(markReady.textContent);
+    }
+    await new Promise(r => setTimeout(r, 600));
+
+    // Reject: dialog first, so the row button must NOT read as pending yet.
+    await renderStagingList();
+    await new Promise(r => setTimeout(r, 300));
+    const reject = view.querySelector(".staging-btn.reject");
+    out.rejectExists = !!reject;
+    if (reject) {
+      reject.click();
+      out.rejectQuietWhileDeciding = reject.disabled === false && /Reject/.test(reject.textContent);
+      out.dialogShown = !document.getElementById("writeGuardOverlay").classList.contains("hidden");
+      // Confirm it — the deletion is what should show pending.
+      const confirmBtn = [...document.querySelectorAll("#writeGuardBtns button")]
+        .find(b => /^Reject$/.test(b.textContent.trim()));
+      if (confirmBtn) {
+        confirmBtn.click();
+        out.rejectPendingAfterConfirm = reject.disabled === true && /Rejecting/.test(reject.textContent);
+      }
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    __teardown();
+    return out;
+  }, { seed: seedMock(), draft: READY_DRAFT });
+
+  ok(K.recheckExists && K.recheckPending === true,
+    "K1 Re-check shows its pending state on click — it does its Graph work immediately");
+  ok(K.markReadyExists && K.markReadyPending === true,
+    "K2 Mark ready does too, being the same shape of silent write");
+  ok(K.rejectExists && K.dialogShown === true && K.rejectQuietWhileDeciding === true,
+    "K3 Reject opens its confirmation WITHOUT going pending — nothing is happening yet while the user decides");
+  ok(K.rejectPendingAfterConfirm === true,
+    "K4 -- and goes pending the moment the deletion actually starts, after the confirm");
+
+  // ---------- L. The Docket's own actions, same treatment ----------
+  const L = await page.evaluate(async ({ seed, draft }) => {
+    const mock = createMockGraphClient(seed);
+    const LAT = 40;
+    __setGraphClientForTest(__slowClient(mock, LAT));
+    __setAddCoinWriteEnabledForTest(true);
+    __setLiveDbCoinsForTest([]);
+    __resetAllHeaderMapForTest();
+    const base = writePaths().stagingBase;
+    await mock.uploadJson(base + "/AY-00721/coin.json", Object.assign({}, draft, {
+      collectionID: "AY-00721", status: COIN_DRAFT_STATUS.READY, coinId: "",
+      createdDate: new Date().toISOString()
+    }));
+    await refreshCoinDraftCache();
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 500));
+
+    const out = {};
+    const research = document.getElementById("docketResearchContainer");
+    const recheck = research.querySelector(".docket-recheck");
+    out.recheckExists = !!recheck;
+    if (recheck) {
+      recheck.click();
+      out.recheckPending = recheck.disabled === true && /Checking/.test(recheck.textContent);
+    }
+    await new Promise(r => setTimeout(r, 600));
+    document.getElementById("writeGuardOverlay").classList.add("hidden");
+    document.getElementById("docketMatchOverlay").classList.add("hidden");
+
+    // Force Add: dialog first, so quiet until confirmed.
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 400));
+    const forceAdd = document.getElementById("docketResearchContainer").querySelector(".docket-forceadd");
+    out.forceAddExists = !!forceAdd;
+    if (forceAdd) {
+      forceAdd.click();
+      // Checked synchronously and deliberately: an earlier version wrapped
+      // dialog-openers in the pending helper too, and flashed "Adding…" for
+      // a frame before the dialog was even answered. Waiting here would have
+      // hidden exactly that.
+      out.forceAddQuietWhileDeciding = forceAdd.disabled === false && /Force Add/.test(forceAdd.textContent);
+      const confirmBtn = [...document.querySelectorAll("#writeGuardBtns button")]
+        .find(b => /^Force Add$/.test(b.textContent.trim()));
+      if (confirmBtn) {
+        confirmBtn.click();
+        out.forceAddPendingAfterConfirm = forceAdd.disabled === true && /Adding/.test(forceAdd.textContent);
+      }
+      await new Promise(r => setTimeout(r, 900));
+    }
+
+    __teardown();
+    return out;
+  }, { seed: seedMock(), draft: READY_DRAFT });
+
+  ok(L.recheckExists && L.recheckPending === true,
+    "L1 the Docket's Re-check shows pending on click, same as Staging Review's");
+  ok(L.forceAddExists && L.forceAddQuietWhileDeciding === true,
+    "L2 Force Add stays quiet while its confirmation is open");
+  ok(L.forceAddPendingAfterConfirm === true,
+    "L3 -- and goes pending once the write actually starts");
 
   // ---------- J. An ordinary single promote is unaffected ----------
   const J = await page.evaluate(async ({ seed, headers, row, draft }) => {

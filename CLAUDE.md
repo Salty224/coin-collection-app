@@ -7824,6 +7824,38 @@ fails I1/I2. Each was restored and re-confirmed.
   fixes specifically.** Ray has cleared live `_Testing` testing for his own
   next pass; `WRITE_TARGET` stays `"copy"`.
 
+**Follow-up: pending state extended to every action button on both
+surfaces.** Ray asked for Re-check and Reject to match Promote. Two
+corrections came out of doing it, both worth knowing:
+- **Force Add did NOT already have it** (the request assumed it did). It
+  has the same dialog-then-async-work shape as Reject, so it got the same
+  treatment rather than being left as the one button believed done and not
+  done. Dismiss, Mark ready and Revert to Draft are the same class of
+  silent write and were included too — leaving three of six buttons on a
+  row behaving differently would have invited the identical complaint next
+  round.
+- **`runWithButtonPending()` now calls the handler FIRST and only goes
+  pending if it returned a thenable.** The first version wrapped every
+  button unconditionally, which made a dialog-opening button flash
+  "Rejecting…" for a frame while the user was still deciding — caught by a
+  synchronous assertion in the suite, not on a device. An async handler
+  returns its promise synchronously, so a real write still goes pending in
+  the same tick; a handler that only opens a dialog returns undefined and
+  gets nothing.
+- **Two shapes, one convention.** A handler that does its work immediately
+  (Re-check, Mark ready, Revert, Promote) shows pending on the click. A
+  handler that opens a confirmation first (Reject, Force Add, Dismiss)
+  takes the button as an optional second argument and applies pending
+  inside its confirm handler, so the state appears when the work starts,
+  never while the dialog is open. `showWriteGuard()` has no backdrop
+  dismiss — every exit runs a declared button's `onClick` — so this cannot
+  strand a button disabled.
+- Verified headless: 8 further assertions in `tests/verify_promote_race.js`
+  (33 in that suite; 668 across 17 suites, zero failures), with three
+  negative controls — unwiring Staging Review's buttons fails I2/K1/K2;
+  restoring the always-wrap helper fails H5/K3/L2 with the exact flash;
+  stripping the button pass-through from `rejectStagedCoin()` fails K4.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

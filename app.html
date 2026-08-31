@@ -14552,7 +14552,8 @@
   // filter-from-view with no note and no persistence. The point is that
   // someone reading this later can tell why an entry was closed WITHOUT a
   // CoinID match, which a bare "dismissed" flag wouldn't convey.
-  function promptDocketDismiss(entry) {
+  // `btn` (optional): see confirmForceAddCoinDraft() for the convention.
+  function promptDocketDismiss(entry, btn) {
     showWriteGuard({
       title: "Dismiss without a match",
       bodyHtml:
@@ -14583,11 +14584,11 @@
             const el = document.getElementById("docketDismissReason");
             return el ? el.value.trim() : "";
           },
-          onClick: async (reason) => {
+          onClick: (reason) => runWithButtonPending(btn, "Dismissing…", async () => {
             await docketDismissEntry(entry.entryId, reason);
             showToast("Dismissed " + (entry.collectionId || "entry") + " — reason recorded.");
             renderNeedsAttentionHub();
-          }
+          })
         }
       ]
     });
@@ -14817,8 +14818,8 @@
         onRecheck: () => recheckCoinDraftMatch(d),
         // Force Add only while the row doesn't exist yet; once it does,
         // Dismiss is what closes the card instead.
-        onForceAdd: d.forceAdded ? null : () => confirmForceAddCoinDraft(d.collectionID),
-        onDismiss: d.forceAdded ? () => promptDismissForceAdded(d.collectionID) : null
+        onForceAdd: d.forceAdded ? null : (btn) => confirmForceAddCoinDraft(d.collectionID, btn),
+        onDismiss: d.forceAdded ? (btn) => promptDismissForceAdded(d.collectionID, btn) : null
       });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
@@ -14838,7 +14839,7 @@
       researchRows.push({
         html: `<div class="wish-desc">${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div><div class="wish-date">Flagged ${escapeHtmlText(String(item.dateFlagged || ""))}</div>`,
         onRecheck: () => docketRecheckEntry(item),
-        onDismiss: () => promptDocketDismiss(item),
+        onDismiss: (btn) => promptDocketDismiss(item, btn),
         kind: "research"
       });
     });
@@ -14898,17 +14899,33 @@
         if (r.onClick) row.addEventListener("click", r.onClick);
         // stopPropagation so an action button inside a tappable row can't
         // also trigger the row's own navigation.
-        // Promote is the one action here that performs a real, slow, one-way
-        // workbook write, so it gets an immediate pending state (see
-        // runWithButtonPending) — the missing feedback is what caused the
-        // AY-00706 double-submit.
-        if (r.onPromote) row.querySelector(".docket-promote").addEventListener("click", (e) => {
-          e.stopPropagation();
-          runWithButtonPending(e.currentTarget, "Promoting…", () => r.onPromote());
-        });
-        if (r.onRecheck) row.querySelector(".docket-recheck").addEventListener("click", (e) => { e.stopPropagation(); r.onRecheck(); });
-        if (r.onForceAdd) row.querySelector(".docket-forceadd").addEventListener("click", (e) => { e.stopPropagation(); r.onForceAdd(); });
-        if (r.onDismiss) row.querySelector(".docket-dismiss").addEventListener("click", (e) => { e.stopPropagation(); r.onDismiss(); });
+        // Every action here performs real Graph work, so every one gets an
+        // immediate pending state (see runWithButtonPending) — the missing
+        // feedback on Promote is what caused the AY-00706 double-submit, and
+        // the others have exactly the same "did that do anything?" gap.
+        //
+        // The button is passed THROUGH to the callback, because two shapes
+        // live behind these handlers: some do their async work immediately
+        // (Re-check), while others open a confirmation dialog first and only
+        // then do the work (Force Add, Dismiss). For the second shape the
+        // pending state belongs on the work, not on the dialog — showing
+        // "Adding…" while the user is still deciding would be a lie — so
+        // those callbacks take the button and apply it themselves after
+        // the confirm. Wrapping here as well is harmless for them: the
+        // dialog-opening call returns immediately, so the wrapper resolves
+        // within the same frame and nothing visibly flashes.
+        const wireAction = (sel, handler, pendingLabel) => {
+          const btn = row.querySelector(sel);
+          if (!btn) return;
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            runWithButtonPending(e.currentTarget, pendingLabel, () => handler(e.currentTarget));
+          });
+        };
+        if (r.onPromote) wireAction(".docket-promote", r.onPromote, "Promoting…");
+        if (r.onRecheck) wireAction(".docket-recheck", r.onRecheck, "Checking…");
+        if (r.onForceAdd) wireAction(".docket-forceadd", r.onForceAdd, "Adding…");
+        if (r.onDismiss) wireAction(".docket-dismiss", r.onDismiss, "Dismissing…");
         container.appendChild(row);
       });
     }
@@ -15126,19 +15143,27 @@
           recheckBtnHtml +
           '<button class="staging-btn reject">Reject</button>' +
         '</div>';
+      // Every action on this row does real, slow Graph work and used to give
+      // no sign it had started (see runWithButtonPending). Reject is the one
+      // exception in shape: its click opens a confirmation dialog, which is
+      // its own instant feedback, so the button is handed DOWN to the dialog
+      // and only shows pending once the deletion actually begins.
+      const wire = (sel, pendingLabel, fn) => {
+        const btn = item.querySelector(sel);
+        if (btn) btn.addEventListener("click", (e) => runWithButtonPending(e.currentTarget, pendingLabel, () => fn(e.currentTarget)));
+      };
       if (readyToPromote) {
-        item.querySelector(".staging-promote-row").addEventListener("click", (e) =>
-          runWithButtonPending(e.currentTarget, "Promoting…", () => promoteCoinDraft(row.id)));
-        item.querySelector(".staging-revert").addEventListener("click", () => revertStagedCoinToDraft(row.id));
+        wire(".staging-promote-row", "Promoting…", () => promoteCoinDraft(row.id));
+        wire(".staging-revert", "Reverting…", () => revertStagedCoinToDraft(row.id));
       } else if (alreadyReady) {
-        item.querySelector(".promote").addEventListener("click", () => revertStagedCoinToDraft(row.id));
+        wire(".promote", "Reverting…", () => revertStagedCoinToDraft(row.id));
       } else {
-        item.querySelector(".promote").addEventListener("click", () => promoteStagedCoin(row.id));
+        wire(".promote", "Saving…", () => promoteStagedCoin(row.id));
       }
       if (pendingCoinId && row._draft) {
-        item.querySelector(".staging-recheck").addEventListener("click", () => recheckCoinDraftMatch(row._draft));
+        wire(".staging-recheck", "Checking…", () => recheckCoinDraftMatch(row._draft));
       }
-      item.querySelector(".reject").addEventListener("click", () => rejectStagedCoin(row.id));
+      wire(".reject", "Rejecting…", (btn) => rejectStagedCoin(row.id, btn));
       return item;
     }
 
@@ -15249,14 +15274,27 @@
   // Restores only if the button is still in the document: these rows are
   // routinely re-rendered out from under the click by the very operation
   // that is finishing, and touching a detached node would be pointless.
-  async function runWithButtonPending(btn, pendingLabel, fn) {
-    if (!btn) return fn();
-    if (btn.disabled) return undefined; // already running — ignore the repeat click
+  function runWithButtonPending(btn, pendingLabel, fn) {
+    if (!btn) return Promise.resolve(fn());
+    if (btn.disabled) return Promise.resolve(); // already running — ignore the repeat click
     const originalLabel = btn.textContent;
+    // Call FIRST, then decide. An async handler returns its promise
+    // synchronously, so the button still goes pending in the same tick — but
+    // a handler that only OPENS A CONFIRMATION DIALOG returns undefined, and
+    // gets no pending state at all. That distinction matters: those handlers
+    // hand this same button down to the dialog so it can go pending once the
+    // user confirms and the real work starts. Without it the button would
+    // flash "Rejecting…" for a frame while the user is still deciding, which
+    // a test caught before it reached a device.
+    const result = fn();
+    if (!result || typeof result.then !== "function") return Promise.resolve(result);
     btn.disabled = true;
     btn.textContent = pendingLabel;
-    try { return await fn(); }
-    finally {
+    return result.then(
+      (v) => { restore(); return v; },
+      (e) => { restore(); throw e; }
+    );
+    function restore() {
       if (btn.isConnected) { btn.disabled = false; btn.textContent = originalLabel; }
     }
   }
@@ -15351,7 +15389,10 @@
     return true;
   }
 
-  function confirmForceAddCoinDraft(collectionId) {
+  // `btn` (optional) is the row button that opened this dialog. The pending
+  // state goes on the WORK, after the confirm — not on the dialog-opening
+  // click, which would read as "Adding…" while the user is still deciding.
+  function confirmForceAddCoinDraft(collectionId, btn) {
     showWriteGuard({
       title: "Add without a catalog match",
       bodyHtml:
@@ -15362,7 +15403,8 @@
         "<p style=\"margin:0;\">Photos move out of Staging as part of this.</p>",
       buttons: [
         { label: "Cancel" },
-        { label: "Force Add", primary: true, onClick: () => forceAddCoinDraft(collectionId) }
+        { label: "Force Add", primary: true,
+          onClick: () => runWithButtonPending(btn, "Adding…", () => forceAddCoinDraft(collectionId)) }
       ]
     });
   }
@@ -15374,7 +15416,8 @@
   // gap was closed unresolved, which a bare flag wouldn't convey. Status
   // becomes PROMOTED because that is simply true at this point: the row is
   // on the sheet. The reason rides along on the draft as the audit trail.
-  function promptDismissForceAdded(collectionId) {
+  // `btn` (optional): see confirmForceAddCoinDraft() for the convention.
+  function promptDismissForceAdded(collectionId, btn) {
     showWriteGuard({
       title: "Dismiss without a catalog match",
       bodyHtml:
@@ -15400,7 +15443,8 @@
             return el ? el.value.trim() : "";
           },
           onInvalid: () => { const e = document.getElementById("forceAddDismissError"); if (e) e.style.display = "block"; },
-          onClick: (reason) => dismissForceAddedDraft(collectionId, String(reason).trim())
+          onClick: (reason) => runWithButtonPending(btn, "Dismissing…",
+            () => dismissForceAddedDraft(collectionId, String(reason).trim()))
         }
       ]
     });
@@ -15592,7 +15636,10 @@
   // the shared write-guard dialog shell rather than a bare confirm() to
   // match this app's existing guard-dialog look, and names what's actually
   // at stake (photos included) so the real-path warning isn't generic.
-  function rejectStagedCoin(collectionId) {
+  // `btn` (optional): same convention as confirmForceAddCoinDraft() — the
+  // pending state belongs on the deletion, which is slow and silent, not on
+  // opening the dialog, which is instant and self-evident.
+  function rejectStagedCoin(collectionId, btn) {
     const real = addCoinWriteEnabled();
     showWriteGuard({
       title: "Reject " + collectionId + "?",
@@ -15603,7 +15650,8 @@
           "nothing is written to OneDrive.</p>",
       buttons: [
         { label: "Cancel", onClick: () => {} },
-        { label: "Reject", primary: true, onClick: () => performRejectStagedCoin(collectionId) }
+        { label: "Reject", primary: true,
+          onClick: () => runWithButtonPending(btn, "Rejecting…", () => performRejectStagedCoin(collectionId)) }
       ]
     });
   }
