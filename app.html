@@ -3872,7 +3872,7 @@
         <div class="section-label">By Denomination</div>
         <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
 
-        <p class="placeholder-note">Cost and value figures are placeholder data — no live totals from the workbook yet.</p>
+        <p class="placeholder-note">Cost and value figures reflect the live workbook once loaded; otherwise this shows placeholder demo data.</p>
       </section>
 
       <!-- ============ ADD SET — Step 1 (set-level basics) ============ -->
@@ -5153,6 +5153,7 @@
   function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
   function __setLiveDbCoinsForTest(rows) { LIVE_DB_COINS = rows; } // test-only seam
   function __setLiveLookupGradersForTest(rows) { LIVE_LOOKUP_GRADERS = rows; } // test-only seam
+  function __setLiveCoinsForTest(rows) { LIVE_COINS = rows; } // test-only seam — stands in for a real fetch landing, for renderStats()/activeCoins() tests
 
   // Lazy and dedup'd, safe to call as often as needed (mirrors
   // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
@@ -5249,6 +5250,12 @@
       LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
       const activeView = document.querySelector(".view.active");
       if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
+      // Same reasoning as the Browse branch above, extended to Ledger/Stats
+      // (2026-09-02 fix): a fetch that resolves while Stats is already open
+      // (e.g. triggered from Browse first, then the user tabs to Stats
+      // before it lands) must re-render it too, or it stays stuck on
+      // whatever was on screen when the fetch started.
+      else if (activeView && activeView.id === "view-stats") renderStats();
       return true;
     }).catch(err => {
       liveNavDataFetchPromise = null;
@@ -9068,6 +9075,16 @@
     }
     if (viewId === "needsdbcoins") {
       renderNeedsAttentionHub();
+    }
+    // Real bug fix (2026-09-02): navigate() never had a "stats" branch at
+    // all, so entering Ledger/Stats via the cabinet drawer never primed the
+    // live-nav-data fetch and never re-rendered — renderStats() only ever
+    // ran once, at app-init time, against FAKE_COINS. Mirrors showBrowseTab()'s
+    // own pattern: kick off the (no-op-when-disabled/already-loaded) fetch,
+    // then render synchronously with whatever's currently available.
+    if (viewId === "stats") {
+      ensureLiveNavDataFetch();
+      renderStats();
     }
 
     previousViewId = viewId;
@@ -15899,16 +15916,25 @@
   }
 
   function renderStats() {
+    // Real bug, found reviewing the workbook-alignment batch: this read
+    // FAKE_COINS directly, never activeCoins() — the one live-data swap
+    // point every other nav function goes through (see its own comment).
+    // Ledger/Stats was therefore ALWAYS showing the 26-row demo data, even
+    // in a live session with ENABLE_LIVE_NAV_DATA on and real coins loaded
+    // elsewhere in the app (Catalog, Sets). navigate()'s own "stats" branch
+    // never called ensureLiveNavDataFetch() either, so nothing ever primed
+    // the fetch from here in the first place. Both are fixed together below.
+    const all = activeCoins();
     // Denomination="Medal" is the real medal signal now (see FAKE_COINS) —
     // superseded the old itemType field, which doesn't exist in the real
     // workbook.
-    const coins = FAKE_COINS.filter(c => c.denom !== "Medal");
-    const medals = FAKE_COINS.filter(c => c.denom === "Medal");
-    const totalSpent = FAKE_COINS.reduce((sum, c) => sum + (c.cost || 0), 0);
-    const totalValue = FAKE_COINS.reduce((sum, c) => sum + (c.value || 0), 0);
+    const coins = all.filter(c => c.denom !== "Medal");
+    const medals = all.filter(c => c.denom === "Medal");
+    const totalSpent = all.reduce((sum, c) => sum + (c.cost || 0), 0);
+    const totalValue = all.reduce((sum, c) => sum + (c.value || 0), 0);
     const net = totalValue - totalSpent;
 
-    document.getElementById("statTotalItems").textContent = FAKE_COINS.length.toLocaleString();
+    document.getElementById("statTotalItems").textContent = all.length.toLocaleString();
     document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
     document.getElementById("statTotalSpent").textContent = formatMoney(totalSpent);
     document.getElementById("statTotalValue").textContent = formatMoney(totalValue);

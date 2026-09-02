@@ -8148,6 +8148,75 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
   services; don't assume another service's login can work the same way without
   checking whether they support a redirect/authorization-code flow first.
 
+### Ledger/Stats: live-data read-path fix (BUILT, same branch, still held)
+Real bug, found while scoping the All.Status investigation (item 5 of the
+workbook-alignment round): `renderStats()` read `FAKE_COINS` directly rather
+than `activeCoins()` — the one swap point every other live-data-aware nav
+function (`coinsTabBaseRows()`, `medalTabBaseRows()`, `applyRollsTabFilters()`,
+`applySetsTabFilters()`, `renderSetChecklist()`, `ownedSetForSetId()`) already
+goes through. Ledger/Stats therefore **always** showed the 26-row demo
+dataset, even in a live session with `ENABLE_LIVE_NAV_DATA` on and real
+coins already loaded elsewhere in the app (Catalog, Sets). Compounding it:
+`navigate()` had no `"stats"` branch at all — unlike `staging`/`addset`/
+`inprogresssets`/`needsdbcoins`, which each trigger their own render —  so
+entering Stats via the cabinet drawer never even attempted the live fetch;
+`renderStats()` ran exactly once anywhere in the file, at app-init time,
+before any fetch could possibly have landed.
+
+**Scope: this fix alone, nothing else.** Ray's explicit instruction: "Fix
+the Ledger/Stats demo-data bug now, as its own standalone item... independent
+of Item 5/Status... please proceed on item 1 only for now." Item 5
+(`All.Status` filtering) stays unbuilt — see that section for the settled-
+but-deferred design (a Status filter chip in Browse, defaulting to Owned,
+covering the four list-producing tabs plus Stats — explicitly held for a
+later round).
+
+- **`renderStats()` now reads `const all = activeCoins();`** and derives
+  `coins`/`medals`/`totalSpent`/`totalValue`/the total-items count from that,
+  instead of `FAKE_COINS` directly. The rest of the function (the
+  per-denomination breakdown loop) already read the local `coins` variable,
+  so no further change was needed there.
+- **`navigate()` gained a `"stats"` branch**, mirroring `showBrowseTab()`'s
+  own pattern: `ensureLiveNavDataFetch()` (a no-op when the flag is off, or
+  when already loaded/in flight — never blocks), then `renderStats()`
+  synchronously with whatever's currently available.
+- **`ensureLiveNavDataFetch()`'s own fetch-completion re-render, previously
+  scoped to `view-browse` only, now also covers `view-stats`** — so a fetch
+  kicked off from Browse that resolves while Stats happens to be the active
+  view re-renders it too, instead of leaving it stuck on stale data until
+  the next manual re-entry.
+- **New test seam, `__setLiveCoinsForTest(rows)`** — sets `LIVE_COINS`
+  directly, mirroring the existing `__setLiveDbCoinsForTest()`/
+  `__setLiveLookupGradersForTest()` seams, since nothing previously needed to
+  stand in for a real fetch landing specifically for Stats.
+- **Stale UI copy fixed alongside it**: the Ledger page's own footnote used
+  to flatly state "Cost and value figures are placeholder data — no live
+  totals from the workbook yet" — no longer accurate once this fix landed.
+  Reworded to "Cost and value figures reflect the live workbook once loaded;
+  otherwise this shows placeholder demo data."
+
+**Verified headless — new committed suite `tests/verify_stats_live_data.js`
+(13 assertions), all passing; 784 across all 20 suites, zero failures.**
+Covers: `renderStats()` genuinely reflecting a live single-coin dataset
+(total items, coins/medals sub-line, spent/value totals) rather than
+`FAKE_COINS`'s own count, and correctly falling back to `FAKE_COINS` again
+once the live override clears; `navigate("stats")` calling
+`ensureLiveNavDataFetch()` (it had no such branch before this fix); the
+fetch-completion branch re-rendering Stats when it's the active view
+(mirrored directly, since a real Graph/MSAL round trip can't be driven from
+this environment); the stale footnote text being gone and replaced with an
+accurate description; and a nav/overflow smoke check. **Two verified negative
+controls**: reverting `renderStats()`'s body to read `FAKE_COINS` directly
+fails the live-dataset assertion; navigating to an unrelated route
+(`wishlist`) confirms the `ensureLiveNavDataFetch()` spy isn't a false
+positive from being always-called. Screenshots reviewed at both viewports
+(phone 412×915, tablet 1024×768) — layout unchanged, no overflow, footnote
+reads correctly.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch — the live-fetch itself
+  can't be exercised end-to-end from this environment; this fix corrects the
+  read-path/render-trigger wiring that a real session would actually need.
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
