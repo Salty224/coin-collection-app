@@ -1802,6 +1802,13 @@
   #gsidAmbiguousPanel.hidden { display: none; }
   #mintMarkOtherAmbiguousPanel.hidden { display: none; }
   #mintMarkOtherMultipleFacilitiesOption.hidden { display: none; }
+  /* Edit Coin's own copies of the two above. There is no generic .hidden rule
+     in this file — every one is scoped to its own component — so a new panel
+     built with class="case hidden" renders FULLY VISIBLE while classList
+     still reports "hidden". This file has hit that exact trap repeatedly;
+     these two rules are what make the markup above actually hide. */
+  #browseEditMintMarkOtherAmbiguousPanel.hidden { display: none; }
+  #browseEditMintMarkOtherMultipleFacilitiesOption.hidden { display: none; }
   .qa-badge { color: var(--gold-bright); font-weight: 700; }
 
   /* Obverse/Reverse toggle (Add Coin) — one flip card visible at a time,
@@ -2570,6 +2577,20 @@
               <label>Mint Mark</label>
               <select id="browseEditMintMark">
                 <option value="">— none (Philadelphia) —</option>
+                <!-- Same one-shot sentinel as Add Coin's identical option
+                     (MINT_MARK_OTHER_SENTINEL): a coin with no mint mark that
+                     is NOT the ordinary Philadelphia case. Normalized straight
+                     back to "" on change, so the SAVED MintMark is blank
+                     either way and every existing reader is unaffected.
+                     Deliberately NARROWER here than in Add Coin: resolving it
+                     writes nothing but the (already blank) Mint Mark — never
+                     Description/Variety/Finish/Denomination/Year, which on an
+                     existing coin are curated values this form must not
+                     silently rewrite (see "No Description auto-fill in Edit
+                     Coin"). What it DOES do is make the resolved row
+                     authoritative for the CoinID re-link this save already
+                     performs. -->
+                <option value="__OTHER_MINT__">— none (Other) —</option>
                 <!-- Explicit "P" — real data (bug found via live device testing):
                      Philadelphia normally carries no mint mark at all, but a
                      handful of real issues DO explicitly mark it (2017 Lincoln
@@ -2589,6 +2610,24 @@
                 <option value="O">O — New Orleans</option>
                 <option value="W">W — West Point</option>
               </select>
+              <div class="banner pending-banner hidden" id="browseEditMintMarkOtherNotFoundBanner">
+                <span class="icon">⚠️</span>
+                <span class="msg"><strong>No non-Philadelphia blank-mint-mark match</strong> in DB_Coins for this Year + Denomination. Mint Mark is still cleared; the catalog link is left for Copilot to resolve.</span>
+              </div>
+              <div class="banner context-banner hidden" id="browseEditMintMarkOtherAppliedBanner">
+                <span class="icon">✅</span>
+                <span class="msg" id="browseEditMintMarkOtherAppliedMsg"></span>
+              </div>
+              <div class="case hidden" id="browseEditMintMarkOtherAmbiguousPanel" style="margin:0 0 16px; padding:12px;">
+                <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">No mint mark, not Philadelphia — pick the actual mint</div>
+                <div id="browseEditMintMarkOtherAmbiguousList"></div>
+                <div class="case form-row ambiguous-match hidden" id="browseEditMintMarkOtherMultipleFacilitiesOption" style="cursor:pointer; margin-top:8px;">
+                  <div class="fr-info">
+                    <div class="fr-title">Struck at multiple facilities</div>
+                    <div class="fr-summary">No single mint identifiable for this issue — documented as struck at more than one facility with no distinguishing mark.</div>
+                  </div><span class="chevron">›</span>
+                </div>
+              </div>
 
               <!-- Standard six codes + Medal. "Multiple" is deliberately absent:
                    a Denomination="Multiple" row is a Set bundle and routes to
@@ -3438,6 +3477,30 @@
                 <option value="Satin Finish">Satin Finish</option>
                 <option value="Enhanced Reverse Proof">Enhanced Reverse Proof</option>
                 <option value="Enhanced Uncirculated">Enhanced Uncirculated</option>
+                <!-- The four below were re-checked against the real workbook
+                     (2026-09-02) and added back or added new:
+
+                     Uncirculated — 211 real DB_Coins rows, and one of
+                       Lookup_Finishes' own 11 defined values ("Mint state, no
+                       wear", typical use "Mint sets"). It had been excluded on
+                       the theory that it was a condition-vs-finish data
+                       mix-up; the real data does not support that. (The
+                       genuinely suspect All-sheet values were "Circulated" and
+                       "Various", which are a separate matter and are NOT
+                       offered here.)
+                     Specimen — 9 real rows. Removed once on the stated
+                       grounds of matching zero rows; that was simply wrong.
+                     Matte — 3 real rows, all modern silver medals.
+                     Matte Proof — Lookup_Finishes' own value for the historic
+                       1908-1916 gold matte proofs. DISTINCT from "Matte"
+                       above, not a spelling variant of it: different era,
+                       different coins. Zero rows today — offered because
+                       "no rows yet" is exactly the reasoning that wrongly
+                       removed Specimen. -->
+                <option value="Uncirculated">Uncirculated</option>
+                <option value="Specimen">Specimen</option>
+                <option value="Matte">Matte</option>
+                <option value="Matte Proof">Matte Proof</option>
               </select>
               <p class="placeholder-note" style="margin:4px 0 16px;">
                 A Proof and a Business Strike of the same date are different coins
@@ -8344,12 +8407,18 @@
   // Buffalo all at once, so a denom+year-only lookup like this map feeds
   // would show wrong/mixed series candidates).
   const DENOM_NAME_TO_CODE = {
-    "Half Cent": "0.5C",
+    "Half Cent": "H1C",
     "Cent": "1C",
     "Error Cent": "1C",
     "Two Cent": "2C",
-    "Three Cent": "3C",
-    "Half Dime": "H5C",
+    // The ONE name in this table that does not resolve to a single code: the
+    // source sheet says "Three Cent" for both the silver trime and the nickel,
+    // which Lookup_DenomCodes separates into 3CS and 3CN. The series/Type
+    // value is what actually distinguishes them (and their year ranges
+    // overlap 1865-1873), so the two rows carry their real codes directly in
+    // FAKE_DENOMINATIONS below rather than being resolved from this name.
+    "Three Cent": "3CS | 3CN (by series — see FAKE_DENOMINATIONS)",
+    "Half Dime": "H10C",
     "Nickel": "5C",
     "Error Nickel": "5C",
     "Dime": "10C",
@@ -8366,11 +8435,11 @@
     "Medal": "Medal"
   };
   const FAKE_DENOMINATIONS = [
-    { denom: "0.5C", yearStart: 1793, yearEnd: 1793, series: "Liberty Cap Left" },
-    { denom: "0.5C", yearStart: 1794, yearEnd: 1797, series: "Liberty Cap Right" },
-    { denom: "0.5C", yearStart: 1800, yearEnd: 1808, series: "Draped Bust" },
-    { denom: "0.5C", yearStart: 1809, yearEnd: 1836, series: "Classic Head" },
-    { denom: "0.5C", yearStart: 1840, yearEnd: 1857, series: "Braided Hair" },
+    { denom: "H1C", yearStart: 1793, yearEnd: 1793, series: "Liberty Cap Left" },
+    { denom: "H1C", yearStart: 1794, yearEnd: 1797, series: "Liberty Cap Right" },
+    { denom: "H1C", yearStart: 1800, yearEnd: 1808, series: "Draped Bust" },
+    { denom: "H1C", yearStart: 1809, yearEnd: 1836, series: "Classic Head" },
+    { denom: "H1C", yearStart: 1840, yearEnd: 1857, series: "Braided Hair" },
     { denom: "1C", yearStart: 1787, yearEnd: 1787, series: "Fugio" },
     { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Chain" },
     { denom: "1C", yearStart: 1793, yearEnd: 1793, series: "Flowing Hair Wreath" },
@@ -8391,15 +8460,19 @@
     { denom: "1C", yearStart: 2009, yearEnd: 2009, series: "Lincoln Bicentennial" },
     { denom: "1C", yearStart: 2010, yearEnd: 2026, series: "Lincoln Shield" },
     { denom: "2C", yearStart: 1864, yearEnd: 1873, series: "Shield" },
-    { denom: "3C", yearStart: 1851, yearEnd: 1873, series: "Silver (Trime)" },
-    { denom: "3C", yearStart: 1865, yearEnd: 1889, series: "Nickel" },
-    { denom: "H5C", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
-    { denom: "H5C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
-    { denom: "H5C", yearStart: 1800, yearEnd: 1805, series: "Draped Bust Heraldic Eagle" },
-    { denom: "H5C", yearStart: 1829, yearEnd: 1837, series: "Capped Bust" },
-    { denom: "H5C", yearStart: 1837, yearEnd: 1838, series: "Seated Liberty No Stars" },
-    { denom: "H5C", yearStart: 1838, yearEnd: 1859, series: "Seated Liberty Stars" },
-    { denom: "H5C", yearStart: 1860, yearEnd: 1873, series: "Seated Liberty Legend" },
+    // Two genuinely different coins, and the real Lookup_DenomCodes table
+    // gives them two separate codes — 3CS (silver "trime", 1851-1873) and
+    // 3CN (nickel, 1865-1889) — rather than one shared "3C". They overlap
+    // 1865-1873, which is exactly why one code could never have served both.
+    { denom: "3CS", yearStart: 1851, yearEnd: 1873, series: "Silver (Trime)" },
+    { denom: "3CN", yearStart: 1865, yearEnd: 1889, series: "Nickel" },
+    { denom: "H10C", yearStart: 1794, yearEnd: 1795, series: "Flowing Hair" },
+    { denom: "H10C", yearStart: 1796, yearEnd: 1797, series: "Draped Bust Small Eagle" },
+    { denom: "H10C", yearStart: 1800, yearEnd: 1805, series: "Draped Bust Heraldic Eagle" },
+    { denom: "H10C", yearStart: 1829, yearEnd: 1837, series: "Capped Bust" },
+    { denom: "H10C", yearStart: 1837, yearEnd: 1838, series: "Seated Liberty No Stars" },
+    { denom: "H10C", yearStart: 1838, yearEnd: 1859, series: "Seated Liberty Stars" },
+    { denom: "H10C", yearStart: 1860, yearEnd: 1873, series: "Seated Liberty Legend" },
     { denom: "5C", yearStart: 1866, yearEnd: 1883, series: "Shield" },
     { denom: "5C", yearStart: 1883, yearEnd: 1913, series: "Liberty (V)" },
     { denom: "5C", yearStart: 1913, yearEnd: 1938, series: "Buffalo (Indian Head)" },
@@ -8509,17 +8582,26 @@
   // still a legitimate Denomination value elsewhere in the app (Browse's
   // Medal filter, Stats & Value's coins-vs-medals split).
   const DENOM_CODE_INFO = [
-    { code: "0.5C", label: "Half Cent" },
+    { code: "H1C", label: "Half Cent" },
     { code: "1C",   label: "Cent" },
     { code: "2C",   label: "Two Cent" },
-    { code: "3C",   label: "Three Cent" },
-    { code: "H5C",  label: "Half Dime" },
+    { code: "3CS",  label: "Three-Cent Silver" },
+    { code: "3CN",  label: "Three-Cent Nickel" },
+    { code: "H10C", label: "Half Dime" },
     { code: "5C",   label: "Nickel" },
     { code: "10C",  label: "Dime" },
     { code: "20C",  label: "Twenty Cent" },
     { code: "25C",  label: "Quarter" },
     { code: "50C",  label: "Half Dollar" },
     { code: "$1",   label: "Dollar" },
+    // A real Lookup_DenomCodes code (Five-Ounce Silver, 2010-present: the ATB
+    // and commemorative 5 oz silver pieces). Listed after $1 because it is
+    // not a face value at all and so has no place in the ascending
+    // face-value run above. It carries no FAKE_DENOMINATIONS row of its own
+    // yet — Ref_Denominations has no matching series row — so it will not
+    // appear in the derived dropdown until one exists; it is here so the
+    // code's label and ordering are already correct when it does.
+    { code: "5oz",  label: "Five-Ounce Silver" },
     { code: "Medal", label: "Medal" }
   ];
 
@@ -8769,7 +8851,7 @@
   // 0.70, same as Dime already does. Medal is deliberately left unset (no
   // fixed real diameter exists for "a medal" the way it does for a coined
   // denomination) and keeps the existing `|| 1.0` fallback, unchanged.
-  const DENOM_SCALE = { "0.5C": 0.70, "1C": 0.72, "2C": 0.70, "3C": 0.70, "H5C": 0.70, "5C": 0.75, "10C": 0.70, "20C": 0.70, "25C": 0.79, "50C": 0.89, "$1": 1.0 };
+  const DENOM_SCALE = { "H1C": 0.70, "1C": 0.72, "2C": 0.70, "3CS": 0.70, "3CN": 0.70, "H10C": 0.70, "5C": 0.75, "10C": 0.70, "20C": 0.70, "25C": 0.79, "50C": 0.89, "$1": 1.0, "5oz": 1.0 };
 
   function denomScale(denom) {
     return DENOM_SCALE[denom] || 1.0;
@@ -12435,6 +12517,7 @@
 
     const details = FAKE_COIN_DETAILS[coin.id] || {};
     browseEditTouchedFields.clear(); // fresh form — nothing user-modified yet
+    resetBrowseEditMintMarkOtherUI(); // a previous coin's mint resolution must not leak in
     loadBrowseEditSnapshot(coin);
 
     // --- Overview: identity fields are editable now (they had no edit
@@ -12743,6 +12826,25 @@
 
     wireMutuallyExclusiveCheckboxes("browseEditCacGreen", "browseEditCacGold");
 
+    // "— none (Other) —" is a one-shot trigger, never a stored value:
+    // normalize it back to "" BEFORE anything else can read the field, then
+    // run the lookup. Bound directly to the select rather than added to the
+    // delegated listener below, so it runs first (a listener on the element
+    // itself fires ahead of one on an ancestor) and every later reader —
+    // including that delegated touched-field tracker — only ever sees "".
+    // Being marked touched is correct and wanted: picking "Other" IS a real
+    // user edit of Mint Mark to blank.
+    document.getElementById("browseEditMintMark").addEventListener("change", (e) => {
+      if (e.target.value !== MINT_MARK_OTHER_SENTINEL) {
+        // Any ordinary mint-mark change supersedes a previously resolved
+        // "Other" answer — that answer was about a blank mint mark.
+        browseEditResolvedMintPick = null;
+        return;
+      }
+      e.target.value = "";
+      handleBrowseEditMintMarkOtherApply();
+    });
+
     buildGradeSourceOptions(document.getElementById("browseEditGradeSource"));
 
     function refreshBrowseEditCertLink() {
@@ -12819,22 +12921,7 @@
       // what it was actually being changed TO. Designation ambiguity and
       // CoinID re-linking are the same underlying "which DB_Coins row
       // matches?" question, so they share this one resolution pass.
-      const identityShape = {
-        denom: form.workbook.Denomination, year: form.workbook.Year,
-        mint: form.workbook.MintMark, variety: form.workbook.Variety,
-        designation: form.workbook.Designation,
-        // GradeSource, from the form's own current value (edited or not) —
-        // feeds dbCoinsCandidatesFor()'s cert-protection guard, which
-        // withholds the Designation blank-as-value narrowing when this
-        // resolves to a real certification service (Lookup_Graders
-        // Type="Service"), not just a Seller/Owner estimate.
-        gradeSource: form.workbook.GradeSource,
-        // Finish isn't editable here, so it comes from the row itself — it
-        // narrows which DB_Coins rows are even candidates (see
-        // dbCoinsCandidatesFor).
-        finish: browseEditSnapshot && browseEditSnapshot.id === coin.id
-          ? browseEditSnapshot.values.Finish : coin.finish
-      };
+      const identityShape = buildBrowseEditIdentityShape(coin, form.workbook);
       resolveDbCoinsForSave(
         browseEditSnapshot && browseEditSnapshot.id === coin.id ? browseEditSnapshot.values : null,
         form.workbook, identityShape,
@@ -13504,8 +13591,66 @@
       onResolved(null, false);
       return;
     }
+    // A mint the user resolved explicitly through the "— none (Other) —"
+    // lookup is AUTHORITATIVE for this save (Ray's confirmed call), not
+    // merely informational. It has to be, to be worth anything: the general
+    // matcher below keys on the ABBREVIATION (MintMark), which is blank for
+    // both an ordinary Philadelphia coin and an unmarked Denver/San
+    // Francisco/West Point one, so re-deriving from scratch here would throw
+    // away the single piece of information the user just supplied and
+    // reintroduce exactly the ambiguity that lookup exists to settle.
+    //
+    // Only honoured while it still belongs to the identity now on the form —
+    // same self-invalidating shape-key rule Add Coin's own remembered pick
+    // uses, so an edit to Year/Denomination/Variety after the fact correctly
+    // discards it rather than linking to a row for a different coin.
+    if (browseEditResolvedMintPick) {
+      if (browseEditResolvedMintPick.forShape === browseEditIdentityShapeKey(identityShape)) {
+        document.getElementById("designationAmbiguousPanel").classList.add("hidden");
+        // viaPicker=true: the user already saw and accepted this exact CoinID
+        // in the applied banner when they resolved the mint, so the
+        // CoinID-change confirm would be re-asking a question already
+        // answered. The identity-overwrite dialog still fires independently
+        // for the MintMark change itself, which is the gate that matters.
+        onResolved(browseEditResolvedMintPick.row, true);
+        return;
+      }
+      browseEditResolvedMintPick = null; // identity moved on — stale, discard
+    }
     checkDesignationReresolution(identityShape, onResolved);
   }
+
+  // Browse Edit's identity, in exactly the shape dbCoinsCandidatesFor()
+  // expects. Extracted so the save handler and the Mint-Mark-Other pick build
+  // it identically — the same "one builder, so two call sites cannot key on
+  // different things" discipline addCoinIdentityShape() already encodes.
+  function buildBrowseEditIdentityShape(coin, workbook) {
+    return {
+      denom: workbook.Denomination, year: workbook.Year,
+      mint: workbook.MintMark, variety: workbook.Variety,
+      designation: workbook.Designation,
+      // GradeSource, from the form's own current value (edited or not) —
+      // feeds dbCoinsCandidatesFor()'s cert-protection guard, which
+      // withholds the Designation blank-as-value narrowing when this
+      // resolves to a real certification service (Lookup_Graders
+      // Type="Service"), not just a Seller/Owner estimate.
+      gradeSource: workbook.GradeSource,
+      // Finish isn't editable here, so it comes from the row itself — it
+      // narrows which DB_Coins rows are even candidates (see
+      // dbCoinsCandidatesFor).
+      finish: browseEditSnapshot && coin && browseEditSnapshot.id === coin.id
+        ? browseEditSnapshot.values.Finish : (coin ? coin.finish : "")
+    };
+  }
+
+  function browseEditIdentityShapeKey(shape) {
+    return JSON.stringify([shape.denom, shape.year, shape.mint, shape.variety,
+      shape.designation, shape.gradeSource, shape.finish]);
+  }
+
+  // A mint resolved through Edit Coin's "— none (Other) —" lookup, plus the
+  // identity it was resolved for. { row, forShape }.
+  let browseEditResolvedMintPick = null;
 
   // ==================================================================
   // ALBUMS — picker list + detail, with tap-to-add-coin on open slots
@@ -14517,7 +14662,17 @@
     if (candidates.length === 1) {
       const row = candidates[0];
       const detail = [
-        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // The striking facility, when the row records one (only blank-
+        // MintMark rows carry mintFull, so this drops out of every ordinary
+        // candidate). It leads for the same reason Composition does below:
+        // the Mint-Mark-"Other" pickers ask the user to choose BETWEEN mints,
+        // and their candidates share a blank MintMark and therefore usually
+        // agree on every other displayed field — without this, Denver and
+        // West Point render as identical text and the question is
+        // unanswerable. That is the Part-F "both options look identical" bug
+        // again, in the one picker where the mint IS the question.
+        row.mintFull ? "Struck at " + row.mintFull : "",
+        // Composition LEADS the rest, ahead of PCGS#/GSID/Mintage. On the 109
         // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
         // displayed fact is byte-identical between the two candidates —
         // same year-mint, same denom, same Description, same Finish, blank
@@ -15553,7 +15708,17 @@
     if (candidates.length === 1) {
       const row = candidates[0];
       const detail = [
-        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // The striking facility, when the row records one (only blank-
+        // MintMark rows carry mintFull, so this drops out of every ordinary
+        // candidate). It leads for the same reason Composition does below:
+        // the Mint-Mark-"Other" pickers ask the user to choose BETWEEN mints,
+        // and their candidates share a blank MintMark and therefore usually
+        // agree on every other displayed field — without this, Denver and
+        // West Point render as identical text and the question is
+        // unanswerable. That is the Part-F "both options look identical" bug
+        // again, in the one picker where the mint IS the question.
+        row.mintFull ? "Struck at " + row.mintFull : "",
+        // Composition LEADS the rest, ahead of PCGS#/GSID/Mintage. On the 109
         // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
         // displayed fact is byte-identical between the two candidates —
         // same year-mint, same denom, same Description, same Finish, blank
@@ -15718,8 +15883,8 @@
   // gets a real breakdown row/sort position instead of silently falling
   // through STATS_DENOM_ORDER.indexOf() as -1 (which would sort it before
   // everything, wrongly, in the Rolls "Denomination" sort).
-  const STATS_DENOM_ORDER = ["0.5C", "1C", "2C", "3C", "H5C", "5C", "10C", "20C", "25C", "50C", "$1"];
-  const DENOM_LABELS = { "0.5C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3C": "Three Cents", "H5C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars" };
+  const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];
+  const DENOM_LABELS = { "H1C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3CS": "Three-Cent Silver", "3CN": "Three-Cent Nickel", "H10C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars", "5oz": "Five-Ounce Silver" };
 
   function formatMoney(n) {
     return "$" + Math.round(n).toLocaleString();
@@ -17647,6 +17812,57 @@
 
   let descriptionAutoFilled = true;
 
+  // TRUE while the Description currently on the form came from a real
+  // DB_Coins row rather than from Ref_Denominations' program-level series
+  // list or the user's own typing. This exists because those two sources
+  // have genuinely different granularity, confirmed against the real
+  // workbook: Ref_Denominations tops out at the PROGRAM level for several
+  // families ("Washington State (1st Design)" is one row covering 1999-2008;
+  // "Washington ATB" one row covering 2010-2021), while DB_Coins already
+  // carries the real per-design name ("Delaware State Quarter", "Grand
+  // Canyon Quarter", "Martha Washington First Spouse Gold $10") with Variety
+  // blank. So once the catalog has resolved to an actual row, ITS name is
+  // strictly the better answer and should win.
+  //
+  // Kept separate from descriptionAutoFilled rather than folded into it: a
+  // catalog-sourced name must be protected from the coarser Ref_Denominations
+  // refill (which descriptionAutoFilled=false already does) while still being
+  // REPLACEABLE by a later, genuinely different catalog row. Reusing the
+  // single flag for both would strand the first match's name on a
+  // subsequently-edited identity.
+  let descriptionFromDbCoinsRow = false;
+
+  // Writes a resolved DB_Coins row's own Description onto the form. Returns
+  // true when it actually wrote.
+  //
+  // Never fights a value the user typed themselves — that is the one thing
+  // this must not do, and the only case it declines. A value THIS function
+  // wrote earlier is deliberately replaceable: a different catalog row
+  // winning later is the entire point.
+  //
+  // Deliberately does NOT touch the series-ambiguous panel. That panel's
+  // whole lifecycle belongs to maybeAutoFillDescription(), which re-evaluates
+  // it from Ref_Denominations on every Year/Denomination change; closing it
+  // from here would give it two owners and make it flicker shut and back open
+  // on the next keystroke.
+  function applyMatchedDescriptionToForm(row) {
+    if (!row || !row.description) return false;
+    if (!descriptionAutoFilled && !descriptionFromDbCoinsRow) return false;
+    const descEl = document.getElementById("description");
+    if (descEl.value === row.description) {
+      descriptionFromDbCoinsRow = true; // already correct; just record the source
+      return false;
+    }
+    descEl.value = row.description;
+    // Marked NOT-autofilled for the same reason applyDbCoinsRowToForm() does:
+    // it stops maybeAutoFillDescription() replacing a specific catalog name
+    // with the coarse program-level one on the next keystroke.
+    descriptionAutoFilled = false;
+    descriptionFromDbCoinsRow = true;
+    updateFlipLabels();
+    return true;
+  }
+
   // Every FAKE_DENOMINATIONS row matching this denom+year — real data
   // legitimately has more than one, both at genuine transition years
   // (Barber/Mercury both cover 1916) and in the modern era's concurrent
@@ -17859,6 +18075,15 @@
 
     if (candidates.length === 1) {
       const found = candidates[0];
+      // The catalog has resolved to exactly one row, so its own Description is
+      // the most specific truth available for this coin — more specific than
+      // Ref_Denominations' program-level series name, which for State/ATB
+      // Quarters and First Spouse cannot name the individual design at all.
+      // Safe against feeding itself: addCoinIdentityShape() only passes
+      // Description into the matcher when it is one of Ref_Denominations' OWN
+      // controlled series values, and a DB_Coins per-design name is not one,
+      // so writing it here changes neither the candidate set nor the shape key.
+      applyMatchedDescriptionToForm(found);
       document.getElementById("dbMatchMsg").innerHTML =
         // Mintage/PCGS# are only PARTIALLY populated on the real DB_Coins
         // sheet, so neither can be assumed present now that this reads the
@@ -17931,7 +18156,22 @@
     // candidate looks like an exact match on some field.
     renderAmbiguousMatchList(document.getElementById("addCoinMatchAmbiguousList"), state.candidates, (row) => {
       panel.classList.add("hidden");
-      addCoinResolvedPick = { row, forShape: state.key, candidateCount: state.candidates.length };
+      // Write the picked row's own Description FIRST, then key the pick to the
+      // identity as it stands AFTERWARDS. Order is load-bearing, not
+      // cosmetic: the field may currently hold a Ref_Denominations series
+      // name, which addCoinIdentityShape() DOES pass to the matcher (it is a
+      // controlled value) and which therefore forms part of the shape key.
+      // Replacing it with a per-design catalog name that is not in that
+      // controlled vocabulary drops shape.description back to "" and so
+      // changes the key — keying the pick to the pre-write `state.key` would
+      // make currentAddCoinMatchState() judge it stale on the very next call
+      // and silently discard the choice the user just made.
+      applyMatchedDescriptionToForm(row);
+      addCoinResolvedPick = {
+        row,
+        forShape: addCoinIdentityShapeKey(addCoinIdentityShape()),
+        candidateCount: state.candidates.length
+      };
       checkDbCoinsMatch(); // refresh the live banner to reflect the pick immediately
       showToast("Matched " + (row.coinId || "this catalog entry") + " — press Save again to continue.");
       // Deliberately does NOT call onResolved — see this function's own
@@ -18036,7 +18276,12 @@
     40: "XF-40", 45: "XF-45", 50: "AU-50", 53: "AU-53", 55: "AU-55", 58: "AU-58"
   };
   const FINISH_GRADE_PREFIX = {
-    "Business Strike": "MS", "Proof": "PR", "Reverse Proof": "PR", "SMS": "SP", "Specimen": "SP"
+    "Business Strike": "MS", "Proof": "PR", "Reverse Proof": "PR", "SMS": "SP", "Specimen": "SP",
+    // Added alongside the Finish-dropdown correction. Uncirculated and Matte
+    // are mint-state strikes (MS) and would have taken the same value from
+    // the "|| MS" fallback anyway; Matte Proof is a PROOF and would NOT
+    // have — it would have decoded a 65 as MS-65 instead of PR-65.
+    "Uncirculated": "MS", "Matte": "MS", "Matte Proof": "PR"
   };
 
   function numericGradeToCode(num, finish) {
@@ -18121,6 +18366,12 @@
     document.getElementById("mintMark").value = row.mint || "";
     document.getElementById("description").value = row.description || "";
     descriptionAutoFilled = false;
+    // An ID lookup (PCGS label / Mint Item Number / GSID) is an authoritative,
+    // deliberate identification, so it writes unconditionally rather than
+    // going through applyMatchedDescriptionToForm()'s "never fight typed text"
+    // guard. It still records the source, so a later identity edit that
+    // resolves to a DIFFERENT catalog row can replace this name.
+    descriptionFromDbCoinsRow = !!row.description;
     document.getElementById("variety").value = row.variety || "";
     // The matched catalog row knows this specimen's Finish; carrying it onto
     // the form both records it on the draft and lets the Finish tier narrow
@@ -18237,7 +18488,17 @@
       // the only way to check a candidate against PCGS/the Red Book before
       // committing. Composition leads that list; see its own note below.
       const detail = [
-        // Composition LEADS, ahead of PCGS#/GSID/Mintage. On the 109
+        // The striking facility, when the row records one (only blank-
+        // MintMark rows carry mintFull, so this drops out of every ordinary
+        // candidate). It leads for the same reason Composition does below:
+        // the Mint-Mark-"Other" pickers ask the user to choose BETWEEN mints,
+        // and their candidates share a blank MintMark and therefore usually
+        // agree on every other displayed field — without this, Denver and
+        // West Point render as identical text and the question is
+        // unanswerable. That is the Part-F "both options look identical" bug
+        // again, in the one picker where the mint IS the question.
+        row.mintFull ? "Struck at " + row.mintFull : "",
+        // Composition LEADS the rest, ahead of PCGS#/GSID/Mintage. On the 109
         // Clad/Silver Proof pairs Copilot found (2026-08-29), every other
         // displayed fact is byte-identical between the two candidates —
         // same year-mint, same denom, same Description, same Finish, blank
@@ -18349,6 +18610,44 @@
   // scalar field match, and it has a third outcome (Multiple Facilities —
   // an anonymous bullion Eagle documented as struck at more than one
   // facility with no distinguishing mark) those two don't need to handle.
+  // The one-shot dropdown value that TRIGGERS the "no mint mark, and not
+  // Philadelphia" lookup. Never a real, persisted MintMark — both forms
+  // normalize it straight back to "" before anything else reads the field.
+  // Shared so Add Coin and Edit Coin cannot drift apart on the literal.
+  const MINT_MARK_OTHER_SENTINEL = "__OTHER_MINT__";
+
+  // The DB_Coins rows that could be "this coin has no mint mark, and it is
+  // NOT the ordinary Philadelphia case" for a given Year + Denomination,
+  // split into real named facilities and the Multiple-Facilities case.
+  //
+  // Pure — no DOM, no form assumptions — precisely so Add Coin and Edit Coin
+  // can share the QUERY while differing completely in what they do with the
+  // answer (Add Coin fills a whole new coin's identity from it; Edit Coin
+  // must not touch an existing coin's curated fields at all).
+  //
+  // Philadelphia rows are excluded even when Mint literally says
+  // "Philadelphia": those are the ordinary blank-mint-mark case the plain
+  // "— none (Philadelphia) —" option already covers, not what "Other" exists
+  // to disambiguate.
+  function mintMarkOtherCandidates(denom, year, variety) {
+    let candidates = activeDbCoins().filter(c =>
+      normField(c.denom) === normField(denom) && String(c.year) === String(year) &&
+      normField(c.mint || "") === "" && normField(c.mintFull || "") !== "" &&
+      normField(c.mintFull) !== normField("Philadelphia")
+    );
+    // Variety, if already present, is a SOFT narrow only (Q4, confirmed) —
+    // same pattern as the Finish/Category tiers in dbCoinsCandidatesFor():
+    // can only reduce ambiguity, never produce a false miss.
+    if (candidates.length > 1 && normField(variety || "")) {
+      const byVariety = candidates.filter(c => normField(c.variety || "") === normField(variety));
+      if (byVariety.length) candidates = byVariety;
+    }
+    return {
+      real: candidates.filter(c => normField(c.mintFull) !== normField("Multiple Facilities")),
+      mf: candidates.filter(c => normField(c.mintFull) === normField("Multiple Facilities"))
+    };
+  }
+
   function handleMintMarkOtherApply() {
     const notFound = document.getElementById("mintMarkOtherNotFoundBanner");
     const applied = document.getElementById("mintMarkOtherAppliedBanner");
@@ -18367,22 +18666,8 @@
       return;
     }
 
-    let candidates = activeDbCoins().filter(c =>
-      normField(c.denom) === normField(denom) && String(c.year) === String(year) &&
-      normField(c.mint || "") === "" && normField(c.mintFull || "") !== "" &&
-      normField(c.mintFull) !== normField("Philadelphia")
-    );
-    // Variety, if already typed, is a SOFT narrow only (Q4, confirmed) —
-    // same pattern as the Finish/Category tiers in dbCoinsCandidatesFor():
-    // can only reduce ambiguity, never produce a false miss.
-    const variety = document.getElementById("variety").value;
-    if (candidates.length > 1 && normField(variety || "")) {
-      const byVariety = candidates.filter(c => normField(c.variety || "") === normField(variety));
-      if (byVariety.length) candidates = byVariety;
-    }
-
-    const mfCandidates = candidates.filter(c => normField(c.mintFull) === normField("Multiple Facilities"));
-    const realCandidates = candidates.filter(c => normField(c.mintFull) !== normField("Multiple Facilities"));
+    const { real: realCandidates, mf: mfCandidates } =
+      mintMarkOtherCandidates(denom, year, document.getElementById("variety").value);
 
     const showApplied = (row, mf) => {
       applyIdentifierDbCoinsMatch(row);
@@ -18421,6 +18706,93 @@
       }
       panel.classList.remove("hidden");
     }
+  }
+
+  // Edit Coin's counterpart to handleMintMarkOtherApply() above. Same query
+  // (shared via mintMarkOtherCandidates()), same three outcomes, deliberately
+  // DIFFERENT consequences:
+  //
+  //   - Add Coin resolving a mint fills a brand-new coin's whole identity from
+  //     the matched row, because there is nothing there to lose.
+  //   - Edit Coin must not do that. Description/Variety/Finish/Denomination/
+  //     Year on an existing row are curated values, and this form's standing
+  //     rule is that it never auto-fills over them ("No Description auto-fill
+  //     in Edit Coin — doing that here would silently overwrite a curated
+  //     Description on an existing catalogued coin"). So the only field this
+  //     writes is Mint Mark, which the sentinel has ALREADY normalized to
+  //     blank before this runs — meaning the visible outcome is a banner plus
+  //     an authoritative catalog link, nothing else.
+  //
+  // The resolved row is remembered as browseEditResolvedMintPick and consumed
+  // by resolveDbCoinsForSave(), which is what makes it authoritative for the
+  // CoinID re-link rather than merely informational.
+  function handleBrowseEditMintMarkOtherApply() {
+    const notFound = document.getElementById("browseEditMintMarkOtherNotFoundBanner");
+    const applied = document.getElementById("browseEditMintMarkOtherAppliedBanner");
+    const panel = document.getElementById("browseEditMintMarkOtherAmbiguousPanel");
+    const mfOption = document.getElementById("browseEditMintMarkOtherMultipleFacilitiesOption");
+    notFound.classList.add("hidden");
+    applied.classList.add("hidden");
+    panel.classList.add("hidden");
+    mfOption.classList.add("hidden");
+    mfOption.onclick = null;
+    browseEditResolvedMintPick = null; // re-running supersedes any earlier answer
+
+    const denom = document.getElementById("browseEditDenomination").value;
+    const year = String(document.getElementById("browseEditYear").value || "").trim();
+    if (!denom || !year) {
+      showToast("Year and Denomination are needed to look up which mint struck an unmarked coin.");
+      return;
+    }
+
+    const { real: realCandidates, mf: mfCandidates } =
+      mintMarkOtherCandidates(denom, year, document.getElementById("browseEditVariety").value);
+
+    const showApplied = (row, mf) => {
+      // Keyed to the identity as it stands right now, so any later edit to
+      // Year/Denomination/Variety/Designation/GradeSource correctly discards
+      // this rather than linking the coin to a row for a different identity.
+      browseEditResolvedMintPick = {
+        row,
+        forShape: browseEditIdentityShapeKey(
+          buildBrowseEditIdentityShape(currentBrowseCoin, readBrowseEditForm().workbook))
+      };
+      document.getElementById("browseEditMintMarkOtherAppliedMsg").innerHTML = (mf
+        ? "<strong>Struck at multiple facilities</strong> — mint not individually identifiable for this issue. Will link to <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>"
+        : "No mint mark, struck at <strong>" + escapeHtmlText(row.mintFull || "") + "</strong> — will link to <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>"
+      ) + " when you save. Mint Mark itself saves blank, exactly as it would for Philadelphia.";
+      applied.classList.remove("hidden");
+    };
+    const applyMultipleFacilities = () => showApplied(mfCandidates[0], true);
+
+    if (realCandidates.length === 0 && mfCandidates.length === 0) {
+      notFound.classList.remove("hidden");
+    } else if (realCandidates.length === 1 && mfCandidates.length === 0) {
+      showApplied(realCandidates[0], false);
+    } else if (realCandidates.length === 0 && mfCandidates.length >= 1) {
+      applyMultipleFacilities();
+    } else {
+      renderAmbiguousMatchList(document.getElementById("browseEditMintMarkOtherAmbiguousList"), realCandidates, (row) => {
+        panel.classList.add("hidden");
+        showApplied(row, false);
+      });
+      if (mfCandidates.length) {
+        mfOption.classList.remove("hidden");
+        mfOption.onclick = () => { panel.classList.add("hidden"); applyMultipleFacilities(); };
+      }
+      panel.classList.remove("hidden");
+    }
+  }
+
+  // Clears every trace of the Edit Coin mint lookup — its three banners, the
+  // ambiguous panel, and the remembered pick. Called whenever Edit opens for
+  // a coin, so one coin's resolution can never leak onto the next.
+  function resetBrowseEditMintMarkOtherUI() {
+    browseEditResolvedMintPick = null;
+    ["browseEditMintMarkOtherNotFoundBanner", "browseEditMintMarkOtherAppliedBanner",
+     "browseEditMintMarkOtherAmbiguousPanel", "browseEditMintMarkOtherMultipleFacilitiesOption"]
+      .forEach(id => document.getElementById(id).classList.add("hidden"));
+    document.getElementById("browseEditMintMarkOtherMultipleFacilitiesOption").onclick = null;
   }
 
   function handlePcgsLabelApply() {
@@ -18938,6 +19310,7 @@
     document.getElementById("description").value = "";
     hideDescriptionAmbiguousPanel();
     descriptionAutoFilled = true;
+    descriptionFromDbCoinsRow = false;
     document.getElementById("varietySelect").value = "";
     document.getElementById("varietyOther").value = "";
     document.getElementById("varietyOther").style.display = "none";
@@ -19365,7 +19738,7 @@
       // anything else reads .value, so refreshVarietyOptions()/
       // checkDbCoinsMatch()/updateFlipLabels() below (and every other
       // reader in the file) only ever see "" or a real code.
-      if (e.target.value === "__OTHER_MINT__") {
+      if (e.target.value === MINT_MARK_OTHER_SENTINEL) {
         e.target.value = "";
         handleMintMarkOtherApply();
       }
@@ -19407,11 +19780,12 @@
       checkDbCoinsMatch(); updateFlipLabels();
     });
 
-    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; hideDescriptionAmbiguousPanel(); updateFlipLabels(); });
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; descriptionFromDbCoinsRow = false; hideDescriptionAmbiguousPanel(); updateFlipLabels(); });
     document.getElementById("descriptionAmbiguousSelect").addEventListener("change", (e) => {
       if (!e.target.value) return;
       document.getElementById("description").value = e.target.value;
       descriptionAutoFilled = true; // picking a real option is still an autofill, not a manual override — a later Year/Denom change is free to replace it
+      descriptionFromDbCoinsRow = false; // this is a Ref_Denominations series name, not a catalog row's
       // Live-run bug #5: this used to hide the panel the instant a series
       // was picked, one-shot — reconsidering meant re-triggering the whole
       // lookup by re-touching Year/Denom. The panel now stays open/live as

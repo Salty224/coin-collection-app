@@ -221,28 +221,45 @@ module.exports = defineSuite("batch3", async ({ ok, openApp, PHONE }) => {
     const options = [...document.querySelectorAll('#denomination option')].map(o => o.value);
     return {
       options,
-      hasHalfCent: options.includes('0.5C'),
+      // Codes updated 2026-09-02 to match the REAL Lookup_DenomCodes table
+      // (H1C not 0.5C, H10C not H5C, and Three Cent split into its two real
+      // codes 3CS/3CN) -- following a confirmed data correction, not a
+      // weakening: each assertion still checks the same thing, against the
+      // value the workbook actually uses.
+      hasHalfCent: options.includes('H1C'),
       hasTwoCent: options.includes('2C'),
-      hasThreeCent: options.includes('3C'),
+      hasThreeCentSilver: options.includes('3CS'),
+      hasThreeCentNickel: options.includes('3CN'),
       hasTwentyCent: options.includes('20C'),
-      hasHalfDime: options.includes('H5C'),
+      hasHalfDime: options.includes('H10C'),
       hasMedal: options.includes('Medal'),
-      halfCentScale: DENOM_SCALE['0.5C'],
-      statsOrderIncludesHalfCent: STATS_DENOM_ORDER.includes('0.5C'),
+      hasOldCodes: options.includes('0.5C') || options.includes('H5C') || options.includes('3C'),
+      halfCentScale: DENOM_SCALE['H1C'],
+      statsOrderIncludesHalfCent: STATS_DENOM_ORDER.includes('H1C'),
       denomLabelsHasTwoCent: DENOM_LABELS['2C'],
       // The gold/bullion tier doesn't add any new denom CODES at all (the
       // redirected design) -- it must not leak any new option value into
       // the default/classic view. Half Eagle et al. now live only in the
       // Bullion-toggle view, keyed by plain face value ("$5"), so there's
       // no new code string to check for here at all.
-      noNewCodeLeaked: options.length === 13 // blank placeholder + 11 everyday codes + Medal, unchanged
+      // 14 now, not 13: splitting Three Cent into 3CS + 3CN adds exactly one
+      // option. 5oz is a real Lookup_DenomCodes code but has no
+      // Ref_Denominations series row, and this dropdown is DERIVED from that
+      // data -- so it correctly does not appear, which is itself the check
+      // that the derivation still holds.
+      noNewCodeLeaked: options.length === 14,
+      hasFiveOz: options.includes('5oz')
     };
   });
-  ok(B8.hasHalfCent && B8.hasTwoCent && B8.hasThreeCent && B8.hasTwentyCent && B8.hasHalfDime,
-    "8.1 the five new denom codes Ray named (Half Cent/Two Cent/Three Cent/Twenty Cent/Half Dime) are all real dropdown options now");
+  ok(B8.hasHalfCent && B8.hasTwoCent && B8.hasThreeCentSilver && B8.hasThreeCentNickel && B8.hasTwentyCent && B8.hasHalfDime,
+    "8.1 the denom codes Ray named are real dropdown options, using the REAL Lookup_DenomCodes values (H1C/2C/3CS/3CN/20C/H10C)");
+  ok(B8.hasOldCodes === false,
+    "8.1b the superseded invented codes (0.5C / H5C / merged 3C) are gone, not left alongside the real ones");
+  ok(B8.hasFiveOz === false,
+    "8.1c 5oz is a real code but has no Ref_Denominations row, so the DERIVED dropdown correctly omits it");
   ok(B8.hasMedal, "8.2 Medal is now a real dropdown option too (a real Ref_Denominations row, a low-risk side effect)");
   ok(B8.halfCentScale === 0.70, "8.3 the new codes got a real DENOM_SCALE entry (floored at 0.70) instead of silently defaulting to 1.0");
-  ok(B8.noNewCodeLeaked, "8.6 the classic/everyday dropdown has exactly 12 options -- no new denom-code vocabulary leaked in from the gold/bullion redirect");
+  ok(B8.noNewCodeLeaked, "8.6 the classic/everyday dropdown has exactly 14 options (one more than before: the 3CS/3CN split) -- no gold/bullion code leaked in");
   ok(B8.statsOrderIncludesHalfCent, "8.4 STATS_DENOM_ORDER extended so Stats & Value can show a real breakdown row for the new codes");
   ok(B8.denomLabelsHasTwoCent === "Two Cents", "8.5 DENOM_LABELS extended with a real plural label");
 

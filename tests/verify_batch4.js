@@ -109,10 +109,18 @@ module.exports = defineSuite("batch4", async ({ ok, openApp, PHONE }) => {
   ["Business Strike", "Proof", "Reverse Proof", "SMS", "Burnished", "Satin Finish", "Enhanced Reverse Proof", "Enhanced Uncirculated"].forEach(v => {
     ok(B3.options.includes(v), "4.3.1 Finish dropdown includes real confirmed value \"" + v + "\"");
   });
-  ok(!B3.options.includes("Specimen"), "4.3.2 \"Specimen\" removed from the Finish dropdown -- matches zero real DB_Coins rows");
-  ok(!B3.options.includes("Uncirculated"), "4.3.3 \"Uncirculated\" (172 rows) deliberately excluded -- a condition-vs-finish data-cleanup issue, not a dropdown gap");
-  ok(!B3.options.includes("Circulated"), "4.3.4 \"Circulated\" stays excluded (unchanged from batch-3/earlier fix)");
-  ok(B3.options.length === 9, "4.3.5 exactly 9 options total (blank + 8 confirmed real values)");
+  // 4.3.2/4.3.3/4.3.5 REVERSED 2026-09-02 against the real workbook, which
+  // contradicted the reasoning they were written on -- following confirmed
+  // data, not weakening. Specimen was removed for "matching zero real rows"
+  // and matches 9; Uncirculated was excluded as a condition-vs-finish mix-up
+  // and is both a real populated value (211 rows) and one of
+  // Lookup_Finishes' own 11 defined values.
+  ok(B3.options.includes("Specimen"), "4.3.2 \"Specimen\" is BACK in the Finish dropdown -- it matches 9 real DB_Coins rows, so removing it was wrong");
+  ok(B3.options.includes("Uncirculated"), "4.3.3 \"Uncirculated\" is BACK -- 211 real DB_Coins rows and a defined Lookup_Finishes value, not a hygiene artifact");
+  ok(B3.options.includes("Matte") && B3.options.includes("Matte Proof"),
+    "4.3.3b \"Matte\" (3 real rows, modern silver medals) and \"Matte Proof\" (Lookup_Finishes' historic 1908-1916 gold value) are both offered, as genuinely different finishes");
+  ok(!B3.options.includes("Circulated"), "4.3.4 \"Circulated\" stays excluded -- a wear state, and absent from Lookup_Finishes (unchanged)");
+  ok(B3.options.length === 13, "4.3.5 exactly 13 options total (blank + Lookup_Finishes' 11 defined values + the in-use \"Matte\")");
 
   // "Enhanced Uncirculated" must remain a distinct option, never conflated
   // with a plain "Uncirculated" value -- and it should still narrow the
