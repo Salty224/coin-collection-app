@@ -2250,7 +2250,21 @@ individual coin):
 "Back" from either edit form returns to the coin/Set's Detail view, not the
 grid.
 
-#### Multi-coin Set display (locked in)
+#### Multi-coin Set display (SUPERSEDED — kept for the data model, not the display)
+**The per-child mini-flip GRID this section describes no longer exists.**
+`renderSetChildFlips()` is gone from `app.html` (only a comment marking where
+it used to live remains), retired first by the "Detail/Edit accordion
+redesign" — which replaced it with the identity-only "Coins in this Set"
+accordion — and then further by "Reverse face gets real content; Sets lose
+the flip card entirely", after which a Set has no flip card at all, just a
+static photo. Read the layout/interaction parts below as history.
+
+**What is still current and load-bearing** is everything about the DATA
+model: the `originSetId` join, its deliberate separation from Issue-3's
+`setId`, `setChildrenFor()`, and children being nested-only in
+`FAKE_SET_CHILDREN` rather than added to `FAKE_COINS`. All of that survives
+unchanged and still feeds the "Coins in this Set" accordion.
+
 A Set-bundle row (`Denomination="Multiple"`) that has known component coins
 renders each child's own coin-flip instead of the single generic
 "Set / Multiple" flip. Built to fall back cleanly: a Set with no linked
@@ -4088,10 +4102,18 @@ pulled from the workbook.
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
 Container, and can attach additional photos/receipts to an existing coin at any time.
 **Widened by the Browse Edit write layer below** — the real allow-list is now
-that list plus Year, MintMark, Denomination, Variety, Description, Value,
-Cost, Shipping, Seller_Link, PurchaseDate, Remarks, Reviewed and
-LastModified; see `ALL_WRITABLE_COLUMNS` for the authoritative version. The
-"no research or judgment" boundary below is unchanged.
+that list plus Year, MintMark, Denomination, Variety, Description, Category,
+Finish, Error, Value, Cost, Shipping, Seller_Link, PurchaseDate, CACBean,
+Remarks, Reviewed and LastModified; see `ALL_WRITABLE_COLUMNS` for the
+authoritative version. The "no research or judgment" boundary below is
+unchanged.
+**Being on that list is NOT the same as being editable in Browse Edit** —
+worth knowing before assuming a field has a UI. `CACBean` genuinely is
+editable (a real checkbox pair). **`Category`, `Finish` and `Error` are
+not**: `readBrowseEditForm()` never collects any of the three from a form
+input. They are allow-listed so that a value arriving by another route —
+Add Coin's own Phase 2 promotion write — isn't silently dropped. Adding a
+real Browse Edit input for any of them is separate, undone work.
 **One narrow exception on top of the allow-list**: CoinID is re-derived and
 written automatically — never by hand, never through the general allow-list
 mechanism — whenever an edit actually changes Year/MintMark/Denomination/
@@ -4820,12 +4842,25 @@ This is **Phase 1 of a deliberately phased build** — architectural/cross-cutti
 so per the merge policy it's held pending Ray's explicit go-ahead, same standing
 as Thread A and the original Docket build.
 
+**SUPERSEDED IN PART — Phase 2 IS BUILT.** Everything below still describes
+Phase 1 accurately and is worth keeping for its reasoning, but it was written
+while Phase 2 was still ahead, and reads throughout in the future tense
+("Phase 2 will also need `Finish` added to `ALL_WRITABLE_COLUMNS`" — already
+done, along with Category, Error and CACBean). For what actually shipped, see
+**"Add Coin Phase 2 + live-device retest batch"** and **"Phase 2 promote:
+duplicate-row bug"** below. The predicted Phase 2 design — append a blank row,
+then reuse `saveCoinRowToWorkbook()` unchanged — is what was in fact built,
+so the reasoning here held up; only the tense is wrong.
+
 **The phasing, and why.** Scoped as three branches rather than one:
 - **Phase 1 (this build)** — Staging drafts only. Reservation unified, real
   `coin.json` drafts with photos, real Staging Review, matcher integration.
   Zero new Graph primitives; everything reuses Add Set's proven draft pattern.
-- **Phase 2** — the real direct-write path into `All`.
+- **Phase 2 (since BUILT)** — the real direct-write path into `All`.
 - **Phase 3** — nothing further; photo capture already lands in Phase 1.
+  (A later, separately-scoped **Phase A** added editing a coin while it sits
+  in Staging; its own **Phase B** — add/remove a photo mid-edit — is still
+  held. Those letters are a different, later track, not this numbered plan.)
 
 Phase 1 first defers the one genuinely novel capability while delivering
 durable value, and matches the project's own risk posture: it has written
@@ -7941,6 +7976,150 @@ no horizontal overflow at both viewports. **Verified negative control:**
 reserving a new id fails B1/B2/B4/B5/C4; writing `buildCoinDraft()` output
 wholesale fails B3/B4/C1/C2/C3; dropping the binding reset fails E2.
 - **Not verified: any real device or real OneDrive session.**
+
+### Workbook-alignment batch (BUILT, same branch, still held)
+Four corrections made after reading the REAL `CoinCollection (AI).xlsx`
+(uploaded 2026-09-02) rather than reasoning from the 12-row mock. Three of
+the four reverse or correct earlier decisions that were made on wrong
+assumptions about the data — worth knowing, because in each case the app was
+confidently doing the wrong thing and the tests were asserting it.
+
+**1. A resolved DB_Coins row's Description is written onto Add Coin's form.**
+- **The data settles the question the earlier investigation had to leave
+  open.** `DB_Coins.Description` already carries the real per-design name —
+  `"Delaware State Quarter"`, `"Grand Canyon Quarter"`, `"Martha Washington
+  First Spouse Gold $10"` — with `Variety` genuinely blank, so several
+  designs share one base key and the existing ambiguous picker already
+  surfaces them correctly. `Ref_Denominations` cannot compete: for Quarters
+  it is program-level only (one row for `"Washington State (1st Design)"`
+  covering 1999-2008, one for `"Washington ATB"` covering 2010-2021), and for
+  First Spouse it names the first four 2007 spouses individually and then
+  lumps 2008-2016 into a single `"Various"` row.
+- **Two write points, matching Ray's spec**: the single-unambiguous-candidate
+  branch of `checkDbCoinsMatch()`, and the pick handler in
+  `resolveAddCoinCatalogMatch()`. Ref_Denominations' program-level auto-fill
+  is untouched and still runs as the before-DB_Coins-can-narrow fallback.
+- **`applyMatchedDescriptionToForm()` never fights a value the user typed**,
+  and that is the only case it declines. A value it wrote earlier IS
+  replaceable — a genuinely different catalog row winning later is the point,
+  and locking it would strand the first match's name on a subsequently-edited
+  identity. That is why `descriptionFromDbCoinsRow` is a separate flag rather
+  than reusing `descriptionAutoFilled = false`: the existing flag means "don't
+  let the coarse refill touch this", which is still wanted, but on its own it
+  would also block the finer source from correcting itself.
+- **THE SUBTLE ONE — order is load-bearing in the pick handler.**
+  `addCoinIdentityShape()` passes Description to the matcher *only when it is
+  one of Ref_Denominations' own controlled series values*, so replacing a
+  controlled series name with a per-design catalog name drops
+  `shape.description` back to `""` and therefore CHANGES the shape key. Keying
+  the pick to the pre-write `state.key` — the obvious way to write it — makes
+  `currentAddCoinMatchState()` judge the pick stale on the very next call and
+  silently discard the choice the user just made. The pick is keyed AFTER the
+  write instead.
+  **The first version of the test did not catch this**: it used 25C/1999,
+  which has SEVERAL Ref_Denominations series, so the field is cleared and
+  `shape.description` is `""` both before and after — the key never moves and
+  a pre-write key survives by luck. The committed assertion uses **10C/1950**,
+  which has exactly one series (`"Roosevelt Silver"`), and a negative control
+  confirms it fails when the keying is reverted.
+
+**2. Edit Coin gains the Mint Mark "— none (Other) —" lookup.**
+- **Deliberately narrower than Add Coin's.** Add Coin fills a whole new
+  coin's identity from the matched row because there is nothing to lose. Edit
+  Coin must not: Description/Variety/Finish/Denomination/Year on an existing
+  row are curated, and this form's standing rule is that it never auto-fills
+  over them. So the only field it writes is Mint Mark — which the shared
+  sentinel has already normalized to blank — and the visible outcome is a
+  banner plus a catalog link.
+- **The resolved row is AUTHORITATIVE for the save-time CoinID re-link**
+  (Ray's confirmed call), consumed by `resolveDbCoinsForSave()`. It has to be
+  to be worth anything: the general matcher keys on the ABBREVIATION, which is
+  blank for an ordinary Philadelphia coin and for an unmarked Denver/San
+  Francisco/West Point one alike, so re-deriving from scratch would discard
+  the one piece of information the user just supplied and reintroduce the
+  exact ambiguity the lookup exists to settle.
+- **Flagged `viaPicker`**, which suppresses the CoinID-change confirm — the
+  user already saw and accepted that exact CoinID in the applied banner, so
+  re-asking is the redundancy that rule exists to avoid. The
+  identity-overwrite dialog still fires independently for the MintMark change
+  itself, which is the gate that matters.
+- **Self-invalidating** via a shape key, mirroring Add Coin's remembered pick,
+  so a later Year/Denomination/Variety edit discards it rather than linking
+  the coin to a row for a different identity. Also cleared whenever Edit opens
+  for another coin.
+- **`mintMarkOtherCandidates()`** extracts the shared QUERY (blank MintMark +
+  populated non-Philadelphia Mint, soft Variety narrow, Multiple-Facilities
+  split) as a pure function, so both forms ask the same question while
+  differing completely in what they do with the answer. Validated at real
+  scale: 188 blank-MintMark/West Point rows, 17 San Francisco, 23 Multiple
+  Facilities.
+- **A real defect found while testing it, affecting the PRE-EXISTING Add Coin
+  picker too**: the shared `renderAmbiguousMatchList()` never displayed the
+  mint facility, so a Denver card and a West Point card rendered as identical
+  text — in the one picker whose entire question is *which mint*. That is the
+  Part-F "both options look identical" failure by another route. `mintFull`
+  now leads the detail line in all three candidate displays (the picker and
+  both Re-check confirm dialogs).
+
+**3. Denomination codes corrected against the real `Lookup_DenomCodes`.**
+The app had invented codes that the workbook does not use:
+- Half Cent is **`H1C`**, not `0.5C`.
+- Half Dime is **`H10C`**, not `H5C`.
+- Three Cent is **two** codes, **`3CS`** (silver trime, 1851-1873) and
+  **`3CN`** (nickel, 1865-1889), not one merged `3C`. Their year ranges
+  overlap 1865-1873, which is the concrete reason one code could never have
+  served both.
+- **`5oz`** (Five-Ounce Silver, ATB/commemorative, 2010-present) added; it was
+  missing entirely.
+None are in use by any currently-owned coin, so this is a correctness fix for
+whenever the first one is catalogued. `5oz` deliberately does not appear in
+the Add Coin dropdown yet: that dropdown is DERIVED from `FAKE_DENOMINATIONS`,
+and `Ref_Denominations` has no matching series row — the derivation still
+holding is itself asserted.
+
+**4. Finish dropdown corrected against real `DB_Coins.Finish` values.**
+Two of these reverse earlier decisions that the data does not support:
+- **`Specimen` restored** — removed on the stated grounds of matching zero
+  real rows. It matches **9**.
+- **`Uncirculated` restored** — excluded as a "condition-vs-finish data
+  mix-up". It is **211 real rows** and one of `Lookup_Finishes`' own 11
+  defined values ("Mint state, no wear", typical use "Mint sets"). The
+  genuinely suspect All-sheet values were `Circulated` and `Various`, which is
+  a separate matter.
+- **`Matte` added** (3 rows, all modern silver medals) and **`Matte Proof`**
+  (Lookup_Finishes' historic 1908-1916 gold value). These are two different
+  finishes, NOT a spelling variant of each other — worth stating plainly,
+  since the reconciliation question was posed that way.
+- **`FINISH_GRADE_PREFIX` gained all three.** `Matte Proof` maps to `PR`;
+  without it the generic `|| "MS"` fallback would have decoded a 65 as MS-65
+  on a proof.
+- **`Circulated`: nothing to simplify, and it should not be removed.**
+  Re-checked in the uploaded workbook: `Circulated` (once 139 rows) is now
+  absent from `All.Finish` entirely, evidently cleaned up workbook-side.
+  `Various` remains (6 rows). But the Finish tier's soft fallback is
+  **data-driven, not a `Circulated` special case** — there is no such literal
+  anywhere in `dbCoinsCandidatesFor()`; it keys on "is this value known
+  anywhere in DB_Coins", so a value that stops occurring simply stops reaching
+  it. Deleting the fallback would break `Various` today and any future
+  All-only value tomorrow. Only the stale row count in the comment was fixed.
+
+**Verified headless — new suite `tests/verify_workbook_alignment.js` (63
+assertions); 771 across 19 suites, zero failures.** Covers all four items
+end-to-end, including the Bullion path for First Spouse (`$10` is not in the
+classic dropdown at all, so it is reached through the Bullion toggle, whose
+generic label the catalog row then correctly replaces). **Four verified
+negative controls**, each failing exactly the assertions that claim to catch
+it: reverting the pick keying (1.7d), removing the write-back (1.1/1.2d/1.9),
+removing the authoritative short-circuit (2.11/2.12/2.14), and a
+scope-violating identity fill onto Edit Coin's own fields (2.6/2.6b). Two of
+these were written twice — the first attempt at each passed against the
+broken code, which is exactly why they were run rather than assumed.
+**Seven existing assertions in `verify_batch3.js`/`verify_batch4.js` were
+reversed** to follow the confirmed data (they asserted the invented denom
+codes and the wrongly-excluded Finish values) — following a real correction,
+not weakening.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round on this branch.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

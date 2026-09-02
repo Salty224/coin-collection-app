@@ -13438,11 +13438,19 @@
     // them as one match was simply wrong.
     //
     // **Soft, never a hard filter, and blank-owned never narrows.** All.Finish
-    // carries values DB_Coins doesn't ("Circulated" on 139 rows, "Various" on
-    // 6), so a strict filter would turn a good match into zero for ~145 rows
-    // and wrongly clear their CoinID — hence the `normField(shape.finish)`
-    // guard (a blank owned Finish skips this tier entirely) plus the
-    // empty-result fallback. This tier can only ever reduce ambiguity.
+    // can carry values DB_Coins doesn't, so a strict filter would turn a good
+    // match into zero for those rows and wrongly clear their CoinID — hence
+    // the `normField(shape.finish)` guard (a blank owned Finish skips this
+    // tier entirely) plus the empty-result fallback. This tier can only ever
+    // reduce ambiguity.
+    //
+    // Counts re-checked 2026-09-02: "Circulated", once 139 rows, is now
+    // absent from All.Finish entirely — evidently cleaned up workbook-side.
+    // "Various" remains (6 rows). Nothing here is removable on the strength
+    // of that: the protection is DATA-DRIVEN, not a Circulated special case
+    // (there is no such literal anywhere in this function), so a value that
+    // has stopped occurring simply stops reaching it. Deleting the fallback
+    // would break "Various" today and any future All-only value tomorrow.
     if (candidates.length > 1 && normField(shape.finish || "")) {
       const finishNorm = normField(shape.finish);
       const byFinish = candidates.filter(c => normField(c.finish || "") === finishNorm);
