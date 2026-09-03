@@ -8392,47 +8392,107 @@ completely blank. No interior blanks; they are all trailing.
 silently "fix" it. Flagged for Ray to decide (shrink the table ref to its
 real data, or leave it and have the app claim existing blanks).
 
-### Item 5 — Force Add's orphan blank row (INVESTIGATED, deliberately NOT fixed)
-Reproduced end-to-end against the mock client, matching the revised live
-facts exactly: **full correct coin data written, one blank orphan row, and
-one error message.**
+### Item 5 — Force Add's orphan blank row (FIXED: claim, don't append)
+**Superseded the "investigated, deliberately NOT fixed" state above.** Ray
+picked option 2. `createAllSheetRow()` now **claims a blank row the table
+already has** and only appends when there genuinely isn't one.
 
-**It is not the old duplicate-row bug resurfacing, and the earlier fix is not
-bypassed.** That fix was about the *correctness of the claimed row* — never
-write keys onto a populated row, never trust stale arithmetic — and it holds.
-What it never added was any **cleanup of the blank row it appends when the
-claim fails**. `createAllSheetRow()` calls `addTableRow()` FIRST, then runs
-three checks that can each throw, and none of them removes the appended row.
-The code's own error text admits this outright: *"A blank row was appended
-and can be deleted."* So the orphan is the **designed** failure behaviour,
-surfacing now because the failure path is actually being hit. Asserted as
-current behaviour (block I) so it stays pinned while awaiting a decision.
+**The bug, restated.** The previous version always appended FIRST and only
+then decided whether it could claim the result, so every failure path ran
+AFTER the append and left that row behind — its own error text said so ("A
+blank row was appended and can be deleted"). Reproduced end-to-end: call A
+promotes and writes its row; call B's `findAllSheetRowNumber()` probe is
+stale, so it appends, then hits the already-on-the-sheet tripwire and
+strands its append. Full correct data + one blank orphan + one error,
+exactly as reported live. **Not the old duplicate-row bug resurfacing** —
+that fix was about the correctness of the CLAIMED row and it holds; what it
+never added was cleanup of its own append.
 
-**Reproduced mechanism** (headless, with a deliberately stale first read):
-call A promotes normally and writes the full row; call B's
-`findAllSheetRowNumber()` probe does not yet see A's write, so it proceeds to
-`createAllSheetRow()`, appends a blank row, and only THEN reads a fresh
-column — which now shows A's row, firing the tripwire. Net result: correct
-data, one orphan, one error. Exactly the reported facts.
+**Why claiming rather than cleanup.** Nothing is created until the keys are
+written, so a failure anywhere above leaves the sheet exactly as it was —
+the orphan mechanism is removed at the source instead of compensated for
+afterwards. It also needs no new row-delete primitive (none exists;
+`deleteItem` is for OneDrive files, and deleting a row on a Copilot-shared
+workbook is itself destructive). And it is free here: the table is
+A1:AY1544 while data ends at 557, so 987 blank rows are already inside it.
 
-**Structural cause: the app uses NO Graph workbook session** — verified, zero
-occurrences of `workbook-session-id`. Every read and write is an independent,
-sessionless request, so read-after-write consistency is not guaranteed.
-`createAllSheetRow()` depends on it twice (append → read → claim, then write
-keys → read → verify). **This affects every read-after-write in the write
-layer, not just Force Add.**
+**Three guards, none of them optional:**
+- **The column is read FIRST, before anything is created.** This ordering
+  IS the fix.
+- **`allSheetRowIsBlank(row)` — the WHOLE row must be empty, not just its
+  CollectionID.** A row can have a blank key and still hold real data (part
+  entered, or an id cleared by hand); attaching a new coin to someone
+  else's half-filled row would be worse than any orphan.
+  `ALL_NEVER_WRITE_FORMULA_COLUMNS` (`SpotValue`, `Total`) is excluded
+  deliberately — both evaluate to something on EVERY row in the table,
+  blank ones included, so counting them would make no row ever claimable.
+  Named once so it can't drift from the never-write list.
+- **A session-wide `withAllRowCreationLock()`.** Appending was inherently
+  unique; claiming is not, and the promote lock is keyed per CollectionID
+  so it does NOT cover two different coins promoted at once — both would
+  read, both see the same first blank row, both write keys to it. Verified
+  by negative control: without the lock the concurrent case throws "the
+  sheet now reports it at row (none)". Does nothing about Copilot editing
+  in Excel; the whole-row check and the verify cover that, worst case with
+  a clean failure rather than a clobber.
+- The append path is **kept as the fallback** for when no blank row is
+  left. It carries the old orphan risk, but is now the rare path.
+- `BLANK_ROW_CLAIM_ATTEMPTS = 5` bounds how many blank-keyed rows get the
+  whole-row check before falling back, since each is its own read.
 
-**Not fixed pending Ray's decision, because the options differ in risk:**
-1. Clean up on failure — needs a **new row-delete primitive** (none exists;
-   `deleteItem` is for OneDrive files). Deleting a row after a failed write
-   is itself a destructive operation on the shared workbook.
-2. Claim an existing blank row instead of appending — removes the append
-   entirely and is free given the 987 blanks, but changes which row a coin
-   lands on while Copilot co-edits.
-3. Use a real Graph workbook session for the create sequence — fixes the
-   consistency class properly, largest change.
-Option 2 is the cheapest and least destructive; option 3 is the most correct.
-**No code was changed for this item.**
+**Visible behaviour change worth knowing: new coins now land immediately
+after the real data (~row 558) instead of past all 987 blanks at ~1545.**
+
+**Explicitly held in reserve, not built (Ray's call): option 3, a real
+Graph workbook session for the create sequence.** That is the structurally
+complete fix for the broader "no workbook session, so read-after-write
+isn't guaranteed consistent" issue (verified: zero occurrences of
+`workbook-session-id`; every read and write is its own transaction).
+Revisit only if the same consistency class shows up elsewhere in the write
+layer. **The table's ref/bounds are deliberately left as-is** — shrinking
+it to its real 557-row extent is a manual structural edit to a live,
+Copilot-shared workbook for a cosmetic reason, and unnecessary now the app
+claims existing blanks. Row 1544/1545's stray blank from the earlier
+incident is left alone; no cleanup was part of this.
+
+### Value / ValueSource / ValueDate on Add Coin
+Ray wants value provenance capturable at entry, not only on a later edit.
+Three fields at the end of Add Coin's Overview, mirroring the Edit Coin
+fields added in the same round: `#addCoinValue` (number, $ prefix),
+`#addCoinValueSource` (free text — the real column carries page-level
+detail like "Red Book 2027, p. 386" that a dropdown would discard), and
+`#addCoinValueDate` (date).
+- All three are captured by `readAddCoinFormForDraft()`, stored on the
+  draft by `buildCoinDraft()`, and mapped by `coinDraftToAllValues()` — so
+  unlike `category`/`cacBean`, which carried a pending-ALL_WRITABLE_COLUMNS
+  caveat when they were added, these three write for real on promotion
+  (all three columns went onto the allow-list earlier in the same round).
+- **`ValueDate` goes through `excelSerialFromISODate()` and `isDateCol()`**
+  like every other date in this layer, never as a raw string — that column
+  has prior history of being corrupted by ISO/Zulu text pasted straight in.
+- **An untouched Value/ValueDate is omitted entirely** rather than written
+  as 0 or a bogus serial (same rule Cost/Shipping/PurchaseDate follow);
+  ValueSource writes `""`, a real clearable value, like the other string
+  columns.
+- Cleared by `resetAddCoinForm()` and restored by `applyCoinDraftToForm()`,
+  so a plain re-entry starts clean and a Staging-draft edit round-trips.
+
+**Verified headless — `tests/verify_retest_batch2.js` grew to 83
+assertions; 867 across 21 suites, zero failures.** Item 5's block was
+rewritten from pinning the old behaviour to asserting the fix: no append
+when a blank exists, the first blank claimed, a tripwire failure leaving
+the sheet completely unchanged, a blank-keyed-but-populated row skipped
+with its data intact, formula-only rows still counting as blank, the
+append fallback still working when the table is full, and two concurrent
+creations claiming different rows. **Four negative controls, each confirmed
+to fail exactly its own assertions**: append-before-checks restored (I1/I2/
+I6), the whole-row guard removed (I8), the creation lock removed (I14, via
+the predicted clobber), and the Add Coin value mapping removed (K7/K8/K10/
+K14).
+- **Not verified: any real device, any real OneDrive session.** This is a
+  change to the row-creation write path and wants a live `_Testing` run
+  before it is trusted — in particular confirming that a new coin now lands
+  around row 558 rather than 1545.
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /

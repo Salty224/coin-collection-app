@@ -3617,6 +3617,29 @@
                 directly (an error is incidental to the specimen, not
                 identity-defining).
               </p>
+
+              <!-- Value + its provenance, matching Edit Coin's own three
+                   fields (Ray wants this capturable at entry, not only on a
+                   later edit). All three are real All columns already on
+                   ALL_WRITABLE_COLUMNS, so a value entered here survives
+                   promotion via coinDraftToAllValues().
+                   ValueSource is free text on purpose — the real column
+                   carries page-level detail ("Red Book 2027, p. 386") that a
+                   fixed dropdown would force the user to throw away. -->
+              <label>Value</label>
+              <div class="currency-input-row">
+                <span class="currency-prefix">$</span>
+                <input type="number" step="0.01" id="addCoinValue" placeholder="e.g. 850.00">
+              </div>
+              <label>Value source</label>
+              <input type="text" id="addCoinValueSource" autocomplete="off"
+                placeholder="e.g. Red Book 2027, p. 386 — where this value came from">
+              <label>Value date</label>
+              <input type="date" id="addCoinValueDate">
+              <p class="placeholder-note" style="margin:4px 0 16px;">
+                Optional. Recording where a value came from and when keeps an
+                estimate honest later — an unattributed figure ages badly.
+              </p>
             </div>
           </div>
 
@@ -5911,6 +5934,12 @@
   // formula again. The identity columns are the row's own keys. This list
   // is asserted against the allow-list at startup rather than merely
   // documented, so the two can't drift apart.
+  // The subset of never-write columns that are LIVE FORMULAS, named
+  // separately because allSheetRowIsBlank() has to ignore exactly these:
+  // both evaluate to something on every row in the table, blank ones
+  // included, so counting them would make no row ever look claimable.
+  const ALL_NEVER_WRITE_FORMULA_COLUMNS = ["SpotValue", "Total"];
+
   const ALL_NEVER_WRITE_COLUMNS = [
     "SpotValue", "Total", "CollectionID", "CoinID", "SetID", "OriginSetID", "CertLink"
   ];
@@ -6418,43 +6447,154 @@
   //      a populated one. It refuses and reports instead.
   //
   // Cost is unchanged — read, append, patch, read either way.
+  // Serialises row CREATION across the whole session. Appending was
+  // inherently unique — every addTableRow() call got its own row — but
+  // CLAIMING a pre-existing blank row is not: two promotes for DIFFERENT
+  // coins (the promote lock is keyed per CollectionID, so it does not cover
+  // this) would both read the column, both see the same first blank row, and
+  // both write their keys to it. The verify below would catch the loser and
+  // fail cleanly, but the honest fix is to make claim-then-write atomic
+  // against other claims rather than rely on one of them failing.
+  //
+  // Does nothing about Copilot editing the same workbook in Excel — the
+  // whole-row blank check and the verify cover that, worst case with a clean
+  // failure rather than a clobber.
+  let allRowCreationLock = Promise.resolve();
+  function withAllRowCreationLock(fn) {
+    const run = allRowCreationLock.then(fn, fn);
+    // Swallow rejections on the CHAIN only (the caller still sees them via
+    // `run`), so one failed claim can't poison every later one.
+    allRowCreationLock = run.then(() => {}, () => {});
+    return run;
+  }
+
+  // True only when EVERY cell of the row is empty — not just its
+  // CollectionID. A row can have a blank key and still hold real data (a
+  // part-entered row, or one whose id was cleared by hand), and attaching a
+  // new coin to someone else's half-filled row would be worse than any
+  // orphan.
+  //
+  // The two live formula columns are excluded deliberately: Total
+  // (= Cost + Shipping) and SpotValue (a VLOOKUP chain) evaluate to
+  // something on EVERY row in the table, blank ones included, so counting
+  // them would make no row ever look claimable.
+  async function allSheetRowIsBlank(rowNumber) {
+    const map = await ensureAllHeaderMap();
+    const indices = Object.keys(map).map(k => map[k]);
+    if (!indices.length) return false;
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const rows = await graph().readWorkbookRange(
+      writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
+    const row = rows[0] || [];
+    const skip = {};
+    ALL_NEVER_WRITE_FORMULA_COLUMNS.forEach(name => { if (map[name]) skip[map[name]] = true; });
+    return Object.keys(map).every(name => {
+      const idx = map[name];
+      if (skip[idx]) return true;
+      const raw = row[idx - 1];
+      return raw === undefined || raw === null || String(raw).trim() === "";
+    });
+  }
+
+  // How many blank-keyed rows to inspect before giving up and appending.
+  // Bounded because each check is its own read; in practice the first
+  // candidate is the answer (the real table's blanks are all trailing and
+  // genuinely empty).
+  const BLANK_ROW_CLAIM_ATTEMPTS = 5;
+
+  async function findClaimableBlankRow(col) {
+    let checked = 0;
+    for (let i = 1; i < col.length && checked < BLANK_ROW_CLAIM_ATTEMPTS; i++) {
+      if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
+      checked++;
+      const sheetRow = i + 1;
+      if (await allSheetRowIsBlank(sheetRow)) return sheetRow;
+    }
+    return null;
+  }
+
+  // Appends a blank row, claims it by writing its key cells, and returns its
+  // verified sheet row — EXCEPT that it now prefers to claim a blank row the
+  // table already has, and only appends when there genuinely isn't one.
+  //
+  // WHY THAT CHANGED. The previous version always appended first and only
+  // then decided whether it could claim the result. Every failure path
+  // therefore ran AFTER the append and left the appended row behind — its
+  // own error text said so ("A blank row was appended and can be deleted").
+  // That is the orphan blank row seen in live testing: a promote whose row
+  // was written correctly, plus a second call that appended, hit the
+  // already-on-the-sheet tripwire, and left its append stranded.
+  //
+  // Claiming an existing blank row removes the orphan mechanism at the
+  // source rather than adding cleanup after the fact — nothing is created
+  // until the keys are written, so a failure anywhere above leaves the sheet
+  // exactly as it was. It is also free on this workbook: the AllCoins table
+  // is A1:AY1544 while real data ends at row 557, so 987 blank rows are
+  // already sitting inside it. A side effect worth knowing: new coins now
+  // land immediately after the real data (~row 558) instead of past all 987
+  // at ~1545.
+  //
+  // The append path is KEPT as the fallback for when the table genuinely has
+  // no blank row left. It carries the old orphan risk, but it is now the
+  // rare path rather than the default.
+  //
+  // THIS USED TO CORRUPT A NEIGHBOURING COIN'S ROW. The original version
+  // computed its write target as `before.length + 1` — arithmetic on a read
+  // taken BEFORE the append — so any row added in between shifted the real
+  // new row down and the key write landed on a row that already belonged to
+  // a different coin. Three things still make that unreachable, and none of
+  // them is weakened by claiming instead of appending: the column is always
+  // read fresh, the chosen row's CollectionID cell must be genuinely EMPTY
+  // (now: the whole row must be), and exactly one row must carry the id
+  // afterwards and it must be the row claimed.
   async function createAllSheetRow(collectionId, coinId) {
-    const add = await graph().addTableRow(writePaths().workbook, ALL_TABLE_NAME);
-    const col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    return withAllRowCreationLock(async () => {
+      // Read FIRST, create nothing yet. This ordering is the fix: every
+      // check below can now fail without having changed the sheet.
+      let col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
 
-    // Tripwire: the caller only reaches here when the id was absent a moment
-    // ago, so this can only fire if something added it underneath us.
-    const already = collectionIdRowsInColumn(col, collectionId);
-    if (already.length) {
-      throw new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
-        " — nothing written. A blank row was appended and can be deleted.");
-    }
+      // Tripwire: the caller only reaches here when the id was absent a
+      // moment ago, so this can only fire if something added it underneath
+      // us. Nothing has been appended at this point, so nothing is left
+      // behind — the old version's "a blank row was appended" caveat is gone.
+      const already = collectionIdRowsInColumn(col, collectionId);
+      if (already.length) {
+        throw new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
+          " — nothing written, and nothing was added to the sheet.");
+      }
 
-    const cellIsBlank = (sheetRow) =>
-      sheetRow >= 2 && sheetRow <= col.length &&
-      String(col[sheetRow - 1] == null ? "" : col[sheetRow - 1]).trim() === "";
+      let targetRow = await findClaimableBlankRow(col);
 
-    const candidates = [];
-    if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
-    if (col.length > 1) candidates.push(col.length); // the table's last row
-    const targetRow = candidates.filter(cellIsBlank)[0];
-    if (!targetRow) {
-      throw new Error("Appended a row for " + collectionId + " but no blank row was available to claim" +
-        (candidates.length ? " (checked row " + candidates.join(" and row ") + ")" : "") +
-        " — nothing written. The table changed underneath this write; retry.");
-    }
+      if (!targetRow) {
+        // No reusable blank row — fall back to extending the table.
+        const add = await graph().addTableRow(writePaths().workbook, ALL_TABLE_NAME);
+        col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+        const cellIsBlank = (sheetRow) =>
+          sheetRow >= 2 && sheetRow <= col.length &&
+          String(col[sheetRow - 1] == null ? "" : col[sheetRow - 1]).trim() === "";
+        const candidates = [];
+        if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
+        if (col.length > 1) candidates.push(col.length); // the table's last row
+        targetRow = candidates.filter(cellIsBlank)[0];
+        if (!targetRow) {
+          throw new Error("Appended a row for " + collectionId + " but no blank row was available to claim" +
+            (candidates.length ? " (checked row " + candidates.join(" and row ") + ")" : "") +
+            " — nothing written. The table changed underneath this write; retry.");
+        }
+      }
 
-    await writeNewRowKeyCells(targetRow, collectionId, coinId);
+      await writeNewRowKeyCells(targetRow, collectionId, coinId);
 
-    // Duplicate-aware, unlike the old first-match re-resolve: exactly one row
-    // must now carry this id, and it must be the row we claimed.
-    const rows = await findAllSheetRowNumbersFor(collectionId);
-    if (rows.length !== 1 || rows[0] !== targetRow) {
-      throw new Error("Wrote keys for " + collectionId + " at row " + targetRow +
-        " but the sheet now reports it at row " + (rows.length ? rows.join(" and row ") : "(none)") +
-        " — no coin data was written. Check the All sheet for a duplicate row before retrying.");
-    }
-    return rows[0];
+      // Duplicate-aware, unlike the old first-match re-resolve: exactly one
+      // row must now carry this id, and it must be the row we claimed.
+      const rows = await findAllSheetRowNumbersFor(collectionId);
+      if (rows.length !== 1 || rows[0] !== targetRow) {
+        throw new Error("Wrote keys for " + collectionId + " at row " + targetRow +
+          " but the sheet now reports it at row " + (rows.length ? rows.join(" and row ") : "(none)") +
+          " — no coin data was written. Check the All sheet for a duplicate row before retrying.");
+      }
+      return rows[0];
+    });
   }
 
   // A "no DB_Coins match for the edited identity" is the same situation
@@ -7093,6 +7233,13 @@
       // silently assumed — same standing note Category and Finish already
       // carry here.
       cacBean: form.cacBean || "",
+      // --- value + provenance. All three are already on
+      // ALL_WRITABLE_COLUMNS, so unlike category/cacBean above these carry
+      // no pending-decision caveat: coinDraftToAllValues() maps them and a
+      // promote writes them for real.
+      value: form.value != null ? form.value : null,
+      valueSource: form.valueSource || "",
+      valueDate: form.valueDate || "",
       // --- purchase
       cost: form.cost != null ? form.cost : null,
       shippingCost: form.shippingCost != null ? form.shippingCost : null,
@@ -7230,7 +7377,10 @@
       StorageLocation: draft.storageLocation || "",
       Container: draft.container || "",
       Remarks: draft.remarks || "",
-      Seller_Link: draft.vendor || ""
+      Seller_Link: draft.vendor || "",
+      // Free text, and "" is a real writable value (no attribution recorded)
+      // — same rule as every other string column above.
+      ValueSource: draft.valueSource || ""
     };
     // Numeric/date fields only when actually captured — writing 0 or a
     // bogus serial for "not recorded" would be worse than leaving blank,
@@ -7238,6 +7388,12 @@
     if (draft.cost != null && draft.cost !== "") v.Cost = Number(draft.cost);
     if (draft.shippingCost != null && draft.shippingCost !== "") v.Shipping = Number(draft.shippingCost);
     if (draft.purchaseDate) v.PurchaseDate = excelSerialFromISODate(draft.purchaseDate);
+    if (draft.value != null && draft.value !== "") v.Value = Number(draft.value);
+    // Through the same Excel-serial path as PurchaseDate, never as a raw
+    // string — ValueDate has prior history of being corrupted by ISO/Zulu
+    // text pasted straight in. buildRowCellEdits() then applies the explicit
+    // yyyy-mm-dd number format (isDateCol lists it).
+    if (draft.valueDate) v.ValueDate = excelSerialFromISODate(draft.valueDate);
     return v;
   }
 
@@ -19175,6 +19331,12 @@
       // way" posture as every other identity/grade field here. No write
       // path to All exists in Phase 1 (see buildCoinDraft()'s own comment).
       cacBean: cacBeanValueFrom("cacGreen", "cacGold"),
+      // Value + provenance. Same three columns Edit Coin writes; captured
+      // here so an estimate recorded at entry time survives promotion
+      // instead of having to be re-entered on a later edit.
+      value: num("addCoinValue"),
+      valueSource: document.getElementById("addCoinValueSource").value.trim(),
+      valueDate: document.getElementById("addCoinValueDate").value,
       cost: num("purchasePrice"),
       shippingCost: num("shippingCost"),
       purchaseDate: document.getElementById("purchaseDate").value,
@@ -19599,6 +19761,11 @@
     const gallerySection = document.getElementById("addCoinGallery");
     if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
 
+    // --- Value + provenance
+    document.getElementById("addCoinValue").value = "";
+    document.getElementById("addCoinValueSource").value = "";
+    document.getElementById("addCoinValueDate").value = "";
+
     // --- Purchase / Storage
     document.getElementById("purchasePrice").value = "";
     document.getElementById("shippingCost").value = "";
@@ -19757,6 +19924,12 @@
       gradeTo.value = g.to || "";
     }
     updateGradePreview();
+
+    // --- Value + provenance (Staging-edit Phase A restores every captured
+    // field; these three are captured now, so they restore too).
+    document.getElementById("addCoinValue").value = draft.value != null ? draft.value : "";
+    document.getElementById("addCoinValueSource").value = draft.valueSource || "";
+    document.getElementById("addCoinValueDate").value = draft.valueDate || "";
 
     // --- Purchase / storage
     document.getElementById("purchasePrice").value = draft.cost != null ? draft.cost : "";
