@@ -8494,6 +8494,90 @@ K14).
   before it is trusted — in particular confirming that a new coin now lands
   around row 558 rather than 1545.
 
+### Catalog grid: Variety + Designation on the mini flip card (BUILT, same branch, still held)
+Resolves ParkingLot Row 2. Confirmed on a real device before building: a
+1909 VDB cent and a plain 1909 rendered **identically** in the Catalog grid,
+while the same coin's own detail page showed VDB correctly.
+
+**Root cause.** `renderBrowseGrid()` built its TL and BL corners by plain
+string interpolation straight into the card's `innerHTML`
+(`<span class="flip-label tl">${yearMint}</span>`, BL likewise from
+`coin.grade`). Variety and Designation were simply never included. TR and BR
+had been migrated to the fitted renderers in earlier rounds
+(`renderTypeDenomCorner()`, `setCompositionCornerText()`); TL and BL never
+were.
+
+**Why it could not just be string-appended.** A second stacked line grows the
+corner's box DOWNWARD into the coin disc's band. That is precisely what
+`cornerClearsDisc()` exists to catch and what a box-width check cannot see —
+measured earlier at 412px, a two-line TL fits its own box while its bottom
+edge sits past the disc's bounding-box top.
+
+**New `setStackedCornerText(el, lines)`** — one or two stacked lines through
+`shrinkCornerToFit()` + `renderCornerLines()`, the same machinery TR/BR use.
+Blank lines are dropped, so no Variety renders a single line and no
+Grade/Designation renders nothing at all (not an empty box).
+- **TL** = Year-Mint over Variety, matching `applyFlipCorners()`'s own TL.
+- **BL** = Grade and Designation concatenated with NO space (`MS-65RD`),
+  deliberately the same join style that card uses — not Add Coin's own
+  two-line stacking, which is a different corner with a different pairing.
+- Both run after `appendChild` and after `sizeCoinElement()`, since the fit
+  test measures against real layout and the disc's real size.
+- Values go through `escapeHtmlText()`. `applyFlipCorners()` passes its own
+  raw; this is the safer default for new code, not a claim the old path is
+  wrong.
+
+**A second, deeper bug found while wiring this: the disc-clearance test was a
+silent no-op on every Catalog card.** `.flip-frame-mini` is a SEPARATE class,
+not a modifier of `.flip-frame`, so `cornerClearsDisc()`'s
+`el.closest(".flip-frame")` returned null on a mini card and the whole test
+short-circuited to `true`. **TR and BR therefore never had clearance
+protection here either — only box-width fitting**, since the round that added
+clearance. Selector widened to `.flip-frame, .flip-frame-mini`.
+- **Measured impact of switching it on: none for ordinary coins.** Every
+  realistic value still renders at the natural 14px — enabling a real
+  clearance test did not cause blanket shrinking, which was the risk worth
+  checking. Asserted (D2).
+- It does now bite where it should: `"Doubled Die Obverse"` shrinks 14px →
+  7.84px and clears the disc by 10.5px, with the full variety text preserved
+  rather than truncated.
+
+**Known, accepted limit (measured, not assumed).** A very long free-typed
+Grade — `"XF Details - Improperly Cleaned"` — reaches the smallest shrink
+step (6.72px), clears the disc and stays inside the frame, but still
+overflows its own box width. `shrinkCornerToFit()` stops there by design
+rather than shrinking indefinitely; same posture as every other
+"not worth chasing further" gap in this file. At that size it is small
+either way.
+
+**ParkingLot Row 6 is NOT closed by this.** That row is about the FULL flip
+card's BL (Grade+Designation), which `applyFlipCorners()` still writes with
+plain `textContent` and no fitting. This gives the CATALOG GRID's BL that
+protection; the full card is untouched. `setStackedCornerText()` is now
+available if Row 6 is ever picked up, but wiring it into `applyFlipCorners()`
+would change the appearance of the main flip card and was not asked for.
+
+**Verified headless — new committed suite
+`tests/verify_catalog_grid_corners.js` (34 assertions, both viewports); 901
+across 22 suites, zero failures.** No FAKE_COINS row carries a Variety at
+all, so the live-data seam (`__setLiveCoinsForTest`) is what exercises the
+real render path. Covers: the VDB cent's two-line TL and `MS-65RD` BL; the
+two 1909-S cents no longer being indistinguishable (the reported symptom);
+single-line TL with no Variety; Grade alone with no Designation; an empty BL
+with neither; a long Variety kept in full, shrunk, disc-clear and inside the
+frame; and TR unchanged at its natural size.
+- **Two negative controls, both confirmed to fail.** Restoring the original
+  string-appending TL/BL fails 14 assertions including the
+  indistinguishable-cards one. Narrowing the clearance selector back fails C4.
+- **C4 exists because a first version of that block passed against the broken
+  selector.** Asserting `cornerClearsDisc()` is TRUE proves nothing — the
+  no-op returned true as well. The only assertion that discriminates parks a
+  corner ON the disc (still fitting its own box) and requires a `false`. Same
+  "green suite hiding a real bug" trap this file has recorded twice before;
+  assume it applies to any assertion whose broken case also returns the
+  passing value.
+- **Not verified: any real device.** Screenshots reviewed at both viewports.
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
@@ -10116,7 +10200,8 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 **Row 2:**
 - **Item/Title:** `Catalog grid/list view drops distinguishing catalog fields`
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-22`
-- **Status:** `Open`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-09-03`
+- **Resolution:** `BUILT — see CLAUDE.md "Catalog grid: Variety + Designation on the mini flip card". renderBrowseGrid()'s TL/BL now go through the same fitted renderers TR/BR use, so a VDB cent is distinguishable from a plain one in the grid. Also fixed a second bug found while wiring it: cornerClearsDisc() could never match .flip-frame-mini, so disc-clearance was a silent no-op on every Catalog card. Held on claude/add-coin-write-path-fs2rf8. NOTE: this does NOT close Row 6 (the FULL flip card's BL still has no overflow protection).`
 - **Description:** `Catalog's grid and list views don't surface fields that distinguish otherwise-identical-looking catalog entries. Confirmed for two cases: Designation (FB Mercury dimes show bare Grade, e.g. "MS-64" instead of "MS-64FB") and Variety (1909 VDB vs non-VDB Wheat cents both show plain "1909 Wheat 1C" with no way to tell them apart). Individual Browse detail's flip card handles both fields correctly — only Catalog's grid/list views are missing them. Not blocking, cosmetic/data-clarity issue only.`
 
 **Row 3:**

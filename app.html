@@ -10605,7 +10605,12 @@
   // Returns true (clears) when there's no disc to measure against, so any
   // caller rendering into a frame without one behaves exactly as before.
   function cornerClearsDisc(el) {
-    const frame = el.closest(".flip-frame");
+    // ".flip-frame-mini" is a SEPARATE class, not a modifier of .flip-frame —
+    // so this used to return null on a Catalog grid card and the whole
+    // clearance test silently short-circuited to true there. That meant the
+    // mini card's TR and BR corners never actually had disc-clearance
+    // protection either, only box-width fitting. Found while wiring TL/BL.
+    const frame = el.closest(".flip-frame, .flip-frame-mini");
     const disc = frame && frame.querySelector(".coin-disc");
     if (!disc) return true;
     const d = disc.getBoundingClientRect();
@@ -10659,6 +10664,29 @@
     // whatever coin (if any) is extreme enough to reach this, same posture
     // as every other "not worth chasing further" gap already documented in
     // this file.
+  }
+
+  // Renders one or two stacked lines into a corner, fitted the same way
+  // renderTypeDenomCorner()/setCompositionCornerText() already fit theirs:
+  // shrink through CORNER_SHRINK_STEPS until the text fits its own box AND
+  // clears the coin graphic (cornerFits -> cornerClearsDisc).
+  //
+  // WHY THIS EXISTS. The Catalog grid built its TL/BL corners by plain
+  // string interpolation straight into the card's innerHTML, so (a) Variety
+  // and Designation were simply never shown there — a 1909 VDB cent and a
+  // plain 1909 rendered identically, confirmed on a real device — and (b)
+  // adding them by the same route would have been unsafe: a second stacked
+  // line grows the box DOWNWARD into the disc's band, which is exactly what
+  // cornerClearsDisc() exists to catch and what a box-width-only check
+  // cannot see.
+  //
+  // Blank lines are dropped, so a coin with no Variety renders a single
+  // line and a coin with neither Grade nor Designation renders nothing at
+  // all — no empty box, no stray separator.
+  function setStackedCornerText(el, lines) {
+    const nonEmpty = (lines || []).filter(Boolean);
+    if (!nonEmpty.length) { el.style.fontSize = ""; el.innerHTML = ""; return; }
+    shrinkCornerToFit(el, () => renderCornerLines(el, nonEmpty));
   }
 
   function setCompositionCornerText(el, text) {
@@ -10831,10 +10859,10 @@
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
       card.innerHTML = `
         <div class="flip-frame-mini">
-          <span class="flip-label tl">${yearMint}</span>
+          <span class="flip-label tl"></span>
           <span class="flip-label tr"></span>
           <div class="coin-disc"></div>
-          <span class="flip-label bl">${coin.grade || ""}</span>
+          <span class="flip-label bl"></span>
           <span class="flip-label br"></span>
         </div>
         <div class="coin-card-text">
@@ -10862,6 +10890,24 @@
       // Must run after appendChild (needs real layout to measure scrollWidth
       // against).
       renderTypeDenomCorner(card.querySelector(".flip-label.tr"), coin);
+      // TL and BL now carry the SAME fields the full flip card's own
+      // applyFlipCorners() shows, through the same fitted renderer TR/BR use
+      // — they were plain string interpolation in this card's innerHTML
+      // before, which is why Variety and Designation never appeared in the
+      // Catalog grid at all (ParkingLot Row 2, confirmed on a real device:
+      // a 1909 VDB cent was indistinguishable from a plain 1909).
+      //
+      // TL: Year-Mint over Variety, two stacked lines, matching
+      // applyFlipCorners()'s own TL. BL: Grade and Designation concatenated
+      // with NO space ("MS-65RD"), deliberately the same join style that
+      // card uses — not a new rule, and not Add Coin's own two-line
+      // stacking, which is a different corner with a different pairing.
+      // Both run after appendChild and after sizeCoinElement(), since the
+      // fit test measures against real layout and the disc's real size.
+      setStackedCornerText(card.querySelector(".flip-label.tl"),
+        [escapeHtmlText(yearMint), escapeHtmlText(coin.variety || "")]);
+      setStackedCornerText(card.querySelector(".flip-label.bl"),
+        [escapeHtmlText((coin.grade || "") + (coin.designation || ""))]);
       // Composition — same rule and same shared renderer as the full
       // flip-frame's BR corner (Browse detail/Spotlight): precious metal
       // only, stacked value/metal lines when it splits cleanly, sized
