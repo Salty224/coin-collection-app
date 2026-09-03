@@ -1768,6 +1768,34 @@
   }
   .readonly-field:empty::before { content: "—"; opacity: 0.6; }
   .readonly-field.hidden { display: none; }
+
+  /* Origin tag on a field label ("yours, editable" / "catalog reference,
+     read-only"). Deliberately quiet — it qualifies the label, it isn't a
+     label of its own. Exists because Notes (per-coin, All.Remarks) sits
+     directly under Fun Fact and Catalog Notes (both shared DB_Coins catalog
+     data), and the three read as the same kind of thing without it. */
+  .field-origin {
+    font-weight: 400; font-size: 11px; letter-spacing: 0.02em;
+    color: var(--text-muted); text-transform: none;
+  }
+  /* NOTE: this file has NO global `.hidden` rule — every .hidden is scoped to
+     its own component, and a bare class="hidden" on a plain element does
+     nothing at all (a trap this project has hit more than once). This label
+     is toggled by applyEditCoinCatalogNotes(), so it needs its own. */
+  #browseEditCatalogNotesLabel.hidden { display: none; }
+
+  /* The native date-picker glyph is drawn by the UA in its default LIGHT
+     colour scheme — black on our dark --bg-elevated field, i.e. invisible.
+     Scoped to date inputs on purpose: a blanket `color-scheme: dark` on
+     :root would fix this too, but would also repaint scrollbars and native
+     select popups app-wide, a far larger change than this warrants.
+     Covers all five date inputs (Edit Coin, Edit Set, Wishlist, Add Coin,
+     Add Set) via the shared element selector. */
+  input[type=date]::-webkit-calendar-picker-indicator {
+    filter: invert(72%) sepia(38%) saturate(560%) hue-rotate(1deg) brightness(92%);
+    cursor: pointer; opacity: 0.9;
+  }
+  input[type=date]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
   #browseEditStorageLocation.hidden { display: none; }
   .placeholder-note.hidden { display: none; }
 
@@ -2710,6 +2738,21 @@
                 <input type="number" step="0.01" id="browseEditValue" placeholder="e.g. 850.00">
               </div>
 
+              <!-- Value provenance. Both are real, already-populated All
+                   columns (ValueSource on 243 real rows — "Red Book 2027",
+                   "PCGS", "U.S. Mint"; ValueDate on 162) that the app read
+                   and wrote nowhere, so editing Value left them asserting
+                   where the OLD figure came from. That makes this a data-
+                   integrity fix, not just a convenience.
+                   ValueSource is free text on purpose: the real column
+                   already carries page-level detail ("Red Book 2027, p. 386")
+                   that a fixed dropdown would force Ray to throw away. -->
+              <label>Value source</label>
+              <input type="text" id="browseEditValueSource" autocomplete="off"
+                placeholder="e.g. Red Book 2027, p. 386 — where this value came from">
+              <label>Value date</label>
+              <input type="date" id="browseEditValueDate">
+
               <!-- Read-only computed linkage chips, same as detail. -->
               <div id="browseEditLinkageWrap" class="edit-linkage-wrap hidden">
                 <div class="detail-label" style="margin-top:12px;">Belongs to</div>
@@ -2774,15 +2817,25 @@
                    per-coin form would imply a per-coin value that doesn't
                    exist. Shown for context only; corrections go through
                    DB_Coins. -->
-              <label>Fun Fact</label>
+              <label>Fun Fact <span class="field-origin">catalog reference, read-only</span></label>
               <div id="browseEditFunFact" class="readonly-field"></div>
+
+              <!-- DB_Coins.Notes, read-only — same standing as Fun Fact above
+                   (catalog data about the coin TYPE, shared by every coin with
+                   that CoinID). Hidden entirely when the catalog has none, so
+                   it never leaves an empty labelled box. -->
+              <label id="browseEditCatalogNotesLabel">Catalog Notes <span class="field-origin">catalog reference, read-only</span></label>
+              <div id="browseEditCatalogNotes" class="readonly-field"></div>
 
               <!-- Notes writes to All.Remarks (the only free-text column on
                    All). Prefilled with the row's existing Remarks so an edit
                    extends it rather than silently clobbering text put there
                    by Copilot — e.g. "Physical receipt in binder — not yet
-                   digitized." on 18 real rows. -->
-              <label>Notes</label>
+                   digitized." on 18 real rows.
+                   The origin tag matters here: this sits directly under two
+                   read-only catalog fields, and the three used to read as the
+                   same kind of thing. This one is per-coin and yours. -->
+              <label>Notes <span class="field-origin">yours, editable</span></label>
               <textarea id="browseEditNotes" placeholder="Anything else worth remembering about this specimen"></textarea>
             </div>
           </div>
@@ -3789,6 +3842,16 @@
           <div class="accordion-body hidden" id="docketStagingBody">
             <div id="docketStagingContainer"></div>
             <p class="placeholder-note" id="docketStagingEmptyNote" style="display:none;">Nothing sitting in Staging right now.</p>
+            <!-- Live-run finding C(b): the ONLY route into Staging Review used
+                 to be the per-row onClick above, so a genuinely empty Staging
+                 section made the screen unreachable — a dead end, not just an
+                 empty list. This link is rendered unconditionally, so the
+                 count being 0 can never remove the route. Not folded into the
+                 accordion header itself: that header is the expand/collapse
+                 button, and giving one control two jobs would break the
+                 accordion. -->
+            <button type="button" class="staging-btn" id="docketOpenStagingBtn"
+              style="margin-top:10px;">Open Staging Review ›</button>
           </div>
         </div>
 
@@ -4986,7 +5049,24 @@
       // every consumer reads one shape regardless of source (the demo
       // lookup and the Add Coin draft both store ISO already).
       purchaseDate: colVal(row, "PurchaseDate") === ""
-        ? "" : excelSerialToISODate(Number(colVal(row, "PurchaseDate")))
+        ? "" : excelSerialToISODate(Number(colVal(row, "PurchaseDate"))),
+      // All.Remarks — the only free-text column on All, and the one Add Coin
+      // writes on promotion and Edit Coin's "Notes" field writes on save.
+      // Never read back before this round, so a coin promoted WITH remarks
+      // showed none of them anywhere: the detail page's Notes line read the
+      // FAKE_COIN_DETAILS demo lookup, empty for every real coin. Exactly
+      // the same class of gap as the three purchase columns above.
+      remarks: String(colVal(row, "Remarks")),
+      // Value provenance. Both are real, already-populated All columns
+      // (ValueSource on 243 rows — "Red Book 2027", "PCGS", "U.S. Mint";
+      // ValueDate on 162) that the app read and wrote nowhere, so an edit to
+      // Value left them asserting where the OLD figure came from. Same ISO
+      // conversion as PurchaseDate — the column has prior history of being
+      // corrupted by ISO/Zulu text pasted in as a string, so it only ever
+      // moves through the Excel-serial path.
+      valueSource: String(colVal(row, "ValueSource")),
+      valueDate: colVal(row, "ValueDate") === ""
+        ? "" : excelSerialToISODate(Number(colVal(row, "ValueDate")))
     };
   }
 
@@ -5085,6 +5165,11 @@
       // `!= null` rather than assuming a number is there.
       mintage: (mintageRaw === "" || isNaN(mintageNum)) ? null : mintageNum,
       funFact: String(colVal(row, "FunFact")),
+      // DB_Coins.Notes — a real, heavily-populated catalog column (1,101 of
+      // 4,227 rows, far more than FunFact's 79) that nothing in the app read
+      // until this round. Catalog data about the coin TYPE, exactly like
+      // FunFact: shown read-only, never editable from a per-coin form.
+      notes: String(colVal(row, "Notes")),
       // DB_Coins.Designation — column AH, added 2026-08-17 and backfilled
       // FB on 78 Mercury Dime rows (all Business Strike, each duplicating a
       // pre-existing plain sibling on the base key). Read live now that the
@@ -5160,9 +5245,25 @@
   // REAL answer lands for both (not just "no token yet"), re-renders
   // whichever Browse tab is currently on screen so the swap is visible
   // without requiring a manual refresh.
-  function ensureLiveNavDataFetch() {
+  function ensureLiveNavDataFetch(opts) {
     if (!ENABLE_LIVE_NAV_DATA) return Promise.resolve(false);
-    if (LIVE_COINS && LIVE_DB_SETS) return Promise.resolve(true); // already loaded this session
+    // force: skip the already-loaded guard so a post-write refresh genuinely
+    // re-fetches. Real bug this fixes — refreshLiveCoinsAfterWrite() cleared
+    // only liveNavDataFetchPromise, so the guard below fired every time and
+    // the "refresh" returned true having fetched nothing. Every post-write
+    // refresh since it was written has been a successful-looking no-op,
+    // which is why a just-promoted coin stayed invisible in Catalog until a
+    // hard reload.
+    //
+    // LIVE_COINS is deliberately NOT nulled first: activeCoins() would then
+    // fall back to FAKE_COINS for the duration of the fetch, dropping
+    // Catalog and Ledger to demo data mid-session. The old arrays stay in
+    // place and are replaced wholesale when the new ones land.
+    const force = !!(opts && opts.force);
+    if (!force && LIVE_COINS && LIVE_DB_SETS) return Promise.resolve(true); // already loaded this session
+    // An in-flight fetch is still shared even when forcing — it was started
+    // at most a moment ago and is already going to return fresh data, so
+    // starting a second one would only duplicate the work.
     if (liveNavDataFetchPromise) return liveNavDataFetchPromise;
     // Retest #10 was going to show the shared loading indicator here too,
     // but this call site is a genuinely different shape from the other
@@ -5279,7 +5380,7 @@
   async function refreshLiveCoinsAfterWrite() {
     if (!ENABLE_LIVE_NAV_DATA) return false;
     liveNavDataFetchPromise = null;
-    return ensureLiveNavDataFetch();
+    return ensureLiveNavDataFetch({ force: true });
   }
 
   // ==================================================================
@@ -5797,7 +5898,7 @@
   const ALL_WRITABLE_COLUMNS = [
     "Year", "MintMark", "Denomination", "Variety", "Description",
     "Category", "Finish", "Error",
-    "Value", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
+    "Value", "ValueSource", "ValueDate", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
     "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified"
   ];
@@ -6081,7 +6182,10 @@
 
     const edits = [];
     let run = null;
-    const isDateCol = n => n === "PurchaseDate" || n === "LastModified";
+    // ValueDate joins the date columns as of this round — it is a real date
+    // column and must carry the same explicit date-only format, or it renders
+    // as a bare serial number.
+    const isDateCol = n => n === "PurchaseDate" || n === "LastModified" || n === "ValueDate";
     cells.forEach(cell => {
       // A date cell needs its own numberFormat, so it never merges into a
       // run with non-date neighbours (a range PATCH applies one format to
@@ -6572,7 +6676,8 @@
     // dropdown/"Other" pair — this maps to the primary one (Green), and the
     // function below OR's in the other, mirroring Grade's own pattern.
     CACBean: "browseEditCacGreen",
-    Value: "browseEditValue", Cost: "browseEditCost", Shipping: "browseEditShippingCost",
+    Value: "browseEditValue", ValueSource: "browseEditValueSource", ValueDate: "browseEditValueDate",
+    Cost: "browseEditCost", Shipping: "browseEditShippingCost",
     Seller_Link: "browseEditVendor", PurchaseDate: "browseEditPurchaseDate",
     StorageLocation: "browseEditStorageLocation", Container: "browseEditContainer",
     Remarks: "browseEditNotes"
@@ -11948,6 +12053,13 @@
     const certHtml = certDisplayHtml(coin);
     if (certHtml) overviewRows.push(["Cert", certHtml]);
     if (coin.value) overviewRows.push(["Value", "$" + coin.value.toLocaleString()]);
+    // Value provenance, read-only here (editable in Edit Coin). Folded into
+    // the Value row's own line when both are present, so a figure never sits
+    // on screen with no indication of where it came from — the gap that made
+    // this worth wiring at all. Each hides independently when blank, same
+    // rule as every other row in this section.
+    const valueProv = [coin.valueSource, coin.valueDate].filter(Boolean).join(" · ");
+    if (valueProv) overviewRows.push(["Value source", valueProv]);
 
     // Linkage chips are appended as real DOM (they carry click handlers), so
     // Overview always renders when there are chips even if every row above
@@ -12050,8 +12162,20 @@
     // Denomination="Multiple" against any real DB_Coins row, so it degrades
     // to the same FAKE_COIN_DETAILS fallback a Set already used.
     const funFact = catalogFunFactFor(coin);
-    if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${funFact}</p>`;
-    if (details.notes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes</div><p>${details.notes}</p>`;
+    if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact <span class="field-origin">catalog reference</span></div><p>${funFact}</p>`;
+    // DB_Coins.Notes, read-only. Ray's ask: catalog reference content should
+    // be viewable on the coin's own page, not only inside Edit Coin.
+    const catalogNotes = catalogNotesFor(coin);
+    if (catalogNotes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Catalog Notes <span class="field-origin">catalog reference</span></div><p>${escapeHtmlText(catalogNotes)}</p>`;
+    // The coin's OWN All.Remarks wins, demo lookup as fallback — same rule
+    // the Purchase Details rows below already follow. Before this, a real
+    // coin's Remarks were unreachable outside Edit Coin: this line read only
+    // FAKE_COIN_DETAILS, which has no entry for any live CollectionID.
+    // Labelled to say whose text it is, since Fun Fact directly above it is
+    // shared DB_Coins catalog data about the coin TYPE and the two used to
+    // read as the same kind of thing.
+    const ownNotes = coin.remarks || details.notes;
+    if (ownNotes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Notes <span class="field-origin">yours</span></div><p>${escapeHtmlText(ownNotes)}</p>`;
     if (notesHtml) appendAccordion(container, RECORD_SECTIONS.NOTES, notesHtml);
 
     // --- 5. Purchase Details — the transaction only. Total leads, with Cost
@@ -12432,6 +12556,10 @@
       applyCacBeanToCheckboxes("browseEditCacGreen", "browseEditCacGold", values.CACBean);
     }
 
+    set("browseEditValueSource", values.ValueSource);
+    set("browseEditValueDate", values.ValueDate == null || values.ValueDate === ""
+      ? "" : excelSerialToISODate(values.ValueDate));
+
     set("browseEditCost", values.Cost);
     set("browseEditShippingCost", values.Shipping);
     set("browseEditVendor", values.Seller_Link);
@@ -12453,10 +12581,12 @@
     applyStorageLocationMode({ container: values.Container, storageLocation: values.StorageLocation });
     // Fun Fact is catalog data keyed off the coin's identity, so it should
     // reflect the row's REAL identity, not the possibly-stale display copy.
-    document.getElementById("browseEditFunFact").textContent = catalogFunFactFor({
+    const catalogShape = {
       denom: values.Denomination, year: values.Year, mint: values.MintMark,
       variety: values.Variety, id: coin ? coin.id : ""
-    });
+    };
+    document.getElementById("browseEditFunFact").textContent = catalogFunFactFor(catalogShape);
+    applyEditCoinCatalogNotes(catalogNotesFor(catalogShape));
   }
 
   // Copies the live workbook row onto the in-memory record every screen
@@ -12492,6 +12622,18 @@
     assign("container", str(values.Container));
     assign("value", num(values.Value));
     assign("cost", num(values.Cost));
+    // Purchase + provenance columns, mapped as of this round so Browse detail
+    // agrees with Edit for them too (that's this function's whole job — see
+    // its header comment). Dates arrive as Excel serials and are stored ISO,
+    // matching mapWorkbookRowToCoin()'s own shape.
+    assign("shippingCost", num(values.Shipping));
+    assign("vendor", str(values.Seller_Link));
+    assign("purchaseDate", values.PurchaseDate == null || values.PurchaseDate === ""
+      ? "" : excelSerialToISODate(values.PurchaseDate));
+    assign("remarks", str(values.Remarks));
+    assign("valueSource", str(values.ValueSource));
+    assign("valueDate", values.ValueDate == null || values.ValueDate === ""
+      ? "" : excelSerialToISODate(values.ValueDate));
     if ("CoinID" in values) assign("coinId", str(values.CoinID));
     if ("Finish" in values) assign("finish", str(values.Finish));
   }
@@ -12558,6 +12700,8 @@
     // Rounded — see roundToCents()'s own comment; coin.value can carry the
     // same unrounded computed precision the live snapshot re-base does.
     document.getElementById("browseEditValue").value = roundToCents(coin.value);
+    document.getElementById("browseEditValueSource").value = coin.valueSource || "";
+    document.getElementById("browseEditValueDate").value = coin.valueDate || "";
 
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
@@ -12577,6 +12721,7 @@
     // All.Remarks, prefilled with whatever's already there so an edit
     // extends rather than clobbers existing Copilot-written text.
     document.getElementById("browseEditFunFact").textContent = catalogFunFactFor(coin);
+    applyEditCoinCatalogNotes(catalogNotesFor(coin));
     // Real bug found in live-device testing: this render runs BEFORE
     // loadBrowseEditSnapshot()'s fetch resolves (it's fire-and-forget, not
     // awaited), so a naive fallback to the FAKE_COIN_DETAILS mock value here
@@ -12593,15 +12738,31 @@
       notesEl.value = hasFreshSnapshot ? String(browseEditSnapshot.values.Remarks || "") : "";
       notesEl.placeholder = hasFreshSnapshot ? "Anything else worth remembering about this specimen" : "Loading current notes…";
     } else {
-      notesEl.value = details.notes || "";
+      // coin.remarks is the row's real All.Remarks (mapped as of this round);
+      // details.notes is the demo lookup, empty for every live coin.
+      notesEl.value = coin.remarks || details.notes || "";
     }
 
-    // --- Purchase Details: cost lives on the row itself, the rest in the
-    // FAKE_COIN_DETAILS sparse lookup — same split Edit Set already used.
+    // --- Purchase Details. Live-run item 7: these three read ONLY from the
+    // FAKE_COIN_DETAILS sparse demo lookup, which is empty for every real
+    // coin — so Shipping/Seller/Purchase Date came back blank on a live row
+    // whose workbook cells were populated, while Cost (read from the row
+    // itself) worked. mapWorkbookRowToCoin() already maps all three onto
+    // coin.shippingCost / coin.vendor / coin.purchaseDate; this just never
+    // read them. Now: the coin's own value wins, demo lookup as fallback —
+    // the identical pattern renderDetailAccordions() already uses for the
+    // same three fields.
+    //
+    // Independent of the write layer: with it ON the snapshot re-base would
+    // correct these a moment later, so the visible symptom there was a flash
+    // of blank rather than a permanent one. Fixed at the source either way.
+    const editShipping = coin.shippingCost != null ? coin.shippingCost : details.shippingCost;
+    const editVendor = coin.vendor || details.vendor;
+    const editPurchaseDate = coin.purchaseDate || details.purchaseDate;
     document.getElementById("browseEditCost").value = coin.cost != null ? coin.cost : "";
-    document.getElementById("browseEditShippingCost").value = details.shippingCost != null ? details.shippingCost : "";
-    document.getElementById("browseEditVendor").value = details.vendor || "";
-    document.getElementById("browseEditPurchaseDate").value = details.purchaseDate || "";
+    document.getElementById("browseEditShippingCost").value = editShipping != null ? editShipping : "";
+    document.getElementById("browseEditVendor").value = editVendor || "";
+    document.getElementById("browseEditPurchaseDate").value = editPurchaseDate || "";
 
     // --- Storage
     document.getElementById("browseEditStorageLocation").value = coin.storageLocation || "";
@@ -12615,6 +12776,20 @@
   // matters most to someone testing on a device (does this touch OneDrive
   // or not). Set per render rather than once at init so it stays accurate
   // however the gate was resolved.
+  // Read-only DB_Coins.Notes on Edit Coin. Hidden label AND field when the
+  // catalog has nothing, so a coin with no catalog note doesn't get an empty
+  // labelled box — the same "hide when blank" rule every read-only row on the
+  // detail page already follows.
+  function applyEditCoinCatalogNotes(text) {
+    const field = document.getElementById("browseEditCatalogNotes");
+    const label = document.getElementById("browseEditCatalogNotesLabel");
+    if (!field || !label) return;
+    field.textContent = text || "";
+    const hide = !text;
+    field.classList.toggle("hidden", hide);
+    label.classList.toggle("hidden", hide);
+  }
+
   function applySaveNote() {
     const note = document.getElementById("browseEditSaveNote");
     if (!note) return;
@@ -12658,6 +12833,17 @@
     if (match && match.funFact) return match.funFact;
     const details = FAKE_COIN_DETAILS[coin.id] || {};
     return details.funFact || "";
+  }
+
+  // The DB_Coins.Notes counterpart of catalogFunFactFor(). Deliberately has
+  // NO FAKE_COIN_DETAILS fallback: that lookup's own `notes` field is the
+  // demo stand-in for All.Remarks (this coin's OWN notes), which is a
+  // completely different thing from the catalog's notes about the coin type.
+  // Falling back to it would present one coin's personal note as shared
+  // catalog reference data.
+  function catalogNotesFor(coin) {
+    const match = findDbCoinsMatch(coin);
+    return (match && match.notes) || "";
   }
 
   // Edit Set — the same six-section structure as a Set's own detail page.
@@ -12978,6 +13164,14 @@
       // by the undefined/null cleanup below.
       CACBean: cacBeanValueFrom("browseEditCacGreen", "browseEditCacGold"),
       Value: numOrUndefined(val("browseEditValue")),
+      // Free text; "" is a real, writable value (clearing the attribution),
+      // same rule as Designation/Container/CACBean above.
+      ValueSource: val("browseEditValueSource").trim(),
+      // Through excelSerialFromISODate() like every other date in this layer
+      // — never as a raw string. This column has prior history of being
+      // corrupted by ISO/Zulu text pasted straight in (44 cells had to be
+      // repaired), so the serial path is not optional here.
+      ValueDate: excelSerialFromISODate(val("browseEditValueDate")),
       Cost: numOrUndefined(val("browseEditCost")),
       Shipping: numOrUndefined(val("browseEditShippingCost")),
       Seller_Link: val("browseEditVendor").trim(),
@@ -15233,7 +15427,22 @@
       }
       if (myToken !== stagingRenderToken) return; // a newer render started mid-read
       hideSectionLoading("stagingContainer");
-      rows = LIVE_COIN_DRAFTS.map(coinDraftToStagingRow);
+      // Live-run finding C(a): a PROMOTED draft is finished — its row is on
+      // the All sheet and there is nothing left to decide about it — but this
+      // list showed every draft regardless of status, and the Draft-vs-Ready
+      // split below puts anything that isn't READY under "Needs a decision".
+      // So a just-promoted coin reappeared here, in the one bucket that
+      // implies it still needs action. The Docket already filters PROMOTED
+      // out of both its own lists; this now matches it.
+      //
+      // The draft FILE is deliberately NOT deleted on promote — it stays the
+      // audit trail and the retry source for the photo move
+      // (processPromotedCoinDrafts() resumes an interrupted move at next
+      // launch by reading exactly these PROMOTED drafts). This is a display
+      // filter only.
+      rows = LIVE_COIN_DRAFTS
+        .filter(d => d.status !== COIN_DRAFT_STATUS.PROMOTED)
+        .map(coinDraftToStagingRow);
     } else {
       rows = FAKE_STAGING.map(r => Object.assign({}, r, { _mock: true }));
     }
@@ -21262,6 +21471,9 @@
   // Docket's three collapsible sections — static markup, so they wire once
   // here rather than being rebuilt per render (only their CONTENTS change).
   wireStaticAccordionToggle("docketStagingHeader", "docketStagingBody");
+  // See the markup comment: the per-row onClick is not a reliable route into
+  // Staging Review, because it disappears exactly when the section is empty.
+  document.getElementById("docketOpenStagingBtn").addEventListener("click", () => navigate("staging"));
   wireStaticAccordionToggle("docketResearchHeader", "docketResearchBody");
   wireStaticAccordionToggle("docketOtherHeader", "docketOtherBody");
   renderNeedsAttentionHub();

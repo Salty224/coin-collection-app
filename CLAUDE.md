@@ -8217,6 +8217,223 @@ reads correctly.
   can't be exercised end-to-end from this environment; this fix corrects the
   read-path/render-trigger wiring that a real session would actually need.
 
+### Live-device retest batch 2 (BUILT, same branch, still held)
+Second real-device pass. Six items built; **item 5 (Force Add's orphan blank
+row) was investigated and deliberately NOT fixed** — see its own section
+below. Confirmed working and untouched: Sets flip-card removal, the First
+Spouse long-name wrap, Dismiss, the Finish dropdown, Ledger's live totals,
+the denomination codes.
+
+**The single most important finding of this round is not in the app at all
+— see "The AllCoins table is 987 rows longer than its data" below. Read that
+before touching the row-creation path again.**
+
+**B. "Edit Coin didn't write, and gave no identity warning" — NOT a bug.**
+`ENABLE_BROWSE_EDIT_WRITE` was off. It is a SEPARATE flag from
+`ENABLE_ADDCOIN_WRITE`, and `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`'s setup
+block only listed the latter — so Add Coin/Promote wrote for real while Edit
+Coin was still on its session-only stub. Reproduced headlessly: the
+session-only toast fires, no dialog appears, and the in-memory record IS
+mutated (which is why the detail page then showed the unsaved value as if
+real). Both halves are one cause: `commitBrowseEdit()` short-circuits to the
+session-only path for ANY field when the flag is off, and **both** confirm
+gates (identity-overwrite and CoinID-change) live downstream of that
+short-circuit on the write path. `COINID_TRIGGER_FIELDS` is intact; it was
+never reached. **The checklist now lists both flags.** The deeper UX problem
+— a session-only edit rendering identically to real data on the detail page
+— is real but was not in this round's approved scope; flagged for Ray.
+
+**C(a). PROMOTED drafts no longer appear in Staging Review.** The Docket
+already filtered them from both its lists (which is why its count read 0),
+but `renderStagingList()` mapped every draft regardless of status, and its
+Draft-vs-Ready split puts anything that is not READY under **"Needs a
+decision"** — so a just-promoted coin reappeared in the one bucket implying
+it still needed action. Now filtered to match the Docket. **The draft FILE is
+deliberately NOT deleted**: it is the audit trail and the retry source for
+the photo move (`processPromotedCoinDrafts()` resumes an interrupted move at
+next launch by reading exactly these PROMOTED drafts). Display filter only,
+asserted.
+
+**C(b). Staging Review is reachable at zero rows.** The ONLY route into
+`view-staging` was the per-row `onClick` inside the Docket's Staging section,
+so zero rows meant zero clickable elements — a genuine dead end, not just an
+empty list (the empty note is a plain `<p>`). A persistent **"Open Staging
+Review"** button now renders in that section unconditionally. **Deliberately
+not folded into the accordion header itself**, despite the request naming it:
+that header is the expand/collapse control, and giving one control two jobs
+would break the accordion.
+
+**Item 6. `ensureLiveNavDataFetch()` gained a `force` flag.** Clean root
+cause: `refreshLiveCoinsAfterWrite()` cleared only `liveNavDataFetchPromise`,
+but the function's SECOND guard is `if (LIVE_COINS && LIVE_DB_SETS) return
+Promise.resolve(true)` — and **nothing anywhere in the file ever clears those
+two** (verified: two assignments total, both inside the fetch's own `.then`).
+So every post-write refresh since it was written returned `true` having
+fetched nothing: a successful-looking no-op. That is why a just-promoted coin
+stayed invisible in Catalog until a hard reload. `force` skips that guard.
+**`LIVE_COINS` is deliberately NOT nulled first** — `activeCoins()` would
+then fall back to `FAKE_COINS` for the duration of the fetch, dropping
+Catalog and Ledger to demo data mid-session. An in-flight fetch is still
+shared even when forcing (it was started a moment ago and will return fresh
+data anyway).
+
+**Item 7 + A(second half). Two fields that existed but were never fed.**
+Same shape, same area, both fixed together:
+- Edit Coin's prefill read Shipping/Seller/Purchase Date from the
+  `FAKE_COIN_DETAILS` demo lookup only — empty for every real coin — while
+  Cost read the row itself and therefore worked. `mapWorkbookRowToCoin()`
+  already mapped all three onto `coin.shippingCost`/`.vendor`/`.purchaseDate`;
+  the prefill just never read them. Now prefers the coin's own value, demo
+  lookup as fallback — the pattern `renderDetailAccordions()` already used
+  for the same three fields. **Independent of the write layer**: with it ON
+  the snapshot re-base corrected these a moment later, so the symptom there
+  was a flash of blank rather than a permanent one.
+- **`All.Remarks` was never mapped onto the coin at all**, so a coin promoted
+  WITH remarks (`coinDraftToAllValues()` does write them) showed none
+  anywhere outside Edit Coin. Now mapped, and the detail page's Notes line
+  prefers `coin.remarks` over the demo lookup.
+
+**Item A(first half). Relabelled, not restructured — the report was a
+misread.** Verified directly: Edit Coin's "Notes" is a `<textarea>` writing
+`All.Remarks` (real, per-coin), and "Fun Fact" is a `<div
+class="readonly-field">` with no write path to anything. No shared catalog
+data was ever at risk and there was no field to remove. What was genuinely
+wrong was the labelling — three fields of two different kinds under one
+heading. Now split with a quiet `.field-origin` tag: **"Notes — yours,
+editable"** vs **"Fun Fact — catalog reference, read-only"**, on both the
+Edit form and the detail page.
+- **`DB_Coins.Notes` is now read and displayed, read-only.** A real,
+  heavily-populated catalog column — **1,101 of 4,227 rows, far more than
+  FunFact's 79** — that nothing in the app read until this round. Shown on
+  the detail page (Ray's ask: catalog content viewable on the coin's own
+  page, not only inside Edit Coin) and on the Edit form, both read-only.
+- **`catalogNotesFor()` deliberately has NO `FAKE_COIN_DETAILS` fallback**,
+  unlike `catalogFunFactFor()`. That lookup's own `notes` field is the demo
+  stand-in for `All.Remarks` — this coin's OWN note — which is a completely
+  different thing from the catalog's notes about the coin type. Falling back
+  to it would present a personal note as shared catalog reference data.
+  Asserted.
+
+**Item 2. Calendar-picker glyph.** The app declares no `color-scheme` and had
+no `::-webkit-calendar-picker-indicator` rule, so the UA drew its native
+glyph in default light-scheme black on the dark `--bg-elevated` field.
+Fixed with a scoped filter on `input[type=date]`, covering every date input
+through one selector. **No blanket `color-scheme: dark` on `:root`** — that
+would also repaint scrollbars and native select popups app-wide, far larger
+than this warrants. Asserted, including that `:root` is NOT dark-scheme.
+
+**ValueSource / ValueDate — cheaper and more necessary than the request
+assumed.** Both columns **already exist on All and are already in real use**:
+`ValueSource` on 243 rows ("Red Book 2027" ×114, "PCGS" ×86, "Red Book 2027,
+p. 386" ×21, "U.S. Mint"), `ValueDate` on 162 as real dates. The app read and
+wrote **neither**. That reframes this from a nicety to a live data-integrity
+gap: Edit Coin could change `Value` while leaving `ValueSource`/`ValueDate`
+asserting where the OLD figure came from. Both are now on
+`ALL_WRITABLE_COLUMNS`, editable in Edit Coin under Value, and shown
+read-only in the detail page's Overview.
+- **ValueSource is free text on purpose** — the real column already carries
+  page-level detail ("Red Book 2027, p. 386") that a fixed dropdown would
+  force Ray to discard.
+- **ValueDate goes through `excelSerialFromISODate()` and is added to
+  `isDateCol()`**, so it gets the explicit `yyyy-mm-dd` number format. This
+  column has prior history of being corrupted by ISO/Zulu text pasted
+  straight in (44 cells needed repair), so the serial path is not optional.
+  Asserted separately from the value itself — a negative control showed the
+  value assertion passing with the format omitted.
+- **Known, accepted limit**: clearing ValueDate to blank is a no-op rather
+  than a clear, because `excelSerialFromISODate("")` returns `null` and the
+  form's cleanup loop drops null keys. `PurchaseDate` has behaved identically
+  since the write layer landed; diverging one date field from the other was
+  judged worse than the shared limitation. Flagged rather than fixed.
+
+**Verified headless — new committed suite `tests/verify_retest_batch2.js`
+(56 assertions), all passing; 840 across 21 suites, zero failures**, with the
+nav/overflow smoke re-run at both viewports. **Six negative controls, each
+re-run and confirmed to fail exactly the assertions that claim to catch it**:
+reverting the PROMOTED filter (A3), removing the Staging entry point (B1/B2),
+reverting the item-7 prefill (D1/D2/D3), reverting the force flag (C2/C3),
+breaking the DB_Coins.Notes mapper (E3b), and dropping ValueDate from
+`isDateCol()` (G8/G10).
+- **Two of those controls initially passed, and the tests were fixed rather
+  than the claim.** E3 injected an already-mapped row via
+  `__setLiveDbCoinsForTest()`, so it never exercised
+  `mapWorkbookRowToDbCoin()` at all; G6 asserted the written value was a
+  serial, which comes from the form read, not from `isDateCol()`. Added E3b
+  (drives the real mapper) and G8/G9/G10 (inspect `buildRowCellEdits()`'s
+  actual `numberFormat`, and that a date cell never merges into a range with
+  non-date neighbours). This is the same "green suite hiding a real bug" trap
+  this file has recorded before — worth assuming it applies to any assertion
+  that seeds its own input.
+- **Not verified: any real device, any real OneDrive session.**
+
+### The AllCoins table is 987 rows longer than its data (workbook finding)
+Found while root-causing item 5, verified directly against the real
+production workbook: the `AllCoins` table's ref is **A1:AY1544** (header at
+row 1, so 1,543 data rows) but **the last row carrying a CollectionID is
+557**. Rows 558–1544 — **987 of them** — are already inside the table and
+completely blank. No interior blanks; they are all trailing.
+
+**Consequences, all confirmed by reproduction:**
+- `addTableRow()` appends **past** all 987, so every coin the app creates
+  lands around row 1545 rather than ~558. This is why the AY-00706 duplicate
+  incident and this round's Force Add both involve "row 1545" — that number
+  is not a coincidence, it is where the table currently ends.
+- A newly appended blank row is visually indistinguishable from the 987
+  already there, which makes "is there an orphan row?" genuinely hard to
+  answer by eye — and makes it ambiguous whether a blank row Ray notices was
+  created by the app at all.
+- The append is arguably unnecessary: there are already 987 blank rows inside
+  the table that the write layer could claim instead. **Not acted on** —
+  changing which row a new coin claims is a real behavioural change with
+  Copilot co-editing the same file, and it is Ray's call, not an
+  implementation detail.
+
+**This is a workbook-side condition, not an app bug**, and the app should not
+silently "fix" it. Flagged for Ray to decide (shrink the table ref to its
+real data, or leave it and have the app claim existing blanks).
+
+### Item 5 — Force Add's orphan blank row (INVESTIGATED, deliberately NOT fixed)
+Reproduced end-to-end against the mock client, matching the revised live
+facts exactly: **full correct coin data written, one blank orphan row, and
+one error message.**
+
+**It is not the old duplicate-row bug resurfacing, and the earlier fix is not
+bypassed.** That fix was about the *correctness of the claimed row* — never
+write keys onto a populated row, never trust stale arithmetic — and it holds.
+What it never added was any **cleanup of the blank row it appends when the
+claim fails**. `createAllSheetRow()` calls `addTableRow()` FIRST, then runs
+three checks that can each throw, and none of them removes the appended row.
+The code's own error text admits this outright: *"A blank row was appended
+and can be deleted."* So the orphan is the **designed** failure behaviour,
+surfacing now because the failure path is actually being hit. Asserted as
+current behaviour (block I) so it stays pinned while awaiting a decision.
+
+**Reproduced mechanism** (headless, with a deliberately stale first read):
+call A promotes normally and writes the full row; call B's
+`findAllSheetRowNumber()` probe does not yet see A's write, so it proceeds to
+`createAllSheetRow()`, appends a blank row, and only THEN reads a fresh
+column — which now shows A's row, firing the tripwire. Net result: correct
+data, one orphan, one error. Exactly the reported facts.
+
+**Structural cause: the app uses NO Graph workbook session** — verified, zero
+occurrences of `workbook-session-id`. Every read and write is an independent,
+sessionless request, so read-after-write consistency is not guaranteed.
+`createAllSheetRow()` depends on it twice (append → read → claim, then write
+keys → read → verify). **This affects every read-after-write in the write
+layer, not just Force Add.**
+
+**Not fixed pending Ray's decision, because the options differ in risk:**
+1. Clean up on failure — needs a **new row-delete primitive** (none exists;
+   `deleteItem` is for OneDrive files). Deleting a row after a failed write
+   is itself a destructive operation on the shared workbook.
+2. Claim an existing blank row instead of appending — removes the append
+   entirely and is free given the 987 blanks, but changes which row a coin
+   lands on while Copilot co-edits.
+3. Use a real Graph workbook session for the create sequence — fixes the
+   consistency class properly, largest change.
+Option 2 is the cheapest and least destructive; option 3 is the most correct.
+**No code was changed for this item.**
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch

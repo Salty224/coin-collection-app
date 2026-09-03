@@ -35,9 +35,20 @@ the first failure rather than pressing on.
      ENABLE_ADDCOIN_WRITE: true,
      ENABLE_LIVE_NAV_DATA: true,   // else DB_Coins is the 12-row mock and
                                    // almost nothing matches
+     ENABLE_BROWSE_EDIT_WRITE: true, // else Edit Coin silently stays on its
+                                   // session-only stub -- see below
      WRITE_TARGET: "copy",         // leave as "copy"
    };
    ```
+   **`ENABLE_BROWSE_EDIT_WRITE` matters too, and this checklist used to omit
+   it.** It is a SEPARATE flag from `ENABLE_ADDCOIN_WRITE`. With it off, Add
+   Coin and Promote write for real while **Edit Coin silently falls back to
+   its session-only stub**: the save toasts "for this session only", nothing
+   reaches the workbook, and NEITHER the identity-overwrite nor the
+   CoinID-change confirmation fires (both gates live on the write path,
+   downstream of that fallback). It looks exactly like a broken save. This
+   cost a whole live round once — don't repeat it.
+
    **`ENABLE_LIVE_NAV_DATA` matters.** Without it the matcher runs against the
    12-row `FAKE_DB_COINS` mock, so every real coin reports "no DB_Coins match"
    and Parts C/D test nothing. This is the same gap that made the first Browse
