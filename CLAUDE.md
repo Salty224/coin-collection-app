@@ -8578,6 +8578,139 @@ frame; and TR unchanged at its natural size.
   passing value.
 - **Not verified: any real device.** Screenshots reviewed at both viewports.
 
+### Live retest round 2 (BUILT, same branch, still held)
+Five items, all reproduced headlessly before being touched.
+
+**Fix A — a force-added coin stops being a Staging draft.** Reproduced in
+full: after Force Add the draft is READY with `allRowWritten` set, the Docket
+correctly routes it to Research — and **Staging Review still listed it**,
+offering Revert to Draft / Edit / Reject on a coin already in the database.
+Reverting succeeded and dropped it back into the Docket's Staging section;
+Reject then deleted the draft **while the All row survived with full data**.
+
+ROOT CAUSE: `allRowWritten` was written onto the draft and never read by
+anything that mattered. Its only consumers were the two writers that set it,
+`applyCoinDraftMatch()`, and the staging-edit field preserver. Staging
+Review filtered PROMOTED only; `revertCoinDraftToDraft()` and
+`performRejectStagedCoin()` were unconditional.
+
+**The Reject case was the serious one, and worse than reported**: it doesn't
+merely fail to undo the row, it destroys the only record that the row needs
+attention. Row stays with a blank CoinID, draft gone, coin drops out of the
+Docket permanently. Silent loss of tracking on a real database row.
+- Staging Review now excludes any draft with `allRowWritten`, same rule as
+  PROMOTED. Such a draft appears only under Awaiting Copilot Research, which
+  already offers Re-check / Dismiss / Force Add and correctly does not offer
+  Reject.
+- Revert and Reject both refuse when `allRowWritten` is set, checked against
+  a freshly-read draft — belt-and-braces, since the filter means the UI can't
+  reach them but a stale render or direct call can.
+- The draft FILE is still kept (audit trail + photo-move retry).
+
+**Fix B — the Force Add verify was a FALSE NEGATIVE, not a failed write.**
+Live: "wrote keys for AY-00710 at row 561 but the sheet now reports it at row
+(none)". Reproduced with a one-shot stale read; the keys HAD landed, and the
+retry found the row and completed it (one row, no duplicate, full data) —
+exactly what Ray saw.
+- The write goes through a **worksheet range** PATCH; the verify read a
+  **table column**. Two Graph endpoints, no workbook session, so
+  read-after-write across them is not guaranteed. Ruled out the alternative:
+  `patchWorkbookRanges()` inspects every `$batch` sub-response and throws on
+  any non-2xx, so a silently rejected write is impossible here.
+- **Row 561 is evidence the row-558 claim fix is WORKING, not regressing** —
+  claiming sequential blanks after 557 gives 558, 559, 560, 561. No append,
+  no table growth, no duplicate. The failure was strictly downstream.
+- Now verified in two halves: `allSheetRowHasCollectionId()` reads the exact
+  cell back through the SAME endpoint family the write used (most likely to
+  be consistent with it), and the duplicate-aware table-column scan retries
+  (`ROW_VERIFY_RETRIES = 2`, 400ms) before conceding. A row found elsewhere,
+  or more than once, still fails immediately — retries must not weaken the
+  uniqueness check, which is the valuable half.
+- Error wording fixed: "check the All sheet for a duplicate row" sent Ray
+  hunting a problem that didn't exist. It now says to press the button again,
+  because a retry completes a row whose keys did land.
+- **Option 3 (a real workbook session) stays in reserve, Ray's call.** This
+  is its SECOND sighting; a third is the agreed trigger to stop patching
+  around it.
+
+**"Save to Database" now requires a resolved catalog match — a deliberate
+supersession.** The original "Direct-write vs. Staging" rule said confidence
+is driven PURELY by Variety recognition and that a DB_Coins miss must never
+by itself block a direct save, because DB_Coins isn't exhaustive so blocking
+would sometimes be wrong. **What changed: Phase 2 and Force Add now exist.**
+An unmatched draft cannot be Promoted — Promote is only offered once a CoinID
+resolves; writing an unmatched coin needs the deliberate Force Add override.
+So the button offered a destination the coin could not reach, and the original
+worry no longer applies: an uncatalogued coin isn't blocked, it takes the
+honest route (Staging, then Force Add). `isConfidentMatch()` now also requires
+`currentAddCoinMatchState()` to be resolved (one candidate, or a picked one).
+The not-confident banner distinguishes the two reasons — telling someone their
+Variety is unrecognized when the real problem is "no catalog row at all" sends
+them to fix the wrong field.
+
+**Edit from Awaiting Copilot Research — routed by whether an All row exists,
+not by row kind.** That section holds two different things: a Docket queue
+entry (an already-owned coin whose CoinID an identity edit cleared — Ray's
+case) and a coin draft (force-added or not). "Does the database already hold
+this coin" is the question that decides the right editor; row kind only
+correlates with it. `openEditForDocketRow()` sends an existing row to Browse
+Edit (with Back returning to the Docket, not a Browse grid the user never
+visited) and anything else to Add Coin's draft editor.
+- Folded in: `applyDocketResolution()` looked the coin up in `FAKE_COINS`
+  rather than `activeCoins()`, so a resolved CoinID never reached the
+  in-memory record in a live session. Now `activeCoins()`.
+
+**"Open Staging Review" stays always visible** (Ray's call). Once Fix A lands
+the two lists agree, so a 0 count means the screen really is empty; hiding it
+would re-create the dead end it was added for.
+
+### Flip card: TL and BL are fitted (1787 Fugio Cent)
+Real-device report: on the Fugio's detail card the TL Variety text crossed
+straight through the TR corner. `applyFlipCorners()` wrote TL with a raw
+`renderCornerLines()` — **no fitting at all** — so "Newman 15-H, Pointed Rays,
+4 Cinq., R-4" rendered as one nowrap line **390px of ink inside a 139px box**,
+and since `.flip-label` deliberately carries no `overflow: hidden` (see its
+CSS comment) the ink spilled across the card.
+
+**Answering the question directly: it is the same gap as ParkingLot Row 6, not
+a distinct TL/TR problem, and box-fitting IS sufficient — no mutual collision
+check is needed.** Measured, including a deliberate worst case (long Variety
+AND a long type name, so both corners are at maximum width): TL/TR ink overlap
+is **0px** once both corners fit their own boxes.
+- **`renderFittedCornerLines(el, lines, wrapIndex)` extracted.**
+  `renderTypeDenomCorner()` and `renderErrorCornerText()` were already the
+  same three-pass shape (the latter's comment said so) and TL needed a third,
+  so the shape is now in one place and all three delegate to it. `wrapIndex`
+  names the one line allowed to wrap; position is tracked by original index,
+  not by matching text, so duplicate line strings can't select the wrong one.
+- TL passes `[yearMint, variety]` with the Variety as the wrappable line
+  (Year-Mint is always short). The Fugio now wraps to three lines at 15.12px,
+  full Variety preserved, inside the frame, clear of the disc.
+- **ParkingLot Row 6 closed in the same round.** BL was the same defect one
+  corner down — measured on the same card: "XF Details - Improperly Cleaned"
+  is 295px of ink in a 139px box, running **88.7px into the BR composition
+  corner and 26px past the frame's right edge**. Now fitted too. Ordinary
+  grades ("MS-64", "MS-65RD") measure unchanged at the natural 27px, so this
+  only engages when a value genuinely doesn't fit. **This went beyond the
+  literal ask** (which named TL/TR) — flagged rather than assumed, on the
+  grounds that it is the identical bug in the identical function with a
+  measured collision and a one-line fix.
+
+**Verified headless — new committed suite `tests/verify_retest_round2.js`
+(40 assertions, flip-card checks at both viewports); 941 across 23 suites,
+zero failures. Six negative controls, each confirmed to fail exactly its own
+assertions**: Fix A reverted (A1/A5/A6/A7), Fix B reverted (B1/B2/B4/B5),
+the Save-to-Database rule reverted (C2/C3), Edit routing reverted (D1), the
+TL fit reverted (E1–E5), the BL fit reverted (E7/E8).
+- **E3 initially passed against the broken code and was strengthened.**
+  Overlap has to be measured on INK, not on boxes: a `.corner-line` is nowrap
+  with `max-width:100%`, so its BOX is clamped to the parent while the text
+  spills visibly past it — a box-rect test reports 0 overlap for exactly the
+  case being tested. Now computed from `scrollWidth` per line, right-anchored
+  corners measured from their right edge. Third time this session a green
+  assertion hid a real bug; the test was fixed, not the claim.
+- **Not verified: any real device, any real OneDrive session.**
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
@@ -10226,7 +10359,8 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 **Row 6:**
 - **Item/Title:** `Saved-coin flip card: BL (Grade+Designation) corner has no overflow protection`
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-30`
-- **Status:** `Open`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-09-03`
+- **Resolution:** `BUILT — see CLAUDE.md "Flip card: TL and BL are fitted (1787 Fugio Cent)". applyFlipCorners()'s BL now goes through the shared renderFittedCornerLines(), alongside TL which had the identical defect and caused a real-device collision on the Fugio Cent. Measured: "XF Details - Improperly Cleaned" was 295px of ink in a 139px box, 88.7px into the BR corner and 26px past the frame. Ordinary grades unchanged at 27px. Held on claude/add-coin-write-path-fs2rf8.`
 - **Description:** `Found while measuring the composition-corner restack (see CLAUDE.md "CACBean UI, Value field rounding, composition corner restacked"): applyFlipCorners()'s BL corner (Grade+Designation, concatenated with no space) is plain textContent with no shortening logic at all — unlike TR (renderTypeDenomCorner()'s last-word-drop) and now BR (the composition split/reduction chain). A long free-typed "Details"-graded value (e.g. a PCGS Genuine-holder note like "XF Details - Improperly Cleaned") measured a genuine overlap with an unreduced BR value at 360px width before the BR restack (-9px gap); the restack fixed the specific collision by shrinking BR, not by giving BL any protection of its own, so a sufficiently long BL string could still in principle run close to whatever's in BR. Ray's explicit call: flag it, don't fix it here — out of scope for the composition-corner task. Would need its own scoping pass (truncate? shorten to last word like TR? something else for a Grade+Designation string specifically) if ever picked up.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
