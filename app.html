@@ -2003,6 +2003,20 @@
     border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
     font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
   }
+  /* Per-thumbnail Replace on an open-ended type (Reference/COA/Other) —
+     a repeatable type has no fixed slot, so the action lives on the photo
+     itself. Camera and library stay SEPARATE inputs (Samsung Internet
+     skips the native chooser dialog), never one combined button. */
+  .gc-replace-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .gc-replace-btn {
+    width: 22px; height: 22px; border-radius: 5px; padding: 0;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+    font-size: 11px; line-height: 1; cursor: pointer;
+  }
+  .gc-replace-label { font-size: 9px; color: var(--text-muted); }
+  /* A filled pair slot says what its capture buttons will do. Without this
+     a slot holding a stored photo looked identical to an empty one. */
+  .sg-photo-replace { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
   .gc-thumb .gc-retry {
     position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid var(--gold); background: var(--bg-case); color: var(--gold-bright);
@@ -4963,7 +4977,7 @@
   // stops a coin recorded only the old way (AY-00706's hand-entered
   // Obverse/Reverse, say) from silently losing its photo the moment the
   // read moves to the new tabs.
-  let LIVE_PHOTOS = null;    // { [CollectionID]: [{ photoType, galleryType, subGroupId, filename, originalFilename, label }] }
+  let LIVE_PHOTOS = null;    // { [CollectionID]: [{ photoId, photoType, galleryType, subGroupId, filename, originalFilename, label }] }
   let LIVE_RECEIPTS = null;  // { [CollectionID]: { receiptId, filename } }
 
   function buildPhotoIndex(rows) {
@@ -4974,6 +4988,7 @@
       if (!id || !filename) return;
       const photoType = String(colVal(row, "PhotoType") || "").trim();
       (out[id] || (out[id] = [])).push({
+        photoId: String(colVal(row, "PhotoID") || "").trim(),
         photoType,
         galleryType: galleryTypeForPhotoType(photoType),
         subGroupId: String(colVal(row, "SubGroupID") || "").trim(),
@@ -7221,7 +7236,20 @@
   // nothing is lost that isn't derivable — the raw's name is the displayed
   // name with _cropped swapped for _original, and the crop-commit rule keeps
   // the file itself forever either way.
-  async function writePhotoRow(collectionId, entry, filename, originalFilename) {
+  // `replacePhotoId` targets one specific existing row — the per-thumbnail
+  // Replace on a REPEATABLE type (Reference/COA/Other), where there is no
+  // fixed slot to match on and the point is to keep that photo's identity
+  // rather than dropping a row and adding another. Ignored when the type is
+  // single-instance, which already matches on
+  // CollectionID + PhotoType + SubGroupID.
+  //
+  // NOTE ON FILENAME: a replacement writes the CURRENT convention name and
+  // updates the row's Filename, rather than overwriting whatever the row
+  // pointed at. The old file is left on disk untouched — never deleted,
+  // same rule as detach. So replacing a legacy-named photo (AY-00208's
+  // hand-filed "AY-00208_obverse.jpg") leaves one orphan behind and moves
+  // the record onto the convention, which is the deliberate trade.
+  async function writePhotoRow(collectionId, entry, filename, originalFilename, replacePhotoId) {
     const def = galleryTypeDef(entry.type);
     const photoType = photoTypeForGalleryType(entry.type);
     if (!photoType) throw new Error("No PhotoType mapping for gallery type " + entry.type);
@@ -7247,6 +7275,21 @@
         await patchRecordRow(PHOTOS_SHEET_NAME, existing.__row, map, values);
         return { photoId: existing.PhotoID, row: existing.__row, replaced: true };
       }
+    }
+    if (replacePhotoId) {
+      const target = (await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID"))
+        .find(r => r.PhotoID === replacePhotoId && r.CollectionID === collectionId);
+      if (target) {
+        values.PhotoID = target.PhotoID;
+        // Keep the caption the row already carries when the replacement
+        // didn't bring one of its own — a Reference photo's Label is often
+        // the only thing saying what it is.
+        if (!values.Label) values.Label = target.Label || "";
+        await patchRecordRow(PHOTOS_SHEET_NAME, target.__row, map, values);
+        return { photoId: target.PhotoID, row: target.__row, replaced: true };
+      }
+      // The row is gone (detached elsewhere, or never written) — fall
+      // through and record it as new rather than losing the photo.
     }
     values.PhotoID = await nextPhotoId();
     const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values);
@@ -18725,7 +18768,7 @@
       await graph().uploadFile(p.coinPhotos + "/" + entry.rawFilename, rawBlob);
       rawName = entry.rawFilename;
     }
-    return writePhotoRow(collectionId, entry, entry.filename, rawName);
+    return writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
   }
 
   // The single path every capture surface now goes through. `done` is the
@@ -18743,6 +18786,9 @@
       entry.uploadPending = false;
       entry.uploadError = "";
       entry.storedFilename = entry.filename;
+      // Remember which row this became, so a later Replace on a repeatable
+      // type can update that row in place instead of adding another.
+      if (res && res.photoId) entry.storedPhotoId = res.photoId;
       if (done) done(entry);
       showToast("Saved " + entry.filename + " to OneDrive.");
       return res;
@@ -18753,6 +18799,135 @@
       showToast("Couldn't save " + entry.filename + " — the photo is still here. Tap ↻ to retry. (" + entry.uploadError + ")");
       return null;
     });
+  }
+
+
+  // ==================================================================
+  // STORED PHOTOS IN THE CAPTURE UI — hydration
+  // ==================================================================
+  // Manage Photos (Edit Coin, Edit Set, the standalone screen) rendered
+  // EXCLUSIVELY from galleryStore — this session's captures plus the demo
+  // seed — and had no awareness of the Photos tab at all. So a coin with a
+  // real stored photo drew the "＋" empty face, showed no count, and hid
+  // both Remove and Adjust, because all three are gated on there being a
+  // gallery entry. Found live on AY-00208, whose PH-00004 row points at a
+  // screenshot of a PCGS cert page: the read side was correct, but there
+  // was no way to SEE that from the capture UI, and therefore no way to
+  // understand that tapping 📷 would replace it.
+  //
+  // Hydration merges the record's stored rows into its gallery as entries
+  // marked `stored: true`, so every existing consumer — the pair slots, the
+  // open-ended thumbnails, manageCount() — becomes correct at once rather
+  // than each growing its own Photos-tab lookup.
+  //
+  // A SESSION CAPTURE ALWAYS WINS. An entry already present for a slot is
+  // never overwritten by hydration: it is either newer than the sheet, or
+  // it is the thing currently being uploaded.
+  function hydrateStoredPhotos(collectionId) {
+    const rows = storedPhotoRowsFor(collectionId);
+    if (!rows.length) return [];
+    const list = galleryFor(collectionId);
+    const added = [];
+    rows.forEach(row => {
+      const type = row.galleryType;
+      const def = type ? galleryTypeDef(type) : null;
+      if (!def) return; // a PhotoType this build has no gallery type for
+      const sg = def.tier === "subgroup" ? (row.subGroupId || DEFAULT_SUBGROUP_ID) : undefined;
+      const already = list.find(e =>
+        e.stored
+          ? e.storedFilename === row.filename
+          : (e.type === type &&
+             (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === sg) &&
+             (!def.repeatable || e.storedFilename === row.filename)));
+      if (already) {
+        // Keep an existing hydrated entry's fetched url; only refresh the
+        // fields the sheet owns.
+        if (already.stored) {
+          already.caption = row.label || already.caption || "";
+          already.storedPhotoId = row.photoId || already.storedPhotoId || "";
+          already.storedOriginalFilename = row.originalFilename || already.storedOriginalFilename || "";
+        }
+        return;
+      }
+      const entry = {
+        type,
+        url: getCachedCoinPhotoUrl(row.filename),
+        rawUrl: null,
+        circleUrl: null,
+        blob: null,
+        caption: row.label || "",
+        filename: row.filename,
+        rawFilename: null,
+        subGroupId: sg,
+        stored: true,
+        storedFilename: row.filename,
+        storedPhotoId: row.photoId || "",
+        storedOriginalFilename: row.originalFilename || ""
+      };
+      list.push(entry);
+      added.push(entry);
+    });
+    return added;
+  }
+
+  // Fetches the thumbnails for whichever hydrated entries don't have one
+  // yet, then re-renders ONCE — not once per photo, and only if something
+  // actually resolved, so this can't loop against the re-render it triggers.
+  // ensureCoinPhotoFetch() dedupes per filename per session, so a repeat
+  // render costs nothing.
+  function ensureStoredThumbs(collectionId, render) {
+    const pending = galleryFor(collectionId).filter(e => e.stored && !e.url && e.storedFilename);
+    if (!pending.length) return;
+    Promise.all(pending.map(e =>
+      ensureCoinPhotoFetch(e.storedFilename).then(url => { if (url) { e.url = url; return true; } return false; })
+    )).then(results => { if (results.some(Boolean) && render) render(); });
+  }
+
+  // Whether a stored flip-source photo has a raw we can genuinely re-crop.
+  // Two ways: the sheet's own OriginalFilename column, or our own
+  // _cropped/_original naming pair, which this layer always uploads
+  // together. A legacy hand-filed name (AY-00208_obverse.jpg) has neither,
+  // so Adjust correctly stays hidden there — its real fix is Replace.
+  //
+  // Deliberately NOT offering "re-crop the displayed file": that re-crops
+  // an already-cropped, already-compressed JPEG, which is a real quality
+  // loss rather than a neutral convenience.
+  function storedRawFilenameFor(entry) {
+    if (!entry || !entry.stored) return "";
+    if (entry.storedOriginalFilename) return entry.storedOriginalFilename;
+    const name = entry.storedFilename || "";
+    return name.indexOf("_cropped.") !== -1 ? name.replace("_cropped.", "_original.") : "";
+  }
+
+  // Re-opens the crop pipeline on a stored photo's raw. Fetches the bytes
+  // back out of CoinPhotos rather than assuming anything is still in
+  // memory — a stored photo was never captured this session.
+  async function adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done) {
+    const rawName = storedRawFilenameFor(entry);
+    if (!rawName) { showToast("No original on file for this photo — use Replace instead."); return; }
+    const url = await ensureCoinPhotoFetch(rawName);
+    if (!url) { showToast("The original (" + rawName + ") isn't on file — use Replace instead."); return; }
+    const blob = await fetch(url).then(r => r.blob());
+    runCropPipeline(blob, typeKey, targetId, (newEntry) => {
+      replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+    }, subGroupId);
+  }
+
+  // Replacing one specific photo — the pair slots' Replace, the open-ended
+  // thumbnails' Replace, and the Adjust round trip all land here.
+  //
+  // Carries the replaced photo's identity forward: its PhotoID (so the row
+  // is updated in place rather than dropped and re-added) and its
+  // caption/Label when the replacement doesn't bring one. Writes the
+  // CURRENT convention filename and updates the row to match; the old file
+  // is left on disk, never deleted.
+  function replaceGalleryEntryAndCommit(targetId, oldEntry, newEntry, done) {
+    const list = galleryFor(targetId);
+    const at = list.indexOf(oldEntry);
+    if (!newEntry.caption && oldEntry && oldEntry.caption) newEntry.caption = oldEntry.caption;
+    if (oldEntry && oldEntry.storedPhotoId) newEntry.storedPhotoId = oldEntry.storedPhotoId;
+    if (at >= 0) list.splice(at, 1);
+    return addGalleryEntryAndCommit(targetId, newEntry, done);
   }
 
   // Retry for a capture whose upload failed. The Blob never left memory, so
@@ -18771,6 +18946,7 @@
       entry.uploadPending = false;
       entry.uploadError = "";
       entry.storedFilename = entry.filename;
+      if (res && res.photoId) entry.storedPhotoId = res.photoId;
       if (done) done(entry);
       showToast("Saved " + entry.filename + " to OneDrive.");
       return res;
@@ -18888,23 +19064,35 @@
     // blob: URL — fetch() on a blob: URL returns its underlying Blob — since
     // only the URL, not the original File object, survives across a
     // re-render; runCropPipeline/loadOrientedImageCanvas work from any Blob.
-    const canReadjust = !!(def.retainRaw && entry && entry.rawUrl);
+    // A stored photo can be re-cropped only when a raw is genuinely
+    // resolvable — see storedRawFilenameFor(). A session capture uses its
+    // own in-memory rawUrl as before.
+    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || storedRawFilenameFor(entry)));
+    // A filled slot's capture buttons are a REPLACE, and say so. This is
+    // the gap AY-00208 exposed: the buttons were always here, but a slot
+    // holding a stored photo drew the empty "＋" face and never said what
+    // tapping them would do.
+    const filled = !!entry;
+    const verb = filled ? "Replace" : "Add";
+    const loadingStored = !!(entry && entry.stored && !entry.url);
 
     const slot = document.createElement("div");
     slot.className = "sg-photo-slot";
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
-      : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
+      : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
     slot.innerHTML = `
       ${face}
       <div class="sg-photo-label">${label}</div>
+      ${filled ? `<div class="sg-photo-replace">Replace</div>` : ""}
       <div class="sg-photo-actions">
-        <button type="button" data-act="camera" aria-label="Take photo with camera" title="Camera">📷</button>
-        <button type="button" data-act="library" aria-label="Choose photo from library" title="Library">🖼️</button>
+        <button type="button" data-act="camera" aria-label="${verb} photo using the camera" title="${verb} — camera">📷</button>
+        <button type="button" data-act="library" aria-label="${verb} photo from the library" title="${verb} — library">🖼️</button>
         ${canReadjust ? `<button type="button" data-act="adjust" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>` : ""}
         ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
       </div>
+      ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
       ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
       ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
@@ -18918,17 +19106,26 @@
       const f = input.files[0];
       if (!f) return;
       runCropPipeline(f, typeKey, targetId, (newEntry) => {
-        addGalleryEntryAndCommit(targetId, newEntry, () => { if (onChange) onChange(newEntry, typeKey); });
+        const done = () => { if (onChange) onChange(newEntry, typeKey); };
+        // Replacing carries the old photo's PhotoID and Label forward so
+        // its row is updated in place, not dropped and re-added.
+        if (entry) replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+        else addGalleryEntryAndCommit(targetId, newEntry, done);
       }, subGroupId);
     };
     cam.addEventListener("change", () => handle(cam));
     lib.addEventListener("change", () => handle(lib));
     const adjustBtn = slot.querySelector('[data-act="adjust"]');
     if (adjustBtn) adjustBtn.addEventListener("click", async () => {
-      const raw = await fetch(entry.rawUrl).then(r => r.blob());
-      runCropPipeline(raw, typeKey, targetId, (newEntry) => {
-        addGalleryEntryAndCommit(targetId, newEntry, () => { if (onChange) onChange(newEntry, typeKey); });
-      }, subGroupId);
+      const done = () => { if (onChange) onChange(entry, typeKey); };
+      if (entry.rawUrl) {
+        const raw = await fetch(entry.rawUrl).then(r => r.blob());
+        runCropPipeline(raw, typeKey, targetId, (newEntry) => {
+          replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+        }, subGroupId);
+      } else {
+        adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done);
+      }
     });
     const retryBtn = slot.querySelector('[data-act="retry"]');
     if (retryBtn) retryBtn.addEventListener("click", () => {
@@ -19282,14 +19479,39 @@
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
       thumb.className = "gc-thumb";
+      const loadingStored = !!(entry.stored && !entry.url);
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
         ${entry.uploadError ? `<button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${galleryThumbInner(entry)}
+        ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
+        <div class="gc-replace-row">
+          <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
+          <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
+          <span class="gc-replace-label">Replace</span>
+        </div>
+        <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
+        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
         <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
       `;
+      // Per-thumbnail Replace. A repeatable type has no fixed slot to match
+      // on, so this carries the photo's own PhotoID (and its Label) forward
+      // and updates that row in place rather than losing them.
+      const repCam = thumb.querySelector('[data-role="rep-cam-input"]');
+      const repLib = thumb.querySelector('[data-role="rep-lib-input"]');
+      thumb.querySelector('[data-role="rep-cam"]').addEventListener("click", () => { repCam.value = ""; repCam.click(); });
+      thumb.querySelector('[data-role="rep-lib"]').addEventListener("click", () => { repLib.value = ""; repLib.click(); });
+      const handleReplace = (input) => {
+        const f = input.files[0];
+        if (!f) return;
+        runCropPipeline(f, typeKey, targetId, (newEntry) => {
+          replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
+        });
+      };
+      repCam.addEventListener("change", () => handleReplace(repCam));
+      repLib.addEventListener("change", () => handleReplace(repLib));
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
         // Detach the workbook row; the stored file is never deleted.
         detachGalleryPhoto(targetId, entry);
@@ -19361,6 +19583,15 @@
     options = options || {};
     const render = () => renderManagePhotosInto(hostId, ctx, options);
     const returnHere = options.onReturnHere || (() => {});
+    // Merge in whatever this record already has on the Photos tab, so every
+    // section below shows the CURRENT photo for each slot rather than an
+    // empty "＋". Pure in-memory (the index is already fetched); the
+    // thumbnails themselves are fetched once per filename per session and
+    // trigger exactly one re-render when they land.
+    if (ctx.id) {
+      hydrateStoredPhotos(ctx.id);
+      ensureStoredThumbs(ctx.id, render);
+    }
     // Preserve which sections were open across a re-render (a capture
     // re-renders the whole screen, and collapsing everything underfoot would
     // be jarring).

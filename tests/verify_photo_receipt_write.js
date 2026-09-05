@@ -437,6 +437,189 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(O.obv.text === "", "O4 the year-number placeholder is cleared");
   ok(!O.rev.bg.includes("blob:stored-photo"), "O5 the reverse does not inherit the obverse's photo");
 
+  // ---------- P. Replacing a photo that already exists -----------------
+  // The gap AY-00208 exposed: Manage Photos rendered ONLY from
+  // galleryStore, so a coin with a real Photos row drew the empty "＋"
+  // face, showed no count, and hid both Remove and Adjust — leaving no way
+  // to tell the slot was occupied, let alone to swap the file.
+  const P = await page.evaluate(async (s) => {
+    const id = "AY-00004"; // no FAKE_GALLERIES seed, so the gallery starts genuinely empty
+    delete galleryStore[id];
+    __setStoredPhotosForTest({
+      [id]: [
+        // A LEGACY hand-filed name — no _cropped/_original pair, no
+        // OriginalFilename. This is AY-00208's exact shape.
+        { photoId: "PH-00004", photoType: "Obverse", galleryType: "obverse", subGroupId: "",
+          filename: "AY-00004_obverse.jpg", originalFilename: "", label: "" },
+        // A repeatable type with a real Label to preserve.
+        { photoId: "PH-00010", photoType: "Reference", galleryType: "reference", subGroupId: "",
+          filename: "AY-00004_reference_01.jpg", originalFilename: "", label: "PCGS listing" }
+      ]
+    });
+    // Real object URLs, not string stand-ins: the pair slot renders its
+    // face as an <img src>, and a fake blob: URL raises a page error.
+    const obvUrl = URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+    const refUrl = URL.createObjectURL(new Blob([new Uint8Array([2])], { type: "image/jpeg" }));
+    __setCoinPhotoCacheForTest("AY-00004_obverse.jpg", obvUrl);
+    __setCoinPhotoCacheForTest("AY-00004_reference_01.jpg", refUrl);
+
+    const beforeHydrate = galleryFor(id).length;
+    const ctx = { id, name: "Lincoln Wheat Cent", meta: id, kind: "coin" };
+    renderManagePhotosInto("managePhotosSections", ctx);
+    const host = document.getElementById("managePhotosSections");
+    host.querySelectorAll(".accordion-header").forEach(h => h.click());
+
+    const obvSlot = host.querySelector(".sg-photo-slot");
+    const obvImg = obvSlot.querySelector(".sg-photo-img");
+    const obvEmpty = obvSlot.querySelector(".sg-photo-empty");
+    const cam = obvSlot.querySelector('[data-act="camera"]');
+    const out = {
+      beforeHydrate,
+      afterHydrate: galleryFor(id).length,
+      obvShowsImage: !!obvImg && obvImg.getAttribute("src") === obvUrl,
+      obvShowsPlus: !!obvEmpty && obvEmpty.textContent.trim() === "＋",
+      replaceLabel: !!obvSlot.querySelector(".sg-photo-replace"),
+      camAria: cam.getAttribute("aria-label"),
+      hasRemove: !!obvSlot.querySelector('[data-act="remove"]'),
+      hasAdjustLegacy: !!obvSlot.querySelector('[data-act="adjust"]'),
+      // Header counts now reflect what is actually on file.
+      counts: [...host.querySelectorAll(".accordion-header")].map(h => h.textContent).join(" | "),
+      // The open-ended (repeatable) thumbnail carries its own Replace pair.
+      refThumb: (() => {
+        const t = host.querySelector(".gc-thumb");
+        return t ? {
+          hasCam: !!t.querySelector('[data-role="rep-cam"]'),
+          hasLib: !!t.querySelector('[data-role="rep-lib"]'),
+          separateInputs: !!t.querySelector('[data-role="rep-cam-input"]') && !!t.querySelector('[data-role="rep-lib-input"]'),
+          caption: t.querySelector(".gc-caption").value
+        } : null;
+      })()
+    };
+
+    // Idempotence: a re-render must not duplicate hydrated entries.
+    renderManagePhotosInto("managePhotosSections", ctx);
+    out.afterSecondRender = galleryFor(id).length;
+
+    // A session capture must win over the sheet, not be overwritten by it.
+    galleryFor(id).length = 0;
+    const freshUrl = URL.createObjectURL(new Blob([new Uint8Array([3])], { type: "image/jpeg" }));
+    galleryFor(id).push({ type: "obverse", url: freshUrl, blob: new Blob(["f"]), caption: "",
+      filename: "AY-00004_obverse_cropped.jpg" });
+    hydrateStoredPhotos(id);
+    const obvEntries = galleryFor(id).filter(e => e.type === "obverse");
+    out.sessionWins = obvEntries.length === 1 && obvEntries[0].url === freshUrl;
+
+    // Adjust availability, in isolation.
+    out.raw = {
+      legacy: storedRawFilenameFor({ stored: true, storedFilename: "AY-00004_obverse.jpg", storedOriginalFilename: "" }),
+      derived: storedRawFilenameFor({ stored: true, storedFilename: "AY-1_obverse_cropped.jpg", storedOriginalFilename: "" }),
+      column: storedRawFilenameFor({ stored: true, storedFilename: "x.jpg", storedOriginalFilename: "x_original.jpg" }),
+      sessionEntry: storedRawFilenameFor({ stored: false, rawUrl: "blob:r" })
+    };
+
+    // A record with nothing on file hydrates nothing.
+    delete galleryStore["AY-00003"];
+    hydrateStoredPhotos("AY-00003");
+    out.unknownHydrates = galleryFor("AY-00003").length;
+
+    delete galleryStore[id]; delete galleryStore["AY-00003"];
+    __setStoredPhotosForTest(null); __resetCoinPhotoCacheForTest();
+    return out;
+  }, seed());
+  ok(P.beforeHydrate === 0 && P.afterHydrate === 2, "P1 a record's stored photos hydrate into its gallery");
+  ok(P.obvShowsImage === true, "P2 the pair slot shows the CURRENT stored photo");
+  ok(P.obvShowsPlus === false, "P3 and no longer draws the empty '＋' face — the reported symptom");
+  ok(P.replaceLabel === true, "P4 a filled slot is explicitly labelled Replace");
+  ok(/Replace/.test(P.camAria || ""), "P5 and its capture buttons say Replace, not Add");
+  ok(P.hasRemove === true, "P6 Remove is available on a stored photo (it was hidden before)");
+  ok(P.hasAdjustLegacy === false, "P7 Adjust stays hidden for a legacy name with no resolvable raw — AY-00208's case");
+  ok(/1 photo/.test(P.counts), "P8 the section header counts stored photos");
+  ok(P.refThumb && P.refThumb.hasCam && P.refThumb.hasLib, "P9 a repeatable type gets per-thumbnail Replace");
+  ok(P.refThumb && P.refThumb.separateInputs, "P10 with SEPARATE camera/library inputs (Samsung Internet skips the chooser)");
+  ok(P.refThumb && P.refThumb.caption === "PCGS listing", "P11 the stored Label renders as the thumbnail's caption");
+  ok(P.afterSecondRender === 2, "P12 re-rendering does not duplicate hydrated entries");
+  ok(P.sessionWins === true, "P13 a session capture is never overwritten by hydration");
+  ok(P.raw.legacy === "" && P.raw.sessionEntry === "", "P14 no raw is claimed for a legacy name or a session entry");
+  ok(P.raw.derived === "AY-1_obverse_cropped.jpg".replace("_cropped.", "_original."), "P15 our own _cropped name implies its _original sibling");
+  ok(P.raw.column === "x_original.jpg", "P16 an OriginalFilename column value wins outright");
+  ok(P.unknownHydrates === 0, "P17 a record with nothing on file (a draft) hydrates nothing");
+
+  // ---------- Q. A replace updates the row in place --------------------
+  const Q = await page.evaluate(async (s) => {
+    const mock = createMockGraphClient(s);
+    __setGraphClientForTest(mock); __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(true);
+    const id = "AY-00004";
+    delete galleryStore[id];
+    // Seed the sheet with the legacy row and its file.
+    await writePhotoRow(id, { type: "obverse", caption: "" }, "AY-00004_obverse.jpg", "");
+    await writePhotoRow(id, { type: "reference", caption: "PCGS listing" }, "AY-00004_reference_01.jpg", "");
+    await mock.uploadFile("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse.jpg", new Uint8Array([9]));
+    const rowsBefore = mock._grids.Photos.filter(r => r[1] === id).map(r => [r[0], r[2], r[4], r[5]]);
+    const obvId = rowsBefore.find(r => r[1] === "Obverse")[0];
+    const refId = rowsBefore.find(r => r[1] === "Reference")[0];
+
+    __setStoredPhotosForTest({
+      [id]: [
+        { photoId: obvId, photoType: "Obverse", galleryType: "obverse", subGroupId: "",
+          filename: "AY-00004_obverse.jpg", originalFilename: "", label: "" },
+        { photoId: refId, photoType: "Reference", galleryType: "reference", subGroupId: "",
+          filename: "AY-00004_reference_01.jpg", originalFilename: "", label: "PCGS listing" }
+      ]
+    });
+    hydrateStoredPhotos(id);
+    const list = galleryFor(id);
+    const oldObv = list.find(e => e.type === "obverse");
+    const oldRef = list.find(e => e.type === "reference");
+
+    // Exactly what runCropPipeline hands back for a fresh flip-source capture.
+    await replaceGalleryEntryAndCommit(id, oldObv, {
+      type: "obverse", url: null, rawUrl: null, blob: new Blob(["new"]), caption: "",
+      filename: "AY-00004_obverse_cropped.jpg", rawFilename: null
+    }, () => {});
+    // A repeatable replace brings no caption of its own — the Label must survive.
+    await replaceGalleryEntryAndCommit(id, oldRef, {
+      type: "reference", url: null, rawUrl: null, blob: new Blob(["nr"]), caption: "",
+      filename: "AY-00004_reference_02.jpg", rawFilename: null
+    }, () => {});
+
+    // Isolates the SHEET-side Label fallback specifically. The JS side
+    // already copies the old caption onto the replacement, so without this
+    // the fallback could be removed and every other assertion would still
+    // pass — the "green assertion hiding a real bug" trap this project has
+    // hit repeatedly.
+    const bareLabelReplace = await writePhotoRow(id, { type: "reference", caption: "" },
+      "AY-00004_reference_03.jpg", "", refId);
+    const bareLabelRow = mock._grids.Photos.find(r => r[0] === refId);
+
+    const g = mock._grids.Photos;
+    const out = {
+      rowsBefore, bareLabel: bareLabelRow ? bareLabelRow[5] : null,
+      bareLabelReplaced: bareLabelReplace.replaced,
+      rowsAfter: g.filter(r => r[1] === id).map(r => [r[0], r[2], r[4], r[5]]),
+      oldFileStillThere: !!(await mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse.jpg")),
+      newFileUploaded: !!(await mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse_cropped.jpg")),
+      galleryObvCount: galleryFor(id).filter(e => e.type === "obverse").length
+    };
+    delete galleryStore[id];
+    __setStoredPhotosForTest(null); __setGraphClientForTest(null);
+    __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(null);
+    return out;
+  }, seed());
+  ok(Q.rowsAfter.length === 2, "Q1 replacing updates rows in place — still exactly two, none added");
+  ok(Q.rowsAfter.find(r => r[1] === "Obverse")[0] === Q.rowsBefore.find(r => r[1] === "Obverse")[0],
+    "Q2 the replaced photo keeps its PhotoID");
+  ok(Q.rowsAfter.find(r => r[1] === "Obverse")[2] === "AY-00004_obverse_cropped.jpg",
+    "Q3 the row's Filename moves to the current convention");
+  ok(Q.oldFileStillThere === true, "Q4 the old file is left on disk — never deleted, only orphaned");
+  ok(Q.newFileUploaded === true, "Q5 the replacement's bytes are uploaded");
+  const refRows = Q.rowsAfter.filter(r => r[1] === "Reference");
+  ok(refRows.length === 1, "Q6 a REPEATABLE type's replace updates its row rather than adding one");
+  ok(refRows[0] && refRows[0][0] === Q.rowsBefore.find(r => r[1] === "Reference")[0],
+    "Q7 keeping its PhotoID — matched on the row carrying the NEW filename, so an added row can't pass this");
+  ok(Q.galleryObvCount === 1, "Q8 the gallery holds one obverse entry, not the old and new both");
+  ok(Q.bareLabelReplaced === true && Q.bareLabel === "PCGS listing",
+    "Q9 writePhotoRow's own Label fallback holds even when the replacement carries no caption at all");
+
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {
     const p2 = await openApp(vp);

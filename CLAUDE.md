@@ -8434,6 +8434,101 @@ both viewports.
   new write surface and wants a live `_Testing` run before it is trusted.
   `WRITE_TARGET` stays `"copy"` throughout.
 
+**Follow-up (same branch): replacing a photo that already exists.** Found
+on Ray's own device — coin `AY-00208` has a correct `PH-00004` row, but the
+file it points at is a screenshot of a PCGS cert page, and there was no way
+to swap it.
+
+**The diagnosis differs slightly from the report, and that difference is
+what made it one fix rather than two.** Manage Photos — every section in
+Edit Coin, Edit Set and the standalone screen — rendered EXCLUSIVELY from
+`galleryStore` (this session's captures plus the `FAKE_GALLERIES` seed) and
+had no awareness of `LIVE_PHOTOS` at all. The read side built the previous
+round was never fed back into the capture UI. So for a coin with a stored
+photo: the pair slot drew the empty `＋` face, the section header showed no
+count, and **Remove and Adjust were both hidden too**, because all three
+are gated on there being a gallery entry. The `📷`/`🖼️` buttons WERE
+rendered and tapping one would in fact have replaced the row correctly —
+but nothing on screen said the slot was occupied, so there was no way to
+know that. Showing what's there is most of the fix; the Replace framing
+sits on top.
+
+- **`hydrateStoredPhotos(collectionId)`** merges the record's Photos-tab
+  rows into its gallery as entries marked `stored: true`, so every existing
+  consumer — the pair slots, the open-ended thumbnails, `manageCount()` —
+  becomes correct at once instead of each growing its own lookup.
+  **A session capture always wins**: an entry already present for a slot is
+  never overwritten, since it is either newer than the sheet or is the
+  thing currently uploading. Idempotent across the re-render every capture
+  triggers.
+- **`ensureStoredThumbs()`** fetches the missing thumbnails and re-renders
+  **once**, only if something actually resolved — so it cannot loop against
+  the render it triggers. `ensureCoinPhotoFetch()` already dedupes per
+  filename per session, so repeat renders cost nothing.
+- **A filled slot says "Replace"** and its buttons' labels/titles say
+  Replace rather than Add. Camera and library stay SEPARATE inputs
+  throughout (Samsung Internet skips the native chooser) — never collapsed
+  into one button.
+- **Repeatable types (Reference/COA/Other) get a per-thumbnail Replace**,
+  since there is no fixed slot to match on. It carries that photo's
+  **PhotoID and Label** forward (`writePhotoRow()` gained an optional
+  `replacePhotoId`), so the row is updated in place rather than dropped and
+  re-added.
+- **Filename on replace: the CURRENT convention wins.** A replacement
+  writes `{id}_obverse_cropped.jpg` and updates the row's `Filename`,
+  rather than overwriting whatever the row pointed at. The old file is left
+  on disk — never deleted, same rule as detach. So replacing a
+  legacy-named photo (`AY-00208_obverse.jpg`) leaves one orphan and moves
+  the record onto the convention: the deliberate trade, since consistent
+  naming going forward matters more than the occasional sweepable file.
+- **Adjust is offered only when a raw is genuinely resolvable**
+  (`storedRawFilenameFor()`): the sheet's `OriginalFilename`, or our own
+  `_cropped`/`_original` pair, which this layer always uploads together. A
+  legacy hand-filed name has neither, so Adjust correctly stays hidden on
+  `AY-00208` — its real fix is Replace. **Re-cropping the DISPLAYED file
+  was considered and rejected**: that re-crops an already-cropped,
+  already-compressed JPEG, a real quality loss, and it would not have fixed
+  `AY-00208` anyway, whose problem is that the stored file is the wrong
+  photo entirely.
+- **Remove now works on a stored photo**, detaching its row (never
+  deleting the file), which it could not do before.
+- Add Coin's own slots are unaffected — a brand-new coin has no
+  CollectionID and therefore no stored rows, so hydration is a no-op there,
+  as it is for any draft record.
+
+**Known, accepted, not fixed here:** hydration runs from
+`renderManagePhotosInto()` only, so Browse detail's "Additional Photos"
+strip still shows session captures alone until Edit has been opened for
+that coin. Harmless (it never shows anything WRONG, only less), and wiring
+it would mean hydrating from a hot read path.
+
+Verified headless — the suite grew to **110 assertions; 1168 across 27
+suites, zero failures, zero page errors**. Covers hydration (including
+idempotence, session-capture precedence, and a draft hydrating nothing);
+the slot showing the stored photo instead of `＋`; the Replace label and
+button wording; Remove becoming available; Adjust hidden for a legacy name
+and `storedRawFilenameFor()`'s three cases in isolation; per-thumbnail
+Replace with separate camera/library inputs and the stored Label rendering
+as its caption; and a full replace round trip asserting the row is updated
+in place, keeps its PhotoID, moves to the convention filename, and leaves
+the old file on disk. **Six more verified negative controls**: no
+hydration (11 assertions fail, reproducing the reported symptom exactly),
+hydration clobbering a session capture, replace adding a row instead of
+updating, the sheet-side Label fallback removed, Adjust offered with no
+resolvable raw, and a filled slot keeping the "Add" framing.
+- **Two assertions were strengthened after a control failed to fire**:
+  `Q6`/`Q7` matched the FIRST Reference row, which is the OLD one when a
+  spurious row is added, so both passed against broken code; they now match
+  on the row carrying the new filename. And `Q9` was added to isolate
+  `writePhotoRow()`'s own Label fallback, which the JS-side caption
+  carry-forward was masking. Same trap as `G3`/`F2` last round — assume it
+  applies to any assertion whose broken case also returns the passing
+  value.
+- Screenshots reviewed at both viewports with a legacy-named photo (Replace
+  only), a convention-named photo (Replace + Adjust), an empty pair, and a
+  captioned Reference thumbnail all visible at once. No overflow.
+- **Not verified: any real device, any real OneDrive session.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
