@@ -29,24 +29,27 @@ What that merge covers, end to end:
   corrections, the Ledger/Stats live-data fix, and the whole corner-fitting
   chain (`renderFittedCornerLines()` and the Catalog grid's own TL/BL).
 
-**NOTHING IS TURNED ON. This merge changed no runtime behaviour on the live
-site.** Confirmed at merge time and unchanged by it:
-- `WRITE_TARGET = "copy"` — every write still resolves under
-  `CoinCollection/_Testing/`. The real workbook is untouchable by this code
-  as it ships.
-- All six `ENABLE_*` flags default `false`: `ENABLE_REFERENCE_IMAGES`,
-  `ENABLE_LIVE_NAV_DATA`, `ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
-  `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`. With them off there is no
-  write-capable MSAL instance on the page at all.
-- Each of those is a `devFlagOverride(...)` reading `window.__DEV_FLAGS__`
-  from the gitignored `dev-flags.local.js`, so a local dev session can
-  enable one without that ever reaching the repo.
-
-**Flipping `WRITE_TARGET` to `"live"`, or any flag to `true`, is a separate
-and deliberate decision of Ray's — it was explicitly NOT part of this
-merge.** A production redirect URI for `app.html` still does not exist in
-Entra (only `http://localhost:8791/app.html`), so the write features remain
-localhost-dev-only regardless.
+**SUPERSEDED, same-day follow-up: this "nothing is turned on" framing no
+longer describes the shipped state.** At merge time, nothing was on and no
+production redirect URI existed for `app.html`. Both of those have since
+changed — see "Real-Graph flags always on; WRITE_TARGET is the actual
+safety boundary" below for the current, accurate picture. Short version:
+`redirectUri` is now derived from `window.location.origin +
+window.location.pathname` rather than hardcoded to localhost, a production
+redirect URI for `app.html`'s real GitHub Pages URL is already registered
+in Entra, the two read-only flags (`ENABLE_REFERENCE_IMAGES`,
+`ENABLE_LIVE_NAV_DATA`) are plain `true` now, and the four write-capable
+flags (`ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
+`ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`) are `(WRITE_TARGET ===
+"copy")` — true in the shipped default, and **`WRITE_TARGET` is now the
+one real safety boundary**: it still defaults `"copy"`, so every write
+still resolves under `CoinCollection/_Testing/` and the real workbook
+stays untouchable, but flipping it to `"live"` turns every write-capable
+flag back off at that same instant — going live for real needs a second,
+explicit step (re-enabling each flag) rather than being a side effect of
+the one `WRITE_TARGET` edit. The local-only `dev-flags.local.js` override
+mechanism this paragraph used to describe is gone entirely — there's no
+local/production split left to gate flags behind.
 
 Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
 987 rows past its real data (left as-is by Ray's call — see "The AllCoins
@@ -214,10 +217,16 @@ app is loaded/hosted changed otherwise.
   (`alcdn.msauth.net` is silently blocked by a browser extension Ray has).
 - Redirect URIs must be registered per page/route in Entra. Registered so far:
   `index.html` → bare `https://salty224.github.io/coin-collection-app/`;
-  `stage.html` → its own `.../stage.html`; `app.html` → local dev only,
-  `http://localhost:8791/app.html` (see "Real Graph API reads" below) — no
-  production redirect URI for `app.html` exists yet, that's a separate future
-  step once this app is actually deployed/tested beyond local dev.
+  `stage.html` → its own `.../stage.html`; `app.html` → **both**
+  `http://localhost:8791/app.html` (local dev) **and**
+  `https://salty224.github.io/coin-collection-app/app.html` (production —
+  confirmed registered; superseded the earlier "no production redirect URI
+  exists yet" note). `app.html`'s own `redirectUri` is derived at runtime
+  from `window.location.origin + window.location.pathname` rather than
+  hardcoded to either one — see "Real-Graph flags always on; WRITE_TARGET
+  is the actual safety boundary" below for why a single hardcoded path
+  can't cover both (the two launch modes have different paths, not just
+  different origins).
 
 ### Auth: ONE shared MSAL instance (locked in — hard rule)
 **`app.html` has exactly one `PublicClientApplication` (`graphMsalInstance`)
@@ -292,8 +301,13 @@ nothing is constructed at all with every flag off.
 feature below needed to check Ray's actual OneDrive — this is still the
 **only** real Graph code in the file; every Save button remains a stub (see
 "What NOT to build" / hard constraints — nothing here writes anything).
-- **DISABLED BY DEFAULT IN PRODUCTION** (`const ENABLE_REFERENCE_IMAGES = false`,
-  set right above the MSAL bootstrap in app.html). The 7/15 localhost testing
+- **SUPERSEDED — enabled by default now** (`const ENABLE_REFERENCE_IMAGES = true`).
+  See "Real-Graph flags always on; WRITE_TARGET is the actual safety
+  boundary" below for why and what changed (a dynamic `redirectUri` plus a
+  now-registered production Entra redirect URI). The paragraph below is
+  kept as history — it's still the accurate account of the incident that
+  originally justified disabling this, and the guard-rail mechanism it
+  describes (the two real choke points) is unchanged. The 7/15 localhost testing
   session hardcoded `redirectUri: "http://localhost:8791/app.html"` for local
   dev — there's no production redirect URI registered in Entra for `app.html`
   yet (see "Azure / Entra config" above). On the live GitHub Pages site this
@@ -314,14 +328,13 @@ feature below needed to check Ray's actual OneDrive — this is still the
   real-Graph flag is off, not just left unused (superseded detail: this
   used to be a `referenceImageMsalInstance` of its own — see "Auth: ONE
   shared MSAL instance" above for why per-feature instances were retired).
-  **To re-enable for local testing:** set `ENABLE_REFERENCE_IMAGES = true`,
-  run a local server on port 8791 from the repo root (e.g.
-  `python3 -m http.server 8791`), add `http://localhost:8791/app.html` as a
-  redirect URI in the Entra app registration if it isn't there already, then
-  load `http://localhost:8791/app.html` — the first coin render needing an
-  image will redirect to a real Microsoft sign-in and back. **Set it back to
-  `false` before merging/deploying again** until a real production redirect
-  URI exists and this has a non-localhost-only story.
+  **Superseded — no re-enable step needed anymore**, since the flag ships
+  `true`. To test locally: run a local server on port 8791 from the repo
+  root (e.g. `python3 -m http.server 8791`) and load
+  `http://localhost:8791/app.html` — the first coin render needing an image
+  will redirect to a real Microsoft sign-in and back, using the already-
+  registered localhost redirect URI. Nothing needs setting back before
+  merging/deploying; the same flag value is correct in both places now.
 - **Read-only, enforced in code, not just by scope.** `fetchReferenceImageBlob()`
   is the only function that calls `fetch()` against Graph for this feature; it
   hardcodes `method: "GET"` and requests the narrower `Files.Read` scope (not
@@ -3379,12 +3392,17 @@ All/DB_Sets/DB_Coins rows and setting `Status="Promoted"` is the EXTERNAL
 manual/Copilot reconciliation step — the app only ever READS that status.
 
 **Safety posture (all gates default to the safe state):**
-- `ENABLE_SET_WRITE_LAYER = false` (localhost-dev only until a production
-  redirect URI exists — Q6). When false, `getWriteToken()` returns null and
-  NEVER fires an auth redirect, so on the live GitHub Pages site tapping Add
-  Set's Save degrades to a friendly "localhost-dev only" toast instead of a
-  broken sign-in navigation. Exactly mirrors the `ENABLE_REFERENCE_IMAGES`
-  precedent.
+- **Superseded:** `ENABLE_SET_WRITE_LAYER` is now `(WRITE_TARGET === "copy")`,
+  not a bare `false` — see "Real-Graph flags always on; WRITE_TARGET is the
+  actual safety boundary" below. `WRITE_TARGET` is the real gate now: at its
+  shipped `"copy"` default this flag is true and the write layer is fully
+  active (against the `_Testing` copy only); flipping `WRITE_TARGET` to
+  `"live"` is what turns it back off. When off, `getWriteToken()` still
+  returns null and never fires an auth redirect, so Add Set's Save
+  degrades to a toast instead of a broken sign-in navigation — that
+  mechanism is unchanged, only the condition that triggers it moved from
+  "no production redirect URI" (resolved) to "WRITE_TARGET is live and this
+  hasn't been re-enabled yet."
 - `WRITE_TARGET = "copy"` (Q5) → every path resolves under
   `CoinCollection/_Testing/` (`WRITE_PATHS`), so nothing can touch the real
   workbook/Staging. Flipping to `"live"` is a manual, Ray-only, one-line
@@ -4401,7 +4419,8 @@ own Phase 1 write layer** (Staging drafts + photos — see "Add Coin write
 layer — Phase 1" below); Edit Set, Wishlist and Batch Receipt are still
 stubs.
 
-**Gate (`ENABLE_BROWSE_EDIT_WRITE = false`, localhost-dev only)** — its own
+**Gate (`ENABLE_BROWSE_EDIT_WRITE`, now `(WRITE_TARGET === "copy")` —
+superseded, see "Real-Graph flags always on..." below)** — its own
 flag, deliberately NOT riding `ENABLE_SET_WRITE_LAYER`, since the two write
 completely different things and must be independently enable-able (same
 "don't couple independently-flagged features" rule the reference-image and
@@ -4945,11 +4964,15 @@ column has no code path to a PATCH" guarantee.
   added in Phase 1, since that would make it editable in Browse Edit too — a
   scope change nobody asked for.
 
-**Gate: `ENABLE_ADDCOIN_WRITE = false`**, its own flag for the same reason
+**Gate: `ENABLE_ADDCOIN_WRITE`**, its own flag for the same reason
 every other one is (it writes a different thing again), folded into
-`WRITE_LAYER_ENABLED`. `WRITE_TARGET` stays `"copy"`. With the flag off the
-shipped build behaves **exactly** as before — asserted, not assumed: a save
-makes zero Graph calls, still pushes to `FAKE_STAGING`, and both interim
+`WRITE_LAYER_ENABLED`. **Superseded:** now `(WRITE_TARGET === "copy")`
+rather than a bare `false` — true in the shipped default, since
+`WRITE_TARGET` itself is the real safety boundary now (see "Real-Graph
+flags always on..." below). With the flag off (`WRITE_TARGET` at `"live"`
+and this one not yet re-enabled) the build behaves **exactly** as it used
+to with the flag hardcoded false — asserted, not assumed: a save makes
+zero Graph calls, still pushes to `FAKE_STAGING`, and both interim
 notices stay hidden.
 
 **Reservation unified — the mock authority is retired.** `readMaxReservedIdFromStaging()`
@@ -9038,6 +9061,132 @@ of blanking the default case.
   `"Owned"`, following the real design change rather than being weakened.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every other real-Graph feature in this file.
+
+### Real-Graph flags always on; WRITE_TARGET is the actual safety boundary (BUILT and merged to main)
+Two changes, same session, both driven by the same underlying fact: Ray is
+the only user of this app and that isn't expected to change, so the
+always-off-until-a-local-file-enables-it posture every real-Graph flag
+carried since it was introduced no longer earns its keep.
+
+**1. `redirectUri` is derived, not hardcoded.** `graphMsalConfig.auth
+.redirectUri` was `"http://localhost:8791/app.html"` — a literal string,
+correct only for local dev. It's now `window.location.origin +
+window.location.pathname`, which resolves to whatever exact URL the page
+is actually being served from. This isn't a cosmetic simplification: the
+two known launch modes have genuinely different PATHS, not just different
+origins — locally the app is served from the repo root
+(`python3 -m http.server 8791`), so the path is plain `/app.html`; on
+GitHub Pages it's `/coin-collection-app/app.html`. A hardcoded path
+appended to a dynamic origin would still be wrong for one of the two;
+reading the real current path is what actually covers both with nothing
+hardcoded. Both exact URLs this can resolve to are already registered as
+SPA redirect URIs in Entra — `http://localhost:8791/app.html` (local dev,
+pre-existing) and `https://salty224.github.io/coin-collection-app/app.html`
+(production — confirmed already registered, no Entra change needed for
+this task) — so this never needs a third registration for some other path
+the formula might resolve to unexpectedly. Scoped to `app.html` only;
+`index.html`/`stage.html` already have their own separately-registered,
+working production redirect URIs and weren't touched.
+
+**2. The `devFlagOverride()`/`dev-flags.local.js` mechanism is gone
+entirely**, and with it the always-`false`/`"copy"` defaults it existed to
+let a local session loosen. `ENABLE_REFERENCE_IMAGES` and
+`ENABLE_LIVE_NAV_DATA` — both read-only, never write anything regardless
+of `WRITE_TARGET` — are now plain `true` unconditionally. The four
+write-capable flags are `(WRITE_TARGET === "copy")` instead of a bare
+`true`, a deliberate choice over the simpler alternative:
+- **`WRITE_TARGET` is now the one real safety boundary**, not "whether a
+  local override file exists." It still defaults `"copy"`, so every write
+  still resolves under `CoinCollection/_Testing/` and the real workbook
+  stays untouchable — but with all four write flags tied to it, flipping
+  `WRITE_TARGET` to `"live"` turns every one of them back OFF at that same
+  instant. Going live for real therefore needs a **second, explicit
+  step** — re-enabling each of the four flags individually — rather than
+  being a side effect of the one `WRITE_TARGET` edit. This was a genuine
+  design choice between two readings of "default the flags to fully
+  functional whenever `WRITE_TARGET` is `'copy'`" (confirmed with Ray
+  before building, not assumed): the alternative (all four as bare `true`,
+  independent of `WRITE_TARGET`) would mean going live is a ONE-edit
+  decision; this one makes it two.
+- `WRITE_TARGET` itself had to move earlier in the file (declared
+  immediately above the flags that now read it, instead of down beside
+  `WRITE_PATHS`) to avoid a TDZ error — a `const` referenced before its
+  declaration throws. `WRITE_PATHS`/`writePaths()` stayed where they were;
+  only the `const WRITE_TARGET = "copy";` line itself moved.
+- User-facing messages that used to say "localhost-dev only for now" (the
+  three write-layer-disabled toasts/errors in `saveCoinRowToWorkbook()`,
+  `promoteCoinDraftToAllSheetUnlocked()`, and Add Set's
+  `writeUnavailableMessage()`) were reworded to reflect the real new
+  gating condition — off now means "`WRITE_TARGET` is `'live'` and this
+  flag hasn't been re-enabled yet," not "this only works on localhost."
+
+**Everything else about each feature's own scoping is unchanged** — GET-
+only enforcement, hardcoded Graph paths, the narrow `Files.Read` vs.
+`Files.ReadWrite` scope split, the one-shared-MSAL-instance rule, the
+per-feature token-getter checks. This task only changed which values the
+flags/redirectUri resolve to, not any of the code that reads them.
+
+**Cleanup, since the mechanism these existed for is gone:** removed
+`dev-flags.local.example.js`, the `<script src="dev-flags.local.js">` tag
+and its explanatory HTML comment, the `devFlagOverride()` function and its
+own comment block, the `.gitignore` entry for `dev-flags.local.js`, and
+README.md's entire "Local dev-flag overrides" section (replaced with a
+short "Real-Graph feature flags" note pointing at this section). Nothing
+else in the repo referenced `devFlagOverride` or `window.__DEV_FLAGS__` —
+confirmed by grep before removing, not assumed.
+
+**A real, if narrow, category of test breakage found and fixed.** Several
+committed suites called a save/apply function (`saveAddCoinForm()`,
+`showBrowseEditView()`) with no mock Graph client configured, relying on
+the flag being off BY DEFAULT so the call took the session-only mockup
+path. With the default flipped, those same calls now attempt the REAL
+write/read path with nothing to talk to, throwing ("Write layer
+unavailable" / a rejected fetch) instead of silently no-op'ing. Each was
+fixed the same way: force the flag off explicitly via the existing test
+seam (`__setAddCoinWriteEnabledForTest(false)` /
+`__setBrowseEditWriteEnabledForTest(false)`) right before the call, and
+restore it to `null` afterward — the same pattern every OTHER block in
+these files already used when it deliberately wanted the mockup path,
+just not yet applied to these specific blocks. Four call sites needed
+this: `verify_addcoin_accordion.js` block F, `verify_addcoin_identification
+.js` block D, `verify_addcoin_mintmark_other.js` block J, and
+`verify_retest_batch2.js` block D (the last one specifically because
+Notes' own prefill is gated on `browseEditWriteEnabled()` — the "Notes
+flash" bug fix — while the other prefilled fields in that same block
+aren't gated at all and kept passing throughout). `verify_addcoin_phase1
+.js`'s own "flag ships off / inert" block was rewritten outright (not
+just patched) to assert the new real default instead, since its entire
+premise — checking the raw consts at page load — described exactly what
+changed.
+
+**Verified headless — new committed suite
+`tests/verify_dynamic_redirect_and_live_flags.js` (15 assertions), all
+passing; 1058 across all 26 suites, zero failures, zero page errors.**
+Covers: `WRITE_TARGET === "copy"` and all six flags resolving correctly
+in the shipped default (the two read-only ones `true` unconditionally,
+the four write-capable ones matching `WRITE_TARGET === "copy"`);
+`devFlagOverride` and `window.__DEV_FLAGS__` both genuinely gone from the
+running page; `redirectUri` equal to `window.location.origin +
+window.location.pathname` at the moment the page loaded, with a negative
+control confirming this isn't a coincidental match against a leftover
+hardcoded string; and direct filesystem checks (not just page behavior)
+that `dev-flags.local.example.js` is deleted, `.gitignore` and README.md
+no longer mention the mechanism, and `app.html`'s own source no longer
+contains the script tag or the `devFlagOverride` function definition.
+Every other suite's fixes (the four rescued blocks above) are covered by
+those suites' own existing assertions, which now pass again unchanged in
+substance — only the flag-management around each call site changed, not
+what the assertions check.
+
+- **Not verified: any real device, any real OneDrive session.** In
+  particular, this is the first time any of these flags is genuinely live
+  on the real GitHub Pages site rather than gated behind a local file —
+  the next real page load there will attempt real Microsoft sign-in
+  redirects for Reference Images and Live Nav Data (both read-only), and
+  the four write-capable features will do the same the first time each
+  is actually exercised, all still confined to the `_Testing` copy
+  workbook by `WRITE_TARGET`. Worth Ray's own confirmation that the first
+  real sign-in redirect on the live site behaves as expected.
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /

@@ -106,14 +106,22 @@ module.exports = defineSuite("addcoin-identification", async ({ ok, openApp, PHO
   ok(C.noMatch.notFoundShown, "C3 a genuine GSID miss shows the not-found banner");
 
   // ---------- D. The resolved pick actually sticks through Save ----------
+  // Forces the flag off via the test seam so this exercises the session-
+  // only mockup save path (a direct FAKE_STAGING push) it was written
+  // against — ENABLE_ADDCOIN_WRITE now ships on by default (see CLAUDE.md
+  // "Real-Graph flags always on..."), and without this the real write path
+  // would try a Graph call with no mock client configured and throw.
   const D = await page.evaluate(async () => {
+    __setAddCoinWriteEnabledForTest(false);
     navigate('addcoin');
     document.getElementById('mintItemNumber').value = '21RJ';
     handleMintItemNumberApply();
     const before = FAKE_STAGING.length;
     await new Promise(r => { saveAddCoinForm('staging'); setTimeout(r, 400); });
     const row = FAKE_STAGING[FAKE_STAGING.length - 1];
-    return { added: FAKE_STAGING.length - before, coinId: row && row.coinId };
+    const res = { added: FAKE_STAGING.length - before, coinId: row && row.coinId };
+    __setAddCoinWriteEnabledForTest(null);
+    return res;
   });
   ok(D.added === 1 && D.coinId === 'C-1916-M-10C-01',
     "D1 the Mint-Item-Number-resolved pick is what Save actually commits");

@@ -1,12 +1,3 @@
-# Local-only dev-flag override file — see README.md "Local dev-flag
-# overrides". Lets a real feature flag (ENABLE_BROWSE_EDIT_WRITE,
-# ENABLE_LIVE_NAV_DATA, ENABLE_DOCKET_WRITE, ENABLE_SET_WRITE_LAYER, ENABLE_ADDCOIN_WRITE,
-# ENABLE_REFERENCE_IMAGES, WRITE_TARGET) be overridden locally without
-# hand-editing app.html. Must NEVER be committed or shipped — production
-# on GitHub Pages must always see every flag default false/"copy", exactly
-# as hardcoded in app.html.
-dev-flags.local.js
-
 # Pulled in on demand for headless Playwright verification runs; never part
 # of the shipped static site (this app has no build step and no runtime
 # dependencies — see CLAUDE.md's no-CDN/self-contained posture).

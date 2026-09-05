@@ -142,7 +142,13 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
   ok(E.bannerVisible, "E3 the match indicator still reacts to identity edits from its new Overview home");
 
   // A real save must still collect fields out of collapsed sections.
+  // Forces the flag off via the test seam so this exercises the session-
+  // only mockup save path (a direct FAKE_STAGING push) it was written
+  // against — ENABLE_ADDCOIN_WRITE now ships on by default (see CLAUDE.md
+  // "Real-Graph flags always on..."), and without this the real write path
+  // would try a Graph call with no mock client configured and throw.
   const F = await page.evaluate(async () => {
+    __setAddCoinWriteEnabledForTest(false);
     __setLiveDbCoinsForTest([]);
     navigate('addcoin');
     document.getElementById('denomination').value = '10C';
@@ -163,6 +169,7 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
     await new Promise(r => { saveAddCoinForm('staging'); setTimeout(r, 400); });
     const row = FAKE_STAGING[FAKE_STAGING.length - 1];
     __setLiveDbCoinsForTest(null);
+    __setAddCoinWriteEnabledForTest(null);
     return { added: FAKE_STAGING.length - before, row, draftShape };
   });
   ok(F.added === 1, "F1 a save still completes with the form in accordion form");

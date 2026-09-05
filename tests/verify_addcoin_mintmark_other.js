@@ -149,7 +149,13 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
   ok(I.notFoundShown, "I1 a Year+Denom with no blank-mint-mark DB_Coins rows at all reports not-found cleanly");
 
   // ---------- J. The resolved pick actually sticks through Save, and mint stays blank on the draft ----------
+  // Forces the flag off via the test seam so this exercises the session-
+  // only mockup save path (a direct FAKE_STAGING push) it was written
+  // against — ENABLE_ADDCOIN_WRITE now ships on by default (see CLAUDE.md
+  // "Real-Graph flags always on..."), and without this the real write path
+  // would try a Graph call with no mock client configured and throw.
   const J = await page.evaluate(async () => {
+    __setAddCoinWriteEnabledForTest(false);
     navigate("addcoin");
     document.getElementById("denomination").value = "1C";
     document.getElementById("denomination").dispatchEvent(new Event("change"));
@@ -161,7 +167,9 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
     const before = FAKE_STAGING.length;
     await new Promise(r => { saveAddCoinForm("staging"); setTimeout(r, 400); });
     const row = FAKE_STAGING[FAKE_STAGING.length - 1];
-    return { added: FAKE_STAGING.length - before, coinId: row && row.coinId, mint: row && row.mint };
+    const res = { added: FAKE_STAGING.length - before, coinId: row && row.coinId, mint: row && row.mint };
+    __setAddCoinWriteEnabledForTest(null);
+    return res;
   });
   ok(J.added === 1 && J.coinId === "C-1875-M-1C-01", "J1 the \"Other\"-resolved pick is what Save actually commits");
   ok(J.mint === "", "J2 -- and the saved draft's own MintMark field is blank, never a leftover \"Other\" marker");

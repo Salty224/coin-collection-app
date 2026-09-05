@@ -94,13 +94,21 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
   ok(C.doesNotNullLive, "C4 ... without nulling LIVE_COINS first (would drop Catalog/Ledger to demo data mid-fetch)");
 
   // ================= D. Edit Coin prefill + Remarks (item 7 / A) ===========
+  // Notes specifically is gated on browseEditWriteEnabled() (the "Notes
+  // flash" fix — see that section's own comment): with the write layer on,
+  // it starts blank pending a real snapshot fetch, rather than reading
+  // coin.remarks directly. This block is testing the mockup/flag-off
+  // prefill path (item 7's fix, independent of the write layer), so the
+  // flag is forced off via the test seam — ENABLE_BROWSE_EDIT_WRITE now
+  // ships on by default (see CLAUDE.md "Real-Graph flags always on...").
   const D = await page.evaluate(() => {
+    __setBrowseEditWriteEnabledForTest(false);
     const coin = Object.assign({}, FAKE_COINS[1], {
       shippingCost: 7.5, vendor: "NGC Shop", purchaseDate: "2026-01-15", cost: 100,
       remarks: "Bought raw, sent for grading.", valueSource: "Red Book 2027, p. 386", valueDate: "2026-07-05"
     });
     showBrowseDetail(coin); showBrowseEditView(coin);
-    return {
+    const res = {
       cost: document.getElementById("browseEditCost").value,
       shipping: document.getElementById("browseEditShippingCost").value,
       vendor: document.getElementById("browseEditVendor").value,
@@ -109,6 +117,8 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
       vsource: document.getElementById("browseEditValueSource").value,
       vdate: document.getElementById("browseEditValueDate").value
     };
+    __setBrowseEditWriteEnabledForTest(null);
+    return res;
   });
   ok(D.cost === "100", "D0 sanity: Cost still prefills (it always did — it reads the row itself)");
   ok(D.shipping === "7.5", "D1 Shipping now prefills from the coin's own workbook value (item 7)");

@@ -16,7 +16,15 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   const page = await openApp(PHONE);
   const vpLabel = "412px";
 
-  // ---------- A. Flag ships off / inert ----------
+  // ---------- A. Flag ships on; WRITE_TARGET is the real safety boundary ----------
+  // Superseded (see CLAUDE.md "Real-Graph flags always on; WRITE_TARGET is
+  // the actual safety boundary"): ENABLE_ADDCOIN_WRITE (and the other three
+  // write-capable flags) are no longer gated behind a local-only override
+  // file and default OFF — Ray is the only user of this app, so they now
+  // default to `(WRITE_TARGET === "copy")`, which is `true` in the shipped
+  // default. WRITE_TARGET itself is what actually protects the real
+  // workbook. This block was rewritten to assert the new real default,
+  // not weakened.
   const A = await page.evaluate(() => ({
     flag: ENABLE_ADDCOIN_WRITE,
     inWriteLayer: WRITE_LAYER_ENABLED,
@@ -27,17 +35,19 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     pickerExists: !!document.getElementById('addCoinMatchAmbiguousPanel'),
     ambBanner: !!document.getElementById('dbAmbiguousBanner')
   }));
-  ok(A.flag === false, "A1 ENABLE_ADDCOIN_WRITE ships false");
-  ok(A.inWriteLayer === false, "A2 WRITE_LAYER_ENABLED still false with all flags off");
-  ok(A.enabledFn === false, "A3 addCoinWriteEnabled() false by default");
-  ok(A.target === 'copy', "A4 WRITE_TARGET is 'copy'");
+  ok(A.target === 'copy', "A1 WRITE_TARGET is 'copy' — the real safety boundary, unaffected by the flag-default change");
+  ok(A.flag === (A.target === 'copy'), "A2 ENABLE_ADDCOIN_WRITE tracks WRITE_TARGET === 'copy' -- true in the shipped default");
+  ok(A.inWriteLayer === true, "A3 WRITE_LAYER_ENABLED is true with WRITE_TARGET at its shipped 'copy' default");
+  ok(A.enabledFn === true, "A4 addCoinWriteEnabled() is true by default now");
   ok(A.hasStatus, "A5 COIN_DRAFT_STATUS defined");
   ok(A.finishExists, "A6 Finish input present on Add Coin");
   ok(A.pickerExists, "A7 save-time ambiguous picker panel present");
   ok(A.ambBanner, "A8 live ambiguous banner present");
 
-  // flag OFF: a save must not touch Graph at all
+  // flag OFF (via the test seam — no longer the ambient default, so this
+  // scenario is now requested explicitly): a save must not touch Graph at all
   const AOff = await page.evaluate(async () => {
+    __setAddCoinWriteEnabledForTest(false);
     const mock = createMockGraphClient({});
     let touched = false;
     const spy = new Proxy(mock, { get(t, k) {
@@ -55,6 +65,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     await new Promise(r => { saveAddCoinForm('staging'); setTimeout(r, 300); });
     const res = { touched, added: FAKE_STAGING.length - before, storeSize: mock._store.size };
     __setGraphClientForTest(null);
+    __setAddCoinWriteEnabledForTest(null);
     return res;
   });
   ok(AOff.touched === false, "A9 flag off: save makes no Graph call");
@@ -411,9 +422,14 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     await new Promise(r => { saveAddCoinForm('database'); setTimeout(r, 800); });
     const draft = await mock.getJson(writePaths().stagingBase + "/AY-01001/coin.json");
     const madeSheetRow = !!mock._grids["All"];
-    __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+    __setLiveDbCoinsForTest(null); __setGraphClientForTest(null);
+    // Genuinely request the flag-off mockup scenario via the test seam —
+    // clearing the override no longer means "off" now that the flag ships
+    // on by default (see block A's own note).
+    __setAddCoinWriteEnabledForTest(false);
     updateSaveConfidenceUI();
     const interimHiddenWhenOff = document.getElementById('addCoinInterimBanner').classList.contains('hidden');
+    __setAddCoinWriteEnabledForTest(null);
     return { interimShown, draft, madeSheetRow, interimHiddenWhenOff };
   });
   ok(I.interimShown, "I1 interim Phase-1 notice shown on Add Coin when the real path is active");

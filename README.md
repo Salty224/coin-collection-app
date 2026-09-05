@@ -1,42 +1,24 @@
 # coin-collection-app
 
-## Local dev-flag overrides
+## Real-Graph feature flags
 
-`app.html` has a handful of real-Graph feature flags that ship `false`
-(or `"copy"` for `WRITE_TARGET`) in committed source, on purpose — see
-CLAUDE.md for why each one is gated this way:
+`app.html`'s real-Graph feature flags (`ENABLE_REFERENCE_IMAGES`,
+`ENABLE_LIVE_NAV_DATA`, `ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
+`ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`) ship on by default — Ray is
+the only user of this app, so there's no local/production split to gate
+them behind anymore. `WRITE_TARGET` (`"copy"` | `"live"`) is the real
+safety boundary instead: with it at `"copy"` (the shipped default), every
+write-capable flag among the six is fully on but every write still resolves
+under `CoinCollection/_Testing/`, never the real workbook. See CLAUDE.md's
+"Real-Graph flags always on; WRITE_TARGET is the actual safety boundary"
+for the full design, including why flipping `WRITE_TARGET` to `"live"`
+turns every write-capable flag back off at that same instant rather than
+opening the real workbook immediately.
 
-- `ENABLE_REFERENCE_IMAGES`
-- `ENABLE_LIVE_NAV_DATA`
-- `ENABLE_SET_WRITE_LAYER`
-- `ENABLE_BROWSE_EDIT_WRITE`
-- `ENABLE_DOCKET_WRITE`
-- `WRITE_TARGET` (`"copy"` | `"live"`)
-
-Testing any of these locally used to mean hand-editing `app.html` in
-Notepad after every fresh branch ZIP download, then remembering to set it
-back before committing. **You can skip that now:**
-
-1. Copy `dev-flags.local.example.js` to `dev-flags.local.js`, in the same
-   folder as `app.html`.
-2. Uncomment whichever flags you want to override, save.
-3. Load `app.html` from your local server as usual — no edits to
-   `app.html` itself needed.
-
-`dev-flags.local.js` is listed in `.gitignore` and is **never committed or
-shipped**. `app.html` loads it via a plain `<script src="dev-flags.local.js">`
-tag that simply 404s harmlessly when the file isn't there (production on
-GitHub Pages, or any checkout that hasn't had the file placed in it) —
-every flag then falls back to its exact hardcoded default in `app.html`,
-same as if this mechanism didn't exist at all. This is a **local
-convenience only**; it can loosen defaults on your own machine, never on
-production.
-
-**One thing to know**: this only persists across a fresh branch download
-if you keep re-extracting into the *same* local folder. If you extract a
-new branch ZIP into a brand-new folder, `dev-flags.local.js` won't be
-there (it's gitignored, so it's never part of the ZIP) — copy it over
-from your old folder, or redo steps 1–2 above.
+This app previously had a local-only `dev-flags.local.js` override
+mechanism for testing these flags individually without hand-editing
+`app.html` — retired along with the always-off defaults it existed to
+work around; there's nothing to configure locally anymore.
 
 ## Regression suites
 
