@@ -4,6 +4,57 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## Current status (2026-09-05) — read this first
+
+**Add Coin Phase 2 is COMPLETE and merged to main.** The branch
+`claude/add-coin-write-path-fs2rf8` was merged on Ray's explicit go-ahead
+after its final full-suite run (977 assertions, 23 suites, zero failures,
+zero page errors). Every section below that used to read "BUILT, same
+branch, still held" now reads "BUILT and merged to main" — **main is the
+source of truth for all of it**, and the branch name survives in those
+headers only as a historical pointer to where the work originated, not as a
+place future work should land.
+
+What that merge covers, end to end:
+- **Add Coin Phase 1** — real Staging `coin.json` drafts with photos, the
+  unified CollectionID reservation, the ambiguous-picker fix, and the many
+  live-run bug-fix batches on top of it.
+- **Add Coin Phase 2** — the real direct-write path into the `All` sheet:
+  `createAllSheetRow()` (claim an existing blank row, append only as a
+  fallback), `writeNewRowKeyCells()`, Promote / Force Add / Dismiss, the
+  promotion photo move, and the duplicate-row race fix.
+- **Editing a coin in Staging (Phase A)**, the Docket's three collapsible
+  sections and Research row tags, the Composition matcher tier and
+  flip-card corner, CACBean, ValueSource/ValueDate, the workbook-alignment
+  corrections, the Ledger/Stats live-data fix, and the whole corner-fitting
+  chain (`renderFittedCornerLines()` and the Catalog grid's own TL/BL).
+
+**NOTHING IS TURNED ON. This merge changed no runtime behaviour on the live
+site.** Confirmed at merge time and unchanged by it:
+- `WRITE_TARGET = "copy"` — every write still resolves under
+  `CoinCollection/_Testing/`. The real workbook is untouchable by this code
+  as it ships.
+- All six `ENABLE_*` flags default `false`: `ENABLE_REFERENCE_IMAGES`,
+  `ENABLE_LIVE_NAV_DATA`, `ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
+  `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`. With them off there is no
+  write-capable MSAL instance on the page at all.
+- Each of those is a `devFlagOverride(...)` reading `window.__DEV_FLAGS__`
+  from the gitignored `dev-flags.local.js`, so a local dev session can
+  enable one without that ever reaching the repo.
+
+**Flipping `WRITE_TARGET` to `"live"`, or any flag to `true`, is a separate
+and deliberate decision of Ray's — it was explicitly NOT part of this
+merge.** A production redirect URI for `app.html` still does not exist in
+Entra (only `http://localhost:8791/app.html`), so the write features remain
+localhost-dev-only regardless.
+
+Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
+987 rows past its real data (left as-is by Ray's call — see "The AllCoins
+table is 987 rows longer than its data"); the Graph read-after-write
+consistency gap has been seen twice and option 3 (a real workbook session)
+stays in reserve for a third sighting; `All.Status` filtering is designed
+but deliberately unbuilt.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
@@ -4835,7 +4886,7 @@ step-by-step this was run against, for reference on how a future live pass
   feature's own first fetch — not a bug; reopen the coin and it's silent
   from then on.
 
-### Add Coin write layer — Phase 1 (BUILT, held on branch `claude/add-coin-write-path-fs2rf8`, NOT merged)
+### Add Coin write layer — Phase 1 (BUILT and merged to main)
 Add Coin's Save was the last pure placeholder in the app ("Nothing written to
 OneDrive yet"), and the actual blocker on logging a new physical coin in-app.
 This is **Phase 1 of a deliberately phased build** — architectural/cross-cutting,
@@ -5091,7 +5142,7 @@ session doesn't reopen them:**
   UX polish on a working save, no urgency — logged as ParkingLot Row 3 in the
   session log below.
 
-### Add Coin Phase 1: live-run bug-fix pass (BUILT, same branch, still held)
+### Add Coin Phase 1: live-run bug-fix pass (BUILT and merged to main)
 Ray's own full manual live run against `_Testing` (Parts A–H) found the write
 path itself — reservation, the ambiguous-picker data integrity, photo/receipt
 handling, network-failure honesty — clean. Everything below is real bugs and
@@ -5305,7 +5356,7 @@ no horizontal overflow either width.
 specific fixes.** `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md` covers the original
 Phase 1 build; a second pass against these fixes specifically hasn't run yet.
 
-### Add Coin Phase 1: second live-run retest pass (BUILT, same branch, still held)
+### Add Coin Phase 1: second live-run retest pass (BUILT and merged to main)
 Ray retested the first bug-fix pass live against `_Testing` and confirmed
 most of it working; this round covers the new findings from that retest.
 Six items fixed; one (#2) investigated and confirmed working-as-designed
@@ -5448,7 +5499,7 @@ Ray's own framing when he sent this retest.
 - **Not verified: any real device, any real OneDrive session against these
   specific fixes** — same standing caveat as the first bug-fix round.
 
-### Add Coin Phase 1: batch 3 (BUILT, same branch, still held)
+### Add Coin Phase 1: batch 3 (BUILT and merged to main)
 Six items built, one flagged as a real conflict with existing documented
 research rather than guessed at. Same posture as every prior round: the
 structural Docket/Staging-Review IA redesign stays untouched, separate,
@@ -5665,7 +5716,7 @@ Opus-tier, held for its own go-ahead.
 - **Not verified: any real device, any real OneDrive session against these
   specific fixes** — same standing caveat as every prior Add Coin round.
 
-### Add Coin Phase 1: gold/bullion denomination codes (BUILT, same branch, still held)
+### Add Coin Phase 1: gold/bullion denomination codes (BUILT and merged to main)
 **Superseded once already, same session — the version below is the
 corrected, final design.** The first pass built a dedicated denom-code
 family (`G$1`, `G$2.5`, `AGE-1OZ`, `APE-1OZ`, etc.) reasoning purely from
@@ -5790,7 +5841,7 @@ Silver-Eagle pick — no overflow, no layout collision.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every prior round in this feature.
 
-### Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT, same branch, still held)
+### Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main)
 Closes the scope gap flagged immediately above, same session, on Ray's
 explicit "fix now" call. `dbCoinsCandidatesFor()` gains a Category tier,
 following the exact pattern the Finish tier already established
@@ -5909,7 +5960,7 @@ individual words in a different order/context.
   wording is confirmed AND checked against the same false-positive list
   above.
 
-### Add Coin Phase 1: batch 4 (BUILT, same branch, still held)
+### Add Coin Phase 1: batch 4 (BUILT and merged to main)
 Three findings from Ray's live spot-check of batch 3's Category-narrowing
 fix against the real `_Testing` copy (2017 American Silver Eagle, blank
 Finish, correctly narrowed to 2 genuine candidates; Finish=Proof resolved
@@ -5981,7 +6032,7 @@ to one — confirming the fix itself works).
   specific fixes** — same standing caveat as every prior round in this
   feature.
 
-### Add Coin Phase 1: batch 6 (BUILT, same branch, still held)
+### Add Coin Phase 1: batch 6 (BUILT and merged to main)
 Two findings from Ray's live-device review of batch 4's changes.
 
 - **#1 — Bullion toggle placement, corrected.** Batch 4's move (checkbox +
@@ -6031,7 +6082,7 @@ Two findings from Ray's live-device review of batch 4's changes.
   itself was a direct response to Ray's own device review, so the loop is
   already closer than usual.
 
-### Add Coin Phase 1: batch 7 (BUILT, same branch, still held)
+### Add Coin Phase 1: batch 7 (BUILT and merged to main)
 Ray corrected both of batch 6's calls directly, after explicitly asking to
 be consulted before either was touched again — this round is exactly what
 he confirmed, not a further guess.
@@ -6076,7 +6127,7 @@ he confirmed, not a further guess.
   — if it's still wrong, that's new information from an actual device, not
   a repeat of the same back-and-forth.
 
-### Docket: three collapsible sections (BUILT, same branch, still held)
+### Docket: three collapsible sections (BUILT and merged to main)
 The Docket opened onto one long flat list of everything needing action —
 undigestible in practice. Replaced with three collapsed-by-default
 accordion sections, each with its own item count in the header:
@@ -6171,7 +6222,7 @@ Screenshots reviewed at both viewports, no overflow at either width.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
-### Add Coin: accordion restructure (BUILT, same branch, still held)
+### Add Coin: accordion restructure (BUILT and merged to main)
 Add Coin was one long flat form; Edit Coin / Browse detail are accordion
 stacks. Since most of what Add Coin captures is exactly what Edit Coin
 later edits, the two now read as the same screen. Resolves ParkingLot
@@ -6267,7 +6318,7 @@ viewports.
   inline Purchase/Storage sections in hand yet and has said he'll flag them
   if they don't feel right.
 
-### U.S. Mint Item Number: naming standardized across DB_Coins/DB_Sets (BUILT, same branch, still held)
+### U.S. Mint Item Number: naming standardized across DB_Coins/DB_Sets (BUILT and merged to main)
 `DB_Coins.USMint#` — a real column, confirmed by Ray, that carries the
 Mint's own catalog identifier for a specific coin PRODUCT — was not read by
 `mapWorkbookRowToDbCoin()` at all before this. Per Ray's explicit direction,
@@ -6318,7 +6369,7 @@ assertions across all 7 suites, zero failures.
   itself is his call, and the fallback candidates exist specifically so
   this code doesn't care either way.
 
-### Add Coin: Identification section — Mint Item Number + GSID matching (BUILT, same branch, still held)
+### Add Coin: Identification section — Mint Item Number + GSID matching (BUILT and merged to main)
 Extends the existing PCGS-label-decode pattern with two more independent
 identification paths, since a growing share of Ray's purchases come
 directly from the Mint (a product often not yet in DB_Coins at all) and
@@ -6432,7 +6483,7 @@ fix.
   its already-real `gsid` ("GS-1044") on the neighboring VDB Lincoln row
   rather than inventing new demo rows.
 
-### Add Coin Identification: a matched ID now carries Category too (BUILT, same branch, still held)
+### Add Coin Identification: a matched ID now carries Category too (BUILT and merged to main)
 Live-testing finding: matching a coin via Mint Item Number, GSID, or a PCGS
 label decode all autofilled identity fields (denom/year/mint/description/
 variety/finish) through the one shared `applyDbCoinsRowToForm()`, but none
@@ -6492,7 +6543,7 @@ DB_Coins row unambiguously names it a Silver Eagle. Confirmed live by Ray.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
-### Staging Review: workbook + per-coin folder links (BUILT, same branch, still held)
+### Staging Review: workbook + per-coin folder links (BUILT and merged to main)
 Live-testing item 3 of Ray's 4-item batch: the Docket's Research section
 already shows an "Open workbook in Excel" link, but Staging Review — the
 other real screen he reviews pending drafts from — had no equivalent, and
@@ -6552,7 +6603,7 @@ check its uploaded photos without hunting for it by hand).
   OneDrive session, same "needs a real click-through" caveat the workbook
   link itself already carries.
 
-### Docket: Research row tags (BUILT, same branch, still held)
+### Docket: Research row tags (BUILT and merged to main)
 Live-testing item 4 of Ray's 4-item batch: Staging vs. Awaiting Copilot
 Research read as nearly identical in live testing — apart from the
 Set-in-progress case, both sections just show a coin/Set name and a status
@@ -6601,7 +6652,7 @@ visually distinguish the row kinds within it.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
-### Composition: a real matcher input + flip-card display (BUILT, same branch, still held)
+### Composition: a real matcher input + flip-card display (BUILT and merged to main)
 Two related pieces from Copilot's composition research (2026-08-29) plus a
 live-testing observation that the flip card's bottom-right corner was unused.
 
@@ -6809,7 +6860,7 @@ strings.
   1999-S Clad/Silver pair seeded in `FAKE_DB_COINS` are representative
   stand-ins so both halves are exercisable with `ENABLE_LIVE_NAV_DATA` off.
 
-### CACBean UI, Value field rounding, composition corner restacked (BUILT, same branch, still held)
+### CACBean UI, Value field rounding, composition corner restacked (BUILT and merged to main)
 Three items from Ray's live-testing session, one directly following the
 Composition matcher/flip-card work.
 
@@ -6962,7 +7013,7 @@ collision into a comfortable 49-77px gap.
   splitting logic. 79 assertions total in the suite (was 74), zero
   failures. **Not verified: any real device.**
 
-### CACBean visibility fix, read-only Overview row, $ on Purchase/Shipping, Catalog composition, collision-based sizing (BUILT, same branch, still held)
+### CACBean visibility fix, read-only Overview row, $ on Purchase/Shipping, Catalog composition, collision-based sizing (BUILT and merged to main)
 Batch of small, independent fixes/polish from live testing. Eight items
 total; items 1-6 below are built. Item 7 (reverse-flip investigation) needed
 no code — see its own note. Item 8 (Mint Mark "None (Other)") is a separate,
@@ -7115,7 +7166,7 @@ blank-MintMark rows to disambiguate on — Ray confirmed via Copilot that all
 disambiguation-picker path (not the plain fallback). See "Mint Mark 'None
 (Other)': real DB_Coins.Mint disambiguation" below for the full build.
 
-### TR corner (type/series name): graceful degradation, not destructive truncation (BUILT, same branch, still held)
+### TR corner (type/series name): graceful degradation, not destructive truncation (BUILT and merged to main)
 Real bug: `renderTypeDenomCorner()`'s overflow fallback used to shorten an
 overlong type name to its LAST WORD when it didn't fit on one line —
 reasonable when Description values were short place/series names, but wrong
@@ -7188,7 +7239,7 @@ strips, it overflows, and the old fallback reduced it to literally `"$10"`
   environment's headless Chromium only, same standing caveat as every round
   on this branch.
 
-### Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT, same branch, still held)
+### Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)
 Closes item 8 from the earlier batch, unblocked once Ray confirmed via
 Copilot that `DB_Coins.Mint` (the FULL facility name — "San Francisco",
 "Denver", "Philadelphia" — distinct from `MintMark`, the abbreviation) is
@@ -7304,7 +7355,7 @@ DB_Coins-backed disambiguation picker (Q1–Q4 confirmed), not the plain
   population was confirmed by Ray via Copilot, not independently verified
   from this environment.
 
-### Reverse face gets real content; Sets lose the flip card entirely (BUILT, same branch, still held)
+### Reverse face gets real content; Sets lose the flip card entirely (BUILT and merged to main)
 Two related fixes to the saved-coin flip card (Spotlight + Browse detail,
 `applyFlipCorners()`), following the Option 3 design exploration above.
 
@@ -7480,7 +7531,7 @@ passing.
   geometry spot-check confirmed the same TL fit with zero page overflow) —
   same standing caveat as every round on this branch.
 
-### Add Coin Phase 2 + live-device retest batch (BUILT, same branch, still held)
+### Add Coin Phase 2 + live-device retest batch (BUILT and merged to main)
 The first real-device pass this branch has had. CAC Bean, Mint Mark "None
 (Other)" and the reverse-face flip content all came back clean. Seven items
 came out of it; all seven are built here.
@@ -7742,7 +7793,7 @@ assertion re-confirmed.
 - **Superseded: the Phase 2 write HAS since had a real `_Testing` run, and
   it found a duplicate-row bug.** See the section immediately below.
 
-### Phase 2 promote: duplicate-row bug (BUILT, same branch, still held)
+### Phase 2 promote: duplicate-row bug (BUILT and merged to main)
 The first live `_Testing` Promote (AY-00706, `C-1943-S-1C-01`) wrote **two
 rows**: one holding the full coin, one holding nothing but CollectionID and
 CoinID. **Both calls reported success and nothing in the app could tell.**
@@ -7891,7 +7942,7 @@ corrections came out of doing it, both worth knowing:
   restoring the always-wrap helper fails H5/K3/L2 with the exact flash;
   stripping the button pass-through from `rejectStagedCoin()` fails K4.
 
-### Editing a coin in Staging — Phase A (BUILT, same branch, still held)
+### Editing a coin in Staging — Phase A (BUILT and merged to main)
 Mark Ready used to be a one-way blind commit: nothing could reopen what had
 been captured, unlike an in-progress Set draft, which `resumeSetDraftAtStep1()`
 has always been able to resume. This is the coin-side equivalent.
@@ -7977,7 +8028,7 @@ reserving a new id fails B1/B2/B4/B5/C4; writing `buildCoinDraft()` output
 wholesale fails B3/B4/C1/C2/C3; dropping the binding reset fails E2.
 - **Not verified: any real device or real OneDrive session.**
 
-### Workbook-alignment batch (BUILT, same branch, still held)
+### Workbook-alignment batch (BUILT and merged to main)
 Four corrections made after reading the REAL `CoinCollection (AI).xlsx`
 (uploaded 2026-09-02) rather than reasoning from the 12-row mock. Three of
 the four reverse or correct earlier decisions that were made on wrong
@@ -8148,7 +8199,7 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
   services; don't assume another service's login can work the same way without
   checking whether they support a redirect/authorization-code flow first.
 
-### Ledger/Stats: live-data read-path fix (BUILT, same branch, still held)
+### Ledger/Stats: live-data read-path fix (BUILT and merged to main)
 Real bug, found while scoping the All.Status investigation (item 5 of the
 workbook-alignment round): `renderStats()` read `FAKE_COINS` directly rather
 than `activeCoins()` — the one swap point every other live-data-aware nav
@@ -8217,7 +8268,7 @@ reads correctly.
   can't be exercised end-to-end from this environment; this fix corrects the
   read-path/render-trigger wiring that a real session would actually need.
 
-### Live-device retest batch 2 (BUILT, same branch, still held)
+### Live-device retest batch 2 (BUILT and merged to main)
 Second real-device pass. Six items built; **item 5 (Force Add's orphan blank
 row) was investigated and deliberately NOT fixed** — see its own section
 below. Confirmed working and untouched: Sets flip-card removal, the First
@@ -8494,7 +8545,7 @@ K14).
   before it is trusted — in particular confirming that a new coin now lands
   around row 558 rather than 1545.
 
-### Catalog grid: Variety + Designation on the mini flip card (BUILT, same branch, still held)
+### Catalog grid: Variety + Designation on the mini flip card (BUILT and merged to main)
 Resolves ParkingLot Row 2. Confirmed on a real device before building: a
 1909 VDB cent and a plain 1909 rendered **identically** in the Catalog grid,
 while the same coin's own detail page showed VDB correctly.
@@ -8578,7 +8629,7 @@ frame; and TR unchanged at its natural size.
   passing value.
 - **Not verified: any real device.** Screenshots reviewed at both viewports.
 
-### Live retest round 2 (BUILT, same branch, still held)
+### Live retest round 2 (BUILT and merged to main)
 Five items, all reproduced headlessly before being touched.
 
 **Fix A — a force-added coin stops being a Staging draft.** Reproduced in
@@ -8711,7 +8762,7 @@ TL fit reverted (E1–E5), the BL fit reverted (E7/E8).
   assertion hid a real bug; the test was fixed, not the claim.
 - **Not verified: any real device, any real OneDrive session.**
 
-### Catalog grid: the SAME Fugio collision, one card size down (BUILT, same branch, still held)
+### Catalog grid: the SAME Fugio collision, one card size down (BUILT and merged to main)
 The full detail card came back clean on Ray's device after the fix above —
 and the **Catalog grid still collided on the same coin**. Root-caused before
 touching anything, and the previous round's own "0px worst-case overlap"
