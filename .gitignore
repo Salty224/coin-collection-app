@@ -11,3 +11,6 @@ dev-flags.local.js
 # of the shipped static site (this app has no build step and no runtime
 # dependencies — see CLAUDE.md's no-CDN/self-contained posture).
 node_modules/
+
+# stray one-off scratch scripts
+.scratch_*.js
