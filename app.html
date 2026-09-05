@@ -7452,8 +7452,10 @@
       // workflow state: Draft/Ready/Promoted/...). Already on
       // ALL_WRITABLE_COLUMNS, so unlike category/cacBean above this carries
       // no pending-decision caveat: coinDraftToAllValues() maps it and a
-      // promote writes it for real (blank when the picker shows the
-      // "Owned" default — see coinDraftToAllValues()'s own comment).
+      // promote writes the literal "Owned" for the picker's default (see
+      // coinDraftToAllValues()'s own comment — every row-creation path
+      // stamps "Owned" explicitly now, matching Copilot's backfill of the
+      // existing sheet).
       allStatus: form.allStatus || "",
       // --- value + provenance. All three are already on
       // ALL_WRITABLE_COLUMNS, so unlike category/cacBean above these carry
@@ -7611,15 +7613,16 @@
       // Free text, and "" is a real writable value (no attribution recorded)
       // — same rule as every other string column above.
       ValueSource: draft.valueSource || "",
-      // Blank cell already means Owned (Lookup_Statuses' own description
-      // says so), and 1518 of 1543 real rows are blank today — so a coin
-      // added as Owned (the near-universal case) writes blank here too,
-      // matching that convention, rather than adding another literal
-      // "Owned" string. Only a genuine exit-status pick (the rare "logging
-      // a coin that's already left the collection" case — no reveal exists
-      // in Add Coin for the four exit-detail fields; see CLAUDE.md) writes
-      // one of the four literal exit strings.
-      Status: (draft.allStatus && draft.allStatus !== "Owned") ? draft.allStatus : ""
+      // Superseded: this used to write blank for the Owned default, on the
+      // reasoning that blank already meant Owned across most of the sheet.
+      // Copilot has since backfilled every existing row (556 total) to a
+      // literal "Owned" — so a brand-new row should match that going
+      // forward, not reintroduce the old blank convention. A genuine
+      // exit-status pick (the rare "logging a coin that's already left the
+      // collection" case — no reveal exists in Add Coin for the four
+      // exit-detail fields; see CLAUDE.md) still writes one of the four
+      // literal exit strings instead.
+      Status: draft.allStatus || "Owned"
     };
     // Numeric/date fields only when actually captured — writing 0 or a
     // bogus serial for "not recorded" would be worse than leaving blank,

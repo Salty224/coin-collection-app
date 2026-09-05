@@ -373,8 +373,13 @@ module.exports = defineSuite("status-exit", async ({ ok, openApp, PHONE }) => {
   ok(H.formAllStatus === "Sold", "H3 readAddCoinFormForDraft() reads the picked value into `allStatus`");
   ok(H.draftOwnedAllStatus === "Owned", "H4 buildCoinDraft() carries it through under the same name");
   ok(H.draftOwnedWorkflowStatus === H.coinDraftStatusConst, "H5 the draft's OWN workflow `status` field (Draft/Ready/Promoted) is completely untouched by allStatus -- no field collision");
-  ok(H.allValuesOwned === "", "H6 coinDraftToAllValues() writes BLANK for the Owned default (matches the real workbook's own convention -- 1518 of 1543 rows are blank, not literal 'Owned')");
-  ok(H.allValuesSold === "Sold", "H7 -- but a genuine exit-status pick writes the real literal string");
+  // Superseded (see tests/verify_status_owned_on_create.js): Copilot has
+  // since backfilled every existing row to a literal "Owned", so a
+  // brand-new row now matches that instead of the old blank convention --
+  // this assertion follows the real design change rather than being
+  // weakened.
+  ok(H.allValuesOwned === "Owned", "H6 coinDraftToAllValues() writes the literal 'Owned' for the Owned default (matches Copilot's backfill of every existing row)");
+  ok(H.allValuesSold === "Sold", "H7 -- and a genuine exit-status pick still writes its own real literal string");
 
   // ================================================================
   // I. Edit Set -- session-only (no real write layer), same as its

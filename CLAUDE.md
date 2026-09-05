@@ -8976,14 +8976,66 @@ Set's Save has always shown.
   no-auto-clear-on-revert behavior through a real save; Gifted's
   auto-default-to-0 (and that it never clobbers a typed value); Browse
   detail's read-only rows including the real `$0` case; Add Coin's
-  `allStatus`/draft-`status` non-collision and the blank-for-Owned write
-  convention; Edit Set's session-only path (real in-memory write, honest
-  toast, no live write); and Ledger's search/exit-history behavior
-  end-to-end including the row-click-to-detail-and-back round trip. No
-  prior assertion was weakened — the one pre-existing count (`H4`, "all N
-  date inputs share the calendar-picker-glyph fix") was updated from 7 to
-  9 to reflect the two new date inputs, following a real, deliberate
-  design change.
+  `allStatus`/draft-`status` non-collision **(the blank-for-Owned write
+  convention this originally covered is superseded — see the follow-up
+  section immediately below)**; Edit Set's session-only path (real
+  in-memory write, honest toast, no live write); and Ledger's search/
+  exit-history behavior end-to-end including the row-click-to-detail-and-
+  back round trip. No prior assertion was weakened — the one pre-existing
+  count (`H4`, "all N date inputs share the calendar-picker-glyph fix")
+  was updated from 7 to 9 to reflect the two new date inputs, following a
+  real, deliberate design change.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every other real-Graph feature in this file.
+
+### New rows stamp a literal "Owned" at creation (BUILT and merged to main)
+**Supersedes this section's own "blank-for-Owned write convention" note
+above.** Copilot backfilled every existing All row (556 total: 535 were
+blank, 21 already said `"Owned"`) to a real, literal `"Owned"`. Going
+forward, every code path that creates a brand-new row matches that —
+`coinDraftToAllValues()` now writes `draft.allStatus || "Owned"` instead
+of blanking the default case.
+
+- **All of Add Coin's real write, Force Add, and Promote turn out to be
+  ONE shared code path, not three.** `createAllSheetRow()`/
+  `writeNewRowKeyCells()` claim or append the blank row and write only its
+  key cells (CollectionID/CoinID, per the narrow-audit design already
+  documented above); both Promote and Force Add reach that through the
+  same `promoteCoinDraftToAllSheetUnlocked()`, which then writes every
+  other field — Status included — via this one `coinDraftToAllValues()`
+  call. One fix, confirmed to cover all three named paths.
+- **Add Set's write layer has no code path that creates an All row at
+  all** — confirmed by direct search, not assumed. Per its own section
+  above, the app's writes there are Staging JSON + photo files only;
+  moving data into a real All row is still the external/manual
+  reconciliation step. There is nothing to change there today — flagged
+  back rather than silently building a new write mechanism to cover it,
+  which would have been real, unrequested architecture for what this
+  task called a "small, routine change."
+- **Does NOT touch Sell/Remove's own protection on Edit Coin** (Status is
+  only written there when the user has genuinely touched the select this
+  session) — that guards against stamping `"Owned"` onto an EXISTING
+  blank/legacy row during an unrelated edit. This task is the row's
+  one-time creation, a different moment, and the two don't conflict:
+  creation always writes a real value now; editing an existing row still
+  never writes one it wasn't asked to.
+- A genuine exit-status pick at add-time (`draft.allStatus` already one of
+  the four exit values) still writes its own literal string, never
+  overridden to `"Owned"` — unaffected by this change, verified directly.
+- A legacy draft with no `allStatus` field at all (written before that
+  field existed) now defaults to `"Owned"` too, rather than a blank cell.
+- **Verified headless — new committed suite
+  `tests/verify_status_owned_on_create.js` (11 assertions), all passing;
+  1043 across all 25 suites, zero failures, zero page errors.** Drives
+  the real create-row path end-to-end via the mock Graph client (not just
+  a unit check on the mapper) for Promote, Force Add, a genuine
+  exit-status pick, and a legacy no-`allStatus` draft — each confirmed by
+  reading the actual written row, not just the function's return value.
+  Includes a negative control proving the old formula really did produce
+  blank for the identical input the new one turns into `"Owned"`.
+  `tests/verify_status_exit.js`'s own `H6` (which had asserted the now-
+  superseded blank-for-Owned behavior) was updated to assert the literal
+  `"Owned"`, following the real design change rather than being weakened.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every other real-Graph feature in this file.
 
