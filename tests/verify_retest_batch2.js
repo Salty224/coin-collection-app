@@ -310,8 +310,11 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
   // Chromium serialises the selector with quotes: input[type="date"]
   ok(/input\[type=["']?date["']?\]/.test(H.rules.join(" ")), "H3 ... scoped to date inputs via the shared element selector, not a per-field rule");
   // 5 pre-existing (Edit Coin, Edit Set, Wishlist, Add Coin, Add Set) plus
-  // the two "Value date" fields added this round (Edit Coin, Add Coin) = 7.
-  ok(H.dateInputs === 7, "H4 all seven date inputs are covered by that one selector: " + H.dateInputs);
+  // the two "Value date" fields added this round (Edit Coin, Add Coin) = 7,
+  // plus the two "Sale / Removal Date" exit-detail fields added by the
+  // Status/exit-fields feature (Edit Coin, Edit Set — Add Coin's own Status
+  // picker deliberately has no reveal, so it contributes none) = 9.
+  ok(H.dateInputs === 9, "H4 all nine date inputs are covered by that one selector: " + H.dateInputs);
   ok(H.rootScheme !== "dark", "H5 no blanket color-scheme:dark on :root — that would repaint scrollbars and native select popups app-wide");
 
   // ================= I. Item 5 — claim a blank row, never orphan ==========

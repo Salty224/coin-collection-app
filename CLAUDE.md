@@ -4155,9 +4155,10 @@ Container, and can attach additional photos/receipts to an existing coin at any 
 **Widened by the Browse Edit write layer below** — the real allow-list is now
 that list plus Year, MintMark, Denomination, Variety, Description, Category,
 Finish, Error, Value, Cost, Shipping, Seller_Link, PurchaseDate, CACBean,
-Remarks, Reviewed and LastModified; see `ALL_WRITABLE_COLUMNS` for the
-authoritative version. The "no research or judgment" boundary below is
-unchanged.
+Remarks, Reviewed, LastModified, and (see "Status vocabulary simplification +
+Sell/Remove action") Status, SaleDate, SalePrice, Buyer, Platform; see
+`ALL_WRITABLE_COLUMNS` for the authoritative version. The "no research or
+judgment" boundary below is unchanged.
 **Being on that list is NOT the same as being editable in Browse Edit** —
 worth knowing before assuming a field has a UI. `CACBean` genuinely is
 editable (a real checkbox pair). **`Category`, `Finish` and `Error` are
@@ -8836,6 +8837,155 @@ page keeping the full string; G covers the escaping in both directions.
   separator, so a wrapped "Doubled Die Obverse" reads as "DoubledDie
   Obverse". Lines are joined with a space now.
 - **Not verified: any real device.** Screenshots reviewed at both viewports.
+
+### Status vocabulary simplification + Sell/Remove action (BUILT and merged to main)
+`All.Status` is now a real, plumbed field for the first time — it was
+previously read/written nowhere in `app.html` at all, despite already being
+a real column (confirmed against the live workbook: 1518 blank rows, 21
+already carrying the literal string `"Owned"`, 4 carrying `"At PCGS"`).
+Simplified vocabulary going forward: exactly five app-selectable values —
+**Owned, Sold, Gifted, Returned, Spent**. `"Retained"` is being removed from
+`Lookup_Statuses` entirely and never existed as an app option. `"At PCGS"`
+is a real, still-current value (moving to a still-undecided storage-related
+field is a separate, explicitly out-of-scope task) — never offered as a
+pick, but an existing `"At PCGS"` row displays correctly and is left
+completely untouched, same as every other real, pre-existing value this
+app doesn't itself generate.
+
+**Sell/Remove is not a new action screen — it's Status becoming a real
+field on the coin/set's own Edit page, reusing Browse Edit's existing
+write path.** Picking one of the four exit values reveals four existing
+All columns beneath it — `SaleDate`, `Buyer`, `SalePrice`, `Platform` —
+reused generically across all four reasons rather than as Sold-only
+fields (Gifted defaults `SalePrice` to 0, since a token payment can still
+be recorded; Returned/Spent leave all four optional). Any reason-specific
+detail beyond these four belongs in the existing Remarks field — no new
+columns.
+
+**Coins and Rolls (both via Edit Coin) get the real write; Sets stay
+session-only.** Edit Set has no real write layer at all — its Save button
+is still the original session-only stub — and building one is a
+materially bigger, separate task, deliberately not bundled into this one
+(confirmed with Ray before building). Sell/Remove on a Set writes onto the
+in-memory record only, with the same "not saved to OneDrive" toast Edit
+Set's Save has always shown.
+
+- **`Status`, `SaleDate`, `SalePrice`, `Buyer`, `Platform` added to
+  `ALL_WRITABLE_COLUMNS`** (confirmed exact real header names/positions by
+  reading the live workbook directly: `Status` at AI, `SaleDate`/
+  `SalePrice`/`Buyer`/`Platform` at AP–AS). `SaleDate` added to
+  `buildRowCellEdits()`'s `isDateCol()` list, same explicit `yyyy-mm-dd`
+  format as every other date column in this layer. `CONFLICT_FIELD_TO_INPUT`
+  gained all five, so a concurrent-edit conflict on any of them is named
+  correctly in the guard dialog.
+- **The one real bug risk, designed around rather than discovered
+  afterward.** The Status `<select>` displays `"Owned"` for a blank cell
+  (blank already means Owned — `Lookup_Statuses`' own description says so
+  outright), but the write layer only sends a column to Excel when the
+  form's value differs from the freshly-read live cell. If the display
+  value were always sent, an untouched blank row would get the literal
+  string `"Owned"` **written** the next time ANY unrelated field on the
+  same form was saved — silently touching hundreds of real rows over
+  time, purely as a side effect of the display choice. Fixed by including
+  `Status` in the outgoing write **only when the user has genuinely
+  interacted with the select this session** — reusing the exact same
+  delegated `browseEditTouchedFields` tracking every other Browse Edit
+  field already relies on, not a new mechanism. Verified with a genuine
+  negative control: artificially marking the select "touched" without a
+  real pick (reproducing what the naive unconditional-inclusion version
+  would have done for every blank row) reliably stamps the literal
+  `"Owned"` onto the same save that the real code leaves untouched —
+  confirming the gate is what's actually preventing it, not a coincidence
+  of the test's own setup.
+- **An explicit pick, including picking Owned back, IS a real write** —
+  matches CACBean's own established "explicit user choice is a real
+  write, not an omission" rule (`""`/both-boxes-unchecked already writes
+  for real there). Reverting a coin from an exit status back to Owned does
+  **not** clear `SaleDate`/`Buyer`/`SalePrice`/`Platform` (Ray's explicit
+  call — preserve a "previously sold, reacquired" trail rather than
+  silently erasing it). This falls out for free from how the four fields
+  are read: unlike `Status`, they're never gated on touched-state or on
+  whether the reveal block is currently visible — read and written exactly
+  like Purchase Details' own `Cost`/`Shipping`/`Vendor`/`PurchaseDate`,
+  which are never gated on that accordion being open either. If the user
+  doesn't touch them, they simply write back whatever was already there
+  (no diff, no data loss).
+- **`setSelectValuePreservingUnknown()` is what makes an existing `"At
+  PCGS"` row display correctly** instead of silently falling back to no
+  selection — the exact MintMark `"P"` bug class this project has hit
+  before. Reused, not reinvented.
+- **Add Coin gets the plain 5-value picker only, no reveal** (Ray's
+  explicit scoping) — logging a coin that's already left the collection
+  at add-time is rare enough that "add it, then immediately edit/sell it"
+  is the accepted path. Defaults to Owned on reset. The draft's own field
+  is named **`allStatus`, deliberately not `status`** — a coin draft
+  already has its own `status` field meaning the DRAFT'S workflow state
+  (`COIN_DRAFT_STATUS.DRAFT`/`READY`/`PROMOTED`/…), a completely different
+  concept on the same object; naming collision would have been a real,
+  silent landmine. `coinDraftToAllValues()` writes **blank** for the Owned
+  default (matching the real workbook's own convention — 1518 of 1543 rows
+  are blank, not a literal `"Owned"` string) and the real literal string
+  only for a genuine exit-status pick.
+- **Ledger gained two real sections — it had none before this.** Read the
+  code before assuming otherwise: `renderStats()` was pure aggregate stat
+  tiles (total items/spent/value/net + a denomination bar breakdown), zero
+  coin-level list or search of any kind. Added:
+  - **"Find a Coin"** — a plain flat search (reusing Catalog's own search
+    predicate, factored out as `coinMatchesSearchQuery()` so the two never
+    duplicate logic), scoped to still-Owned rows only (an exited coin
+    never appears here, even if its name/ID matches — this list exists to
+    find something to act on). Deliberately no filter-chip parity with
+    Catalog — Ray's explicit call: this is a means to one coin, not a
+    browsing surface. Capped at 25 results so a broad query can't dump
+    hundreds of rows.
+  - **"Exit History"** — every coin/Set/Roll carrying one of the four exit
+    statuses, one combined list with the Status (and Sale Price, including
+    a real `$0` for Gifted — shown, never omitted) inline per row — not
+    split by reason (Ray's call; splitting later is easy if it turns out
+    to matter).
+  - Both reuse the existing `.wish-item` row styling; tapping a row opens
+    that coin's Browse detail view (where the real Edit/Sell-Remove action
+    lives), Back returning to Ledger via the same per-origin
+    `browseDetailBackHandler` pattern Spotlight's click-through and Albums'
+    filled-slot tap already use — not a new navigation mechanism.
+  - **Deliberately does NOT touch the existing stat tiles' own totals** —
+    those still count every row regardless of Status, unchanged. Filtering
+    the Dashboard/Catalog's own numbers by ownership is the separate,
+    already-deferred "Owned-default Catalog filter chip" item and was not
+    silently pulled into this task.
+- **Browse detail's read-only Overview** gets a Status row (and the four
+  exit facts) — applies to both a coin and a Set (a bundle can be sold/
+  gifted too), omitted entirely for Owned/blank **and** for `"At PCGS"`
+  (this section is specifically about the four-exit-status story, not
+  every possible Status value). `SalePrice` uses `!= null`, not a truthy
+  check, so Gifted's real `$0` renders rather than being hidden.
+- **Two sparse `FAKE_COINS` demo rows seeded** (AY-00005: Sold; AY-00007:
+  Gifted, `salePrice: 0`), same sparse-lookup convention as every other
+  optional demo field in this file.
+- **Verified headless — new committed suite `tests/verify_status_exit.js`
+  (55 assertions), all passing; 1032 across all 24 suites, zero
+  failures, zero page errors.** Covers: the exact five-option vocabulary
+  everywhere (Add Coin, Edit Coin, Edit Set) with `"At PCGS"`/`"Retained"`
+  confirmed absent; `statusSelectDisplayValue()`/`isExitStatus()` in
+  isolation; a full real end-to-end mock-Graph-client save proving the
+  central fix (blank stays blank across an unrelated save, an explicit
+  pick writes for real, **with a genuine negative control** reproducing
+  the bug when the touched-gate is bypassed); a real `"At PCGS"` row
+  displaying correctly via an injected `<option>` and surviving an
+  unrelated save untouched; the exit-fields reveal/hide and the
+  no-auto-clear-on-revert behavior through a real save; Gifted's
+  auto-default-to-0 (and that it never clobbers a typed value); Browse
+  detail's read-only rows including the real `$0` case; Add Coin's
+  `allStatus`/draft-`status` non-collision and the blank-for-Owned write
+  convention; Edit Set's session-only path (real in-memory write, honest
+  toast, no live write); and Ledger's search/exit-history behavior
+  end-to-end including the row-click-to-detail-and-back round trip. No
+  prior assertion was weakened — the one pre-existing count (`H4`, "all N
+  date inputs share the calendar-picker-glyph fix") was updated from 7 to
+  9 to reflect the two new date inputs, following a real, deliberate
+  design change.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every other real-Graph feature in this file.
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /

@@ -2753,6 +2753,45 @@
               <label>Value date</label>
               <input type="date" id="browseEditValueDate">
 
+              <!-- Ownership status. Blank cell displays as "Owned" but never
+                   gets force-written back onto a blank cell just because
+                   the select shows it (see readBrowseEditForm()'s own
+                   comment) — only an ACTUAL user pick ever reaches the
+                   write. "At PCGS" (a real, pre-existing value on 4 rows)
+                   is never a selectable option, but if a row already
+                   carries it, it displays as-is via
+                   setSelectValuePreservingUnknown() rather than silently
+                   falling back to no selection. -->
+              <label>Status</label>
+              <select id="browseEditStatus"></select>
+
+              <!-- Exit details — SaleDate/Buyer/SalePrice/Platform, reused
+                   generically across all four exit reasons rather than as
+                   Sold-only fields. Revealed only when Status is one of the
+                   four exit values (applyStatusDependentVisibility());
+                   hidden for Owned, but never cleared — see that function's
+                   own comment. Any reason-specific detail beyond these four
+                   (why it was returned, who it was gifted to and why, etc.)
+                   belongs in Notes, not a new field. -->
+              <div id="browseEditExitFieldsRow" style="display:none;">
+                <label>Sale / Removal Date</label>
+                <input type="date" id="browseEditSaleDate">
+                <label>Buyer / Recipient</label>
+                <input type="text" id="browseEditBuyer" autocomplete="off"
+                  placeholder="e.g. eBay buyer, family member — optional">
+                <!-- Gifted defaults this to 0 (a token payment can still be
+                     recorded) but the field itself has no default of its
+                     own here — Returned/Spent simply leave it blank. -->
+                <label>Sale Price</label>
+                <div class="currency-input-row">
+                  <span class="currency-prefix">$</span>
+                  <input type="number" step="0.01" id="browseEditSalePrice" placeholder="e.g. 45.00 — optional">
+                </div>
+                <label>Platform</label>
+                <input type="text" id="browseEditPlatform" autocomplete="off"
+                  placeholder="e.g. eBay, in person — optional">
+              </div>
+
               <!-- Read-only computed linkage chips, same as detail. -->
               <div id="browseEditLinkageWrap" class="edit-linkage-wrap hidden">
                 <div class="detail-label" style="margin-top:12px;">Belongs to</div>
@@ -2930,6 +2969,31 @@
               <div class="currency-input-row">
                 <span class="currency-prefix">$</span>
                 <input type="number" step="0.01" id="editSetValue" placeholder="e.g. 850.00">
+              </div>
+
+              <!-- Ownership status + exit details — same shape as Edit
+                   Coin's own (see its markup comment). Edit Set has no real
+                   write layer yet (session-only Save, matching this whole
+                   form), so a Sell/Remove action here stays session-only
+                   too until Edit Set's own real write layer is built as a
+                   separate, larger task. -->
+              <label>Status</label>
+              <select id="editSetStatus"></select>
+
+              <div id="editSetExitFieldsRow" style="display:none;">
+                <label>Sale / Removal Date</label>
+                <input type="date" id="editSetSaleDate">
+                <label>Buyer / Recipient</label>
+                <input type="text" id="editSetBuyer" autocomplete="off"
+                  placeholder="e.g. eBay buyer, family member — optional">
+                <label>Sale Price</label>
+                <div class="currency-input-row">
+                  <span class="currency-prefix">$</span>
+                  <input type="number" step="0.01" id="editSetSalePrice" placeholder="e.g. 45.00 — optional">
+                </div>
+                <label>Platform</label>
+                <input type="text" id="editSetPlatform" autocomplete="off"
+                  placeholder="e.g. eBay, in person — optional">
               </div>
 
               <!-- Read-only computed linkage chips, same as detail. -->
@@ -3640,6 +3704,14 @@
                 Optional. Recording where a value came from and when keeps an
                 estimate honest later — an unattributed figure ages badly.
               </p>
+
+              <!-- Ownership status. A coin being logged is almost always
+                   Owned — no reveal of SaleDate/Buyer/SalePrice/Platform
+                   here, unlike Edit Coin/Edit Set: logging a coin that's
+                   already left the collection is rare enough that "add it,
+                   then immediately edit/sell it" is the accepted path. -->
+              <label>Status</label>
+              <select id="addCoinStatus"></select>
             </div>
           </div>
 
@@ -3959,6 +4031,23 @@
         <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
 
         <p class="placeholder-note">Cost and value figures reflect the live workbook once loaded; otherwise this shows placeholder demo data.</p>
+
+        <!-- Find a still-Owned coin to act on (Sell/Remove lives on the
+             coin's own Edit page — see CLAUDE.md; this is purely a way to
+             locate it). A plain flat search, not Catalog's full filter-chip
+             parity — this is a means to one coin, not a browsing surface. -->
+        <div class="section-label">Find a Coin</div>
+        <input type="search" id="ledgerSearchInput" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:10px;"
+          placeholder="Search Owned coins by ID, year, or name…" aria-label="Search Owned coins">
+        <div id="ledgerSearchResults"></div>
+
+        <!-- Exit history — every coin/Set carrying one of the four exit
+             statuses, one combined list with a Status badge per row (not
+             split by reason — can be split later if it turns out to
+             matter). -->
+        <div class="section-label">Exit History</div>
+        <div id="ledgerExitHistoryList"></div>
+        <p class="placeholder-note hidden" id="ledgerExitHistoryEmpty">No coins marked Sold, Gifted, Returned, or Spent yet.</p>
       </section>
 
       <!-- ============ ADD SET — Step 1 (set-level basics) ============ -->
@@ -5089,7 +5178,22 @@
       // moves through the Excel-serial path.
       valueSource: String(colVal(row, "ValueSource")),
       valueDate: colVal(row, "ValueDate") === ""
-        ? "" : excelSerialToISODate(Number(colVal(row, "ValueDate")))
+        ? "" : excelSerialToISODate(Number(colVal(row, "ValueDate"))),
+      // Ownership status. Blank means Owned (Lookup_Statuses' own
+      // description says so) — read back verbatim either way, never
+      // coerced to the literal string here; the Status <select>'s own
+      // display logic is what shows "Owned" for a blank cell (see
+      // statusSelectDisplayValue()). A real, pre-existing "At PCGS" value
+      // (4 rows today) comes through unchanged too — this mapper never
+      // filters or judges the value, it only reads it.
+      status: String(colVal(row, "Status")),
+      // The four columns behind an exit status, reused generically across
+      // Sold/Gifted/Returned/Spent rather than as Sold-only fields.
+      saleDate: colVal(row, "SaleDate") === ""
+        ? "" : excelSerialToISODate(Number(colVal(row, "SaleDate"))),
+      salePrice: colVal(row, "SalePrice") === "" ? null : Number(colVal(row, "SalePrice")),
+      buyer: String(colVal(row, "Buyer")),
+      platform: String(colVal(row, "Platform"))
     };
   }
 
@@ -5923,7 +6027,18 @@
     "Category", "Finish", "Error",
     "Value", "ValueSource", "ValueDate", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
-    "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified"
+    "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified",
+    // Ownership status + the four columns behind an exit status (Sold/
+    // Gifted/Returned/Spent), reused generically across all four rather
+    // than as Sold-only fields — see EXIT_STATUSES and
+    // applyStatusDependentVisibility(). "At PCGS" is a real, pre-existing
+    // Lookup_Statuses value on 4 real rows today, but is deliberately NOT
+    // one this layer ever writes — no picker offers it, and it's excluded
+    // from STATUS_OPTIONS on purpose so an edit can never move a row onto
+    // or off of it. An existing "At PCGS" row is displayed as-is (see
+    // setSelectValuePreservingUnknown() at the Status select) and left
+    // alone unless a human explicitly picks one of the five real options.
+    "Status", "SaleDate", "SalePrice", "Buyer", "Platform"
   ];
 
   // Never written, under any circumstance. Total and SpotValue are LIVE
@@ -5950,6 +6065,44 @@
   // caller today, but Edit Set will call detectIdentityOverwrites() with
   // its own narrower field list when its write layer is scoped.
   const IDENTITY_COLUMNS = ["Year", "MintMark", "Denomination", "Variety", "Description"];
+
+  // Ownership status vocabulary. Confirmed directly against the real
+  // Lookup_Statuses sheet: it also lists "At PCGS" (still on 4 real rows
+  // today) and, historically, "Retained" — neither is here, and that's
+  // deliberate, not an oversight. "Retained" is being removed from
+  // Lookup_Statuses entirely; "At PCGS" is being retired from Status in
+  // favor of a still-undecided storage-related field (a separate, explicitly
+  // out-of-scope task) — existing "At PCGS" rows are left untouched, but no
+  // picker in this app ever offers it going forward. STATUS_OPTIONS is every
+  // value a human can pick; EXIT_STATUSES is the subset that means the coin
+  // has left the collection (drives the reveal of SaleDate/Buyer/SalePrice/
+  // Platform — see applyStatusDependentVisibility()).
+  const EXIT_STATUSES = ["Sold", "Gifted", "Returned", "Spent"];
+  const STATUS_OPTIONS = ["Owned"].concat(EXIT_STATUSES);
+  function isExitStatus(status) { return EXIT_STATUSES.indexOf(status) !== -1; }
+
+  // One populate function for all three Status selects (Add Coin, Edit
+  // Coin, Edit Set) — same "one function, not hand-duplicated per form"
+  // rule DENOM_CODE_INFO's own populate function follows.
+  function populateStatusSelect(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    STATUS_OPTIONS.forEach(s => selectEl.appendChild(new Option(s, s)));
+  }
+
+  // A blank cell means Owned (Lookup_Statuses' own description says so
+  // outright: "Currently in collection (default when blank)") — this is
+  // display-only, so the select SHOWS "Owned" for a blank row without ever
+  // implying the literal word is what's actually on the sheet. A real,
+  // already-written value (including "At PCGS", or a future value this
+  // list doesn't know about) passes through unchanged; setSelectValuePreservingUnknown()
+  // is what makes an unlisted value like "At PCGS" display correctly
+  // instead of silently falling back to no selection (the exact MintMark
+  // "P" bug class this project has hit before).
+  function statusSelectDisplayValue(raw) {
+    const v = raw == null ? "" : String(raw);
+    return v === "" ? "Owned" : v;
+  }
 
   // Columns saveCoinRowToWorkbook() writes unconditionally on EVERY
   // successful save, regardless of what the user actually edited (see its
@@ -6211,10 +6364,10 @@
 
     const edits = [];
     let run = null;
-    // ValueDate joins the date columns as of this round — it is a real date
-    // column and must carry the same explicit date-only format, or it renders
-    // as a bare serial number.
-    const isDateCol = n => n === "PurchaseDate" || n === "LastModified" || n === "ValueDate";
+    // ValueDate/SaleDate join the date columns as of their own rounds — each
+    // is a real date column and must carry the same explicit date-only
+    // format, or it renders as a bare serial number.
+    const isDateCol = n => n === "PurchaseDate" || n === "LastModified" || n === "ValueDate" || n === "SaleDate";
     cells.forEach(cell => {
       // A date cell needs its own numberFormat, so it never merges into a
       // run with non-date neighbours (a range PATCH applies one format to
@@ -6876,7 +7029,12 @@
     Cost: "browseEditCost", Shipping: "browseEditShippingCost",
     Seller_Link: "browseEditVendor", PurchaseDate: "browseEditPurchaseDate",
     StorageLocation: "browseEditStorageLocation", Container: "browseEditContainer",
-    Remarks: "browseEditNotes"
+    Remarks: "browseEditNotes",
+    // Status itself has no dedicated conflictFieldIsUserEdited() branch (it
+    // doesn't need the CACBean/Grade-style dual-id OR — one select, one
+    // id) — this entry alone is enough for the map lookup to find it.
+    Status: "browseEditStatus", SaleDate: "browseEditSaleDate",
+    SalePrice: "browseEditSalePrice", Buyer: "browseEditBuyer", Platform: "browseEditPlatform"
   };
   function conflictFieldIsUserEdited(field) {
     const id = CONFLICT_FIELD_TO_INPUT[field];
@@ -7289,6 +7447,14 @@
       // silently assumed — same standing note Category and Finish already
       // carry here.
       cacBean: form.cacBean || "",
+      // All.Status — "allStatus", not "status", so it can never collide
+      // with this object's OWN status field a few lines up (the draft's
+      // workflow state: Draft/Ready/Promoted/...). Already on
+      // ALL_WRITABLE_COLUMNS, so unlike category/cacBean above this carries
+      // no pending-decision caveat: coinDraftToAllValues() maps it and a
+      // promote writes it for real (blank when the picker shows the
+      // "Owned" default — see coinDraftToAllValues()'s own comment).
+      allStatus: form.allStatus || "",
       // --- value + provenance. All three are already on
       // ALL_WRITABLE_COLUMNS, so unlike category/cacBean above these carry
       // no pending-decision caveat: coinDraftToAllValues() maps them and a
@@ -7444,7 +7610,16 @@
       Seller_Link: draft.vendor || "",
       // Free text, and "" is a real writable value (no attribution recorded)
       // — same rule as every other string column above.
-      ValueSource: draft.valueSource || ""
+      ValueSource: draft.valueSource || "",
+      // Blank cell already means Owned (Lookup_Statuses' own description
+      // says so), and 1518 of 1543 real rows are blank today — so a coin
+      // added as Owned (the near-universal case) writes blank here too,
+      // matching that convention, rather than adding another literal
+      // "Owned" string. Only a genuine exit-status pick (the rare "logging
+      // a coin that's already left the collection" case — no reveal exists
+      // in Add Coin for the four exit-detail fields; see CLAUDE.md) writes
+      // one of the four literal exit strings.
+      Status: (draft.allStatus && draft.allStatus !== "Owned") ? draft.allStatus : ""
     };
     // Numeric/date fields only when actually captured — writing 0 or a
     // bogus serial for "not recorded" would be worse than leaving blank,
@@ -7926,9 +8101,14 @@
     { id: "AY-00002", name: "Walking Liberty Half",       denom: "50C", year: 1943, mint: "",   grade: "AU-58",  value: 90,   cost: 65,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     { id: "AY-00003", name: "Mercury Dime",               denom: "10C", year: 1916, mint: "D",  grade: "VG-8",   value: 1400, cost: 950,  category: "",              rollId: "", gradeSource: "PCGS", serNo: "34567890", certLink: "https://www.pcgs.com/cert/34567890", designation: "",    cacBean: "Green", storageLocation: "Safe", container: "",    variety: "", hasObversePhoto: true, hasReversePhoto: true, error: "Off-Center Strike, approx. 5%" },
     { id: "AY-00004", name: "Lincoln Wheat Cent",         denom: "1C",  year: 1909, mint: "S",  grade: "F-12",   value: 650,  cost: 500,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "", hasObversePhoto: true, hasReversePhoto: false },
-    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    // Sparse Status/exit-field demo data — same convention as every other
+    // sparse FAKE_COINS field (cacBean, hasObversePhoto, ...): a couple of
+    // existing rows carry it, the rest stay blank/Owned. AY-00005 exercises
+    // a real Sold exit; AY-00007 (below) exercises Gifted's own $0
+    // SalePrice convention.
+    { id: "AY-00005", name: "Indian Head Cent",           denom: "1C",  year: 1877, mint: "",   grade: "VF-20",  value: 720,  cost: 800,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "", status: "Sold", saleDate: "2026-03-14", buyer: "GreatCollections auction", salePrice: 690, platform: "GreatCollections" },
     { id: "AY-00006", name: "Barber Quarter",             denom: "25C", year: 1901, mint: "S",  grade: "G-4",    value: 3200, cost: 2400, category: "",              rollId: "", gradeSource: "NGC",  serNo: "12309876", certLink: "https://www.ngccoin.com/certlookup/12309876", designation: "",    storageLocation: "Safe", container: "",    variety: "" },
-    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
+    { id: "AY-00007", name: "Peace Dollar",               denom: "$1",  year: 1928, mint: "",   grade: "XF-40",  value: 480,  cost: 350,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "", status: "Gifted", saleDate: "2026-05-01", buyer: "Nephew", salePrice: 0 },
     { id: "AY-00008", name: "Buffalo Nickel",             denom: "5C",  year: 1937, mint: "D",  grade: "MS-62",  value: 55,   cost: 60,   category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "", container: "",        variety: "" },
     { id: "AY-00009", name: "Standing Liberty Quarter",   denom: "25C", year: 1918, mint: "D",  grade: "VF-25",  value: 210,  cost: 175,  category: "",              rollId: "", gradeSource: "",     serNo: "",         designation: "",    storageLocation: "Album A", container: "", variety: "" },
     { id: "AY-00010", name: "Franklin Half Dollar",       denom: "50C", year: 1955, mint: "",   grade: "PR-65",  value: 130,  cost: 95,   category: "",              rollId: "", gradeSource: "PCGS", serNo: "45678901", designation: "CAM", storageLocation: "Box 2", container: "2x2 flip box", variety: "" },
@@ -10351,12 +10531,17 @@
   // denomination, mint mark, variety, and grade — the fields a person is
   // most likely to type. Empty query matches everything.
   let browseSearchQuery = "";
-  function browseSearchTest(coin) {
-    const q = browseSearchQuery.trim().toLowerCase();
+  // Extracted so Ledger's own coin search (which has no shared query state
+  // with Catalog's search box) can reuse the exact same matching logic
+  // rather than a hand-duplicated copy — same "one function, not two" rule
+  // this file follows everywhere else.
+  function coinMatchesSearchQuery(coin, query) {
+    const q = (query || "").trim().toLowerCase();
     if (!q) return true;
     return [coin.id, coin.name, coin.year, coin.denom, coin.mint, coin.variety, coin.grade]
       .some(v => v != null && String(v).toLowerCase().includes(q));
   }
+  function browseSearchTest(coin) { return coinMatchesSearchQuery(coin, browseSearchQuery); }
 
   // "Showing X of Y" line above the grid. Hidden entirely on the Sets tab
   // (its checklist/list split makes a single owned-count misleading).
@@ -12432,6 +12617,23 @@
     // rule as every other row in this section.
     const valueProv = [coin.valueSource, coin.valueDate].filter(Boolean).join(" · ");
     if (valueProv) overviewRows.push(["Value source", valueProv]);
+    // Ownership status + exit details — applies to both a coin and a Set
+    // (a bundle can be sold/gifted/etc. same as any other owned row), so
+    // this sits outside the isSet branch, same as Cert/Value above.
+    // Omitted for a blank/Owned row (the vastly common case), same "hide
+    // when it's not an interesting fact" rule every other row here follows
+    // — a real, pre-existing "At PCGS" value (not an exit status) is
+    // likewise not shown here, since this section is specifically about the
+    // Sold/Gifted/Returned/Spent exit story, not every possible Status.
+    if (isExitStatus(coin.status)) {
+      overviewRows.push(["Status", coin.status]);
+      if (coin.saleDate) overviewRows.push(["Sale / Removal Date", coin.saleDate]);
+      if (coin.buyer) overviewRows.push(["Buyer / Recipient", coin.buyer]);
+      // != null, not truthy — Gifted's own convention is a real, meaningful
+      // $0, not "no price recorded".
+      if (coin.salePrice != null) overviewRows.push(["Sale Price", "$" + coin.salePrice.toLocaleString()]);
+      if (coin.platform) overviewRows.push(["Platform", coin.platform]);
+    }
 
     // Linkage chips are appended as real DOM (they carry click handlers), so
     // Overview always renders when there are chips even if every row above
@@ -12932,6 +13134,19 @@
     set("browseEditValueDate", values.ValueDate == null || values.ValueDate === ""
       ? "" : excelSerialToISODate(values.ValueDate));
 
+    // Status + exit details — same skip-if-touched rule as every other
+    // field here. The visibility toggle re-runs afterward regardless of
+    // whether Status itself was just re-based, so a late snapshot landing
+    // on an unrelated field (e.g. Notes) still shows/hides the exit block
+    // correctly for whatever Status is currently on screen.
+    setSel("browseEditStatus", statusSelectDisplayValue(values.Status));
+    set("browseEditSaleDate", values.SaleDate == null || values.SaleDate === ""
+      ? "" : excelSerialToISODate(values.SaleDate));
+    set("browseEditBuyer", values.Buyer);
+    set("browseEditSalePrice", values.SalePrice);
+    set("browseEditPlatform", values.Platform);
+    applyStatusDependentVisibility("browseEditExitFieldsRow", document.getElementById("browseEditStatus").value);
+
     set("browseEditCost", values.Cost);
     set("browseEditShippingCost", values.Shipping);
     set("browseEditVendor", values.Seller_Link);
@@ -13006,6 +13221,12 @@
     assign("valueSource", str(values.ValueSource));
     assign("valueDate", values.ValueDate == null || values.ValueDate === ""
       ? "" : excelSerialToISODate(values.ValueDate));
+    assign("status", str(values.Status));
+    assign("saleDate", values.SaleDate == null || values.SaleDate === ""
+      ? "" : excelSerialToISODate(values.SaleDate));
+    assign("salePrice", num(values.SalePrice));
+    assign("buyer", str(values.Buyer));
+    assign("platform", str(values.Platform));
     if ("CoinID" in values) assign("coinId", str(values.CoinID));
     if ("Finish" in values) assign("finish", str(values.Finish));
   }
@@ -13074,6 +13295,16 @@
     document.getElementById("browseEditValue").value = roundToCents(coin.value);
     document.getElementById("browseEditValueSource").value = coin.valueSource || "";
     document.getElementById("browseEditValueDate").value = coin.valueDate || "";
+
+    // Status + exit details. setSelectValuePreservingUnknown() is what lets
+    // a real "At PCGS" row (or any other future unlisted value) display
+    // correctly instead of silently falling back to no selection.
+    setSelectValuePreservingUnknown(document.getElementById("browseEditStatus"), statusSelectDisplayValue(coin.status));
+    document.getElementById("browseEditSaleDate").value = coin.saleDate || "";
+    document.getElementById("browseEditBuyer").value = coin.buyer || "";
+    document.getElementById("browseEditSalePrice").value = coin.salePrice != null ? coin.salePrice : "";
+    document.getElementById("browseEditPlatform").value = coin.platform || "";
+    applyStatusDependentVisibility("browseEditExitFieldsRow", coin.status);
 
     const certInput = document.getElementById("browseEditCertTypeNumber");
     certInput.value = coin.serNo || "";
@@ -13236,6 +13467,12 @@
     document.getElementById("editSetDescription").value = coin.name || "";
     // Rounded — see roundToCents()'s own comment (browseEditValue's site).
     document.getElementById("editSetValue").value = roundToCents(coin.value);
+    setSelectValuePreservingUnknown(document.getElementById("editSetStatus"), statusSelectDisplayValue(coin.status));
+    document.getElementById("editSetSaleDate").value = coin.saleDate || "";
+    document.getElementById("editSetBuyer").value = coin.buyer || "";
+    document.getElementById("editSetSalePrice").value = coin.salePrice != null ? coin.salePrice : "";
+    document.getElementById("editSetPlatform").value = coin.platform || "";
+    applyStatusDependentVisibility("editSetExitFieldsRow", coin.status);
     fillEditLinkage("editSetLinkageWrap", "editSetLinkageChips", coin);
 
     // --- Photos. The Manage-Photos list's OWN "Coins in this Set" row is
@@ -13401,6 +13638,20 @@
 
     wireMutuallyExclusiveCheckboxes("browseEditCacGreen", "browseEditCacGold");
 
+    populateStatusSelect(document.getElementById("browseEditStatus"));
+    document.getElementById("browseEditStatus").addEventListener("change", (e) => {
+      applyStatusDependentVisibility("browseEditExitFieldsRow", e.target.value);
+      // Gifted defaults Sale Price to 0 (a token payment can still be
+      // recorded) — only when the field is genuinely blank, so switching
+      // to Gifted never clobbers a price the user already typed, and
+      // switching AWAY from Gifted never touches whatever's there either
+      // (exit fields are never auto-cleared — see this row's own comment).
+      const priceEl = document.getElementById("browseEditSalePrice");
+      if (e.target.value === "Gifted" && priceEl.value.trim() === "") {
+        priceEl.value = "0";
+      }
+    });
+
     // "— none (Other) —" is a one-shot trigger, never a stored value:
     // normalize it back to "" BEFORE anything else can read the field, then
     // run the lookup. Bound directly to the select rather than added to the
@@ -13549,7 +13800,33 @@
       Seller_Link: val("browseEditVendor").trim(),
       PurchaseDate: excelSerialFromISODate(val("browseEditPurchaseDate")),
       Container: container,
-      Remarks: val("browseEditNotes").trim()
+      Remarks: val("browseEditNotes").trim(),
+      // Status is deliberately included ONLY when the user has genuinely
+      // interacted with the select this session (browseEditTouchedFields,
+      // the same delegated touch-tracking every other field on this form
+      // already uses). The select DISPLAYS "Owned" for a blank cell (see
+      // statusSelectDisplayValue()), and if that display value were always
+      // included here, an untouched blank row would get the literal string
+      // "Owned" written the next time ANY unrelated field on this form is
+      // saved — silently touching hundreds of rows over time even though
+      // blank already means Owned. Omitting it when untouched (undefined,
+      // stripped by the cleanup loop below, same as a blanked number field)
+      // means a blank cell stays blank until a human actually changes it —
+      // and an explicit pick, including picking "Owned" back, IS a real
+      // write (matching how CACBean's own "" — both boxes unchecked — is a
+      // real, deliberate write, not an omission).
+      Status: browseEditTouchedFields.has("browseEditStatus") ? val("browseEditStatus") : undefined,
+      // The four exit-detail fields are always read, exactly like Cost/
+      // Shipping/Vendor/PurchaseDate above — never gated on Status or on
+      // whether the reveal block happens to be visible. This is what makes
+      // "switch back to Owned without auto-clearing" work for free: if the
+      // user doesn't touch these inputs, they still hold whatever was
+      // already on the row, so a save that touches something else entirely
+      // simply writes the same value back (no diff, no change).
+      SaleDate: excelSerialFromISODate(val("browseEditSaleDate")),
+      Buyer: val("browseEditBuyer").trim(),
+      SalePrice: numOrUndefined(val("browseEditSalePrice")),
+      Platform: val("browseEditPlatform").trim()
     };
     if (!storageDerived) workbook.StorageLocation = val("browseEditStorageLocation").trim();
     // A blanked number field means "leave it alone" (numOrUndefined), not
@@ -13573,7 +13850,15 @@
           value: numOrUndefined(val("browseEditValue")),
           cost: numOrUndefined(val("browseEditCost")),
           storageLocation: storageDerived ? undefined : val("browseEditStorageLocation").trim(),
-          container
+          container,
+          // Same touched-gate as workbook.Status above, applied to the
+          // session-only path too so the two behave identically regardless
+          // of which gate the session happens to be on.
+          status: browseEditTouchedFields.has("browseEditStatus") ? val("browseEditStatus") : undefined,
+          saleDate: val("browseEditSaleDate"),
+          buyer: val("browseEditBuyer").trim(),
+          salePrice: numOrUndefined(val("browseEditSalePrice")),
+          platform: val("browseEditPlatform").trim()
         },
         details: {
           shippingCost: numOrUndefined(val("browseEditShippingCost")),
@@ -13774,6 +14059,15 @@
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
 
+    populateStatusSelect(document.getElementById("editSetStatus"));
+    document.getElementById("editSetStatus").addEventListener("change", (e) => {
+      applyStatusDependentVisibility("editSetExitFieldsRow", e.target.value);
+      const priceEl = document.getElementById("editSetSalePrice");
+      if (e.target.value === "Gifted" && priceEl.value.trim() === "") {
+        priceEl.value = "0";
+      }
+    });
+
     wireStaticAccordionToggle("editSetOverviewHeader", "editSetOverviewBody");
     wireStaticAccordionToggle("editSetPhotosHeader", "editSetPhotosBody");
     wireStaticAccordionToggle("editSetChildrenHeader", "editSetChildrenBody");
@@ -13823,7 +14117,18 @@
           value: numOrUndefined(document.getElementById("editSetValue").value),
           cost: numOrUndefined(document.getElementById("editSetCost").value),
           storageLocation: document.getElementById("editSetStorageLocation").value.trim(),
-          container: document.getElementById("editSetContainer").value.trim()
+          container: document.getElementById("editSetContainer").value.trim(),
+          // Session-only, same as every other field on this form — no
+          // touched-gate needed the way Edit Coin's real write path needs
+          // one, since this always overwrites the in-memory record
+          // wholesale on every Save regardless of what changed, with no
+          // live workbook to accidentally stamp. Exit fields are never
+          // auto-cleared on a Status change, same rule as Edit Coin.
+          status: document.getElementById("editSetStatus").value,
+          saleDate: document.getElementById("editSetSaleDate").value,
+          buyer: document.getElementById("editSetBuyer").value.trim(),
+          salePrice: numOrUndefined(document.getElementById("editSetSalePrice").value),
+          platform: document.getElementById("editSetPlatform").value.trim()
         },
         details: {
           shippingCost: numOrUndefined(document.getElementById("editSetShippingCost").value),
@@ -16613,6 +16918,90 @@
       `;
       breakdown.appendChild(row);
     });
+
+    renderLedgerCoinSearch();
+    renderLedgerExitHistory(all);
+  }
+
+  // "Find a still-Owned coin to act on" (Sell/Remove lives on the coin's
+  // own Edit page, not here — this is purely a way to locate it). Reuses
+  // Catalog's own search predicate (coinMatchesSearchQuery) rather than a
+  // hand-duplicated copy. Deliberately a plain flat list, no filter chips —
+  // this is a means to one coin, not a primary browsing surface (Ray's
+  // explicit scoping). Includes Sets and Rolls, not just plain coins —
+  // Sell/Remove applies to all three record kinds.
+  function renderLedgerCoinSearch() {
+    const input = document.getElementById("ledgerSearchInput");
+    const container = document.getElementById("ledgerSearchResults");
+    if (!input || !container) return;
+    container.innerHTML = "";
+    const query = input.value.trim();
+    if (!query) return; // nothing typed yet — don't dump every Owned row unasked
+    const matches = activeCoins().filter(c => !isExitStatus(c.status) && coinMatchesSearchQuery(c, query));
+    if (!matches.length) {
+      container.innerHTML = '<p class="placeholder-note">No matching Owned coins.</p>';
+      return;
+    }
+    // Capped so a broad query (e.g. a bare year) can't dump hundreds of
+    // rows into a page that's meant to help find ONE coin quickly.
+    matches.slice(0, 25).forEach(coin => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      row.style.cursor = "pointer";
+      row.innerHTML = `
+        <div>
+          <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
+          <div class="wish-notes">${escapeHtmlText(yearMintText(coin))}${coin.denom ? " · " + escapeHtmlText(coin.denom) : ""}</div>
+        </div>
+        <div class="wish-price">${coin.value ? "$" + coin.value.toLocaleString() : ""}</div>
+      `;
+      row.addEventListener("click", () => openLedgerCoin(coin));
+      container.appendChild(row);
+    });
+  }
+
+  // Exit history — every coin/Set/Roll carrying one of the four exit
+  // statuses, one combined list with a Status badge per row (Ray's
+  // explicit call — not split by reason; can be split later if it turns
+  // out to matter). Reads whatever renderStats() already fetched, so this
+  // never triggers a second live-data read.
+  function renderLedgerExitHistory(all) {
+    const container = document.getElementById("ledgerExitHistoryList");
+    const empty = document.getElementById("ledgerExitHistoryEmpty");
+    if (!container || !empty) return;
+    container.innerHTML = "";
+    const exited = all.filter(c => isExitStatus(c.status));
+    empty.classList.toggle("hidden", exited.length > 0);
+    exited.forEach(coin => {
+      const row = document.createElement("div");
+      row.className = "case wish-item";
+      row.style.cursor = "pointer";
+      const detailParts = [];
+      if (coin.saleDate) detailParts.push(coin.saleDate);
+      if (coin.buyer) detailParts.push(coin.buyer);
+      if (coin.platform) detailParts.push(coin.platform);
+      row.innerHTML = `
+        <div>
+          <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
+          <div class="wish-notes">${escapeHtmlText(coin.status)}${detailParts.length ? " · " + escapeHtmlText(detailParts.join(" · ")) : ""}</div>
+        </div>
+        <div class="wish-price">${coin.salePrice != null ? "$" + coin.salePrice.toLocaleString() : ""}</div>
+      `;
+      row.addEventListener("click", () => openLedgerCoin(coin));
+      container.appendChild(row);
+    });
+  }
+
+  // Shared by both Ledger lists — opens the coin's own Browse detail view
+  // (where the real Edit/Sell-Remove action lives), same "click a row →
+  // detail view, Edit is a button there" convention every other coin-list
+  // row in this app already follows. Back returns to Ledger, not Browse's
+  // own grid — same per-origin browseDetailBackHandler pattern Spotlight's
+  // click-through and Albums' filled-slot tap already use.
+  function openLedgerCoin(coin) {
+    browseDetailBackHandler = () => navigate("stats");
+    navigate("browse");
+    showBrowseDetail(coin);
   }
 
   // A phone camera photo's pixel data is often stored sensor-native (e.g.
@@ -19093,6 +19482,22 @@
     document.getElementById("cacBeanRow").style.display = grader ? "block" : "none";
   }
 
+  // Reveals the four exit-detail fields (SaleDate/Buyer/SalePrice/Platform)
+  // inline below the Status select, same pattern as
+  // applyGraderDependentVisibility()'s PCGS Label reveal — one wrapper id,
+  // shown only for the four EXIT_STATUSES, hidden for Owned/blank/"At
+  // PCGS". Purely visual: hiding the block never clears the fields inside
+  // it (Ray's explicit call — a coin reverted from Sold back to Owned
+  // keeps its sale history rather than silently losing it), and the four
+  // fields are always part of the form's read/write regardless of whether
+  // this block happens to be visible, exactly like Purchase Details' own
+  // Cost/Shipping/Vendor/PurchaseDate are never gated on that accordion
+  // being open.
+  function applyStatusDependentVisibility(wrapId, status) {
+    const wrap = document.getElementById(wrapId);
+    if (wrap) wrap.style.display = isExitStatus(status) ? "block" : "none";
+  }
+
   function resolvePcgsLabelMatch(row, parsed) {
     applyDbCoinsRowToForm(row);
 
@@ -19651,6 +20056,11 @@
       value: num("addCoinValue"),
       valueSource: document.getElementById("addCoinValueSource").value.trim(),
       valueDate: document.getElementById("addCoinValueDate").value,
+      // Named allStatus (not "status") to avoid any confusion with this
+      // draft's own workflow status (COIN_DRAFT_STATUS.DRAFT/READY/
+      // PROMOTED/...) — a completely different concept living on the same
+      // object. This is All.Status (Owned/Sold/Gifted/Returned/Spent).
+      allStatus: document.getElementById("addCoinStatus").value,
       cost: num("purchasePrice"),
       shippingCost: num("shippingCost"),
       purchaseDate: document.getElementById("purchaseDate").value,
@@ -20080,6 +20490,9 @@
     document.getElementById("addCoinValueSource").value = "";
     document.getElementById("addCoinValueDate").value = "";
 
+    // --- Status — a coin being logged is almost always Owned.
+    document.getElementById("addCoinStatus").value = "Owned";
+
     // --- Purchase / Storage
     document.getElementById("purchasePrice").value = "";
     document.getElementById("shippingCost").value = "";
@@ -20244,6 +20657,11 @@
     document.getElementById("addCoinValue").value = draft.value != null ? draft.value : "";
     document.getElementById("addCoinValueSource").value = draft.valueSource || "";
     document.getElementById("addCoinValueDate").value = draft.valueDate || "";
+    // draft.allStatus, not draft.status (this draft's OWN workflow status —
+    // a different field). A legacy draft written before this field existed
+    // has no allStatus at all, so it correctly restores to the Owned
+    // default rather than a blank/unselected dropdown.
+    setSelectValuePreservingUnknown(document.getElementById("addCoinStatus"), draft.allStatus || "Owned");
 
     // --- Purchase / storage
     document.getElementById("purchasePrice").value = draft.cost != null ? draft.cost : "";
@@ -20372,6 +20790,8 @@
     // widget (its role is now the gallery's "Other" type).
     initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin");
     refreshVarietyOptions();
+    populateStatusSelect(document.getElementById("addCoinStatus"));
+    document.getElementById("addCoinStatus").value = "Owned"; // default for a freshly-loaded page, before the first resetAddCoinForm() call
 
     // Accordion sections, wired once — static markup, like Edit Coin's.
     // Replaces the six listeners the two drill-down subviews needed
@@ -21971,6 +22391,7 @@
   // Staging at init. Flag-gated, so a disabled build makes no Graph call.
   if (addCoinWriteEnabled()) refreshCoinDraftCache();
   updateInProgressSetsBadge();
+  document.getElementById("ledgerSearchInput").addEventListener("input", renderLedgerCoinSearch);
   renderStats();
   navigate("dashboard");
   initSplash();
