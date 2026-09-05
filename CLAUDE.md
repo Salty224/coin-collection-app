@@ -4,6 +4,57 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## Current status (2026-09-05) — read this first
+
+**Add Coin Phase 2 is COMPLETE and merged to main.** The branch
+`claude/add-coin-write-path-fs2rf8` was merged on Ray's explicit go-ahead
+after its final full-suite run (977 assertions, 23 suites, zero failures,
+zero page errors). Every section below that used to read "BUILT, same
+branch, still held" now reads "BUILT and merged to main" — **main is the
+source of truth for all of it**, and the branch name survives in those
+headers only as a historical pointer to where the work originated, not as a
+place future work should land.
+
+What that merge covers, end to end:
+- **Add Coin Phase 1** — real Staging `coin.json` drafts with photos, the
+  unified CollectionID reservation, the ambiguous-picker fix, and the many
+  live-run bug-fix batches on top of it.
+- **Add Coin Phase 2** — the real direct-write path into the `All` sheet:
+  `createAllSheetRow()` (claim an existing blank row, append only as a
+  fallback), `writeNewRowKeyCells()`, Promote / Force Add / Dismiss, the
+  promotion photo move, and the duplicate-row race fix.
+- **Editing a coin in Staging (Phase A)**, the Docket's three collapsible
+  sections and Research row tags, the Composition matcher tier and
+  flip-card corner, CACBean, ValueSource/ValueDate, the workbook-alignment
+  corrections, the Ledger/Stats live-data fix, and the whole corner-fitting
+  chain (`renderFittedCornerLines()` and the Catalog grid's own TL/BL).
+
+**NOTHING IS TURNED ON. This merge changed no runtime behaviour on the live
+site.** Confirmed at merge time and unchanged by it:
+- `WRITE_TARGET = "copy"` — every write still resolves under
+  `CoinCollection/_Testing/`. The real workbook is untouchable by this code
+  as it ships.
+- All six `ENABLE_*` flags default `false`: `ENABLE_REFERENCE_IMAGES`,
+  `ENABLE_LIVE_NAV_DATA`, `ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
+  `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`. With them off there is no
+  write-capable MSAL instance on the page at all.
+- Each of those is a `devFlagOverride(...)` reading `window.__DEV_FLAGS__`
+  from the gitignored `dev-flags.local.js`, so a local dev session can
+  enable one without that ever reaching the repo.
+
+**Flipping `WRITE_TARGET` to `"live"`, or any flag to `true`, is a separate
+and deliberate decision of Ray's — it was explicitly NOT part of this
+merge.** A production redirect URI for `app.html` still does not exist in
+Entra (only `http://localhost:8791/app.html`), so the write features remain
+localhost-dev-only regardless.
+
+Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
+987 rows past its real data (left as-is by Ray's call — see "The AllCoins
+table is 987 rows longer than its data"); the Graph read-after-write
+consistency gap has been seen twice and option 3 (a real workbook session)
+stays in reserve for a third sighting; `All.Status` filtering is designed
+but deliberately unbuilt.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
@@ -35,6 +86,61 @@ Never use an interactive multiple-choice question tool/prompt on Ray. Always ask
 clarifying questions as plain, copy-pasteable text in the chat response instead —
 he discusses them with Claude (chat) separately and brings back answers to all of
 them at once, which an interactive per-question picker doesn't allow for.
+
+## Regression suites are COMMITTED (locked in — supersedes the scratchpad convention)
+`verify_*.js` suites live in **`tests/`, in the repo**, and are run with
+`npm test`. This **supersedes the long-standing "scripts live in per-session
+scratchpads" convention** referenced throughout this file — every earlier
+mention of that convention is history, not current practice.
+
+**Why it changed.** A suite that cannot be re-run is not a regression suite;
+it is a one-time acceptance check. It validates the session that wrote it and
+protects nothing afterward. The cost was real, repeated, and documented here
+several times over: the photo-gallery-crop branch could not re-run anything
+and substituted a nav smoke check; there is still a tracked item to *rebuild*
+a suite already written once (self-sized at 60–100 assertions,
+half-a-day-to-a-day); assertion counts climbing 653 → 685 → 748 were
+discarded wholesale at session boundaries. The Add Coin Phase 1 build hit it
+again — ~750 assertions of prior coverage unavailable — and still found three
+real bugs, with no way to know what the lost coverage would have caught in
+the same code.
+
+**This does not weaken the no-build/self-contained posture.** That rule is
+about the SHIPPED artifact: `app.html` must stand alone in a browser with no
+network dependencies. Test tooling is dev-time, never served, and
+`node_modules/` is gitignored. GitHub Pages ignores `tests/` and
+`package.json` entirely.
+
+**Honest scope: the value accrues to coding sessions, not to Ray.** His
+workflow is ZIP → Notepad → `python3 -m http.server`; he is not expected to
+run `npm test` and nothing asks him to.
+
+**Layout:**
+- `tests/harness.js` — browser resolution, page setup, the `ok()` assertion
+  helper, automatic page/console error collection, and `defineSuite()`.
+- `tests/verify_*.js` — one file per feature area. Auto-discovered; adding one
+  needs no registration step.
+- `tests/run-all.js` — `npm test`. Runs every suite, prints one total, exits
+  non-zero on any failure or uncaught page error (verified in both the
+  aggregated and standalone paths).
+
+**Two rules worth keeping:**
+- **Never hardcode a browser path in a suite.** Playwright's default
+  resolution cannot be relied on — the installed version pins a build number
+  that may not be what a sandbox pre-installed (verified: default launch
+  failed looking for build 1234 while `/opt/pw-browsers` held 1194). The
+  harness resolves it in one place: `CHROMIUM_PATH`, then the newest
+  `chromium-*` under `PLAYWRIGHT_BROWSERS_PATH`, then a system Chrome, then
+  Playwright's own default.
+- **A stale suite is worse than none** — it gets either spuriously failed and
+  ignored, or quietly weakened to pass. This project's existing discipline
+  (assertions "updated to follow a real design change, not weakened") is the
+  standard to hold.
+
+**Only the Add Coin Phase 1 suite is committed so far** (69 assertions).
+Retro-rebuilding the older suites remains the separate tracked item it
+already was — but it now has somewhere permanent to land, so it can be
+chipped at incrementally instead of needing one big rebuild.
 
 ## Hard constraints
 - Free tier only. No paid Azure resources, no third-party automation platforms.
@@ -357,6 +463,10 @@ CoinCollection/
   none of it functions until that exists.** Confirmed: every Save button in the
   app is currently a stub (Add Coin, Browse Edit, Wishlist, Batch Receipt all just
   toast "nothing saved yet") — no OneDrive writes happen anywhere in the app yet.
+  **Superseded:** Browse Edit now writes the workbook, and Add Coin's Phase 1
+  layer writes Staging drafts + photos. This crop-commit naming is still
+  unimplemented, but it is now Add Coin **Phase 2**'s to implement, not a
+  wholly unbuilt write layer's.
   When that write layer gets built, this naming/renaming/fallback logic is what
   it needs to implement — not a separate future feature on top of it.
 
@@ -676,6 +786,12 @@ together rather than mixed in at the top level.
   top level). Once filled in and closed, the row shows a one-line summary of
   what was entered (e.g. "$45.00 · eBay seller") instead of the raw fields, so
   the top level stays short.
+  **SUPERSEDED — Ray explicitly overturned this.** Both sections are inline
+  accordions now, like every other section on the form; the drill-down cards
+  and their one-line summary rows are gone, along with
+  `showAddCoinSubview()` and `updateFormRowSummaries()`. See "Add Coin:
+  accordion restructure" below. Add Set still uses the drill-down pattern —
+  it was deliberately NOT converted alongside Add Coin.
 - **Coin photo previews (Obverse/Reverse/Additional — not Receipt) render
   circular**, matching the Spotlight/Browse coin discs so they read as a coin
   rather than a square photo.
@@ -714,9 +830,11 @@ together rather than mixed in at the top level.
   and the crop is gone — this is true whether the adjustment happens during Add
   Coin or later via Browse Edit's "reopen adjuster." This isn't a gap specific
   to the crop tool — it's the same underlying gap as every other Save button in
-  the app (Add Coin, Browse Edit, Wishlist, Batch Receipt all currently just
-  toast "nothing saved yet"): no real OneDrive/Graph API write layer exists
-  anywhere yet. Once that write layer gets built, the crop-commit/original-
+  the app (Wishlist and Batch Receipt still just toast "nothing saved yet";
+  **superseded for Browse Edit and Add Coin**, which now have real write
+  layers — though Add Coin's Phase 1 stores captured photos in its Staging
+  draft rather than applying this crop-commit naming, which is Phase 2's
+  job). Once that write layer gets built, the crop-commit/original-
   preservation/display-fallback behavior is fully spec'd — see the crop
   commit / display rule under "OneDrive folder structure" above — not an open
   question anymore.
@@ -2183,7 +2301,21 @@ individual coin):
 "Back" from either edit form returns to the coin/Set's Detail view, not the
 grid.
 
-#### Multi-coin Set display (locked in)
+#### Multi-coin Set display (SUPERSEDED — kept for the data model, not the display)
+**The per-child mini-flip GRID this section describes no longer exists.**
+`renderSetChildFlips()` is gone from `app.html` (only a comment marking where
+it used to live remains), retired first by the "Detail/Edit accordion
+redesign" — which replaced it with the identity-only "Coins in this Set"
+accordion — and then further by "Reverse face gets real content; Sets lose
+the flip card entirely", after which a Set has no flip card at all, just a
+static photo. Read the layout/interaction parts below as history.
+
+**What is still current and load-bearing** is everything about the DATA
+model: the `originSetId` join, its deliberate separation from Issue-3's
+`setId`, `setChildrenFor()`, and children being nested-only in
+`FAKE_SET_CHILDREN` rather than added to `FAKE_COINS`. All of that survives
+unchanged and still feeds the "Coins in this Set" accordion.
+
 A Set-bundle row (`Denomination="Multiple"`) that has known component coins
 renders each child's own coin-flip instead of the single generic
 "Set / Multiple" flip. Built to fall back cleanly: a Set with no linked
@@ -3269,7 +3401,8 @@ adapts stage.html's proven `Files.ReadWrite` PUT pattern and adds
 `getFileBytes`/`getItemMeta`/`listChildren`/`deleteItem`/`readWorkbookColumn`.
 
 **Reservation module (`reserveNextCollectionId`, standalone/reusable per
-Part 1 — Add Coin migrates to it LATER, not this round, Q11):**
+Part 1 — Add Coin migrates to it LATER, not this round, Q11 — **superseded:
+that migration is done, see "Add Coin write layer — Phase 1" below**):**
 - Next parent ID = `max(All!CollectionID, open Staging draft parent IDs) + 1`,
   zero-padded `AY-#####`. The All read is the one unavoidable live-workbook
   touch and is **read-only** (Graph workbook `usedRange`, Q2=a); a counter
@@ -4020,10 +4153,18 @@ pulled from the workbook.
 App CAN write directly to: Grade, GradeSource, SerNo, Designation, Storage Location,
 Container, and can attach additional photos/receipts to an existing coin at any time.
 **Widened by the Browse Edit write layer below** — the real allow-list is now
-that list plus Year, MintMark, Denomination, Variety, Description, Value,
-Cost, Shipping, Seller_Link, PurchaseDate, Remarks, Reviewed and
-LastModified; see `ALL_WRITABLE_COLUMNS` for the authoritative version. The
-"no research or judgment" boundary below is unchanged.
+that list plus Year, MintMark, Denomination, Variety, Description, Category,
+Finish, Error, Value, Cost, Shipping, Seller_Link, PurchaseDate, CACBean,
+Remarks, Reviewed and LastModified; see `ALL_WRITABLE_COLUMNS` for the
+authoritative version. The "no research or judgment" boundary below is
+unchanged.
+**Being on that list is NOT the same as being editable in Browse Edit** —
+worth knowing before assuming a field has a UI. `CACBean` genuinely is
+editable (a real checkbox pair). **`Category`, `Finish` and `Error` are
+not**: `readBrowseEditForm()` never collects any of the three from a form
+input. They are allow-listed so that a value arriving by another route —
+Add Coin's own Phase 2 promotion write — isn't silently dropped. Adding a
+real Browse Edit input for any of them is separate, undone work.
 **One narrow exception on top of the allow-list**: CoinID is re-derived and
 written automatically — never by hand, never through the general allow-list
 mechanism — whenever an edit actually changes Year/MintMark/Denomination/
@@ -4254,7 +4395,10 @@ other form's write layer should follow. (The Add Set write layer writes
 Staging JSON + photo files and deliberately never touches the workbook — a
 different thing entirely.) **Scope is Browse Edit's Save button only** — Add
 Coin, Edit Set, Wishlist and Batch Receipt all still have exactly the stub
-Saves they had before, untouched.
+Saves they had before, untouched. **Partly superseded: Add Coin now has its
+own Phase 1 write layer** (Staging drafts + photos — see "Add Coin write
+layer — Phase 1" below); Edit Set, Wishlist and Batch Receipt are still
+stubs.
 
 **Gate (`ENABLE_BROWSE_EDIT_WRITE = false`, localhost-dev only)** — its own
 flag, deliberately NOT riding `ENABLE_SET_WRITE_LAYER`, since the two write
@@ -4742,7 +4886,3294 @@ step-by-step this was run against, for reference on how a future live pass
   feature's own first fetch — not a bug; reopen the coin and it's silent
   from then on.
 
+### Add Coin write layer — Phase 1 (BUILT and merged to main)
+Add Coin's Save was the last pure placeholder in the app ("Nothing written to
+OneDrive yet"), and the actual blocker on logging a new physical coin in-app.
+This is **Phase 1 of a deliberately phased build** — architectural/cross-cutting,
+so per the merge policy it's held pending Ray's explicit go-ahead, same standing
+as Thread A and the original Docket build.
+
+**SUPERSEDED IN PART — Phase 2 IS BUILT.** Everything below still describes
+Phase 1 accurately and is worth keeping for its reasoning, but it was written
+while Phase 2 was still ahead, and reads throughout in the future tense
+("Phase 2 will also need `Finish` added to `ALL_WRITABLE_COLUMNS`" — already
+done, along with Category, Error and CACBean). For what actually shipped, see
+**"Add Coin Phase 2 + live-device retest batch"** and **"Phase 2 promote:
+duplicate-row bug"** below. The predicted Phase 2 design — append a blank row,
+then reuse `saveCoinRowToWorkbook()` unchanged — is what was in fact built,
+so the reasoning here held up; only the tense is wrong.
+
+**The phasing, and why.** Scoped as three branches rather than one:
+- **Phase 1 (this build)** — Staging drafts only. Reservation unified, real
+  `coin.json` drafts with photos, real Staging Review, matcher integration.
+  Zero new Graph primitives; everything reuses Add Set's proven draft pattern.
+- **Phase 2 (since BUILT)** — the real direct-write path into `All`.
+- **Phase 3** — nothing further; photo capture already lands in Phase 1.
+  (A later, separately-scoped **Phase A** added editing a coin while it sits
+  in Staging; its own **Phase B** — add/remove a photo mid-edit — is still
+  held. Those letters are a different, later track, not this numbered plan.)
+
+Phase 1 first defers the one genuinely novel capability while delivering
+durable value, and matches the project's own risk posture: it has written
+Staging JSON safely for months and has **never created a workbook row**.
+
+**The Phase 2 approach is decided, and it is NOT the obvious one.** The
+obvious call — `POST /workbook/tables('AllCoins')/rows/add` with a values
+array — is wrong here: that array must supply a value for every one of the
+49 columns, **including the two live formula columns** (`Total` at U,
+`SpotValue` at Z). That's the same "a rectangle write must fill every cell"
+hazard `buildRowCellEdits()` exists to prevent, and this workbook has already
+lost all 1,084 formula cells once. It would also mean a second write
+mechanism able to address never-write columns, breaking the "an unlisted
+column has no code path to a PATCH" guarantee.
+- **Instead: append a BLANK row, then reuse `saveCoinRowToWorkbook()`
+  unchanged.** Reading it closely, it already handles creation correctly with
+  no modification — `detectRowConflicts()` opens with `if (!snapshot) return []`,
+  so a `null` snapshot against a fresh blank row skips the conflict check,
+  counts every populated field as changed, and stamps `Reviewed`/`LastModified`
+  (both correct for an app-created row). Formula columns are untouched because
+  they aren't on the allow-list. **The only genuinely new primitive Phase 2
+  needs is "append a blank row and tell me its row number."**
+- **Accepted tradeoff: it is not atomic.** A blank add that lands followed by
+  a failed PATCH leaves an orphan row. Deliberate: an orphan row carrying a
+  CollectionID and a blank `Reviewed` is visible and recoverable, whereas a
+  clobbered formula is silent and catastrophic.
+- **Phase 2 will also need `Finish` added to `ALL_WRITABLE_COLUMNS`** — it's
+  captured now (below) but is currently read-only context
+  (`ALL_CONTEXT_COLUMNS`), so a new row can't yet carry it. Deliberately NOT
+  added in Phase 1, since that would make it editable in Browse Edit too — a
+  scope change nobody asked for.
+
+**Gate: `ENABLE_ADDCOIN_WRITE = false`**, its own flag for the same reason
+every other one is (it writes a different thing again), folded into
+`WRITE_LAYER_ENABLED`. `WRITE_TARGET` stays `"copy"`. With the flag off the
+shipped build behaves **exactly** as before — asserted, not assumed: a save
+makes zero Graph calls, still pushes to `FAKE_STAGING`, and both interim
+notices stay hidden.
+
+**Reservation unified — the mock authority is retired.** `readMaxReservedIdFromStaging()`
+used to call `listSetDrafts()`, which drops anything without `type === "set"`.
+Once Add Coin writes `coin.json` drafts, **every coin reservation would have
+been invisible to it and the two features would have collided in the same
+`AY-#####` namespace.** It now reads the Staging **folder names** instead:
+- One authority across every draft kind — the folder name is the CollectionID
+  by construction for both `setDraftFolder()` and `coinDraftFolder()`, so
+  this covers set drafts, coin drafts, and any future kind with no per-kind
+  maintenance.
+- One Graph call instead of one per draft.
+- **Fails in the safe direction**: a folder whose JSON was deleted or is
+  unreadable still counts as reserved, so a part-cleaned-up folder can never
+  hand its id to a different coin. Non-draft folders (`_Docket`) parse to NaN
+  and are skipped.
+- `getNextCollectionId()` is renamed `getNextCollectionIdInMemory()` and is
+  now **the flag-off fallback only**, reached solely through
+  `reserveCoinCollectionId()`. The two never run in the same session — the
+  flag picks one — so there is no window in which two authorities coexist.
+  This resolves the Add Set write layer's own deferred Q11 ("Add Coin
+  migrates to it LATER").
+
+**Coin drafts: `{stagingBase}/{CollectionID}/coin.json` + that coin's photos
+as siblings.** Per-coin FOLDER rather than the Docket's one-document shape,
+because of photos: the Docket queue is pure metadata, a coin draft carries
+real image bytes, and a folder named for the CollectionID is exactly where
+Add Set already puts a Set's photos. Safe alongside set drafts structurally —
+each lister drops anything without its own `type` marker, so neither can ever
+see the other's drafts.
+
+**Photos are captured for real, and the temp-id problem is fixed.** Add Coin's
+gallery is keyed by `ADDCOIN_GALLERY_ID` (`"__addcoin_draft__"`) because no
+CollectionID exists until save, so every filename in it is built against that
+temp id. `uploadCoinDraftPhotos()` re-derives each filename against the real
+reserved id before uploading — the reconciliation the gallery module's own
+comment always said a real write layer would need. Uploads the cropped image
+plus, for flip sources, the untouched `_original` (per the crop-commit
+convention); raw bytes come back via `fetch(rawUrl)`, the same trick the
+Adjust button uses. Receipts upload as `{CollectionID}_receipt.pdf` from the
+existing `receiptFiles` registry — the "ready-but-unconsumed" registry finally
+has a consumer. **A single file failing never loses the capture**: each upload
+is caught individually, the draft still lands, and its research note says what
+didn't upload. The in-progress gallery is cleared after a real save, or the
+next coin would re-upload the previous coin's photos under its own id.
+
+**The silent first-candidate bug — the most important fix here.**
+`findDbCoinsMatch()` returns `dbCoinsCandidatesFor(record)[0]`, and Add Coin's
+banner and save both ran off it. On the real ~3,753-row catalog a base key
+routinely has several rows (227 ambiguous groups even after the Finish tier),
+so this silently picked one. Harmless while the save was a mockup that wrote
+no CoinID anywhere; **the moment a save records a CoinID it becomes a silent
+wrong-link — exactly the failure behind this project's two historical mislink
+incidents.**
+- `findDbCoinsMatch()` is now documented as answering "is there a match at
+  all", never "which row is it", and is left returning `[0]` for that
+  boolean-ish use.
+- New `resolveAddCoinCatalogMatch()` resolves at save time: 0 → CoinID pending
+  + Docket entry; 1 → linked; **2+ → the shared ambiguous picker, always, per
+  the firm rule.** Nothing is reserved or written until the user picks;
+  cancelling writes nothing and keeps everything typed.
+- New `addCoinIdentityShape()` is the Add Coin counterpart of Browse Edit's
+  `identityShape`, so the live banner and the save-time resolution can never
+  match on different keys. It carries `gradeSource`, which **engages Thread
+  A's cert-protection guard on Add Coin too**.
+- The banner is now honest about multiplicity ("2 catalog entries match this
+  coin — you'll be asked to pick when you save") instead of claiming a match.
+- `matchedHow` (`single`/`picked`/`none`) is recorded on the draft, because
+  reconciliation needs to know whether a link was a human judgement or an
+  unambiguous catalog hit.
+
+**Finish input added to Add Coin** (Business Strike / Proof / Reverse Proof /
+SMS / Specimen / Circulated). Add Coin had none, so `shape.finish` was always
+blank and **the Finish tier never ran at all** — new entries resolved on a
+strictly weaker key than edited ones, and a Proof vs. a Business Strike of the
+same date were indistinguishable. Verified: the pair goes 2 candidates → 1
+with Finish set, and an All-only value (`Circulated`, absent from DB_Coins)
+still falls back softly rather than to zero. A matched catalog row also
+carries its Finish onto the form. Optional — blank never blocks a save.
+
+**Staging Review is real, and labelled as interim.** Reads durable drafts when
+the flag is on; the action is labelled **"Mark ready"**, not "Promote", and an
+interim banner states plainly that the app does not write the workbook yet and
+Copilot moves the row across. Reject deletes the whole draft folder (JSON +
+photos). The monotonic max+1 gap rule needs no separate bookkeeping on the real
+path: the reservation scan reads folder names, so a deleted folder simply stops
+being counted and a mid-sequence rejection leaves the max untouched. **Add
+Coin carries the same interim notice**, because in Phase 1 "Save to Database"
+writes a draft like the other option — `savedVia` records which was chosen.
+- **`#stagingBadge` no longer exists** (retired when the Needs Attention hub
+  absorbed Staging Review's dashboard tile); `updateStagingBadge()` is
+  vestigial but harmless and was left wired.
+
+**Two real integration gaps found while testing, both fixed:**
+- **The Docket couldn't see real drafts.** `renderNeedsAttentionHub()` read
+  only `FAKE_STAGING`, so once staged coins became durable drafts every one of
+  them would have been **invisible in the Docket** — the same class of gap as
+  the reservation one. It now reads coin drafts when the flag is on; a draft's
+  own field names are already the shape `findDbCoinsMatch()` wants. A draft
+  marked ready is no longer Ray's to decide on, so it renders in the research
+  section as "waiting on the All-sheet row". A second bug fell out of this: the
+  research-row label read `c.name`, which exists on a `FAKE_STAGING` row but
+  **not** on a draft (it has `description`) — so real drafts rendered with no
+  name at all.
+- **The mock Graph client's `deleteItem()` wasn't faithful.** It deleted only
+  the exact key, while Graph's DELETE on a folder is recursive — so a test
+  could not see that rejecting a draft also removes its photos. Fixed to sweep
+  descendants; a file path has none, so it's a no-op there.
+
+**Commemorative / `Description` blind spot — assessed, and deliberately NOT
+folded into the matcher.** Four owned coins are mis-linked because their
+correct and incorrect candidate rows differ only in `Description`. The
+recommendation went the opposite way from where it started, on evidence:
+- **The picker already renders `row.description`**, so those candidates are
+  already distinguishable to a human. The commemorative exposure was never
+  that the matcher can't narrow — it was that `findDbCoinsMatch()` never
+  reached the picker. **Fixing that (above) closes the hole for new coins**;
+  a Description tier would only *suppress* the prompt.
+- Suppressing it would contradict the project's own firm rule ("2+ always
+  reach a human"), whose sole exception (the Designation tier) had a crisp
+  verified semantic and *still* needed the cert-protection guard bolted on
+  after live testing. `Description` has no such semantic: free text,
+  user-editable on the `All` side, auto-filled from Ref_Denominations — a
+  *different source* than `DB_Coins.Description`.
+- The four existing mis-links are themselves evidence that Description-based
+  identity for commemoratives is fragile.
+- Cost of not narrowing: one picker prompt on a rare event (~22 individual
+  commemorative rows of 542).
+- Benefit: **zero change to `dbCoinsCandidatesFor()`'s tier logic**, so Thread
+  A's live-tested behaviour for Browse Edit and Docket isn't re-opened.
+- Browse Edit was already safe here — its `checkDesignationReresolution()`
+  path already sends 2+ to the picker.
+- **If picker frequency ever becomes annoying, the follow-on is to surface
+  Description more prominently, not to auto-resolve on it.**
+
+**A real defect in that reasoning, caught by screenshot and fixed.** The
+premise above only holds if the Description is actually *readable*, and
+`.form-row .fr-summary` carried `white-space: nowrap` + `text-overflow:
+ellipsis` — so a differentiator late in the string would be truncated away,
+recreating the Part-F "both options look identical" bug by another route.
+`renderAmbiguousMatchList()` now tags its rows `.ambiguous-match`, which opts
+them out of the one-line ellipsis. Fixed at the shared renderer, so Browse
+Edit and the Docket get it too. Presentation only — no matching logic changed.
+
+**Verified headless — 69 assertions (`tests/verify_addcoin_phase1.js`), all
+passing, zero page errors**, driven by the mock Graph client. **Correction to
+an earlier version of this line:** it claimed the whole suite ran at both
+412x915 and 1024x768; it did not — the assertions ran at 412x915 only, and
+only the screenshots covered both. That is now true rather than aspirational:
+the logic assertions (Graph writes, draft shape, matcher resolution) are
+viewport-independent and run once at 412x915, and the three genuinely
+layout-sensitive checks — picker candidate count, picker truncation, and
+horizontal overflow — are additionally re-run at 1024x768. Coverage:
+flag-off inertness (no Graph call, in-memory path intact, nothing written);
+the reservation seeing a coin draft that `listSetDrafts()` cannot, `_Docket`
+never counting, and each lister ignoring the other's drafts; a full real save
+writing `coin.json` at the reserved id with photos uploaded **under the real
+CollectionID** and no `__addcoin_draft__` filename leaking; ambiguity opening
+the picker with **nothing written before the pick**, the **second** candidate
+(not the first) being what gets recorded, cancel writing nothing while keeping
+the typed entry; Finish narrowing including the soft All-only fallback;
+promote marking ready **without** creating an All row, and reject removing the
+draft and its photos; the Docket showing both an unmatched draft and a
+handed-off one; the picker not truncating a late differentiator; "Save to
+Database" writing a draft in Phase 1 with `savedVia: "direct"`; and a 12-route
+nav smoke with no horizontal overflow.
+- **Prior committed regression suites could not be re-run** — under the
+  convention in force at the time, the `verify_*.js` scripts lived in
+  per-session scratchpads and none survived into this session. The nav smoke
+  check is a substitute, not an equivalent (same caveat the
+  photo-gallery-crop branch carried). **This is what prompted the convention
+  change below**, so it should be the last time this caveat is needed.
+- **Not verified: any real device, and any real OneDrive session.** This is a
+  new write path and needs a live run against `_Testing` before it's trusted —
+  see `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`.
+
+**Four review decisions confirmed by Ray (2026-08-23), recorded so a future
+session doesn't reopen them:**
+- **"Save to Database" keeps its wording in Phase 1.** The interim banner
+  already states that both options write a Staging draft; relabelling the
+  button now would only mean relabelling it again at Phase 2 for no real
+  benefit.
+- **A draft marked ready STAYS VISIBLE in the Docket's research section**
+  while it waits on the real `All` row. The Docket's job is "what still needs
+  attention," and hiding a genuinely-pending draft would create a silent gap.
+  (This had been flagged as my own call rather than a specified behaviour —
+  it is now confirmed as intended.)
+- **`Finish` stays out of `ALL_WRITABLE_COLUMNS` until Phase 2** — correct not
+  to widen Browse Edit's editable scope as a side effect of an Add Coin build.
+- **Album assignment / post-save slot-fill is a backlog item, not a phase.**
+  UX polish on a working save, no urgency — logged as ParkingLot Row 3 in the
+  session log below.
+
+### Add Coin Phase 1: live-run bug-fix pass (BUILT and merged to main)
+Ray's own full manual live run against `_Testing` (Parts A–H) found the write
+path itself — reservation, the ambiguous-picker data integrity, photo/receipt
+handling, network-failure honesty — clean. Everything below is real bugs and
+UX findings from that same run, all fixed on this branch, still held for the
+same explicit-go-ahead reason as the rest of Phase 1.
+
+**Q3 — real `Ref_Denominations` data loaded, replacing the ~28-row hand-picked
+stand-in.** 85 rows, pulled straight from the live workbook and loaded
+verbatim (Ray's call), filtered to only the six denom codes Add Coin's own
+dropdown supports (a literal filter on the sheet's real `Denomination` column,
+not a numismatic judgment call — Silver/Gold/Platinum/Palladium Eagles, Half
+Cents, Commemoratives, etc. get no autofill, same as they already didn't).
+This is what actually root-caused bug #3 below — the OLD mock's single `$1`
+row spanned 1979–2026 as one entry (`"Anthony / Sacagawea / Presidential"`),
+so any year in that span resolved to all three names joined together. The
+real sheet has each series as its own row with its own real range; 1982 now
+resolves to Susan B. Anthony alone (confirmed against this exact data by Ray
+before it was loaded). **Real data legitimately has 2+ rows matching the same
+denom+year** in two different ways — a genuine transition year (Barber/Mercury
+both cover 1916) and the modern era's concurrent dollar-coin proliferation
+(Presidential/Native American/American Innovation all ran 2018–2020) — both
+handled the same way as the DB_Coins matcher's own firm rule: never guess,
+always ask.
+
+**#2/#3 — Description auto-fill: clears on no match, offers a picklist on
+2+.** `maybeAutoFillDescription()` used to no-op on zero candidates, leaving
+whatever series name was already on screen — a stale answer that reads as
+current. Now: 0 candidates clears the field; 1 autofills as before; 2+ leaves
+it blank and shows a small inline picker (`#descriptionAmbiguousPanel`) rather
+than silently taking the first match — the same failure class the
+concatenation bug was, just moved from string-joining to first-of-N. Nothing
+is written to Description until the user picks or types their own value.
+
+**#4 — PCGS label decode was hardcoded to the 12-row mock, ignoring
+`ENABLE_LIVE_NAV_DATA` entirely.** `handlePcgsLabelApply()` filtered
+`FAKE_DB_COINS` directly; reproduced live with a real PCGS# (4908, a real
+1916-S Mercury dime) reporting "not found." Now reads `activeDbCoins()`, the
+same source every other matcher in the file already uses. **Found and fixed
+the same gap in `validVarietiesForCurrentCoin()` alongside it** — CLAUDE.md
+had already flagged this one as "worth doing when Add Coin's own write layer
+lands" (it drives `isVarietyRecognized()`, which decides the direct-write-vs-
+Staging routing — a real coin's variety was being judged against the mock).
+`slotMintage()` (Albums) stays on the mock — separate, deliberate, unrelated
+call from Ray.
+
+**#7 — investigated in depth; not what it looked like, and not what Ray's own
+correction guessed either.** Ray's follow-up note walked the finding back to
+"probably the DB_Coins-once-per-load caching behaviour, drop it unless
+cleanly reproduced." A clean, deterministic repro was already in hand
+(save → Mark ready → open Docket) and it does NOT reproduce a missing entry —
+but it surfaced a real, different bug: **the same coin rendered as two
+independent, disagreeing records** — once via the draft's own live status
+(`stagedHandedOff`, "ready for reconciliation") and once via a separate,
+static Docket entry (`appendDocketEntry`'s pre-existing "no-db-coins-match"
+push, which fired unconditionally on every save regardless of destination).
+Root cause: Phase 1 made BOTH "Save to Database" and "Save to Staging" write
+the same kind of coin.json draft, and the draft's own presence in the hub
+already represents "needs a catalog entry" — so the old separate push became
+pure duplication the moment that happened, and the two records could disagree
+once the draft's own status moved on (Draft → Ready) with no way to update or
+retract the earlier static entry. **Fixed by removing the redundant push
+entirely on the real path** — the draft is the single source of truth there;
+the flag-off mock path is unchanged, since a `FAKE_COINS`-destined mock save
+has no draft-based representation to duplicate.
+
+**#8 — Docket research rows never showed CollectionID for a staged coin with
+no match**, unlike `docketEntryLabel()` (used a few lines below in the same
+render for real Docket entries), which already did. Different label-building
+code path, same missing field — now shown consistently.
+
+**#9 — Reject was the only way back from "Marked ready," and Reject is
+permanent (deletes the draft + photos).** Marking ready a beat too early is
+an easy, ungated mistake in Phase 1 (there's no reconciliation check to catch
+it). New `revertCoinDraftToDraft()`/`revertStagedCoinToDraft()` — Staging
+Review now shows **"Revert to Draft"** in place of the old disabled "Ready"
+button, touching only `status`; the CollectionID, photos, and every captured
+field are untouched, so a revert is exactly as safe as the mark-ready it
+undoes.
+
+**#1 — Add Coin didn't reset between visits.** Reopening it via plain nav
+(not a save, not an album/wishlist deep-link) showed whatever was left from a
+prior unsaved session — every field, the photo thumbnails, all of it. New
+`resetAddCoinForm()`, called unconditionally at the top of `navigate()`'s
+`"addcoin"` branch, resets every field, photo slot, gallery entry, and match/
+picker state. **The one real subtlety**: an album/wishlist deep-link sets its
+context variable and calls `navigate("addcoin")`, then calls
+`applyAlbumContext()`/`applyWishlistContext()` **right after** `navigate()`
+returns — so the reset had to clear the two banners' visibility without
+nulling the `albumContext`/`wishlistContext` variables themselves, or it would
+null out a deep-link's own pending context from under it. Verified directly:
+a plain re-entry starts fully blank, and a deep-link straight after still
+prefills correctly. `resetAddCoinAfterSave()` now calls this same function
+instead of its own narrower clear, so a second coin entered in the same
+session also starts clean — a second, smaller fix in its own right.
+
+**#12/#14/Q4 — picking an ambiguous-match candidate used to save immediately,
+with no way to reconsider, and the live banner could disagree with the
+picker.** Both are really one root cause: the banner and the save-time
+resolution were two independently-updated pieces of state that could drift.
+Fixed with one consolidated source of truth, `currentAddCoinMatchState()`:
+- Picking a candidate now **resolves and stops** — it updates
+  `addCoinResolvedPick` (the pick plus a snapshot of the exact identity it
+  was picked for), refreshes the live banner to show it immediately (closing
+  the #14 desync), toasts "press Save again to continue," and returns. **It
+  does not save.**
+- The **next** Save click re-derives match state, finds the still-valid
+  resolved pick (identity unchanged), and proceeds straight to save with no
+  picker shown a second time.
+- **Any relevant field changing invalidates the pick** — the snapshot no
+  longer matches, so a fresh identity re-derives candidates normally rather
+  than silently reusing a stale choice.
+- Verified end-to-end: nothing written between the pick and the second Save
+  click; the banner shows the CHOSEN candidate (picked the second option
+  deliberately, so "still shows the first" couldn't pass by accident); the
+  second Save click writes the remembered pick without re-opening the picker.
+
+**#11 — the picker's "Cancel — don't save yet" had no visual weight**
+(`background:none; border:none`, blending into the page). Given a real
+bordered/background button matching the candidate cards it sits beside.
+
+**#13 — the DB_Coins match banners sat ABOVE Finish**, even though Finish is
+one of the fields the match is actually computed from — recording it, then
+watching the banner react, is the order that makes sense. Finish moved above
+the banners.
+
+**#15 — `Circulated` was selectable as an Add Coin Finish option**,
+contradicting the Aug 17 session's established rule that Circulated is a
+wear-state/condition, not a strike method (tolerated only in 139 legacy `All`
+rows, never generated going forward). Removed from the dropdown; the
+matcher's own soft-fallback tolerance for an All-only Finish value is
+unchanged — a legacy `Circulated` row still matches correctly, it just can't
+be newly created from this form.
+
+**#6/Q2 — GradeSource baked into the coin's own flip-card label, even for a
+non-certified estimate** (e.g. "VF-30 Seller"). Ray's resolution: keep it on
+the graphic **only when it's a real third-party grading service** (PCGS/NGC/
+ICG/etc., via the existing `isServiceGradeSource()`) — a raw/Seller/Owner/
+AI-est-sourced grade shows Grade alone. **Scoped correctly after checking
+both render paths**: this only ever applied to Add Coin's own live-entry
+corner (`updateFlipLabels()`) — the SAVED-coin flip corner
+(`applyFlipCorners()`, Spotlight/Browse detail) was already Grade+Designation
+only and has never put GradeSource on the graphic at all; `gradeWithSourceText()`
+(Overview/detail text, "MS-64 (PCGS)") is the separate display that already
+shows GradeSource unconditionally, exactly as Q2 asked it to keep doing. One
+edit, correctly scoped — not the two-surface change originally assumed before
+checking the code.
+
+**#5 — couldn't drag-reposition inside the circular crop guide.** Root-caused,
+not guess-patched: for a perfectly SQUARE source (exactly what Stage 1's
+background crop hands the adjuster for a flip source), `recomputePhotoAdjustBaseScale()`'s
+"cover" fit gives **zero pixels of overscan at exactly 100% zoom** — there is
+nothing to drag into, by the math; the clamp itself (`clampPhotoAdjustOffsets()`,
+"can't pan past its own edges") is correct and untouched. Fixed by defaulting
+the adjuster to a small above-100% starting zoom (110%) so a real ~12px of pan
+headroom always exists without forcing a zoom action first; the slider's own
+100–300% range and every other control are unchanged.
+
+**#16 — Staging Review flattened "needs a decision" and "already handled"
+into one list**, with a Draft row (needs Mark ready/Reject) visually
+identical to a Ready row (nothing left to decide). Split into two labeled
+sections, same section-label convention used elsewhere in this app — "Needs
+a decision" first, "Marked ready — waiting on reconciliation" second, newest
+first within each. The mock build never shows the second section (a
+`FAKE_STAGING` row has no Ready status to begin with).
+
+**#17 — Docket labels read "Description · Year-Mint," backwards from how a
+coin is normally referenced** ("1916-D Mercury Dime," not "Mercury Dime
+1916-D"). Year-Mint now leads in all three label-building sites
+(`docketEntryLabel()`, the staged-no-match row, the handed-off-draft row) —
+kept consistent across all of them, not just the one Ray happened to see.
+
+**#10/#18 — toasts disappeared before they could reliably be read**, and
+identity fields (Year especially) showed the browser's own autocomplete
+suggestions. Toast duration now scales with message length (`1800 + 40ms/char`,
+clamped 2600–7000ms) instead of one fixed 2600ms for every toast — a short
+toast stays snappy, a real save confirmation or error message gets the time
+it needs. `autocomplete="off"` added to Year, Description, Vendor, Storage
+Location, Container, Cert/Type Number, and the PCGS Label field.
+
+**A real bug in the fix itself, caught by screenshot, not by the test
+suite.** The new `#descriptionAmbiguousPanel` and `#addCoinMatchAmbiguousPanel`
+were built with `class="case hidden"`, copying two PRE-EXISTING elements'
+visual look — but **this file has no generic `.hidden` rule**; every
+`.hidden` is scoped to its own component (documented in CLAUDE.md already,
+after being hit before). The two elements this was copied from
+(`#pcgsLabelAmbiguousPanel`, `#designationAmbiguousPanel`) have their own
+ID-scoped `.hidden` rules; the two new ones didn't, so `classList.contains("hidden")`
+read `true` while the panel stayed fully visible and laid out on the page —
+visible in a screenshot, invisible to `classList`-only assertions. **This
+exposed a real gap in the committed suite itself**: every assertion checking
+these panels checked `classList` state, never actual rendered visibility,
+which is exactly what let this slip through 133 passing assertions. Fixed
+both: added the two missing scoped rules, and added a dedicated
+`getComputedStyle().display` check (confirmed to actually fail without the
+CSS fix, not just pass trivially) so this class of bug can't hide behind a
+green suite again.
+
+**19 — logged, not built.** Cert/serial duplicate-check suggestion recorded
+as ParkingLot Row 4 in the session log below — idea only, no design work.
+
+**Verified headless — 137 assertions across two suites (`addcoin-phase1`:
+73, `addcoin-bugfixes`: 64), all passing, zero page errors**, at 412×915 with
+the three genuinely layout-sensitive checks re-run at 1024×768. Every fix
+above has its own committed assertion(s); the visibility-gap fix additionally
+includes a negative-control check (confirmed to fail with the bug
+reintroduced). Screenshots reviewed at both viewports for the ambiguous
+picker (open and post-pick states) and Staging Review's two-section split —
+no horizontal overflow either width.
+
+**Not verified: any real device, any real OneDrive session against these
+specific fixes.** `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md` covers the original
+Phase 1 build; a second pass against these fixes specifically hasn't run yet.
+
+### Add Coin Phase 1: second live-run retest pass (BUILT and merged to main)
+Ray retested the first bug-fix pass live against `_Testing` and confirmed
+most of it working; this round covers the new findings from that retest.
+Six items fixed; one (#2) investigated and confirmed working-as-designed
+rather than changed; the structural Docket/Staging-Review IA redesign Ray
+flagged as a separate idea is deliberately **not** part of this round — it
+stays its own future Opus-tier proposal, held for explicit go-ahead, per
+Ray's own framing when he sent this retest.
+
+- **#1 — PCGS label decode is now authoritative, not just a starting
+  point.** A decoded label already identifies exactly one DB_Coins row via
+  its own SPEC/PCGS# lookup — stronger evidence than the general denom+
+  year+mint+variety+finish+designation matcher, which can still legitimately
+  see 2+ candidates for that same identity on real data (real base-key
+  duplicates are common — see the Part-F live-pass note above, ~43% of
+  DB_Coins). Before this fix, decoding a label filled the form correctly but
+  Save still re-derived candidates from scratch and could pop the ambiguous
+  picker for a coin that had just been unambiguously decoded.
+  `resolvePcgsLabelMatch()` now sets `addCoinResolvedPick` (the same
+  "remembered pick" mechanism a manual picker choice already uses, Q4) the
+  moment it resolves, so Save takes the already-resolved shortcut with no
+  picker shown. Still invalidated by any later identity-field edit, exactly
+  like a manual pick.
+- **#2 — Finish's soft fallback is deliberate, hardened behavior, not a
+  bug.** Ray's report described Finish "not narrowing" the match in some
+  case. Read the matcher directly rather than changing it: `dbCoinsCandidatesFor()`'s
+  Finish tier is a SOFT narrow — if the recorded Finish matches zero
+  candidates (e.g. an All-only value like `Circulated` that DB_Coins simply
+  doesn't carry), it falls back to the FULL candidate set rather than to
+  zero. This is exactly the Part-F live-pass fix from the Browse Edit write
+  layer (documented above): a strict filter would turn a good match into a
+  false miss and wrongly clear/deny a CoinID link for real rows. Making
+  Finish narrow strictly would reintroduce that exact regression. No code
+  change here — flagging it as intentional so a future session doesn't
+  "fix" it back into the bug it was built to avoid.
+- **#4 — the ambiguous picker now offers "None of these — save as
+  unmatched."** Previously the 2+ picker forced a choice among the listed
+  candidates with no way to say none of them are actually right — a real
+  gap when the catalog rows shown are all wrong for a genuinely new
+  variety. Clicking it resolves exactly like a real 0-candidate miss:
+  CoinID left pending, routed to Docket research, same as any other
+  unmatched save. Sits alongside the existing Cancel button; both are torn
+  down/reset the same way (`addCoinMatchNoneHandler`, same discipline
+  `addCoinMatchCancelHandler` already uses).
+- **#5 — the series (Description) ambiguous picker is now persistent/
+  reconsiderable, not one-shot.** It used to hide itself the instant a
+  series was picked — reconsidering meant re-touching Year/Denom to
+  re-trigger the whole lookup from scratch. It now stays open as long as
+  the same genuine multi-series ambiguity exists, so changing your mind is
+  just picking a different option from the same dropdown. It still closes
+  the normal way once the ambiguity itself resolves (0/1 candidates on a
+  later Year/Denom change) or the user types directly into Description (a
+  real manual override).
+- **#6 — the Dashboard's "N coins awaiting your decision" tile undercounted
+  relative to what Staging Review's own "Needs a decision" section actually
+  shows.** Root cause: the tile counted only Draft-status coins WITH a
+  DB_Coins match (`stagingActionable`), while Staging Review's own
+  Draft-vs-Ready split (added in the prior round) shows every Draft-status
+  coin under "Needs a decision" regardless of match — a real status-alone
+  signal is what actually gates that screen (Mark ready/Reject apply either
+  way), same as `draftSets`' own count above has no confidence axis at all.
+  Fixed by counting all Draft-status coins for the real-draft path
+  (`addCoinWriteEnabled()`), matching Staging Review exactly. **An unmatched
+  Draft coin now counts in this aggregate tile AND still gets its own
+  individual "Staged, no DB_Coins match" research row** (unchanged,
+  `stagingResearch` — bug #8's territory from the first retest round) —
+  deliberately NOT collapsed into one or the other, since "needs a
+  decision" and "no catalog entry yet" are two independently-true facts
+  about the same coin, not two sources disagreeing about its status the way
+  the original #7 bug was. The match-based split is kept as-is for the
+  flag-off mock path (`FAKE_STAGING` predates Phase 1's real drafts and has
+  no Ready status of its own) — this only changes real-draft behavior.
+- **#7 (this round) — helper-text spacing overlapped the field above it.**
+  Five `.placeholder-note` elements (the PCGS-grader note, the manual
+  Cert/Type Number note, and the notes under Variety, Finish, and Error)
+  carried an inline `margin:-8px 0 16px;` override — a negative top margin
+  large enough to overlap the `<select>`/`<input>` directly above, which
+  itself has no bottom margin of its own. Changed to `margin:4px 0 16px;`
+  (a small positive gap) on all five; verified via screenshot at both
+  viewports that the note text now sits clear of the field's own border.
+- **#9 — Reject had no confirmation, despite being permanent on the real
+  path.** Reject deletes a draft's entire Staging folder — JSON and every
+  captured photo/receipt — with no undo, unlike the Revert-to-Draft escape
+  hatch the prior round added for an over-eager "Mark ready." `rejectStagedCoin()`
+  now opens the shared `showWriteGuard()` dialog first (same shell Browse
+  Edit's own guard dialogs use), naming what's actually at stake; the real
+  deletion moved to a new `performRejectStagedCoin()`, called only from the
+  dialog's Reject button. The flag-off mock path gets the same confirmation
+  shell with mockup-appropriate wording (nothing is actually written either
+  way, so the message says so).
+- **#11 — fast/repeated tapping on action buttons could visibly
+  text-select their own label.** Added `user-select: none` to `.save-btn`
+  and `.staging-btn` (Save/Mark ready/Reject/the picker's Cancel/None) —
+  chrome, not editable content, so nothing about text inputs, textareas, or
+  Notes/Description fields was touched. Deliberately NOT applied to the
+  ambiguous-picker candidate cards themselves (`.ambiguous-match`) — their
+  text (CoinID/PCGS#/Mintage) is exactly what Ray might want to select and
+  copy to cross-check against PCGS/the Red Book before picking.
+- **Flagged for Ray's decision, not built this round** (real tension with
+  established rules, per this project's "investigate, don't guess" standing
+  instruction):
+  - **#3 (series-picker narrowing DB_Coins candidates)** — would mean
+    letting `Description`/series-name text narrow a DB_Coins match, which
+    runs directly against the Add Coin Phase 1 "commemorative/Description
+    blind spot" assessment above (deliberately NOT folded into
+    `dbCoinsCandidatesFor()`, since `All.Description` and
+    `DB_Coins.Description` are different sources with no guaranteed
+    correspondence, and the project's own firm rule is "2+ always reaches a
+    human"). Needs Ray's explicit call before any code changes here.
+  - **#8 (denomination dropdown breadth)** — CLAUDE.md already carries a
+    standing deferral for exactly this class of gap ("half dimes/three-cent
+    pieces will need their own Denomination code... deal with it when the
+    first one is catalogued" — see "Browse filters" above); widening Add
+    Coin's dropdown is a scope decision for Ray, not an assumed default.
+  - **#12–#16 (open design questions from the retest)** — discussion only,
+    no code without further direction, consistent with every other
+    "needs Ray's explicit decision" item in this file.
+  - The structural **Docket/Staging-Review IA redesign** Ray separately
+    proposed is explicitly out of scope for this round, per his own
+    framing — stays a distinct, larger, Opus-tier effort held for go-ahead.
+- **Verified headless — 9 new assertions added to `verify_addcoin_bugfixes.js`**
+  (R1/R4/R6/R9), all passing, alongside every prior assertion from both
+  committed Add Coin suites re-run clean (148 total across the two suites,
+  zero failures) — R1 covers the PCGS-decode-authoritative fix directly
+  against a synthetic real base-key duplicate; R4 covers the "None of
+  these" button existing, the panel genuinely visible before it's clicked,
+  and its resolution matching a real 0-match outcome; R6 covers the
+  Dashboard tile counting both a matched and an unmatched Draft coin while
+  the unmatched one still separately appears in research; R9 covers the
+  full reject-confirmation round trip (dialog shown, nothing deleted on
+  open, Cancel leaves the draft untouched, confirming actually deletes it).
+  Three existing assertions (3.5, VIS.4 in `addcoin-bugfixes`) were updated
+  to assert the panel STAYS open after a pick, following the #5 design
+  change rather than weakening the suite; two direct-logic tests (21.2 in
+  `addcoin-bugfixes`, F6 in `addcoin-phase1`) were updated to call the new
+  `performRejectStagedCoin()` directly, since they test the reservation/
+  deletion logic itself rather than the new confirmation dialog. Screenshots
+  reviewed at both viewports for the description picker's new spacing, the
+  ambiguous picker's new "None of these" button, and the reject
+  confirmation dialog — no horizontal overflow at either width.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as the first bug-fix round.
+
+### Add Coin Phase 1: batch 3 (BUILT and merged to main)
+Six items built, one flagged as a real conflict with existing documented
+research rather than guessed at. Same posture as every prior round: the
+structural Docket/Staging-Review IA redesign stays untouched, separate,
+Opus-tier, held for its own go-ahead.
+
+- **#2 — Finish tier now distinguishes "this value isn't a real DB_Coins
+  category" from "this value is real, it just genuinely has zero matches
+  for this coin."** The prior soft-fallback rule (never narrow to zero on a
+  Finish mismatch) was built to protect All-only wear-state values like
+  `Circulated`/`Various`, which DB_Coins never carries at all — narrowing
+  strictly there would falsely miss real rows. But it was also silently
+  swallowing the OPPOSITE case: a real DB_Coins Finish category (e.g.
+  `Proof`) that simply has no row for this exact date, which the Finish
+  field's own tooltip already promised would narrow the match. New
+  `knownDbCoinsFinishValues()` (memoized against the active catalog array's
+  identity, so it's not recomputed on every keystroke) answers "does
+  DB_Coins use this Finish value ANYWHERE in the catalog." The tier now: a
+  Finish match among candidates narrows normally (unchanged); a Finish with
+  zero matches among candidates but a KNOWN DB_Coins category narrows to
+  zero (new — a real signal); a Finish that's not a DB_Coins category at
+  all keeps the original soft fallback to the full set (unchanged,
+  Circulated/Various still protected). Tooltip updated to say so
+  explicitly. Since every option in Add Coin's own Finish dropdown
+  (Business Strike/Proof/Reverse Proof/SMS/Specimen) is itself a real
+  DB_Coins category, this makes the field behave exactly as its tooltip
+  always claimed for anything enterable there — the old silent-fallback
+  behavior only really mattered for Browse Edit's All-only legacy values,
+  which are unaffected.
+- **#3 — the series (Description) picker now narrows DB_Coins candidates,
+  scoped narrowly to stay consistent with the standing rule it's an
+  exception to.** The project's firm rule (see "Commemorative / Description
+  blind spot" above) is that free-typed `All.Description` must never narrow
+  the matcher, since it and `DB_Coins.Description` are different sources
+  with no guaranteed correspondence. Ray's framing for this item is real
+  and different: the SERIES PICKER's own value is a controlled, enumerated
+  selection (one of Ref_Denominations' own candidates for the exact
+  Year+Denomination on the form), not free text — so the concern the
+  standing rule guards against doesn't apply to it specifically.
+  `addCoinIdentityShape()` now checks whether the current Description value
+  is EXACTLY one of `lookupDescriptionCandidates(denom, year)`'s own series
+  names before passing it through as `shape.description`; a manually-typed
+  override that doesn't match any real candidate is left blank in the
+  shape, same as before. `dbCoinsCandidatesFor()` gained a new soft tier
+  reading `shape.description` — **only Add Coin ever populates this field**;
+  Browse Edit and the Docket build their own identity shapes without it, so
+  they are completely unaffected (verified directly: `dbCoinsCandidatesFor()`
+  with no `description` key at all is a true no-op for this tier). Still
+  soft — a real spelling/formatting mismatch between Ref_Denominations and
+  DB_Coins' own Description text (a known, documented risk) falls back to
+  the full candidate set rather than a false miss.
+- **#8 — Denomination dropdown now derives from Ref_Denominations instead
+  of a separately hand-maintained list.** Root cause of the gap: the Phase
+  1 Q3 load had filtered Ref_Denominations DOWN to only the six codes the
+  dropdown already had, backwards from what should drive what. Fixed
+  properly: **all 187 rows** are now evaluated, mapped through a new
+  `DENOM_NAME_TO_CODE` table, with `FAKE_DENOMINATIONS` now holding 130 of
+  them (the rest are a real, flagged scope boundary — see below). Five
+  denom codes that never existed before are now real, working values
+  throughout the app — `0.5C` (Half Cent), `2C` (Two Cent), `3C` (Three
+  Cent), `20C` (Twenty Cent), `H5C` (Half Dime, deliberately not reusing
+  `5C` — already flagged in this file as a needed-eventually decision under
+  "Browse filters") — plus `Medal` picked up as a low-risk side effect
+  (it's a real Ref_Denominations row and was already a real Denomination
+  value elsewhere in the app; Add Coin's own dropdown had simply never
+  offered it). New `DENOM_CODE_INFO` (label + order) and
+  `populateAddCoinDenominationDropdown()` GENERATE the `<select>`'s options
+  at init from whatever codes are actually present in `FAKE_DENOMINATIONS`
+  — the HTML now holds only the blank option, so the dropdown and the
+  reference data can never silently drift apart again the way the original
+  six-code hardcoded list did. `DENOM_SCALE` (disc sizing — all five new
+  codes floor to 0.70, the same legibility floor Dime already uses, since
+  all five real diameters compute below it), `STATS_DENOM_ORDER`, and
+  `DENOM_LABELS` were extended to match, so Stats & Value and the Rolls
+  sort behave correctly the moment a coin of one of these denominations
+  exists (none do yet in the demo data).
+  - **A "Commemorative X"/"Error X" row in the source sheet is NOT a new
+    denomination** — it's really an ordinary Dollar/Half Dollar/Quarter/
+    Cent/Nickel row describing a commemorative or error variety, so it's
+    folded onto that denomination's own existing code rather than invented
+    as something new. This keeps the app's Denomination vocabulary exactly
+    what the naming-conventions section already documents it as — a short,
+    controlled set of codes — rather than letting a reference sheet's own
+    descriptive bucketing leak into it.
+  - **Superseded by "Add Coin Phase 1: gold/bullion denomination codes"
+    below** — Ray resolved the code scheme; this whole bullet is history.
+  - Deliberately still excluded, flagged rather than guessed at: the
+    gold/bullion tier (Half Eagle, Quarter Eagle, Eagle, Double Eagle,
+    Three Dollar, Gold Dollar, Gold Buffalo, Commemorative Gold,
+    Commemorative $5 Gold, First Spouse $10, American Gold/Silver/
+    Platinum/Palladium Eagle bullion, and "Special" — 57 rows). Ray's own
+    ask named "the gold/bullion denominations" as a group; a face-value-
+    based code scheme genuinely doesn't work cleanly here — a classic Half
+    Eagle and a modern bullion coin can share a face value with nothing
+    else in common, and a bullion Silver/Gold Eagle's legal-tender face
+    value has no relationship to how it's actually tracked or valued (same
+    reasoning this file already recorded for why Silver Eagles were kept
+    out of the Dollar code, back when Ref_Denominations was first loaded).
+    Assigning real codes here is Ray's numismatic judgment call, not a
+    mechanical column-to-dropdown mapping — flagged in chat rather than
+    guessed. Once he picks a scheme, it's a `DENOM_NAME_TO_CODE` addition
+    and the array grows to the full 187 rows; no other code changes needed.
+  - **Edit Coin's own Denomination dropdown is unchanged** — still its
+    original small static list (the six original codes + Medal, minus
+    Multiple), scoped to editing an already-owned coin, where a
+    newly-addable reference denomination isn't relevant until a coin of
+    that type is actually saved.
+- **#10 — a shared, reusable loading indicator for slower async section
+  transitions**, visually matching the splash screen's own language (same
+  `@keyframes splashSpin` coin-flip spin, at section scale instead of
+  full-screen). New `showSectionLoading(containerId, text)` /
+  `hideSectionLoading(containerId)` — creates/reuses one `.section-loading`
+  element as the container's first child; a repeat call updates its text in
+  place rather than stacking a second one. Wired into the two real,
+  Graph-backed renders where the container is genuinely empty/stale until
+  the fetch resolves: `renderStagingList()` (Staging Review) and
+  `renderNeedsAttentionHub()` (the Docket).
+  - **Deliberately NOT wired into `ensureLiveNavDataFetch()` (Catalog/Sets'
+    first live-data load)** — tried first, then reverted on a real finding:
+    `showBrowseTab()` calls `ensureLiveNavDataFetch()` and then immediately
+    renders `FAKE_*`-backed cards SYNCHRONOUSLY in the same tick, by
+    existing design (that function's own comment: "never blocks"). An
+    indicator inserted there gets wiped out by that synchronous render
+    before a human could ever see it — confirmed directly in a headless
+    reproduction (a monkey-patched, artificially-slowed fetch still never
+    showed the indicator, because the synchronous grid re-render — not the
+    fetch itself — was what cleared it). This call site's whole point is
+    showing something immediately and swapping in real data invisibly
+    later, which is the opposite of what a loading indicator is for — so
+    it was left out rather than shipped inert.
+- **#13 — NGC/ANACS label decode: a real conflict with this file's own
+  prior research, flagged rather than built.** This file's "ANACS/ICG/CAC
+  label format" section already states, as a CLOSED finding: "NGC is
+  confirmed to have no equivalent decodable identity number — its cert
+  number is an invoice/sequence ID only, with grade as separate printed
+  text." Verified this is still current, not stale — [NGC's own
+  documentation](https://www.ngccoin.com/certlookup/) confirms the
+  certification number is "the invoice number of the submission and the
+  sequence of each coin in that order," which carries no encoded
+  denomination/date/mint identity the way PCGS's `SPEC.GRADE/CERT` format
+  does; decoding coin identity from an NGC cert number requires a live
+  lookup against NGC's own database, which is a live-API integration this
+  project has already ruled out elsewhere (see "External data sources" —
+  the PCGS OAuth-credentials decision applies here too). Building a "decode"
+  function against a number that carries no encoded identity would mean
+  either faking a parser that decodes nothing real, or quietly building a
+  live NGC API call this project's own rules already say not to. Neither
+  is right to do without Ray's explicit steer, so nothing was built — see
+  the open question in the chat reply for what to ask him. ANACS is in the
+  same unconfirmed-format state this file already documented before this
+  batch (0 coins graded by it in the collection, "waits until a coin
+  graded by one of them is actually acquired") and wasn't independently
+  investigated further this round, per Ray's own "ANACS... at your
+  discretion" framing — deferred alongside NGC rather than guessed at
+  separately.
+- **#14 — Browse detail's Overview cert link now falls back to a live-
+  computed URL, root-caused and fixed as asked.** `certDisplayHtml()`
+  previously showed a real link ONLY when `CertLink` was already populated
+  on the row, and fell to plain text otherwise — even when GradeSource and
+  a cert number were both on file and a link was fully computable. Fixed to
+  prefer the stored `CertLink` when present (never overriding a curated
+  link already on file) and fall back to the exact same
+  `buildCertLookupUrl(gradeSource, cert)` Add Coin and Browse Edit already
+  use for their own cert-link buttons — one shared resolver, not a second
+  implementation. Still renders plain text when neither a stored link nor a
+  computable one exists (no GradeSource on file, or that GradeSource has no
+  base URL yet in `Lookup_Graders`) — no throw, no broken link.
+  `getGraderBaseUrl()` itself still reads `FAKE_LOOKUP_GRADERS` directly
+  rather than the live table — a pre-existing, separately-flagged
+  limitation this task didn't touch (out of scope; the five real services'
+  codes are the same either way, so this doesn't block the fix working
+  correctly against live coins today).
+- **#15 — Catalog gained a grading-service filter**, same multi-select/OR
+  chip pattern Metal already uses (ANDs with Denomination/Metal/
+  Commemorative/Year/Search, same as every other Catalog filter axis). New
+  `BROWSE_GRADING_SERVICE_CHIPS` (All + one chip per `FAKE_LOOKUP_GRADERS`
+  entry + an "Ungraded/Other" catch-all for Seller/Owner/AI-est/blank),
+  `browseSelectedGradingServiceKeys`, `browseGradingServiceTest()`. Built
+  from the static grader list (not `activeLookupGraders()`) — same
+  precedent Add Coin's own Grader dropdown and `buildGradeSourceOptions()`
+  already follow; the per-coin test is a plain string comparison against
+  `coin.gradeSource`, which works identically against live or mock data, so
+  this only affects which CHIPS render, never matching correctness. Lives
+  inside `#browseCoinsHeader` alongside Denomination/Metal, so it shows/
+  hides with the Coins/Medal tab exactly like those two already do, no new
+  visibility logic needed; resets to All on external Browse entry via the
+  same `resetBrowseFilters()`/`updateMetalChipsUI()` mechanism Metal
+  already uses (that helper was already fully generic by container ID).
+  Interpreted as a FILTER, not a sort control — this project's own history
+  has moved consistently away from sort dropdowns toward filter pills
+  (Rolls' own sort-to-pills conversion is the clearest precedent), so a
+  new pill row was the design-consistent reading of "sort/filter by
+  grading service," flagged here as a real interpretive call.
+- **Verified headless — 32 new assertions (`tests/verify_batch3.js`), all
+  passing, zero page errors**, alongside all prior suites re-run clean
+  (180 total across 3 suites). Covers: the Finish tier's three-way split
+  (real match, real-zero-match, unrecognized-fallback) with a synthetic
+  cross-denomination catalog; the series-picker narrowing a real pair down
+  to one candidate, a non-matching typed value NOT narrowing, and the tier
+  being a genuine no-op with no `description` key at all; the five new
+  denom codes present as dropdown options plus DENOM_SCALE/STATS_DENOM_ORDER/
+  DENOM_LABELS coverage, and confirming no gold/bullion code leaked in; the
+  loading indicator's DOM mechanics (first-child insertion, real computed-
+  style visibility, reuse-not-duplicate on a repeat call, text update, clean
+  removal) plus a real Staging-Review integration test (an artificially
+  slowed mock `listChildren()` call proving the indicator is genuinely
+  visible mid-fetch and gone after); the cert-link fallback's four cases
+  (stored link wins, live-computed link appears, no-GradeSource stays
+  plain, a GradeSource with no base URL stays plain) with no throw; and the
+  grading-service filter's chip rendering, real narrowing against
+  `FAKE_COINS`, ANDing with Metal, and reset-on-external-entry. Screenshots
+  reviewed at both viewports for the new Denomination dropdown, the
+  Grading Service filter row, and the Docket's loading indicator — no
+  horizontal overflow either width.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as every prior Add Coin round.
+
+### Add Coin Phase 1: gold/bullion denomination codes (BUILT and merged to main)
+**Superseded once already, same session — the version below is the
+corrected, final design.** The first pass built a dedicated denom-code
+family (`G$1`, `G$2.5`, `AGE-1OZ`, `APE-1OZ`, etc.) reasoning purely from
+face-value collision risk. Ray corrected this on review: the real workbook
+already has 49 Silver Eagle rows plus Morgan/Peace Dollar rows that solve
+this exact problem by keeping Denomination PLAIN (the real legal-tender
+face value, e.g. `$1`) and using a separate **Category** column as the
+distinguishing type (`Silver Eagle`). Inventing a new denomination-code
+vocabulary was solving an already-solved problem, and solving it in a way
+that didn't match how the collection is actually catalogued. Everything
+below is the corrected design; the `G$`/`AGE-`/`APE-` code family is gone
+from the app entirely, not just superseded in prose.
+
+**No new Denomination codes at all.** `DENOM_CODE_INFO` (the everyday
+dropdown) is back to exactly its pre-gold-tier 12 entries. The gold/bullion
+tier is a completely separate structure, `BULLION_TIER_OPTIONS`, of
+`{label, denom, category}` triples — `denom` is always a real, plain
+face value (`$1`, `$2.5`, `$3`, `$5`, `$10`, `$20`, `$25`, `$50`, `$100`),
+never a fabricated code.
+
+- **Several entries deliberately SHARE the same `denom`** — exactly
+  matching the real workbook's own pattern, not a bug to fix: Gold Dollar,
+  American Silver Eagle, and the classic circulating Dollar are all `$1`;
+  Gold Eagle 1 oz, Platinum Eagle 1/2 oz, and American Buffalo are all
+  `$50`. **Category is what actually disambiguates them** — Category
+  `"Silver Eagle"` vs. blank (an ordinary Dollar) vs. `"Gold Dollar"`, all
+  under the identical `$1` Denomination.
+- **Gold/Platinum Eagle sizes are real, distinct face values, not a
+  size-coded vocabulary**: Gold Eagle 1 oz/1-2 oz/1-4 oz/1-10 oz are
+  genuinely `$50`/`$25`/`$10`/`$5`; Platinum Eagle's four sizes are
+  `$100`/`$50`/`$25`/`$10`. All four Gold Eagle rows share ONE Category
+  (`"Gold Eagle"`) — Denomination alone (the real face value) is what
+  tells the sizes apart, exactly like the real workbook would. The
+  dropdown LABEL spells out the size for the user ("American Gold Eagle —
+  1 oz ($50)"); nothing downstream needs a size baked into a code.
+- Classic pre-1933 gold (Gold Dollar, Quarter Eagle, Three Dollar, Half
+  Eagle, Eagle, Double Eagle), the two commemorative-gold buckets, First
+  Spouse $10, American Buffalo, and American Palladium Eagle each get one
+  `BULLION_TIER_OPTIONS` entry with their own real plain face value.
+  Classic Commemorative Gold's real span across two face values ($2.50 and
+  $50, Panama-Pacific era) is handled as two entries under one Category
+  name rather than picking one arbitrarily; its one genuinely mixed source
+  row (`"Various $1 and $2.50"`) is folded into the $2.50 entry as a
+  reasonable simplification, not treated as a third split.
+- `Special` (8 rows) stays excluded, unchanged — still a genuine catch-all
+  across several already-mapped denominations, nothing coherent to derive
+  a single type from.
+
+**Bullion toggle still exists, same UX goal, corrected mechanism.**
+`#addCoinBullionToggle` still filters the Denomination dropdown between
+"classic" (`DENOM_CODE_INFO`, everyday circulating denominations only) and
+"bullion" (`BULLION_TIER_OPTIONS`, which now includes the classic gold
+tier too, not just the modern bullion programs — grouped together under
+one toggle since neither is an everyday circulating denomination).
+- **Picking a bullion-tier option sets Denomination AND Category in one
+  action** — the user never fills out two fields. Each `<option>`'s
+  `value` is still the plain `denom` (so `#denomination`'s own value is
+  always a real face value, exactly like the classic case); the option's
+  `category` rides along in a `dataset.category` attribute. The
+  denomination `change` handler reads it into a new module-level
+  `addCoinBullionCategory` (blank for every everyday pick, matching how a
+  regular coin has no Category on the real workbook either), which
+  `readAddCoinFormForDraft()`/`buildCoinDraft()` now carry through onto the
+  Staging draft as a real `category` field.
+- **Description auto-fill is suppressed for a bullion-tier pick, and set
+  directly from the option's own label instead.** This is a real,
+  necessary consequence of the shared-`denom` design: `maybeAutoFillDescription()`
+  is keyed only by denom+year (via `lookupDescriptionCandidates()`/
+  `FAKE_DENOMINATIONS`), with no awareness of Category — so running it
+  unchanged for, say, a `$50` Gold Eagle pick would show mixed, wrong
+  candidates drawn from every OTHER `$50` bullion/gold type active in
+  overlapping years (Platinum Eagle 1/2 oz, American Buffalo, and a
+  Panama-Pacific $50 commemorative all also use `$50`). Since a
+  bullion-tier pick already fully identifies the coin (denom + category
+  together), Description is simply set to the option's label
+  (stripping the trailing "($50)"-style face-value parenthetical, since
+  Description is a name, not a value) — this is exactly why
+  `BULLION_TIER_OPTIONS` rows are deliberately NOT added to
+  `FAKE_DENOMINATIONS` at all, unlike the everyday denominations.
+- Toggling Bullion off (or resetting the form) clears
+  `addCoinBullionCategory` back to blank, so a stale bullion Category can
+  never survive onto an unrelated everyday pick.
+
+**`Category` is a real, deliberate new capture on the Add Coin draft —
+flagged explicitly, not folded in silently, per Ray's own instruction.**
+`category` is added to `readAddCoinFormForDraft()`'s shape and
+`buildCoinDraft()`'s stored fields, matching the real workbook's own
+Category column. **`ALL_WRITABLE_COLUMNS` (the write-guard list Browse
+Edit's live-workbook PATCH is built from) is confirmed via source to have
+no `Category` entry today, and this task deliberately does NOT add one.**
+Add Coin Phase 1 only ever writes a Staging JSON draft (no
+`ALL_WRITABLE_COLUMNS` involvement at all), so nothing requires the change
+yet — same standing precedent as Finish, which was captured on the Add
+Coin draft well before it was added to the allow-list. **Phase 2's real
+direct-write path will need `Category` added to `ALL_WRITABLE_COLUMNS`
+before a picked Category can actually persist to the real All sheet** —
+that is real future work, not implied or started by this change.
+
+**Scope gap flagged above — now CLOSED, same session, follow-up build.**
+The gap this section originally left open ("`dbCoinsCandidatesFor()` has NO
+Category awareness... worth Ray's explicit call before building") was
+raised back to Ray immediately and he confirmed it should be fixed now
+rather than deferred — real data made it concrete, not theoretical:
+DB_Coins carries 487 rows for American Silver/Gold/Platinum Eagle coins
+alone, and 49 real Silver Eagles are already in the collection. See "Add
+Coin Phase 1: Category narrows the DB_Coins matcher" below for the fix.
+
+**Verified headless — `tests/verify_batch3.js` rewritten for the corrected
+design (42 assertions in that suite now, 190 across all 3 suites, zero
+failures)**: the everyday dropdown has exactly its original 12 options (no
+new code vocabulary leaked in); the Bullion view includes all four
+Platinum Eagle sizes, Buffalo, and Palladium Eagle, with no everyday code
+among its values; toggling resets the current selection; picking "Half
+Eagle" sets Denomination to the plain `$5` and Category to `"Half Eagle"`
+with Description set from the label directly (not the denom+year lookup);
+picking "American Silver Eagle" writes the SAME `$1` Denomination the
+classic Dollar uses, distinguished only by Category; all four Gold Eagle
+sizes are four genuinely distinct face values sharing one Category; and
+toggling back to classic clears the picked Category. Screenshots reviewed
+at both viewports for the corrected toggle label/note and a real
+Silver-Eagle pick — no overflow, no layout collision.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every prior round in this feature.
+
+### Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main)
+Closes the scope gap flagged immediately above, same session, on Ray's
+explicit "fix now" call. `dbCoinsCandidatesFor()` gains a Category tier,
+following the exact pattern the Finish tier already established
+(`knownDbCoinsFinishValues()`), applied to the same real problem: several
+Bullion-tier entries deliberately SHARE one plain Denomination — `$1` is
+Peace Dollar, Morgan Dollar, Gold Dollar, AND American Silver Eagle; `$50`
+is a classic commemorative, American Buffalo, Gold Eagle 1oz, AND Platinum
+Eagle 1/2oz — so the base Denom+Year+Mint+Variety key alone can't tell
+them apart, and without this fix a Silver Eagle would match/mismatch
+against DB_Coins on the same key as an ordinary Dollar.
+
+- **DB_Coins has no Category column of its own** — confirmed via source,
+  `mapWorkbookRowToDbCoin()` maps no such field, and this task did not add
+  one (a real DB_Coins Category column, if it existed, would need a
+  workbook-side change, out of scope for an app-only session). The 487-row
+  American Silver/Gold/Platinum Eagle figure Ray confirmed is presumably
+  identifiable via `DB_Coins.Description` text (the field that already
+  names the coin TYPE — "American Silver Eagle," etc.), not a dedicated
+  category field.
+- **New `BULLION_CATEGORY_MATCH_HINTS`** — a keyword list per
+  `BULLION_TIER_OPTIONS` category, matched against `DB_Coins.Description`
+  via substring containment.
+
+**Superseded, same session — real wording confirmed, three categories
+promoted to a hard filter.** The paragraph above originally said this tier
+stayed soft-only across the board because the real DB_Coins Description
+wording was unconfirmed. Ray checked it directly against the live workbook
+and reported back real strings: `"American Silver Eagle Dollar"`,
+`"American Silver Eagle Burnished Dollar"`, `"Silver Eagle Dollar"`,
+`"American Gold Eagle"`, `"Palladium Eagle Dollar"`, and
+`"American Buffalo Silver Dollar"` (flagged as a likely mislabeled catalog
+entry — the real American Buffalo program is gold-only, no silver Buffalo
+bullion issue exists; a workbook data issue for Ray to fix directly, not a
+matcher problem). He also checked known false-positive risks — `"Bald
+Eagle Recovery"` (a commemorative), `"Flying Eagle Cent"` (a classic 1850s
+cent), `"Buffalo Nickel"`, and a Marine Corps commemorative containing
+`"American Eagle"` — confirming none of them contain the full two-word
+phrases `"SILVER EAGLE"`/`"GOLD EAGLE"`/`"PALLADIUM EAGLE"`, only the
+individual words in a different order/context.
+
+- **New `BULLION_CATEGORY_HARD_CATEGORIES`** (`Silver Eagle`,
+  `Palladium Eagle`, `Gold Eagle`) — only these three get the real
+  hard-zero-narrow the Finish tier already gives a recognized value: a hit
+  narrows normally, a genuine miss (the hint matches nothing among THIS
+  coin's candidates) narrows to zero, a real signal. Every other category
+  stays soft-only exactly as before — either its real wording is still
+  unconfirmed (all six classic pre-1933 gold categories: zero DB_Coins rows
+  exist for any of them yet, so their hints are untested, not wrong,
+  pending an actual coin of that type being catalogued; Platinum Eagle's
+  own wording also wasn't among what Ray checked), or the hint word itself
+  carries a known collision risk (`"Commemorative"` alone would match Bald
+  Eagle Recovery, which IS a commemorative).
+- **Two hints were themselves fixed by this pass, not just promoted**:
+  `"Palladium Eagle"` was a bare `["PALLADIUM"]` and `"Gold Buffalo"` was a
+  bare `["BUFFALO"]` — both single-word, both exactly the collision-risk
+  pattern this tier's own design rule warns against (`"Buffalo"` alone
+  would false-positive against every real Buffalo Nickel row). Fixed to
+  `["PALLADIUM EAGLE"]` (matching the confirmed real wording) and
+  `["AMERICAN BUFFALO"]` (a safer two-word phrase; Gold Buffalo itself
+  stays soft-only since no confirmed real Gold Buffalo row exists yet —
+  only the mislabeled silver anomaly above). **Every hint in this map is
+  now a full two-word-or-longer phrase — never collapse one back to a
+  single word.**
+- **A soft category's hint can still narrow on a coincidental match** — this
+  is a known, accepted, and now explicitly tested tradeoff, distinct from
+  the hard-zero-on-a-genuine-miss case this pass protects against. `"Bald
+  Eagle Recovery Half Dollar"` genuinely contains the bare `"EAGLE"`
+  substring, so a soft `"Eagle"` category pick against a candidate set
+  including it WILL narrow to that one row — staying soft only prevents a
+  wrong hint from clearing everything to zero, it doesn't prevent an
+  occasional false-positive narrow on an untested single-word-risk hint.
+  This is why every hint promoted to `BULLION_CATEGORY_HARD_CATEGORIES` had
+  to be independently checked against every known false-positive risk
+  first, not just have real wording confirmed.
+- **`addCoinIdentityShape()` gained a `category` field**, sourced from
+  `addCoinBullionCategory` (blank for every everyday/classic pick, exactly
+  like the Description tier's `isControlledDescription` gate) — the same
+  "only Add Coin ever populates this field" pattern the Description tier
+  already established, so Browse Edit and the Docket (which build their
+  own identity shapes and never set `category`) are completely unaffected.
+  `addCoinIdentityShapeKey()` includes it too, so a Category change (e.g.
+  toggling Bullion off, or picking a different bullion type) correctly
+  invalidates a stale `addCoinResolvedPick`, same as every other
+  identity-affecting field.
+- **No new call sites needed** — `checkDbCoinsMatch()` (the live banner)
+  and `resolveAddCoinCatalogMatch()` (the save-time resolution) both
+  already route through `currentAddCoinMatchState()` -> `addCoinIdentityShape()`,
+  so both picked up the new tier automatically once the shape carried
+  `category`.
+- Verified headless (5 assertions in the original pass, this round adds 8
+  more — 13 total for this feature, 202 across all 3 suites, zero
+  failures): a real Category match narrows a synthetic Silver-Eagle-vs-
+  commemorative-Dollar pair to the correct row; a soft category with zero
+  hits among the current candidates soft-falls-back to the full set; the
+  tier is a true no-op with no `category` field at all (Browse Edit/
+  Docket's shape, and any ordinary non-bullion Add Coin entry); end-to-end
+  through the real UI, picking "American Silver Eagle" from the actual
+  Bullion dropdown correctly sets `addCoinIdentityShape().category` and the
+  real matcher narrows to the matching DB_Coins row; this round's own real
+  confirmed wording (`"American Silver Eagle Dollar"`/`"...Burnished
+  Dollar"`) narrowing correctly and excluding a Morgan Dollar row; a
+  CONFIRMED category (Silver Eagle) genuinely absent from a coin's
+  candidates now hard-zero-narrowing; the fixed Palladium Eagle hint
+  narrowing on the real confirmed phrase; Gold Eagle's real wording
+  narrowing correctly and excluding American Buffalo Gold; the unconfirmed
+  "Eagle" category NOT hard-zeroing on a genuine miss; the known, accepted
+  false-positive-narrow tradeoff for a soft category documented as a
+  passing assertion rather than left implicit; and the fixed Gold Buffalo
+  hint not falsely matching a plain Buffalo Nickel row while still
+  soft-falling-back on its own genuine (unconfirmed-category) miss.
+- **Not verified: the real DB_Coins Description wording for the six
+  classic pre-1933 gold categories or Platinum Eagle (all still soft-only,
+  zero or unchecked real rows), and no real device/OneDrive session** —
+  same standing caveat as every prior round in this feature. Promote any
+  of them to `BULLION_CATEGORY_HARD_CATEGORIES` only once a real row's
+  wording is confirmed AND checked against the same false-positive list
+  above.
+
+### Add Coin Phase 1: batch 4 (BUILT and merged to main)
+Three findings from Ray's live spot-check of batch 3's Category-narrowing
+fix against the real `_Testing` copy (2017 American Silver Eagle, blank
+Finish, correctly narrowed to 2 genuine candidates; Finish=Proof resolved
+to one — confirming the fix itself works).
+
+- **#1 — Bullion toggle relocated.** Moved from directly above the
+  Denomination field to below the main data-entry window (after Notes,
+  before the collapsed Purchase Details/Storage rows) — it's a mode switch
+  for the Denomination field, not a field of its own, and reads better as
+  a standalone control after the identification fields than interrupting
+  them. No behavior change — same element id, same listener, same
+  `populateAddCoinDenominationDropdown()` call.
+  **Superseded by batch 6 below — corrected back to directly above
+  Denomination** after Ray saw it live; kept here only for history.
+- **#2 — series picker not Category-aware, a real bug.** After picking
+  "American Silver Eagle" via the Bullion toggle, editing Year afterward
+  re-triggered the classic denom+year series lookup against the shared
+  `"$1"` code (which legitimately spans Peace/Morgan/Presidential/Native
+  American dollars) and popped the classic-dollar ambiguous picker for a
+  coin whose identity Category had already fully resolved — the exact same
+  class of gap the DB_Coins matcher's own Category tier (batch 3) fixed,
+  just on the Description auto-fill function instead. Root cause: the
+  denomination change handler's own bullion branch correctly sets
+  Description and skips the lookup, but `maybeAutoFillDescription()` is
+  ALSO called from the Year field's own input listener with no Category
+  awareness at all. **Fixed at the function itself, not the call site** —
+  `maybeAutoFillDescription()` now returns immediately when
+  `addCoinBullionCategory` is set, so every caller (present or future) is
+  protected the same way, not just the one call site that happened to
+  trigger this repro.
+- **#3 — Finish dropdown didn't match real DB_Coins values.** Confirmed
+  against the real catalog: missing `Burnished` (48 rows, confirmed
+  against a real `C-2017-W-$1-03` case), `Satin Finish` (88 rows),
+  `Enhanced Reverse Proof` (2 rows), `Enhanced Uncirculated` (2 rows — a
+  distinct, real West Point 75th Anniversary product name, kept as its own
+  option, never conflated with plain "Uncirculated"). `Specimen` removed —
+  matches zero real rows. Fixed the same way the Denomination dropdown was
+  fixed: options now reflect the real, confirmed catalog rather than a
+  hand-guessed list.
+  - **Explicitly NOT added: plain `Uncirculated` (172 rows).** Same class
+    of issue as the already-confirmed `Circulated` case (139 rows,
+    "Browse Edit real write layer" above) at larger scale — a
+    condition-vs-finish data mix-up in the catalog itself, a future
+    data-cleanup project, not a dropdown gap. Both stay excluded from the
+    dropdown; the matcher's existing soft-fallback-to-full-list behavior
+    (`dbCoinsCandidatesFor()`'s Finish tier) already covers a blank Finish
+    for those rows, unchanged.
+  - `FINISH_GRADE_PREFIX` (the PCGS-label-decode grade-prefix table) was
+    deliberately left untouched — it defaults unrecognized Finish values to
+    `"MS"`, a safe fallback, and none of the four new values were reported
+    as needing a specific prefix. Out of scope for this pass; flag if a
+    real coin with one of these Finishes is ever decoded from a PCGS label
+    and needs a different prefix.
+- Verified headless — new suite `tests/verify_batch4.js` (22 assertions,
+  all passing): the toggle's new DOM position (after Notes, before
+  Purchase Details, no longer immediately above Denomination); the series
+  picker never firing after a Bullion pick, including after an explicit
+  Year edit and a direct `maybeAutoFillDescription()` call; a control case
+  confirming a genuine classic multi-series year still shows the picker
+  (the fix is scoped to Bullion picks only, not a blanket suppression); all
+  8 confirmed Finish values present, `Specimen`/`Uncirculated`/`Circulated`
+  all absent, exactly 9 options total; and `Enhanced Uncirculated`
+  narrowing the Finish tier correctly without being conflated with
+  Business Strike. Screenshots reviewed at both viewports (a real Bullion
+  pick with the toggle checked) confirming the new layout and no overflow/
+  collision. All 3 prior suites (202 assertions) re-run clean alongside it
+  — 224 total, zero failures.
+- **Not verified: any real device, any real OneDrive session against these
+  specific fixes** — same standing caveat as every prior round in this
+  feature.
+
+### Add Coin Phase 1: batch 6 (BUILT and merged to main)
+Two findings from Ray's live-device review of batch 4's changes.
+
+- **#1 — Bullion toggle placement, corrected.** Batch 4's move (checkbox +
+  note down near Notes, before Purchase Details) read wrong in hand — the
+  checkbox determines how Denomination/Category get captured together, so
+  it needs to sit next to that field, not disconnected from it near the
+  bottom of the identification block. **Moved back to directly above
+  Denomination**, exactly its pre-batch-4 position. No behavior change —
+  same element id, same listener, same
+  `populateAddCoinDenominationDropdown()` call; markup position only, both
+  times.
+  **Superseded by batch 7 below — corrected again, per Ray's explicit,
+  twice-repeated instruction**, to sit UNDERNEATH the Denomination dropdown
+  itself rather than sandwiched between the label and the dropdown. This
+  round's placement was a reasonable-looking guess at "the original spot"
+  that turned out not to be what Ray meant — kept here only for history.
+- **#2 — Grading Service section header: kept, not dropped.** Investigated
+  rather than guessed: the "GRADING SERVICE (OPTIONAL)" header currently
+  reads as sitting above a single field (Grader) because the section's
+  other real content — the PCGS Label # block, the non-PCGS grader note,
+  and the Cert/Type Number row — is conditionally hidden (`display:none`)
+  until a Grader is actually picked. So at rest it *looks* like a
+  one-field section, but it already isn't one — those three blocks are
+  real, already-built content under this same header, not "planned soon"
+  fields that would need to arrive first to justify it. Dropping the
+  header (option b) would either leave the PCGS Label block/Cert-Type-
+  Number row with no header of their own once revealed, or require
+  re-adding one at that point anyway — so option (a) was the clear fit.
+  **No code change** — the header stays exactly as it is.
+  **Superseded by batch 7 below — Ray corrected this call too.** His actual
+  objection wasn't about whether more fields exist under the hood; it's
+  that the header visually reads as though Denomination/Year/etc. below it
+  all fall under "Grading Service," which is genuinely confusing regardless
+  of what's conditionally hidden. He also named a larger goal (matching
+  Edit Coin's page structure) that this task's own analysis should have
+  surfaced as a real, decidable factor rather than reasoning about the
+  header in isolation.
+- Verified headless: `tests/verify_batch4.js`'s own toggle-position
+  assertions were rewritten to check the corrected (original) placement,
+  following the real design change rather than weakening the suite (batch
+  4's now-superseded assertions are gone, not left conflicting). 223
+  assertions across all 4 suites, zero failures. Screenshots reviewed at
+  both viewports confirming the toggle sits directly under the
+  Denomination label with no overflow.
+- **Not verified: any real device against this specific correction** —
+  same standing caveat as every prior round in this feature; this round
+  itself was a direct response to Ray's own device review, so the loop is
+  already closer than usual.
+
+### Add Coin Phase 1: batch 7 (BUILT and merged to main)
+Ray corrected both of batch 6's calls directly, after explicitly asking to
+be consulted before either was touched again — this round is exactly what
+he confirmed, not a further guess.
+
+- **#1 — Bullion toggle: the ACTUAL original/intended spot.** Every prior
+  placement (original build, batch 3, batch 6) put the checkbox BETWEEN the
+  "Denomination" `<label>` and the `<select>` itself. Ray's ask, stated
+  twice, was for it to sit AFTER the dropdown — `<label>Denomination</label>
+  <select>...</select>` first, THEN the checkbox + its explanatory note,
+  THEN Year. No behavior change, markup position only.
+- **#2 — "GRADING SERVICE (OPTIONAL)" bold section-label removed, `Grader`
+  renamed to `Grading Service`.** Ray's confirmed direction is his own
+  option (b) from the batch-6 question, in full — not just the header
+  removal: drop the bold header, AND rename the field's own label from
+  "Grader" to "Grading Service," styled the same plain way any other field
+  label is (`<label>Grading Service</label>`, no special styling) — one
+  clearly-labeled field instead of two mismatched headers. **Position is
+  UNCHANGED** — still the first real field in the form, ahead of
+  Denomination, since a grader needs to be picked before the PCGS
+  label-decode flow can run. Only the element id (`addCoinGrader`) and
+  every function that reads it are untouched — this is a visible label
+  text change only, same "rename is label-only" pattern as every other
+  pure relabel in this file. A real restructure to match Edit Coin's
+  accordion-section layout (with Grading Service pulled into its own
+  bounded card) is Ray's stated bigger goal — logged as ParkingLot Row 5
+  above, explicitly scoped as a SEPARATE future task, not started here.
+  **Since BUILT** — see "Add Coin: accordion restructure" below; ParkingLot
+  Row 5 is resolved.
+- Verified headless: `tests/verify_batch4.js`'s toggle-position assertions
+  rewritten again for the corrected (AFTER-the-dropdown) placement, plus
+  three assertions confirming no `.section-label` element anywhere in Add
+  Coin still reads "Grading Service," that the field's own label text is
+  now genuinely "Grading Service" (not left as "Grader"), and that its
+  position ahead of Denomination is unchanged. 227 assertions across all 4
+  suites, zero failures. Screenshots reviewed at both viewports (phone +
+  tablet) — "Grading Service" sits plain near the top with no bold header
+  above it, Denomination dropdown is immediately followed by the Bullion
+  checkbox and its note, no overflow at either width.
+- **Not verified: any real device against this specific correction** —
+  same standing caveat as every round in this feature. **This time the
+  placement was confirmed in writing by Ray before building**, not guessed
+  — if it's still wrong, that's new information from an actual device, not
+  a repeat of the same back-and-forth.
+
+### Docket: three collapsible sections (BUILT and merged to main)
+The Docket opened onto one long flat list of everything needing action —
+undigestible in practice. Replaced with three collapsed-by-default
+accordion sections, each with its own item count in the header:
+**Staging**, **Awaiting Copilot Research**, **Other / Requires Photos**.
+
+**Presentation only — the classification logic is untouched.** The same
+signals decide the same things (`SET_STATUS`, `COIN_DRAFT_STATUS`,
+`findDbCoinsMatch`, `coinMissingPhoto`); what changed is which bucket each
+row is presented in, and that rows are now per-item instead of aggregated.
+
+- **Accordion-in-place, not three routes** (Ray's confirmed call). This is
+  the app's established grouping pattern everywhere else — Browse detail,
+  Edit Coin and Edit Set are all accordion stacks — and a separate page is
+  reserved for a destination with its own actions and back-target. Staging
+  Review already IS such a destination and **a Staging row still drills
+  through to it on tap**, so the existing precedent is preserved rather
+  than duplicated. Three more routes would have meant three more nav-back
+  targets for no gain. Wired once at init via `wireStaticAccordionToggle()`
+  (static markup — only the section CONTENTS re-render).
+- **Counts are per-coin, and the badge number goes UP.** Confirmed with Ray
+  as a deliberate, visible change: staged coins used to collapse into a
+  single "N coins awaiting your decision" row that contributed **1** to the
+  fob regardless of N, so the Docket under-reported real work. Every coin
+  now counts as itself, and the three header counts sum to the fob exactly,
+  by construction.
+- **In-progress Set drafts fold into Staging**, not a fourth section — a
+  Set draft lives in the same OneDrive Staging folder as a coin draft, so
+  it belongs there. Tapping one still goes to In Progress Sets.
+- **An unmatched staged coin is listed in Staging ONLY, never also in
+  Research.** The old layout showed it twice (an aggregate action row plus
+  its own research row); with real per-item rows in both sections that
+  becomes the same coin appearing and being counted twice — exactly the
+  redundancy this redesign exists to remove. Its unmatched state is
+  surfaced inline on its own row instead, with Re-check right there. Same
+  reasoning that removed the redundant Docket push on save (live-run
+  finding #7: "the draft's own presence in the hub already represents
+  'needs a catalog entry'"). Research therefore holds only what is
+  genuinely waiting on someone else: drafts marked ready, real Docket queue
+  entries, and Complete-pending-research Sets.
+- **The old flat containers are gone, not hidden** — `needsActionContainer`
+  / `needsResearchContainer` / their empty+workbook notes are replaced by
+  `docketStaging*` / `docketResearch*` / `docketOther*`. `needsAttentionBadge`
+  keeps its id (it is the drawer fob, not a section).
+- New `.docket-count` pill styling — deliberately quiet, and NOT the fob's
+  brass-tag treatment: the fob is the cabinet's own hardware, these are
+  counts inside a list. It tints gold while its section is expanded.
+
+**Mark-ready signal — soft/advisory, not a hard gate (Ray's confirmed
+call).** Most coins land in Staging precisely because they couldn't be
+confidently mapped to a CoinID at capture, so a resolved CoinID is the
+natural "ready to promote" signal. A draft with no `coinId` now shows a
+flag on its Staging Review row plus a **Re-check** button; **Mark ready
+stays enabled**. Deliberately not hard-blocked: a genuinely new variety may
+have no DB_Coins row at all and never will until Copilot adds one, so
+hard-gating on CoinID would strand that coin in Staging permanently.
+- **New `recheckCoinDraftMatch(draft)`** — the coin-draft counterpart of
+  `docketRecheckEntry()`, sharing its exact three-outcome contract (0 = say
+  so and touch nothing; 1 = confirm dialog, never auto-applied; 2+ = the
+  shared ambiguous picker, where the deliberate pick IS the confirmation —
+  the firm project rule, per two historical mislinks). Reachable from both
+  the Docket's Staging rows and Staging Review's own rows.
+- **`description` is deliberately NOT passed into the re-check shape.** The
+  Description tier in `dbCoinsCandidatesFor()` is documented as firing ONLY
+  for Add Coin's controlled series-picker value; a draft's stored
+  description may be free-typed, and `All.Description` /
+  `DB_Coins.Description` are different sources with no guaranteed
+  correspondence. `category` IS passed — it can only ever have come from
+  the controlled Bullion-tier dropdown, so it carries the guarantee the
+  Description tier needs and free text doesn't.
+- **`matchedHow` gains a fourth value, `"recheck"`**, alongside
+  single/picked/none — reconciliation needs to know a link was established
+  AFTER capture by a later catalog addition rather than at capture time.
+  Verified safe: nothing in the app branches on the old three values.
+
+**Verified headless — new suite `tests/verify_docket_sections.js` (30
+assertions), all passing; 258 across all 5 suites, zero failures.** Covers:
+the three sections' exact order and labels, all collapsed by default,
+expand/collapse with `aria-expanded`, the old containers genuinely removed;
+the three counts summing to the badge AND each matching its own rendered
+row count; per-coin rows rather than an aggregate line; a resolved draft
+showing its CoinID and an unresolved one flagged inline; an unmatched coin
+NOT duplicated into Research; a marked-ready draft moving to Research and
+out of Staging; photo gaps confined to Other with their Dismiss action
+intact; a Staging row still drilling through to Staging Review; the
+soft-not-hard Mark-ready gate (button enabled, flagged, Re-check offered);
+Re-check writing nothing on zero candidates and nothing until confirmed on
+one; and the resolved CoinID plus `"recheck"` provenance landing on the
+draft. Four prior assertions were rewritten to follow the real design
+change rather than weakened — the superseded aggregate-row and
+deliberate-duplication claims (`R6`), and three container-id reads.
+Screenshots reviewed at both viewports, no overflow at either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
+### Add Coin: accordion restructure (BUILT and merged to main)
+Add Coin was one long flat form; Edit Coin / Browse detail are accordion
+stacks. Since most of what Add Coin captures is exactly what Edit Coin
+later edits, the two now read as the same screen. Resolves ParkingLot
+Row 5.
+
+**Section order** — `Grading & Certification`, then the RECORD_SECTIONS
+order minus Specifications: `Overview`, `Photos`, `Notes & Facts`,
+`Purchase Details`, `Storage`. Overview defaults open, everything else
+collapsed, matching Edit Coin exactly.
+
+- **Specifications is omitted ENTIRELY — not even read-only** (Ray's call).
+  Composition/weight/diameter belong in DB_Coins, populated by Copilot
+  research or offline work straight into the database; Add Coin should
+  neither capture nor display them. This deliberately diverges from Edit
+  Coin's own section list, which does show them read-only.
+- **`Grading & Certification` is an extra section with no Edit Coin
+  equivalent, positioned FIRST** — ahead of Denomination, because a grader
+  must be picked before the PCGS label-decode flow can run and that decode
+  auto-fills the identity fields below it. It bundles the grader select,
+  the PCGS Label # block and the Cert/Type Number row (the latter two
+  conditionally shown, unchanged). It sits outside the RECORD_SECTIONS
+  order on purpose: it's entry-time machinery, not a record section.
+  - **Header wording is a real call worth knowing about.** Batch 7 removed
+    a bold "GRADING SERVICE (OPTIONAL)" label sitting on a near-synonymous
+    "Grader" field, and renamed the field to "Grading Service". Making it a
+    bounded section needs a header again, and reusing "Grading Service"
+    would recreate exactly the duplication Ray rejected. So the header
+    names the GROUP — **"Grading & Certification"** — and the field keeps
+    its batch-7 "Grading Service" label. Different words at different
+    levels, structurally identical to "Overview" → "Year".
+  - Collapsed by default despite being first: most coins aren't slabbed, so
+    a short form is the common case and a PCGS entry is one tap away. Worth
+    Ray's eyes on a device — it's the one default that trades a tap in the
+    slabbed flow for brevity in the unslabbed one.
+- **Purchase Details and Storage are inline accordions now**, overturning
+  the locked-in "drill-down, not an inline accordion" note (Ray explicitly
+  overturned it; see that note, now marked superseded). `showAddCoinSubview()`,
+  the two subview cards, their Back/Done buttons, the two summary rows and
+  `updateFormRowSummaries()` are all retired. **Add Set was deliberately
+  NOT converted** — it still drill-downs; that would be its own scoped
+  change, and its comment referencing Add Coin's retired pair was corrected
+  so a future session doesn't follow a dead pointer.
+- **The match-count indicator moved into Overview**, directly beneath the
+  identity fields that produce it (`dbMatchBanner`/`dbNoMatchBanner`/
+  `dbAmbiguousBanner`), instead of sitting adrift near the save buttons.
+  Change an identity field, watch the count react.
+- **Save controls stay OUTSIDE every accordion** — they act on the whole
+  form, and burying the primary action inside a collapsible section would
+  hide it.
+- **Add-Coin-only fields placed per Ray**: Error and Finish into Overview,
+  Assign to Album stays in Storage. Notes & Facts holds Notes alone — Fun
+  Fact is DB_Coins catalog data about the coin TYPE (read-only even in Edit
+  Coin), so there is nothing for Add Coin to capture there.
+- **New `ADD_COIN_SECTIONS`** — one `[headerId, bodyId, openByDefault]`
+  table driving both the init-time wiring and the reset-to-default in
+  `resetAddCoinForm()`, so the two can't drift. Sections now reset to their
+  defaults on re-entry, same rule live-run bug #1 established for the
+  fields themselves (leaving Purchase Details hanging open from the
+  previous coin is the same class of leftover, just structural).
+
+**A hazard checked rather than assumed.** CLAUDE.md warns that
+`renderTypeDenomCorner()`'s `scrollWidth`/`clientWidth` shortening "requires
+the element to already be visible/laid out — call sites that toggle
+visibility must do so BEFORE populating corner text". The flip labels now
+live inside a collapsed-by-default Photos section, which looks like exactly
+that trap. **It does not apply**: Add Coin's own `updateFlipLabels()` sets
+`textContent` directly and never calls `renderTypeDenomCorner()` — only the
+SAVED-coin renderer (`applyFlipCorners()`, Spotlight/Browse detail) does.
+Verified live, not reasoned about, and pinned by two assertions so a future
+change can't quietly introduce the dependency.
+
+**The whole restructure was low-risk for one specific reason: every field
+kept its element id.** The markup moved into accordion wrappers; no JS that
+reads a field by id needed touching. That is why 258 pre-existing assertions
+passed unchanged against the new layout.
+
+**Verified headless — new suite `tests/verify_addcoin_accordion.js` (29
+assertions), all passing; 287 across all 6 suites, zero failures.** Covers:
+exact section order with Grading first and no Specifications; the
+Overview-open/rest-collapsed defaults; the subview cards, summary rows and
+both retired functions genuinely gone from the DOM/global scope; every
+field landing in its intended section; the match banners in Overview and
+the save buttons outside every accordion; Grading still preceding
+Denomination and batch 7's Bullion-toggle placement surviving; expand/
+collapse with `aria-expanded` and reset-to-default on re-entry; flip labels
+populating correctly while Photos is collapsed AND unchanged once expanded;
+a real save collecting fields out of collapsed sections, through both the
+in-memory row and the durable-draft reader; and no horizontal overflow with
+every section expanded, at both viewports. Screenshots reviewed at both
+viewports.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature. Ray has not seen the
+  inline Purchase/Storage sections in hand yet and has said he'll flag them
+  if they don't feel right.
+
+### U.S. Mint Item Number: naming standardized across DB_Coins/DB_Sets (BUILT and merged to main)
+`DB_Coins.USMint#` — a real column, confirmed by Ray, that carries the
+Mint's own catalog identifier for a specific coin PRODUCT — was not read by
+`mapWorkbookRowToDbCoin()` at all before this. Per Ray's explicit direction,
+standardized to the same naming DB_Sets already uses for the identical
+concept (`ItemNumber`), and to the term the Mint's own catalog uses ("Item
+Number"), rather than inventing a third name for the same thing.
+
+- **Exposed internally as `itemNumber`** on the mapped DB_Coins row shape —
+  matching `DB_Sets`' own `itemNumber` field name exactly, so the two read
+  as siblings in code (a Mint product identifier), not as two differently-
+  named things that happen to mean the same thing.
+- **`colVal()`'s candidate list covers the real header (`USMint#`) plus
+  the standardized name (`ItemNumber`/`Item Number`)** — this keeps working
+  whichever the workbook column ends up named after Ray's own standardization
+  pass on the sheet itself (not done by this app-only session; workbook
+  header renames are Ray/Copilot's territory, same boundary as every other
+  schema change in this file).
+- **Add Set's own field label renamed** from "Mint product code (if known)"
+  to **"U.S. Mint Item Number (if known)"** — label-only, matching the term
+  now used consistently on both sides; element id (`addSetProductCode`) and
+  every function reading it are untouched, same "rename is label-only"
+  pattern as every other pure relabel in this file.
+- **`FAKE_DB_COINS` gained a sparse `itemNumber` field** (blank on the one
+  seeded row so far), matching the sparse-field convention every other
+  optional DB_Coins attribute (`gsid`, `pcgs`) already follows in the mock.
+
+**Deliberately NOT done in this pass, flagged rather than assumed:**
+Add Coin has no capture field for this yet, and DB_Coins.itemNumber is not
+wired into any matcher tier (`dbCoinsCandidatesFor()` doesn't read it). This
+was purely the naming/mapping standardization Ray asked for as a first
+step — see the open questions in the session log for what a real Add Coin
+capture field + matching wiring would need to decide (single field vs. the
+two-part `ItemNumber`/`ProductOption` structure DB_Sets uses; where it lives
+on the Add Coin form; whether it should also fold into the Docket research
+note for an unmatched coin).
+**Since BUILT** — see "Add Coin: Identification section — Mint Item Number +
+GSID matching" below; every open question there was resolved and a real
+capture field now exists for both.
+
+Verified headless — new suite `tests/verify_usmint_itemnumber.js` (5
+assertions): the real column reads correctly, both fallback candidate
+names work, a row with none of the three maps to a blank string rather
+than throwing, and the Add Set label reads the standardized text. 292
+assertions across all 7 suites, zero failures.
+- **Not verified: any real device, any real OneDrive session, or the real
+  DB_Coins column's exact current name** — Ray confirmed the column exists
+  and is called `USMint#` today; whether/when he renames it on the sheet
+  itself is his call, and the fallback candidates exist specifically so
+  this code doesn't care either way.
+
+### Add Coin: Identification section — Mint Item Number + GSID matching (BUILT and merged to main)
+Extends the existing PCGS-label-decode pattern with two more independent
+identification paths, since a growing share of Ray's purchases come
+directly from the Mint (a product often not yet in DB_Coins at all) and
+DB_Coins.GSID was already a real column with no entry point of its own.
+
+- **"Grading & Certification" renamed to "Identification."** It's no
+  longer just about a graded slab — it hosts every authoritative external
+  ID that can decode a coin's identity (Mint Item Number, PCGS label,
+  GSID). Header text/id (`addCoinGradingHeader`) otherwise unchanged, same
+  "different words at different levels" pattern batch 7 already
+  established for "Grading Service" vs. this section's own header.
+- **Field order inside the section**: U.S. Mint Item Number FIRST (ahead of
+  Grader — Ray's own point that Mint purchases are his common case and
+  often the only identifier on hand pre-catalogue), then the existing
+  Grader/PCGS block unchanged, then GSID LAST (a Greysheet catalog ID,
+  unrelated to any grading service, so it sits independent of that block
+  rather than nested inside it).
+- **One shared `handleIdentifierLookup()`, not two near-duplicate
+  handlers** — Mint Item Number and GSID are structurally identical
+  lookups (no parsing step, unlike PCGS's `SPEC.GRADE/CERT` format), so one
+  parameterized function drives both `handleMintItemNumberApply()`/
+  `handleGsidApply()`. Match is case-insensitive/trimmed via `normField()`
+  (the same "forgiving" comparison every other identity match in this file
+  already uses) against `activeDbCoins()` — live catalog when loaded,
+  `FAKE_DB_COINS` otherwise, same source PCGS/Finish/Category already read.
+  Fires on blur (`change`) and Enter — no Decode button, since there's
+  nothing to parse the way PCGS's label format needs one.
+  - **0 matches** → a non-blocking "not found" banner (expected to be the
+    common case for a genuinely new Mint release); the typed value is
+    still captured onto the draft either way.
+  - **1 match** → `applyIdentifierDbCoinsMatch()` autofills identity
+    fields (denom/year/mint/description/variety/finish) and makes the pick
+    authoritative for Save, reusing the exact "remembered pick" mechanism
+    PCGS decode uses (Q4) — so Save doesn't re-open the ambiguous picker
+    for an identity that already resolved unambiguously.
+  - **2+ matches** (two DB_Coins rows sharing an Item Number/GSID would
+    itself be a catalog issue, but handled anyway) → the same shared
+    `renderAmbiguousMatchList()` every other 2+ case in this app uses —
+    never auto-resolve, always a human pick.
+  - **Deliberately NOT the same function PCGS decode uses**
+    (`resolvePcgsLabelMatch`), which also forces Grader/GradeSource to
+    `"PCGS"`. Neither a Mint product number nor a Greysheet ID implies PCGS
+    certification, so a match via either of these two fields autofills
+    identity only — Grader/GradeSource are untouched. Verified directly
+    (assertions B3/C2).
+- **Two real, persisted draft fields, `itemNumber` and `gsid`** — captured
+  regardless of match outcome (same "capture it either way" posture every
+  other identity field on this draft already has). `readAddCoinFormForDraft()`
+  also captures `pcgsLabelRaw` (the full, unparsed PCGS Label # field text)
+  purely for the research note below — Add Coin has only ever persisted the
+  CERT portion of a decoded label (`serNo`), so without this a slabbed
+  coin whose PCGS# came back with no DB_Coins match would leave nothing
+  of the actual label for Copilot to work from.
+- **The Docket research note now lists every captured-but-unresolved ID**,
+  not just a generic "no match" line — Mint Item Number, GSID, and the raw
+  PCGS label text (if entered) all appear when present, since any ONE of
+  them is what lets Copilot create the right catalog row. Checked only in
+  the no-match branch: a coin that DID resolve (by any path) has nothing
+  left to hand to reconciliation, even if some other field it also carried
+  happened not to match anything — a genuine disagreement between two
+  resolved IDs is the separate, deliberately deferred conflict-detection
+  item (see below).
+- **`researchNote` is now actually surfaced in the UI — a real, separate
+  gap this task found and fixed.** It was already computed and written to
+  every draft, but nothing displayed it: neither the Docket's Staging rows
+  nor Staging Review's own row list ever read `draft.researchNote` back.
+  Now shown as its own line in both places — the Docket's Staging row
+  (`renderNeedsAttentionHub()`) and Staging Review's row list
+  (`coinDraftToStagingRow()`/`buildStagingRowEl()`), reusing the existing
+  `.staging-pending-flag` styling.
+- **A real bug caught by screenshot before shipping, not left for a later
+  pass to find** — the exact same trap this file has hit before (no
+  generic `.hidden` rule; every `.hidden` is scoped to its own component).
+  The two new ambiguous panels (`mintItemAmbiguousPanel`,
+  `gsidAmbiguousPanel`) were built with `class="case hidden"` copying the
+  existing PCGS/Description panels' look, but needed their own
+  `#id.hidden` rule same as those — without it, `classList.contains
+  ("hidden")` read `true` while the panels stayed fully visible at rest.
+  Fixed with two scoped rules; the committed suite checks the real
+  computed style (`getComputedStyle().display`), not just `classList`, so
+  this class of bug can't hide behind a green suite again.
+- **Deliberately deferred, not built here (Ray's explicit call)**: if two
+  or more of PCGS#/Mint Item Number/GSID are entered and resolve to
+  DIFFERENT DB_Coins rows, nothing detects or surfaces that conflict yet —
+  each lookup is independent, and whichever one is filled in/re-triggered
+  last simply overwrites `addCoinResolvedPick`. This project has a real
+  history of PCGS#/GSID mismatches turning out to be genuine catalog bugs
+  (see the Designation-matcher cert-protection guard elsewhere in this
+  file), so a silent overwrite is a known, accepted gap for now, not an
+  oversight — scoping the actual disagreement-resolution UI is explicitly
+  held for a follow-up once Ray has seen the first four pieces live.
+
+**Verified headless — new suite `tests/verify_addcoin_identification.js`
+(22 assertions), all passing; 314 across all 8 suites, zero failures.**
+Covers: the section rename and exact field order; a Mint Item Number match
+autofilling identity with no Grader/GradeSource side effect, and a genuine
+miss touching nothing; the same for GSID (including case-insensitive
+matching); the resolved pick actually being what Save commits; the raw
+captures (`itemNumber`/`gsid`/`pcgsLabelRaw`) being read off the form and
+persisted onto the draft regardless of match outcome; the research note
+listing all three captured-but-unresolved IDs together, and NOT appearing
+at all for a coin that did resolve; `researchNote` genuinely rendering in
+both the Docket and Staging Review; `resetAddCoinForm()` clearing both new
+fields and their banners; the two ambiguous panels' GENUINE hidden state
+(computed style, not just class); and a full nav smoke with no overflow.
+Screenshots reviewed at both viewports, before and after the visibility
+fix.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature. `FAKE_DB_COINS` gained a
+  real `itemNumber` ("21RJ") on the existing Mercury Dime demo row, reusing
+  its already-real `gsid` ("GS-1044") on the neighboring VDB Lincoln row
+  rather than inventing new demo rows.
+
+### Add Coin Identification: a matched ID now carries Category too (BUILT and merged to main)
+Live-testing finding: matching a coin via Mint Item Number, GSID, or a PCGS
+label decode all autofilled identity fields (denom/year/mint/description/
+variety/finish) through the one shared `applyDbCoinsRowToForm()`, but none
+of them ever set Category or checked the Bullion toggle — so matching a real
+bullion coin (e.g. a 2017 American Silver Eagle) left the form showing a
+bare `$1` classic Dollar with Bullion unchecked, even though the matched
+DB_Coins row unambiguously names it a Silver Eagle. Confirmed live by Ray.
+
+- **DB_Coins has no Category column** (confirmed via source, unchanged from
+  the batch-3/Category-tier work) — so Category is inferred from the
+  matched row's own `description`, using the EXACT SAME
+  `BULLION_CATEGORY_MATCH_HINTS` table `dbCoinsCandidatesFor()`'s Category
+  tier already reads, just run in the opposite direction: there,
+  category → narrow candidates; here, `inferBullionCategoryFromDescription()`
+  does description → category.
+- **Longest-matching-hint wins, not first-match-in-iteration-order** — the
+  same trap the hints table's own comment already warns about for a single
+  bare word, just re-encountered at the table level instead of within one
+  hint list. The generic `"Eagle"` category's own hint (`"EAGLE"`) is a
+  substring of `"American Silver Eagle Dollar"` and sits earlier in the
+  object than `"Silver Eagle"`'s own more specific `"SILVER EAGLE"` hint —
+  a naive first-match scan would incorrectly infer plain `"Eagle"`. Picking
+  the longest matching hint across every category (not the first one found)
+  is what actually gets this right; confirmed as the correct approach
+  before building, not discovered by a failing test.
+- **Fixed once, inside `applyDbCoinsRowToForm()` itself** — a new
+  `applyInferredBullionCategoryToForm(row)` runs first thing inside it, so
+  all three callers (PCGS decode via `resolvePcgsLabelMatch`, Mint Item
+  Number and GSID via the shared `applyIdentifierDbCoinsMatch`) are fixed
+  uniformly, with no per-caller duplication.
+- **Never dispatches a `"change"` event on `#denomination`** when
+  programmatically selecting the matching `BULLION_TIER_OPTIONS` entry —
+  that handler's own bullion branch sets Description from the OPTION's
+  generic label text, which would clobber the real, more specific DB_Coins
+  `row.description` this function is called right alongside setting.
+  Instead the matching `<option>` (matched on both `value === row.denom`
+  AND `dataset.category === category`) is selected directly and
+  `addCoinBullionCategory` is set by hand.
+- **A non-bullion match explicitly restores classic mode** — unchecks the
+  toggle, repopulates the classic dropdown, clears `addCoinBullionCategory`
+  — so a bullion match earlier in the same form session (a Mint Item Number
+  match, then a different, unrelated GSID/PCGS match to a plain coin) can't
+  leave a stale bullion selection behind.
+- Verified headless — new suite `tests/verify_addcoin_category_autofill.js`
+  (15 assertions, all passing; 329 across all 9 suites, zero failures):
+  `inferBullionCategoryFromDescription()` in isolation (the longest-hint
+  case against a synthetic "American Silver Eagle Dollar" description, a
+  Gold Eagle case, a plain Morgan Dollar inferring nothing, blank/undefined
+  never throwing); a Mint Item Number match against a synthetic Silver
+  Eagle row checking the toggle, landing on the correct `$1`/`"Silver
+  Eagle"` option, and Description staying the real DB_Coins text (not the
+  option's own generic label); the identical outcome via GSID and via a
+  PCGS label decode (confirming the one-shared-function fix covers all
+  three); a subsequent plain-coin match correctly un-checking the toggle
+  and clearing Category with no stale carry-over; and a nav/overflow smoke
+  check. Full 9-suite regression re-run clean alongside it.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
+### Staging Review: workbook + per-coin folder links (BUILT and merged to main)
+Live-testing item 3 of Ray's 4-item batch: the Docket's Research section
+already shows an "Open workbook in Excel" link, but Staging Review — the
+other real screen he reviews pending drafts from — had no equivalent, and
+he also wanted a direct link to a coin's own OneDrive Staging folder (to
+check its uploaded photos without hunting for it by hand).
+
+- **The workbook link renders ONCE, near the top of the page — not
+  repeated per row (Ray's explicit call).** It's the exact same link
+  regardless of which coin is being reviewed, unlike the Docket's Research
+  rows, which repeat it per-row because each row there can drift out of
+  view independently in a longer, ungrouped list. Reuses
+  `getCachedWorkbookWebUrl()` completely as-is (no new fetch logic, no
+  second cache) — same one-shot-per-session caching the Docket already
+  relies on. Degrades to the same "Workbook link unavailable right now
+  (write layer disabled, or not signed in)" note as the Docket when
+  `null` comes back, rather than a broken link.
+- **The coin's own OneDrive Staging folder link is per-row, since it
+  genuinely differs per draft.** New `RealGraphClient.getFolderWebUrl(path)`
+  mirrors `getWorkbookWebUrl()`'s exact pattern (a plain read-only Graph
+  item-metadata GET, `null` on a 404) but takes any path — used here with
+  `coinDraftFolder(collectionId)`. New `getCachedFolderWebUrl(collectionId)`
+  caches per-CollectionID in a `Map` for the session (same
+  undefined/null-are-both-falsy convention as the workbook cache, just
+  keyed since there are many folders instead of one workbook). This is a
+  genuinely new, dedicated method — not an overload of `getItemMeta()`,
+  which carries different (null-if-never-uploaded) semantics elsewhere in
+  this file.
+- **Both links are computed once per `renderStagingList()` render, before
+  any row markup is built** — the page-level link via one
+  `getCachedWorkbookWebUrl()` call, the per-row links via one
+  `Promise.all()` over every REAL (non-mock) draft's own
+  `getCachedFolderWebUrl()` — rather than each row kicking off its own
+  independent fetch. Both fetches respect the existing
+  `stagingRenderToken` staleness guard (a newer render superseding a
+  slower in-flight one bails out before touching the DOM), same pattern
+  `renderNeedsAttentionHub()` already established.
+- **Mock (flag-off) `FAKE_STAGING` rows show neither link** — there's no
+  real Staging folder for a mock row to link to, and no real workbook
+  write layer backing the page-level link either; this is unchanged from
+  every other real-Graph feature's flag-off behavior in this file.
+- Verified headless — new suite `tests/verify_staging_workbook_links.js`
+  (10 assertions, all passing; 339 across all 10 suites, zero failures):
+  the page-level link renders exactly once in the whole `#view-staging`
+  DOM (not once per row); two real drafts each get their own,
+  genuinely-different folder link, correctly derived from their own
+  CollectionID's Staging folder path; the flag-off mock path shows
+  neither link with no crash; an unavailable workbook link (mock seeded
+  `workbookWebUrl: null`) degrades to the explanatory note; and a nav/
+  overflow smoke check. Screenshots reviewed at both viewports (phone +
+  tablet) — the workbook link sits directly under the interim banner,
+  each row's folder link sits inline with its other detail lines, no
+  overflow at either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature; this is a new Graph
+  read path (`getFolderWebUrl`) and needs a live click-through to confirm
+  it actually lands on the coin's own Staging subfolder in an editable
+  OneDrive session, same "needs a real click-through" caveat the workbook
+  link itself already carries.
+
+### Docket: Research row tags (BUILT and merged to main)
+Live-testing item 4 of Ray's 4-item batch: Staging vs. Awaiting Copilot
+Research read as nearly identical in live testing — apart from the
+Set-in-progress case, both sections just show a coin/Set name and a status
+line. Ray gave explicit latitude to either rename the Research section or
+visually distinguish the row kinds within it.
+
+- **Kept as one Research section, three sections total — a small per-row
+  tag distinguishes row kinds instead of a rename or a fourth section.**
+  Reasoning: the section's real name ("Awaiting Copilot Research") is
+  still accurate for every row in it — a Handed-Off draft genuinely IS
+  waiting on Copilot's reconciliation pass, same as a genuine no-catalog-
+  match entry is waiting on Copilot's research. Renaming the section would
+  have meant picking a name that's honest for only one of the two row
+  kinds. A fourth section would also have meant a fourth badge count to
+  track down, when the actual ask is just "let me tell these apart at a
+  glance" — which a tag solves directly.
+- **Two kinds, matching the exact classification already implicit in the
+  three research push sites**: **"Handed Off"** = a coin draft already
+  marked ready (`stagedHandedOff`, `COIN_DRAFT_STATUS.READY`) or a Set
+  draft with `status = "Complete — pending research"` (`completeSets`) —
+  finished capture, waiting on someone else to act, nothing left for Ray
+  to decide. **"Research"** = a real Docket queue entry from
+  `docketOpenEntries()` (including a `kind: "coinid-relink"` entry) —
+  genuinely no catalog match yet, needs Copilot's actual research.
+- **Rendered by one shared `appendDocketRows()`**, not duplicated per push
+  site — each research row object now carries its own `kind: "handoff"`
+  or `kind: "research"` field; `appendDocketRows()` renders a small
+  `.docket-tag` pill (`Handed Off` / `Research`) at the top of any row
+  that has one, so Staging and Other rows (which never set `kind`) are
+  completely unaffected with no extra opt-in check needed.
+- **New `.docket-tag` CSS** — same "quiet inline pill, not the drawer
+  fob's brass-tag treatment" posture `.docket-count` already established:
+  `.docket-tag-handoff` reads muted/neutral (waiting, nothing urgent from
+  Ray); `.docket-tag-research` picks up the gold accent (a real Copilot
+  research item).
+- Verified headless — new suite `tests/verify_docket_row_tags.js` (11
+  assertions, all passing; 350 across all 11 suites, zero failures): the
+  section count/order is still exactly three (no rename, no split); a
+  real seeded Docket queue entry tags "Research" with the research CSS
+  class; a coin draft marked ready tags "Handed Off"; a Complete Set
+  draft also tags "Handed Off"; Staging/Other rows never carry the tag at
+  all; and a nav/overflow smoke check with Research expanded. Screenshots
+  reviewed at both viewports — the tag sits cleanly above each row's
+  title with clear visual contrast between the two kinds, no overflow at
+  either width.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round in this feature.
+
+### Composition: a real matcher input + flip-card display (BUILT and merged to main)
+Two related pieces from Copilot's composition research (2026-08-29) plus a
+live-testing observation that the flip card's bottom-right corner was unused.
+
+**The bug being fixed.** `DB_Coins.Composition` is a real, populated column
+that `mapWorkbookRowToDbCoin()` **never read at all** — it was listed in that
+function's own header comment and then not mapped, so the matcher was
+structurally blind to it. Copilot found **109 true Clad/Silver Proof pairs**
+in the catalog, **99 of which collide on the matcher's own
+Year+Denom+MintMark+Variety key** with the SAME Finish ("Proof") and the SAME
+Description. For those, Composition is the only field that tells the two rows
+apart — so a Silver Proof coin could silently link to the Clad catalog row,
+taking its CoinID, Mintage and PCGS# with it (and, since SpotValue's formula
+chains through CoinID, its spot value too) with nothing visibly wrong on
+screen. That is the same silent-mislink class as this project's two
+historical incidents. (Copilot also found and already fixed 2 real catalog
+gaps; those were workbook-side and needed nothing here.)
+
+**1. Composition narrows `dbCoinsCandidatesFor()` — the one HARD tier.**
+- **Hard, deliberately** (Ray's Q4): a supplied Composition matching no
+  candidate returns **zero — No Match**, never a soft fall back to a
+  different-composition row. Every other tier is soft or
+  conditionally-hard; this one is not, because a soft fallback here IS the
+  bug.
+- **Not guarded by `candidates.length > 1`** — the only tier that isn't, and
+  it matters. Every other tier is a *disambiguator*, earning its keep only
+  when there's something to disambiguate. This is a *correctness check on the
+  match itself*: if exactly one candidate exists and its Composition
+  contradicts the supplied one, that lone candidate is still the wrong row,
+  and "there was only one option" is not a reason to accept it.
+- **Runs first**, immediately after the base filter, ahead of the
+  Description/Category/Finish/Designation tiers — Composition is part of the
+  identity key here, not a heuristic. Everything downstream is `length > 1`
+  guarded, so a Composition narrow to 0 or 1 correctly short-circuits them.
+- **`normComposition()`** — string-normalize ONLY (Q2): `normField()`'s
+  trim+uppercase, plus collapsing internal whitespace and `,;/` separators so
+  the sheet's hand-entered variants compare equal. It deliberately does
+  **not** canonicalize across wordings — `.999 Fine Silver` and
+  `99.9% Silver` stay distinct, and it never buckets to the
+  Silver/Clad/Gold MetalCategory (bucketing would merge two genuinely
+  different coins back into one match, the very bug this fixes).
+- **Nothing feeds it yet, and that's intended** (Q1). There is no producer for
+  `shape.composition`: Add Coin deliberately has no Composition input
+  (Specifications is catalog data, not hand-entered — the accordion redesign
+  excluded it on purpose), **All has no Composition column**, and an ID lookup
+  (PCGS/Mint Item Number/GSID) already resolves to one authoritative row
+  without re-running the matcher. Built now as the correct forward-looking
+  contract, same posture as Category being captured on the draft ahead of
+  `ALL_WRITABLE_COLUMNS`. **Until a producer exists, the reachable behavior is
+  the Ambiguous path, not the No-Match one.**
+- **FOR WHOEVER ADDS THAT PRODUCER (Ray's explicit flag, Phase 2):** verify
+  DB_Coins' Composition wording is actually clean for whatever it will match
+  against BEFORE relying on it — the same diligence the Category hard-zero
+  tier required, where each hint had to be confirmed against real wording and
+  checked against known false positives first. A hard tier fed by
+  inconsistent data creates false Docket misses.
+- **Composition unknown + candidates differing only by it => Ambiguous**, with
+  **no silent preference of any kind** (Q3) — not even a plausible one like
+  "prefer clad for a business strike". This needed no routing code: 2+
+  candidates already means the shared picker. What it needed was making
+  Composition *visible* there.
+
+**Confirmed scope of the fix against Copilot's own three cases** (checked
+before assuming Composition resolves everything):
+- **The 109 Clad/Silver Proof pairs** — Composition alone fully resolves.
+- **1982-D/S 50C Washington commemorative vs. Kennedy half** — Composition
+  alone *also* fully resolves it (the Washington commem is 90% silver, the
+  1982 Kennedy is clad, at both D and S). Description would separate them too,
+  but isn't needed.
+- **1999-P $1, multiple silver dollar programs vs. Susan B. Anthony** —
+  Composition does **NOT** fully resolve this one. It splits SBA (clad) away
+  from the two commemoratives, but **Dolley Madison and Yellowstone are both
+  90% silver** at the same year/mint/denom/variety, and both exist in Proof
+  and Uncirculated so Finish doesn't separate them either. Description is
+  their only true differentiator.
+  **Deliberate call (confirmed): that residual pair stays a PICKER case, not
+  a new auto-narrowing Description tier.** Three reasons: the standing firm
+  rule is "2+ always reaches a human"; the existing Description tier is
+  gated to Ref_Denominations' controlled series vocabulary, which is not
+  guaranteed to carry commemorative program names for `$1`+1999 so it likely
+  wouldn't fire anyway; and CLAUDE.md's own "Commemorative / Description
+  blind spot" assessment already concluded that if picker frequency becomes
+  annoying the fix is to *surface Description more prominently, not
+  auto-resolve on it* — which the picker already does. **Do not reopen this
+  as "Composition didn't fix 1999-P."** It isn't meant to; the picker is the
+  answer there, by design.
+
+**Composition surfaced in the candidate displays.** Added to
+`renderAmbiguousMatchList()` **and** to both single-candidate Re-check confirm
+dialogs (the Docket's `docketRecheckEntry()` and `recheckCoinDraftMatch()`) —
+all three are "what am I about to link this coin to" displays and were
+inconsistent otherwise. **Composition LEADS the detail line, ahead of
+PCGS#/GSID/Mintage**: on those 99 colliding pairs every other displayed fact
+is byte-identical between the two candidates, so burying the one
+differentiator behind three catalog reference numbers would recreate the
+Part-F "both options look identical" bug by another route.
+
+**2. Composition on the saved coin's flip card, bottom-right corner.**
+- **That corner did not exist.** `applyFlipCorners()` wrote TL/TR/BL/SR only —
+  there was no `browseDetailBR`/`spotlightBR` span at all, so the corner was
+  empty by absence, not by choice. Both spans are new.
+- **Browse detail AND Spotlight**, which share `applyFlipCorners()` — one
+  render path, both get it.
+- **Add Coin is deliberately EXCLUDED** (Ray's explicit scoping, correcting
+  the original ask): `updateFlipLabels()` is a different function with a
+  different corner mapping, its `flipObverseBR` already carries
+  Variety+Designation as two stacked lines, composition often isn't known
+  until an Identification match resolves, and this corner has a documented
+  real-device clipping history that a third stacked line would be poking at.
+  A regression assertion pins Add Coin's BR to Variety/Designation only.
+- **Precious metal only** — gold/silver/platinum/palladium. A clad quarter or
+  zinc cent has a composition, but it isn't worth a corner of the coin's own
+  graphic; purity is what matters for a coin held for its metal.
+- **Detection reads the composition STRING, not `metalCategoryFor()`** (Q6),
+  because **Lookup_MetalContent buckets Palladium under "Other"** (a
+  documented, intentional call there) — so a palladium coin is structurally
+  invisible to the category path, and palladium is one of the four metals
+  this covers. `metalCategoryFor()` is the fallback, used only when there is
+  no composition string: a live coin can have a MetalCategory (via the
+  MetalContentType join) while its DB_Coins Composition cell is blank, and
+  showing the bare metal name is strictly more informative than nothing and
+  never wrong — it omits the purity rather than inventing one.
+  **Note the correction worth remembering: the Specifications panel does NOT
+  use `metalCategoryFor()`** — it uses `compositionTextFor()` →
+  `FAKE_METAL_CONTENT` (ounce-based, demo rows only). Those are two different
+  mechanisms and were conflated in the original ask.
+- **Displayed as fineness/percentage, the stored value.** Karat is
+  deliberately not used: it's a gold-only convention with no meaning for
+  silver, platinum or palladium, so it could not be applied consistently.
+- **Excluded: Sets** (`Denomination="Multiple"` — several different coins, no
+  single composition). **Included: Rolls** (a roll is one denomination
+  throughout, and melt value is exactly why composition is already promoted
+  for rolls elsewhere in this file).
+- **A coin whose CoinID never resolved shows nothing, silently** (Q5,
+  confirmed — no fallback wanted). Composition lives only on DB_Coins, joined
+  onto a live coin by `coin.coinId` in `ensureLiveNavDataFetch()` alongside
+  the existing `metalCategory` join.
+- **Composition rides into the `.sr-only` summary too** — the visible corner
+  spans are all `aria-hidden`, so a fact appearing only in a corner would
+  otherwise be invisible to a screen reader (the locked-in rule for this
+  card).
+
+**A real overflow bug found and fixed during the build, by screenshot, not by
+measurement.** Composition is the longest thing any corner carries. At the
+shared 27px, realistic values run **145–192px** (`.999 Fine Silver` 145,
+`99.95% Platinum` 157, `.9995 Fine Palladium` 192, `90% Silver, 10% Copper`
+219) against this box's 50%-of-frame cap of **140px** — and because
+`.flip-label` is `white-space: nowrap` with **no `overflow: hidden`** (removed
+deliberately, see its CSS comment) and is anchored by `right`, the excess
+spills **RIGHTWARD past the frame's own edge and gets visually cut**. 4 of 8
+realistic strings overflowed. Fixed two ways, both measured:
+- **`#browseDetailBR, #spotlightBR { font-size: 22px; }`** — scoped by ID, so
+  it can never reach Add Coin's own BR corners, which must stay at 27px.
+  Composition is genuinely secondary to the identity/grade values in the other
+  three corners, so it takes a smaller size rather than a wider box: this
+  brings every realistic value inside the *existing* cap with **no geometry
+  change at all**, so it cannot collide with the coin disc or with the Grade
+  label sharing its row. 22px is deliberately clear of the 20px that drew
+  Ray's original "too small to read on phone" report.
+- **`compositionLabelCandidates()` + `setFittedCornerText()`** — the same
+  `scrollWidth`/`clientWidth` measured shortening `renderTypeDenomCorner()`
+  uses, which that CSS comment already names as the thing that actually
+  prevents unbounded corner overflow. The chain only ever **reduces**, never
+  rewords or recalculates a purity: stored value verbatim → precious-metal
+  terms only (`90% Silver, 10% Copper` → `90% Silver`, dropping a balance
+  metal this corner exists to say nothing about) → without the filler word
+  "Fine" (`.9995 Fine Palladium` → `.9995 Palladium`). A value that already
+  fits is shown untouched.
+- **Worth remembering:** a corner label's BOX always overlaps the disc's box —
+  the disc is a circle and the labels sit in the empty corners around it — so
+  a box-intersection test is meaningless here and a first version of the
+  suite failed on exactly that bad assertion. What actually matters is that
+  the text stays inside its own box, inside the frame, and in the same
+  vertical band as the label opposite it.
+
+**Verified headless — new committed suite `tests/verify_composition.js`, 74
+assertions, all passing; 424 across all 12 suites, zero failures, zero page
+errors.** No prior assertion needed changing — nothing in this pass altered
+existing behavior. Coverage: the mapper reading Composition; every
+`normComposition()` rule including the deliberate non-canonicalization;
+the hard tier's five branches (each composition resolving to its own row,
+normalized matching, the No-Match case, and the single-candidate
+contradiction); the tier being a true no-op with no/blank `composition` so
+Browse Edit and the Docket are unaffected; the ambiguous path returning 2
+candidates that are identical on every other displayed field; the picker
+rendering both compositions, the two cards no longer being textually
+identical, and Composition leading the detail line; precious-metal detection
+including palladium and the confirmation that the category path could not
+have caught it; Set/Roll/unresolved-CoinID handling and the category
+fallback; the BR spans existing and rendering on Browse detail and Spotlight;
+the sr-only summary; **Add Coin's BR pinned to Variety+Designation** (scope
+guard); the reduction chain in isolation including purity never being
+altered; and layout at both viewports with the measured worst-case strings.
+**Both halves have verified negative controls** — neutering the hard tier
+fails 5 assertions, and neutering the fitting *in `applyFlipCorners()`
+specifically* fails 3 more. That second control was added after a first
+version of the suite passed with the fitting removed, because it called
+`setFittedCornerText()` directly instead of going through the real render
+path — the same "green suite hiding a real bug" trap this file has recorded
+before. Screenshots reviewed at both viewports for all four worst-case
+strings.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round on this branch. In particular the real
+  DB_Coins Composition wording has not been independently checked from this
+  environment; the demo values seeded on `FAKE_METAL_CONTENT` and the
+  1999-S Clad/Silver pair seeded in `FAKE_DB_COINS` are representative
+  stand-ins so both halves are exercisable with `ENABLE_LIVE_NAV_DATA` off.
+
+### CACBean UI, Value field rounding, composition corner restacked (BUILT and merged to main)
+Three items from Ray's live-testing session, one directly following the
+Composition matcher/flip-card work.
+
+**1. CACBean UI (Add Coin + Edit Coin).** `All!CACBean` is a real, new
+single-cell column Copilot added — data-validated on the real sheet
+(`All!R2:R1543`) to exactly `Green`/`Gold`/blank, confirmed by Ray reading
+the workbook directly. Two checkboxes, positioned to the right of the
+Cert/Type Number field in both forms, mutually exclusive despite being two
+separate elements.
+- **`wireMutuallyExclusiveCheckboxes(aId, bId)`** — one shared helper, not
+  two near-duplicates: checking one clears the other via a plain `change`
+  listener (no event dispatched on the programmatic clear, so it can't
+  double-count as user input). Unchecking the currently-checked box directly
+  leaves both unchecked — the blank state, not a forced fallback.
+  `cacBeanValueFrom(greenId, goldId)`/`applyCacBeanToCheckboxes(...)` are the
+  two halves of the value <-> checkbox-pair conversion, shared by both forms.
+- **Add Coin and Edit Coin have genuinely different write situations —
+  confirmed by reading the code before building, not assumed identical.**
+  Add Coin (Phase 1) has ZERO write path to All; everything is a Staging
+  draft. Edit Coin (Browse Edit) has a REAL, flag-gated write path
+  (`ALL_WRITABLE_COLUMNS`, `buildRowCellEdits()`, the live snapshot
+  re-base). The two builds reflect that:
+  - **Add Coin**: `cacBeanValueFrom("cacGreen", "cacGold")` feeds
+    `readAddCoinFormForDraft()` -> `buildCoinDraft()`, captured on the
+    Staging draft the same "capture it either way" posture as
+    Category/itemNumber/gsid — flagged in both the code comment and here
+    that it needs an `ALL_WRITABLE_COLUMNS` entry before Phase 2 can
+    promote it onto a real row. `resetAddCoinForm()` clears both checkboxes.
+  - **Edit Coin**: `"CACBean"` added to `ALL_WRITABLE_COLUMNS` — the same
+    structurally-enforced allow-list every other real Browse Edit field
+    goes through, so it's automatically covered by `detectRowConflicts()`
+    with no extra code. **Not** an identity field (no overwrite-confirmation
+    dialog for a CAC status change, same as Designation). The checkbox pair
+    threads through the same dual-id pattern the Grade dropdown/"Other" pair
+    already established: `CONFLICT_FIELD_TO_INPUT` maps to the Green id,
+    `conflictFieldIsUserEdited()` ORs in the Gold id; `applySnapshotToEditFormInner()`
+    only re-bases the pair when NEITHER has been touched;
+    `applySnapshotToRecord()`/`mapWorkbookRowToCoin()`/`showBrowseEditViewInner()`
+    all carry `cacBean` the same way every other field does. **`""` (both
+    boxes unchecked) is a real, written value** — the same "clearing a field
+    is a genuine write, not a dropped key" rule Designation/Container already
+    follow — verified via a real save through the mock Graph client
+    end-to-end, not just asserted in isolation.
+- **`FAKE_COINS` seeded sparsely** (AY-00001: `"Gold"`, AY-00003: `"Green"`)
+  for exercisability, same convention every other sparse demo field in this
+  file already follows.
+- Verified headless — new committed suite
+  `tests/verify_cacbean_and_value_rounding.js`: mutual exclusivity on both
+  forms (with a real negative-control regression — the first pass on Edit
+  Coin's own check started from both-unchecked, which would have silently
+  passed even with exclusivity broken; fixed to start from Gold genuinely
+  checked so the assertion actually exercises the clear); the blank-state
+  case; the draft capture; `ALL_WRITABLE_COLUMNS`/never-write/identity-list
+  membership; prefill from three seeded states (Gold/Green/blank); the
+  touched-field OR-check in both directions; the session-only apply path;
+  and a full end-to-end run through the REAL Save button via
+  `createMockGraphClient` — the live snapshot re-base pre-filling from the
+  workbook cell (not the in-memory stub), a real Gold save landing in the
+  mock grid, and a real clear-to-blank save landing too. **Not verified: any
+  real device, any real OneDrive session.**
+
+**2. Value field currency formatting.** `browseEditValue` had TWO
+populate sites feeding it a raw, unrounded computed value with no
+formatting of its own (a plain `<input type="number">` just stringifies
+the exact float) — the initial `coin.value` populate AND the live snapshot
+re-base (`values.Value`, straight off the Graph cell). `editSetValue` had
+the identical bug at its own single populate site. Checked every other
+currency `<input type="number">` in the app (Cost/Shipping/Purchase Price
+across every form) — **none of them are ever fed a computed value**; always
+either blank-on-reset or literally typed/persisted-verbatim, so the fix is
+scoped to the two Value fields alone, not applied defensively everywhere.
+- **`roundToCents(v)`** — rounds to the nearest cent for POPULATING a field
+  programmatically; null/undefined/blank/non-finite pass through as `""`,
+  same convention every other populate-from-workbook helper already uses. A
+  user's own typed entry is never touched — populate-time only, verified
+  directly (typing `12.3456789` into the field leaves it exactly that).
+- **`$` prefix**: `.currency-input-row` (flex wrapper) + `.currency-prefix`
+  (the `$` label) — a number input can't show one inline. Applied
+  identically to `browseEditValue` and `editSetValue`; deliberately NOT
+  applied to Cost/Shipping/Purchase Price fields anywhere, per the narrower
+  scope above.
+- Verified headless (same committed suite as CACBean, above — one session,
+  one suite): `roundToCents()` in isolation including the exact reported bug
+  value (`0.039914798` -> `0.04`); both populate sites for `browseEditValue`
+  (the initial `coin.value` site AND the live snapshot re-base, via a real
+  mock-Graph-client end-to-end save) each independently regression-guarded
+  (a negative control reverting either site fails its own assertion);
+  `editSetValue`'s own site; the `$` wrapper present on both fields; a
+  user's own typed value surviving untouched; and a scope check confirming
+  Cost was NOT given the same treatment.
+
+**3. Composition corner restacked — two lines, not one (supersedes the
+single-line-with-reduction layout from the Composition build immediately
+prior).** Prompted by a real, MEASURED collision risk, not a guess: a long
+free-typed "Details"-graded value in the BL corner (which has **no**
+overflow protection of its own, unlike TR and now BR) genuinely overlapped
+an unreduced composition in BR at 360px width (`-9px` gap, reproduced
+directly before touching any code). The two-line layout — fineness
+right-justified on its own line, metal name below, same
+`renderCornerLines()` mechanism TL/TR already use — measured 42-70px wide
+against the old single-line-with-reduction's 98-139px, turning that exact
+collision into a comfortable 49-77px gap.
+- **`splitCompositionForStacking(text)`** — splits the precious-metal-only
+  reduced candidate (stage 2 of `compositionLabelCandidates()`, so a balance
+  metal is never part of the split) into `[value, metal]` via
+  `/^([.\d][.\d,%]*)\s*(?:Fine\s+)?(.+)$/i`. "Fine" is always dropped for
+  the split — unconditionally, not just when needed to fit — since it isn't
+  part of either the fineness value or the metal name the two lines exist
+  to show.
+- **A composition naming 2+ precious metals** (comma-separated — no coin in
+  this collection is bimetallic today) has no single value/metal pair to
+  stack. Confirmed with Ray (Q5): falls back to the joined string as ONE
+  line rather than inventing a layout for zero real rows.
+  **KNOWN, ACCEPTED GAP, found and left deliberately, not silently**: that
+  joined fallback line has no further reduction beyond what
+  `compositionLabelCandidates()` already does (which keeps both metals
+  rather than dropping either), so a genuinely long two-metal string can
+  overflow its box — measured directly (`"50% Gold, 50% Silver"` overflows
+  by ~20px at phone width). Same "not worth the tradeoff for a case that
+  basically never happens" call as several other documented gaps in this
+  file (the mirrored-EXIF-rotation gap, the deferred copper-color pass) —
+  building real shrink logic for a coin type nothing in this collection has
+  would be exactly the unrequested layout work Ray said not to do here.
+- **`setCompositionCornerText(el, text)`** is what `applyFlipCorners()`
+  actually calls now — stacks when the split is clean, falls through to the
+  existing `setFittedCornerText()` (single-line, measured) otherwise.
+  `setFittedCornerText()`/`compositionLabelCandidates()` themselves are
+  UNCHANGED — still exactly what the fallback path and (independently)
+  every other corner's own reduction logic already relied on.
+- **Item 6 flag, confirmed out of scope for this pass (Ray's explicit
+  call):** BL's own total lack of overflow protection is a real,
+  pre-existing gap this measurement surfaced — a sufficiently long
+  free-typed Grade+Designation string has no shortening of its own the way
+  TR (word-drop) and now BR (the stack/reduction chain) do. Not fixed here;
+  logged as ParkingLot Row 6 in the session log below.
+- Verified headless (composition suite, `tests/verify_composition.js`,
+  rewritten in place following this real design change — not weakened;
+  every assertion that checked single-line `.textContent` now checks the
+  two `.corner-line` children instead, since a stacked corner's
+  `.textContent` concatenates both lines with no separator): the split in
+  isolation (a long value, a balance-metal value, an already-short value,
+  the bimetallic fallback with its own known-gap noted rather than silently
+  passed); the real render path through `applyFlipCorners()` (not just the
+  splitter called directly — the same "green suite hiding a real bug" trap
+  this file has hit before); Browse detail AND Spotlight both stacking
+  identically; and a **new, dedicated N-block reproducing the exact
+  real-measured collision case at 360px** (the same BL/BR pairing that
+  motivated this whole item) and confirming it no longer overlaps — proof
+  the fix addresses the actual motivating scenario, not just the unit-level
+  splitting logic. 79 assertions total in the suite (was 74), zero
+  failures. **Not verified: any real device.**
+
+### CACBean visibility fix, read-only Overview row, $ on Purchase/Shipping, Catalog composition, collision-based sizing (BUILT and merged to main)
+Batch of small, independent fixes/polish from live testing. Eight items
+total; items 1-6 below are built. Item 7 (reverse-flip investigation) needed
+no code — see its own note. Item 8 (Mint Mark "None (Other)") is a separate,
+still-open item pending a data-population check — see the end of this
+section.
+
+**1. Real bug fix: CAC Bean checkboxes were hidden specifically for PCGS in
+Add Coin.** `#certTypeNumberRow` — holding BOTH the manual Cert/Type Number
+input and the CAC checkboxes — only shows when `grader && grader !== "PCGS"`,
+correct for the cert input (PCGS's cert is auto-decoded from the label, no
+manual entry needed) but backwards for CAC, which almost exclusively
+stickers PCGS/NGC coins. The checkboxes were nested inside that same
+conditional block, so they were hidden exactly when PCGS was picked. Fixed
+by pulling `.cac-bean-group` out into its own row (`#cacBeanRow`), gated on
+`grader` truthy alone (in `applyGraderDependentVisibility()`) — shown for
+ANY grader, hidden only when Grader is blank (a raw/ungraded coin can't
+carry a CAC bean). Browse Edit's own checkboxes were already unconditional
+and needed no fix.
+
+**2. "CAC Bean" caption added to the checkbox pair, both forms.** An
+internal `.cac-bean-heading` span inside `.cac-bean-group` itself (not a
+block-level `<label>` above it) — deliberately, so the same markup works
+correctly whether the group is its own standalone row (Add Coin, forced by
+item 1's fix) or still inline inside Browse Edit's `.cert-badge-row`
+alongside the cert input and lookup-link icon, where a block-level label
+would have misread as labeling the whole row rather than just the
+checkboxes. Browse Edit's row structure is otherwise completely untouched —
+no structural symmetry was required between the two forms, only the visible
+caption.
+
+**3. CACBean now read-only in Browse detail's Overview — a deliberate
+reversal of the earlier "edit-surface only" scope call, not an oversight.**
+`overviewRows.push(["CAC Bean", coin.cacBean])`, same pattern as Grade/
+Designation just above it: a plain fact row, omitted entirely when blank,
+scoped to individual coins only (a Set bundle has no CAC status of its own).
+
+**4. `$` prefix extended to Purchase Price and Shipping Cost, every form
+instance of both fields** — the same `.currency-input-row`/`.currency-prefix`
+treatment Value already had. Ten fields across five forms (Browse Edit, Edit
+Set, Wishlist, Add Coin, Add Set). **Visual only, no rounding** — unlike
+Value, none of these ten fields are ever populated from a computed source
+(confirmed in an earlier round and re-confirmed here with a direct test:
+`roundToCents()`'s call sites are completely untouched by this item), so
+they still populate verbatim, exactly as typed/stored.
+
+**5. Composition wired into the Catalog grid-mini flip card.**
+`renderBrowseGrid()` is a genuinely separate render path from
+`applyFlipCorners()` (Browse detail/Spotlight), which is why it never
+inherited Composition automatically when that was first built — confirmed
+via source before assuming it was a shared path. A new BR span added to the
+card markup, wired to the exact same `setCompositionCornerText()` /
+`preciousMetalCompositionFor()` the full flip-frame uses — same rule
+(precious metal only), same stacking mechanism, at whatever size cascades to
+it (14px, the existing grid-mini corner font). The retired `.set-child-grid`
+mini-flips (dead CSS, confirmed via grep — no JS references it, consistent
+with CLAUDE.md's own "RETIRED" note for that surface) were correctly left
+untouched.
+
+**6. Composition font-size: collision-based, per-instance — supersedes the
+blanket smaller size.** The prior round's `#browseDetailBR, #spotlightBR {
+font-size: 22px; }` shrank EVERY coin's composition text uniformly,
+regardless of whether that specific coin's actual value needed it. Removed
+entirely. `setCompositionCornerText()` now: reads the corner's own natural
+size fresh from computed style (27px full flip-frame, 14px Catalog
+grid-mini — no context-specific hardcoding, one function serves both);
+renders at that natural size first; measures `scrollWidth > clientWidth`
+(the same measurement already used everywhere else in this corner system —
+`compositionLabelCandidates`, `renderTypeDenomCorner`'s shortening — per
+Ray's explicit confirmation this is what "per-instance overflow" meant, not
+new BL-vs-BR box-overlap machinery); and only if it doesn't fit, steps down
+through `COMPOSITION_SHRINK_STEPS = [1, 0.82, 0.67]` (fractions of the
+natural size), re-rendering and re-measuring at each step, stopping the
+moment it fits.
+- **Real, measured result, not assumed: every realistic single-metal
+  composition now fits at the FULL natural size once stacked** — the
+  two-line layout from the prior round already solved the width problem for
+  the common case; the blanket 22px shrink was penalizing legibility for
+  coins that never needed it. Verified directly: "90% Silver", ".9995 Fine
+  Palladium", "99.95% Platinum", and "40% Silver" all render at 27px with no
+  shrink applied.
+- **A genuine side effect, also measured**: the bimetallic single-line
+  fallback's own previously-documented "~20px overflow, known accepted gap"
+  (from the composition-restack round) is now CLOSED for the demonstrated
+  case — "50% Gold, 50% Silver" fits at 18.09px (the 67% step) on the real
+  flip-frame. This mechanism was built for item 6, not for that case
+  specifically, but resolves it as a side effect. Only a genuinely extreme
+  two-metal string (long alloy names on both sides) can still outrun the
+  smallest step — confirmed directly by forcing one; it degrades to the
+  smallest step and stops, no infinite loop, same "known, accepted gap for
+  an extreme case" posture as everywhere else in this file.
+- **`el.style.fontSize` is cleared FIRST**, before measuring the natural
+  size — `browseDetailBR`/`spotlightBR`/each Catalog card's own BR span are
+  real DOM elements reused across many different coins as Ray browses/
+  flips, so a previous coin's shrink must never leak into the next coin's
+  render or its "natural size" measurement. Verified directly: rendering an
+  extreme value then a short one back-to-back on the same reused element
+  returns cleanly to full size for the second coin.
+
+**Verified headless — both existing suites extended, not forked**:
+`tests/verify_cacbean_and_value_rounding.js` (50 assertions, was 38) gained
+items 1-4's coverage — the real bug repro (visible for PCGS specifically,
+still hidden with no grader, still visible for NGC), the caption on both
+forms, the Overview row for Gold/Green/blank-omitted, and all ten currency
+fields wrapped with a verified-verbatim (non-rounded) populate. One real
+test-ordering bug was found and fixed while writing this: the "blank
+CACBean" Overview check originally reused AY-00002, which an EARLIER
+assertion in the same suite (session-only save path) had already mutated to
+`cacBean:"Gold"` via `applyEditsToRecord()` — switched to AY-00004
+(untouched anywhere else in the file). `tests/verify_composition.js` (88
+assertions, was 79) gained items 5-6 — the Catalog grid-mini BR span
+existing and stacking a silver coin's composition correctly while staying
+empty for clad, and the full collision-based-sizing mechanism: natural-size-
+by-default across every realistic value, genuine per-instance shrink for an
+extreme value, correct reset on a reused element, and the mini-card's own
+14px natural size confirmed unaffected by any full-flip-frame-specific
+logic. Both new mechanisms (item 1's visibility fix, item 6's shrink loop)
+have verified negative controls — reintroducing the old PCGS-hiding
+condition fails the exact repro assertion; neutering the shrink loop fails
+the two assertions that depend on it. 488 assertions across 13 suites, zero
+failures, zero page errors. Screenshots reviewed at phone width for every
+new UI piece (Add Coin's CAC row under PCGS, Browse Edit's captioned inline
+group, the Overview CAC Bean row, Browse Edit's $-prefixed Purchase Details,
+the Catalog grid showing "90% / Silver" on several cards, and Add Set's own
+$-prefixed Purchase Details drill-down) — no overflow, no collision.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch.
+
+**Item 7 — reverse-flip on a saved coin: investigated, NOT a code bug, no
+fix built.** Repro was AY-00001, Browse detail/Spotlight, four consecutive
+flip captures all showing the same content. Driven directly and logged:
+`browseDetailSide`/`spotlightSide` genuinely alternate every toggle, the
+`.reverse-face` CSS class genuinely toggles, and the disc's radial-gradient
+highlight genuinely shifts (`circle at 35% 30%` obverse vs `circle at 65%
+30%` reverse) — the state machine and its wiring both work exactly as
+coded. Two things combine to make it look like nothing happens: (a)
+`applyFlipCorners()` takes no side parameter and renders once, unconditionally
+— by design, per this file's own "corner labels stay the same on both faces
+since they describe the coin, not which face is showing"; (b) since no coin
+in this mockup has a real captured photo, the ONLY visual difference between
+faces is that gradient shift, which is genuinely subtle and easy to read as
+"no change" in a screenshot comparison. Reported back as a real, working
+mechanism producing a UX gap worth a future decision, not a bug — no fix
+proposed or built, per the explicit "ask, don't guess" instruction for this
+item.
+
+**Item 8 — Mint Mark "— none (Other) —": BUILT.** Was flagged STILL OPEN,
+blocked on confirming `DB_Coins.Mint` was populated/reliable enough on
+blank-MintMark rows to disambiguate on — Ray confirmed via Copilot that all
+236 real blank-MintMark rows now carry a value, unblocking the real
+disambiguation-picker path (not the plain fallback). See "Mint Mark 'None
+(Other)': real DB_Coins.Mint disambiguation" below for the full build.
+
+### TR corner (type/series name): graceful degradation, not destructive truncation (BUILT and merged to main)
+Real bug: `renderTypeDenomCorner()`'s overflow fallback used to shorten an
+overlong type name to its LAST WORD when it didn't fit on one line —
+reasonable when Description values were short place/series names, but wrong
+for a real per-design identity with fixed suffix text attached. Worst case,
+confirmed real data: **"Martha Washington First Spouse Gold $10"** doesn't
+end in any `DENOM_NAME_SUFFIXES` word (`"$10"` isn't one), so nothing
+strips, it overflows, and the old fallback reduced it to literally `"$10"`
+— total loss of which spouse the coin actually is.
+
+- **Fix is a genuine two-tier fallback, shrink first, wrap only as the last
+  resort — measured into that order, not guessed.** `renderTypeDenomCorner()`
+  now: (1) runs the type+denom pair through `shrinkCornerToFit()` — the same
+  collision-based per-instance mechanism Composition's BR corner already
+  uses (see above), generalized out of `setCompositionCornerText()` into a
+  shared helper (`CORNER_SHRINK_STEPS = [1, 0.82, 0.67]`); (2) only if the
+  type line STILL overflows at the smallest shrink step does it fall to a
+  new `wrapTextToTwoLines(text, measureEl)` — a real, measured greedy word
+  wrap (grows line 1 word-by-word against `scrollWidth`/`clientWidth`, never
+  splits a single word, never guesses from a character count) — producing a
+  genuine 3-line corner (two type lines + the denom code) via the existing
+  `renderCornerLines()`/`.corner-line` stacking mechanism TL already uses.
+- **The order was arrived at by measurement, not assumption, after the
+  first version got it backwards.** A first pass tried wrap-before-shrink
+  (attempt the two-line wrap at full size, shrink only if that still didn't
+  fit) — direct geometry measurement caught that this made the ORIGINAL
+  motivating case ("Lincoln Memorial", which a small shrink alone fully
+  resolves) grow to 3 unshrunk lines instead of shrinking to 2, measured
+  28px TALLER for no reason — unnecessary vertical creep toward the coin
+  disc, exactly the risk this corner system has fought before (see the
+  "Coin-flip corner labels" clipping history above). Rebuilt shrink-first;
+  re-measured to confirm "Lincoln Memorial" now resolves via the 82% shrink
+  step alone, 2 lines, height at or below the untouched baseline.
+- **Real-data verification, both named worst cases:**
+  "Martha Washington First Spouse Gold $10" (no suffix strips, 401px
+  unclamped against a 139px box) now wraps to `["Martha Washington", "First
+  Spouse Gold $10"]` + the `"$10"` denom line, shrunk to the smallest step,
+  full identity intact, fits with no overflow. "Washington Crossing the
+  Delaware Quarter" (suffix `"Quarter"` correctly stripped by
+  `seriesLabel()`, but the remaining "Washington Crossing the Delaware"
+  still overflows on its own, 326px) wraps identically rather than
+  collapsing to one trailing word. Both landed at the same 3-line, same
+  shrink-step outcome — confirmed via screenshot, not just measurement, on
+  the real flip-card UI (1889-CC obverse, "Martha Washington" / "First
+  Spouse Gold $10" / "$10" all fully legible, no truncation, no clipping).
+- **Denom rides along on whatever line count results** — it never wraps or
+  shrinks independently of the type line(s) it's stacked with, same rule
+  the original design already followed.
+- **Every stale code comment referencing the old last-word mechanism was
+  found and corrected** (`grep`'d, not left to drift) — the Catalog
+  grid-mini `.flip-label` CSS comment (×2 locations), the historical
+  "Medal" `DENOM_NAME_SUFFIXES` note, the Rolls corner-treatment comment
+  (its underlying reasoning for excluding Rolls still holds independently
+  of the old garbling behavior it originally cited), and
+  `renderBrowseGrid()`'s own comment.
+- Verified headless — 8 new assertions added to `tests/verify_composition.js`
+  (block Q, 96 assertions in that suite now; 496 across all 13 suites, zero
+  failures): the First Spouse case (full identity preserved across 3 wrapped
+  lines, never truncated to `"$10"`, fits); the ATB/quarter case (suffix
+  correctly stripped, remainder wraps rather than truncating to one word,
+  fits); a regression guard confirming "Lincoln Memorial" still resolves via
+  shrink ALONE (2 lines, not 3, no taller than the untouched baseline); and
+  the untouched-baseline case ("Morgan Dollar" → `seriesLabel()` strips
+  "Dollar" to "Morgan", always fit, stays at natural 27px, no shrink, no
+  wrap). **Verified negative control**: temporarily reintroduced the exact
+  old last-word-truncation behavior and confirmed all 4 new assertions fail
+  with the exact reported symptom (`["$10","$10"]` for First Spouse), then
+  restored the real fix and re-confirmed all pass — proves the new coverage
+  actually catches this class of regression, not just documents intent.
+- **Not verified: any real device.** Screenshots reviewed in this
+  environment's headless Chromium only, same standing caveat as every round
+  on this branch.
+
+### Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)
+Closes item 8 from the earlier batch, unblocked once Ray confirmed via
+Copilot that `DB_Coins.Mint` (the FULL facility name — "San Francisco",
+"Denver", "Philadelphia" — distinct from `MintMark`, the abbreviation) is
+now backfilled on all 236 real blank-MintMark rows. Built the real
+DB_Coins-backed disambiguation picker (Q1–Q4 confirmed), not the plain
+"— none —" fallback.
+
+- **A new "— none (Other) —" option** sits right after "— none
+  (Philadelphia) —" in Add Coin's Mint Mark dropdown, above the real codes
+  (P/D/S/CC/O/W, all unchanged). **Scoped to Add Coin only** (Q1) — same
+  footprint as the Mint Item Number/GSID lookups this is modeled on; Edit
+  Coin's identical dropdown is untouched, a separate future build if wanted.
+- **"Other" never writes a persisted MintMark value of its own** (Q2,
+  confirmed) — its option value is a one-shot sentinel (`__OTHER_MINT__`),
+  normalized straight back to `""` the instant the `change` handler fires,
+  BEFORE `refreshVarietyOptions()`/`checkDbCoinsMatch()`/`updateFlipLabels()`
+  or any other reader of `#mintMark.value` runs. It's purely a UI trigger
+  for the one-time lookup below; the draft's MintMark stays blank, exactly
+  like an ordinary Philadelphia coin — verified directly (a saved draft
+  through this path carries `mint: ""`).
+- **`mapWorkbookRowToDbCoin()` now reads `DB_Coins.Mint` into a new
+  `mintFull` field**, kept completely separate from `mint` (the abbreviation
+  the base matcher's join key already uses). This is a NEW, narrow lookup —
+  used only by `handleMintMarkOtherApply()` — and does not touch the
+  existing hard constraint that the full-name `Mint` column must never
+  substitute into the primary MintMark join key; `dbCoinsCandidatesFor()`
+  itself is completely unchanged.
+- **`handleMintMarkOtherApply()` is deliberately its own function, not
+  routed through the shared `handleIdentifierLookup()`** (Mint Item Number/
+  GSID's helper) — this is a filtered SEARCH keyed on Year+Denomination
+  (MintMark blank, Mint populated and not Philadelphia), not a single
+  scalar field-equality match, and it has a third outcome
+  (`handleIdentifierLookup` and its two callers have only two). Requires
+  Year AND Denomination already entered (a toast asks for them otherwise,
+  Q-implied by the search key) — variety, if already typed, is a SOFT
+  narrow only (Q4, confirmed), same pattern the Finish/Category tiers in
+  `dbCoinsCandidatesFor()` already use: can only reduce ambiguity, never
+  produce a false miss.
+- **Philadelphia rows are explicitly excluded from the candidate set**, even
+  when `Mint` is populated and literally says "Philadelphia" — those are
+  the ordinary Philadelphia case the ✱plain✱ blank option already covers,
+  not what "Other" exists to disambiguate. Verified directly against a
+  seeded blank-MintMark/Mint="Philadelphia" row: correctly reports
+  not-found rather than a false match.
+- **"Multiple Facilities" (Copilot's new value for an anonymous bullion
+  Eagle documented as struck at more than one facility with no
+  distinguishing mark) is a real DB_Coins.Mint value like any other — the
+  disambiguation logic branches on it, not a separate flag anywhere.**
+  Three outcomes (Q3, confirmed):
+  - **Sole match, real facility** → applies directly (same single-match
+    banner every other lookup uses), naming the actual mint.
+  - **Sole match, Multiple Facilities** → applies directly too (nothing to
+    disambiguate), but with its OWN distinct wording — "Struck at multiple
+    facilities — mint not individually identifiable for this issue" —
+    never worded as if "Multiple Facilities" were a place name.
+  - **2+ total candidates, in any mix** → the shared ambiguous picker shows
+    ONLY the real-facility candidates in its normal list; if a
+    Multiple-Facilities row also exists for this Year+Denomination, it's
+    offered as its own separate, clearly-labeled card below the list
+    (`#mintMarkOtherMultipleFacilitiesOption`) — reachable, but never mixed
+    in as if it were just another named mint. Verified for a real 1-real+
+    1-MF mix ($1 2001): the picker's list shows exactly the one real
+    candidate (West Point), the MF card renders separately, and clicking it
+    applies the MF row's own CoinID with the MF wording, not the real
+    candidate's.
+  - A single Multiple-Facilities DB_Coins row is the expected shape; two or
+    more sharing one Year+Denomination (presumably a Variety split) is
+    treated pragmatically — the first is used rather than building a second
+    nested picker for data this sparse, flagged in a code comment rather
+    than silently assumed correct.
+- **Resolved pick uses the same "remembered pick" mechanism** every other
+  lookup in this section already relies on (`applyIdentifierDbCoinsMatch`),
+  so it sticks through Save with no picker re-shown, and correctly
+  invalidates if a relevant identity field changes afterward — no new
+  mechanism needed.
+- **A real, useful side effect, not a separate change**: since a matched
+  Silver Eagle row's Description contains "American Silver Eagle Dollar",
+  applying it also correctly flips the existing Bullion toggle and infers
+  Category via `applyInferredBullionCategoryToForm()` (unchanged, already
+  built) — confirmed via screenshot, not assumed.
+- **Same recurring `.hidden`-scoping trap this file has hit before, caught
+  before shipping this time**: the two new elements
+  (`#mintMarkOtherAmbiguousPanel`, `#mintMarkOtherMultipleFacilitiesOption`)
+  needed their own `#id.hidden { display:none }` CSS rules, same as every
+  other panel built this way in this section — added alongside the markup,
+  verified via real computed style, not just `classList`.
+- **Six new synthetic `FAKE_DB_COINS` rows** cover every branch (a sole
+  real match, a real 2-way ambiguity, a Variety-narrowable ambiguity, a
+  sole Multiple-Facilities match, a mixed real+MF ambiguity, and a
+  blank-mint Philadelphia row proving the exclusion) — flagged in a comment
+  as representative test data, not claims about real historical mintages.
+- Verified headless — new committed suite
+  `tests/verify_addcoin_mintmark_other.js` (27 assertions, all passing;
+  523 across all 14 suites, zero failures): the dropdown option and its
+  position; the missing-prerequisites case firing nothing; a single
+  real-facility match; a real 2-way ambiguity (picking the SECOND candidate,
+  not the first, to prove it's a genuine unforced choice); the Variety soft
+  narrow in both directions (narrows when typed, stays ambiguous when
+  blank); the sole Multiple-Facilities outcome and its distinct wording; the
+  mixed real+MF case (real candidate alone in the list, MF offered
+  separately, clicking MF applies the MF row specifically); the Philadelphia
+  exclusion; a genuine no-data miss; the resolved pick surviving Save with a
+  blank persisted MintMark; `resetAddCoinForm()` clearing every new element;
+  `mapWorkbookRowToDbCoin()` reading the real column into `mintFull`
+  (including the blank-Mint case not throwing); the genuine-hidden-state
+  check for both new elements; and a nav/overflow smoke check.
+  **Verified negative control**: temporarily removed the Philadelphia
+  exclusion and the MF/real split, confirmed 5 assertions fail with the
+  exact wrong-outcome symptoms, then restored the real fix and re-confirmed
+  all pass.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch — `DB_Coins.Mint`'s real
+  population was confirmed by Ray via Copilot, not independently verified
+  from this environment.
+
+### Reverse face gets real content; Sets lose the flip card entirely (BUILT and merged to main)
+Two related fixes to the saved-coin flip card (Spotlight + Browse detail,
+`applyFlipCorners()`), following the Option 3 design exploration above.
+
+**1. Reverse face now has its own distinct corners.** Real bug, confirmed
+by reading the code before fixing it: `applyFlipCorners()` wrote the same
+TL/TR/BL/BR regardless of which face was showing, and — worse, found while
+tracing the render path — Browse detail's own flip toggle
+(`toggleBrowseDetailSide()`) never even re-invoked it at all, only the disc
+image/gradient. Spotlight already re-called `applyFlipCorners()` every
+auto-cycle, so it genuinely showed identical corners both faces, as
+originally reported; Browse detail was actually worse — frozen on whichever
+corners were set at open, forever, regardless of flips.
+- **`applyFlipCorners(prefix, coin, side)` now takes a side** (defaults to
+  `"obverse"`); `side === "reverse"` branches to a completely separate
+  function, `applyReverseFlipCorners()`, before any obverse-only rendering
+  runs. Both real callers now pass their own current side
+  (`renderSpotlight()` → `spotlightSide`; `showBrowseDetail()`'s initial
+  call → the freshly-reset `"obverse"`), and `toggleBrowseDetailSide()` now
+  ALSO calls `applyFlipCorners()` after flipping — the fix for the real
+  mechanical bug above, not just new content.
+- **No obverse identity content is repeated on reverse** (confirmed,
+  overturning this session's own earlier exploration-round proposal, which
+  had kept Year-Mint at TL as an "orientation anchor"): the coin's own name
+  is already the page's own title above the flip card, same reasoning
+  Rolls' own TR-corner exception already relies on.
+- **Final reverse corner map**: TL = the Obverse-side half of a parsed
+  Error split, or the WHOLE Error string when it doesn't parse cleanly —
+  blank if `coin.error` is blank. TR = unused, always. BL = the
+  Reverse-side half of a split — blank when TL already carries the whole
+  unparsed string, blank when there's no error at all. BR = Cost, stacked
+  "Cost" / "$N" (same two-line `renderCornerLines()` stacking Composition's
+  own BR corner already uses) — blank when `coin.cost` is falsy. **Value is
+  deliberately NOT shown** — it's already always-visible in Browse detail's
+  Overview accordion (open by default); Cost has no other visible home on a
+  saved coin's screen until Purchase Details is expanded, so the flip card
+  is the more useful place for it. **A coin with neither Cost nor Error
+  renders a completely blank reverse — confirmed intentional, not a bug to
+  guard against.**
+- **`splitErrorBySide(text)`** — the informal "Obv. X, Rev. Y" dealer
+  convention (there's no official industry standard for two different
+  errors on two different sides: PCGS/NGC's own DDO/DDR-style codes already
+  bake the side into the single-error case, but nothing covers this one).
+  Forgiving on wording (`Obv`/`Obverse`/`Obv.`, optional colon) and
+  separator (comma or semicolon); Obv-before-Rev order only (confirmed —
+  no Rev-first branch). Requires BOTH halves present; anything else — a
+  single unprefixed error, a bare abbreviation like DDO/DDR, only one side
+  prefixed, genuinely unstructured text — returns `null` so the caller
+  falls back to showing the whole string, unmangled, never guessing.
+  **Each captured half keeps its own "Obv."/"Rev." prefix verbatim, not
+  stripped** — a real design correction made while building, not part of
+  the original mockup: TL and BL are stacked on the same (left) edge now,
+  not the top-row left/right pairing the exploration-round screenshots
+  used, so there's no positional cue left saying which corner is which
+  side. The prefix itself is what still says so at a glance.
+- **`renderErrorCornerText(el, text, allowWide)`** — the same "shrink first,
+  wrap only as a last resort" graceful degradation `renderTypeDenomCorner()`
+  established for TR, reused rather than reinvented. `allowWide` (TL on the
+  reverse face only) toggles a new scoped `.corner-wide` CSS class
+  (`max-width: 90%`, up from the standard 50%) — TL is allowed to use TR's
+  own horizontal territory before ever shrinking, since TR carries nothing
+  on this face; every other corner stays at the standard width. **Real,
+  measured finding from the exploration round carried through into the
+  build**: even the "clean split" example (`"Obv. Die Polish Lines"` alone)
+  measured 192px against the old 139px (50%) box — already overflowing
+  before any of this — confirming the wide treatment isn't optional
+  polish, it's required for realistic Error text at any box width.
+- **Real bug caught by the committed suite itself, not by inspection**: TL
+  is a persistent DOM element shared between the reverse render (which can
+  add `.corner-wide`) and the obverse render (which never did anything
+  about that class) — flipping reverse → obverse left the obverse's own TL
+  silently widened, a leak from one face's render into the other's. Fixed
+  by having the obverse path explicitly `classList.remove("corner-wide")`
+  on TL before rendering, unconditionally, regardless of whether it was
+  already narrow. This is exactly the kind of bug this project's own
+  "write real assertions, not just documentation of intent" discipline
+  exists to catch — found because a genuine before/after/before flip
+  sequence was asserted, not just a single-direction render.
+- **The sr-only summary is face-aware too** — reverse gets its own text
+  (the Error split/fallback plus Cost, tagged "reverse" at the end) instead
+  of the obverse's grade/composition/value summary, so a screen reader
+  isn't left with stale obverse-face text once the visible corners have
+  changed.
+- **`coin.error` is new plumbing** — `mapWorkbookRowToCoin()` now reads
+  `All.Error` (it never did before this), and two `FAKE_COINS` rows were
+  seeded for exercisability: AY-00001 (`"Obv. Die Polish Lines, Rev. Die
+  Crack"`, the clean-split case) and AY-00003 (`"Off-Center Strike, approx.
+  5%"`, the unparseable-fallback case). Every other row stays sparse/blank,
+  same convention as every other optional field in this mockup.
+- **Correction to this session's own exploration-round speculation**: that
+  round guessed closing this would also close ParkingLot Row 6 (BL's own
+  lack of overflow protection) "as a byproduct." **That was wrong, and is
+  corrected here rather than silently carried forward.** Row 6 is
+  specifically about the OBVERSE's BL corner (Grade+Designation), which
+  this task never touches — obverse corners are completely unchanged.
+  BL/TL on the REVERSE face do get real shrink/wrap protection now, but
+  that's the same DOM element at a DIFFERENT time showing DIFFERENT
+  content; it does nothing for the obverse's own Grade+Designation
+  overflow risk. **Row 6 remains open, unaffected by this pass.**
+
+**2. A Set's own detail view is a plain static image — no flip card at
+all.** `showBrowseDetail()` now branches on `isSetRow(coin)` before doing
+any flip-related work:
+- **Reuses the SAME `#browseDetailFlipFrame`/`#browseDetailDisc` elements**
+  rather than building a parallel element — sizing and the existing
+  own-photo/reference-image/placeholder priority chain in
+  `applyDiscContent()` stay byte-identical to every other coin, since
+  `browseDetailSide` is simply fixed at `"obverse"` and never toggled for a
+  Set. This already resolves correctly to the Set's own real whole-set/OGP
+  photo when one exists (`setFlipPhotoUrl()`, built in an earlier pass), or
+  the existing generic placeholder when it doesn't — no new photo logic
+  needed.
+- **All four corner spans are explicitly cleared** (`classList.remove
+  ("corner-wide")` + blanked, matching the same defensive pattern the
+  reverse-face helpers use) rather than relying on `applyFlipCorners()`
+  simply not being called — a persistent-element leak guard, same class of
+  bug the `.corner-wide` fix above just caught. The sr-only span is
+  cleared too, and the combined-photo badge is defensively hidden (a Set's
+  `id` is never realistically in `COMBINED_PHOTO_COIN_IDS`, but this stays
+  correct regardless of a stale prior render).
+- **No tap/swipe/click response** — `toggleBrowseDetailSide()` now
+  early-returns when `!currentBrowseCoin || isSetRow(currentBrowseCoin)`,
+  so the frame's already-wired click/touch listeners genuinely do nothing
+  for a Set (verified via a real dispatched click event, not just by
+  calling the toggle function directly).
+- **Both childless and multi-child Sets are in scope, confirmed
+  identical** — verified against AY-00018 (childless) and AY-00022 (3 real
+  children).
+- **Individual coins are completely untouched**, including a Set's own
+  children reached via the "Coins in this Set" accordion — `setChildrenFor()`
+  returns ordinary coin-shaped rows (a real `denom`, never `"Multiple"`),
+  so `isSetRow()` is false for every child and the normal flip path applies
+  unchanged. Verified directly, not just asserted by construction.
+- **Spotlight was checked, not assumed safe**: `spotlightCoins` is
+  hardcoded to `FAKE_COINS.slice(0, 5)` — a fixed array literal, never
+  wired to live/filtered data — and none of the first five rows is a Set.
+  **Confirmed coins-only by construction, not by convention**; no guard was
+  added there, consistent with this project's standing "don't build ahead
+  of a scenario that can't currently occur" discipline (same posture as
+  the DB_Coins scope rule, ANACS/ICG/CAC research). If `spotlightCoins` is
+  ever wired to a live/filtered source that could include a Set, this
+  needs revisiting.
+- **A real side effect, confirmed rather than just claimed**: this
+  eliminates the long-name corner-fitting problem for Sets entirely, since
+  Set names (often the longest in the catalog) never reach any corner-
+  rendering code any more — there's nothing left to fit.
+
+**Verified headless — new committed suite
+`tests/verify_reverse_face_and_set_flip.js` (38 assertions), all passing;
+561 across all 15 suites, zero failures.** Covers: `splitErrorBySide()` in
+isolation (every forgiving wording variant, every case that must return
+null including reversed order); obverse corners completely unaffected even
+for a coin carrying Error+Cost data; the clean-split reverse render
+(prefix kept, TR unused, BR stacked, TL genuinely fits its widened box —
+real `scrollWidth`/`clientWidth` measurement, not just "doesn't look
+clipped"); the unstructured fallback (whole string in TL, BL blank); Error
+with no Cost and Cost with no Error, independently; the fully-blank
+reverse case; flipping reverse → obverse → confirming the real leak bug
+above, both that obverse content is restored AND `.corner-wide` is
+cleared; Spotlight getting the same reverse-specific content Browse detail
+does; the sr-only summary differing correctly per face;
+`mapWorkbookRowToCoin()` reading the real `Error` column; a childless AND
+a multi-child Set both showing zero corner text with the badge/SR
+defensively cleared; a real dispatched click on a Set's frame confirmed to
+do nothing; an ordinary coin's detail view confirmed unaffected in both
+directions; a Set's own children confirmed to never be `isSetRow()`
+themselves; and a nav/overflow smoke check. **Verified negative control**:
+temporarily removed the TR-clearing line and over-widened the split regex
+to accept reversed order — 7 assertions failed with exactly the wrong-
+content symptoms, then both were restored and every assertion re-confirmed
+passing.
+- **Not verified: any real device.** Screenshots reviewed in this
+  environment's headless Chromium at both required viewports (a tablet
+  geometry spot-check confirmed the same TL fit with zero page overflow) —
+  same standing caveat as every round on this branch.
+
+### Add Coin Phase 2 + live-device retest batch (BUILT and merged to main)
+The first real-device pass this branch has had. CAC Bean, Mint Mark "None
+(Other)" and the reverse-face flip content all came back clean. Seven items
+came out of it; all seven are built here.
+
+**1. THE CRITICAL ONE — Add Coin's write path dead-ended after hand-off.**
+Ray built a coin, saved to Staging, marked it Ready, and found nothing
+further to do — the coin sat in "Awaiting Copilot Research" even though its
+CoinID had resolved cleanly. Confirmed by reading the code rather than
+guessing: `markCoinDraftReady()` set a status and rewrote the draft JSON,
+full stop. Its own comment said so outright ("PHASE 1 INTERIM — deliberately
+does NOT touch the All sheet"). **No coin, matched or not, had any path into
+All**, and match status had never been consulted at that point. The Graph
+client had no append-row primitive at all.
+
+- **`addTableRow()` — the one genuinely new primitive.** Appends a
+  GENUINELY BLANK row. Graph's `rows/add` does accept a values array and
+  using it is the obvious-looking approach; it is also wrong here, because
+  that array must supply a value for every column **including the two live
+  formula columns** (Total at U, SpotValue at Z) — the exact
+  fill-every-cell hazard that cost this workbook all 1,084 of its formula
+  cells once. Appending blank lets Excel fill calculated columns from the
+  table's own `calculatedColumnFormula`, and every real value then lands
+  through the existing allow-list-filtered `saveCoinRowToWorkbook()` with
+  no new write surface. **Accepted, deliberate tradeoff: not atomic.** A
+  blank add followed by a failed PATCH leaves an orphan row — visible,
+  recoverable, and carrying a blank `Reviewed`; a clobbered formula would
+  be silent and catastrophic.
+- **`writeNewRowKeyCells()` (Q1, confirmed as the permanent mechanism).**
+  CollectionID and CoinID are on `ALL_NEVER_WRITE_COLUMNS`, correctly, for
+  EDITING. A newly CREATED row is the one genuine exception. Rather than
+  loosen the allow-list — which would weaken the "an unlisted column has no
+  code path to a general PATCH" guarantee every other write rests on — this
+  follows `writeCoinIdCell()`'s precedent: a separate, narrow,
+  explicitly-audited path that can write nothing but those two columns.
+  **`ALL_NEVER_WRITE_COLUMNS` is untouched.**
+- **`createAllSheetRow()` re-resolves by CollectionID** before a single
+  data value is written, rather than trusting arithmetic on Graph's
+  data-body index — rule 1 of this layer is "a row is located by
+  CollectionID at write time, never by a remembered or derived position",
+  and this honours it at creation too.
+- **`saveCoinRowToWorkbook()` gained `opts.gate`** so Add Coin's own flag
+  authorizes its write. Hard-wiring it to `browseEditWriteEnabled()` would
+  have meant Add Coin's promote silently requiring Browse Edit's flag —
+  exactly the coupling this file's standing rule forbids.
+- **Category, Finish and CACBean added to `ALL_WRITABLE_COLUMNS` (Q2,
+  confirmed).** All three were captured on the draft carrying a standing
+  "needs an allow-list entry before Phase 2" note; without them promotion
+  would silently drop three real captured values. Finish also moved OUT of
+  `ALL_CONTEXT_COLUMNS`, since listing it in both would read the same column
+  twice. **Correction to this section's original claim: being on the
+  allow-list does NOT by itself make a field editable in Browse Edit.**
+  CACBean genuinely is — it has real dual-checkbox wiring in
+  `readBrowseEditForm()`. Category and Finish are NOT — `readBrowseEditForm()`
+  never collects either from any form input, so the allow-list entry only
+  means the general PATCH machinery could write them if a value arrived some
+  other way (which it now does, via Add Coin's own promotion write); no
+  Browse Edit UI exists to set either one. Found while adding Error, below,
+  and worth knowing before assuming any of the three is user-editable there.
+- **`Error` added to `ALL_WRITABLE_COLUMNS` too (2026-08-30 follow-up,
+  Ray's explicit authorization) — the KNOWN GAP this section originally
+  flagged is now closed.** Same treatment as Category/Finish/CACBean:
+  `coinDraftToAllValues()` now maps `draft.errorDesc` onto `Error`, so a
+  captured Error description survives promotion instead of being silently
+  dropped. Same caveat as Category/Finish immediately above — no Browse Edit
+  UI input exists for Error either, so it isn't independently editable
+  there; the allow-list entry only means the general PATCH machinery can
+  carry it through when a value arrives via Add Coin's own write. Verified
+  headless (`tests/verify_phase2_and_retest_batch.js`, B2b/C4b): the
+  allow-list membership and a full promotion end-to-end with a real
+  `errorDesc` landing correctly in the Error column, both with a verified
+  negative control. All 635 assertions across 16 suites re-run clean.
+
+**Q4's model, implemented as Ray specified** (his correction to my proposed
+"clean match skips Staging" boundary): Staging is a genuine working area for
+EVERY coin regardless of match status.
+- **No new status enum and no migration** — where a READY draft is listed
+  derives from whether it has a CoinID. READY + CoinID stays in **Staging**
+  with **Promote** offered right there (and in Staging Review, where Mark
+  ready was pressed). READY without one moves to **Research** with
+  **Re-check / Force Add / Dismiss**.
+- **Force Add** writes the coin with CoinID and SetID genuinely blank, sets
+  `forceAdded`, and **deliberately keeps the card** in Research as "written
+  to the All sheet with no CoinID" until Re-check resolves it or the user
+  Dismisses.
+- **Dismiss requires a reason**, on the same reasoning `promptDocketDismiss()`
+  already enforces, and sets status PROMOTED (the row genuinely IS on the
+  sheet) with the reason kept on the draft as the audit trail.
+- **Two deliberate divergences, confirmed with Ray, recorded so neither
+  looks like an oversight later**: the app now sets `PROMOTED` ITSELF for
+  coins (the Set-side rule that only external reconciliation may set it
+  exists because the app never wrote a Set's row — here the app IS what
+  wrote it), and **a force-added row is a real, unlinked All row** —
+  visible in Catalog, counted in Ledger — until Re-check closes the gap.
+
+**Q4.1 — attaching a CoinID to an already-written row: the mechanism
+already existed.** `applyDocketResolution()` has done exactly this since the
+Docket work: `findAllSheetRowNumber()` then `writeCoinIdCell()`. The gap was
+reach, not capability — it was wired only to Docket **queue entries**, while
+the coin-draft Re-check path wrote the draft JSON alone (correct, until Force
+Add made a row exist). `applyCoinDraftMatch()` now also writes the cell when
+`allRowWritten` is set, reusing that same audited path — no new write
+surface, and no re-entry of the coin's data.
+
+**Q4.2 — two data models, one already-shared renderer.** Worth knowing
+before touching this area again: the Research section is fed by three
+independent sources. A "no DB_Coins match" card like "1943-S Lincoln Wheat
+Steel" is a **Docket queue entry** (`_Docket/docket.json`, keyed `entryId`,
+identity fields only, can originate from Browse Edit's re-link as well as
+Add Coin). A per-coin "Handed Off" card is a **coin draft**
+(`Staging/{ID}/coin.json`, keyed `collectionID`, carrying the whole capture
+— photos, cost, grade, cert). Different files, different keys, different
+lifecycles. **`appendDocketRows()` is already generic though**, taking
+per-row callbacks, so Promote/Force Add were two more optional callbacks
+plus two buttons — the records need reconciling, the card rendering does
+not. Note also that the per-coin Handed Off card previously had **neither**
+Re-check nor Dismiss (Re-check lived on the per-coin *Draft* row and on the
+Docket-entry card; Dismiss only on the latter), so this added four actions
+to it, not two.
+
+**Q3 — photo relocation is fully app-driven**, confirmed by reading
+`movePromotedSetFiles()`: `getItemMeta` → `getFileBytes` → `uploadBytes` →
+`getItemMeta` (verify) → `deleteItem`, all the app's own Graph calls, with a
+failed or unverifiable copy always leaving the source intact.
+`plannedCoinPromotionMoves()`/`movePromotedCoinFiles()` mirror it exactly.
+One refinement over the Set path: because the app itself promotes a coin, the
+move runs **immediately after the write** rather than only at launch;
+`processPromotedCoinDrafts()` still runs at launch to resume anything that
+failed or was interrupted.
+
+**2. Sets: the flip-card removal was genuinely incomplete.** The prior pass
+cleared the corner TEXT and neutered the flip gesture but left
+`#browseDetailFlipFrame` and its interactive `.coin-disc` rendering — Ray was
+right that this wasn't the removal that was asked for. The frame is now
+hidden outright and a genuinely separate `#browseDetailSetPhoto` element
+takes its place: square, static, no interaction, no corner labels, showing
+the real whole-set/OGP photo via `setFlipPhotoUrl()`'s existing priority or a
+plain 📦 placeholder. Individual coins — including a Set's own children
+reached through "Coins in this Set" — are untouched.
+- **Year now rides in the page title** (`detailTitleText()`): "1957 United
+  States Proof Set", per Ray's Q5 correction. Skipped when the name already
+  starts with the year, and for a Roll's literal `"Various"`.
+- **Edit Set gained a "Link a coin to this Set" accordion** (Q6:
+  session-only). Candidates are owned coins that are neither Sets nor
+  already claimed by one; linking mutates the same in-memory
+  `FAKE_SET_CHILDREN` model the read side uses, so it round-trips visibly
+  everywhere. **Deliberately not persisted**: real linkage is
+  `All.OriginSetID` on the CHILD's row, and OriginSetID is on
+  `ALL_NEVER_WRITE_COLUMNS` — a second never-write exception on a different
+  row than the one being edited, held for its own later pass. "Back"
+  collapses the control and returns to the plain list.
+
+**3. Long-name corner text overlapping the coin — root cause was that
+nothing ever checked.** Reproduced against the reported AY-00463-B and it
+was worse than reported: BOTH the wrapped second line and the third line
+intersected the disc (91px and 72px from its centre against a 105px radius).
+The fit test only ever asked "does the text fit its own box"; the box is
+anchored 10px from the frame corner and grows DOWNWARD as lines are added,
+straight into the disc's band, and no amount of box-fitting can see that. So
+this was a **predicate** fix, not the tolerance/spacing nudge it looked
+like:
+- **`cornerClearsDisc()`** measures each rendered line against the disc's
+  actual circle (nearest-point-to-centre against the radius — a bounding-box
+  test would report the corners as hits exactly where corner labels live),
+  and `cornerFits()` now requires both.
+- **`.corner-line` boxes hug their own text** (`width: fit-content`) so the
+  measurement is honest — a short line stacked under a long one used to
+  inherit the long one's width and report reaching much further across the
+  card than its ink did. **`max-width: 100%` is not optional there**: these
+  lines are `nowrap`, which makes min-content equal max-content, so
+  `fit-content` resolves to max-content and overflows the parent instead of
+  being clamped — without the cap the overflow test that drives wrapping
+  silently never fired.
+- **The two-line wrap is now balanced, not greedy.** Greedy turned the First
+  Spouse name into "Martha" / "Washington First Spouse Gold $10", whose
+  second line was nearly as wide as the unwrapped original, so wrapping
+  bought almost nothing. Choosing the split that minimises the WIDER line is
+  what actually earns font size back.
+- **Shrink prefers a comfortable floor before wrapping** (`CORNER_COMFORTABLE_FRACTION`
+  = 0.82), then re-shrinks the wrapped layout from natural size, then falls
+  back to the full range on a single line for a one-word value that has
+  nothing to wrap. Two extra shrink steps were added (0.56, 0.48) because
+  with clearance enforced a three-line corner genuinely needs them.
+- Measured outcomes: "Morgan" untouched at 27px; "Lincoln Memorial" still
+  resolves by shrink ALONE at 22.14px without gaining a third line (last
+  round's regression guard still holds); the ATB quarter wraps at 15.12px;
+  First Spouse wraps at 12.96px — all four now clearing the coin.
+- **A real side effect worth knowing**: the BR composition corner now
+  shrinks for "99.95% Platinum", because measurement showed its first line
+  sat 94.1px from the disc centre against a 105px radius at full size — it
+  was genuinely overlapping and nothing could see it. A prior assertion that
+  claimed "no shrink applied" was asserting that bug.
+
+**4. Dimes + Silver hiding a real silver dime — NOT a stale cache.** The
+filter and the flip card read two DIFFERENT joins: `metalCategory` comes
+from a four-hop chain (`All.CoinID → DB_Coins.CoinID → MetalContentType →
+Lookup_MetalContent.CoinType → MetalCategory`), `composition` from a two-hop
+one (`All.CoinID → DB_Coins.Composition`). The reported coin had Composition
+populated and MetalContentType blank, so the filter saw a blank category
+(bucketed "Other") while the card saw real silver. The workbook-side fix is
+to populate MetalContentType; the app should not silently disagree with
+itself meanwhile, so **`metalCategoryFor()` now derives from the composition
+string** via `metalCategoryFromComposition()` when the primary join yields
+nothing. Compound terms are tested first so "Copper-Nickel Clad" lands on
+Clad, not Copper; Bronze/Brass bucket under Copper exactly as
+Lookup_MetalContent does. **Also fixed the genuine staleness half**:
+`refreshLiveCoinsAfterWrite()` clears the once-per-session memo so a
+just-promoted coin is immediately browsable and filterable without a reload.
+
+**5-7. The three smaller items.**
+- **Error on the Overview** — a plain fact row, coin-only, omitted when
+  blank. It was previously reachable ONLY by flipping the card, so invisible
+  to anyone who never did.
+- **Purchase Details finally populates for real coins.** The Seller and
+  Purchase Date rows already existed — they read `FAKE_COIN_DETAILS`, which
+  is empty for every live coin, because `mapWorkbookRowToCoin()` never read
+  `Seller_Link`, `Shipping` or `PurchaseDate` back even though Browse Edit
+  has been able to WRITE all three since the write layer landed. The rows
+  existed; the data never reached them. Now mapped (dates converted from
+  Excel serials to ISO), with the coin's own values winning over the demo
+  lookup.
+- **Prev/next stepping at the detail level.** The list is captured at
+  grid-render time (`browseStepIds`), so it is exactly what the user is
+  looking at — same filters, same sort, same order — rather than re-derived
+  later from filter state that an external Browse entry may since have
+  reset. Stored by id, not object reference, since a live refresh rebuilds
+  `LIVE_COINS` wholesale. A coin reached outside any list (a "Belongs to"
+  chip) falls back to CollectionID order; a **Set child gets no arrows at
+  all**, since it lives in its own nested lookup and stepping into an
+  unrelated top-level coin would be a jump, not a step. Arrows hide at each
+  end rather than wrapping.
+
+**Verified headless — new committed suite
+`tests/verify_phase2_and_retest_batch.js` (70 assertions); 633 across all 16
+suites, zero failures.** Covers: the blank-row primitive and the untouched
+formula cells through a full create-and-populate cycle; the allow-list/
+never-write invariants; a clean-match promotion end to end with Add Coin's
+own flag authorizing it while Browse Edit's is OFF; Promote refusing an
+unmatched draft while writing nothing, and Force Add writing the same coin
+with a genuinely blank CoinID; **Q4.1 end to end** — a force-added row
+getting its CoinID from a later Re-check with nothing else disturbed;
+Dismiss refusing a blank reason and keeping a real one; the photo move's
+copy-verify-delete and its completion flag; total inertness with the flag
+off; the Docket's Staging-vs-Research split by CoinID with the right actions
+on each; both Set shapes losing the frame AND the disc while an ordinary
+coin keeps both; the title's year rules; the session-only linking round trip
+including its no-double-claim and no-Sets-as-children rules; all four
+measured corner cases clearing the disc; the balanced wrap; the
+composition-derived metal categories and the reported filter bug; the Error
+row; the three newly-mapped purchase columns and the Total they produce; and
+stepping through a filtered list, an unfiltered fallback, and a child's
+correct absence of arrows.
+**Verified negative control**: disc clearance removed from the fit
+predicate, the composition-derived category removed, the Set frame restored,
+and Promote's no-match guard disabled — 7 assertions failed with exactly the
+reported symptoms (`clears: false` on both long-name cases, the metal filter
+blind again, the Set frame back), then all four were restored and every
+assertion re-confirmed.
+- **`WRITE_TARGET` stays `"copy"` throughout — untouched.**
+- **Superseded: the Phase 2 write HAS since had a real `_Testing` run, and
+  it found a duplicate-row bug.** See the section immediately below.
+
+### Phase 2 promote: duplicate-row bug (BUILT and merged to main)
+The first live `_Testing` Promote (AY-00706, `C-1943-S-1C-01`) wrote **two
+rows**: one holding the full coin, one holding nothing but CollectionID and
+CoinID. **Both calls reported success and nothing in the app could tell.**
+Ray's own hypothesis — a double-submission caused by Promote giving no
+feedback — was correct, and reproducing it turned up a **second, worse
+defect in the same function that needs no user error at all**.
+
+**Root cause 1 — check-then-act.** `promoteCoinDraftToAllSheet()` already
+checked `findAllSheetRowNumber()` before appending, so "add a check" was not
+the fix: two submissions both read the column before either had written its
+keys, both concluded no row existed, and both appended. Call 2 then
+re-resolved by CollectionID, got call 1's row (first match wins), abandoned
+its own row and wrote its data into call 1's — leaving row N complete and
+row N+1 holding only its keys. Reproduced headlessly against the mock client
+with real per-call latency; the artifact matched the live one exactly.
+
+**Root cause 2 — the write target was arithmetic on a stale read.**
+`createAllSheetRow()` computed `provisionalRow = before.length + 1` from a
+read taken BEFORE the append. **Any** row appended in between — a second
+promote, or Copilot working in Excel, which this workbook is explicitly
+co-managed with — shifted the real new row down, so the key write landed on
+**a different coin's row**, overwriting its CollectionID and CoinID;
+`saveCoinRowToWorkbook()` would then write the rest over the top. Verified
+directly with a single promote plus one external append: the neighbouring
+coin's identity was destroyed and the genuinely-appended row left blank. The
+old verify could not catch it — it looked the id up and found it exactly
+where it had just been written, unable to tell "found my new row" from
+"found the row I just clobbered."
+
+**Why there was no feedback.** `promoteCoinDraft()` did toast on success —
+but only after `finishCoinDraftWrite()`, which runs the photo move,
+`refreshLiveCoinsAfterWrite()` (a full re-fetch of All + DB_Coins + DB_Sets +
+Lookup_MetalContent) and two re-renders. On the real workbook that is easily
+ten-plus seconds of total silence after the click. Add Coin's own Save has
+had `btn.disabled` + `"Saving…"` since Phase 1; Promote never got it.
+
+**The fix — four parts, all confirmed by Ray before building:**
+- **A per-CollectionID in-flight lock** (`coinPromoteInFlight`), wrapping a
+  renamed `promoteCoinDraftToAllSheetUnlocked()`. A lock rather than a
+  disabled button because Promote renders on **two** surfaces (the Docket's
+  Staging section and Staging Review) plus Force Add, so no single button's
+  state can speak for the coin. A second call **coalesces onto the first**
+  rather than being rejected — the honest outcome of a double-submit is
+  "that coin got promoted", not an error — and the result carries
+  `coalesced: true` so `promoteCoinDraft()`/`forceAddCoinDraft()` skip
+  re-running the post-write chain (which would otherwise move photos twice
+  and toast twice for one coin). force vs. non-force cannot collide through
+  the UI: Promote only renders when the draft has a CoinID and Force Add
+  only when it does not.
+- **`createAllSheetRow()` rebuilt around three ordered guarantees**: the
+  column is read AFTER the append, never before; the write target comes from
+  **Graph's own reported index** for the row it just created (0-based within
+  the table's data body, so sheet row = `index + 2` given the header at
+  sheet row 1 — the same mapping `findAllSheetRowNumber()` already relies
+  on), falling back to the table's last row; and — **the guarantee that
+  actually matters** — the chosen row's CollectionID cell must be genuinely
+  EMPTY before anything is written to it. However wrong an index ever got,
+  this layer can no longer write a key over a populated one; it refuses and
+  reports. Confirmed with Ray: on this workbook an appended row always lands
+  at the literal last row of the table, from this app and from Copilot
+  alike, so the two candidates normally agree. Cost is unchanged — read,
+  append, patch, read either way. A tripwire also fires if the CollectionID
+  turns up on the sheet underneath the write.
+- **`findAllSheetRowNumbersFor()` / `collectionIdRowsInColumn()`** — a
+  duplicate-aware verify used by the create path only, asserting **exactly
+  one** row carries the id and that it is the row just claimed.
+  **`findAllSheetRowNumber()` is deliberately left byte-for-byte untouched**
+  (first-match, what Browse Edit's every save depends on), and the scan is
+  duplicated rather than shared so a future change to this verify can't
+  alter that hot path.
+- **Real Promote feedback** — a shared `runWithButtonPending(btn, label, fn)`
+  (disable + relabel immediately, restore in a `finally` **only if the button
+  is still `isConnected`**, since these rows are routinely re-rendered out
+  from under the click by the very operation finishing), wired into both
+  Promote surfaces; and the success toast **moved ahead of** the slow
+  follow-up chain, with that chain now wrapped so a bookkeeping failure
+  produces its own honest follow-up toast instead of an unhandled rejection
+  behind a success message. `forceAddCoinDraft()` got the same treatment for
+  consistency — same function shape, same slow chain.
+
+**Worth knowing: the fixes are defence in depth, not four independent
+patches.** Removing the lock alone no longer reproduces a duplicate *data*
+row — the blank-cell guard and the tripwire catch it — it just leaves a
+stray blank row and a spurious error. The lock is what makes a double-submit
+clean rather than merely non-destructive.
+
+**Cleanup of the live artifact:** Ray deleted sheet row 1545 himself in
+Excel (whole row, not cleared cells) after confirming 1544 was the complete
+one. A receipt attached during that same test transferred correctly from
+Staging to CoinReceipts; **photos were not exercised in that pass**.
+
+**Verified headless — new committed suite `tests/verify_promote_race.js`
+(25 assertions), all passing; 660 across 17 suites, zero failures.** Covers:
+the original double-submit reproduced end to end (exactly one row, holding
+real data, no stray blank row, second call coalesced onto the first); a
+coalesced promote firing exactly one success toast rather than two; the
+toast ordering asserted by event sequence rather than timing (the operation's
+first `uploadJson` can only come from `finishCoinDraftWrite()`); the external
+mid-write append leaving its own row intact while the new coin claims a
+genuinely-new one; the refuse-rather-than-clobber path leaving every existing
+cell untouched; the already-on-the-sheet tripwire; the duplicate-aware lookup
+against a seeded double alongside proof `findAllSheetRowNumber()` still
+returns the first match; the pending helper's four behaviours (immediate
+disable/relabel, repeat click starting nothing, restore when still attached,
+and leaving a detached button alone); both Promote surfaces genuinely wired
+through it via real `.click()`; and an ordinary single promote still landing
+with its data, its Error column, and both formula cells untouched.
+**Verified negative control, one per fix**: removing the lock fails A3/A5;
+restoring the stale-read arithmetic fails D1/E1/E2 with the exact reported
+symptom (neighbouring row clobbered); moving the toast back after the chain
+fails C1 with order `["chain","chain","toast"]`; unwiring the pending state
+fails I1/I2. Each was restored and re-confirmed.
+- **Not verified: any real device, and no live `_Testing` run against these
+  fixes specifically.** Ray has cleared live `_Testing` testing for his own
+  next pass; `WRITE_TARGET` stays `"copy"`.
+
+**Follow-up: pending state extended to every action button on both
+surfaces.** Ray asked for Re-check and Reject to match Promote. Two
+corrections came out of doing it, both worth knowing:
+- **Force Add did NOT already have it** (the request assumed it did). It
+  has the same dialog-then-async-work shape as Reject, so it got the same
+  treatment rather than being left as the one button believed done and not
+  done. Dismiss, Mark ready and Revert to Draft are the same class of
+  silent write and were included too — leaving three of six buttons on a
+  row behaving differently would have invited the identical complaint next
+  round.
+- **`runWithButtonPending()` now calls the handler FIRST and only goes
+  pending if it returned a thenable.** The first version wrapped every
+  button unconditionally, which made a dialog-opening button flash
+  "Rejecting…" for a frame while the user was still deciding — caught by a
+  synchronous assertion in the suite, not on a device. An async handler
+  returns its promise synchronously, so a real write still goes pending in
+  the same tick; a handler that only opens a dialog returns undefined and
+  gets nothing.
+- **Two shapes, one convention.** A handler that does its work immediately
+  (Re-check, Mark ready, Revert, Promote) shows pending on the click. A
+  handler that opens a confirmation first (Reject, Force Add, Dismiss)
+  takes the button as an optional second argument and applies pending
+  inside its confirm handler, so the state appears when the work starts,
+  never while the dialog is open. `showWriteGuard()` has no backdrop
+  dismiss — every exit runs a declared button's `onClick` — so this cannot
+  strand a button disabled.
+- Verified headless: 8 further assertions in `tests/verify_promote_race.js`
+  (33 in that suite; 668 across 17 suites, zero failures), with three
+  negative controls — unwiring Staging Review's buttons fails I2/K1/K2;
+  restoring the always-wrap helper fails H5/K3/L2 with the exact flash;
+  stripping the button pass-through from `rejectStagedCoin()` fails K4.
+
+### Editing a coin in Staging — Phase A (BUILT and merged to main)
+Mark Ready used to be a one-way blind commit: nothing could reopen what had
+been captured, unlike an in-progress Set draft, which `resumeSetDraftAtStep1()`
+has always been able to resume. This is the coin-side equivalent.
+
+**Phase A scope, deliberately: FIELDS only.** Photos and the receipt are
+carried forward untouched, so an edit can never lose a captured file. Phase B
+(add/remove a photo during an edit) is held back on Ray's instruction — it
+needs a delete-from-OneDrive capability nothing in this flow has today.
+
+- **`applyCoinDraftToForm(draft)` is the exact inverse of
+  `readAddCoinFormForDraft()`** — every field that reads, this writes back,
+  including the derived UI state that is stored nowhere: which dropdown
+  option is selected, whether an "Other" override box is showing, and which
+  Grader-dependent rows are visible. Runs AFTER `resetAddCoinForm()`, never
+  instead of it, the same way `applyAlbumContext()` does — `navigate("addcoin")`
+  always resets first (live-run bug #1).
+- **Ordering that matters, not incidental:** the Bullion toggle is restored
+  FIRST because it regenerates the Denomination dropdown; a bullion draft's
+  `denom` is a plain face value shared with other types, so the option is
+  matched on **denom AND `dataset.category` together**, never the face value
+  alone. Grader is set before the fields whose rows it shows/hides.
+- **`gradeFieldsFromValue()` reverses `resolveGrade()`'s three collapsed
+  states.** The range case is the trap: `"G-4-VG-8"` has hyphens inside BOTH
+  halves, so the split point cannot be guessed from the string — every
+  candidate split is tested against the real option list instead. A value
+  matching no option at all is the "Other" free-text path, so a Details grade
+  (`"XF Details - Improperly Cleaned"`) restores correctly rather than
+  becoming a bogus range.
+- **`addCoinResolvedPick` is restored in the SAME shape a live pick uses**
+  (`{row, forShape, candidateCount}`), keyed to the identity now on the form —
+  so an unrelated edit (a typo in Notes) doesn't re-open the ambiguous picker
+  for a coin whose catalog row was already chosen, while editing
+  Year/Mint/Denom correctly invalidates it. The row is **looked up** in
+  `activeDbCoins()`, not synthesised: if DB_Coins no longer carries that
+  CoinID, there is nothing honest to restore, so the pick is dropped and the
+  matcher speaks for itself.
+- **THE ONE THAT MATTERS — an edit reuses the draft's own CollectionID.**
+  `completeAddCoinSave()` unconditionally called `reserveCoinCollectionId()`;
+  editing through it unchanged would burn a fresh id and write a second draft
+  folder, orphaning the first along with its photos. Now
+  `editingCoinDraftId || await reserveCoinCollectionId()`.
+- **`saveCoinDraftEdit()` overlays onto the STORED draft rather than writing
+  `buildCoinDraft()`'s output wholesale.** `buildCoinDraft()` produces a NEW
+  draft, so using it directly would silently reset four things an edit must
+  never touch: `status` (a Ready draft would drop back to Draft), `photos`/
+  `receiptPhoto` (returned empty, orphaning every captured file),
+  `createdDate`, and the Phase 2 bookkeeping (`allRowWritten`/`forceAdded`/
+  `filesMovedOnPromotion` — a force-added coin already on the All sheet must
+  stay marked as such). It IS re-run for the research note, so an edit that
+  closes a catalog gap clears the note instead of leaving a stale one.
+- **The edit binding is dropped inside `navigate()`'s addcoin branch.**
+  Without it, leaving an edit part-way and entering Add Coin fresh would save
+  the NEW coin over the draft being edited — on a form that looks blank.
+  `beginCoinDraftEdit()` re-establishes the binding immediately after its own
+  `navigate()` call, so this never clears a live edit.
+- **Entry point: an Edit button on Staging Review rows**, offered on Draft and
+  Ready drafts and never on a `PROMOTED` one (whose row belongs to the All
+  sheet — Browse Edit owns it from then on). `beginCoinDraftEdit()` re-checks
+  status against the freshly-read draft too, so a stale render can't get past
+  the button's own condition.
+- **A real defect caught by screenshot, not by the suite:** "Save to Database"
+  stayed visible next to "Save changes" while editing, implying a second,
+  different outcome that does not exist (both route to `saveCoinDraftEdit()`).
+  `updateSaveConfidenceUI()` now takes an edit-mode branch that hides it along
+  with the capture-destination notices, which answer a question nobody is
+  asking mid-edit. Two assertions added so it can't come back.
+
+**Verified headless — new committed suite `tests/verify_staging_edit.js`
+(37 assertions), all passing; 705 across 18 suites, zero failures.** Covers
+every captured field round-tripping; the CollectionID reuse asserted by
+recording the paths the save actually writes (a folder count alone does NOT
+prove it — `saveCoinDraftEdit()` refuses outright when handed a draft that
+doesn't exist, so a wrongly-reserved id fails to write at all rather than
+leaving a visible second folder); photos and receipt carried forward; all
+four pieces of preserved bookkeeping on a Ready + force-added draft; the
+PROMOTED and not-found refusals; the binding not leaking into a fresh
+capture; all four grade shapes including the double-hyphen range; the
+variety and Error "Other" overrides; a bullion draft landing on the option
+matching denom AND category; which statuses get an Edit button and the
+button actually opening the editor; inertness with the write layer off; and
+no horizontal overflow at both viewports. **Verified negative control:**
+reserving a new id fails B1/B2/B4/B5/C4; writing `buildCoinDraft()` output
+wholesale fails B3/B4/C1/C2/C3; dropping the binding reset fails E2.
+- **Not verified: any real device or real OneDrive session.**
+
+### Workbook-alignment batch (BUILT and merged to main)
+Four corrections made after reading the REAL `CoinCollection (AI).xlsx`
+(uploaded 2026-09-02) rather than reasoning from the 12-row mock. Three of
+the four reverse or correct earlier decisions that were made on wrong
+assumptions about the data — worth knowing, because in each case the app was
+confidently doing the wrong thing and the tests were asserting it.
+
+**1. A resolved DB_Coins row's Description is written onto Add Coin's form.**
+- **The data settles the question the earlier investigation had to leave
+  open.** `DB_Coins.Description` already carries the real per-design name —
+  `"Delaware State Quarter"`, `"Grand Canyon Quarter"`, `"Martha Washington
+  First Spouse Gold $10"` — with `Variety` genuinely blank, so several
+  designs share one base key and the existing ambiguous picker already
+  surfaces them correctly. `Ref_Denominations` cannot compete: for Quarters
+  it is program-level only (one row for `"Washington State (1st Design)"`
+  covering 1999-2008, one for `"Washington ATB"` covering 2010-2021), and for
+  First Spouse it names the first four 2007 spouses individually and then
+  lumps 2008-2016 into a single `"Various"` row.
+- **Two write points, matching Ray's spec**: the single-unambiguous-candidate
+  branch of `checkDbCoinsMatch()`, and the pick handler in
+  `resolveAddCoinCatalogMatch()`. Ref_Denominations' program-level auto-fill
+  is untouched and still runs as the before-DB_Coins-can-narrow fallback.
+- **`applyMatchedDescriptionToForm()` never fights a value the user typed**,
+  and that is the only case it declines. A value it wrote earlier IS
+  replaceable — a genuinely different catalog row winning later is the point,
+  and locking it would strand the first match's name on a subsequently-edited
+  identity. That is why `descriptionFromDbCoinsRow` is a separate flag rather
+  than reusing `descriptionAutoFilled = false`: the existing flag means "don't
+  let the coarse refill touch this", which is still wanted, but on its own it
+  would also block the finer source from correcting itself.
+- **THE SUBTLE ONE — order is load-bearing in the pick handler.**
+  `addCoinIdentityShape()` passes Description to the matcher *only when it is
+  one of Ref_Denominations' own controlled series values*, so replacing a
+  controlled series name with a per-design catalog name drops
+  `shape.description` back to `""` and therefore CHANGES the shape key. Keying
+  the pick to the pre-write `state.key` — the obvious way to write it — makes
+  `currentAddCoinMatchState()` judge the pick stale on the very next call and
+  silently discard the choice the user just made. The pick is keyed AFTER the
+  write instead.
+  **The first version of the test did not catch this**: it used 25C/1999,
+  which has SEVERAL Ref_Denominations series, so the field is cleared and
+  `shape.description` is `""` both before and after — the key never moves and
+  a pre-write key survives by luck. The committed assertion uses **10C/1950**,
+  which has exactly one series (`"Roosevelt Silver"`), and a negative control
+  confirms it fails when the keying is reverted.
+
+**2. Edit Coin gains the Mint Mark "— none (Other) —" lookup.**
+- **Deliberately narrower than Add Coin's.** Add Coin fills a whole new
+  coin's identity from the matched row because there is nothing to lose. Edit
+  Coin must not: Description/Variety/Finish/Denomination/Year on an existing
+  row are curated, and this form's standing rule is that it never auto-fills
+  over them. So the only field it writes is Mint Mark — which the shared
+  sentinel has already normalized to blank — and the visible outcome is a
+  banner plus a catalog link.
+- **The resolved row is AUTHORITATIVE for the save-time CoinID re-link**
+  (Ray's confirmed call), consumed by `resolveDbCoinsForSave()`. It has to be
+  to be worth anything: the general matcher keys on the ABBREVIATION, which is
+  blank for an ordinary Philadelphia coin and for an unmarked Denver/San
+  Francisco/West Point one alike, so re-deriving from scratch would discard
+  the one piece of information the user just supplied and reintroduce the
+  exact ambiguity the lookup exists to settle.
+- **Flagged `viaPicker`**, which suppresses the CoinID-change confirm — the
+  user already saw and accepted that exact CoinID in the applied banner, so
+  re-asking is the redundancy that rule exists to avoid. The
+  identity-overwrite dialog still fires independently for the MintMark change
+  itself, which is the gate that matters.
+- **Self-invalidating** via a shape key, mirroring Add Coin's remembered pick,
+  so a later Year/Denomination/Variety edit discards it rather than linking
+  the coin to a row for a different identity. Also cleared whenever Edit opens
+  for another coin.
+- **`mintMarkOtherCandidates()`** extracts the shared QUERY (blank MintMark +
+  populated non-Philadelphia Mint, soft Variety narrow, Multiple-Facilities
+  split) as a pure function, so both forms ask the same question while
+  differing completely in what they do with the answer. Validated at real
+  scale: 188 blank-MintMark/West Point rows, 17 San Francisco, 23 Multiple
+  Facilities.
+- **A real defect found while testing it, affecting the PRE-EXISTING Add Coin
+  picker too**: the shared `renderAmbiguousMatchList()` never displayed the
+  mint facility, so a Denver card and a West Point card rendered as identical
+  text — in the one picker whose entire question is *which mint*. That is the
+  Part-F "both options look identical" failure by another route. `mintFull`
+  now leads the detail line in all three candidate displays (the picker and
+  both Re-check confirm dialogs).
+
+**3. Denomination codes corrected against the real `Lookup_DenomCodes`.**
+The app had invented codes that the workbook does not use:
+- Half Cent is **`H1C`**, not `0.5C`.
+- Half Dime is **`H10C`**, not `H5C`.
+- Three Cent is **two** codes, **`3CS`** (silver trime, 1851-1873) and
+  **`3CN`** (nickel, 1865-1889), not one merged `3C`. Their year ranges
+  overlap 1865-1873, which is the concrete reason one code could never have
+  served both.
+- **`5oz`** (Five-Ounce Silver, ATB/commemorative, 2010-present) added; it was
+  missing entirely.
+None are in use by any currently-owned coin, so this is a correctness fix for
+whenever the first one is catalogued. `5oz` deliberately does not appear in
+the Add Coin dropdown yet: that dropdown is DERIVED from `FAKE_DENOMINATIONS`,
+and `Ref_Denominations` has no matching series row — the derivation still
+holding is itself asserted.
+
+**4. Finish dropdown corrected against real `DB_Coins.Finish` values.**
+Two of these reverse earlier decisions that the data does not support:
+- **`Specimen` restored** — removed on the stated grounds of matching zero
+  real rows. It matches **9**.
+- **`Uncirculated` restored** — excluded as a "condition-vs-finish data
+  mix-up". It is **211 real rows** and one of `Lookup_Finishes`' own 11
+  defined values ("Mint state, no wear", typical use "Mint sets"). The
+  genuinely suspect All-sheet values were `Circulated` and `Various`, which is
+  a separate matter.
+- **`Matte` added** (3 rows, all modern silver medals) and **`Matte Proof`**
+  (Lookup_Finishes' historic 1908-1916 gold value). These are two different
+  finishes, NOT a spelling variant of each other — worth stating plainly,
+  since the reconciliation question was posed that way.
+- **`FINISH_GRADE_PREFIX` gained all three.** `Matte Proof` maps to `PR`;
+  without it the generic `|| "MS"` fallback would have decoded a 65 as MS-65
+  on a proof.
+- **`Circulated`: nothing to simplify, and it should not be removed.**
+  Re-checked in the uploaded workbook: `Circulated` (once 139 rows) is now
+  absent from `All.Finish` entirely, evidently cleaned up workbook-side.
+  `Various` remains (6 rows). But the Finish tier's soft fallback is
+  **data-driven, not a `Circulated` special case** — there is no such literal
+  anywhere in `dbCoinsCandidatesFor()`; it keys on "is this value known
+  anywhere in DB_Coins", so a value that stops occurring simply stops reaching
+  it. Deleting the fallback would break `Various` today and any future
+  All-only value tomorrow. Only the stale row count in the comment was fixed.
+
+**Verified headless — new suite `tests/verify_workbook_alignment.js` (63
+assertions); 771 across 19 suites, zero failures.** Covers all four items
+end-to-end, including the Bullion path for First Spouse (`$10` is not in the
+classic dropdown at all, so it is reached through the Bullion toggle, whose
+generic label the catalog row then correctly replaces). **Four verified
+negative controls**, each failing exactly the assertions that claim to catch
+it: reverting the pick keying (1.7d), removing the write-back (1.1/1.2d/1.9),
+removing the authoritative short-circuit (2.11/2.12/2.14), and a
+scope-violating identity fill onto Edit Coin's own fields (2.6/2.6b). Two of
+these were written twice — the first attempt at each passed against the
+broken code, which is exactly why they were run rather than assumed.
+**Seven existing assertions in `verify_batch3.js`/`verify_batch4.js` were
+reversed** to follow the confirmed data (they asserted the invented denom
+codes and the wrongly-excluded Finish values) — following a real correction,
+not weakening.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as every round on this branch.
+
 ## Quick-capture notes → ParkingLot
+Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 timestamp, current screen, and CollectionID if one was being viewed. Writes a new
 ParkingLot row (same lock/fallback pattern as coin writes): Source, Screen, Related
@@ -4767,6 +8198,644 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
   Ray's password never touches this app's code. This is NOT true of most other
   services; don't assume another service's login can work the same way without
   checking whether they support a redirect/authorization-code flow first.
+
+### Ledger/Stats: live-data read-path fix (BUILT and merged to main)
+Real bug, found while scoping the All.Status investigation (item 5 of the
+workbook-alignment round): `renderStats()` read `FAKE_COINS` directly rather
+than `activeCoins()` — the one swap point every other live-data-aware nav
+function (`coinsTabBaseRows()`, `medalTabBaseRows()`, `applyRollsTabFilters()`,
+`applySetsTabFilters()`, `renderSetChecklist()`, `ownedSetForSetId()`) already
+goes through. Ledger/Stats therefore **always** showed the 26-row demo
+dataset, even in a live session with `ENABLE_LIVE_NAV_DATA` on and real
+coins already loaded elsewhere in the app (Catalog, Sets). Compounding it:
+`navigate()` had no `"stats"` branch at all — unlike `staging`/`addset`/
+`inprogresssets`/`needsdbcoins`, which each trigger their own render —  so
+entering Stats via the cabinet drawer never even attempted the live fetch;
+`renderStats()` ran exactly once anywhere in the file, at app-init time,
+before any fetch could possibly have landed.
+
+**Scope: this fix alone, nothing else.** Ray's explicit instruction: "Fix
+the Ledger/Stats demo-data bug now, as its own standalone item... independent
+of Item 5/Status... please proceed on item 1 only for now." Item 5
+(`All.Status` filtering) stays unbuilt — see that section for the settled-
+but-deferred design (a Status filter chip in Browse, defaulting to Owned,
+covering the four list-producing tabs plus Stats — explicitly held for a
+later round).
+
+- **`renderStats()` now reads `const all = activeCoins();`** and derives
+  `coins`/`medals`/`totalSpent`/`totalValue`/the total-items count from that,
+  instead of `FAKE_COINS` directly. The rest of the function (the
+  per-denomination breakdown loop) already read the local `coins` variable,
+  so no further change was needed there.
+- **`navigate()` gained a `"stats"` branch**, mirroring `showBrowseTab()`'s
+  own pattern: `ensureLiveNavDataFetch()` (a no-op when the flag is off, or
+  when already loaded/in flight — never blocks), then `renderStats()`
+  synchronously with whatever's currently available.
+- **`ensureLiveNavDataFetch()`'s own fetch-completion re-render, previously
+  scoped to `view-browse` only, now also covers `view-stats`** — so a fetch
+  kicked off from Browse that resolves while Stats happens to be the active
+  view re-renders it too, instead of leaving it stuck on stale data until
+  the next manual re-entry.
+- **New test seam, `__setLiveCoinsForTest(rows)`** — sets `LIVE_COINS`
+  directly, mirroring the existing `__setLiveDbCoinsForTest()`/
+  `__setLiveLookupGradersForTest()` seams, since nothing previously needed to
+  stand in for a real fetch landing specifically for Stats.
+- **Stale UI copy fixed alongside it**: the Ledger page's own footnote used
+  to flatly state "Cost and value figures are placeholder data — no live
+  totals from the workbook yet" — no longer accurate once this fix landed.
+  Reworded to "Cost and value figures reflect the live workbook once loaded;
+  otherwise this shows placeholder demo data."
+
+**Verified headless — new committed suite `tests/verify_stats_live_data.js`
+(13 assertions), all passing; 784 across all 20 suites, zero failures.**
+Covers: `renderStats()` genuinely reflecting a live single-coin dataset
+(total items, coins/medals sub-line, spent/value totals) rather than
+`FAKE_COINS`'s own count, and correctly falling back to `FAKE_COINS` again
+once the live override clears; `navigate("stats")` calling
+`ensureLiveNavDataFetch()` (it had no such branch before this fix); the
+fetch-completion branch re-rendering Stats when it's the active view
+(mirrored directly, since a real Graph/MSAL round trip can't be driven from
+this environment); the stale footnote text being gone and replaced with an
+accurate description; and a nav/overflow smoke check. **Two verified negative
+controls**: reverting `renderStats()`'s body to read `FAKE_COINS` directly
+fails the live-dataset assertion; navigating to an unrelated route
+(`wishlist`) confirms the `ensureLiveNavDataFetch()` spy isn't a false
+positive from being always-called. Screenshots reviewed at both viewports
+(phone 412×915, tablet 1024×768) — layout unchanged, no overflow, footnote
+reads correctly.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round on this branch — the live-fetch itself
+  can't be exercised end-to-end from this environment; this fix corrects the
+  read-path/render-trigger wiring that a real session would actually need.
+
+### Live-device retest batch 2 (BUILT and merged to main)
+Second real-device pass. Six items built; **item 5 (Force Add's orphan blank
+row) was investigated and deliberately NOT fixed** — see its own section
+below. Confirmed working and untouched: Sets flip-card removal, the First
+Spouse long-name wrap, Dismiss, the Finish dropdown, Ledger's live totals,
+the denomination codes.
+
+**The single most important finding of this round is not in the app at all
+— see "The AllCoins table is 987 rows longer than its data" below. Read that
+before touching the row-creation path again.**
+
+**B. "Edit Coin didn't write, and gave no identity warning" — NOT a bug.**
+`ENABLE_BROWSE_EDIT_WRITE` was off. It is a SEPARATE flag from
+`ENABLE_ADDCOIN_WRITE`, and `docs/ADD_COIN_LIVE_RUN_CHECKLIST.md`'s setup
+block only listed the latter — so Add Coin/Promote wrote for real while Edit
+Coin was still on its session-only stub. Reproduced headlessly: the
+session-only toast fires, no dialog appears, and the in-memory record IS
+mutated (which is why the detail page then showed the unsaved value as if
+real). Both halves are one cause: `commitBrowseEdit()` short-circuits to the
+session-only path for ANY field when the flag is off, and **both** confirm
+gates (identity-overwrite and CoinID-change) live downstream of that
+short-circuit on the write path. `COINID_TRIGGER_FIELDS` is intact; it was
+never reached. **The checklist now lists both flags.** The deeper UX problem
+— a session-only edit rendering identically to real data on the detail page
+— is real but was not in this round's approved scope; flagged for Ray.
+
+**C(a). PROMOTED drafts no longer appear in Staging Review.** The Docket
+already filtered them from both its lists (which is why its count read 0),
+but `renderStagingList()` mapped every draft regardless of status, and its
+Draft-vs-Ready split puts anything that is not READY under **"Needs a
+decision"** — so a just-promoted coin reappeared in the one bucket implying
+it still needed action. Now filtered to match the Docket. **The draft FILE is
+deliberately NOT deleted**: it is the audit trail and the retry source for
+the photo move (`processPromotedCoinDrafts()` resumes an interrupted move at
+next launch by reading exactly these PROMOTED drafts). Display filter only,
+asserted.
+
+**C(b). Staging Review is reachable at zero rows.** The ONLY route into
+`view-staging` was the per-row `onClick` inside the Docket's Staging section,
+so zero rows meant zero clickable elements — a genuine dead end, not just an
+empty list (the empty note is a plain `<p>`). A persistent **"Open Staging
+Review"** button now renders in that section unconditionally. **Deliberately
+not folded into the accordion header itself**, despite the request naming it:
+that header is the expand/collapse control, and giving one control two jobs
+would break the accordion.
+
+**Item 6. `ensureLiveNavDataFetch()` gained a `force` flag.** Clean root
+cause: `refreshLiveCoinsAfterWrite()` cleared only `liveNavDataFetchPromise`,
+but the function's SECOND guard is `if (LIVE_COINS && LIVE_DB_SETS) return
+Promise.resolve(true)` — and **nothing anywhere in the file ever clears those
+two** (verified: two assignments total, both inside the fetch's own `.then`).
+So every post-write refresh since it was written returned `true` having
+fetched nothing: a successful-looking no-op. That is why a just-promoted coin
+stayed invisible in Catalog until a hard reload. `force` skips that guard.
+**`LIVE_COINS` is deliberately NOT nulled first** — `activeCoins()` would
+then fall back to `FAKE_COINS` for the duration of the fetch, dropping
+Catalog and Ledger to demo data mid-session. An in-flight fetch is still
+shared even when forcing (it was started a moment ago and will return fresh
+data anyway).
+
+**Item 7 + A(second half). Two fields that existed but were never fed.**
+Same shape, same area, both fixed together:
+- Edit Coin's prefill read Shipping/Seller/Purchase Date from the
+  `FAKE_COIN_DETAILS` demo lookup only — empty for every real coin — while
+  Cost read the row itself and therefore worked. `mapWorkbookRowToCoin()`
+  already mapped all three onto `coin.shippingCost`/`.vendor`/`.purchaseDate`;
+  the prefill just never read them. Now prefers the coin's own value, demo
+  lookup as fallback — the pattern `renderDetailAccordions()` already used
+  for the same three fields. **Independent of the write layer**: with it ON
+  the snapshot re-base corrected these a moment later, so the symptom there
+  was a flash of blank rather than a permanent one.
+- **`All.Remarks` was never mapped onto the coin at all**, so a coin promoted
+  WITH remarks (`coinDraftToAllValues()` does write them) showed none
+  anywhere outside Edit Coin. Now mapped, and the detail page's Notes line
+  prefers `coin.remarks` over the demo lookup.
+
+**Item A(first half). Relabelled, not restructured — the report was a
+misread.** Verified directly: Edit Coin's "Notes" is a `<textarea>` writing
+`All.Remarks` (real, per-coin), and "Fun Fact" is a `<div
+class="readonly-field">` with no write path to anything. No shared catalog
+data was ever at risk and there was no field to remove. What was genuinely
+wrong was the labelling — three fields of two different kinds under one
+heading. Now split with a quiet `.field-origin` tag: **"Notes — yours,
+editable"** vs **"Fun Fact — catalog reference, read-only"**, on both the
+Edit form and the detail page.
+- **`DB_Coins.Notes` is now read and displayed, read-only.** A real,
+  heavily-populated catalog column — **1,101 of 4,227 rows, far more than
+  FunFact's 79** — that nothing in the app read until this round. Shown on
+  the detail page (Ray's ask: catalog content viewable on the coin's own
+  page, not only inside Edit Coin) and on the Edit form, both read-only.
+- **`catalogNotesFor()` deliberately has NO `FAKE_COIN_DETAILS` fallback**,
+  unlike `catalogFunFactFor()`. That lookup's own `notes` field is the demo
+  stand-in for `All.Remarks` — this coin's OWN note — which is a completely
+  different thing from the catalog's notes about the coin type. Falling back
+  to it would present a personal note as shared catalog reference data.
+  Asserted.
+
+**Item 2. Calendar-picker glyph.** The app declares no `color-scheme` and had
+no `::-webkit-calendar-picker-indicator` rule, so the UA drew its native
+glyph in default light-scheme black on the dark `--bg-elevated` field.
+Fixed with a scoped filter on `input[type=date]`, covering every date input
+through one selector. **No blanket `color-scheme: dark` on `:root`** — that
+would also repaint scrollbars and native select popups app-wide, far larger
+than this warrants. Asserted, including that `:root` is NOT dark-scheme.
+
+**ValueSource / ValueDate — cheaper and more necessary than the request
+assumed.** Both columns **already exist on All and are already in real use**:
+`ValueSource` on 243 rows ("Red Book 2027" ×114, "PCGS" ×86, "Red Book 2027,
+p. 386" ×21, "U.S. Mint"), `ValueDate` on 162 as real dates. The app read and
+wrote **neither**. That reframes this from a nicety to a live data-integrity
+gap: Edit Coin could change `Value` while leaving `ValueSource`/`ValueDate`
+asserting where the OLD figure came from. Both are now on
+`ALL_WRITABLE_COLUMNS`, editable in Edit Coin under Value, and shown
+read-only in the detail page's Overview.
+- **ValueSource is free text on purpose** — the real column already carries
+  page-level detail ("Red Book 2027, p. 386") that a fixed dropdown would
+  force Ray to discard.
+- **ValueDate goes through `excelSerialFromISODate()` and is added to
+  `isDateCol()`**, so it gets the explicit `yyyy-mm-dd` number format. This
+  column has prior history of being corrupted by ISO/Zulu text pasted
+  straight in (44 cells needed repair), so the serial path is not optional.
+  Asserted separately from the value itself — a negative control showed the
+  value assertion passing with the format omitted.
+- **Known, accepted limit**: clearing ValueDate to blank is a no-op rather
+  than a clear, because `excelSerialFromISODate("")` returns `null` and the
+  form's cleanup loop drops null keys. `PurchaseDate` has behaved identically
+  since the write layer landed; diverging one date field from the other was
+  judged worse than the shared limitation. Flagged rather than fixed.
+
+**Verified headless — new committed suite `tests/verify_retest_batch2.js`
+(56 assertions), all passing; 840 across 21 suites, zero failures**, with the
+nav/overflow smoke re-run at both viewports. **Six negative controls, each
+re-run and confirmed to fail exactly the assertions that claim to catch it**:
+reverting the PROMOTED filter (A3), removing the Staging entry point (B1/B2),
+reverting the item-7 prefill (D1/D2/D3), reverting the force flag (C2/C3),
+breaking the DB_Coins.Notes mapper (E3b), and dropping ValueDate from
+`isDateCol()` (G8/G10).
+- **Two of those controls initially passed, and the tests were fixed rather
+  than the claim.** E3 injected an already-mapped row via
+  `__setLiveDbCoinsForTest()`, so it never exercised
+  `mapWorkbookRowToDbCoin()` at all; G6 asserted the written value was a
+  serial, which comes from the form read, not from `isDateCol()`. Added E3b
+  (drives the real mapper) and G8/G9/G10 (inspect `buildRowCellEdits()`'s
+  actual `numberFormat`, and that a date cell never merges into a range with
+  non-date neighbours). This is the same "green suite hiding a real bug" trap
+  this file has recorded before — worth assuming it applies to any assertion
+  that seeds its own input.
+- **Not verified: any real device, any real OneDrive session.**
+
+### The AllCoins table is 987 rows longer than its data (workbook finding)
+Found while root-causing item 5, verified directly against the real
+production workbook: the `AllCoins` table's ref is **A1:AY1544** (header at
+row 1, so 1,543 data rows) but **the last row carrying a CollectionID is
+557**. Rows 558–1544 — **987 of them** — are already inside the table and
+completely blank. No interior blanks; they are all trailing.
+
+**Consequences, all confirmed by reproduction:**
+- `addTableRow()` appends **past** all 987, so every coin the app creates
+  lands around row 1545 rather than ~558. This is why the AY-00706 duplicate
+  incident and this round's Force Add both involve "row 1545" — that number
+  is not a coincidence, it is where the table currently ends.
+- A newly appended blank row is visually indistinguishable from the 987
+  already there, which makes "is there an orphan row?" genuinely hard to
+  answer by eye — and makes it ambiguous whether a blank row Ray notices was
+  created by the app at all.
+- The append is arguably unnecessary: there are already 987 blank rows inside
+  the table that the write layer could claim instead. **Not acted on** —
+  changing which row a new coin claims is a real behavioural change with
+  Copilot co-editing the same file, and it is Ray's call, not an
+  implementation detail.
+
+**This is a workbook-side condition, not an app bug**, and the app should not
+silently "fix" it. Flagged for Ray to decide (shrink the table ref to its
+real data, or leave it and have the app claim existing blanks).
+
+### Item 5 — Force Add's orphan blank row (FIXED: claim, don't append)
+**Superseded the "investigated, deliberately NOT fixed" state above.** Ray
+picked option 2. `createAllSheetRow()` now **claims a blank row the table
+already has** and only appends when there genuinely isn't one.
+
+**The bug, restated.** The previous version always appended FIRST and only
+then decided whether it could claim the result, so every failure path ran
+AFTER the append and left that row behind — its own error text said so ("A
+blank row was appended and can be deleted"). Reproduced end-to-end: call A
+promotes and writes its row; call B's `findAllSheetRowNumber()` probe is
+stale, so it appends, then hits the already-on-the-sheet tripwire and
+strands its append. Full correct data + one blank orphan + one error,
+exactly as reported live. **Not the old duplicate-row bug resurfacing** —
+that fix was about the correctness of the CLAIMED row and it holds; what it
+never added was cleanup of its own append.
+
+**Why claiming rather than cleanup.** Nothing is created until the keys are
+written, so a failure anywhere above leaves the sheet exactly as it was —
+the orphan mechanism is removed at the source instead of compensated for
+afterwards. It also needs no new row-delete primitive (none exists;
+`deleteItem` is for OneDrive files, and deleting a row on a Copilot-shared
+workbook is itself destructive). And it is free here: the table is
+A1:AY1544 while data ends at 557, so 987 blank rows are already inside it.
+
+**Three guards, none of them optional:**
+- **The column is read FIRST, before anything is created.** This ordering
+  IS the fix.
+- **`allSheetRowIsBlank(row)` — the WHOLE row must be empty, not just its
+  CollectionID.** A row can have a blank key and still hold real data (part
+  entered, or an id cleared by hand); attaching a new coin to someone
+  else's half-filled row would be worse than any orphan.
+  `ALL_NEVER_WRITE_FORMULA_COLUMNS` (`SpotValue`, `Total`) is excluded
+  deliberately — both evaluate to something on EVERY row in the table,
+  blank ones included, so counting them would make no row ever claimable.
+  Named once so it can't drift from the never-write list.
+- **A session-wide `withAllRowCreationLock()`.** Appending was inherently
+  unique; claiming is not, and the promote lock is keyed per CollectionID
+  so it does NOT cover two different coins promoted at once — both would
+  read, both see the same first blank row, both write keys to it. Verified
+  by negative control: without the lock the concurrent case throws "the
+  sheet now reports it at row (none)". Does nothing about Copilot editing
+  in Excel; the whole-row check and the verify cover that, worst case with
+  a clean failure rather than a clobber.
+- The append path is **kept as the fallback** for when no blank row is
+  left. It carries the old orphan risk, but is now the rare path.
+- `BLANK_ROW_CLAIM_ATTEMPTS = 5` bounds how many blank-keyed rows get the
+  whole-row check before falling back, since each is its own read.
+
+**Visible behaviour change worth knowing: new coins now land immediately
+after the real data (~row 558) instead of past all 987 blanks at ~1545.**
+
+**Explicitly held in reserve, not built (Ray's call): option 3, a real
+Graph workbook session for the create sequence.** That is the structurally
+complete fix for the broader "no workbook session, so read-after-write
+isn't guaranteed consistent" issue (verified: zero occurrences of
+`workbook-session-id`; every read and write is its own transaction).
+Revisit only if the same consistency class shows up elsewhere in the write
+layer. **The table's ref/bounds are deliberately left as-is** — shrinking
+it to its real 557-row extent is a manual structural edit to a live,
+Copilot-shared workbook for a cosmetic reason, and unnecessary now the app
+claims existing blanks. Row 1544/1545's stray blank from the earlier
+incident is left alone; no cleanup was part of this.
+
+### Value / ValueSource / ValueDate on Add Coin
+Ray wants value provenance capturable at entry, not only on a later edit.
+Three fields at the end of Add Coin's Overview, mirroring the Edit Coin
+fields added in the same round: `#addCoinValue` (number, $ prefix),
+`#addCoinValueSource` (free text — the real column carries page-level
+detail like "Red Book 2027, p. 386" that a dropdown would discard), and
+`#addCoinValueDate` (date).
+- All three are captured by `readAddCoinFormForDraft()`, stored on the
+  draft by `buildCoinDraft()`, and mapped by `coinDraftToAllValues()` — so
+  unlike `category`/`cacBean`, which carried a pending-ALL_WRITABLE_COLUMNS
+  caveat when they were added, these three write for real on promotion
+  (all three columns went onto the allow-list earlier in the same round).
+- **`ValueDate` goes through `excelSerialFromISODate()` and `isDateCol()`**
+  like every other date in this layer, never as a raw string — that column
+  has prior history of being corrupted by ISO/Zulu text pasted straight in.
+- **An untouched Value/ValueDate is omitted entirely** rather than written
+  as 0 or a bogus serial (same rule Cost/Shipping/PurchaseDate follow);
+  ValueSource writes `""`, a real clearable value, like the other string
+  columns.
+- Cleared by `resetAddCoinForm()` and restored by `applyCoinDraftToForm()`,
+  so a plain re-entry starts clean and a Staging-draft edit round-trips.
+
+**Verified headless — `tests/verify_retest_batch2.js` grew to 83
+assertions; 867 across 21 suites, zero failures.** Item 5's block was
+rewritten from pinning the old behaviour to asserting the fix: no append
+when a blank exists, the first blank claimed, a tripwire failure leaving
+the sheet completely unchanged, a blank-keyed-but-populated row skipped
+with its data intact, formula-only rows still counting as blank, the
+append fallback still working when the table is full, and two concurrent
+creations claiming different rows. **Four negative controls, each confirmed
+to fail exactly its own assertions**: append-before-checks restored (I1/I2/
+I6), the whole-row guard removed (I8), the creation lock removed (I14, via
+the predicted clobber), and the Add Coin value mapping removed (K7/K8/K10/
+K14).
+- **Not verified: any real device, any real OneDrive session.** This is a
+  change to the row-creation write path and wants a live `_Testing` run
+  before it is trusted — in particular confirming that a new coin now lands
+  around row 558 rather than 1545.
+
+### Catalog grid: Variety + Designation on the mini flip card (BUILT and merged to main)
+Resolves ParkingLot Row 2. Confirmed on a real device before building: a
+1909 VDB cent and a plain 1909 rendered **identically** in the Catalog grid,
+while the same coin's own detail page showed VDB correctly.
+
+**Root cause.** `renderBrowseGrid()` built its TL and BL corners by plain
+string interpolation straight into the card's `innerHTML`
+(`<span class="flip-label tl">${yearMint}</span>`, BL likewise from
+`coin.grade`). Variety and Designation were simply never included. TR and BR
+had been migrated to the fitted renderers in earlier rounds
+(`renderTypeDenomCorner()`, `setCompositionCornerText()`); TL and BL never
+were.
+
+**Why it could not just be string-appended.** A second stacked line grows the
+corner's box DOWNWARD into the coin disc's band. That is precisely what
+`cornerClearsDisc()` exists to catch and what a box-width check cannot see —
+measured earlier at 412px, a two-line TL fits its own box while its bottom
+edge sits past the disc's bounding-box top.
+
+**New `setStackedCornerText(el, lines)`** — one or two stacked lines through
+`shrinkCornerToFit()` + `renderCornerLines()`, the same machinery TR/BR use.
+Blank lines are dropped, so no Variety renders a single line and no
+Grade/Designation renders nothing at all (not an empty box).
+- **TL** = Year-Mint over Variety, matching `applyFlipCorners()`'s own TL.
+- **BL** = Grade and Designation concatenated with NO space (`MS-65RD`),
+  deliberately the same join style that card uses — not Add Coin's own
+  two-line stacking, which is a different corner with a different pairing.
+- Both run after `appendChild` and after `sizeCoinElement()`, since the fit
+  test measures against real layout and the disc's real size.
+- Values go through `escapeHtmlText()`. `applyFlipCorners()` passes its own
+  raw; this is the safer default for new code, not a claim the old path is
+  wrong.
+
+**A second, deeper bug found while wiring this: the disc-clearance test was a
+silent no-op on every Catalog card.** `.flip-frame-mini` is a SEPARATE class,
+not a modifier of `.flip-frame`, so `cornerClearsDisc()`'s
+`el.closest(".flip-frame")` returned null on a mini card and the whole test
+short-circuited to `true`. **TR and BR therefore never had clearance
+protection here either — only box-width fitting**, since the round that added
+clearance. Selector widened to `.flip-frame, .flip-frame-mini`.
+- **Measured impact of switching it on: none for ordinary coins.** Every
+  realistic value still renders at the natural 14px — enabling a real
+  clearance test did not cause blanket shrinking, which was the risk worth
+  checking. Asserted (D2).
+- It does now bite where it should: `"Doubled Die Obverse"` shrinks 14px →
+  7.84px and clears the disc by 10.5px, with the full variety text preserved
+  rather than truncated.
+
+**Known, accepted limit (measured, not assumed).** A very long free-typed
+Grade — `"XF Details - Improperly Cleaned"` — reaches the smallest shrink
+step (6.72px), clears the disc and stays inside the frame, but still
+overflows its own box width. `shrinkCornerToFit()` stops there by design
+rather than shrinking indefinitely; same posture as every other
+"not worth chasing further" gap in this file. At that size it is small
+either way.
+
+**ParkingLot Row 6 is NOT closed by this.** That row is about the FULL flip
+card's BL (Grade+Designation), which `applyFlipCorners()` still writes with
+plain `textContent` and no fitting. This gives the CATALOG GRID's BL that
+protection; the full card is untouched. `setStackedCornerText()` is now
+available if Row 6 is ever picked up, but wiring it into `applyFlipCorners()`
+would change the appearance of the main flip card and was not asked for.
+
+**Verified headless — new committed suite
+`tests/verify_catalog_grid_corners.js` (34 assertions, both viewports); 901
+across 22 suites, zero failures.** No FAKE_COINS row carries a Variety at
+all, so the live-data seam (`__setLiveCoinsForTest`) is what exercises the
+real render path. Covers: the VDB cent's two-line TL and `MS-65RD` BL; the
+two 1909-S cents no longer being indistinguishable (the reported symptom);
+single-line TL with no Variety; Grade alone with no Designation; an empty BL
+with neither; a long Variety kept in full, shrunk, disc-clear and inside the
+frame; and TR unchanged at its natural size.
+- **Two negative controls, both confirmed to fail.** Restoring the original
+  string-appending TL/BL fails 14 assertions including the
+  indistinguishable-cards one. Narrowing the clearance selector back fails C4.
+- **C4 exists because a first version of that block passed against the broken
+  selector.** Asserting `cornerClearsDisc()` is TRUE proves nothing — the
+  no-op returned true as well. The only assertion that discriminates parks a
+  corner ON the disc (still fitting its own box) and requires a `false`. Same
+  "green suite hiding a real bug" trap this file has recorded twice before;
+  assume it applies to any assertion whose broken case also returns the
+  passing value.
+- **Not verified: any real device.** Screenshots reviewed at both viewports.
+
+### Live retest round 2 (BUILT and merged to main)
+Five items, all reproduced headlessly before being touched.
+
+**Fix A — a force-added coin stops being a Staging draft.** Reproduced in
+full: after Force Add the draft is READY with `allRowWritten` set, the Docket
+correctly routes it to Research — and **Staging Review still listed it**,
+offering Revert to Draft / Edit / Reject on a coin already in the database.
+Reverting succeeded and dropped it back into the Docket's Staging section;
+Reject then deleted the draft **while the All row survived with full data**.
+
+ROOT CAUSE: `allRowWritten` was written onto the draft and never read by
+anything that mattered. Its only consumers were the two writers that set it,
+`applyCoinDraftMatch()`, and the staging-edit field preserver. Staging
+Review filtered PROMOTED only; `revertCoinDraftToDraft()` and
+`performRejectStagedCoin()` were unconditional.
+
+**The Reject case was the serious one, and worse than reported**: it doesn't
+merely fail to undo the row, it destroys the only record that the row needs
+attention. Row stays with a blank CoinID, draft gone, coin drops out of the
+Docket permanently. Silent loss of tracking on a real database row.
+- Staging Review now excludes any draft with `allRowWritten`, same rule as
+  PROMOTED. Such a draft appears only under Awaiting Copilot Research, which
+  already offers Re-check / Dismiss / Force Add and correctly does not offer
+  Reject.
+- Revert and Reject both refuse when `allRowWritten` is set, checked against
+  a freshly-read draft — belt-and-braces, since the filter means the UI can't
+  reach them but a stale render or direct call can.
+- The draft FILE is still kept (audit trail + photo-move retry).
+
+**Fix B — the Force Add verify was a FALSE NEGATIVE, not a failed write.**
+Live: "wrote keys for AY-00710 at row 561 but the sheet now reports it at row
+(none)". Reproduced with a one-shot stale read; the keys HAD landed, and the
+retry found the row and completed it (one row, no duplicate, full data) —
+exactly what Ray saw.
+- The write goes through a **worksheet range** PATCH; the verify read a
+  **table column**. Two Graph endpoints, no workbook session, so
+  read-after-write across them is not guaranteed. Ruled out the alternative:
+  `patchWorkbookRanges()` inspects every `$batch` sub-response and throws on
+  any non-2xx, so a silently rejected write is impossible here.
+- **Row 561 is evidence the row-558 claim fix is WORKING, not regressing** —
+  claiming sequential blanks after 557 gives 558, 559, 560, 561. No append,
+  no table growth, no duplicate. The failure was strictly downstream.
+- Now verified in two halves: `allSheetRowHasCollectionId()` reads the exact
+  cell back through the SAME endpoint family the write used (most likely to
+  be consistent with it), and the duplicate-aware table-column scan retries
+  (`ROW_VERIFY_RETRIES = 2`, 400ms) before conceding. A row found elsewhere,
+  or more than once, still fails immediately — retries must not weaken the
+  uniqueness check, which is the valuable half.
+- Error wording fixed: "check the All sheet for a duplicate row" sent Ray
+  hunting a problem that didn't exist. It now says to press the button again,
+  because a retry completes a row whose keys did land.
+- **Option 3 (a real workbook session) stays in reserve, Ray's call.** This
+  is its SECOND sighting; a third is the agreed trigger to stop patching
+  around it.
+
+**"Save to Database" now requires a resolved catalog match — a deliberate
+supersession.** The original "Direct-write vs. Staging" rule said confidence
+is driven PURELY by Variety recognition and that a DB_Coins miss must never
+by itself block a direct save, because DB_Coins isn't exhaustive so blocking
+would sometimes be wrong. **What changed: Phase 2 and Force Add now exist.**
+An unmatched draft cannot be Promoted — Promote is only offered once a CoinID
+resolves; writing an unmatched coin needs the deliberate Force Add override.
+So the button offered a destination the coin could not reach, and the original
+worry no longer applies: an uncatalogued coin isn't blocked, it takes the
+honest route (Staging, then Force Add). `isConfidentMatch()` now also requires
+`currentAddCoinMatchState()` to be resolved (one candidate, or a picked one).
+The not-confident banner distinguishes the two reasons — telling someone their
+Variety is unrecognized when the real problem is "no catalog row at all" sends
+them to fix the wrong field.
+
+**Edit from Awaiting Copilot Research — routed by whether an All row exists,
+not by row kind.** That section holds two different things: a Docket queue
+entry (an already-owned coin whose CoinID an identity edit cleared — Ray's
+case) and a coin draft (force-added or not). "Does the database already hold
+this coin" is the question that decides the right editor; row kind only
+correlates with it. `openEditForDocketRow()` sends an existing row to Browse
+Edit (with Back returning to the Docket, not a Browse grid the user never
+visited) and anything else to Add Coin's draft editor.
+- Folded in: `applyDocketResolution()` looked the coin up in `FAKE_COINS`
+  rather than `activeCoins()`, so a resolved CoinID never reached the
+  in-memory record in a live session. Now `activeCoins()`.
+
+**"Open Staging Review" stays always visible** (Ray's call). Once Fix A lands
+the two lists agree, so a 0 count means the screen really is empty; hiding it
+would re-create the dead end it was added for.
+
+### Flip card: TL and BL are fitted (1787 Fugio Cent)
+Real-device report: on the Fugio's detail card the TL Variety text crossed
+straight through the TR corner. `applyFlipCorners()` wrote TL with a raw
+`renderCornerLines()` — **no fitting at all** — so "Newman 15-H, Pointed Rays,
+4 Cinq., R-4" rendered as one nowrap line **390px of ink inside a 139px box**,
+and since `.flip-label` deliberately carries no `overflow: hidden` (see its
+CSS comment) the ink spilled across the card.
+
+**Answering the question directly: it is the same gap as ParkingLot Row 6, not
+a distinct TL/TR problem, and box-fitting IS sufficient — no mutual collision
+check is needed.** Measured, including a deliberate worst case (long Variety
+AND a long type name, so both corners are at maximum width): TL/TR ink overlap
+is **0px** once both corners fit their own boxes.
+- **`renderFittedCornerLines(el, lines, wrapIndex)` extracted.**
+  `renderTypeDenomCorner()` and `renderErrorCornerText()` were already the
+  same three-pass shape (the latter's comment said so) and TL needed a third,
+  so the shape is now in one place and all three delegate to it. `wrapIndex`
+  names the one line allowed to wrap; position is tracked by original index,
+  not by matching text, so duplicate line strings can't select the wrong one.
+- TL passes `[yearMint, variety]` with the Variety as the wrappable line
+  (Year-Mint is always short). The Fugio now wraps to three lines at 15.12px,
+  full Variety preserved, inside the frame, clear of the disc.
+- **ParkingLot Row 6 closed in the same round.** BL was the same defect one
+  corner down — measured on the same card: "XF Details - Improperly Cleaned"
+  is 295px of ink in a 139px box, running **88.7px into the BR composition
+  corner and 26px past the frame's right edge**. Now fitted too. Ordinary
+  grades ("MS-64", "MS-65RD") measure unchanged at the natural 27px, so this
+  only engages when a value genuinely doesn't fit. **This went beyond the
+  literal ask** (which named TL/TR) — flagged rather than assumed, on the
+  grounds that it is the identical bug in the identical function with a
+  measured collision and a one-line fix.
+
+**Verified headless — new committed suite `tests/verify_retest_round2.js`
+(40 assertions, flip-card checks at both viewports); 941 across 23 suites,
+zero failures. Six negative controls, each confirmed to fail exactly its own
+assertions**: Fix A reverted (A1/A5/A6/A7), Fix B reverted (B1/B2/B4/B5),
+the Save-to-Database rule reverted (C2/C3), Edit routing reverted (D1), the
+TL fit reverted (E1–E5), the BL fit reverted (E7/E8).
+- **E3 initially passed against the broken code and was strengthened.**
+  Overlap has to be measured on INK, not on boxes: a `.corner-line` is nowrap
+  with `max-width:100%`, so its BOX is clamped to the parent while the text
+  spills visibly past it — a box-rect test reports 0 overlap for exactly the
+  case being tested. Now computed from `scrollWidth` per line, right-anchored
+  corners measured from their right edge. Third time this session a green
+  assertion hid a real bug; the test was fixed, not the claim.
+- **Not verified: any real device, any real OneDrive session.**
+
+### Catalog grid: the SAME Fugio collision, one card size down (BUILT and merged to main)
+The full detail card came back clean on Ray's device after the fix above —
+and the **Catalog grid still collided on the same coin**. Root-caused before
+touching anything, and the previous round's own "0px worst-case overlap"
+measurement is what pointed at it: that was taken at the full card's ~139px
+corner box. **The grid's `.flip-label` box is ~34-38px** (frame 120px,
+`max-width: 46%`), roughly a quarter of it.
+
+**Root cause: the grid's TL was on a different, weaker renderer.** The grid's
+own TR already used `renderTypeDenomCorner()` (shrink + wrap) and the full
+card's TL had just been moved onto `renderFittedCornerLines()`. The grid's TL
+and BL were still on `setStackedCornerText()` — **shrink only, no wrap**. So
+at grid width the Fugio's Variety bottomed out at the smallest shrink step on
+ONE unwrapped line: 6.72px, `scrollWidth` 97 against `clientWidth` 55, with
+**21px of ink running into the TR corner**. Both grid corners are now on
+`renderFittedCornerLines()` and `setStackedCornerText()` is retired — it has
+no callers left.
+
+**Answering the question Ray raised directly: box-fitting IS sufficient at
+grid width; no mutual TL/TR clearance check is needed.** Measured, not
+assumed, including a deliberate worst case (long Variety AND long type name,
+so both corners sit at maximum width simultaneously): once each corner fits
+its own box, **ink overlap is 0px** — 42px of clearance on the Fugio, 17px on
+the worst case, at both viewports. A mutual check would have been real extra
+machinery for a collision that stops existing once the fit is honest.
+
+**Comma-segment truncation, grid only.** Wrapping alone still leaves a very
+long Variety small: `CORNER_SHRINK_STEPS` bottoms out at 0.48 of natural,
+which at the grid's 14px is 6.72px — present but not readable, which is worse
+than showing less of it clearly. `renderGridIdentityCorner()` therefore
+re-renders with only the Variety's **first comma segment plus an ellipsis**
+when the full string lands below `GRID_VARIETY_MIN_FRACTION` (0.67, i.e.
+9.38px). Comma segments are how these strings are actually written — the
+leading one is the identifying attribution, the rest are qualifiers — so this
+reduces along a real boundary rather than clipping mid-phrase.
+- Measured: the Fugio goes **6.72px on one clipped line -> 11.48px** showing
+  `1787-S` / `Newman` / `15-H…`.
+- **Nothing is lost**: the coin's own detail page still shows the complete
+  string, asserted.
+- **Only fires when it actually helps.** No comma to reduce along (`Doubled
+  Die Obverse`) -> full string kept, wrapped, 9.38px. Already legible (`VDB`)
+  -> untouched at natural 14px. And if the shortened string lands at the
+  *same* size, the full one is kept — more information for the same
+  readability.
+
+**Escaping moved into `renderCornerLines()`, and this was a real hazard, not
+tidying.** The grid was the one call site that pre-escaped with
+`escapeHtmlText()`; every other caller passed raw. Routing the grid's TL
+through the wrapping fitter made that unsafe — `wrapTextToTwoLines()` splits
+on whitespace, so an already-escaped `&amp;` could be sliced into `&am` +
+`p;` across a line break. One escape, applied to the final text inside
+`renderCornerLines()`, is both correct and consistent; the grid call site now
+passes raw like everything else.
+
+**Verified headless — `tests/verify_catalog_grid_corners.js` grew from 34 to
+70 assertions (both viewports); 977 across 23 suites, zero failures.** New
+blocks: E measures the Fugio and the worst case **at the grid's real
+dimensions**, on INK rather than boxes (`scrollWidth` per line, right-anchored
+corners measured from their right edge — a box-rect test reports 0 for exactly
+the broken case); F covers the truncation in all four states plus the detail
+page keeping the full string; G covers the escaping in both directions.
+- **Two verified negative controls.** Reverting the grid TL to the retired
+  shrink-only renderer fails 8 assertions per viewport and reproduces the
+  reported symptom exactly — `E2: 21px` of ink overlap. Removing the escape
+  from `renderCornerLines()` fails G1/G3, with `<Repunched>` silently parsed
+  as markup and disappearing.
+- **One prior assertion followed the design change, not weakened**: `B1` had
+  pinned the long-Variety TL at exactly 2 lines, which was a property of
+  shrink-only rendering; it now asserts the full string survives at whatever
+  line count the fit lands on. Its `keptFullVariety` check also had to stop
+  reading `textContent` — that concatenates `.corner-line` children with no
+  separator, so a wrapped "Doubled Die Obverse" reads as "DoubledDie
+  Obverse". Lines are joined with a space now.
+- **Not verified: any real device.** Screenshots reviewed at both viewports.
 
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
@@ -6372,7 +10441,7 @@ reference-image-second, then the bare placeholder third.
 
 ## Session log — carried-forward state (not app architecture, tracked here for continuity)
 
-### ParkingLot entries to transfer (2 rows, as of 2026-08-22)
+### ParkingLot entries to transfer (4 rows, as of 2026-08-23)
 **Needs adding to the workbook's ParkingLot sheet — logged here because this
 coding session has no write access to the live OneDrive workbook.** Recorded
 verbatim in ParkingLot's own column shape (Item/Title, Category, Priority,
@@ -6390,8 +10459,35 @@ designations (RD/RB/BN)" future-pass row. Row 1 supersedes the earlier
 **Row 2:**
 - **Item/Title:** `Catalog grid/list view drops distinguishing catalog fields`
 - **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-22`
-- **Status:** `Open`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-09-03`
+- **Resolution:** `BUILT — see CLAUDE.md "Catalog grid: Variety + Designation on the mini flip card". renderBrowseGrid()'s TL/BL now go through the same fitted renderers TR/BR use, so a VDB cent is distinguishable from a plain one in the grid. Also fixed a second bug found while wiring it: cornerClearsDisc() could never match .flip-frame-mini, so disc-clearance was a silent no-op on every Catalog card. Held on claude/add-coin-write-path-fs2rf8. NOTE: this does NOT close Row 6 (the FULL flip card's BL still has no overflow protection).`
 - **Description:** `Catalog's grid and list views don't surface fields that distinguish otherwise-identical-looking catalog entries. Confirmed for two cases: Designation (FB Mercury dimes show bare Grade, e.g. "MS-64" instead of "MS-64FB") and Variety (1909 VDB vs non-VDB Wheat cents both show plain "1909 Wheat 1C" with no way to tell them apart). Individual Browse detail's flip card handles both fields correctly — only Catalog's grid/list views are missing them. Not blocking, cosmetic/data-clarity issue only.`
+
+**Row 3:**
+- **Item/Title:** `Add Coin album assignment is captured but never acted on`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
+- **Status:** `Open`
+- **Description:** `Add Coin's "Assign to Album" selection is now recorded on the Phase 1 Staging coin draft (assignAlbum), but nothing consumes it — no slot is filled, and the separately-specced post-save Albums matching flow (offer to fill a matching open slot; surface both coins on an already-filled slot; never auto-fill silently) is still unbuilt. Deliberately NOT scoped into any Add Coin write-layer phase: it is UX polish on a save that already works, not core to logging a coin. Pick up whenever. See CLAUDE.md "Post-save Albums matching" for the behaviour already agreed.`
+
+**Row 4:**
+- **Item/Title:** `Cert/serial duplicate check against owned coins`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-23`
+- **Status:** `Open`
+- **Description:** `Feature suggestion from the Add Coin Phase 1 live-run session, not a bug: nothing today cross-checks a PCGS/NGC cert number entered on a new coin against SerNo on already-owned coins to flag a likely duplicate entry (a coin re-added by mistake, or a cert typo colliding with a real existing coin). Could live in Add Coin's live matcher (a warning banner alongside the DB_Coins match banner) or as a save-time check. No design work done yet — flagging the idea, not scoping the build.`
+
+**Row 5:**
+- **Item/Title:** `Restructure Add Coin's field layout to match Edit Coin's accordion sections`
+- **Category:** `App`  · **Priority:** `Medium`  · **Date:** `2026-08-23`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-08-24`
+- **Resolution:** `BUILT — see CLAUDE.md "Add Coin: accordion restructure". Add Coin is now Grading & Certification + Overview / Photos / Notes & Facts / Purchase Details / Storage, matching Edit Coin. Specifications deliberately omitted (Ray's call). Held on claude/add-coin-write-path-fs2rf8 pending his go-ahead + a live retest pass. If this row was never transferred to the workbook in the first place, skip it rather than adding-then-closing it.`
+- **Description:** `Ray's explicit ask (Add Coin batch 7 review): Add Coin should look nearly identical in structure to the Edit Coin / Browse detail page (see "Detail/Edit accordion redesign" — RECORD_SECTIONS: Overview, Photos, Specifications, Notes & Facts, Purchase Details, Storage), rather than its current one long flat form. Grading Service specifically should become its own clearly-bounded section (a real card/accordion, not just a text label) since it functionally drives the PCGS Label #/Cert-Type-Number fields beneath it, and should stay positioned near the top since a grader needs to be picked before the label-decode flow can run. This is a real, deliberate restructure — needs its own scoping pass (which fields land in which section, whether Purchase Details/Storage's existing drill-down pattern is kept or folded into the new accordion shape) before building, not a quick follow-on to the batch-7 header removal. Explicitly deferred, not started.`
+
+**Row 6:**
+- **Item/Title:** `Saved-coin flip card: BL (Grade+Designation) corner has no overflow protection`
+- **Category:** `App`  · **Priority:** `Low`  · **Date:** `2026-08-30`
+- **Status:** `Resolved`  · **Resolved Date:** `2026-09-03`
+- **Resolution:** `BUILT — see CLAUDE.md "Flip card: TL and BL are fitted (1787 Fugio Cent)". applyFlipCorners()'s BL now goes through the shared renderFittedCornerLines(), alongside TL which had the identical defect and caused a real-device collision on the Fugio Cent. Measured: "XF Details - Improperly Cleaned" was 295px of ink in a 139px box, 88.7px into the BR corner and 26px past the frame. Ordinary grades unchanged at 27px. Held on claude/add-coin-write-path-fs2rf8.`
+- **Description:** `Found while measuring the composition-corner restack (see CLAUDE.md "CACBean UI, Value field rounding, composition corner restacked"): applyFlipCorners()'s BL corner (Grade+Designation, concatenated with no space) is plain textContent with no shortening logic at all — unlike TR (renderTypeDenomCorner()'s last-word-drop) and now BR (the composition split/reduction chain). A long free-typed "Details"-graded value (e.g. a PCGS Genuine-holder note like "XF Details - Improperly Cleaned") measured a genuine overlap with an unreduced BR value at 360px width before the BR restack (-9px gap); the restack fixed the specific collision by shrinking BR, not by giving BL any protection of its own, so a sufficiently long BL string could still in principle run close to whatever's in BR. Ray's explicit call: flag it, don't fix it here — out of scope for the composition-corner task. Would need its own scoping pass (truncate? shorten to last word like TR? something else for a Grade+Designation string specifically) if ever picked up.`
 
 ### 17Jul2026 (chat session, reported after the CollectionID-reservation merge)
 - **Workbook snapshot as of Copilot's morning briefing**: `All` sheet 532 rows,

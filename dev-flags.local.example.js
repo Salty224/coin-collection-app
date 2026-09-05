@@ -30,6 +30,7 @@ window.__DEV_FLAGS__ = {
   // ENABLE_SET_WRITE_LAYER: true,
   // ENABLE_BROWSE_EDIT_WRITE: true,
   // ENABLE_DOCKET_WRITE: true,
+  // ENABLE_ADDCOIN_WRITE: true,
 
   // "copy" | "live" — leave as "copy" unless you specifically mean to
   // write the real production workbook. See CLAUDE.md's WRITE_TARGET note.
