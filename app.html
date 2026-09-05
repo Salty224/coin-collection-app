@@ -5101,6 +5101,7 @@
     return p;
   }
 
+  function __setCoinPhotoCacheForTest(filename, url) { coinPhotoCache[filename] = url; }
   function __setStoredPhotosForTest(index) { LIVE_PHOTOS = index; }
   function __setStoredReceiptsForTest(index) { LIVE_RECEIPTS = index; }
   function __resetCoinPhotoCacheForTest() {
@@ -13445,12 +13446,13 @@
       const safeName = escapeHtmlText(storedReceipt.filename);
       purchaseRows.push(["Receipt",
         `<span id="detailReceiptLink" data-receipt="${safeName}">${safeName}</span>`]);
-    } else if (looksLikeReceiptFilename(details.receipt)) {
-      purchaseRows.push(["Receipt", escapeHtmlText(details.receipt)]);
-    } else if (details.receipt) {
-      // A non-filename placeholder (e.g. "Binder") is still worth showing —
-      // it means something real — just never as a link.
-      purchaseRows.push(["Receipt", escapeHtmlText(details.receipt) + " (not scanned)"]);
+    } else {
+      // Nothing that resolves to a real file. A non-filename value is still
+      // worth showing — "Binder" means the paper receipt exists and hasn't
+      // been scanned — just never as a link.
+      const placeholder = [coin.receiptFile, details.receipt].map(v => String(v == null ? "" : v).trim())
+        .find(v => v && !looksLikeReceiptFilename(v));
+      if (placeholder) purchaseRows.push(["Receipt", escapeHtmlText(placeholder) + " (not scanned)"]);
     }
     if (purchaseRows.length) {
       appendAccordion(container, RECORD_SECTIONS.PURCHASE, detailRowsHtml(purchaseRows));
@@ -18698,6 +18700,8 @@
     // Only a real, already-owned CollectionID commits directly. The Add Coin
     // temp key and any draft-reserved id fall through to their own flow.
     if (!targetId || typeof targetId !== "string") return null;
+    // A cheap early-out for the obvious non-records (the Add Coin temp key).
+    // The ownership check below is the enforcement; this only saves a scan.
     if (!/^AY-\d{5}(-[A-Za-z]+)?$/.test(targetId)) return null;
     if (!addCoinWriteEnabled()) return null;
     const owned = activeCoins().some(c => c.id === targetId) ||

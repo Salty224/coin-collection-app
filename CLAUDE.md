@@ -51,6 +51,12 @@ the one `WRITE_TARGET` edit. The local-only `dev-flags.local.js` override
 mechanism this paragraph used to describe is gone entirely — there's no
 local/production split left to gate flags behind.
 
+**Held, not merged: `claude/photo-receipt-write-layer`** — the photo/receipt
+write layer (real Photos/Receipts table rows, commit-on-capture for
+already-owned records, and the stored-photo/receipt read side). New write
+surface, awaiting Ray's go-ahead and a live `_Testing` run. See its own
+section below.
+
 Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
 987 rows past its real data (left as-is by Ray's call — see "The AllCoins
 table is 987 rows longer than its data"); the Graph read-after-write
@@ -8195,6 +8201,238 @@ codes and the wrongly-excluded Finish values) — following a real correction,
 not weakening.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round on this branch.
+
+### Photo / receipt write layer — Photos & Receipts tabs (BUILT, held on branch `claude/photo-receipt-write-layer`, NOT merged)
+The gallery/crop UI has produced real Blobs and real filenames since it was
+built and then dropped them into an in-memory store, so **every capture
+outside Add Coin's own Staging flow vanished on reload**. And **nothing in
+the app had ever written a row to the Photos or Receipts tab** — so even
+the files Add Coin genuinely did upload landed in CoinPhotos/CoinReceipts
+with nothing in the workbook pointing at them. This connects the
+already-proven `graph().uploadFile()` plumbing to the newer UI and adds the
+workbook half. Architectural (a new real write surface touching several
+entry points at once), so **held on its branch pending Ray's explicit
+go-ahead**, same standing as the gallery/crop UI itself was held to.
+
+**Audit first — what was real vs. stub, read from the code (this corrects
+several assumptions a reader would draw from this file's own history):**
+- **REAL already**: Add Coin's photos (`uploadCoinDraftPhotos()`) and
+  receipt (`uploadCoinDraftReceipt()`) into the Staging draft folder, moved
+  to CoinPhotos/CoinReceipts on promotion; Add Set's whole-set photo and
+  receipt via `uploadDraftPhoto()`.
+- **STUB**: Edit Coin / Edit Set / the standalone Manage Photos screen, for
+  photos AND receipt — `buildPhotoPairSlot()`/`manageOpenEndedBlock()`/
+  `initGalleryCapture()` all called `addGalleryEntry()` and nothing else.
+  Wishlist (all four slots) and Batch Receipt. Add Set's own gallery
+  (OGP/COA/other/sub-group) except the single OGP-front → `addSetPhotoFiles
+  ["whole"]` mirror.
+- **`receiptFiles` had exactly ONE consumer** (Add Coin's). Browse Edit's,
+  Edit Set's, Wishlist's and Batch Receipt's entries were written and never
+  read by anything.
+- **The read side was thinner than "repoint" implies.** `All.Obverse`/
+  `Reverse` were read ONLY as booleans (`hasObversePhoto`/`hasReversePhoto`,
+  consumed only by `coinMissingPhoto()`); `All.Receipt` was not read at all
+  (the detail page's Receipt row read the `FAKE_COIN_DETAILS` demo lookup);
+  and **no coin's own stored photo was ever displayed anywhere** —
+  `applyDiscContent()` went from a just-captured session blob straight to
+  the SERIES reference image. So Task 3 wasn't a repoint, it was building
+  that display path.
+
+**Workbook facts this was built against (read directly from the 2026-09-05
+upload, not assumed):**
+- **Photos and Receipts are real named Excel tables**, so `addTableRow()`
+  can target them: `Photos` `A1:G1030` (PhotoID, CollectionID, PhotoType,
+  SubGroupID, Filename, Label, DateAdded) holding **29** data rows;
+  `Receipts` `A1:D1073` (ReceiptID, CollectionID, Filename, DateAdded)
+  holding **85**.
+- **BOTH overrun their data exactly the way `AllCoins` does** — ~1000 and
+  ~987 blank rows sit inside their refs — so appending would drop new rows
+  a thousand rows past everything else. This is the same bug class
+  `createAllSheetRow()`'s claim-a-blank-row fix exists to prevent, and one
+  Receipts row (RC-00009 / AY-00706) is already sitting at row 1073 as
+  evidence of what appending does here.
+- PhotoTypes in real use: Obverse, Reverse, Slab_Obverse, Slab_Reverse,
+  Reference. All filenames `.jpg`. Repeatable naming is
+  `AY-00207_reference_01.jpg`.
+- `All.Receipt` (103 rows) vs Receipts (85): the 18-row difference is
+  entirely the literal string **"Binder"** — a placeholder meaning the
+  paper receipt hasn't been scanned, **not a filename**.
+- `All.Obverse` (5 rows) vs Photos Obverse (4): `AY-00706` carries
+  `AY-00706_slab_obverse.jpg` in its **Obverse** column with no Photos row
+  — hand-entered, following the documented legacy overload pattern. So
+  unlike receipts, the two photo sources do NOT fully agree, which is
+  exactly why the legacy fallback is kept.
+
+**Two naming conventions corrected against that data:**
+- **`.jpg`, not `.png`.** Both crop stages bake through `canvas.toBlob(...,
+  "image/jpeg", 0.92)`, so every file this layer has ever named has been
+  JPEG bytes wearing a `.png` name. `GALLERY_FILE_EXT` is now `.jpg`.
+  Files already uploaded to `_Testing/CoinPhotos` under the old names are
+  orphans (no Photos row will point at one) — Ray's to delete by hand
+  whenever convenient, not this task's.
+- **Repeatable types use the full type word + a zero-padded 2-digit index**
+  (`AY-00207_reference_01.jpg`), matching the sheet rather than inventing a
+  second convention beside it. `reference`'s suffix went `_ref` →
+  `_reference` and `other`'s `_photo` → `_other` (zero real files behind
+  either).
+
+**PhotoType vocabulary** (`GALLERY_TYPE_TO_PHOTOTYPE`, both directions):
+the five real values matched exactly, plus `OGP_Obverse`, `OGP_Reverse`,
+`COA`, `SubGroup_Obverse`, `SubGroup_Reverse`, `Other` in the same
+Title_Case_With_Underscores shape. Ray may have Copilot record these 11 in
+a `Lookup_PhotoTypes` tab; nothing here is built against one.
+
+**The write layer.** New Photos/Receipts module: header maps resolved from
+the sheet's own header row at run time (`ensureSheetHeaderMap()`, cached
+per sheet), id minting by max+1 over the table's own ID column, a
+per-table creation lock, and **blank-row claiming** rather than appending.
+- **`createAllSheetRow()` is deliberately NOT generalised.** It carries
+  AllCoins-specific semantics this doesn't need — a key pair written
+  through a narrow audited path, two live formula columns that must never
+  fall inside a range, a duplicate-aware two-half verify, the promote lock
+  — and it is the one write path that has been through three live runs.
+  This copies its SHAPE, not its code. Photos/Receipts have no formula
+  columns and contiguous columns, so a row here is one plain range PATCH.
+- **"Blank" means every column empty**, not just the id — same rule and
+  same reason as the All-sheet version.
+- `DateAdded` goes through `excelSerialToday()` with an explicit
+  `yyyy-mm-dd` number format, never ISO text.
+
+**When a capture commits, and why the line falls there.**
+- **A record that already exists on the All sheet** (Edit Coin, Edit Set,
+  the standalone Manage Photos screen on an owned coin/Set) uploads to
+  CoinPhotos and writes/replaces its Photos row **immediately on capture**.
+  Immediate rather than on Save because the standalone screen has no Save
+  button at all. `photoCommitTargetId()` is the gate; the ownership check
+  (`activeCoins()` / `FAKE_SET_CHILDREN`) is the enforcement, the
+  `AY-#####` regex only a cheap early-out.
+- **Draft-backed flows are unchanged.** Add Coin and Add Set capture
+  against records with no All row yet; writing straight to CoinPhotos would
+  put a coin's photos in their final home before the coin exists and strand
+  them if the draft were rejected. Those get their rows **at promotion**,
+  once the files have verifiably landed —
+  `recordPromotedCoinRecords()` / `recordPromotedSetRecords()`.
+- **A single-instance type REPLACES its row** (one row per CollectionID +
+  PhotoType + SubGroupID) so a re-capture can't accumulate near-duplicates
+  a "show all photos" read would render twice; repeatable types add.
+
+**A failure is loud and loses nothing.** This is a phone flow on a
+possibly-flaky connection, and silently dropping a capture would recreate
+the exact "photo vanished" problem the whole layer exists to fix. On
+failure the entry stays in the gallery **with its Blob intact**, the tile
+shows "Not saved — tap ↻" (`.photo-upload-state.failed`) alongside a real
+retry control, and a toast names the file and the error. The retry
+re-sends without re-capturing anything.
+
+**Removing a photo detaches the ROW and never deletes the file.** Two
+reasons, both pre-existing rules rather than preferences: the `_original`
+raw is locked in as never-deleted by the crop-commit convention, and this
+write layer deliberately has no delete primitive — claim-a-blank-row was
+chosen for AllCoins specifically to avoid needing one. A blanked row simply
+returns to the claimable pool, which is the same mechanism from the other
+side.
+
+**Receipts de-duplicate on filename — and one decision is what makes that
+reachable at all.** A Receipts row is one (receipt × coin) pair and one
+ReceiptID legitimately spans several rows (RC-00001 already covers three
+coins) because Ray's normal pattern is several coins on one receipt. So
+before minting anything, `commitReceiptCapture()` looks for an identical
+Filename already on the tab and reuses that ReceiptID **and skips the
+upload**. For that to ever fire, **an already-PDF pick keeps the picked
+file's own name** (`sourceWasPdf`) rather than being renamed to
+`{CollectionID}_receipt.pdf` — which is also the shape the real data
+already has (`FindersKeepers_2026-06-27_receipt.pdf`). A **photographed**
+receipt is inherently per-coin (and a camera's own filename is
+meaningless), so it keeps `{CollectionID}_receipt.pdf`. Re-attaching to a
+coin that already has one replaces that coin's row.
+- **An "attach an existing receipt" picker was NOT built** — flagged to Ray
+  as the better-still option rather than assumed. The filename dedupe is
+  the minimum fix and is in.
+
+**The read side.** Photos and Receipts are fetched alongside All/DB_Sets/
+DB_Coins/Lookup_MetalContent/Lookup_Graders in `ensureLiveNavDataFetch()`
+and indexed by CollectionID (`LIVE_PHOTOS`/`LIVE_RECEIPTS`; a null response
+leaves the previous index in place rather than blanking the display).
+- **`storedPhotoFilename()` reads the Photos tab first and the legacy flat
+  `All.Obverse`/`Reverse` only as a FALLBACK** — which is what stops
+  `AY-00706` (recorded only the old way) losing its photo. **The flat
+  columns are never written and never cleared by this app**, per the
+  explicit scope boundary; clearing them waits on a real-device
+  confirmation that the repointed reads work.
+- **A coin's own stored photo now displays**, via a new `CoinPhotos` fetch
+  tier modelled on `fetchReferenceImageBlob()` (GET-only, raw bytes → a
+  same-session blob URL, one real request per filename, and the same
+  attempted/not-attempted rule so a no-token failure retries after sign-in
+  instead of caching "no photo" forever). Wired as a tier in
+  `applyDiscContent()` **ahead of the series reference image** — an actual
+  photograph of this coin beats a generic picture of its series — and into
+  `renderSlotCell()` (Albums), which inherits that surface's existing
+  picks-up-on-next-render tradeoff since it is string-templated.
+- **`coinMissingPhoto()` reads the Photos tab first too**, so a coin whose
+  photos all came through the new layer doesn't keep nagging in the Docket
+  just because the retired flat column was never backfilled.
+- **The Receipt row on Browse detail reads the Receipts tab**, renders the
+  filename immediately and upgrades itself to a real OneDrive link once
+  that file's webUrl resolves. The old version linked a path that had never
+  resolved to anything (a confirmed 404 — "a real link in markup only").
+  **"Binder" and anything else without a file extension is never treated as
+  a filename** (`looksLikeReceiptFilename()`); it renders as
+  `Binder (not scanned)`, never as a link that could only break.
+
+**A latent bug found and fixed on the way.**
+`plannedCoinPromotionMoves()` iterated `draft.photos` as if it held bare
+strings, but `uploadCoinDraftPhotos()` stores `{type, filename, caption}`
+objects — so it concatenated an object straight into a path and would have
+produced `.../[object Object]`. Never hit live only because the one live
+promote run didn't exercise photos. Both shapes are accepted now.
+
+**Out of scope, deliberately, all confirmed with Ray:**
+- **Wishlist and Batch Receipt are untouched.** Neither has a CollectionID
+  to key a row on (a wishlist item isn't owned; a batch receipt is
+  explicitly "not yet tied to a coin"), and an untracked orphan file is
+  worse than no file.
+- No bulk backfill/migration script; the Containers tab; and no clearing of
+  the legacy flat columns.
+
+**Verified headless — new committed suite
+`tests/verify_photo_receipt_write.js` (84 assertions), all passing; 1142
+across 27 suites, zero failures, zero page errors.** Covers the filename
+convention including the `.png` sweep; the PhotoType map both ways; a write
+CLAIMING row 4 with the table not growing; replace-vs-add; OriginalFilename
+present and absent, with exactly one row either way; detach blanking the
+row while the file survives and the row returns to the pool; the receipt
+dedupe (reused id, **no second upload**, separate rows per coin) and the
+photographed/picked filename split; which targets commit and which don't;
+the loud-failure path end to end (Blob kept, error recorded, no row, then a
+retry landing both file and row); promotion recording rows for a coin
+draft; the read side's Photos-first/legacy-fallback behaviour, the photo-gap
+check, the "Binder" guard; the stored photo actually painting onto the flip
+card with the reverse not inheriting it; and a nav sweep with no overflow at
+both viewports.
+- **Eleven verified negative controls**, each re-run and confirmed to fail
+  exactly its own assertions: appending instead of claiming (C1/C2/F4);
+  removing the receipt dedupe (G2/G3/G6); treating "Binder" as a filename
+  (L9/L11/M2/M3); dropping a failed capture silently (J1/J2/J3/J6);
+  deleting the file on trash (F3); reverting the `[object Object]` path bug
+  (K1–K3); removing the Photos-tab read (L1); removing the legacy fallback
+  (L3); removing the ownership gate (I3); `coinMissingPhoto()` ignoring the
+  Photos tab (L4); and removing the flip card's stored-photo tier
+  (O1/O3/O4).
+- **Two assertion-quality fixes worth knowing**, both cases where a first
+  version passed against broken code: `G3` counted stored KEYS, which
+  cannot distinguish "skipped the upload" from "re-uploaded the same path"
+  — it counts upload CALLS now; and `F2` captured a live array reference
+  that a later reclaim mutated in place. Third and fourth time this project
+  has hit that trap; assume it applies to any assertion whose broken case
+  also returns the passing value.
+- **Two prior assertions updated, not weakened** (`verify_addcoin_phase1`
+  C10/C11 and their fixtures), following the real `.png` → `.jpg`
+  correction.
+- Screenshots reviewed at both viewports with a failed, a pending and a
+  clean capture visible — no overflow at either width.
+- **Not verified: any real device, any real OneDrive session.** This is a
+  new write surface and wants a live `_Testing` run before it is trusted.
+  `WRITE_TARGET` stays `"copy"` throughout.
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
