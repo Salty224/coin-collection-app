@@ -18672,7 +18672,7 @@
   // subGroupId (optional): only meaningful for the subgroup_* tier — namespaces
   // the photo to one sub-group so each sub-group keeps its own obverse/reverse
   // pair. Omitted/null means the implicit default (a flat Set).
-  function runCropPipeline(file, type, collectionId, onEntry, subGroupId) {
+  function runCropPipeline(file, type, collectionId, onEntry, subGroupId, opts) {
     const def = galleryTypeDef(type);
     if (!def) return;
     const rawUrl = def.retainRaw ? URL.createObjectURL(file) : null;
@@ -18680,7 +18680,7 @@
     const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
     const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
     openBgCrop(file, {
-      title: "Crop — " + def.label,
+      title: "Crop — " + def.label + ((opts && opts.titleSuffix) || ""),
       aspectLock: def.aspect === "square",
       onComplete: (rectBlob) => {
         const rectUrl = URL.createObjectURL(rectBlob);
@@ -18761,11 +18761,18 @@
     if (!entry.filename) throw new Error("Entry has no filename to store under.");
     if (entry.blob) {
       await graph().uploadFile(p.coinPhotos + "/" + entry.filename, entry.blob);
+      // Point the read cache at the bytes just written. Without this a
+      // re-crop that lands on the SAME filename (adjusting an
+      // already-convention-named stored photo) would leave the flip card
+      // and Albums showing the pre-adjust image for the rest of the
+      // session, since both read through getCachedCoinPhotoUrl().
+      if (entry.url) coinPhotoCache[entry.filename] = entry.url;
     }
     let rawName = "";
     if (entry.rawFilename && entry.rawUrl) {
       const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
       await graph().uploadFile(p.coinPhotos + "/" + entry.rawFilename, rawBlob);
+      coinPhotoCache[entry.rawFilename] = entry.rawUrl;
       rawName = entry.rawFilename;
     }
     return writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
@@ -18899,18 +18906,53 @@
     return name.indexOf("_cropped.") !== -1 ? name.replace("_cropped.", "_original.") : "";
   }
 
-  // Re-opens the crop pipeline on a stored photo's raw. Fetches the bytes
-  // back out of CoinPhotos rather than assuming anything is still in
-  // memory — a stored photo was never captured this session.
-  async function adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done) {
+  // Re-opens the crop pipeline on a stored photo. Fetches the bytes back out
+  // of CoinPhotos rather than assuming anything is still in memory — a
+  // stored photo was never captured this session.
+  //
+  // SOURCE PRIORITY, and the tradeoff behind it. The raw is used whenever
+  // one is genuinely available, because cropping from the untouched capture
+  // is lossless. When there isn't one, this falls back to re-cropping the
+  // DISPLAYED file — which does lose a little quality, since it re-encodes
+  // an already-cropped, already-compressed JPEG.
+  //
+  // That fallback exists because the restriction it replaces was too tight
+  // in practice: most photos already on the Photos tab predate the crop
+  // pipeline entirely and will NEVER have a resolvable raw, yet they are
+  // exactly the ones that are visibly mis-framed — off-centre, letterboxed,
+  // not filling the circle. Offering only Replace there meant re-taking a
+  // photo of a coin that may not be to hand, to fix framing.
+  //
+  // "Resolvable" means actually FETCHABLE, not merely name-derivable: a
+  // _cropped file implies an _original sibling by convention, but an older
+  // build may never have uploaded one, so a 404 falls through to the
+  // displayed file rather than dead-ending.
+  //
+  // What gets WRITTEN is identical either way — see
+  // replaceGalleryEntryAndCommit(). This only decides what the crop tool
+  // opens on.
+  // The source decision, split out so it can be exercised directly — it is
+  // the whole of what this change decides, and driving it through the real
+  // crop overlay would test the overlay instead.
+  async function resolveStoredAdjustSource(entry) {
+    if (!entry || !entry.storedFilename) return null;
     const rawName = storedRawFilenameFor(entry);
-    if (!rawName) { showToast("No original on file for this photo — use Replace instead."); return; }
-    const url = await ensureCoinPhotoFetch(rawName);
-    if (!url) { showToast("The original (" + rawName + ") isn't on file — use Replace instead."); return; }
-    const blob = await fetch(url).then(r => r.blob());
+    const rawUrl = rawName ? await ensureCoinPhotoFetch(rawName) : null;
+    if (rawUrl) return { url: rawUrl, filename: rawName, fromRaw: true };
+    const url = await ensureCoinPhotoFetch(entry.storedFilename);
+    return url ? { url, filename: entry.storedFilename, fromRaw: false } : null;
+  }
+
+  async function adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done) {
+    const src = await resolveStoredAdjustSource(entry);
+    if (!src) { showToast("Couldn't load this photo to adjust it — use Replace instead."); return; }
+    const blob = await fetch(src.url).then(r => r.blob());
+    if (!src.fromRaw) {
+      showToast("No original on file — adjusting the stored photo itself, which re-crops it.");
+    }
     runCropPipeline(blob, typeKey, targetId, (newEntry) => {
       replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
-    }, subGroupId);
+    }, subGroupId, { titleSuffix: src.fromRaw ? " (from the original)" : " (re-crop)" });
   }
 
   // Replacing one specific photo — the pair slots' Replace, the open-ended
@@ -19064,10 +19106,15 @@
     // blob: URL — fetch() on a blob: URL returns its underlying Blob — since
     // only the URL, not the original File object, survives across a
     // re-render; runCropPipeline/loadOrientedImageCanvas work from any Blob.
-    // A stored photo can be re-cropped only when a raw is genuinely
-    // resolvable — see storedRawFilenameFor(). A session capture uses its
-    // own in-memory rawUrl as before.
-    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || storedRawFilenameFor(entry)));
+    // A session capture re-crops from its own in-memory raw. A STORED photo
+    // can always be adjusted: from its raw when one is resolvable, otherwise
+    // from the displayed file itself (see adjustStoredPhoto() for the
+    // quality tradeoff and why the raw-only restriction was too tight).
+    // Still flip sources only — retainRaw is the existing rule for which
+    // types have an adjuster at all, and mis-framing is a circle problem.
+    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || entry.stored));
+    const adjustsRaw = !!(entry && (entry.rawUrl || storedRawFilenameFor(entry)));
+    const adjustTitle = adjustsRaw ? "Adjust crop (from the original)" : "Adjust crop (re-crops the stored photo)";
     // A filled slot's capture buttons are a REPLACE, and say so. This is
     // the gap AY-00208 exposed: the buttons were always here, but a slot
     // holding a stored photo drew the empty "＋" face and never said what
@@ -19088,7 +19135,7 @@
       <div class="sg-photo-actions">
         <button type="button" data-act="camera" aria-label="${verb} photo using the camera" title="${verb} — camera">📷</button>
         <button type="button" data-act="library" aria-label="${verb} photo from the library" title="${verb} — library">🖼️</button>
-        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>` : ""}
+        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">⤢</button>` : ""}
         ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
       </div>

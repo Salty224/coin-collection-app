@@ -482,6 +482,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       camAria: cam.getAttribute("aria-label"),
       hasRemove: !!obvSlot.querySelector('[data-act="remove"]'),
       hasAdjustLegacy: !!obvSlot.querySelector('[data-act="adjust"]'),
+      adjustLegacyTitle: (obvSlot.querySelector('[data-act="adjust"]') || {}).title || "",
       // Header counts now reflect what is actually on file.
       counts: [...host.querySelectorAll(".accordion-header")].map(h => h.textContent).join(" | "),
       // The open-ended (repeatable) thumbnail carries its own Replace pair.
@@ -532,7 +533,13 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(P.replaceLabel === true, "P4 a filled slot is explicitly labelled Replace");
   ok(/Replace/.test(P.camAria || ""), "P5 and its capture buttons say Replace, not Add");
   ok(P.hasRemove === true, "P6 Remove is available on a stored photo (it was hidden before)");
-  ok(P.hasAdjustLegacy === false, "P7 Adjust stays hidden for a legacy name with no resolvable raw — AY-00208's case");
+  // SUPERSEDED design: Adjust used to be hidden with no resolvable raw.
+  // Most photos already on the Photos tab predate the crop pipeline and
+  // will never have one, yet they are exactly the mis-framed ones — so
+  // Adjust now falls back to re-cropping the displayed file, and says so.
+  ok(P.hasAdjustLegacy === true, "P7 Adjust IS offered for a legacy name with no resolvable raw — AY-00208's case");
+  ok(/re-crops the stored photo/.test(P.adjustLegacyTitle),
+    "P7b and its label says it re-crops the stored photo rather than working from an original");
   ok(/1 photo/.test(P.counts), "P8 the section header counts stored photos");
   ok(P.refThumb && P.refThumb.hasCam && P.refThumb.hasLib, "P9 a repeatable type gets per-thumbnail Replace");
   ok(P.refThumb && P.refThumb.separateInputs, "P10 with SEPARATE camera/library inputs (Samsung Internet skips the chooser)");
@@ -619,6 +626,134 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(Q.galleryObvCount === 1, "Q8 the gallery holds one obverse entry, not the old and new both");
   ok(Q.bareLabelReplaced === true && Q.bareLabel === "PCGS listing",
     "Q9 writePhotoRow's own Label fallback holds even when the replacement carries no caption at all");
+
+  // ---------- R. Adjust source priority --------------------------------
+  // Raw when one is genuinely FETCHABLE, the displayed file otherwise.
+  // "Fetchable", not merely name-derivable: a _cropped name implies an
+  // _original sibling by convention, but an older build may never have
+  // uploaded one, and that must fall through rather than dead-end.
+  const R = await page.evaluate(async (s) => {
+    const id = "AY-00004";
+    const mk = c => URL.createObjectURL(new Blob([new Uint8Array([c])], { type: "image/jpeg" }));
+    const stored = (filename, originalFilename) => ({
+      stored: true, type: "obverse", storedFilename: filename,
+      storedOriginalFilename: originalFilename || "", storedPhotoId: "PH-1"
+    });
+
+    // (a) the _original really is fetchable -> the raw wins.
+    __resetCoinPhotoCacheForTest();
+    const rawUrl = mk(2), cropUrl = mk(1);
+    __setCoinPhotoCacheForTest("AY-00004_obverse_cropped.jpg", cropUrl);
+    __setCoinPhotoCacheForTest("AY-00004_obverse_original.jpg", rawUrl);
+    const a = await resolveStoredAdjustSource(stored("AY-00004_obverse_cropped.jpg"));
+
+    // (b) the _original name is derivable but 404s -> falls through.
+    __resetCoinPhotoCacheForTest();
+    const cropOnly = mk(1);
+    __setCoinPhotoCacheForTest("AY-00004_obverse_cropped.jpg", cropOnly);
+    __setCoinPhotoCacheForTest("AY-00004_obverse_original.jpg", null); // a confirmed 404
+    const b = await resolveStoredAdjustSource(stored("AY-00004_obverse_cropped.jpg"));
+
+    // (c) a LEGACY name — no raw derivable at all. The case this exists for.
+    __resetCoinPhotoCacheForTest();
+    const legacyUrl = mk(7);
+    __setCoinPhotoCacheForTest("AY-00004_obverse.jpg", legacyUrl);
+    const c = await resolveStoredAdjustSource(stored("AY-00004_obverse.jpg"));
+
+    // (d) the OriginalFilename column wins outright when populated.
+    __resetCoinPhotoCacheForTest();
+    const colRaw = mk(5);
+    __setCoinPhotoCacheForTest("AY-00004_obverse.jpg", mk(7));
+    __setCoinPhotoCacheForTest("legacy_original.jpg", colRaw);
+    const d = await resolveStoredAdjustSource(stored("AY-00004_obverse.jpg", "legacy_original.jpg"));
+
+    // (e) nothing loadable at all -> null, so the caller can say so rather
+    //     than throwing.
+    __resetCoinPhotoCacheForTest();
+    __setCoinPhotoCacheForTest("AY-00004_obverse.jpg", null);
+    const e = await resolveStoredAdjustSource(stored("AY-00004_obverse.jpg"));
+
+    __resetCoinPhotoCacheForTest();
+    return {
+      a, b, c, d, e, rawUrl, cropUrl, cropOnly, legacyUrl, colRaw,
+      // adjustStoredPhoto must actually USE this decision and end in the
+      // same Replace write every other capture path uses — a source guard,
+      // since driving it means opening the real crop overlay.
+      src: adjustStoredPhoto.toString()
+    };
+  }, seed());
+  ok(R.a && R.a.fromRaw === true && R.a.url === R.rawUrl, "R1 a fetchable raw is what the crop tool opens on");
+  ok(R.a && R.a.filename === "AY-00004_obverse_original.jpg", "R2 resolved from our own _cropped/_original convention");
+  ok(R.b && R.b.fromRaw === false && R.b.url === R.cropOnly,
+    "R3 a derivable-but-absent _original falls through to the displayed file rather than dead-ending");
+  ok(R.c && R.c.fromRaw === false && R.c.url === R.legacyUrl,
+    "R4 a legacy name with no raw adjusts the displayed file — the case this change exists for");
+  ok(R.d && R.d.fromRaw === true && R.d.url === R.colRaw, "R5 an OriginalFilename column value wins outright");
+  ok(R.e === null, "R6 nothing loadable resolves to null rather than throwing");
+  ok(/resolveStoredAdjustSource/.test(R.src), "R7 adjustStoredPhoto uses that decision");
+  ok(/replaceGalleryEntryAndCommit/.test(R.src) && /fromRaw \? " \(from the original\)" : " \(re-crop\)"/.test(R.src),
+    "R8 and ends in the same Replace write, labelling the crop tool by source");
+
+  // ---------- R2. Adjusting writes through as a Replace ----------------
+  // adjustStoredPhoto's last act, driven directly — the crop overlay in
+  // between is what it already was for a first-time capture.
+  const R2 = await page.evaluate(async (s) => {
+    const mock = createMockGraphClient(s);
+    __setGraphClientForTest(mock); __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(true);
+    const id = "AY-00004";
+    delete galleryStore[id];
+    await mock.uploadFile("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse.jpg", new Blob([new Uint8Array([7])]));
+    await writePhotoRow(id, { type: "obverse", caption: "" }, "AY-00004_obverse.jpg", "");
+    const photoId = mock._grids.Photos.find(r => r[1] === id && r[4] === "AY-00004_obverse.jpg")[0];
+    __setStoredPhotosForTest({ [id]: [{ photoId, photoType: "Obverse", galleryType: "obverse",
+      subGroupId: "", filename: "AY-00004_obverse.jpg", originalFilename: "", label: "" }] });
+    hydrateStoredPhotos(id);
+    const entry = galleryFor(id).find(e => e.type === "obverse");
+    await replaceGalleryEntryAndCommit(id, entry, {
+      type: "obverse", url: null, rawUrl: null, blob: new Blob([new Uint8Array([8])]), caption: "",
+      filename: "AY-00004_obverse_cropped.jpg", rawFilename: null
+    }, () => {});
+    const rows = mock._grids.Photos.filter(r => r[1] === id);
+    const out = {
+      rowCount: rows.length, photoId, rowPhotoId: rows[0] && rows[0][0], rowFilename: rows[0] && rows[0][4],
+      oldFileKept: !!(await mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse.jpg")),
+      newFileWritten: !!(await mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/AY-00004_obverse_cropped.jpg"))
+    };
+    delete galleryStore[id];
+    __setStoredPhotosForTest(null); __setGraphClientForTest(null);
+    __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(null);
+    return out;
+  }, seed());
+  ok(R2.rowCount === 1, "R9 adjusting writes through as a normal Replace — one row, not two");
+  ok(R2.rowPhotoId === R2.photoId, "R10 keeping its PhotoID");
+  ok(R2.rowFilename === "AY-00004_obverse_cropped.jpg", "R11 and moving the row to the current convention filename");
+  ok(R2.newFileWritten === true && R2.oldFileKept === true, "R12 with the old file left on disk, never deleted");
+
+  // ---------- S. The read cache follows a re-crop ----------------------
+  // A re-crop can land on the SAME filename it read from. Without
+  // refreshing the cache, the flip card and Albums would keep showing the
+  // pre-adjust image for the rest of the session.
+  const S = await page.evaluate(async (s) => {
+    const mock = createMockGraphClient(s);
+    __setGraphClientForTest(mock); __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(true);
+    __resetCoinPhotoCacheForTest();
+    const id = "AY-00004";
+    delete galleryStore[id];
+    const stale = URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+    __setCoinPhotoCacheForTest("AY-00004_obverse_cropped.jpg", stale);
+    const fresh = URL.createObjectURL(new Blob([new Uint8Array([2])], { type: "image/jpeg" }));
+    await addGalleryEntryAndCommit(id, {
+      type: "obverse", url: fresh, rawUrl: null, blob: new Blob([new Uint8Array([2])]), caption: "",
+      filename: "AY-00004_obverse_cropped.jpg", rawFilename: null
+    }, () => {});
+    const after = getCachedCoinPhotoUrl("AY-00004_obverse_cropped.jpg");
+    delete galleryStore[id];
+    __setGraphClientForTest(null); __resetSheetHeaderMapsForTest();
+    __setAddCoinWriteEnabledForTest(null); __resetCoinPhotoCacheForTest();
+    return { stale, fresh, after };
+  }, seed());
+  ok(S.after === S.fresh && S.after !== S.stale,
+    "S1 a commit repoints the read cache at the bytes it just wrote, so the flip card doesn't keep the old image");
 
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {

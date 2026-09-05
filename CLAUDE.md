@@ -8481,17 +8481,37 @@ sits on top.
   legacy-named photo (`AY-00208_obverse.jpg`) leaves one orphan and moves
   the record onto the convention: the deliberate trade, since consistent
   naming going forward matters more than the occasional sweepable file.
-- **Adjust is offered only when a raw is genuinely resolvable**
-  (`storedRawFilenameFor()`): the sheet's `OriginalFilename`, or our own
-  `_cropped`/`_original` pair, which this layer always uploads together. A
-  legacy hand-filed name has neither, so Adjust correctly stays hidden on
-  `AY-00208` — its real fix is Replace. **Re-cropping the DISPLAYED file
-  was considered and rejected**: that re-crops an already-cropped,
-  already-compressed JPEG, a real quality loss, and it would not have fixed
-  `AY-00208` anyway, whose problem is that the stored file is the wrong
-  photo entirely.
+- **Adjust source priority** (`resolveStoredAdjustSource()`): the raw when
+  one is genuinely resolvable — the sheet's `OriginalFilename`, or our own
+  `_cropped`/`_original` pair, which this layer always uploads together —
+  otherwise the DISPLAYED file itself.
+  **SUPERSEDED, same branch:** Adjust was first restricted to a resolvable
+  raw, with Replace as the only option otherwise. Ray's live testing showed
+  that is too tight: most photos already on the Photos tab predate the crop
+  pipeline and will never have a raw, yet they are exactly the ones that
+  are visibly mis-framed — off-centre, letterboxed, not filling the circle
+  — so the restriction meant re-taking a photo of a coin that may not be to
+  hand, purely to fix framing. The fallback is a real quality tradeoff
+  (re-encoding an already-cropped, already-compressed JPEG), which is why
+  the raw still wins whenever there is one and the crop tool's own title
+  says which source it opened on ("from the original" vs "re-crop").
+  - **"Resolvable" means FETCHABLE, not name-derivable.** A `_cropped` file
+    implies an `_original` sibling by convention, but an older build may
+    never have uploaded one — a 404 there falls through to the displayed
+    file rather than dead-ending.
+  - **The write is identical either way** — current-convention filename,
+    the row's `Filename` updated, the old file never deleted. The source
+    choice only decides what the crop tool opens on.
+  - The decision is split into its own function specifically so it can be
+    asserted directly; driving it through the crop overlay would test the
+    overlay instead.
 - **Remove now works on a stored photo**, detaching its row (never
   deleting the file), which it could not do before.
+- **A commit repoints the read cache at the bytes it just wrote.** Found
+  while adding the re-crop fallback: an adjust can land on the SAME
+  filename it read from, and `getCachedCoinPhotoUrl()` is what the flip
+  card and Albums read through — so without this they would keep showing
+  the pre-adjust image for the rest of the session.
 - Add Coin's own slots are unaffected — a brand-new coin has no
   CollectionID and therefore no stored rows, so hydration is a no-op there,
   as it is for any draft record.
@@ -8503,7 +8523,8 @@ that coin. Harmless (it never shows anything WRONG, only less), and wiring
 it would mean hydrating from a hot read path.
 
 Verified headless — the suite grew to **110 assertions; 1168 across 27
-suites, zero failures, zero page errors**. Covers hydration (including
+suites, zero failures, zero page errors** (since grown to 124 / 1182 by
+the Adjust-fallback round below). Covers hydration (including
 idempotence, session-capture precedence, and a draft hydrating nothing);
 the slot showing the stored photo instead of `＋`; the Replace label and
 button wording; Remove becoming available; Adjust hidden for a legacy name
@@ -8524,9 +8545,24 @@ resolvable raw, and a filled slot keeping the "Add" framing.
   carry-forward was masking. Same trap as `G3`/`F2` last round — assume it
   applies to any assertion whose broken case also returns the passing
   value.
-- Screenshots reviewed at both viewports with a legacy-named photo (Replace
-  only), a convention-named photo (Replace + Adjust), an empty pair, and a
-  captioned Reference thumbnail all visible at once. No overflow.
+- **The Adjust-fallback round adds 14 more assertions and 3 more controls**
+  (124 in this suite; 1182 across 27): the source priority in all five
+  states — a fetchable raw wins, an `OriginalFilename` column wins, a
+  derivable-but-absent `_original` falls through, a legacy name falls
+  through, nothing loadable resolves to null rather than throwing — plus
+  the adjust round trip writing through as an ordinary Replace, and the
+  read-cache refresh. Controls: restoring the raw-only restriction (fails
+  the two UI assertions and both fallback cases), inverting the priority so
+  the displayed file beats an available raw, and leaving the read cache
+  stale. **A first version of this block tried to stub `runCropPipeline`
+  via `window` and silently asserted nothing — it is a lexically scoped
+  function declaration inside the IIFE, so the stub was never called.**
+  That is what prompted splitting `resolveStoredAdjustSource()` out; the
+  two remaining call-site facts are covered by a source-text guard.
+- Screenshots reviewed at both viewports with a legacy-named photo, a
+  convention-named photo, an empty pair, and a captioned Reference
+  thumbnail all visible at once — both filled slots now show ⤢ with
+  different tooltips. No overflow.
 - **Not verified: any real device, any real OneDrive session.**
 
 ## Quick-capture notes → ParkingLot
