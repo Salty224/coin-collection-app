@@ -133,8 +133,8 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     const blob = new Blob([new Uint8Array([1,2,3,4])], { type: 'image/png' });
     galleryStore[ADDCOIN_GALLERY_ID] = [{
       type: 'obverse', url: 'blob:x', rawUrl: URL.createObjectURL(blob), circleUrl: null,
-      blob, caption: '', filename: '__addcoin_draft___obverse_cropped.png',
-      rawFilename: '__addcoin_draft___obverse_original.png'
+      blob, caption: '', filename: '__addcoin_draft___obverse_cropped.jpg',
+      rawFilename: '__addcoin_draft___obverse_original.jpg'
     }];
     await new Promise(r => { saveAddCoinForm('staging'); setTimeout(r, 900); });
     const paths = [...mock._store.keys()];
@@ -165,8 +165,12 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   ok(C.draft && C.draft.cost === 45 && C.draft.vendor === 'Test Seller', "C7 purchase fields captured");
   ok(C.draft && C.draft.remarks === 'a note', "C8 notes captured as remarks");
   ok(C.draft && C.draft.status === 'Draft — awaiting review', "C9 draft starts in the Draft status");
-  ok(C.paths.includes(base + "/AY-00501_obverse_cropped.png"), "C10 cropped photo uploaded under the REAL CollectionID");
-  ok(C.paths.includes(base + "/AY-00501_obverse_original.png"), "C11 raw original preserved alongside it");
+  // .jpg, not .png: both crop stages bake through canvas.toBlob(...,
+  // "image/jpeg"), so these files have always been JPEG bytes and the 29
+  // real Photos rows are all .jpg. Following a real convention correction,
+  // not a weakened assertion.
+  ok(C.paths.includes(base + "/AY-00501_obverse_cropped.jpg"), "C10 cropped photo uploaded under the REAL CollectionID");
+  ok(C.paths.includes(base + "/AY-00501_obverse_original.jpg"), "C11 raw original preserved alongside it");
   ok(!C.paths.some(p => p.includes('__addcoin_draft__')), "C12 no temp-draft filename leaked into OneDrive");
   ok(C.draft && C.draft.photos.length === 2, "C13 draft records both photo filenames");
   ok(C.galleryCleared, "C14 in-progress gallery cleared so the next coin can't reuse these photos");
@@ -302,7 +306,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     await mock.uploadJson(base + "/AY-00801/coin.json",
       { type:"coin", version:1, collectionID:"AY-00801", status:COIN_DRAFT_STATUS.DRAFT,
         denom:"1C", year:"1909", mint:"S", variety:"", description:"Lincoln", photos:[], createdDate:new Date().toISOString() });
-    await mock.uploadBytes(base + "/AY-00801/AY-00801_obverse_cropped.png", new Uint8Array([1]));
+    await mock.uploadBytes(base + "/AY-00801/AY-00801_obverse_cropped.jpg", new Uint8Array([1]));
 
     await renderStagingList();
     const interimShown = !document.getElementById('stagingInterimBanner').classList.contains('hidden');
