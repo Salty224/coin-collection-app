@@ -8711,6 +8711,81 @@ TL fit reverted (E1–E5), the BL fit reverted (E7/E8).
   assertion hid a real bug; the test was fixed, not the claim.
 - **Not verified: any real device, any real OneDrive session.**
 
+### Catalog grid: the SAME Fugio collision, one card size down (BUILT, same branch, still held)
+The full detail card came back clean on Ray's device after the fix above —
+and the **Catalog grid still collided on the same coin**. Root-caused before
+touching anything, and the previous round's own "0px worst-case overlap"
+measurement is what pointed at it: that was taken at the full card's ~139px
+corner box. **The grid's `.flip-label` box is ~34-38px** (frame 120px,
+`max-width: 46%`), roughly a quarter of it.
+
+**Root cause: the grid's TL was on a different, weaker renderer.** The grid's
+own TR already used `renderTypeDenomCorner()` (shrink + wrap) and the full
+card's TL had just been moved onto `renderFittedCornerLines()`. The grid's TL
+and BL were still on `setStackedCornerText()` — **shrink only, no wrap**. So
+at grid width the Fugio's Variety bottomed out at the smallest shrink step on
+ONE unwrapped line: 6.72px, `scrollWidth` 97 against `clientWidth` 55, with
+**21px of ink running into the TR corner**. Both grid corners are now on
+`renderFittedCornerLines()` and `setStackedCornerText()` is retired — it has
+no callers left.
+
+**Answering the question Ray raised directly: box-fitting IS sufficient at
+grid width; no mutual TL/TR clearance check is needed.** Measured, not
+assumed, including a deliberate worst case (long Variety AND long type name,
+so both corners sit at maximum width simultaneously): once each corner fits
+its own box, **ink overlap is 0px** — 42px of clearance on the Fugio, 17px on
+the worst case, at both viewports. A mutual check would have been real extra
+machinery for a collision that stops existing once the fit is honest.
+
+**Comma-segment truncation, grid only.** Wrapping alone still leaves a very
+long Variety small: `CORNER_SHRINK_STEPS` bottoms out at 0.48 of natural,
+which at the grid's 14px is 6.72px — present but not readable, which is worse
+than showing less of it clearly. `renderGridIdentityCorner()` therefore
+re-renders with only the Variety's **first comma segment plus an ellipsis**
+when the full string lands below `GRID_VARIETY_MIN_FRACTION` (0.67, i.e.
+9.38px). Comma segments are how these strings are actually written — the
+leading one is the identifying attribution, the rest are qualifiers — so this
+reduces along a real boundary rather than clipping mid-phrase.
+- Measured: the Fugio goes **6.72px on one clipped line -> 11.48px** showing
+  `1787-S` / `Newman` / `15-H…`.
+- **Nothing is lost**: the coin's own detail page still shows the complete
+  string, asserted.
+- **Only fires when it actually helps.** No comma to reduce along (`Doubled
+  Die Obverse`) -> full string kept, wrapped, 9.38px. Already legible (`VDB`)
+  -> untouched at natural 14px. And if the shortened string lands at the
+  *same* size, the full one is kept — more information for the same
+  readability.
+
+**Escaping moved into `renderCornerLines()`, and this was a real hazard, not
+tidying.** The grid was the one call site that pre-escaped with
+`escapeHtmlText()`; every other caller passed raw. Routing the grid's TL
+through the wrapping fitter made that unsafe — `wrapTextToTwoLines()` splits
+on whitespace, so an already-escaped `&amp;` could be sliced into `&am` +
+`p;` across a line break. One escape, applied to the final text inside
+`renderCornerLines()`, is both correct and consistent; the grid call site now
+passes raw like everything else.
+
+**Verified headless — `tests/verify_catalog_grid_corners.js` grew from 34 to
+70 assertions (both viewports); 977 across 23 suites, zero failures.** New
+blocks: E measures the Fugio and the worst case **at the grid's real
+dimensions**, on INK rather than boxes (`scrollWidth` per line, right-anchored
+corners measured from their right edge — a box-rect test reports 0 for exactly
+the broken case); F covers the truncation in all four states plus the detail
+page keeping the full string; G covers the escaping in both directions.
+- **Two verified negative controls.** Reverting the grid TL to the retired
+  shrink-only renderer fails 8 assertions per viewport and reproduces the
+  reported symptom exactly — `E2: 21px` of ink overlap. Removing the escape
+  from `renderCornerLines()` fails G1/G3, with `<Repunched>` silently parsed
+  as markup and disappearing.
+- **One prior assertion followed the design change, not weakened**: `B1` had
+  pinned the long-Variety TL at exactly 2 lines, which was a property of
+  shrink-only rendering; it now asserts the full string survives at whatever
+  line count the fit lands on. Its `keptFullVariety` check also had to stop
+  reading `textContent` — that concatenates `.corner-line` children with no
+  separator, so a wrapped "Doubled Die Obverse" reads as "DoubledDie
+  Obverse". Lines are joined with a space now.
+- **Not verified: any real device.** Screenshots reviewed at both viewports.
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch

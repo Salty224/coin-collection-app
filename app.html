@@ -9823,9 +9823,16 @@
   // line — used wherever a corner combines two related values (Type/Denom,
   // Variety/Designation) that would otherwise crowd together. Blank lines are
   // skipped so a single value still renders as a plain single line.
+  // ESCAPING LIVES HERE, not at the call sites. Every other caller already
+  // passed raw text and relied on that; the Catalog grid was the one that
+  // pre-escaped, and routing its TL through the wrapping fitter made that
+  // actively unsafe — wrapTextToTwoLines() splits on whitespace, so an
+  // already-escaped entity ("&amp;") could be sliced across a line break
+  // into "&am" + "p;" and render as literal garbage. One escape, applied to
+  // the final text, is both correct and consistent.
   function renderCornerLines(el, lines) {
     const nonEmpty = lines.filter(Boolean);
-    el.innerHTML = nonEmpty.map(line => `<div class="corner-line">${line}</div>`).join("");
+    el.innerHTML = nonEmpty.map(line => `<div class="corner-line">${escapeHtmlText(line)}</div>`).join("");
   }
 
   // Superseded — a last-word-shortening fallback used to live here
@@ -10780,10 +10787,73 @@
   // Blank lines are dropped, so a coin with no Variety renders a single
   // line and a coin with neither Grade nor Designation renders nothing at
   // all — no empty box, no stray separator.
-  function setStackedCornerText(el, lines) {
-    const nonEmpty = (lines || []).filter(Boolean);
-    if (!nonEmpty.length) { el.style.fontSize = ""; el.innerHTML = ""; return; }
-    shrinkCornerToFit(el, () => renderCornerLines(el, nonEmpty));
+  // Superseded — setStackedCornerText() used to live here: shrink-only, no
+  // wrap. That was enough for the full detail card (280px frame, ~139px
+  // corner box) but NOT for the Catalog grid's mini card, whose frame is
+  // 120px and whose .flip-label box is only ~55px wide. Measured on the 1787
+  // Fugio Cent (Variety "Newman 15-H, Pointed Rays, 4 Cinq., R-4"): shrinking
+  // alone bottomed out at 6.72px on ONE unwrapped line, scrollWidth 97 against
+  // clientWidth 55, whose ink ran 21px into the TR corner — the exact
+  // collision reported on a real device AFTER the full card's own TL had been
+  // fixed. The grid now uses renderFittedCornerLines() like everything else.
+  //
+  // The smallest Variety a grid corner can legibly carry.
+  // CORNER_SHRINK_STEPS bottoms out at 0.48 of natural size, which at the
+  // grid's 14px is 6.72px — small enough that the text is present but not
+  // actually readable, which is worse than showing less of it clearly. 0.67
+  // (9.38px) is the floor below which truncation is the better trade.
+  const GRID_VARIETY_MIN_FRACTION = 0.67;
+
+  // First comma-delimited segment of a Variety, for the grid-only truncation
+  // fallback: "Newman 15-H, Pointed Rays, 4 Cinq., R-4" -> "Newman 15-H".
+  // Comma segments are how these strings are actually written — the leading
+  // one is the identifying attribution and the rest are qualifiers — so this
+  // reduces along a real boundary rather than clipping mid-phrase. Returns
+  // null when there's nothing to gain (no comma, or the first segment is the
+  // whole string).
+  function firstVarietySegment(text) {
+    const str = String(text || "");
+    const i = str.indexOf(",");
+    if (i <= 0) return null;
+    const head = str.slice(0, i).trim();
+    return head && head !== str.trim() ? head : null;
+  }
+
+  // The Catalog grid's TL corner (Year-Mint over Variety). Same fitted
+  // renderer the full card's TL and this card's own TR use, plus one
+  // grid-only extra step: if the FULL Variety string only fits below the
+  // legibility floor, re-render with just its first comma segment and an
+  // ellipsis, which fits far larger. The full string is never lost — the
+  // coin's own detail page still shows it complete; this is a
+  // reduce-to-fit-at-this-size decision scoped to the mini card, exactly
+  // like the composition corner's own reduction chain.
+  function renderGridIdentityCorner(el, yearMint, variety) {
+    const full = String(variety || "");
+    const lines = [String(yearMint || ""), full];
+    // Natural (unshrunk) size, measured with no inline override left over
+    // from a previous coin — these corner elements are reused as the grid
+    // re-renders, so a stale shrink must never be read as "natural".
+    el.style.fontSize = "";
+    const natural = parseFloat(getComputedStyle(el).fontSize);
+    // renderFittedCornerLines() leaves the size it settled on as an inline
+    // style (or none, if it fit at natural), so the computed size after it
+    // returns IS what was achieved.
+    const render = (ls) => {
+      renderFittedCornerLines(el, ls, 1);
+      return parseFloat(getComputedStyle(el).fontSize);
+    };
+
+    const achieved = render(lines);
+    if (!full) return;
+    if (achieved >= natural * GRID_VARIETY_MIN_FRACTION) return;
+
+    const head = firstVarietySegment(full);
+    if (!head) return;
+    const truncAchieved = render([lines[0], head + "\u2026"]);
+    // Only keep the truncation if it actually bought legibility. If the
+    // shortened string lands at the same size, the full one is strictly
+    // better — more information for the same readability.
+    if (truncAchieved <= achieved) render(lines);
   }
 
   function setCompositionCornerText(el, text) {
@@ -11001,10 +11071,13 @@
       // stacking, which is a different corner with a different pairing.
       // Both run after appendChild and after sizeCoinElement(), since the
       // fit test measures against real layout and the disc's real size.
-      setStackedCornerText(card.querySelector(".flip-label.tl"),
-        [escapeHtmlText(yearMint), escapeHtmlText(coin.variety || "")]);
-      setStackedCornerText(card.querySelector(".flip-label.bl"),
-        [escapeHtmlText((coin.grade || "") + (coin.designation || ""))]);
+      // Raw, unescaped — renderCornerLines() escapes. Pre-escaping here would
+      // be actively unsafe now that TL wraps: wrapTextToTwoLines() splits on
+      // whitespace and could slice an entity apart.
+      renderGridIdentityCorner(card.querySelector(".flip-label.tl"),
+        yearMint, coin.variety || "");
+      renderFittedCornerLines(card.querySelector(".flip-label.bl"),
+        [(coin.grade || "") + (coin.designation || "")], 0);
       // Composition — same rule and same shared renderer as the full
       // flip-frame's BR corner (Browse detail/Spotlight): precious metal
       // only, stacked value/metal lines when it splits cleanly, sized
