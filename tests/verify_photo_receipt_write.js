@@ -897,6 +897,176 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(Math.abs(T.geom.renderedImgWidth - T.geom.clientWidth) < 1.5,
     "T10 so at 100% zoom the preview fills the visible circle exactly — no ring hidden under the border and then baked in");
 
+  // ---------- U. Trash: confirmed, and the two surfaces agree ----------
+  // Two live defects on AY-00002, both measured before fixing.
+  //
+  // (1) NO CONFIRMATION. Trash sits immediately beside Replace's camera and
+  //     library icons with no visual separation and was tapped by accident.
+  //     The confirmation this was supposed to have was never wired.
+  //
+  // (2) THE TWO READ PATHS DISAGREED. storedPhotoFilename() (flip card,
+  //     Albums) reads the Photos tab and FALLS BACK to the legacy flat
+  //     All.Obverse/Reverse column; hydrateStoredPhotos() read the Photos
+  //     tab only. For a coin recorded only the old way — AY-00002 is one of
+  //     five — the card showed the real photo while Manage Photos drew an
+  //     empty slot with no Replace, Adjust or Remove.
+  const U = await page.evaluate(async (s) => {
+    const id = "AY-00002";
+    const mock = createMockGraphClient(s);
+    __setGraphClientForTest(mock); __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(true);
+    const coin = { id, name: "Morgan Dollar", denom: "$1", year: 1889, mint: "CC",
+                   obversePhotoFile: "AY-00002_obverse.jpg", reversePhotoFile: "" };
+    const mk = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+    const ctx = { id, name: coin.name, meta: id, kind: "coin" };
+    const openSlot = () => {
+      renderManagePhotosInto("managePhotosSections", ctx);
+      const host = document.getElementById("managePhotosSections");
+      const h = host.querySelectorAll(".accordion-header")[0];
+      if (h) h.click();
+      return host.querySelector(".sg-photo-slot");
+    };
+    const guard = () => document.getElementById("writeGuardOverlay");
+    const guardBtns = () => [...document.getElementById("writeGuardBtns").querySelectorAll("button")];
+    // Null-safe throughout: a regression here (no confirmation, or an empty
+    // slot) must fail the assertion that names it, not throw and take the
+    // whole block down — a thrown suite hides WHICH property broke.
+    const clickIn = (el, sel) => { const b = el && el.querySelector(sel); if (b) b.click(); return !!b; };
+    const clickGuard = (i) => { const b = guardBtns()[i]; if (b) b.click(); return !!b; };
+    const out = {};
+
+    // --- (2) a LEGACY-only photo: the card showed it, Manage Photos didn't.
+    __setLiveCoinsForTest([coin]);
+    __setStoredPhotosForTest({});
+    __setCoinPhotoCacheForTest("AY-00002_obverse.jpg", mk());
+    delete galleryStore[id];
+    const disc = document.createElement("div");
+    disc.style.cssText = "width:210px;height:210px;";
+    document.body.appendChild(disc);
+    applyDiscContent(disc, coin, "obverse");
+    out.cardShowsLegacy = /blob:/.test(disc.style.backgroundImage);
+    disc.remove();
+    let slot = openSlot();
+    out.legacy = {
+      hasImg: !!slot.querySelector(".sg-photo-img"),
+      hasReplace: !!slot.querySelector(".sg-photo-replace"),
+      hasRemove: !!slot.querySelector('[data-act="remove"]'),
+      entries: galleryFor(id).length,
+      legacyOnlyFlag: !!(galleryFor(id)[0] || {}).legacyOnly
+    };
+    // Removing a legacy-only photo is impossible (this app never writes the
+    // flat columns), and says so rather than silently doing nothing.
+    clickIn(slot, '[data-act="remove"]');
+    out.legacyGuard = { shown: !guard().classList.contains("hidden"),
+      title: document.getElementById("writeGuardTitle").textContent,
+      buttons: guardBtns().map(b => b.textContent) };
+    clickGuard(0);
+    await new Promise(r => setTimeout(r, 120));
+    out.legacyKept = galleryFor(id).length;
+
+    // --- (1) a real Photos row: confirmation required, Cancel is inert.
+    __setStoredPhotosForTest({ [id]: [{ photoId: "PH-00001", photoType: "Obverse",
+      galleryType: "obverse", subGroupId: "", filename: "AY-00002_obverse.jpg",
+      originalFilename: "", label: "" }] });
+    // The stored file itself, so "never deleted" is a real check rather than
+    // a check that an absent file stayed absent.
+    await mock.uploadFile("CoinCollection/_Testing/CoinPhotos/AY-00002_obverse.jpg",
+      new Blob([new Uint8Array([1])]));
+    delete galleryStore[id];
+    slot = openSlot();
+    clickIn(slot, '[data-act="remove"]');
+    out.realGuard = { shown: !guard().classList.contains("hidden"),
+      buttons: guardBtns().map(b => b.textContent),
+      warnsAboutLegacy: /old <strong>All<\/strong> sheet/.test(document.getElementById("writeGuardBody").innerHTML) };
+    clickGuard(0); // Cancel
+    await new Promise(r => setTimeout(r, 150));
+    out.afterCancel = { entries: galleryFor(id).length,
+      rowPresent: mock._grids.Photos.some(r => r[0] === "PH-00001") };
+
+    // Confirm.
+    clickIn(openSlot(), '[data-act="remove"]');
+    clickGuard(1);
+    await new Promise(r => setTimeout(r, 300));
+    out.afterConfirm = { rowPresent: mock._grids.Photos.some(r => r[0] === "PH-00001"),
+      indexEntries: (LIVE_PHOTOS && LIVE_PHOTOS[id] || []).length,
+      fileKept: !!(await mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/AY-00002_obverse.jpg")) };
+
+    // --- The mirror-image defect: with NO legacy column, a detached photo
+    //     must not come straight back on the next re-render off a stale
+    //     Photos index.
+    const plain = { id: "AY-00099", name: "Plain", denom: "1C", year: 1909, mint: "" };
+    __setLiveCoinsForTest([plain]);
+    __setStoredPhotosForTest({ "AY-00099": [{ photoId: "PH-00050", photoType: "Obverse",
+      galleryType: "obverse", subGroupId: "", filename: "AY-00099_obverse_cropped.jpg",
+      originalFilename: "", label: "" }] });
+    await writePhotoRow("AY-00099", { type: "obverse", caption: "" }, "AY-00099_obverse_cropped.jpg", "");
+    delete galleryStore["AY-00099"];
+    const ctx2 = { id: "AY-00099", name: "Plain", meta: "AY-00099", kind: "coin" };
+    renderManagePhotosInto("managePhotosSections", ctx2);
+    let host2 = document.getElementById("managePhotosSections");
+    host2.querySelectorAll(".accordion-header")[0].click();
+    clickIn(host2.querySelector(".sg-photo-slot"), '[data-act="remove"]');
+    clickGuard(1);
+    await new Promise(r => setTimeout(r, 300));
+    out.plainAfterConfirm = { entries: galleryFor("AY-00099").length };
+    renderManagePhotosInto("managePhotosSections", ctx2);
+    out.plainAfterRerender = { entries: galleryFor("AY-00099").length,
+      slotEmpty: !!document.getElementById("managePhotosSections")
+        .querySelector(".sg-photo-slot .sg-photo-empty") };
+
+    // --- A FAILING detach must leave the screen alone. Removing locally and
+    //     firing the write off unawaited is what let the screen and the sheet
+    //     disagree in the first place.
+    const realPatch = mock.patchWorkbookRanges.bind(mock);
+    mock.patchWorkbookRanges = () => Promise.reject(new Error("network down"));
+    __setStoredPhotosForTest({ "AY-00099": [{ photoId: "PH-00051", photoType: "Obverse",
+      galleryType: "obverse", subGroupId: "", filename: "AY-00099_obverse_cropped.jpg",
+      originalFilename: "", label: "" }] });
+    delete galleryStore["AY-00099"];
+    renderManagePhotosInto("managePhotosSections", ctx2);
+    const host3 = document.getElementById("managePhotosSections");
+    const h3 = host3.querySelectorAll(".accordion-header")[0]; if (h3) h3.click();
+    // A marker on the live entry. Counting entries alone does NOT
+    // discriminate: an optimistic removal drops the entry and the very next
+    // re-render hydrates a FRESH one back off the (unsynced) index, landing
+    // on the same count. Only identity proves the entry was never removed.
+    const probed = galleryFor("AY-00099")[0];
+    if (probed) probed.__probe = "keep-me";
+    clickIn(host3.querySelector(".sg-photo-slot"), '[data-act="remove"]');
+    clickGuard(1);
+    await new Promise(r => setTimeout(r, 300));
+    out.afterFailedDetach = { entries: galleryFor("AY-00099").length,
+      survived: (galleryFor("AY-00099")[0] || {}).__probe === "keep-me",
+      indexEntries: (LIVE_PHOTOS && LIVE_PHOTOS["AY-00099"] || []).length };
+    mock.patchWorkbookRanges = realPatch;
+
+    __setStoredPhotosForTest(null); __setLiveCoinsForTest(null); __setGraphClientForTest(null);
+    __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(null); __resetCoinPhotoCacheForTest();
+    delete galleryStore[id]; delete galleryStore["AY-00099"];
+    return out;
+  }, seed());
+  ok(U.cardShowsLegacy === true, "U1 the flip card shows a legacy-column-only photo (it always did)");
+  ok(U.legacy.hasImg === true && U.legacy.entries === 1,
+    "U2 and Manage Photos now shows the SAME photo — the two read paths agree (this is the reported empty slot)");
+  ok(U.legacy.hasReplace === true && U.legacy.hasRemove === true,
+    "U3 with Replace and Remove available, which the empty slot had denied");
+  ok(U.legacy.legacyOnlyFlag === true, "U4 marked legacyOnly — it has no Photos row behind it");
+  ok(U.legacyGuard.shown === true && U.legacyGuard.buttons.length === 1,
+    "U5 removing a legacy-only photo says it can't be done rather than silently doing nothing");
+  ok(U.legacyKept === 1, "U6 and leaves it in place");
+  ok(U.realGuard.shown === true && JSON.stringify(U.realGuard.buttons) === JSON.stringify(["Cancel", "Remove"]),
+    "U7 Trash on a real photo CONFIRMS first — the missing dialog that caused the accidental tap");
+  ok(U.realGuard.warnsAboutLegacy === true,
+    "U8 and says up front when a legacy column will keep the photo showing anyway");
+  ok(U.afterCancel.entries === 1 && U.afterCancel.rowPresent === true,
+    "U9 Cancel changes nothing — not the gallery, not the workbook");
+  ok(U.afterConfirm.rowPresent === false, "U10 Confirm detaches the Photos row");
+  ok(U.afterConfirm.indexEntries === 0, "U11 and updates the session's Photos index, so it can't be re-hydrated back");
+  ok(U.afterConfirm.fileKept === true, "U12 while the stored file is never deleted");
+  ok(U.plainAfterConfirm.entries === 0 && U.plainAfterRerender.entries === 0 && U.plainAfterRerender.slotEmpty === true,
+    "U13 with no legacy column, a removed photo stays removed across a re-render");
+  ok(U.afterFailedDetach.entries === 1 && U.afterFailedDetach.survived === true && U.afterFailedDetach.indexEntries === 1,
+    "U14 a FAILED detach removes nothing — the SAME entry is still there, so the removal waits on the write rather than being optimistic");
+
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {
     const p2 = await openApp(vp);

@@ -5116,6 +5116,29 @@
     return p;
   }
 
+  // The Photos index is fetched once per session, so a write made from
+  // inside the app leaves it stale — and hydration reads through it. Left
+  // unsynced, a detached photo comes STRAIGHT BACK on the next re-render
+  // (measured), and a freshly captured one stays invisible to any later
+  // hydration. Both are the same "local state and workbook disagree" defect
+  // this whole area has now produced twice.
+  function syncStoredPhotoIndexRemove(collectionId, photoType, subGroupId) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    const want = subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID ? subGroupId : "";
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r =>
+      !(r.photoType === photoType && (r.subGroupId || "") === want));
+  }
+  function syncStoredPhotoIndexRemoveByFilename(collectionId, filename) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.filename !== filename);
+  }
+  function syncStoredPhotoIndexUpsert(collectionId, row) {
+    if (!LIVE_PHOTOS) LIVE_PHOTOS = {};
+    const list = LIVE_PHOTOS[collectionId] || (LIVE_PHOTOS[collectionId] = []);
+    const at = list.findIndex(r => r.photoId && row.photoId && r.photoId === row.photoId);
+    if (at >= 0) list[at] = row; else list.push(row);
+  }
+
   function __setCoinPhotoCacheForTest(filename, url) { coinPhotoCache[filename] = url; }
   function __setStoredPhotosForTest(index) { LIVE_PHOTOS = index; }
   function __setStoredReceiptsForTest(index) { LIVE_RECEIPTS = index; }
@@ -18812,7 +18835,17 @@
       coinPhotoCache[entry.rawFilename] = entry.rawUrl;
       rawName = entry.rawFilename;
     }
-    return writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
+    const res = await writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
+    syncStoredPhotoIndexUpsert(collectionId, {
+      photoId: res.photoId,
+      photoType: photoTypeForGalleryType(entry.type),
+      galleryType: entry.type,
+      subGroupId: entry.subGroupId && entry.subGroupId !== DEFAULT_SUBGROUP_ID ? entry.subGroupId : "",
+      filename: entry.filename,
+      originalFilename: rawName,
+      label: entry.caption || ""
+    });
+    return res;
   }
 
   // The single path every capture surface now goes through. `done` is the
@@ -18867,8 +18900,36 @@
   // A SESSION CAPTURE ALWAYS WINS. An entry already present for a slot is
   // never overwritten by hydration: it is either newer than the sheet, or
   // it is the thing currently being uploaded.
+  //
+  // THE FLIP CARD AND THIS MUST RESOLVE PHOTOS THE SAME WAY. They did not,
+  // and that is the second half of the AY-00002 report: storedPhotoFilename()
+  // (the card, Albums) reads the Photos tab and FALLS BACK to the legacy flat
+  // All.Obverse/Reverse column, while this read the Photos tab only. For a
+  // coin recorded only the old way — AY-00002 is one of the five — the card
+  // showed the real photo while Manage Photos drew an empty "＋" slot with no
+  // Replace, no Adjust and no Remove. Reproduced exactly before fixing.
+  //
+  // A legacy-only entry is marked `legacyOnly` because it has no Photos row
+  // behind it: it can be Replaced (which writes a proper row, migrating the
+  // coin onto the tab) but not detached, since this app never writes the flat
+  // columns.
+  function legacyStoredRowsFor(collectionId, existing) {
+    const coin = activeCoins().find(c => c.id === collectionId);
+    if (!coin) return [];
+    const out = [];
+    [["obverse", coin.obversePhotoFile], ["reverse", coin.reversePhotoFile]].forEach(([type, filename]) => {
+      if (!filename) return;
+      if (existing.some(r => r.galleryType === type)) return; // a real row wins
+      out.push({ photoId: "", photoType: photoTypeForGalleryType(type), galleryType: type,
+                 subGroupId: "", filename: String(filename), originalFilename: "", label: "",
+                 legacyOnly: true });
+    });
+    return out;
+  }
+
   function hydrateStoredPhotos(collectionId) {
-    const rows = storedPhotoRowsFor(collectionId);
+    const tabRows = storedPhotoRowsFor(collectionId);
+    const rows = tabRows.concat(legacyStoredRowsFor(collectionId, tabRows));
     if (!rows.length) return [];
     const list = galleryFor(collectionId);
     const added = [];
@@ -18904,6 +18965,7 @@
         rawFilename: null,
         subGroupId: sg,
         stored: true,
+        legacyOnly: !!row.legacyOnly,
         storedFilename: row.filename,
         storedPhotoId: row.photoId || "",
         storedOriginalFilename: row.originalFilename || ""
@@ -19045,15 +19107,81 @@
   // pool, which is the same mechanism from the other side.
   function detachGalleryPhoto(targetId, entry) {
     const commitId = photoCommitTargetId(targetId);
-    if (!commitId || !entry) return Promise.resolve(null);
+    if (!commitId || !entry) return Promise.resolve({ detached: false, noRecord: true });
     const def = galleryTypeDef(entry.type);
     const byName = (def && def.repeatable) || !def;
+    const filename = entry.storedFilename || entry.filename;
     const p = byName
-      ? detachPhotoRowByFilename(commitId, entry.storedFilename || entry.filename)
+      ? detachPhotoRowByFilename(commitId, filename)
       : detachPhotoRow(commitId, entry.type, entry.subGroupId);
-    return p.catch(e => {
-      showToast("Removed from this screen, but the workbook row couldn't be detached. (" + e.message + ")");
-      return null;
+    return p.then(res => {
+      // Keep the session's Photos index in step, or the next re-render
+      // hydrates the row straight back and the photo reappears.
+      if (res && res.detached) {
+        if (byName) syncStoredPhotoIndexRemoveByFilename(commitId, filename);
+        else syncStoredPhotoIndexRemove(commitId, photoTypeForGalleryType(entry.type), entry.subGroupId);
+      }
+      return res;
+    }).catch(e => ({ detached: false, error: e && e.message ? e.message : String(e) }));
+  }
+
+  // Trash — CONFIRMED FIRST. This sits immediately beside Replace's camera
+  // and library icons with no visual separation, which is exactly how it got
+  // tapped by accident on a real device, and the confirmation this was
+  // supposed to have was never wired.
+  //
+  // The removal is also no longer optimistic: the entry leaves this screen
+  // only once the workbook row is actually detached. Removing locally and
+  // firing the write off unawaited is what let the screen and the sheet
+  // disagree — the same defect class as the stale index above.
+  // Whether the legacy flat All column would STILL point at a photo for this
+  // side once the Photos row is gone. When it would, removing the row does
+  // not make the photo disappear — the card and this screen both fall back
+  // to it — and saying so up front is better than the user removing it and
+  // watching it stay.
+  function legacyFallbackFilenameFor(collectionId, type) {
+    if (type !== "obverse" && type !== "reverse") return "";
+    const coin = activeCoins().find(c => c.id === collectionId);
+    if (!coin) return "";
+    return String((type === "reverse" ? coin.reversePhotoFile : coin.obversePhotoFile) || "");
+  }
+
+  function confirmRemoveGalleryPhoto(targetId, entry, onRemoved) {
+    const def = galleryTypeDef(entry && entry.type);
+    const label = (def && def.label) || "this photo";
+    const legacyOnly = !!(entry && entry.legacyOnly);
+    const legacyKeeps = !legacyOnly && !!legacyFallbackFilenameFor(targetId, entry && entry.type);
+    const body = legacyOnly
+      ? "<p>This photo is recorded in the old <strong>All</strong> sheet columns, which this app never writes — so it can't be removed from here.</p>" +
+        "<p>Use <strong>Replace</strong> instead: that writes a proper Photos row and moves the coin onto the Photos tab.</p>"
+      : "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this record?</p>" +
+        "<p>Its row on the <strong>Photos</strong> tab is detached. The stored file itself is never deleted, so nothing is lost — you can re-attach it by capturing again.</p>" +
+        (legacyKeeps
+          ? "<p><strong>Note:</strong> this coin also has a photo recorded in the old <strong>All</strong> sheet columns, which this app never writes. Removing the Photos row won't make the photo disappear — it will keep showing from there.</p>"
+          : "");
+    showWriteGuard({
+      title: legacyOnly ? "Can't remove this one" : "Remove photo?",
+      bodyHtml: body,
+      buttons: legacyOnly
+        ? [{ label: "OK" }]
+        : [
+            { label: "Cancel" },
+            { label: "Remove", primary: true, onClick: async () => {
+                const res = await detachGalleryPhoto(targetId, entry);
+                if (res && res.error) {
+                  showToast("Couldn't detach the workbook row — nothing was removed. (" + res.error + ")");
+                  return;
+                }
+                if (res && !res.detached && !res.noRecord) {
+                  showToast("No Photos row was found for this one — nothing to remove.");
+                  return;
+                }
+                if (onRemoved) onRemoved();
+                showToast(legacyKeeps
+                  ? "Photos row detached. The photo still shows from the old All-sheet column, which this app doesn't write."
+                  : "Photos row detached. The stored file is untouched.");
+              } }
+          ]
     });
   }
 
@@ -19217,10 +19345,10 @@
     });
     const rm = slot.querySelector('[data-act="remove"]');
     if (rm) rm.addEventListener("click", () => {
-      // Detach the workbook row; the stored file is never deleted.
-      detachGalleryPhoto(targetId, entry);
-      removeGalleryEntry(targetId, idx);
-      if (onChange) onChange(null, typeKey);
+      confirmRemoveGalleryPhoto(targetId, entry, () => {
+        removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
+        if (onChange) onChange(null, typeKey);
+      });
     });
     return slot;
   }
@@ -19597,10 +19725,10 @@
       repCam.addEventListener("change", () => handleReplace(repCam));
       repLib.addEventListener("change", () => handleReplace(repLib));
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
-        // Detach the workbook row; the stored file is never deleted.
-        detachGalleryPhoto(targetId, entry);
-        removeGalleryEntry(targetId, index);
-        render();
+        confirmRemoveGalleryPhoto(targetId, entry, () => {
+          removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
+          render();
+        });
       });
       const retry = thumb.querySelector(".gc-retry");
       if (retry) retry.addEventListener("click", () => retryGalleryPhotoCommit(targetId, entry, render));

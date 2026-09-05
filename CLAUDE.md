@@ -8512,6 +8512,9 @@ sits on top.
     overlay instead.
 - **Remove now works on a stored photo**, detaching its row (never
   deleting the file), which it could not do before.
+  **SUPERSEDED, same branch — see "Trash: the confirmation that was never
+  wired" below.** It shipped with no confirmation dialog and removed the
+  entry locally without waiting on the write; both are fixed there.
 - **A commit repoints the read cache at the bytes it just wrote.** Found
   while adding the re-crop fallback: an adjust can land on the SAME
   filename it read from, and `getCachedCoinPhotoUrl()` is what the flip
@@ -8640,6 +8643,86 @@ reverting the bake to a fixed 480 fails T4.
   the box explicitly rather than relying on a default it did not check.
 - Flip card screenshot reviewed at both viewports: the coin's rim now sits
   on the circle's edge, no ring.
+- **Not verified: any real device, any real OneDrive session.**
+
+**Follow-up (same branch): Trash — the confirmation that was never wired,
+and two read paths disagreeing.** Two live defects on AY-00002, both
+reproduced and measured before anything was changed.
+
+**1. The confirmation was never implemented.** Trash was specified to
+confirm first, for the exact reason it went wrong: it sits immediately
+beside Replace's camera and library icons with no visual separation, and Ray
+tapped it by accident. Traced directly — the handler called
+`detachGalleryPhoto()` with no `showWriteGuard()` anywhere near it. Not a
+dialog that was easy to miss on a touch device; there was no dialog. That is
+a miss in the round that built Remove, not a regression from something
+later.
+
+**2. THE TWO READ PATHS RESOLVED PHOTOS DIFFERENTLY — the real cause of the
+"empty slot while the card shows the photo".** `storedPhotoFilename()` (the
+flip card, Albums) reads the Photos tab and **falls back to the legacy flat
+`All.Obverse`/`Reverse` column**; `hydrateStoredPhotos()` (Manage Photos)
+read the Photos tab **only**. The legacy fallback was added when the read
+side was built and simply not carried into hydration when Manage Photos
+learned about stored photos a round later. For a coin recorded only the old
+way — `AY-00002` is one of the five — the card showed the real photo while
+Manage Photos drew an empty `＋` slot with no Replace, no Adjust and no
+Remove. Reproduced exactly (card: photo; slot: `＋`, zero gallery entries)
+before fixing, which is what identified it; the first repro attempt produced
+the OPPOSITE of the report on both counts and was the thing that ruled out
+the obvious explanations.
+- Hydration now uses the same resolution, via `legacyStoredRowsFor()`. A
+  legacy entry is marked **`legacyOnly`** because it has no Photos row
+  behind it: it can be **Replaced** — which writes a proper row and migrates
+  the coin onto the tab — but not detached, since this app never writes the
+  flat columns. Trying says so plainly instead of silently doing nothing.
+
+**3. The session's Photos index went stale on every write.** `LIVE_PHOTOS`
+is fetched once per session, and hydration reads through it, so a detach
+left the index still holding the row — and the next re-render hydrated the
+photo **straight back**. Measured directly in the first repro: row blanked
+in the workbook, photo still on screen. The mirror image of the reported
+symptom, and the same "local state and the workbook disagree" defect.
+`syncStoredPhotoIndexRemove/RemoveByFilename/Upsert()` keep the index in
+step on both detach and write.
+
+**4. The removal was optimistic.** The entry left the screen synchronously
+while the write went off unawaited, so a failed detach removed it from view
+and left the row on the sheet. The removal now waits on the write and
+reports honestly when it fails.
+
+**Truthful messaging where the two records overlap.** A coin can have BOTH a
+Photos row and a legacy column for the same side (`AY-00002` does).
+Detaching the row there does not make the photo disappear — both surfaces
+correctly fall back to the legacy column — so the dialog says that up front
+rather than letting Ray remove it and watch it stay.
+
+Verified headless — **14 new assertions (148 in this suite; 1206 across 27,
+zero failures)**: the card and Manage Photos now agreeing on a legacy-only
+photo, its `legacyOnly` marking, the can't-remove-this-one path leaving it
+in place, the confirmation firing with Cancel/Remove, Cancel changing
+neither the gallery nor the workbook, Confirm detaching the row while
+keeping the file, the index being synced so it cannot be re-hydrated back,
+a removed photo staying removed across a re-render when there is no legacy
+column, and a FAILED detach removing nothing.
+- **Four verified negative controls**: no confirmation (fails 6), hydration
+  without the legacy fallback (fails 5, reproducing the reported empty
+  slot), a stale index after detach (fails 2), and a fully optimistic
+  removal (fails U14).
+- **Two test-quality fixes, both found by running the controls.** The first
+  two controls THREW instead of failing by name — a thrown suite hides which
+  property broke — so the block's DOM interactions are null-safe now. And
+  `U14` counted gallery entries, which cannot distinguish "never removed"
+  from "removed, then re-hydrated back off the unsynced index" — it checks a
+  marker on the live entry instead. That is the fifth time on this branch an
+  assertion has passed against broken code; assume it of any assertion whose
+  broken case also returns the passing value.
+- **A control that did not fire taught something too**: removing only the
+  error branch left a second guard that independently blocks the removal, so
+  the control passed. Both had to go to isolate the behaviour — worth
+  knowing the two guards are genuinely independent.
+- Screenshots at both viewports of the dialog, including the legacy-column
+  note on `AY-00002`'s exact situation. No overflow.
 - **Not verified: any real device, any real OneDrive session.**
 
 ## Quick-capture notes → ParkingLot
