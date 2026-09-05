@@ -755,6 +755,148 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(S.after === S.fresh && S.after !== S.stale,
     "S1 a commit repoints the read cache at the bytes it just wrote, so the flip card doesn't keep the old image");
 
+  // ---------- T. What you frame in the circle is what the card shows ---
+  // Reported live on AY-00002: after adjusting a photo to FILL the Stage 2
+  // circle, the flip card still showed a ring of background around the coin.
+  //
+  // Cause, measured rather than guessed: Stage 2's framing was thrown away.
+  // The entry carried the STAGE 1 rectangle as its url/blob, and the card
+  // simply masked that square into a circle. With a realistic Stage-1 trim
+  // (coin at 80% of the square — Stage 1 trims background, it does not make
+  // the coin touch all four edges) the coin rendered at 0.80 of the circle's
+  // diameter against the 1.00 just framed. Stage 2's 110% default zoom means
+  // a gap appears even when Stage 1 is perfectly tight.
+  const T = await page.evaluate(async () => {
+    // A synthetic "coin": a black disc filling 80% of a square, i.e. a
+    // normal Stage-1 crop with margin left around the subject.
+    const mk = (size, discFrac) => {
+      const c = document.createElement("canvas"); c.width = c.height = size;
+      const x = c.getContext("2d");
+      x.fillStyle = "#fff"; x.fillRect(0, 0, size, size);
+      x.fillStyle = "#000"; x.beginPath();
+      x.arc(size / 2, size / 2, size * discFrac / 2, 0, Math.PI * 2); x.fill();
+      return c;
+    };
+    const toBlob = (c) => new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
+    // Width of the dark run across the middle row, as a fraction of the
+    // image width — i.e. how much of the rendered circle the coin fills.
+    const ratio = async (blob) => {
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement("canvas"); c.width = bmp.width; c.height = bmp.height;
+      const g = c.getContext("2d"); g.drawImage(bmp, 0, 0);
+      const d = g.getImageData(0, Math.floor(bmp.height / 2), bmp.width, 1).data;
+      let first = -1, last = -1;
+      for (let i = 0; i < bmp.width; i++) if (d[i * 4] < 128) { if (first < 0) first = i; last = i; }
+      return { ratio: first < 0 ? 0 : (last - first + 1) / bmp.width, w: bmp.width };
+    };
+    const srcBlob = await toBlob(mk(1200, 0.80));
+
+    // Drives the REAL pipeline. Stage 1's crop box is set to the WHOLE
+    // frame rather than accepting its default (which insets 10% a side and
+    // would silently do part of the framing for us) — so the coin is exactly
+    // 0.80 of the Stage-1 output and Stage 2's zoom to fill the guide is
+    // exact arithmetic rather than an approximation.
+    let sawAdjuster = false;
+    let expectedBakeW = 0;
+    const runPipeline = async (type) => await new Promise((resolve) => {
+      sawAdjuster = false;
+      runCropPipeline(srcBlob, type, "AY-00002", resolve, null);
+      const t1 = setInterval(() => {
+        if (!bgCropState) return;
+        clearInterval(t1);
+        bgCropState.box = { left: 0, top: 0, right: bgCropState.dispW, bottom: bgCropState.dispH };
+        document.getElementById("bgCropUseBtn").click();
+        let waited = 0;
+        const t2 = setInterval(() => {
+          if (!photoAdjustState) {
+            // A non-flip type never opens Stage 2 — stop waiting for it.
+            if (++waited > 25) clearInterval(t2);
+            return;
+          }
+          clearInterval(t2);
+          sawAdjuster = true;
+          photoAdjustState.zoom = 1 / 0.80; // fill the circle
+          applyPhotoAdjustTransform();
+          // The bake's own expected output width, from the live state — so
+          // the assertion proves the stored image IS the Stage-2 bake and
+          // not the (differently sized) Stage-1 rectangle.
+          const st = photoAdjustState;
+          expectedBakeW = Math.max(480, Math.min(1400,
+            Math.round(st.circleSize / (st.baseScale * st.zoom))));
+          document.getElementById("photoAdjustUseBtn").click();
+        }, 20);
+      }, 20);
+    });
+
+    delete galleryStore["AY-00002"];
+    const flip = await runPipeline("obverse");
+    const flipSawAdjuster = sawAdjuster;
+    const stored = await ratio(flip.blob);
+
+    // What the flip card actually paints, off the real DOM.
+    const disc = document.createElement("div");
+    disc.style.cssText = "width:210px;height:210px;border-radius:50%;";
+    document.body.appendChild(disc);
+    galleryStore["AY-00002"] = [flip];
+    applyDiscContent(disc, { id: "AY-00002", year: 1889 }, "obverse");
+    const card = { bg: disc.style.backgroundImage, size: disc.style.backgroundSize };
+    disc.remove(); delete galleryStore["AY-00002"];
+
+    // A NON-flip type never runs Stage 2 and must be untouched by this.
+    const slab = await runPipeline("slab_obverse");
+    const slabSawAdjuster = sawAdjuster;
+    const slabStored = await ratio(slab.blob);
+    delete galleryStore["AY-00002"];
+
+    // Defect 2: the guide's assumed size vs its real visible content box.
+    // `* { box-sizing: border-box }` plus a 2px border makes a 240px element
+    // 236px inside, so a hardcoded 240 exported ~2px per side that sat under
+    // the border, unseen.
+    const geom = await new Promise((resolve) => {
+      openPhotoAdjust(srcBlob, { onComplete: () => {} });
+      const t = setInterval(() => {
+        if (!photoAdjustState) return;
+        clearInterval(t);
+        photoAdjustState.zoom = 1;
+        applyPhotoAdjustTransform();
+        const el = document.getElementById("photoAdjustCircle");
+        const img = document.getElementById("photoAdjustImg");
+        const out = {
+          circleSize: photoAdjustState.circleSize,
+          clientWidth: el.clientWidth,
+          cssWidth: el.getBoundingClientRect().width,
+          renderedImgWidth: img.getBoundingClientRect().width
+        };
+        closePhotoAdjust();
+        resolve(out);
+      }, 20);
+    });
+
+    return {
+      stored, card, slabStored, geom, flipSawAdjuster, slabSawAdjuster, expectedBakeW,
+      flipUrlIsCircle: flip.url === flip.circleUrl,
+      slabCircleUrl: slab.circleUrl,
+      cardUsesEntryUrl: card.bg.indexOf(flip.url) !== -1
+    };
+  });
+  ok(T.stored.ratio > 0.98,
+    "T1 the STORED image is what was framed — the coin fills the circle (was 0.80, the reported ring)");
+  ok(T.cardUsesEntryUrl === true && T.card.size === "cover",
+    "T2 and that is exactly the image the flip card paints");
+  ok(T.flipUrlIsCircle === true && T.stored.w === T.expectedBakeW,
+    "T3 the stored bytes ARE the Stage-2 bake — its own computed output width, not the Stage-1 rectangle's");
+  ok(T.stored.w > 480, "T4 output resolution follows the source rather than a fixed 480 that would downsample every photo");
+  ok(T.stored.w <= 1400, "T5 and stays within Stage 1's own cap");
+  ok(T.flipSawAdjuster === true, "T6 a flip source does run Stage 2");
+  ok(T.slabSawAdjuster === false && T.slabCircleUrl === null,
+    "T7 a non-flip type never opens Stage 2 at all");
+  ok(Math.abs(T.slabStored.ratio - 0.80) < 0.02,
+    "T8 and keeps the Stage-1 rectangle exactly as before — the coin still at 0.80, untouched by this fix");
+  ok(T.geom.circleSize === T.geom.clientWidth && T.geom.clientWidth < T.geom.cssWidth,
+    "T9 the adjuster measures the guide's real VISIBLE diameter, not its border-box CSS width");
+  ok(Math.abs(T.geom.renderedImgWidth - T.geom.clientWidth) < 1.5,
+    "T10 so at 100% zoom the preview fills the visible circle exactly — no ring hidden under the border and then baked in");
+
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {
     const p2 = await openApp(vp);

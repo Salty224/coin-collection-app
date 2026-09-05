@@ -1444,6 +1444,11 @@ piecemeal, even though it landed as several commits.
   display time**, never a stored asset; `runCropPipeline(file, type,
   collectionId, onEntry, subGroupId)` chains raw → Stage 1 → (flip sources
   only) Stage 2, producing the gallery entry.
+  **PARTLY SUPERSEDED — "never a stored asset" caused a real bug.** The
+  circle is still re-derived at display time by masking a square, but the
+  square STORED for a flip source is now Stage 2's own output, not Stage 1's.
+  Storing the Stage-1 rectangle threw the user's circle framing away — see
+  "Circle framing: what you frame is now what the card shows" below.
 - **Overlay stacking.** `#bgCropOverlay` and `#photoAdjustOverlay` sit at
   `z-index: 210`, above the sub-group/type sheets at `200`. Both were `200`
   originally and the sheet, being later in the DOM, covered the crop tool
@@ -8563,6 +8568,78 @@ resolvable raw, and a filled slot keeping the "Add" framing.
   convention-named photo, an empty pair, and a captioned Reference
   thumbnail all visible at once — both filled slots now show ⤢ with
   different tooltips. No overflow.
+- **Not verified: any real device, any real OneDrive session.**
+
+**Follow-up (same branch): circle framing — what you frame is now what the
+card shows.** Reported live on AY-00002: after adjusting a photo to FILL the
+Stage 2 circle, the flip card still showed a ring of background between the
+coin's edge and the circle's edge.
+
+**Root-caused by measurement, not inspection.** A synthetic source (a disc
+filling 80% of a square — a normal Stage-1 trim, since Stage 1 removes
+background rather than making the coin touch all four edges) was driven
+through the real pipeline and the output measured pixel-wise. Two separate
+defects, both real:
+- **Stage 2's framing was discarded entirely.** `runCropPipeline`'s entry
+  carried `url: rectUrl` and `blob: rectBlob` — the STAGE 1 rectangle —
+  while the Stage-2 bake went only to `circleUrl`, which its own comment
+  described as "a session-only display convenience... NOT a stored asset."
+  So the card masked the intermediate trim into a circle and never saw what
+  the user framed. Measured: the coin rendered at **0.80** of the circle's
+  diameter against the **1.00** just framed. Stage 2's 110% default zoom
+  guarantees a gap even when Stage 1 is perfectly tight.
+- **The guide's assumed diameter was wrong.** `circleSize` was a hardcoded
+  `240`, but this file sets `* { box-sizing: border-box }` and
+  `.photo-adjust-circle` carries a `2px` border, so its real content box is
+  **236px** (`clientWidth`, confirmed in a browser). The preview therefore
+  scaled the image to 240 inside a 236px window — ~2px per side sat under
+  the border, unseen — while the bake exported the full 240. The saved image
+  carried a thin ring the user never framed, ~1.7% of the diameter. This is
+  the "padding baked into the exported image" case, and it is independent of
+  the first defect.
+
+**Fixes.**
+- **For a flip source, Stage 2's output IS the stored image.** One stored
+  file per side still; the card still just masks a square. The fix is WHICH
+  square — the one framed in the guide, not the intermediate trim.
+  Non-flip types never run Stage 2 and are untouched.
+- **`circleSize` is measured** (`circleEl.clientWidth`), so preview and bake
+  agree exactly. The overlay is un-hidden BEFORE the size is read — a
+  `display:none` element measures 0.
+- **The bake's output resolution now follows the source** rather than a
+  fixed 480. That fixed size was harmless while the bake was a throwaway
+  preview; making it the stored file would have downsampled every photo to
+  480px. `circleSize / scale` is exactly how many source pixels span the
+  guide, so this neither up- nor down-samples, clamped to [480, 1400] (the
+  same cap Stage 1 uses).
+
+**Both a fresh capture and a re-crop of a stored photo go through the same
+Stage 2, so both are fixed.** Photos already stored from before this fix
+keep their old framing until re-adjusted — the framing was never recorded,
+so there is nothing to recover retroactively.
+
+Verified headless — **10 new assertions (134 in this suite; 1192 across 27,
+zero failures)**, driving the REAL pipeline end to end: Stage 1's crop box
+set to the whole frame (its default insets 10% a side and would have done
+part of the framing for us, making the arithmetic approximate), then Stage 2
+zoomed to fill the guide. The stored image measures **1.00** of the circle
+diameter, its width equals the adjuster's own computed bake width (proving
+the bytes are the Stage-2 bake, not the differently-sized Stage-1
+rectangle), and `applyDiscContent()` paints that exact image. Plus: a
+non-flip type never opens Stage 2 and still measures 0.80, unchanged; the
+adjuster's `circleSize` equals `clientWidth` and is less than the CSS width;
+and at 100% zoom the rendered preview width matches the visible circle to
+within a pixel. **Three verified negative controls**, one per defect —
+reverting to the Stage-1 rectangle fails T1 and T3 and reproduces the
+reported symptom exactly, reverting `circleSize` to 240 fails T9/T10, and
+reverting the bake to a fixed 480 fails T4.
+- **A first version of T6 asserted the wrong premise** — that accepting
+  Stage 1 "as-is" leaves the source untouched. Its default crop box insets
+  10% per side, so the assertion measured 1.00 where it expected 0.80 and
+  failed for a reason that had nothing to do with the fix. The test now sets
+  the box explicitly rather than relying on a default it did not check.
+- Flip card screenshot reviewed at both viewports: the coin's rim now sits
+  on the circle's edge, no ring.
 - **Not verified: any real device, any real OneDrive session.**
 
 ## Quick-capture notes → ParkingLot

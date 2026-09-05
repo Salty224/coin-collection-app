@@ -18203,8 +18203,18 @@
   async function openPhotoAdjust(source, optsOrPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
     const overlay = document.getElementById("photoAdjustOverlay");
     const img = document.getElementById("photoAdjustImg");
-    const circleSize = 240;
+    const circleEl = document.getElementById("photoAdjustCircle");
     const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
+    // Shown BEFORE the size is read: a display:none element measures 0.
+    overlay.classList.remove("hidden");
+    // The guide's real VISIBLE diameter, not its CSS width. This file sets
+    // `* { box-sizing: border-box }` and the circle carries a 2px border, so
+    // its content box is 236px inside a 240px element. The old hardcoded 240
+    // meant the preview scaled the image to 240 inside a 236px window (the
+    // outer ~2px per side sat under the border, unseen) while the bake
+    // exported the full 240 — so the saved image carried a thin ring the
+    // user never framed, ~1.7% of the diameter.
+    const circleSize = circleEl.clientWidth || 240;
     img.onload = () => {
       // Real live-run finding (#5): dragging inside the circle did nothing
       // at the default framing. Root cause is the "cover" fit math in
@@ -18240,7 +18250,6 @@
     // drawImage() honoring EXIF (it never does).
     const orientedCanvas = await loadOrientedImageCanvas(source);
     img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
-    overlay.classList.remove("hidden");
   }
 
   function closePhotoAdjust() {
@@ -18334,9 +18343,15 @@
       const scale = s.baseScale * s.zoom;
       const rotationRad = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
 
+      // Output at the source's own resolution across the guide, rather than
+      // a fixed 480 — this bake is now the STORED image (see
+      // runCropPipeline), so a fixed size would have downsampled every photo
+      // to 480px. circleSize / scale is exactly how many source pixels span
+      // the guide, so this neither up- nor down-samples; the bounds keep a
+      // heavily-zoomed crop legible and match Stage 1's own 1400 cap.
       const canvas = document.createElement("canvas");
-      canvas.width = 480;
-      canvas.height = 480;
+      const nativeAcross = Math.round(s.circleSize / scale);
+      canvas.width = canvas.height = Math.max(480, Math.min(1400, nativeAcross || 480));
       const canvasScale = canvas.width / s.circleSize;
       const ctx = canvas.getContext("2d");
       const img = document.getElementById("photoAdjustImg");
@@ -18684,22 +18699,44 @@
       aspectLock: def.aspect === "square",
       onComplete: (rectBlob) => {
         const rectUrl = URL.createObjectURL(rectBlob);
-        // circleBlob is a session-only display convenience for flip sources
-        // (updates the capture slot's own circular preview) — it is NOT a
-        // stored asset; the flip card re-derives the circle from the stored
-        // rectangle. Null for gallery-only types.
-        const finish = (circleBlob) => onEntry({
-          type, url: rectUrl, rawUrl,
-          circleUrl: circleBlob ? URL.createObjectURL(circleBlob) : null,
-          // The cropped Blob itself, not just its display URL — the (gated,
-          // real) Add Set write path uploads Blobs, so a caller that feeds
-          // that path needs the bytes, not a blob: URL it can't upload.
-          blob: rectBlob,
-          caption: "",
-          filename: names.cropped,
-          rawFilename: names.raw || null,
-          subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
-        });
+        // FOR A FLIP SOURCE, STAGE 2'S OUTPUT IS THE STORED IMAGE.
+        //
+        // SUPERSEDED: circleBlob used to be "a session-only display
+        // convenience — NOT a stored asset; the flip card re-derives the
+        // circle from the stored rectangle." That is what put a visible ring
+        // of background between the coin and the circle's edge, reported live
+        // on AY-00002 and measured directly: the user frames the coin to FILL
+        // the circle guide, and then the card paints the STAGE 1 rectangle
+        // masked to a circle, discarding that framing entirely. With a
+        // realistic Stage-1 crop (coin at 80% of the square — Stage 1 trims
+        // background, it does not make the coin touch all four edges) the
+        // coin rendered at 0.80 of the circle's diameter against the 1.00 the
+        // user had just framed. Stage 2's 110% default zoom guarantees a gap
+        // even when Stage 1 is perfectly tight.
+        //
+        // The card still re-derives the circle by masking a square, exactly
+        // as before — the fix is WHICH square: the one actually framed in the
+        // guide, not the intermediate trim. Still one stored file per side.
+        const finish = (circleBlob) => {
+          // A non-flip type never runs Stage 2, so it keeps the Stage-1
+          // rectangle exactly as before.
+          const framedBlob = circleBlob || rectBlob;
+          const framedUrl = circleBlob ? URL.createObjectURL(circleBlob) : rectUrl;
+          onEntry({
+            type, url: framedUrl, rawUrl,
+            // Same bytes as `url` now for a flip source. Kept because the Add
+            // Coin slot preview reads it (applyCirclePreview).
+            circleUrl: circleBlob ? framedUrl : null,
+            // The cropped Blob itself, not just its display URL — the (gated,
+            // real) Add Set write path uploads Blobs, so a caller that feeds
+            // that path needs the bytes, not a blob: URL it can't upload.
+            blob: framedBlob,
+            caption: "",
+            filename: names.cropped,
+            rawFilename: names.raw || null,
+            subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
+          });
+        };
         if (def.flipSource) {
           // Stage 2: frame the flip-card circle from the clean rectangle.
           openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob) });
