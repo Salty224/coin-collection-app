@@ -12435,6 +12435,58 @@ symptom.
   without flipping, watch images populate in place" pass the task itself
   asked for.
 
+### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
+The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
+"Prev/next stepping at the detail level" above) had exactly three callers —
+`renderBrowseGrid()`, `renderSetsGrid()`, `renderRollsGrid()` — so a coin
+opened from an Album's filled slot never called it, and fell through to
+`browseStepListFallback()`'s plain CollectionID sort instead. Stepping
+through an album this way had no relationship to how the coins are actually
+laid out on the page the user tapped in from.
+
+- **Fix: the album slot-cell click handler now calls
+  `setBrowseStepContext()`** with the album's own FILLED slots, in their
+  existing slot order — `album.slots.filter(s => s.filledBy).map(s =>
+  activeCoins().find(c => c.id === s.filledBy)).filter(Boolean)` — not the
+  whole album including open/unfilled slots, which have no coin to step to.
+  An open slot sitting between two filled ones is simply skipped rather than
+  breaking the chain, since it's filtered out before the id list is ever
+  built.
+- **A real ordering bug found while testing this, not assumed correct on
+  first write**: the obvious placement — calling `setBrowseStepContext()`
+  BEFORE `navigate("browse")` — silently did nothing, because `navigate()`'s
+  own `"browse"` branch renders the Catalog grid internally
+  (`showBrowseTab("coins")` → `renderBrowseGrid()`), which calls
+  `setBrowseStepContext()` itself with the full catalog and overwrote the
+  album-scoped context before `showBrowseDetail(coin)` ever ran. Caught
+  directly by a failing test, not by inspection. Fixed by moving the call to
+  AFTER `navigate("browse")` and before `showBrowseDetail(coin)` — the same
+  ordering every other in-app navigation that also needs step context after
+  entering Browse would need to follow.
+- **No change to the stepping mechanism itself** — `browseStepList()`,
+  `browseStepNeighbour()`, `updateBrowseStepButtons()` are all untouched.
+  This is purely a new SOURCE of the ordered id list, confirmed by the same
+  existing "not in the list → no arrows" / "at either end → that arrow
+  hides" behaviors holding unchanged for this new context.
+
+**Verified headless — 5 new assertions added to
+`tests/verify_phase2_and_retest_batch.js`** (R8–R12, plus a negative
+control; 78 assertions in that suite now, 1441 across all 33 suites, zero
+failures), using a synthetic live album (`buildLiveAlbums()`) with its
+filled slots deliberately OUT of CollectionID order (AY-00003, AY-00001,
+AY-00002) and one open/unfilled slot sitting between the first two filled
+ones, so the test can tell "real slot order" apart from "coincidentally
+already sorted": tapping the album's first filled slot opens its own coin
+with Previous hidden; Next steps AY-00003 → AY-00001 → AY-00002 (not
+CollectionID order, which would go AY-00003 → AY-00004) with the open slot
+skipped rather than breaking the chain; Next hides at the album's last
+filled slot; and Previous steps back through the same order. **Verified
+negative control**: with no step context set at all (simulating the
+pre-fix handler), Next from AY-00003 falls through to plain CollectionID
+order (AY-00004) — confirming the positive assertions depend on the real
+fix, not a coincidence of the demo data's own ordering.
+- **Not verified: any real device.**
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare

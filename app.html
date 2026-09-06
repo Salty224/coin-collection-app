@@ -16781,6 +16781,25 @@
         const pageAtClick = currentPageIndex;
         browseDetailBackHandler = () => { navigate("albums"); openAlbumAtPage(albumIndex, pageAtClick); };
         navigate("browse");
+        // AFTER navigate("browse"), not before: navigate() itself renders
+        // the Catalog grid (showBrowseTab("coins") -> renderBrowseGrid()),
+        // which calls setBrowseStepContext() with the FULL catalog — set
+        // any earlier would just get overwritten by that render before
+        // showBrowseDetail() below ever runs.
+        //
+        // The album's own filled slots, in their existing slot order — not
+        // the whole album (an open/unfilled slot has no coin to step to; it
+        // simply gets skipped rather than stopping the chain, same as any
+        // other id that fails to resolve). Without this, the arrows fell
+        // through to browseStepListFallback()'s plain CollectionID sort,
+        // which has no relationship to how the coins are actually laid out
+        // on the page the user tapped in from.
+        setBrowseStepContext(
+          album.slots
+            .filter(s => s.filledBy)
+            .map(s => activeCoins().find(c => c.id === s.filledBy))
+            .filter(Boolean)
+        );
         showBrowseDetail(coin);
       });
     });
