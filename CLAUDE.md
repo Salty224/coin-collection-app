@@ -8227,7 +8227,7 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
   services; don't assume another service's login can work the same way without
   checking whether they support a redirect/authorization-code flow first.
 
-### Live Spotlight + a real Specifications source (BUILT, held on branch `claude/live-data-and-composition-fixes`, NOT merged)
+### Live Spotlight + a real Specifications source (BUILT and merged to main)
 Two live-device bugs from Ray's Docket review, unrelated to that round's
 photo work but the same underlying shape as the Ledger/Stats fix below: a
 display path that was never wired to live data and so kept reading a
@@ -8259,6 +8259,28 @@ function already uses.
   success path gained a `view-dashboard` re-render branch alongside the
   existing `view-browse`/`view-stats` ones, so a fetch that lands while the
   Dashboard is on screen is visible without a manual refresh.
+- **Superseded — a same-day follow-up changed WHICH five, not the wiring
+  above.** Ray's explicit correction: "first five in workbook order" is
+  still the same five coins forever, every session — just no longer fake
+  ones. `spotlightCoinList()` now picks **5 at random from the whole
+  live/demo pool** (coins AND medals — only `isSetRow()` and blank-id rows
+  are excluded, unchanged), rather than `.slice(0, SPOTLIGHT_COUNT)`.
+  **Randomized ONCE PER SESSION, not on every re-render or auto-cycle** —
+  the pick is keyed to the SOURCE array itself (`activeCoins()`'s own
+  returned reference, `LIVE_COINS` or `FAKE_COINS`), not a filtered copy of
+  it (`.filter()` always returns a new array, so keying off that would
+  reshuffle on literally every call). This means the pick is stable across
+  every ordinary re-render/auto-cycle in between — nothing there ever
+  reassigns `LIVE_COINS`/`FAKE_COINS` — and re-rolls exactly once, on
+  purpose, the moment the source genuinely changes: the live fetch landing
+  after a session starts on demo data, or a post-write refresh
+  (`refreshLiveCoinsAfterWrite()`) bringing a newly-promoted coin into the
+  pool for the first time. **Worth knowing, not a bug**: the cache is a
+  single slot, not a per-source history — flipping demo→live→demo (which
+  real usage never does, since the fetch only ever resolves once and
+  stays) reshuffles again on the way back to demo rather than restoring the
+  original demo pick. `__resetSpotlightSelectionForTest()` is a new
+  test-only seam standing in for a fresh page load.
 
 **Bug 2 — AY-00002, Ray's real 1909 Lincoln Wheat CENT, showed
 "Silver — 0.3617 oz", 12.5 g, 30.6 mm, Reeded under Specifications.**
@@ -8304,33 +8326,61 @@ fact for Rolls. This is a small display change beyond the literal bug and
 also affects demo coins, so it is easy to revert on its own if Ray would
 rather the row stay oz-only.
 
-**Verified headless — new committed suite `tests/verify_live_data_fixes.js`
-(35 assertions); 1093 across 28 suites, zero failures, zero page errors.**
-Covers: the demo-mode-only fallback and Ray's exact reported strings (the
+**Composition display change confirmed by Ray, as-is — no further changes
+needed there.**
+
+**Verified headless — `tests/verify_live_data_fixes.js` grew to 43
+assertions (from the original 35) once the randomization follow-up landed;
+1101 across 27 suites, zero failures, zero page errors.** Covers: the
+demo-mode-only fallback and Ray's exact reported strings (the
 "Silver — 0.3617 oz" and "12.5 g" the cent used to show, asserted gone); a
 live coin with real specs showing its own figures; `buildCoinSpecsIndexes()`/
 `resolveCoinSpecs()` including the top-up, the never-override rule, blank
 cells becoming null, and an unmatched CoinID returning **null rather than
-borrowing**; `spotlightCoinList()` reading live data, excluding Sets and
-blank rows, and falling back to demo; the index clamp; both render triggers;
-and a source-text guard that the pre-fix `const` is genuinely gone.
-- **Eight verified negative controls**, each re-run and confirmed to fail
-  exactly its own assertions: the per-coin `metalContentFor` fallback
-  restored (fails 5, reproducing Ray's exact strings); `spotlightCoinList`
-  reverted to `FAKE_COINS.slice(0,5)`; the Set-exclusion filter dropped
-  (isolated separately, because the pre-fix demo list contains no Set either
-  and so would have passed a naive control); the index clamp removed; the
-  top-up allowed to override DB_Coins' own values; `navigate()`'s dashboard
-  branch removed; the fetch's `view-dashboard` branch removed; and the
-  stated-composition display removed. A borrowing fallback inside
-  `resolveCoinSpecs()` is additionally demonstrated inline (B8) to show B6 is
-  load-bearing.
+borrowing**; `spotlightCoinList()` reading live data, excluding Sets, blank
+rows, and (explicitly, since the ask named it) confirming a Denomination=
+"Medal" row IS a valid candidate; the index clamp; both render triggers; and
+a source-text guard that the pre-fix `const` is genuinely gone. **The
+randomization itself is verified with Math.random mocked to two different
+fixed values**, each hand-traced through the real Fisher-Yates loop to an
+exact, fully-predicted selection — proving genuine dependence on
+`Math.random`, not incidental pool order — plus a session-stability check
+(changing `Math.random` between two calls against the SAME source array has
+zero effect on the result, since the pick is cached and never re-rolled).
+- **Ten verified negative controls** (up from eight), each re-run and
+  confirmed to fail exactly its own assertions: the per-coin
+  `metalContentFor` fallback restored (fails 5, reproducing Ray's exact
+  strings); `spotlightCoinList` reverted to `FAKE_COINS.slice(0,5)`; the
+  Set-exclusion filter dropped (isolated separately, because the pre-fix
+  demo list contains no Set either and so would have passed a naive
+  control); the index clamp removed; the top-up allowed to override
+  DB_Coins' own values; `navigate()`'s dashboard branch removed; the
+  fetch's `view-dashboard` branch removed; the stated-composition display
+  removed; **the shuffle mechanism reverted to a plain `.slice(0, N)`**
+  (fails the two Math.random-seeded assertions, since a plain slice never
+  reads `Math.random` at all); and **the source-identity caching guard
+  removed** (reshuffles on every call — fails the session-stability
+  assertion). A borrowing fallback inside `resolveCoinSpecs()` is
+  additionally demonstrated inline (B8) to show B6 is load-bearing.
+- **A real cross-suite regression found and fixed while verifying this**:
+  `verify_reverse_face_and_set_flip.js`'s own Spotlight reverse-face check
+  assumed `spotlightIndex = 0` always meant AY-00001 — true under the old
+  fixed-first-five behavior, no longer guaranteed once the pick is random
+  and drawn from the WHOLE pool (AY-00001 might not even be among the five
+  picked). Fixed by pinning `spotlightCoinList()` to return just that one
+  coin for the duration of that specific check (a test-only override,
+  restored after) — that suite is about reverse-face corner content, not
+  Spotlight's selection, so it has no business depending on which five got
+  picked.
 - **Not verified: any real device, any real OneDrive session.** The specs
   join itself can only be exercised through `buildCoinSpecsIndexes()`/
   `resolveCoinSpecs()` here — the real DB_Coins column names it reads
   (`Weight`, `Diameter`, `Thickness`, `Edge`, `ReedCount`, the four Oz
   columns) are the confirmed ones already used elsewhere in this file, but a
   live pass should confirm a real coin's Specifications panel end to end.
+  The true `Math.random()` path (unmocked) is exercised by every other
+  assertion in the suite and by the app itself; only the exact-outcome
+  checks mock it, for determinism.
 
 ### Ledger/Stats: live-data read-path fix (BUILT and merged to main)
 Real bug, found while scoping the All.Status investigation (item 5 of the

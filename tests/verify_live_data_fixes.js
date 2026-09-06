@@ -150,11 +150,23 @@ module.exports = defineSuite("live-data-fixes", async ({ ok, openApp, PHONE }) =
   ok(NEG_B.borrowed && NEG_B.borrowed.composition === "95% Copper",
      "B8 negative control: a borrowing fallback DOES hand an unmatched CoinID somebody else's figures — proves B6 is load-bearing");
 
-  // ---------- C. Spotlight reads live data ----------
+  // ---------- C. Spotlight reads live data, chosen at RANDOM ----------
+  // Supersedes an earlier "first five in workbook order" version of this
+  // fix — Ray's explicit follow-up: a fixed first-five is the same five
+  // coins forever, every session. Now random, session-stable (see
+  // spotlightCoinList()'s own comment for the exact contract). Order can no
+  // longer be asserted literally, so these check membership/exclusion
+  // instead, with Math.random mocked where an exact outcome matters.
   const C = await page.evaluate(() => {
+    __resetSpotlightSelectionForTest();
     __setLiveCoinsForTest(null);
     const demo = spotlightCoinList().map(c => c.id);
+    const demoIds = FAKE_COINS.map(c => c.id);
 
+    // Exactly SPOTLIGHT_COUNT (5) valid candidates -- so membership is
+    // deterministic (all 5 MUST be picked; only their order is random) even
+    // without mocking Math.random here, alongside a Set and a blank-id row
+    // that must be excluded regardless of how many valid rows remain.
     __setLiveCoinsForTest([
       { id: "AY-00500", denom: "1C", year: 1909, mint: "S", name: "Lincoln Wheat Cent" },
       { id: "AY-00501", denom: "Multiple", year: 2021, mint: "", name: "2021 Silver Proof Set" },
@@ -162,26 +174,139 @@ module.exports = defineSuite("live-data-fixes", async ({ ok, openApp, PHONE }) =
       { id: "", denom: "5C", year: 1938, mint: "", name: "Blank row" },
       { id: "AY-00503", denom: "25C", year: 1932, mint: "D", name: "Washington Quarter" },
       { id: "AY-00504", denom: "50C", year: 1921, mint: "", name: "Walking Liberty Half" },
-      { id: "AY-00505", denom: "$1", year: 1921, mint: "", name: "Morgan Dollar" },
-      { id: "AY-00506", denom: "1C", year: 1943, mint: "S", name: "Steel Cent" }
+      { id: "AY-00506", denom: "Medal", year: 1976, mint: "", name: "Bicentennial Medal" }
     ]);
     const live = spotlightCoinList().map(c => c.id);
     const hasSet = spotlightCoinList().some(c => isSetRow(c));
     __setLiveCoinsForTest(null);
     const restored = spotlightCoinList().map(c => c.id);
-    return { demo, live, hasSet, restored };
+    return { demo, demoIds, live, hasSet, restored };
   });
-  ok(C.demo.length === 5 && C.demo[0] === "AY-00001", "C1 demo mode is unchanged: the first five FAKE_COINS");
-  ok(C.live.join(",") === "AY-00500,AY-00502,AY-00503,AY-00504,AY-00505",
-     "C2 THE BUG: in a live session Spotlight shows the real coins, not FAKE_COINS (got " + C.live.join(",") + ")");
+  const LIVE_CANDIDATES = ["AY-00500", "AY-00502", "AY-00503", "AY-00504", "AY-00506"];
+  ok(C.demo.length === 5 && C.demo.every(id => C.demoIds.includes(id)),
+     "C1 demo mode picks 5 real FAKE_COINS ids (order no longer asserted — it's now random, not always the first five)");
+  ok(C.live.length === 5 && LIVE_CANDIDATES.every(id => C.live.includes(id)),
+     "C2 THE BUG: in a live session Spotlight shows all 5 of the real live coins, not FAKE_COINS (got " + C.live.join(",") + ")");
+  ok(new Set(C.live).size === 5, "C2b no duplicate picked twice");
   ok(C.hasSet === false && !C.live.includes("AY-00501"),
      "C3 a Denomination=\"Multiple\" Set row is EXCLUDED — load-bearing: the Set flip-card removal relies on Spotlight never seeing one");
   ok(!C.live.includes(""), "C4 a blank/malformed row with no CollectionID never reaches Spotlight");
-  ok(C.restored.join(",") === C.demo.join(","), "C5 clearing the live override falls back to FAKE_COINS again");
+  ok(C.live.includes("AY-00506"), "C4b a Denomination=\"Medal\" row IS a valid candidate — \"all coins and medals\", only Sets are excluded");
+  ok(C.restored.length === 5 && C.restored.every(id => C.demoIds.includes(id)),
+     "C5 clearing the live override falls back to FAKE_COINS again (a fresh random pick from it, not still holding onto live ids)");
+
+  // ---------- C-RAND. genuinely random, not a disguised first-N ----------
+  // Math.random mocked to two different fixed values, each fully
+  // determining the Fisher-Yates trace (worked out by hand): 0 swaps every
+  // element down to index 0 in turn (drops the FIRST pool entry); a value
+  // just under 1 makes every swap a no-op (keeps the array in original
+  // order, drops the LAST pool entry). Two different, fully-known outcomes
+  // from the same 6-item pool proves the selection genuinely depends on
+  // Math.random, not just pool order.
+  const RAND = await page.evaluate(() => {
+    const pool = [
+      { id: "R1", denom: "1C" }, { id: "R2", denom: "1C" }, { id: "R3", denom: "1C" },
+      { id: "R4", denom: "1C" }, { id: "R5", denom: "1C" }, { id: "R6", denom: "1C" }
+    ];
+    const origRandom = Math.random;
+
+    __resetSpotlightSelectionForTest();
+    __setLiveCoinsForTest(pool.slice());
+    Math.random = () => 0;
+    const zeroPick = spotlightCoinList().map(c => c.id);
+
+    __resetSpotlightSelectionForTest();
+    __setLiveCoinsForTest(pool.slice());
+    Math.random = () => 0.999999;
+    const nearOnePick = spotlightCoinList().map(c => c.id);
+
+    Math.random = origRandom;
+    __setLiveCoinsForTest(null);
+    return { zeroPick, nearOnePick };
+  });
+  ok(RAND.zeroPick.join(",") === "R2,R3,R4,R5,R6",
+     "R1 Math.random pinned to 0 produces the worked-out Fisher-Yates result (drops the first pool entry): " + RAND.zeroPick.join(","));
+  ok(RAND.nearOnePick.join(",") === "R1,R2,R3,R4,R5",
+     "R2 Math.random pinned to 0.999999 produces the OTHER worked-out result (drops the last pool entry, keeps original order): " + RAND.nearOnePick.join(","));
+  ok(RAND.zeroPick.join(",") !== RAND.nearOnePick.join(","),
+     "R3 the two mocked seeds genuinely produce different selections from the identical pool — this could not happen if the code were still a disguised pool.slice(0, N)");
+
+  // Negative control: revert to the pre-randomization `pool.slice(0, N)`
+  // body — both mocked-random cases above must then produce the SAME
+  // (unshuffled, first-N) result, since a plain slice never reads
+  // Math.random at all.
+  const NEG_RAND = await page.evaluate(() => {
+    const pool = [
+      { id: "R1", denom: "1C" }, { id: "R2", denom: "1C" }, { id: "R3", denom: "1C" },
+      { id: "R4", denom: "1C" }, { id: "R5", denom: "1C" }, { id: "R6", denom: "1C" }
+    ];
+    const orig = window.spotlightCoinList;
+    window.spotlightCoinList = function () {
+      return activeCoins().filter(c => c && c.id && !isSetRow(c)).slice(0, SPOTLIGHT_COUNT);
+    };
+    __setLiveCoinsForTest(pool.slice());
+    const a = spotlightCoinList().map(c => c.id);
+    __setLiveCoinsForTest(pool.slice());
+    const b = spotlightCoinList().map(c => c.id);
+    window.spotlightCoinList = orig;
+    __setLiveCoinsForTest(null);
+    return { a, b };
+  });
+  ok(NEG_RAND.a.join(",") === "R1,R2,R3,R4,R5" && NEG_RAND.b.join(",") === "R1,R2,R3,R4,R5",
+     "R4 negative control: the pre-fix plain slice(0, N) always returns the same first-N order regardless of Math.random — proves R1-R3 exercise real randomization, not incidental pool ordering");
+
+  // ---------- C-STABLE. session-stable: no reshuffle on repeated calls ----------
+  const STABLE = await page.evaluate(() => {
+    const pool = [{ id: "S1" }, { id: "S2" }, { id: "S3" }, { id: "S4" }, { id: "S5" }, { id: "S6" }];
+    const origRandom = Math.random;
+    __resetSpotlightSelectionForTest();
+    __setLiveCoinsForTest(pool.slice());
+    Math.random = () => 0;
+    const first = spotlightCoinList().map(c => c.id);
+    // Same source (no __setLiveCoinsForTest/__reset in between) — a real
+    // re-render, or the auto-cycle advancing — with Math.random now
+    // returning something that would shuffle differently if re-rolled.
+    Math.random = () => 0.5;
+    const second = spotlightCoinList().map(c => c.id);
+    const third = spotlightCoinList().map(c => c.id);
+    Math.random = origRandom;
+    __setLiveCoinsForTest(null);
+    return { first, second, third };
+  });
+  ok(STABLE.second.join(",") === STABLE.first.join(",") && STABLE.third.join(",") === STABLE.first.join(","),
+     "S1 the SAME live-data array is picked from only ONCE — changing Math.random afterward with no data change has zero effect, proving the pick is cached per session, not re-rolled every render");
+
+  const NEG_STABLE = await page.evaluate(() => {
+    const pool = [{ id: "S1" }, { id: "S2" }, { id: "S3" }, { id: "S4" }, { id: "S5" }, { id: "S6" }];
+    const orig = window.spotlightCoinList;
+    // The pre-caching body: reshuffles on every call, no source check.
+    window.spotlightCoinList = function () {
+      const p = activeCoins().filter(c => c && c.id && !isSetRow(c));
+      const shuffled = p.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
+      return shuffled.slice(0, SPOTLIGHT_COUNT);
+    };
+    const origRandom = Math.random;
+    __setLiveCoinsForTest(pool.slice());
+    Math.random = () => 0;
+    const first = spotlightCoinList().map(c => c.id);
+    Math.random = () => 0.999999;
+    const second = spotlightCoinList().map(c => c.id);
+    Math.random = origRandom;
+    window.spotlightCoinList = orig;
+    __setLiveCoinsForTest(null);
+    return { first, second };
+  });
+  ok(NEG_STABLE.first.join(",") !== NEG_STABLE.second.join(","),
+     "S2 negative control: a version with no session-cache DOES reshuffle on every call when Math.random changes — proves S1 is exercising the real caching, not a coincidence");
 
   const NEG_C = await page.evaluate(() => {
     const orig = window.spotlightCoinList;
-    window.spotlightCoinList = function () { return FAKE_COINS.slice(0, 5); };  // pre-fix
+    window.spotlightCoinList = function () { return FAKE_COINS.slice(0, 5); };  // pre-live-data-fix
+    __resetSpotlightSelectionForTest();
     __setLiveCoinsForTest([{ id: "AY-00500", denom: "1C", year: 1909, mint: "S", name: "Lincoln Wheat Cent" }]);
     const live = spotlightCoinList().map(c => c.id);
     __setLiveCoinsForTest(null);

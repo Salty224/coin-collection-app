@@ -171,6 +171,13 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
   // ---------- I. Spotlight also gets reverse-specific content ----------
   const I = await page.evaluate(async () => {
     navigate("dashboard");
+    // Spotlight's pick is now a random 5 of the whole live/demo pool (see
+    // verify_live_data_fixes.js), so AY-00001 is no longer guaranteed to be
+    // among them at all. Pin the list to just this one coin for the
+    // duration of this check -- a test-only override, restored after.
+    const origList = window.spotlightCoinList;
+    const targetCoin = FAKE_COINS.find(c => c.id === "AY-00001");
+    window.spotlightCoinList = function () { return [targetCoin]; };
     spotlightIndex = 0; spotlightSide = "obverse";
     renderSpotlight();
     await new Promise(r => setTimeout(r, 300));
@@ -179,6 +186,7 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
     renderSpotlight();
     await new Promise(r => setTimeout(r, 300));
     const rev = { TL: document.getElementById("spotlightTL").textContent, TR: document.getElementById("spotlightTR").textContent, BR: document.getElementById("spotlightBR").textContent };
+    window.spotlightCoinList = origList;
     return { obv, rev };
   });
   ok(I.obv.TL === "1889-CC" && I.obv.TR === "Morgan$1", "I1 Spotlight's obverse is unaffected: " + JSON.stringify(I.obv));

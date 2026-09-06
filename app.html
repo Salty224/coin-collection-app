@@ -9854,9 +9854,37 @@
   // Wiring it live is that moment: a Set has no flip card, so it must never
   // reach this carousel.
   const SPOTLIGHT_COUNT = 5;
+  // Random 5, not the first 5 in workbook order — Ray's explicit call: a
+  // fixed "first five CollectionIDs" is the same five coins forever, every
+  // session. Randomized ONCE PER SESSION, not on every re-render/auto-cycle
+  // — "coins shouldn't jump around mid-session, just vary session to
+  // session." Keyed to the SOURCE array itself (activeCoins()'s own
+  // returned reference, LIVE_COINS or FAKE_COINS), not a filtered copy of
+  // it — .filter() always returns a new array, so keying off that would
+  // reshuffle on literally every call. This means the pick is stable across
+  // every ordinary re-render/auto-cycle in between (nothing there ever
+  // reassigns LIVE_COINS/FAKE_COINS), and re-rolls exactly once, on
+  // purpose, the moment the source genuinely changes — the live fetch
+  // landing after a session starts on demo data, or a post-write refresh
+  // bringing a newly-promoted coin into the pool for the first time.
+  let spotlightSelectionSource = null;
+  let spotlightSelectionIds = null;
+  function __resetSpotlightSelectionForTest() { spotlightSelectionSource = null; spotlightSelectionIds = null; } // test-only seam
   function spotlightCoinList() {
-    const all = activeCoins().filter(c => c && c.id && !isSetRow(c));
-    return all.slice(0, SPOTLIGHT_COUNT);
+    const source = activeCoins();
+    const pool = source.filter(c => c && c.id && !isSetRow(c));
+    if (spotlightSelectionSource !== source) {
+      spotlightSelectionSource = source;
+      const shuffled = pool.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
+      }
+      spotlightSelectionIds = shuffled.slice(0, SPOTLIGHT_COUNT).map(c => c.id);
+    }
+    const byId = {};
+    pool.forEach(c => { byId[c.id] = c; });
+    return spotlightSelectionIds.map(id => byId[id]).filter(Boolean);
   }
   // Per-side dwell (coin-flip interaction redesign) — how long each face
   // shows before the auto-cycle advances (obverse -> pause -> reverse ->
