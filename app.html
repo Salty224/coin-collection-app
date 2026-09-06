@@ -147,10 +147,11 @@
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 18px rgba(0,0,0,0.35);
   }
 
-  /* ---------- Initial splash screen (Part 10, framework only) ----------
-     Covers the app while a (currently simulated) OneDrive connection is
-     established, then fades out to reveal whatever's already rendered
-     underneath. No real connection exists yet — see initSplash() below. */
+  /* ---------- Initial splash screen ----------
+     Covers the app while the real initial OneDrive data fetch
+     (ensureLiveNavDataFetch()) is in flight, then fades out to reveal
+     whatever's already rendered underneath — see initSplash()/
+     runSplashConnect() below for the real gating + 5s-timeout logic. */
   .splash-screen {
     position: fixed; inset: 0; z-index: 500;
     background: var(--bg);
@@ -2386,8 +2387,9 @@
 
 <div id="app">
 
-  <!-- Initial splash screen (Part 10, framework only) — see initSplash() /
-       runSplashConnect() in the script for the simulated connect/error logic. -->
+  <!-- Initial splash screen — see initSplash()/runSplashConnect() in the
+       script: stays visible until the real ensureLiveNavDataFetch() resolves
+       or a 5s timeout fires, whichever comes first. -->
   <div class="splash-screen" id="splashScreen">
     <div class="splash-inner">
       <div class="splash-disc" aria-hidden="true">🪙</div>
@@ -2396,9 +2398,11 @@
       <div class="splash-error hidden" id="splashErrorBox">
         <div class="splash-error-title">⚠️ Couldn't connect</div>
         <p class="splash-error-text">
-          Placeholder troubleshooting text — once the real Graph API write
-          layer exists, this will show an actual reason (sign-in expired,
-          offline, workbook locked by someone else, etc.) and real next steps.
+          Taking longer than expected to reach OneDrive — this can happen if
+          you're offline, your sign-in expired, or the connection is just
+          slow. Generic wording for now (not yet distinguishing which of
+          those it actually was) — a real next-steps message per cause is
+          separate, still-open work.
         </p>
         <button type="button" id="splashRetryBtn">Retry</button>
       </div>
@@ -13695,7 +13699,7 @@
   // shows its list); openAlbumAtPage() then opens the specific book over it.
   function openAlbumFromLink(albumIndex) {
     navigate("albums");
-    openAlbumAtPage(albumIndex, 0);
+    return openAlbumAtPage(albumIndex, 0);
   }
 
   // ==================================================================
@@ -16108,6 +16112,61 @@
     return indices[0] <= 1 ? 0 : indices[0] - 2;
   }
 
+  // Kicks off (and returns a Promise for) every real image fetch a set of
+  // PAGES' own slots might still need — the exact same tiered priority
+  // renderSlotCell() itself already applies (session-captured own photo >
+  // stored Photos-tab photo > series reference image), reused rather than
+  // reimplemented, so a slot that resolves here is served straight from
+  // cache the instant renderSlotCell() actually runs. Non-coins pages
+  // (cover/history/blank/back-cover) have no `.slots` at all and are a
+  // no-op; an unfilled/"want" slot has nothing to fetch either.
+  //
+  // Deliberately scoped to whatever pages are passed in, not "the whole
+  // album" (an 80+ slot album prefetched in full would be slow/wasteful —
+  // see openAlbumAtPage() below for what actually gets passed).
+  function prefetchAlbumSlotImages(pages) {
+    const promises = [];
+    (pages || []).forEach(page => {
+      if (!page || page.type !== "coins") return;
+      const side = page.side === "reverse" ? "reverse" : "obverse";
+      (page.slots || []).forEach(slot => {
+        if (!slot.filledBy) return;
+        // Tier 0: a just-captured session photo is already in memory —
+        // nothing to fetch.
+        if (galleryFlipEntry(slot.filledBy, side)) return;
+        // Tier 1: this coin's own stored photo (Photos tab, legacy flat
+        // column fallback) — ranked ahead of the series reference image,
+        // same as renderSlotCell()/applyDiscContent().
+        const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
+        if (storedName) {
+          if (!getCachedCoinPhotoUrl(storedName)) promises.push(ensureCoinPhotoFetch(storedName));
+          return;
+        }
+        // Tier 2: the generic series reference image.
+        const referenceCoin = { description: slotDescription(slot) };
+        const seriesKey = referenceSeriesKey(referenceCoin);
+        if (seriesKey && !getCachedReferenceImageUrl(seriesKey, side)) {
+          promises.push(ensureReferenceImageFetch(seriesKey, side));
+        }
+      });
+    });
+    return Promise.all(promises);
+  }
+
+  // Bumped on every call so a stale open (superseded by a newer one before
+  // its own prefetch settled — e.g. Back tapped mid-wait, then a different
+  // album opened) can recognize itself as stale and skip rendering,
+  // same staleness-guard pattern stagingRenderToken/needsAttentionRenderToken
+  // already use elsewhere in this file.
+  let albumOpenToken = 0;
+  // Fixed 5s, same ceiling PART 1's splash gate uses — may be refined after
+  // live testing. Images (unlike the splash's text data) hitting this
+  // ceiling sometimes is expected and fine: revealing the book with
+  // whatever's ready is the SAME progressive-fill behavior this app already
+  // has for every page beyond the first, so failing open here is a no-op,
+  // not a regression.
+  const ALBUM_OPEN_IMAGE_TIMEOUT_MS = 5000;
+
   function openAlbumAtPage(index, pageIndex) {
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
@@ -16118,11 +16177,52 @@
     setNavBack(() => showAlbumsList()); // open album → albums list
     currentAlbumPages = buildAlbumPages(activeAlbums()[index], computeAlbumChunkSize());
     currentPageIndex = pageIndex;
-    renderAlbumBook();
+
+    // Prefetch images for exactly the page(s) about to be revealed — via
+    // computeVisibleIndices(), the SAME function renderAlbumBook() itself
+    // uses to decide what's on screen, not a hardcoded "first coins page"
+    // assumption. This is what makes one mechanism correctly serve every
+    // caller of openAlbumAtPage(): a fresh open always lands on the cover
+    // (pageIndex 0, no slots — an near-instant no-op), while returning here
+    // from a coin's own Browse detail view (see the filled-slot click
+    // handler below) reopens at whatever coins page the user was actually
+    // on — exactly the page that needs its images ready, not page 0's.
+    // Spread (tablet/desktop) mode shows TWO pages at once, so both are
+    // prefetched together, not just one of the pair.
+    const spread = isAlbumSpreadWidth();
+    const visiblePages = computeVisibleIndices(pageIndex, spread, currentAlbumPages.length)
+      .map(i => currentAlbumPages[i]);
+
+    const container = document.getElementById("albumsDetailContainer");
+    container.innerHTML = "";
+    showSectionLoading("albumsDetailContainer", "Loading album…");
+
+    const myToken = ++albumOpenToken;
+    // Returned (not fire-and-forget) so a caller that needs to know when the
+    // book has actually finished rendering can await it — every real
+    // caller in this app fires and forgets, same as before this feature;
+    // this is what lets a test await the real reveal instead of inspecting
+    // mid-loading DOM state.
+    return Promise.race([
+      prefetchAlbumSlotImages(visiblePages),
+      new Promise(resolve => setTimeout(resolve, ALBUM_OPEN_IMAGE_TIMEOUT_MS))
+    ]).then(() => {
+      // A newer open superseded this one while the prefetch/timeout was
+      // still pending — e.g. Back, then a different album opened. Don't
+      // paint over whatever that newer call already rendered.
+      if (myToken !== albumOpenToken) return;
+      hideSectionLoading("albumsDetailContainer");
+      // Same progressive-fill fallback the app already has for every page
+      // beyond the first: renderAlbumBook()/renderSlotCell() render
+      // whatever IS cached and simply show the placeholder disc for
+      // anything still pending — no special-casing needed here for the
+      // timeout-vs-resolved cases, both just call the same render.
+      renderAlbumBook();
+    });
   }
 
   function showAlbumDetail(index) {
-    openAlbumAtPage(index, 0);
+    return openAlbumAtPage(index, 0);
   }
 
   // Mintage figure under the year (item 5b, small-fixes batch) — matches
@@ -23115,16 +23215,27 @@
     });
   }
 
-  // Initial splash screen (Part 10, framework only). There's no real OneDrive
-  // connection to wait on yet — this simulates one with a timed delay so the
-  // splash reads as "establishing a connection and pulling initial data"
-  // rather than an instant blank flash. The rest of the app has already
-  // rendered underneath by the time this runs (init below is synchronous);
-  // the splash just covers it until the simulated connect finishes.
-  // `?splashError=1` forces the error path for testing/demoing that path —
-  // a dev-only toggle, not a real error condition, since nothing can actually
-  // fail yet with no live connection to fail.
-  const SPLASH_SIMULATED_DELAY_MS = 1400;
+  // Initial splash screen — now gated on REAL data readiness, not a fixed
+  // simulated delay. **Superseded**: this used to hide itself after a flat
+  // SPLASH_SIMULATED_DELAY_MS (1400ms) regardless of whether any real data
+  // had actually loaded, because there was no live connection to gate on
+  // yet at the time this was built. There is now — ensureLiveNavDataFetch()
+  // is the same real Promise.all (All/DB_Sets/DB_Coins/Lookup_MetalContent/
+  // Lookup_Graders, plus Photos/Receipts/Albums/Wishlist) every other live
+  // surface in this app already waits on, and it ALWAYS resolves (never
+  // rejects — its own .catch() returns false), so racing it is safe with no
+  // extra error handling needed here.
+  //
+  // The rest of the app has already rendered underneath by the time this
+  // runs (init below is synchronous, and navigate("dashboard") — which
+  // already kicks off this exact same fetch — runs immediately before
+  // initSplash()); the splash just covers it until the fetch settles, or
+  // the 5s timeout below fires first.
+  const SPLASH_DATA_TIMEOUT_MS = 5000; // may be refined after live testing
+  // A separate, short, dev-only demo delay for ?splashError=1 (below) — kept
+  // distinct from SPLASH_DATA_TIMEOUT_MS so the real timeout can be tuned
+  // independently of this toggle's own pacing.
+  const SPLASH_ERROR_DEMO_DELAY_MS = 1400;
 
   function runSplashConnect() {
     const overlay = document.getElementById("splashScreen");
@@ -23135,17 +23246,47 @@
     status.style.display = "block";
     status.textContent = "Connecting to OneDrive…";
 
+    // `?splashError=1` forces the error path on demand for testing/demoing
+    // it — a dev-only toggle, deliberately NOT real-data-gated, so it always
+    // shows the same thing regardless of connection state.
     const forceError = new URLSearchParams(location.search).get("splashError") === "1";
-
-    setTimeout(() => {
-      if (forceError) {
+    if (forceError) {
+      setTimeout(() => {
         status.style.display = "none";
         errorBox.classList.remove("hidden");
-        return;
-      }
+      }, SPLASH_ERROR_DEMO_DELAY_MS);
+      return;
+    }
+
+    function hideSplash() {
       overlay.classList.add("fade-out");
       setTimeout(() => overlay.classList.add("hidden"), 320);
-    }, SPLASH_SIMULATED_DELAY_MS);
+    }
+    function showSplashError() {
+      status.style.display = "none";
+      errorBox.classList.remove("hidden");
+    }
+
+    // Whichever settles first wins — hideSplash() as soon as the real fetch
+    // resolves (true OR false; "resolves" is the gate, not "succeeds" — a
+    // false answer still means Graph genuinely responded, e.g. no signed-in
+    // session yet, which is the same "no answer yet, will retry" case every
+    // other Graph-token consumer in this file already treats as normal, not
+    // an error), never waiting out the full 5s if it's faster. `settled`
+    // guards against BOTH firing — the fetch settling after the timeout
+    // already showed the error box must not silently hide it again out from
+    // under the user.
+    let settled = false;
+    ensureLiveNavDataFetch().then(() => {
+      if (settled) return;
+      settled = true;
+      hideSplash();
+    });
+    setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      showSplashError();
+    }, SPLASH_DATA_TIMEOUT_MS);
   }
 
   function initSplash() {

@@ -180,7 +180,7 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   ok(F.placeholderStillFirst, "F3 the static \"— not part of an album —\" placeholder option survives a repopulate");
 
   // ---------- G. the whole book-rendering chain (showAlbumDetail/openAlbumAtPage/buildAlbumPages/renderAlbumBook) ----------
-  const G = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows }) => {
+  const G = await page.evaluate(async ({ albumRows, dbSetsRows, wishlistRows }) => {
     const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows);
     __setLiveAlbumsForTest(live);
     // A live DB_Coins row so slotMintage() (also swapped to activeDbCoins()
@@ -190,7 +190,10 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
     ]);
     navigate("albums");
     const index = live.findIndex(a => a.setId === "S-2020-AL-01");
-    showAlbumDetail(index);
+    // showAlbumDetail() now returns a Promise (Part 2, image-prefetch gate)
+    // that resolves once the book is actually rendered — await it rather
+    // than reading DOM state that's mid-loading-spinner.
+    await showAlbumDetail(index);
     const cover = document.querySelector("#albumsDetailContainer .album-page-cover h3");
     // Turn forward twice: cover -> history -> first coins page (obverse).
     document.getElementById("albumPageNextBtn").click();
@@ -206,7 +209,7 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   ok(G.mintage === "Mintage 72,700,420", "G3 slotMintage() now resolves through activeDbCoins() — a live catalog row's mintage renders for a live album slot");
 
   // ---------- H. tapping a FILLED slot resolves via activeCoins(), not FAKE_COINS ----------
-  const H = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows }) => {
+  const H = await page.evaluate(async ({ albumRows, dbSetsRows, wishlistRows }) => {
     const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows);
     __setLiveAlbumsForTest(live);
     // Full FAKE_COINS-shaped fixture (not a minimal stub) — navigate("browse")
@@ -220,7 +223,7 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
     ]);
     navigate("albums");
     const index = live.findIndex(a => a.setId === "S-2020-AL-01");
-    showAlbumDetail(index);
+    await showAlbumDetail(index);
     document.getElementById("albumPageNextBtn").click();
     document.getElementById("albumPageNextBtn").click();
     const filledCell = document.querySelector('#albumsDetailContainer .slot-cell[data-coin-id="C-1909--1C-01"]');
@@ -235,12 +238,12 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   ok(H.openedCoinId === "AY-90004", "H2 the coin resolved is the LIVE coin (activeCoins()) — with the old FAKE_COINS-only lookup this CollectionID wouldn't exist there at all");
 
   // ---------- I. tapping an OPEN slot prefills Add Coin from the live album's own data ----------
-  const I = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows }) => {
+  const I = await page.evaluate(async ({ albumRows, dbSetsRows, wishlistRows }) => {
     const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows);
     __setLiveAlbumsForTest(live);
     navigate("albums");
     const index = live.findIndex(a => a.setId === "S-2021-AL-02"); // Mercury Dimes, denom 10C
-    showAlbumDetail(index);
+    await showAlbumDetail(index);
     document.getElementById("albumPageNextBtn").click();
     document.getElementById("albumPageNextBtn").click();
     const openCell = document.querySelector('#albumsDetailContainer .slot-cell[data-coin-id="C-1916-D-10C-01"]');
@@ -377,12 +380,12 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   // existed (built for FAKE_ALBUMS' own hand-set flags) and needed no CSS
   // change; this confirms it genuinely lights up for a live slot fed real
   // data, not just that the data field is set correctly in isolation.
-  const O3 = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows, dbCoinsRows }) => {
+  const O3 = await page.evaluate(async ({ albumRows, dbSetsRows, wishlistRows, dbCoinsRows }) => {
     const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
     __setLiveAlbumsForTest(live);
     navigate("albums");
     const index = live.findIndex(a => a.setId === "S-2020-AL-01");
-    showAlbumDetail(index);
+    await showAlbumDetail(index);
     document.getElementById("albumPageNextBtn").click();
     document.getElementById("albumPageNextBtn").click();
     const keyDateCell = document.querySelector('#albumsDetailContainer .slot-cell[data-coin-id="C-1909-S-1C-02"]');
@@ -545,13 +548,25 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   // is NOT activeAlbums()[2] in the scrambled input order, so this would
   // fail if renderAlbumsList() started using sorted-list position instead
   // of the original activeAlbums() index for its click handler.
-  const Q7 = await page.evaluate(({ dbSetsRows, albumRows }) => {
+  const Q7 = await page.evaluate(async ({ dbSetsRows, albumRows }) => {
     const live = buildLiveAlbums(albumRows, dbSetsRows, []);
     __setLiveAlbumsForTest(live);
     renderAlbumsList();
     const cards = [...document.querySelectorAll("#albumsListContainer .album-card")];
     const targetCard = cards[2]; // "Lincoln Memorial Cents 1959-1998" per Q6's expected order
+    // currentAlbumIndex is set synchronously at the very top of
+    // openAlbumAtPage() (the click handler's own target), so it — and the
+    // read right below — are already correct the instant .click() returns.
+    // But the ACTUAL book render is now async (Part 2's image-prefetch
+    // gate), so without waiting for it here, cleanup below
+    // (__setLiveAlbumsForTest(null)) would run out from under that still-
+    // pending render — a real page-error race, not a test artifact: the
+    // delayed renderAlbumBook() call reads activeAlbums()[currentAlbumIndex]
+    // AFTER the live override is gone, against a currentAlbumIndex (5) that
+    // has no matching FAKE_ALBUMS entry. Waiting for the render to actually
+    // settle first avoids that dangling async call entirely.
     targetCard.click();
+    await new Promise(r => setTimeout(r, 100));
     const openedName = currentAlbumPages[0] ? currentAlbumIndex : null;
     const opened = activeAlbums()[currentAlbumIndex];
     showAlbumsList();

@@ -10960,24 +10960,63 @@ bug fix (Ray's explicit request + a real bug he found).**
   sequence now reaches the Dashboard on the second tap (was stuck on
   Catalog). All 10 suites re-run clean (18/18 in `verify_medal_tab.js`).
 
-### Initial splash screen (framework only, locked in)
+### Initial splash screen (BUILT and merged to main — real data-readiness gating)
 On load, a full-screen branded splash (`#splashScreen`) covers the app —
 "Salty's Cabinet" title, a spinning coin disc, and a "Connecting to
-OneDrive…" status line — while a (currently simulated) connection is
-established, then fades out to reveal the Dashboard underneath. There's no
-real Graph API connection to wait on yet, so `runSplashConnect()` just runs a
-timed delay (`SPLASH_SIMULATED_DELAY_MS`, 1.4s) rather than an actual health
-check; the rest of the app has already rendered underneath by the time this
-runs, since it's wired in after the normal synchronous init sequence — the
-splash is purely a visual cover, not a gate blocking anything else from
-initializing. **Error state**: shows a "Couldn't connect" card with
-placeholder/minimal troubleshooting text and a Retry button — establishes
-that this path exists and is handled, not that it's polished (real reasons —
-sign-in expired, offline, workbook locked elsewhere, etc. — come once a real
-connection exists to fail). Since nothing can actually fail yet, the error
-path is only reachable via a dev-only `?splashError=1` URL param, not a real
-trigger condition — remove this toggle once a real connection check replaces
-the simulated delay.
+OneDrive…" status line — while `ensureLiveNavDataFetch()` (the same real
+`Promise.all` — All/DB_Sets/DB_Coins/Lookup_MetalContent/Lookup_Graders,
+plus Photos/Receipts/Albums/Wishlist — every other live surface in this app
+already waits on) is genuinely in flight, then fades out to reveal the
+Dashboard underneath. The rest of the app has already rendered underneath by
+the time this runs, since it's wired in right after `navigate("dashboard")`
+in the normal synchronous init sequence — that call already kicks off the
+exact same fetch, so `runSplashConnect()`'s own `ensureLiveNavDataFetch()`
+call is a dedup'd no-op that just races the ALREADY-in-flight promise, not a
+second fetch.
+- **Superseded: this used to be a bare `SPLASH_SIMULATED_DELAY_MS` (1.4s)
+  timer, completely decoupled from real data** — there was no live
+  connection to gate on yet at the time this was built. `runSplashConnect()`
+  now hides the splash **as soon as `ensureLiveNavDataFetch()` resolves**
+  (never waiting out the full ceiling if it's faster), with a fixed **5s
+  timeout** (`SPLASH_DATA_TIMEOUT_MS`, **may be refined after live
+  testing**) as the safety net if it hasn't. `ensureLiveNavDataFetch()`
+  always resolves — it never rejects (its own `.catch()` returns `false`) —
+  so "resolves" is the real gate, not "succeeds": a `false` answer (e.g. no
+  signed-in session yet, the same "no answer yet, will retry" case every
+  other Graph-token consumer in this file already treats as normal) still
+  hides the splash, exactly like every other real-Graph feature in this app
+  degrades gracefully rather than erroring on a missing token.
+- **Error state, now genuinely reachable, not just a dev toggle.** If the
+  fetch hasn't resolved within the 5s ceiling, the splash falls back to its
+  existing "⚠️ Couldn't connect" card with a real Retry button — clicking
+  Retry re-calls `ensureLiveNavDataFetch()` (which, per the dedup rule
+  above, either returns the still-pending original promise or starts a
+  genuinely fresh one if that one already settled false) and races it
+  against a fresh 5s timer. A `settled` guard means a fetch that finally
+  resolves AFTER the timeout already showed the error box does NOT silently
+  hide it again out from under the user — the error state is sticky until
+  an explicit Retry (or the page reloads).
+- **The error text is still generic, deliberately** — it doesn't yet
+  distinguish sign-in-expired vs. offline vs. workbook-locked-elsewhere;
+  building that per-cause diagnostic is separate, still-open work. What
+  changed here is that the RETRY MECHANISM is now real (a genuine second
+  attempt against live data), not that the message itself got smarter.
+- **`?splashError=1` still exists, unchanged in spirit** — a dev-only URL
+  toggle that forces the error path on demand for testing/demoing it,
+  deliberately NOT real-data-gated (so it shows the same thing regardless of
+  actual connection state), on its own short fixed demo delay
+  (`SPLASH_ERROR_DEMO_DELAY_MS`, 1.4s — kept separate from the real 5s
+  ceiling so the two can be tuned independently).
+- **Verified headless** (`tests/verify_splash_and_album_prefetch.js`,
+  Part 1 blocks A–E): the splash has already hidden itself well inside the
+  ceiling in this environment's normal (fast, no-MSAL) fetch resolution;
+  hides exactly when a stubbed fetch resolves, not before and not on a
+  fixed timer, including a `false` outcome; the error box appears at
+  ~5000ms (not before, not much after) when the fetch never resolves, with
+  the splash overlay itself staying up; a late resolution after the timeout
+  does NOT silently hide an already-shown error box; and `?splashError=1` +
+  Retry still work. Full write-up with the Part 2 (album-open prefetch)
+  work below.
 
 Dashboard still has no summary stat cards on the front itself (Total Coins /
 Est. Value inline were tried and dropped early on — not useful up front). That's
@@ -12114,6 +12153,114 @@ merged-after-holding branch in this file. Both this section's own header
 and "Albums book layout: cover sizing + page-flip clip fix" above are
 updated to reflect it, rather than left reading "held" once it no longer
 is.
+
+### Albums: bounded image prefetch on open (BUILT and merged to main)
+Companion to the splash-screen gating above, same task/session. Opening an
+album (`showAlbumDetail()`/`openAlbumAtPage()`) used to reveal the book
+instantly, before any of its slot images had a fair chance to load —
+correct for pages beyond the first (they already progressively fill in as
+their own fetches resolve — see `renderSlotCell()`'s own comment: "picks up
+the cached image on the album's next render/reopen"), but the very first
+reveal would show text-only/placeholder discs for a beat even when the
+images were about to arrive within a moment. Now `openAlbumAtPage()` waits
+(bounded, 5s) for the page(s) about to be shown to have a real shot at their
+own images before ever painting the book.
+
+- **`prefetchAlbumSlotImages(pages)`** kicks off (and returns a `Promise.all`
+  for) every real image fetch a set of pages' own slots might still need —
+  reusing `renderSlotCell()`'s own tiered priority (session-captured own
+  photo > stored Photos-tab photo > series reference image) rather than
+  reimplementing it, so a slot resolved here is served straight from cache
+  the instant `renderSlotCell()` actually runs. Non-coins pages (cover/
+  history/blank/back-cover) have no `.slots` and are a no-op; an unfilled/
+  "want" slot has nothing to fetch.
+- **Scoped to whichever page(s) are about to be VISIBLE, not a hardcoded
+  "first coins page" — this is the one real design decision this task
+  made rather than a literal spec-following.** `openAlbumAtPage(index,
+  pageIndex)` is called from three places: a fresh open always lands on
+  the cover (`pageIndex` 0 — no slots, a near-instant no-op); a Sets-
+  checklist-style deep-link (`openAlbumFromLink`) also always opens at 0;
+  but the filled-slot click handler's own `browseDetailBackHandler`
+  reopens at **whatever coins page the user was actually on** when they
+  tapped into a coin's Browse detail view (`openAlbumAtPage(albumIndex,
+  pageAtClick)`) — exactly the page that needs its images ready on return,
+  not the album's first chunk. `computeVisibleIndices(pageIndex, spread,
+  totalPages)` — the SAME function `renderAlbumBook()` itself uses to
+  decide what's on screen — is what `openAlbumAtPage()` now prefetches
+  against, so one mechanism correctly serves every caller. Spread (tablet/
+  desktop) mode shows two pages at once, so both are prefetched together,
+  not just one of the pair.
+- **The shared spinning-coin loading indicator** (`showSectionLoading`/
+  `hideSectionLoading`, the same "retest #10" mechanism Staging Review and
+  the Docket already use) covers `#albumsDetailContainer` while the
+  prefetch/timeout race is in flight — the container is cleared first
+  (`innerHTML = ""`) so no stale prior album's content shows behind it,
+  then `renderAlbumBook()` replaces it wholesale once the race settles, the
+  same way every other real Graph-backed section transition in this app
+  already reads while its own fetch is pending.
+- **Fixed 5s ceiling** (`ALBUM_OPEN_IMAGE_TIMEOUT_MS`, **may be refined
+  after live testing**, same as the splash's own ceiling above) —
+  `Promise.race([prefetchAlbumSlotImages(visiblePages), timeout])`. Unlike
+  the splash's text-data ceiling, images hitting this one is EXPECTED and
+  fine: revealing the book with whatever's ready is the exact same
+  progressive-fill fallback the app already has for every page beyond the
+  first, so failing open here is a no-op, not a regression — no special-
+  casing needed between the "resolved" and "timed out" paths, both just
+  call the same `renderAlbumBook()`.
+- **Staleness guard** (`albumOpenToken`, bumped on every `openAlbumAtPage()`
+  call, same pattern `stagingRenderToken`/`needsAttentionRenderToken`
+  already use elsewhere) — if a second open supersedes a first one before
+  its own prefetch/timeout settles (Back tapped mid-wait, then a different
+  album opened), the stale call recognizes itself via the token mismatch
+  and skips rendering entirely rather than painting over whatever the
+  newer call already showed. **A real bug this guard prevents, caught
+  while building the committed test for it, not guessed at**: without it,
+  a slow/never-resolving stale prefetch that finishes AFTER a later,
+  faster open would call `renderAlbumBook()` against whatever
+  `currentAlbumIndex`/`LIVE_ALBUMS` happen to be at that later moment —
+  which, in a test that has since reset the live override, is `undefined`,
+  throwing inside `renderAlbumPageContent()` (`Cannot read properties of
+  undefined (reading 'folderStyle')`). Real app usage has the identical
+  shape (Back, then open a different album, while the first album's
+  images were still loading) even though nothing here reset `LIVE_ALBUMS`
+  mid-session in practice — the guard closes the general case, not just
+  the test's own trigger.
+- **`showAlbumDetail()`/`openAlbumAtPage()`/`openAlbumFromLink()` now
+  return the underlying Promise** instead of firing-and-forgetting
+  internally — every real caller in the app still ignores the return value
+  (unchanged behavior), but this is what let the existing test suites
+  (`verify_albums_live_data.js`, `verify_album_book_layout.js`) `await`
+  the real reveal instead of reading DOM state that's still mid-loading-
+  spinner. Every pre-existing `showAlbumDetail(...)`/`openAlbumAtPage(...)`
+  call site across both suites was updated to `await` it — including one
+  (`verify_albums_live_data.js`'s Denomination/Year-sort click-index test)
+  that triggered the open indirectly via a real `.click()` on a rendered
+  album card rather than calling the function directly, which needed an
+  explicit short wait after the click rather than an `await` on a return
+  value the DOM event system doesn't expose.
+- **Verified headless** (`tests/verify_splash_and_album_prefetch.js`, Part 2
+  blocks F–L, 15 assertions; 27 total in that suite; 1417 across all 33
+  suites, zero failures, zero page errors): the three open functions return
+  a real Promise; the loading indicator shows while a stubbed prefetch is
+  pending and the real book is NOT revealed yet, then the reverse once it
+  resolves; a hung prefetch still reveals the book at ~5000ms with whatever
+  was ready; the scoping decision itself — a fresh open triggers zero
+  reference-image fetches (the cover has no slots), while reopening
+  directly at a later coins page fetches exactly THAT page's own series
+  and never the album's first chunk, **with a negative control simulating
+  the rejected "always prefetch chunk 0" design** and confirming it would
+  have fetched the wrong series for a reopen at a later page; the
+  staleness guard, driven through two real overlapping `openAlbumAtPage()`
+  calls (not just asserted in isolation) — the newer open renders correctly
+  and the stale one resolving later does not overwrite it;
+  `prefetchAlbumSlotImages()` never throws for a non-coins page, an
+  unfilled slot, real filled slots, or a null/empty pages argument; and a
+  nav/overflow smoke check.
+- **Not verified: any real device, any real OneDrive session.** In
+  particular, both 5s ceilings (splash and this one) are the values named
+  in the task and may need retuning once Ray sees real network timing on
+  his own connection — flagged as an explicit, expected follow-up, not a
+  gap in this pass.
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back

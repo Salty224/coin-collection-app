@@ -45,10 +45,13 @@ function buildBigAlbumFixture() {
 module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, TABLET }) => {
   // ---------- A. cover page matches the interior pages' computed height (phone, non-spread) ----------
   const phone = await openApp(PHONE);
-  const A = await phone.evaluate(({ albumRows, dbSetsRows }) => {
+  const A = await phone.evaluate(async ({ albumRows, dbSetsRows }) => {
     __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
     navigate("albums");
-    showAlbumDetail(0);
+    // showAlbumDetail() now returns a Promise (image-prefetch gate, Part 2)
+    // that resolves once the book is actually rendered — await it rather
+    // than reading DOM state that's still mid-loading-spinner.
+    await showAlbumDetail(0);
     const coverH = document.querySelector(".album-page-cover").getBoundingClientRect().height;
     document.getElementById("albumPageNextBtn").click(); // -> History (single-page mode, non-spread)
     const historyH = document.querySelector(".album-page-history").getBoundingClientRect().height;
@@ -64,10 +67,10 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   // ---------- B onward: spread mode + the animated page turn need real width ----------
   const tablet = await openApp(TABLET);
 
-  const B = await tablet.evaluate(({ albumRows, dbSetsRows }) => {
+  const B = await tablet.evaluate(async ({ albumRows, dbSetsRows }) => {
     __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
     navigate("albums");
-    showAlbumDetail(0);
+    await showAlbumDetail(0);
     const coverH = document.querySelector(".album-page-cover").getBoundingClientRect().height;
     document.getElementById("albumPageNextBtn").click(); // -> History+Obverse spread (instant, cover boundary)
     const pages = [...document.querySelectorAll("#albumsDetailContainer .album-page")].map(p => p.getBoundingClientRect().height);
@@ -79,10 +82,10 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   ok(B.coverH === B.pages[0], `B2 the (never-paired) cover matches that same computed height in spread mode too (${B.coverH} vs ${B.pages[0]})`);
 
   // ---------- C. page-flip: a shorter revealed page no longer clips against a taller sibling ----------
-  const C = await tablet.evaluate(({ albumRows, dbSetsRows }) => {
+  const C = await tablet.evaluate(async ({ albumRows, dbSetsRows }) => {
     __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
     navigate("albums");
-    showAlbumDetail(0);
+    await showAlbumDetail(0);
     const pages = currentAlbumPages.map(p => p.type + (p.slots ? ":" + p.slots.length : ""));
     // Search for a real "next" turn whose revealed (static-under) page
     // genuinely differs in slot count from the sibling page staying
@@ -132,13 +135,13 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   // rules (both were bare, unconditioned declarations — nothing else in
   // this file competes with them on specificity, so !important isn't
   // masking some other real rule, only standing in for the removed one).
-  const NEG_COVER = await tablet.evaluate(({ albumRows, dbSetsRows }) => {
+  const NEG_COVER = await tablet.evaluate(async ({ albumRows, dbSetsRows }) => {
     const style = document.createElement("style");
     style.textContent = ".album-page { min-height: 360px !important; }"; // the pre-fix rule
     document.head.appendChild(style);
     __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
     navigate("albums");
-    showAlbumDetail(0);
+    await showAlbumDetail(0);
     const coverH = document.querySelector(".album-page-cover").getBoundingClientRect().height;
     document.getElementById("albumPageNextBtn").click();
     const coinsH = document.querySelector(".album-page-history").getBoundingClientRect().height;
@@ -149,7 +152,7 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   ok(NEG_COVER.coverH === 360, `D1 negative control: forcing the pre-fix bare 360px min-height reproduces the exact reported undersized cover (${NEG_COVER.coverH})`);
   ok(NEG_COVER.coverH !== NEG_COVER.coinsH, "D2 negative control: with the fix reverted, cover and interior-page heights genuinely diverge again — confirms A1/B2 aren't a coincidental pass");
 
-  const NEG_FLIP = await tablet.evaluate(({ albumRows, dbSetsRows }) => {
+  const NEG_FLIP = await tablet.evaluate(async ({ albumRows, dbSetsRows }) => {
     const style = document.createElement("style");
     // Reverting static-under's height:100% ALONE isn't enough to reproduce
     // this — found while writing this very control: the D1/D2 fix (every
@@ -167,7 +170,7 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
     document.head.appendChild(style);
     __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
     navigate("albums");
-    showAlbumDetail(0);
+    await showAlbumDetail(0);
     // Same search as block C — find the real mismatched transition rather
     // than assuming a fixed offset.
     const total = currentAlbumPages.length;
@@ -222,10 +225,10 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   const pc = await openApp(PC);
 
   async function measureRowCap(page, viewport) {
-    return page.evaluate(({ albumRows, dbSetsRows }) => {
+    return page.evaluate(async ({ albumRows, dbSetsRows }) => {
       __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
       navigate("albums");
-      showAlbumDetail(0);
+      await showAlbumDetail(0);
       const spread = isAlbumSpreadWidth();
       const { discSize, gap, columns } = computeAlbumGridLayout(albumPageContentWidth(spread));
       const rows = computeAlbumPageRows(discSize, gap);
