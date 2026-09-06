@@ -51,6 +51,12 @@ the one `WRITE_TARGET` edit. The local-only `dev-flags.local.js` override
 mechanism this paragraph used to describe is gone entirely — there's no
 local/production split left to gate flags behind.
 
+**Held, not merged: `claude/photo-receipt-write-layer`** — the photo/receipt
+write layer (real Photos/Receipts table rows, commit-on-capture for
+already-owned records, and the stored-photo/receipt read side). New write
+surface, awaiting Ray's go-ahead and a live `_Testing` run. See its own
+section below.
+
 Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
 987 rows past its real data (left as-is by Ray's call — see "The AllCoins
 table is 987 rows longer than its data"); the Graph read-after-write
@@ -1438,6 +1444,11 @@ piecemeal, even though it landed as several commits.
   display time**, never a stored asset; `runCropPipeline(file, type,
   collectionId, onEntry, subGroupId)` chains raw → Stage 1 → (flip sources
   only) Stage 2, producing the gallery entry.
+  **PARTLY SUPERSEDED — "never a stored asset" caused a real bug.** The
+  circle is still re-derived at display time by masking a square, but the
+  square STORED for a flip source is now Stage 2's own output, not Stage 1's.
+  Storing the Stage-1 rectangle threw the user's circle framing away — see
+  "Circle framing: what you frame is now what the card shows" below.
 - **Overlay stacking.** `#bgCropOverlay` and `#photoAdjustOverlay` sit at
   `z-index: 210`, above the sub-group/type sheets at `200`. Both were `200`
   originally and the sheet, being later in the DOM, covered the crop tool
@@ -8195,6 +8206,568 @@ codes and the wrongly-excluded Finish values) — following a real correction,
 not weakening.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round on this branch.
+
+### Photo / receipt write layer — Photos & Receipts tabs (BUILT, held on branch `claude/photo-receipt-write-layer`, NOT merged)
+The gallery/crop UI has produced real Blobs and real filenames since it was
+built and then dropped them into an in-memory store, so **every capture
+outside Add Coin's own Staging flow vanished on reload**. And **nothing in
+the app had ever written a row to the Photos or Receipts tab** — so even
+the files Add Coin genuinely did upload landed in CoinPhotos/CoinReceipts
+with nothing in the workbook pointing at them. This connects the
+already-proven `graph().uploadFile()` plumbing to the newer UI and adds the
+workbook half. Architectural (a new real write surface touching several
+entry points at once), so **held on its branch pending Ray's explicit
+go-ahead**, same standing as the gallery/crop UI itself was held to.
+
+**Audit first — what was real vs. stub, read from the code (this corrects
+several assumptions a reader would draw from this file's own history):**
+- **REAL already**: Add Coin's photos (`uploadCoinDraftPhotos()`) and
+  receipt (`uploadCoinDraftReceipt()`) into the Staging draft folder, moved
+  to CoinPhotos/CoinReceipts on promotion; Add Set's whole-set photo and
+  receipt via `uploadDraftPhoto()`.
+- **STUB**: Edit Coin / Edit Set / the standalone Manage Photos screen, for
+  photos AND receipt — `buildPhotoPairSlot()`/`manageOpenEndedBlock()`/
+  `initGalleryCapture()` all called `addGalleryEntry()` and nothing else.
+  Wishlist (all four slots) and Batch Receipt. Add Set's own gallery
+  (OGP/COA/other/sub-group) except the single OGP-front → `addSetPhotoFiles
+  ["whole"]` mirror.
+- **`receiptFiles` had exactly ONE consumer** (Add Coin's). Browse Edit's,
+  Edit Set's, Wishlist's and Batch Receipt's entries were written and never
+  read by anything.
+- **The read side was thinner than "repoint" implies.** `All.Obverse`/
+  `Reverse` were read ONLY as booleans (`hasObversePhoto`/`hasReversePhoto`,
+  consumed only by `coinMissingPhoto()`); `All.Receipt` was not read at all
+  (the detail page's Receipt row read the `FAKE_COIN_DETAILS` demo lookup);
+  and **no coin's own stored photo was ever displayed anywhere** —
+  `applyDiscContent()` went from a just-captured session blob straight to
+  the SERIES reference image. So Task 3 wasn't a repoint, it was building
+  that display path.
+
+**Workbook facts this was built against (read directly from the 2026-09-05
+upload, not assumed):**
+- **Photos and Receipts are real named Excel tables**, so `addTableRow()`
+  can target them: `Photos` `A1:G1030` (PhotoID, CollectionID, PhotoType,
+  SubGroupID, Filename, Label, DateAdded) holding **29** data rows;
+  `Receipts` `A1:D1073` (ReceiptID, CollectionID, Filename, DateAdded)
+  holding **85**.
+- **BOTH overrun their data exactly the way `AllCoins` does** — ~1000 and
+  ~987 blank rows sit inside their refs — so appending would drop new rows
+  a thousand rows past everything else. This is the same bug class
+  `createAllSheetRow()`'s claim-a-blank-row fix exists to prevent, and one
+  Receipts row (RC-00009 / AY-00706) is already sitting at row 1073 as
+  evidence of what appending does here.
+- PhotoTypes in real use: Obverse, Reverse, Slab_Obverse, Slab_Reverse,
+  Reference. All filenames `.jpg`. Repeatable naming is
+  `AY-00207_reference_01.jpg`.
+- `All.Receipt` (103 rows) vs Receipts (85): the 18-row difference is
+  entirely the literal string **"Binder"** — a placeholder meaning the
+  paper receipt hasn't been scanned, **not a filename**.
+- `All.Obverse` (5 rows) vs Photos Obverse (4): `AY-00706` carries
+  `AY-00706_slab_obverse.jpg` in its **Obverse** column with no Photos row
+  — hand-entered, following the documented legacy overload pattern. So
+  unlike receipts, the two photo sources do NOT fully agree, which is
+  exactly why the legacy fallback is kept.
+
+**Two naming conventions corrected against that data:**
+- **`.jpg`, not `.png`.** Both crop stages bake through `canvas.toBlob(...,
+  "image/jpeg", 0.92)`, so every file this layer has ever named has been
+  JPEG bytes wearing a `.png` name. `GALLERY_FILE_EXT` is now `.jpg`.
+  Files already uploaded to `_Testing/CoinPhotos` under the old names are
+  orphans (no Photos row will point at one) — Ray's to delete by hand
+  whenever convenient, not this task's.
+- **Repeatable types use the full type word + a zero-padded 2-digit index**
+  (`AY-00207_reference_01.jpg`), matching the sheet rather than inventing a
+  second convention beside it. `reference`'s suffix went `_ref` →
+  `_reference` and `other`'s `_photo` → `_other` (zero real files behind
+  either).
+
+**PhotoType vocabulary** (`GALLERY_TYPE_TO_PHOTOTYPE`, both directions):
+the five real values matched exactly, plus `OGP_Obverse`, `OGP_Reverse`,
+`COA`, `SubGroup_Obverse`, `SubGroup_Reverse`, `Other` in the same
+Title_Case_With_Underscores shape. Ray may have Copilot record these 11 in
+a `Lookup_PhotoTypes` tab; nothing here is built against one.
+
+**The write layer.** New Photos/Receipts module: header maps resolved from
+the sheet's own header row at run time (`ensureSheetHeaderMap()`, cached
+per sheet), id minting by max+1 over the table's own ID column, a
+per-table creation lock, and **blank-row claiming** rather than appending.
+- **`createAllSheetRow()` is deliberately NOT generalised.** It carries
+  AllCoins-specific semantics this doesn't need — a key pair written
+  through a narrow audited path, two live formula columns that must never
+  fall inside a range, a duplicate-aware two-half verify, the promote lock
+  — and it is the one write path that has been through three live runs.
+  This copies its SHAPE, not its code. Photos/Receipts have no formula
+  columns and contiguous columns, so a row here is one plain range PATCH.
+- **"Blank" means every column empty**, not just the id — same rule and
+  same reason as the All-sheet version.
+- `DateAdded` goes through `excelSerialToday()` with an explicit
+  `yyyy-mm-dd` number format, never ISO text.
+
+**When a capture commits, and why the line falls there.**
+- **A record that already exists on the All sheet** (Edit Coin, Edit Set,
+  the standalone Manage Photos screen on an owned coin/Set) uploads to
+  CoinPhotos and writes/replaces its Photos row **immediately on capture**.
+  Immediate rather than on Save because the standalone screen has no Save
+  button at all. `photoCommitTargetId()` is the gate; the ownership check
+  (`activeCoins()` / `FAKE_SET_CHILDREN`) is the enforcement, the
+  `AY-#####` regex only a cheap early-out.
+- **Draft-backed flows are unchanged.** Add Coin and Add Set capture
+  against records with no All row yet; writing straight to CoinPhotos would
+  put a coin's photos in their final home before the coin exists and strand
+  them if the draft were rejected. Those get their rows **at promotion**,
+  once the files have verifiably landed —
+  `recordPromotedCoinRecords()` / `recordPromotedSetRecords()`.
+- **A single-instance type REPLACES its row** (one row per CollectionID +
+  PhotoType + SubGroupID) so a re-capture can't accumulate near-duplicates
+  a "show all photos" read would render twice; repeatable types add.
+
+**A failure is loud and loses nothing.** This is a phone flow on a
+possibly-flaky connection, and silently dropping a capture would recreate
+the exact "photo vanished" problem the whole layer exists to fix. On
+failure the entry stays in the gallery **with its Blob intact**, the tile
+shows "Not saved — tap ↻" (`.photo-upload-state.failed`) alongside a real
+retry control, and a toast names the file and the error. The retry
+re-sends without re-capturing anything.
+
+**Removing a photo detaches the ROW and never deletes the file.** Two
+reasons, both pre-existing rules rather than preferences: the `_original`
+raw is locked in as never-deleted by the crop-commit convention, and this
+write layer deliberately has no delete primitive — claim-a-blank-row was
+chosen for AllCoins specifically to avoid needing one. A blanked row simply
+returns to the claimable pool, which is the same mechanism from the other
+side.
+
+**Receipts de-duplicate on filename — and one decision is what makes that
+reachable at all.** A Receipts row is one (receipt × coin) pair and one
+ReceiptID legitimately spans several rows (RC-00001 already covers three
+coins) because Ray's normal pattern is several coins on one receipt. So
+before minting anything, `commitReceiptCapture()` looks for an identical
+Filename already on the tab and reuses that ReceiptID **and skips the
+upload**. For that to ever fire, **an already-PDF pick keeps the picked
+file's own name** (`sourceWasPdf`) rather than being renamed to
+`{CollectionID}_receipt.pdf` — which is also the shape the real data
+already has (`FindersKeepers_2026-06-27_receipt.pdf`). A **photographed**
+receipt is inherently per-coin (and a camera's own filename is
+meaningless), so it keeps `{CollectionID}_receipt.pdf`. Re-attaching to a
+coin that already has one replaces that coin's row.
+- **An "attach an existing receipt" picker was NOT built** — flagged to Ray
+  as the better-still option rather than assumed. The filename dedupe is
+  the minimum fix and is in.
+
+**The read side.** Photos and Receipts are fetched alongside All/DB_Sets/
+DB_Coins/Lookup_MetalContent/Lookup_Graders in `ensureLiveNavDataFetch()`
+and indexed by CollectionID (`LIVE_PHOTOS`/`LIVE_RECEIPTS`; a null response
+leaves the previous index in place rather than blanking the display).
+- **`storedPhotoFilename()` reads the Photos tab first and the legacy flat
+  `All.Obverse`/`Reverse` only as a FALLBACK** — which is what stops
+  `AY-00706` (recorded only the old way) losing its photo. **The flat
+  columns are never written and never cleared by this app**, per the
+  explicit scope boundary; clearing them waits on a real-device
+  confirmation that the repointed reads work.
+- **A coin's own stored photo now displays**, via a new `CoinPhotos` fetch
+  tier modelled on `fetchReferenceImageBlob()` (GET-only, raw bytes → a
+  same-session blob URL, one real request per filename, and the same
+  attempted/not-attempted rule so a no-token failure retries after sign-in
+  instead of caching "no photo" forever). Wired as a tier in
+  `applyDiscContent()` **ahead of the series reference image** — an actual
+  photograph of this coin beats a generic picture of its series — and into
+  `renderSlotCell()` (Albums), which inherits that surface's existing
+  picks-up-on-next-render tradeoff since it is string-templated.
+- **`coinMissingPhoto()` reads the Photos tab first too**, so a coin whose
+  photos all came through the new layer doesn't keep nagging in the Docket
+  just because the retired flat column was never backfilled.
+- **The Receipt row on Browse detail reads the Receipts tab**, renders the
+  filename immediately and upgrades itself to a real OneDrive link once
+  that file's webUrl resolves. The old version linked a path that had never
+  resolved to anything (a confirmed 404 — "a real link in markup only").
+  **"Binder" and anything else without a file extension is never treated as
+  a filename** (`looksLikeReceiptFilename()`); it renders as
+  `Binder (not scanned)`, never as a link that could only break.
+
+**A latent bug found and fixed on the way.**
+`plannedCoinPromotionMoves()` iterated `draft.photos` as if it held bare
+strings, but `uploadCoinDraftPhotos()` stores `{type, filename, caption}`
+objects — so it concatenated an object straight into a path and would have
+produced `.../[object Object]`. Never hit live only because the one live
+promote run didn't exercise photos. Both shapes are accepted now.
+
+**Out of scope, deliberately, all confirmed with Ray:**
+- **Wishlist and Batch Receipt are untouched.** Neither has a CollectionID
+  to key a row on (a wishlist item isn't owned; a batch receipt is
+  explicitly "not yet tied to a coin"), and an untracked orphan file is
+  worse than no file.
+- No bulk backfill/migration script; the Containers tab; and no clearing of
+  the legacy flat columns.
+
+**Verified headless — new committed suite
+`tests/verify_photo_receipt_write.js` (84 assertions), all passing; 1142
+across 27 suites, zero failures, zero page errors.** Covers the filename
+convention including the `.png` sweep; the PhotoType map both ways; a write
+CLAIMING row 4 with the table not growing; replace-vs-add; OriginalFilename
+present and absent, with exactly one row either way; detach blanking the
+row while the file survives and the row returns to the pool; the receipt
+dedupe (reused id, **no second upload**, separate rows per coin) and the
+photographed/picked filename split; which targets commit and which don't;
+the loud-failure path end to end (Blob kept, error recorded, no row, then a
+retry landing both file and row); promotion recording rows for a coin
+draft; the read side's Photos-first/legacy-fallback behaviour, the photo-gap
+check, the "Binder" guard; the stored photo actually painting onto the flip
+card with the reverse not inheriting it; and a nav sweep with no overflow at
+both viewports.
+- **Eleven verified negative controls**, each re-run and confirmed to fail
+  exactly its own assertions: appending instead of claiming (C1/C2/F4);
+  removing the receipt dedupe (G2/G3/G6); treating "Binder" as a filename
+  (L9/L11/M2/M3); dropping a failed capture silently (J1/J2/J3/J6);
+  deleting the file on trash (F3); reverting the `[object Object]` path bug
+  (K1–K3); removing the Photos-tab read (L1); removing the legacy fallback
+  (L3); removing the ownership gate (I3); `coinMissingPhoto()` ignoring the
+  Photos tab (L4); and removing the flip card's stored-photo tier
+  (O1/O3/O4).
+- **Two assertion-quality fixes worth knowing**, both cases where a first
+  version passed against broken code: `G3` counted stored KEYS, which
+  cannot distinguish "skipped the upload" from "re-uploaded the same path"
+  — it counts upload CALLS now; and `F2` captured a live array reference
+  that a later reclaim mutated in place. Third and fourth time this project
+  has hit that trap; assume it applies to any assertion whose broken case
+  also returns the passing value.
+- **Two prior assertions updated, not weakened** (`verify_addcoin_phase1`
+  C10/C11 and their fixtures), following the real `.png` → `.jpg`
+  correction.
+- Screenshots reviewed at both viewports with a failed, a pending and a
+  clean capture visible — no overflow at either width.
+- **Not verified: any real device, any real OneDrive session.** This is a
+  new write surface and wants a live `_Testing` run before it is trusted.
+  `WRITE_TARGET` stays `"copy"` throughout.
+
+**Follow-up (same branch): replacing a photo that already exists.** Found
+on Ray's own device — coin `AY-00208` has a correct `PH-00004` row, but the
+file it points at is a screenshot of a PCGS cert page, and there was no way
+to swap it.
+
+**The diagnosis differs slightly from the report, and that difference is
+what made it one fix rather than two.** Manage Photos — every section in
+Edit Coin, Edit Set and the standalone screen — rendered EXCLUSIVELY from
+`galleryStore` (this session's captures plus the `FAKE_GALLERIES` seed) and
+had no awareness of `LIVE_PHOTOS` at all. The read side built the previous
+round was never fed back into the capture UI. So for a coin with a stored
+photo: the pair slot drew the empty `＋` face, the section header showed no
+count, and **Remove and Adjust were both hidden too**, because all three
+are gated on there being a gallery entry. The `📷`/`🖼️` buttons WERE
+rendered and tapping one would in fact have replaced the row correctly —
+but nothing on screen said the slot was occupied, so there was no way to
+know that. Showing what's there is most of the fix; the Replace framing
+sits on top.
+
+- **`hydrateStoredPhotos(collectionId)`** merges the record's Photos-tab
+  rows into its gallery as entries marked `stored: true`, so every existing
+  consumer — the pair slots, the open-ended thumbnails, `manageCount()` —
+  becomes correct at once instead of each growing its own lookup.
+  **A session capture always wins**: an entry already present for a slot is
+  never overwritten, since it is either newer than the sheet or is the
+  thing currently uploading. Idempotent across the re-render every capture
+  triggers.
+- **`ensureStoredThumbs()`** fetches the missing thumbnails and re-renders
+  **once**, only if something actually resolved — so it cannot loop against
+  the render it triggers. `ensureCoinPhotoFetch()` already dedupes per
+  filename per session, so repeat renders cost nothing.
+- **A filled slot says "Replace"** and its buttons' labels/titles say
+  Replace rather than Add. Camera and library stay SEPARATE inputs
+  throughout (Samsung Internet skips the native chooser) — never collapsed
+  into one button.
+- **Repeatable types (Reference/COA/Other) get a per-thumbnail Replace**,
+  since there is no fixed slot to match on. It carries that photo's
+  **PhotoID and Label** forward (`writePhotoRow()` gained an optional
+  `replacePhotoId`), so the row is updated in place rather than dropped and
+  re-added.
+- **Filename on replace: the CURRENT convention wins.** A replacement
+  writes `{id}_obverse_cropped.jpg` and updates the row's `Filename`,
+  rather than overwriting whatever the row pointed at. The old file is left
+  on disk — never deleted, same rule as detach. So replacing a
+  legacy-named photo (`AY-00208_obverse.jpg`) leaves one orphan and moves
+  the record onto the convention: the deliberate trade, since consistent
+  naming going forward matters more than the occasional sweepable file.
+- **Adjust source priority** (`resolveStoredAdjustSource()`): the raw when
+  one is genuinely resolvable — the sheet's `OriginalFilename`, or our own
+  `_cropped`/`_original` pair, which this layer always uploads together —
+  otherwise the DISPLAYED file itself.
+  **SUPERSEDED, same branch:** Adjust was first restricted to a resolvable
+  raw, with Replace as the only option otherwise. Ray's live testing showed
+  that is too tight: most photos already on the Photos tab predate the crop
+  pipeline and will never have a raw, yet they are exactly the ones that
+  are visibly mis-framed — off-centre, letterboxed, not filling the circle
+  — so the restriction meant re-taking a photo of a coin that may not be to
+  hand, purely to fix framing. The fallback is a real quality tradeoff
+  (re-encoding an already-cropped, already-compressed JPEG), which is why
+  the raw still wins whenever there is one and the crop tool's own title
+  says which source it opened on ("from the original" vs "re-crop").
+  - **"Resolvable" means FETCHABLE, not name-derivable.** A `_cropped` file
+    implies an `_original` sibling by convention, but an older build may
+    never have uploaded one — a 404 there falls through to the displayed
+    file rather than dead-ending.
+  - **The write is identical either way** — current-convention filename,
+    the row's `Filename` updated, the old file never deleted. The source
+    choice only decides what the crop tool opens on.
+  - The decision is split into its own function specifically so it can be
+    asserted directly; driving it through the crop overlay would test the
+    overlay instead.
+- **Remove now works on a stored photo**, detaching its row (never
+  deleting the file), which it could not do before.
+  **SUPERSEDED, same branch — see "Trash: the confirmation that was never
+  wired" below.** It shipped with no confirmation dialog and removed the
+  entry locally without waiting on the write; both are fixed there.
+- **A commit repoints the read cache at the bytes it just wrote.** Found
+  while adding the re-crop fallback: an adjust can land on the SAME
+  filename it read from, and `getCachedCoinPhotoUrl()` is what the flip
+  card and Albums read through — so without this they would keep showing
+  the pre-adjust image for the rest of the session.
+- Add Coin's own slots are unaffected — a brand-new coin has no
+  CollectionID and therefore no stored rows, so hydration is a no-op there,
+  as it is for any draft record.
+
+**Known, accepted, not fixed here:** hydration runs from
+`renderManagePhotosInto()` only, so Browse detail's "Additional Photos"
+strip still shows session captures alone until Edit has been opened for
+that coin. Harmless (it never shows anything WRONG, only less), and wiring
+it would mean hydrating from a hot read path.
+
+Verified headless — the suite grew to **110 assertions; 1168 across 27
+suites, zero failures, zero page errors** (since grown to 124 / 1182 by
+the Adjust-fallback round below). Covers hydration (including
+idempotence, session-capture precedence, and a draft hydrating nothing);
+the slot showing the stored photo instead of `＋`; the Replace label and
+button wording; Remove becoming available; Adjust hidden for a legacy name
+and `storedRawFilenameFor()`'s three cases in isolation; per-thumbnail
+Replace with separate camera/library inputs and the stored Label rendering
+as its caption; and a full replace round trip asserting the row is updated
+in place, keeps its PhotoID, moves to the convention filename, and leaves
+the old file on disk. **Six more verified negative controls**: no
+hydration (11 assertions fail, reproducing the reported symptom exactly),
+hydration clobbering a session capture, replace adding a row instead of
+updating, the sheet-side Label fallback removed, Adjust offered with no
+resolvable raw, and a filled slot keeping the "Add" framing.
+- **Two assertions were strengthened after a control failed to fire**:
+  `Q6`/`Q7` matched the FIRST Reference row, which is the OLD one when a
+  spurious row is added, so both passed against broken code; they now match
+  on the row carrying the new filename. And `Q9` was added to isolate
+  `writePhotoRow()`'s own Label fallback, which the JS-side caption
+  carry-forward was masking. Same trap as `G3`/`F2` last round — assume it
+  applies to any assertion whose broken case also returns the passing
+  value.
+- **The Adjust-fallback round adds 14 more assertions and 3 more controls**
+  (124 in this suite; 1182 across 27): the source priority in all five
+  states — a fetchable raw wins, an `OriginalFilename` column wins, a
+  derivable-but-absent `_original` falls through, a legacy name falls
+  through, nothing loadable resolves to null rather than throwing — plus
+  the adjust round trip writing through as an ordinary Replace, and the
+  read-cache refresh. Controls: restoring the raw-only restriction (fails
+  the two UI assertions and both fallback cases), inverting the priority so
+  the displayed file beats an available raw, and leaving the read cache
+  stale. **A first version of this block tried to stub `runCropPipeline`
+  via `window` and silently asserted nothing — it is a lexically scoped
+  function declaration inside the IIFE, so the stub was never called.**
+  That is what prompted splitting `resolveStoredAdjustSource()` out; the
+  two remaining call-site facts are covered by a source-text guard.
+- Screenshots reviewed at both viewports with a legacy-named photo, a
+  convention-named photo, an empty pair, and a captioned Reference
+  thumbnail all visible at once — both filled slots now show ⤢ with
+  different tooltips. No overflow.
+- **Not verified: any real device, any real OneDrive session.**
+
+**Follow-up (same branch): circle framing — what you frame is now what the
+card shows.** Reported live on AY-00002: after adjusting a photo to FILL the
+Stage 2 circle, the flip card still showed a ring of background between the
+coin's edge and the circle's edge.
+
+**Root-caused by measurement, not inspection.** A synthetic source (a disc
+filling 80% of a square — a normal Stage-1 trim, since Stage 1 removes
+background rather than making the coin touch all four edges) was driven
+through the real pipeline and the output measured pixel-wise. Two separate
+defects, both real:
+- **Stage 2's framing was discarded entirely.** `runCropPipeline`'s entry
+  carried `url: rectUrl` and `blob: rectBlob` — the STAGE 1 rectangle —
+  while the Stage-2 bake went only to `circleUrl`, which its own comment
+  described as "a session-only display convenience... NOT a stored asset."
+  So the card masked the intermediate trim into a circle and never saw what
+  the user framed. Measured: the coin rendered at **0.80** of the circle's
+  diameter against the **1.00** just framed. Stage 2's 110% default zoom
+  guarantees a gap even when Stage 1 is perfectly tight.
+- **The guide's assumed diameter was wrong.** `circleSize` was a hardcoded
+  `240`, but this file sets `* { box-sizing: border-box }` and
+  `.photo-adjust-circle` carries a `2px` border, so its real content box is
+  **236px** (`clientWidth`, confirmed in a browser). The preview therefore
+  scaled the image to 240 inside a 236px window — ~2px per side sat under
+  the border, unseen — while the bake exported the full 240. The saved image
+  carried a thin ring the user never framed, ~1.7% of the diameter. This is
+  the "padding baked into the exported image" case, and it is independent of
+  the first defect.
+
+**Fixes.**
+- **For a flip source, Stage 2's output IS the stored image.** One stored
+  file per side still; the card still just masks a square. The fix is WHICH
+  square — the one framed in the guide, not the intermediate trim.
+  Non-flip types never run Stage 2 and are untouched.
+- **`circleSize` is measured** (`circleEl.clientWidth`), so preview and bake
+  agree exactly. The overlay is un-hidden BEFORE the size is read — a
+  `display:none` element measures 0.
+- **The bake's output resolution now follows the source** rather than a
+  fixed 480. That fixed size was harmless while the bake was a throwaway
+  preview; making it the stored file would have downsampled every photo to
+  480px. `circleSize / scale` is exactly how many source pixels span the
+  guide, so this neither up- nor down-samples, clamped to [480, 1400] (the
+  same cap Stage 1 uses).
+
+**Both a fresh capture and a re-crop of a stored photo go through the same
+Stage 2, so both are fixed.** Photos already stored from before this fix
+keep their old framing until re-adjusted — the framing was never recorded,
+so there is nothing to recover retroactively.
+
+Verified headless — **10 new assertions (134 in this suite; 1192 across 27,
+zero failures)**, driving the REAL pipeline end to end: Stage 1's crop box
+set to the whole frame (its default insets 10% a side and would have done
+part of the framing for us, making the arithmetic approximate), then Stage 2
+zoomed to fill the guide. The stored image measures **1.00** of the circle
+diameter, its width equals the adjuster's own computed bake width (proving
+the bytes are the Stage-2 bake, not the differently-sized Stage-1
+rectangle), and `applyDiscContent()` paints that exact image. Plus: a
+non-flip type never opens Stage 2 and still measures 0.80, unchanged; the
+adjuster's `circleSize` equals `clientWidth` and is less than the CSS width;
+and at 100% zoom the rendered preview width matches the visible circle to
+within a pixel. **Three verified negative controls**, one per defect —
+reverting to the Stage-1 rectangle fails T1 and T3 and reproduces the
+reported symptom exactly, reverting `circleSize` to 240 fails T9/T10, and
+reverting the bake to a fixed 480 fails T4.
+- **A first version of T6 asserted the wrong premise** — that accepting
+  Stage 1 "as-is" leaves the source untouched. Its default crop box insets
+  10% per side, so the assertion measured 1.00 where it expected 0.80 and
+  failed for a reason that had nothing to do with the fix. The test now sets
+  the box explicitly rather than relying on a default it did not check.
+- Flip card screenshot reviewed at both viewports: the coin's rim now sits
+  on the circle's edge, no ring.
+- **Not verified: any real device, any real OneDrive session.**
+
+**Follow-up (same branch): Trash — the confirmation that was never wired,
+and two read paths disagreeing.** Two live defects on AY-00002, both
+reproduced and measured before anything was changed.
+
+**1. The confirmation was never implemented.** Trash was specified to
+confirm first, for the exact reason it went wrong: it sits immediately
+beside Replace's camera and library icons with no visual separation, and Ray
+tapped it by accident. Traced directly — the handler called
+`detachGalleryPhoto()` with no `showWriteGuard()` anywhere near it. Not a
+dialog that was easy to miss on a touch device; there was no dialog. That is
+a miss in the round that built Remove, not a regression from something
+later.
+
+**2. THE TWO READ PATHS RESOLVED PHOTOS DIFFERENTLY — the real cause of the
+"empty slot while the card shows the photo".** `storedPhotoFilename()` (the
+flip card, Albums) reads the Photos tab and **falls back to the legacy flat
+`All.Obverse`/`Reverse` column**; `hydrateStoredPhotos()` (Manage Photos)
+read the Photos tab **only**. The legacy fallback was added when the read
+side was built and simply not carried into hydration when Manage Photos
+learned about stored photos a round later. For a coin recorded only the old
+way — `AY-00002` is one of the five — the card showed the real photo while
+Manage Photos drew an empty `＋` slot with no Replace, no Adjust and no
+Remove. Reproduced exactly (card: photo; slot: `＋`, zero gallery entries)
+before fixing, which is what identified it; the first repro attempt produced
+the OPPOSITE of the report on both counts and was the thing that ruled out
+the obvious explanations.
+- Hydration now uses the same resolution, via `legacyStoredRowsFor()`. A
+  legacy entry is marked **`legacyOnly`** because it has no Photos row
+  behind it: it can be **Replaced** — which writes a proper row and migrates
+  the coin onto the tab — but not detached, since this app never writes the
+  flat columns. Trying says so plainly instead of silently doing nothing.
+
+**3. The session's Photos index went stale on every write.** `LIVE_PHOTOS`
+is fetched once per session, and hydration reads through it, so a detach
+left the index still holding the row — and the next re-render hydrated the
+photo **straight back**. Measured directly in the first repro: row blanked
+in the workbook, photo still on screen. The mirror image of the reported
+symptom, and the same "local state and the workbook disagree" defect.
+`syncStoredPhotoIndexRemove/RemoveByFilename/Upsert()` keep the index in
+step on both detach and write.
+
+**4. The removal was optimistic.** The entry left the screen synchronously
+while the write went off unawaited, so a failed detach removed it from view
+and left the row on the sheet. The removal now waits on the write and
+reports honestly when it fails.
+
+**Truthful messaging where the two records overlap.** A coin can have BOTH a
+Photos row and a legacy column for the same side (`AY-00002` does).
+Detaching the row there does not make the photo disappear — both surfaces
+correctly fall back to the legacy column — so the dialog says that up front
+rather than letting Ray remove it and watch it stay.
+
+Verified headless — **14 new assertions (148 in this suite; 1206 across 27,
+zero failures)**: the card and Manage Photos now agreeing on a legacy-only
+photo, its `legacyOnly` marking, the can't-remove-this-one path leaving it
+in place, the confirmation firing with Cancel/Remove, Cancel changing
+neither the gallery nor the workbook, Confirm detaching the row while
+keeping the file, the index being synced so it cannot be re-hydrated back,
+a removed photo staying removed across a re-render when there is no legacy
+column, and a FAILED detach removing nothing.
+- **Four verified negative controls**: no confirmation (fails 6), hydration
+  without the legacy fallback (fails 5, reproducing the reported empty
+  slot), a stale index after detach (fails 2), and a fully optimistic
+  removal (fails U14).
+- **Two test-quality fixes, both found by running the controls.** The first
+  two controls THREW instead of failing by name — a thrown suite hides which
+  property broke — so the block's DOM interactions are null-safe now. And
+  `U14` counted gallery entries, which cannot distinguish "never removed"
+  from "removed, then re-hydrated back off the unsynced index" — it checks a
+  marker on the live entry instead. That is the fifth time on this branch an
+  assertion has passed against broken code; assume it of any assertion whose
+  broken case also returns the passing value.
+- **A control that did not fire taught something too**: removing only the
+  error branch left a second guard that independently blocks the removal, so
+  the control passed. Both had to go to isolate the behaviour — worth
+  knowing the two guards are genuinely independent.
+- Screenshots at both viewports of the dialog, including the legacy-column
+  note on `AY-00002`'s exact situation. No overflow.
+- **Not verified: any real device, any real OneDrive session.**
+
+**Follow-up (same branch): the gallery viewer showed a sliver, not the
+photo.** Reported live on AY-00207 — the reference-photo viewer showed a
+small zoomed portion ("191" of "1916...") filling the dialog.
+
+**Neither of the suspected causes.** Not object-fit, and nothing about how
+the file is served. `galleryThumbInner()` paints its image as a BACKGROUND
+on a `.gc-img`, and the whole treatment for that — `center/cover`,
+`no-repeat`, a dark ground, `overflow:hidden` — lives on **`.gc-thumb
+.gc-img`**, a selector the viewer's own `.gv-cell` never matched. The viewer
+therefore inherited none of it. Its only rule was `width/height: 130px`, so
+`background-size` fell back to `auto` and `background-position` to `0% 0%`:
+the image painted at NATURAL size, clipped to a 130px square, showing its
+top-left corner at 1:1 — which for a PCGS cert screenshot is exactly the
+"1916..." text. **Measured on a 1600×900 reference photo: 1.17% of the image
+visible.**
+
+The shared markup assumed a styling context one of its two call sites never
+provided — the same "two surfaces silently disagreeing" family as the
+hydration/flip-card split above, in CSS rather than JS.
+
+**Fix.** The viewer gets its own complete rule: `contain` (a viewer wants the
+WHOLE image, unlike the thumbnails' deliberate `cover` crop), centred,
+un-tiled, on a dark ground, in a box worth opening a dialog for —
+full-width cells up to a wider viewer-only panel (`#galleryViewerOverlay
+.photo-adjust-panel`), `min(52vh, 320px)` tall. Measured after: 100% of the
+image visible at 330px wide on a phone and 418px on a tablet, for both a
+wide and a portrait source. **The Manage Photos thumbnails are untouched** —
+still cover-cropped squares, asserted.
+
+Verified headless — **8 new assertions (156 in this suite; 1214 across 27,
+zero failures)**: the computed `background-size`/`position`/`repeat`, a wide
+and a tall photo each fitting whole in the expected dimension, the box size,
+and the thumbnail scope guard. **One verified negative control** — reverting
+the CSS fails 5 of them and reproduces the sliver.
+- **Two assertions initially passed against the broken CSS** and were
+  tightened: they computed what `contain` WOULD give for that box rather
+  than requiring the element to be in contain mode at all, so the
+  hypothetical held either way. They now assert the mode as part of the
+  claim. Sixth time on this branch; the tell is always the same — an
+  assertion whose broken case also returns the passing value.
+- Screenshots at both viewports with a wide and a tall photo open together.
+  No overflow.
+- **Not verified: any real device.**
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

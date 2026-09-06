@@ -2003,6 +2003,30 @@
     border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
     font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
   }
+  /* Per-thumbnail Replace on an open-ended type (Reference/COA/Other) —
+     a repeatable type has no fixed slot, so the action lives on the photo
+     itself. Camera and library stay SEPARATE inputs (Samsung Internet
+     skips the native chooser dialog), never one combined button. */
+  .gc-replace-row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .gc-replace-btn {
+    width: 22px; height: 22px; border-radius: 5px; padding: 0;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
+    font-size: 11px; line-height: 1; cursor: pointer;
+  }
+  .gc-replace-label { font-size: 9px; color: var(--text-muted); }
+  /* A filled pair slot says what its capture buttons will do. Without this
+     a slot holding a stored photo looked identical to an empty one. */
+  .sg-photo-replace { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  .gc-thumb .gc-retry {
+    position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--gold); background: var(--bg-case); color: var(--gold-bright);
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
+  }
+  /* Upload state for a captured photo. A failed upload must be visible on
+     the tile itself, not only in a toast that has already faded — the whole
+     point of the loud-failure rule is that a capture is never silently lost. */
+  .photo-upload-state { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+  .photo-upload-state.failed { color: #e08a6a; font-weight: 600; }
   .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
   .gc-add-btn {
     padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
@@ -2028,9 +2052,29 @@
     padding: 8px 16px; border-radius: 20px; border: 1px solid var(--case-border);
     background: var(--bg-case); color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
   }
-  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 6px; }
-  .gallery-viewer-grid .gv-cell { width: 130px; text-align: center; }
-  .gallery-viewer-grid .gc-img { width: 130px; height: 130px; }
+  /* The gallery VIEWER. galleryThumbInner() paints its image as a
+     background on a .gc-img, and the full treatment for that
+     (center/cover, no-repeat, a dark ground, overflow hidden) lives on
+     `.gc-thumb .gc-img` — a selector the viewer's own `.gv-cell` never
+     matched. So the viewer inherited NONE of it: background-size fell back
+     to `auto` and background-position to `0% 0%`, painting the image at
+     natural size clipped to a 130px square. Measured on a 1600x900
+     reference photo: 1.17% of it visible, the top-left corner at 1:1 —
+     which for a PCGS cert screenshot is the "1916..." text, hence the
+     reported sliver reading "191".
+     A viewer wants the WHOLE image, so this is `contain` rather than the
+     thumbnails' `cover`, at a size worth opening a dialog for. */
+  #galleryViewerOverlay .photo-adjust-panel { max-width: min(560px, 94vw); }
+  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 6px; }
+  .gallery-viewer-grid .gv-cell { width: 100%; text-align: center; }
+  .gallery-viewer-grid .gc-img {
+    width: 100%; height: min(52vh, 320px);
+    background-color: #000; background-size: contain;
+    background-position: center; background-repeat: no-repeat;
+    border-radius: 8px; border: 1px solid var(--case-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; color: var(--text-muted);
+  }
   .gallery-viewer-grid .gv-cap { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
   /* Year picker — decade grid, then a small grid of years within it, so
@@ -4943,6 +4987,187 @@
     return referenceImageCache[seriesKey + "_" + side] || null;
   }
 
+
+  // ==================================================================
+  // STORED PHOTOS / RECEIPTS — the read side
+  // ==================================================================
+  // Photos and Receipts are indexed by CollectionID at fetch time and read
+  // from there; the legacy flat All columns are a FALLBACK ONLY, never
+  // written and never cleared by this app. Keeping the fallback is what
+  // stops a coin recorded only the old way (AY-00706's hand-entered
+  // Obverse/Reverse, say) from silently losing its photo the moment the
+  // read moves to the new tabs.
+  let LIVE_PHOTOS = null;    // { [CollectionID]: [{ photoId, photoType, galleryType, subGroupId, filename, originalFilename, label }] }
+  let LIVE_RECEIPTS = null;  // { [CollectionID]: { receiptId, filename } }
+
+  function buildPhotoIndex(rows) {
+    const out = {};
+    rows.forEach(row => {
+      const id = String(colVal(row, "CollectionID") || "").trim();
+      const filename = String(colVal(row, "Filename") || "").trim();
+      if (!id || !filename) return;
+      const photoType = String(colVal(row, "PhotoType") || "").trim();
+      (out[id] || (out[id] = [])).push({
+        photoId: String(colVal(row, "PhotoID") || "").trim(),
+        photoType,
+        galleryType: galleryTypeForPhotoType(photoType),
+        subGroupId: String(colVal(row, "SubGroupID") || "").trim(),
+        filename,
+        originalFilename: String(colVal(row, "OriginalFilename") || "").trim(),
+        label: String(colVal(row, "Label") || "").trim()
+      });
+    });
+    return out;
+  }
+
+  function buildReceiptIndex(rows) {
+    const out = {};
+    rows.forEach(row => {
+      const id = String(colVal(row, "CollectionID") || "").trim();
+      const filename = String(colVal(row, "Filename") || "").trim();
+      if (!id || !filename) return;
+      out[id] = { receiptId: String(colVal(row, "ReceiptID") || "").trim(), filename };
+    });
+    return out;
+  }
+
+  function storedPhotoRowsFor(collectionId) {
+    return (LIVE_PHOTOS && LIVE_PHOTOS[collectionId]) || [];
+  }
+
+  // The stored filename for one side of a coin, Photos tab first and the
+  // legacy flat column only as a fallback.
+  function storedPhotoFilename(coin, side) {
+    if (!coin || !coin.id) return "";
+    const want = side === "reverse" ? "reverse" : "obverse";
+    const hit = storedPhotoRowsFor(coin.id).find(r => r.galleryType === want);
+    if (hit) return hit.filename;
+    const legacy = want === "reverse" ? coin.reversePhotoFile : coin.obversePhotoFile;
+    return legacy || "";
+  }
+
+  // Whether a record has ANY stored photo — the presence signal
+  // coinMissingPhoto() needs, now reading the Photos tab first.
+  function hasStoredPhoto(coin, side) { return !!storedPhotoFilename(coin, side); }
+
+  // ---- CoinPhotos image fetch --------------------------------------
+  // Deliberately modelled on fetchReferenceImageBlob(): a single GET for
+  // raw bytes turned into a same-session blob URL (never
+  // @microsoft.graph.downloadUrl, which expires in ~1hr), one real request
+  // per filename per session, and the same attempted/not-attempted rule so
+  // a fetch that failed only because there is no token yet retries after
+  // sign-in instead of caching "no photo" forever.
+  const coinPhotoCache = {};
+  const coinPhotoFetchesInFlight = {};
+
+  async function fetchCoinPhotoBlob(filename) {
+    const token = await getWriteToken();
+    if (!token) return { attempted: false };
+    const path = writePaths().coinPhotos + "/" + filename;
+    try {
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+          path.split("/").map(encodeURIComponent).join("/") + ":/content",
+        { method: "GET", headers: { Authorization: "Bearer " + token } }
+      );
+      if (res.status === 404) return { attempted: true, url: null }; // recorded but not on disk — not an error here
+      if (!res.ok) { console.warn("Coin photo fetch failed:", filename, res.status); return { attempted: false }; }
+      return { attempted: true, url: URL.createObjectURL(await res.blob()) };
+    } catch (e) {
+      console.warn("Coin photo fetch error:", filename, e.message);
+      return { attempted: false };
+    }
+  }
+
+  function ensureCoinPhotoFetch(filename) {
+    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve(null);
+    if (Object.prototype.hasOwnProperty.call(coinPhotoCache, filename)) {
+      return Promise.resolve(coinPhotoCache[filename]);
+    }
+    if (coinPhotoFetchesInFlight[filename]) return coinPhotoFetchesInFlight[filename];
+    const promise = fetchCoinPhotoBlob(filename).then(result => {
+      delete coinPhotoFetchesInFlight[filename];
+      if (result.attempted) { coinPhotoCache[filename] = result.url; return result.url; }
+      return null;
+    });
+    coinPhotoFetchesInFlight[filename] = promise;
+    return promise;
+  }
+
+  function getCachedCoinPhotoUrl(filename) {
+    return (filename && coinPhotoCache[filename]) || null;
+  }
+
+  // ---- Receipts ----------------------------------------------------
+  // The 18 legacy All.Receipt rows that read "Binder" are a PLACEHOLDER
+  // meaning the paper receipt hasn't been scanned yet — not a file. Treating
+  // one as a filename would build a link that can only 404, so anything
+  // without a real file extension is rejected outright.
+  function looksLikeReceiptFilename(value) {
+    const v = String(value == null ? "" : value).trim();
+    return !!v && /\.[A-Za-z0-9]{2,5}$/.test(v);
+  }
+
+  function storedReceiptFor(coin) {
+    if (!coin || !coin.id) return null;
+    const hit = LIVE_RECEIPTS && LIVE_RECEIPTS[coin.id];
+    if (hit && looksLikeReceiptFilename(hit.filename)) return hit;
+    if (looksLikeReceiptFilename(coin.receiptFile)) {
+      return { receiptId: "", filename: String(coin.receiptFile).trim() };
+    }
+    return null;
+  }
+
+  // A receipt's own OneDrive webUrl, resolved lazily and cached per session
+  // — the same shape as getCachedFolderWebUrl(). Rendering can't wait on it,
+  // so the row shows the filename immediately and upgrades itself to a link
+  // once this resolves (the same live-self-update pattern applyDiscContent()
+  // already uses for a reference image).
+  const receiptWebUrlCache = {};
+  function getCachedReceiptWebUrl(filename) {
+    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve(null);
+    if (Object.prototype.hasOwnProperty.call(receiptWebUrlCache, filename)) {
+      return Promise.resolve(receiptWebUrlCache[filename]);
+    }
+    const p = graph().getFolderWebUrl(writePaths().coinReceipts + "/" + filename)
+      .then(url => { receiptWebUrlCache[filename] = url || null; return receiptWebUrlCache[filename]; })
+      .catch(() => { receiptWebUrlCache[filename] = null; return null; });
+    receiptWebUrlCache[filename] = undefined;
+    return p;
+  }
+
+  // The Photos index is fetched once per session, so a write made from
+  // inside the app leaves it stale — and hydration reads through it. Left
+  // unsynced, a detached photo comes STRAIGHT BACK on the next re-render
+  // (measured), and a freshly captured one stays invisible to any later
+  // hydration. Both are the same "local state and workbook disagree" defect
+  // this whole area has now produced twice.
+  function syncStoredPhotoIndexRemove(collectionId, photoType, subGroupId) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    const want = subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID ? subGroupId : "";
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r =>
+      !(r.photoType === photoType && (r.subGroupId || "") === want));
+  }
+  function syncStoredPhotoIndexRemoveByFilename(collectionId, filename) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.filename !== filename);
+  }
+  function syncStoredPhotoIndexUpsert(collectionId, row) {
+    if (!LIVE_PHOTOS) LIVE_PHOTOS = {};
+    const list = LIVE_PHOTOS[collectionId] || (LIVE_PHOTOS[collectionId] = []);
+    const at = list.findIndex(r => r.photoId && row.photoId && r.photoId === row.photoId);
+    if (at >= 0) list[at] = row; else list.push(row);
+  }
+
+  function __setCoinPhotoCacheForTest(filename, url) { coinPhotoCache[filename] = url; }
+  function __setStoredPhotosForTest(index) { LIVE_PHOTOS = index; }
+  function __setStoredReceiptsForTest(index) { LIVE_RECEIPTS = index; }
+  function __resetCoinPhotoCacheForTest() {
+    Object.keys(coinPhotoCache).forEach(k => delete coinPhotoCache[k]);
+    Object.keys(coinPhotoFetchesInFlight).forEach(k => delete coinPhotoFetchesInFlight[k]);
+    Object.keys(receiptWebUrlCache).forEach(k => delete receiptWebUrlCache[k]);
+  }
+
   // ==================================================================
   // LIVE NAV DATA (read-only) — real Graph API reads powering the Catalog/
   // Medal/Rolls tabs and the Sets tab's list mode + completeness checklist,
@@ -5128,6 +5353,16 @@
       // in this app that infers presence from a filename field.
       hasObversePhoto: !!colVal(row, "Obverse"),
       hasReversePhoto: !!colVal(row, "Reverse"),
+      // The legacy flat photo/receipt columns, carried as real FILENAMES
+      // (they were only ever read as booleans before). They are the
+      // fallback the Photos/Receipts tabs read through — never written and
+      // never cleared by this app; see storedPhotoFilename()/
+      // storedReceiptFor(). All.Receipt in particular can hold the literal
+      // placeholder "Binder" on 18 real rows, which is why
+      // looksLikeReceiptFilename() guards it rather than trusting it.
+      obversePhotoFile: String(colVal(row, "Obverse") || ""),
+      reversePhotoFile: String(colVal(row, "Reverse") || ""),
+      receiptFile: String(colVal(row, "Receipt") || ""),
       // All.Error — a single free-text column (not separate Obverse-error/
       // Reverse-error fields), so a coin with two different errors on two
       // different sides has both descriptions in the one string, informally
@@ -5412,10 +5647,17 @@
       // matcher's cert-protection tier). Small, static-ish table; fetched
       // alongside everything else rather than lazily, same posture as
       // Lookup_MetalContent above.
-      fetchWorkbookSheetRows("Lookup_Graders")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows]) => {
+      fetchWorkbookSheetRows("Lookup_Graders"),
+      // Photos/Receipts — the real, current home for per-photo and
+      // per-receipt records. Until this round nothing in the app read
+      // EITHER tab: All.Obverse/Reverse were consumed only as booleans for
+      // the Docket's photo-gap rows, All.Receipt was not read at all, and
+      // no coin's own stored photo was ever displayed anywhere.
+      fetchWorkbookSheetRows("Photos"),
+      fetchWorkbookSheetRows("Receipts")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows]) => {
       liveNavDataFetchPromise = null;
-      // no real answer yet for any of the five — don't cache, retry on next call
+      // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) return false;
       // A stray blank sheet row (no CollectionID) is never a real owned
       // coin; a DB_Sets row with no Lineage is out of this feature's scope
@@ -5467,6 +5709,11 @@
       });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
       LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
+      // Photos/Receipts are additive: a null (no real answer) leaves the
+      // previous index in place rather than blanking the display, exactly
+      // like the reference-image fetcher's own attempted/not-attempted rule.
+      if (photoRows) LIVE_PHOTOS = buildPhotoIndex(photoRows);
+      if (receiptRows) LIVE_RECEIPTS = buildReceiptIndex(receiptRows);
       const activeView = document.querySelector(".view.active");
       if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
       // Same reasoning as the Browse branch above, extended to Ledger/Stats
@@ -6794,6 +7041,372 @@
     });
   }
 
+  // ==================================================================
+  // PHOTOS / RECEIPTS TABLE WRITE LAYER
+  // ==================================================================
+  // The workbook's Photos and Receipts tabs are the real, current home for
+  // per-photo and per-receipt records — one row each, replacing the old
+  // fixed Obverse/Reverse/Photo3/Photo4/Receipt columns on All. Until this
+  // module existed, NOTHING in the app wrote either tab: Add Coin's Phase 1
+  // path uploaded real image bytes to CoinPhotos/CoinReceipts and left them
+  // with nothing in the workbook pointing at them, and every other capture
+  // surface (Edit Coin / Manage Photos, Edit Set, Add Set's OGP/COA/
+  // sub-group slots) held its captures in memory only.
+  //
+  // Both are genuine named Excel tables, so addTableRow() can target them:
+  //   Photos   A1:G1030 — PhotoID, CollectionID, PhotoType, SubGroupID,
+  //                       Filename, Label, DateAdded (+ OriginalFilename
+  //                       when Ray adds it; see writePhotoRow()).
+  //   Receipts A1:D1073 — ReceiptID, CollectionID, Filename, DateAdded.
+  //
+  // WHY A SEPARATE MODULE RATHER THAN REUSING createAllSheetRow(). That
+  // function carries AllCoins-specific semantics this doesn't want or need:
+  // a CollectionID/CoinID key pair written through a narrow audited path,
+  // two live formula columns that must never be included in a range, a
+  // duplicate-aware two-half verify, and the promote lock. Photos/Receipts
+  // have no formula columns and their columns are contiguous, so a row here
+  // is one plain range PATCH. Copying the SHAPE of its blank-row claiming
+  // (below) while leaving that live-tested function untouched was the safer
+  // call than generalising it and destabilising the one write path that has
+  // already been through three live runs.
+  const PHOTOS_SHEET_NAME = "Photos";
+  const PHOTOS_TABLE_NAME = "Photos";
+  const RECEIPTS_SHEET_NAME = "Receipts";
+  const RECEIPTS_TABLE_NAME = "Receipts";
+
+  // GALLERY_TYPES keys are lowercase_with_underscores; the sheet's own
+  // PhotoType values are Title_Case_With_Underscores. Five of these already
+  // exist in real data (Obverse, Reverse, Slab_Obverse, Slab_Reverse,
+  // Reference) and are matched exactly; the other six are new and follow
+  // the same shape.
+  const GALLERY_TYPE_TO_PHOTOTYPE = {
+    obverse: "Obverse",
+    reverse: "Reverse",
+    slab_obverse: "Slab_Obverse",
+    slab_reverse: "Slab_Reverse",
+    reference: "Reference",
+    ogp_obverse: "OGP_Obverse",
+    ogp_reverse: "OGP_Reverse",
+    coa: "COA",
+    subgroup_obverse: "SubGroup_Obverse",
+    subgroup_reverse: "SubGroup_Reverse",
+    other: "Other"
+  };
+  const PHOTOTYPE_TO_GALLERY_TYPE = (() => {
+    const out = {};
+    Object.keys(GALLERY_TYPE_TO_PHOTOTYPE).forEach(k => { out[GALLERY_TYPE_TO_PHOTOTYPE[k].toLowerCase()] = k; });
+    return out;
+  })();
+  function photoTypeForGalleryType(key) { return GALLERY_TYPE_TO_PHOTOTYPE[key] || ""; }
+  function galleryTypeForPhotoType(value) {
+    return PHOTOTYPE_TO_GALLERY_TYPE[String(value == null ? "" : value).trim().toLowerCase()] || "";
+  }
+
+  // Header maps, same shape and same cache discipline as ensureAllHeaderMap()
+  // (which is deliberately left alone — Browse Edit's every save depends on
+  // it). Resolved from the sheet's own header row at run time so a
+  // Copilot-side column insertion can't silently redirect a write.
+  const sheetHeaderMaps = {};
+  async function ensureSheetHeaderMap(sheetName) {
+    if (sheetHeaderMaps[sheetName]) return sheetHeaderMaps[sheetName];
+    const rows = await graph().readWorkbookRange(writePaths().workbook, sheetName, "A1:Z1");
+    const header = rows[0] || [];
+    const map = {};
+    header.forEach((name, i) => {
+      const key = String(name == null ? "" : name).trim();
+      if (key && !(key in map)) map[key] = i + 1;
+    });
+    sheetHeaderMaps[sheetName] = map;
+    return map;
+  }
+  function __resetSheetHeaderMapsForTest() { Object.keys(sheetHeaderMaps).forEach(k => delete sheetHeaderMaps[k]); }
+
+  // Next {prefix}-##### by max+1 over the table's own ID column — the same
+  // monotonic rule the CollectionID reservation uses, for the same reason: a
+  // reused mid-sequence id could already be referenced by something else.
+  function idSequenceNumber(value, prefix) {
+    const s = String(value == null ? "" : value).trim();
+    if (!s.toUpperCase().startsWith(prefix)) return NaN;
+    return parseInt(s.slice(prefix.length).replace(/^-/, ""), 10);
+  }
+  async function nextRecordId(tableName, columnName, prefix) {
+    const col = await graph().readTableColumn(writePaths().workbook, tableName, columnName);
+    let max = 0;
+    for (let i = 1; i < col.length; i++) {
+      const n = idSequenceNumber(col[i], prefix);
+      if (!isNaN(n) && n > max) max = n;
+    }
+    return prefix + "-" + String(max + 1).padStart(5, "0");
+  }
+  function nextPhotoId() { return nextRecordId(PHOTOS_TABLE_NAME, "PhotoID", "PH"); }
+  function nextReceiptId() { return nextRecordId(RECEIPTS_TABLE_NAME, "ReceiptID", "RC"); }
+
+  // Blank-row claiming, generalised from createAllSheetRow()'s own fix.
+  // BOTH tables overrun their data exactly the way AllCoins does — Photos is
+  // A1:G1030 with 29 data rows, Receipts A1:D1073 with 85 — so appending
+  // would drop new rows at ~1031/~1074, hundreds of rows past everything
+  // else, which is the bug class that fix exists to prevent. Claiming
+  // instead also means nothing is created until the row is actually written,
+  // so a failure above leaves the sheet untouched (no orphan blank rows).
+  //
+  // "Blank" means EVERY column empty, not just the id — a row with a blank
+  // key can still hold real data, and attaching a new record to someone
+  // else's half-filled row would be worse than any orphan. Neither table has
+  // a formula column, so unlike the All sheet there is nothing to exclude.
+  const RECORD_ROW_CLAIM_ATTEMPTS = 5;
+  async function tableRowIsBlank(sheetName, rowNumber, headerMap) {
+    const indices = Object.keys(headerMap).map(k => headerMap[k]);
+    if (!indices.length) return false;
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const rows = await graph().readWorkbookRange(
+      writePaths().workbook, sheetName, "A" + rowNumber + ":" + last + rowNumber);
+    const row = rows[0] || [];
+    return indices.every(idx => {
+      const raw = row[idx - 1];
+      return raw === undefined || raw === null || String(raw).trim() === "";
+    });
+  }
+
+  // One creation lock PER TABLE. Two concurrent captures would otherwise
+  // both read the column, both see the same first blank row, and both write
+  // to it — the exact concurrent-claim case withAllRowCreationLock() exists
+  // to prevent, and a phone that fires two captures back to back is a real
+  // way to reach it.
+  const recordRowLocks = {};
+  function withRecordRowLock(tableName, fn) {
+    const prev = recordRowLocks[tableName] || Promise.resolve();
+    const run = prev.then(fn, fn);
+    recordRowLocks[tableName] = run.then(() => {}, () => {});
+    return run;
+  }
+
+  // Claims (or, as a fallback, appends) a row and writes `values` into it as
+  // ONE contiguous range PATCH — safe here precisely because neither table
+  // has a formula column, so there is no cell in the rectangle that must not
+  // be overwritten. `values` is keyed by header name; unlisted columns are
+  // written blank, which is correct for a row being created.
+  async function writeRecordRow(sheetName, tableName, idColumn, values) {
+    return withRecordRowLock(tableName, async () => {
+      const map = await ensureSheetHeaderMap(sheetName);
+      if (!map[idColumn]) throw new Error(sheetName + " sheet has no " + idColumn + " column.");
+      const col = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
+
+      let targetRow = null;
+      let checked = 0;
+      for (let i = 1; i < col.length && checked < RECORD_ROW_CLAIM_ATTEMPTS; i++) {
+        if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
+        checked++;
+        if (await tableRowIsBlank(sheetName, i + 1, map)) { targetRow = i + 1; break; }
+      }
+      if (!targetRow) {
+        const add = await graph().addTableRow(writePaths().workbook, tableName);
+        const after = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
+        const blankAt = (r) => r >= 2 && r <= after.length &&
+          String(after[r - 1] == null ? "" : after[r - 1]).trim() === "";
+        const candidates = [];
+        if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
+        if (after.length > 1) candidates.push(after.length);
+        targetRow = candidates.filter(blankAt)[0];
+        if (!targetRow) throw new Error("Appended a " + sheetName + " row but no blank row was available to claim.");
+      }
+      await patchRecordRow(sheetName, targetRow, map, values);
+      return targetRow;
+    });
+  }
+
+  // Writes a full row (every mapped column) at `rowNumber`. Used both to
+  // create a row and to update one in place; passing {} blanks it, which is
+  // how a detach works (see detachPhotoRow()).
+  async function patchRecordRow(sheetName, rowNumber, map, values) {
+    const indices = Object.keys(map).map(k => map[k]);
+    const width = Math.max.apply(null, indices);
+    const row = new Array(width).fill("");
+    Object.keys(map).forEach(name => {
+      const v = values[name];
+      row[map[name] - 1] = (v === undefined || v === null) ? "" : v;
+    });
+    const address = "A" + rowNumber + ":" + columnIndexToLetters(width) + rowNumber;
+    await graph().patchWorkbookRanges(writePaths().workbook, sheetName, [{ address, values: [row] }]);
+    // DateAdded is a real date, never a timestamp and never ISO text — the
+    // same rule (and the same prior-corruption history) as every other date
+    // column this layer writes.
+    if (map.DateAdded) {
+      const a1 = columnIndexToLetters(map.DateAdded) + rowNumber;
+      await graph().patchWorkbookRanges(writePaths().workbook, sheetName,
+        [{ address: a1 + ":" + a1, values: [[values.DateAdded == null ? "" : values.DateAdded]], numberFormat: [["yyyy-mm-dd"]] }]);
+    }
+  }
+
+  // Reads a whole table into an array of header-keyed objects, skipping
+  // blank rows. Used by both the write side (to find an existing row to
+  // replace) and the read side (the display index).
+  async function readRecordRows(sheetName, tableName, idColumn) {
+    const map = await ensureSheetHeaderMap(sheetName);
+    const indices = Object.keys(map).map(k => map[k]);
+    if (!indices.length) return [];
+    const col = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
+    if (col.length < 2) return [];
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const grid = await graph().readWorkbookRange(
+      writePaths().workbook, sheetName, "A2:" + last + col.length);
+    const out = [];
+    (grid || []).forEach((row, i) => {
+      const rec = { __row: i + 2 };
+      let any = false;
+      Object.keys(map).forEach(name => {
+        const raw = row[map[name] - 1];
+        const v = raw === undefined || raw === null ? "" : String(raw).trim();
+        rec[name] = v;
+        if (v) any = true;
+      });
+      if (any) out.push(rec);
+    });
+    return out;
+  }
+
+  // ---- Photos ------------------------------------------------------
+  // Creates or REPLACES this record's row for one photo. Replacement is the
+  // point: a single-instance type (obverse, slab front, a sub-group's own
+  // front) has exactly one row per (CollectionID, PhotoType, SubGroupID), so
+  // re-capturing must overwrite it rather than accumulate near-duplicates
+  // that a "show all photos" read would render twice. Repeatable types
+  // (reference/COA/other) always add.
+  //
+  // `originalFilename` is recorded in an OriginalFilename column WHEN THE
+  // SHEET HAS ONE. Deliberately not a second Photos row: the raw is the
+  // uncropped source of the SAME photo, and a second row would show up as a
+  // duplicate gallery item in any naive read. If the column doesn't exist,
+  // nothing is lost that isn't derivable — the raw's name is the displayed
+  // name with _cropped swapped for _original, and the crop-commit rule keeps
+  // the file itself forever either way.
+  // `replacePhotoId` targets one specific existing row — the per-thumbnail
+  // Replace on a REPEATABLE type (Reference/COA/Other), where there is no
+  // fixed slot to match on and the point is to keep that photo's identity
+  // rather than dropping a row and adding another. Ignored when the type is
+  // single-instance, which already matches on
+  // CollectionID + PhotoType + SubGroupID.
+  //
+  // NOTE ON FILENAME: a replacement writes the CURRENT convention name and
+  // updates the row's Filename, rather than overwriting whatever the row
+  // pointed at. The old file is left on disk untouched — never deleted,
+  // same rule as detach. So replacing a legacy-named photo (AY-00208's
+  // hand-filed "AY-00208_obverse.jpg") leaves one orphan behind and moves
+  // the record onto the convention, which is the deliberate trade.
+  async function writePhotoRow(collectionId, entry, filename, originalFilename, replacePhotoId) {
+    const def = galleryTypeDef(entry.type);
+    const photoType = photoTypeForGalleryType(entry.type);
+    if (!photoType) throw new Error("No PhotoType mapping for gallery type " + entry.type);
+    const subGroupId = (def && def.tier === "subgroup") ? (entry.subGroupId || DEFAULT_SUBGROUP_ID) : "";
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const values = {
+      PhotoID: "",
+      CollectionID: collectionId,
+      PhotoType: photoType,
+      SubGroupID: subGroupId === DEFAULT_SUBGROUP_ID ? "" : subGroupId,
+      Filename: filename,
+      Label: entry.caption || "",
+      DateAdded: excelSerialToday()
+    };
+    if (map.OriginalFilename) values.OriginalFilename = originalFilename || "";
+
+    if (def && !def.repeatable) {
+      const existing = (await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID"))
+        .find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
+                   (r.SubGroupID || "") === values.SubGroupID);
+      if (existing) {
+        values.PhotoID = existing.PhotoID;
+        await patchRecordRow(PHOTOS_SHEET_NAME, existing.__row, map, values);
+        return { photoId: existing.PhotoID, row: existing.__row, replaced: true };
+      }
+    }
+    if (replacePhotoId) {
+      const target = (await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID"))
+        .find(r => r.PhotoID === replacePhotoId && r.CollectionID === collectionId);
+      if (target) {
+        values.PhotoID = target.PhotoID;
+        // Keep the caption the row already carries when the replacement
+        // didn't bring one of its own — a Reference photo's Label is often
+        // the only thing saying what it is.
+        if (!values.Label) values.Label = target.Label || "";
+        await patchRecordRow(PHOTOS_SHEET_NAME, target.__row, map, values);
+        return { photoId: target.PhotoID, row: target.__row, replaced: true };
+      }
+      // The row is gone (detached elsewhere, or never written) — fall
+      // through and record it as new rather than losing the photo.
+    }
+    values.PhotoID = await nextPhotoId();
+    const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values);
+    return { photoId: values.PhotoID, row, replaced: false };
+  }
+
+  // Detach = blank the row, NOT delete the file. Two deliberate reasons:
+  // the _original raw is locked in as "never deleted" (see CLAUDE.md's
+  // crop-commit convention), so blanket file deletion would contradict an
+  // existing rule; and this write layer has no file-delete primitive for
+  // workbook records on purpose — the claim-a-blank-row approach was chosen
+  // for AllCoins precisely to avoid needing one. A blanked row returns to
+  // the claimable pool, which is the same mechanism from the other side.
+  async function detachPhotoRow(collectionId, galleryType, subGroupId) {
+    const photoType = photoTypeForGalleryType(galleryType);
+    const want = (subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID) ? subGroupId : "";
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
+    const hit = rows.find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
+                               (r.SubGroupID || "") === want);
+    if (!hit) return { detached: false };
+    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
+    return { detached: true, row: hit.__row, filename: hit.Filename };
+  }
+
+  async function detachPhotoRowByFilename(collectionId, filename) {
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
+    const hit = rows.find(r => r.CollectionID === collectionId && r.Filename === filename);
+    if (!hit) return { detached: false };
+    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
+    return { detached: true, row: hit.__row, filename: hit.Filename };
+  }
+
+  // ---- Receipts ----------------------------------------------------
+  // A Receipts row is one (receipt x coin) pair, so ONE ReceiptID
+  // legitimately spans several rows — RC-00001 already covers three coins in
+  // the real data, because Ray's normal buying pattern is several coins on
+  // one receipt.
+  //
+  // That is exactly why this de-duplicates on Filename before minting
+  // anything: attaching the same physical receipt to five coins must reuse
+  // one RC-##### and one stored file, not produce five ids and five byte-
+  // identical uploads. The pass-through path (an already-PDF pick) keeps the
+  // picked file's OWN name for the same reason — it is what makes two coins'
+  // captures of the same document collide on filename at all, and it matches
+  // the real data's own shape (FindersKeepers_2026-06-27_receipt.pdf).
+  async function findExistingReceiptByFilename(filename) {
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const hit = rows.find(r => r.Filename && r.Filename.toLowerCase() === String(filename).toLowerCase());
+    return hit ? hit.ReceiptID : null;
+  }
+
+  async function writeReceiptRow(collectionId, filename, receiptId) {
+    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const values = {
+      ReceiptID: receiptId,
+      CollectionID: collectionId,
+      Filename: filename,
+      DateAdded: excelSerialToday()
+    };
+    // One receipt per coin in this UI: re-attaching replaces THIS coin's row
+    // rather than adding a second. (A genuinely multi-receipt coin stays a
+    // manual/Copilot job, same boundary as multi-coin batch entry.)
+    const existing = rows.find(r => r.CollectionID === collectionId);
+    if (existing) {
+      await patchRecordRow(RECEIPTS_SHEET_NAME, existing.__row, map, values);
+      return { receiptId, row: existing.__row, replaced: true };
+    }
+    const row = await writeRecordRow(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID", values);
+    return { receiptId, row, replaced: false };
+  }
+
   // A "no DB_Coins match for the edited identity" is the same situation
   // Add Coin already handles for a brand-new entry — reusing that exact
   // queue/hub rather than inventing a parallel research-tracking pattern
@@ -7638,9 +8251,17 @@
   // reserved id at save time), so the destination is the filename verbatim
   // under CoinPhotos — no renaming step, unlike the Set path which has to
   // compose child ids.
+  // draft.photos entries are {type, filename, caption} objects
+  // (uploadCoinDraftPhotos()'s own return shape), not bare strings — this
+  // used to concatenate the object straight into a path and would have
+  // produced ".../[object Object]". Never hit live only because the one
+  // live promote run didn't exercise photos. Bare strings are still
+  // accepted so a draft written before this stays movable.
+  function coinDraftPhotoFilename(p) { return typeof p === "string" ? p : (p && p.filename) || ""; }
   function plannedCoinPromotionMoves(draft) {
     const p = writePaths(), folder = coinDraftFolder(draft.collectionID), moves = [];
-    (draft.photos || []).forEach(name => {
+    (draft.photos || []).forEach(entry => {
+      const name = coinDraftPhotoFilename(entry);
       if (name) moves.push({ src: folder + "/" + name, dest: p.coinPhotos + "/" + name });
     });
     if (draft.receiptPhoto) moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.receiptPhoto });
@@ -7662,8 +8283,59 @@
       results.push({ ...m, ok: true });
     }
     const allOk = results.every(r => r.ok);
-    if (allOk) { draft.filesMovedOnPromotion = true; await writeCoinDraft(draft); }
-    return { collectionID: draft.collectionID, moves: results, allOk };
+    let records = null;
+    if (allOk) {
+      // The files are now in their final home, so — and only so — record
+      // them in the workbook. Row-writing deliberately happens HERE rather
+      // than at capture for a draft-backed flow: writing a Photos row for a
+      // file still sitting in Staging would point the workbook at a path
+      // that is about to change, and would leave a stale row behind if the
+      // draft were rejected instead of promoted.
+      records = await recordPromotedCoinRecords(draft);
+      draft.filesMovedOnPromotion = true;
+      await writeCoinDraft(draft);
+    }
+    return { collectionID: draft.collectionID, moves: results, allOk, records };
+  }
+
+  // Photos/Receipts rows for a coin draft whose files have just landed in
+  // CoinPhotos/CoinReceipts. A failure here is reported but never undoes the
+  // move or blocks the promotion: the files are correctly in place, and a
+  // missing row is recoverable (re-capture, or a manual row) where a
+  // half-moved file is not.
+  async function recordPromotedCoinRecords(draft) {
+    const out = { photos: [], receipt: null, failed: [] };
+    const id = draft.collectionID;
+    const entries = (draft.photos || []).filter(e => typeof e !== "string");
+    const byName = {};
+    entries.forEach(e => { byName[e.filename] = e; });
+    for (const e of entries) {
+      // The retained raw rides along on its cropped sibling's row as
+      // OriginalFilename — never its own row, which a naive "show all
+      // photos" read would render as a duplicate gallery item.
+      if (e.caption === "original") continue;
+      const raw = e.filename.indexOf("_cropped.") !== -1
+        ? e.filename.replace("_cropped.", "_original.") : "";
+      try {
+        const res = await writePhotoRow(id, { type: e.type, caption: e.caption || "", subGroupId: e.subGroupId },
+          e.filename, (raw && byName[raw]) ? raw : "");
+        out.photos.push(res);
+      } catch (err) {
+        console.warn("Photos row failed for " + e.filename + ":", err);
+        out.failed.push(e.filename);
+      }
+    }
+    if (draft.receiptPhoto) {
+      try {
+        let receiptId = await findExistingReceiptByFilename(draft.receiptPhoto);
+        if (!receiptId) receiptId = await nextReceiptId();
+        out.receipt = await writeReceiptRow(id, draft.receiptPhoto, receiptId);
+      } catch (err) {
+        console.warn("Receipts row failed for " + draft.receiptPhoto + ":", err);
+        out.failed.push(draft.receiptPhoto);
+      }
+    }
+    return out;
   }
 
   // Launch-time retry, mirroring processPromotedSetDrafts(). The normal
@@ -8035,8 +8707,48 @@
       results.push({ ...m, ok: true });
     }
     const allOk = results.every(r => r.ok);
-    if (allOk) { draft.filesMovedOnPromotion = true; await writeSetDraft(draft); } // mark done only when every move succeeded
-    return { collectionID: draft.collectionID, moves: results, allOk };
+    let records = null;
+    if (allOk) {
+      records = await recordPromotedSetRecords(draft);
+      draft.filesMovedOnPromotion = true;
+      await writeSetDraft(draft); // mark done only when every move succeeded
+    }
+    return { collectionID: draft.collectionID, moves: results, allOk, records };
+  }
+
+  // Photos/Receipts rows for a Set draft whose files have just landed.
+  // The whole-set photo is recorded as OGP_Obverse: since the legacy
+  // whole-set slot was retired, that slot IS the OGP front (capturing OGP
+  // front is what feeds addSetPhotoFiles["whole"]), so recording it as
+  // anything else would invent a type the capture UI no longer has.
+  // Each child's own obverse/reverse is recorded against the CHILD's
+  // CollectionID, which is what makes a promoted Set's coins show their own
+  // photos rather than the parent's.
+  async function recordPromotedSetRecords(draft) {
+    const out = { photos: [], receipt: null, failed: [] };
+    const id = draft.collectionID;
+    const add = async (recordId, type, filename) => {
+      try { out.photos.push(await writePhotoRow(recordId, { type, caption: "" }, filename, "")); }
+      catch (err) { console.warn("Photos row failed for " + filename + ":", err); out.failed.push(filename); }
+    };
+    if (draft.wholeSetPhoto) await add(id, "ogp_obverse", id + "_set.jpg");
+    for (const ch of (draft.children || [])) {
+      if (ch.photos && ch.photos.obverse) await add(ch.collectionID, "obverse", ch.collectionID + "_obverse.jpg");
+      if (ch.photos && ch.photos.reverse) await add(ch.collectionID, "reverse", ch.collectionID + "_reverse.jpg");
+    }
+    if (draft.receiptPhoto) {
+      const ext = draft.receiptPhoto.slice(draft.receiptPhoto.lastIndexOf("."));
+      const filename = id + "_receipt" + ext;
+      try {
+        let receiptId = await findExistingReceiptByFilename(filename);
+        if (!receiptId) receiptId = await nextReceiptId();
+        out.receipt = await writeReceiptRow(id, filename, receiptId);
+      } catch (err) {
+        console.warn("Receipts row failed for " + filename + ":", err);
+        out.failed.push(filename);
+      }
+    }
+    return out;
   }
 
   async function processPromotedSetDrafts() {
@@ -8367,7 +9079,7 @@
     { key: "reverse",          label: "Reverse (back)",   icon: "🪙", suffix: "_reverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
     { key: "slab_obverse",     label: "Slab — front",     icon: "🔲", suffix: "_slab_obverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
     { key: "slab_reverse",     label: "Slab — back",      icon: "🔲", suffix: "_slab_reverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
-    { key: "reference",        label: "Reference photo",  icon: "🔗", suffix: "_ref",           flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "coin", scope: "coin" },
+    { key: "reference",        label: "Reference photo",  icon: "🔗", suffix: "_reference",     flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "coin", scope: "coin" },
     // --- Set tier ---
     { key: "ogp_obverse",      label: "Package (OGP) — front", icon: "📦", suffix: "_ogp_obverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
     { key: "ogp_reverse",      label: "Package (OGP) — back",  icon: "📦", suffix: "_ogp_reverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
@@ -8376,7 +9088,7 @@
     { key: "subgroup_obverse", label: "Sub-group — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
     { key: "subgroup_reverse", label: "Sub-group — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
     // --- Any tier ---
-    { key: "other",            label: "Other photo",      icon: "🖼️", suffix: "_photo",         flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" }
+    { key: "other",            label: "Other photo",      icon: "🖼️", suffix: "_other",         flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" }
   ];
   function galleryTypeDef(key) { return GALLERY_TYPES.find(t => t.key === key) || null; }
 
@@ -8414,21 +9126,35 @@
   // namespaced by their sub-group id, EXCEPT the implicit default (a flat
   // Set), which keeps the plain {CollectionID}_obverse.png / _reverse.png
   // convention — unambiguous because a Set row has no coin-tier flip sources.
+  //
+  // EXTENSION IS .jpg, NOT .png. Both crop stages bake through
+  // canvas.toBlob(..., "image/jpeg", 0.92), so every file this names has
+  // always been JPEG bytes; naming them .png was simply wrong, and the 29
+  // real rows already on the Photos tab are all .jpg. (Files uploaded to
+  // _Testing under the old .png names are orphaned test data — no Photos
+  // row will ever point at one — and are Ray's to delete whenever
+  // convenient.)
+  //
+  // REPEATABLE TYPES use the full type word and a zero-padded 2-digit index
+  // (AY-00207_reference_01.jpg), matching the existing sheet data rather
+  // than inventing a second convention beside it.
+  const GALLERY_FILE_EXT = ".jpg";
   function galleryFilenameFor(collectionId, type, indexAmongType, subGroupId) {
     const def = galleryTypeDef(type);
     if (!def) return null;
     if (def.flipSource) {
       return {
-        cropped: collectionId + def.suffix + "_cropped.png",
-        raw:     collectionId + def.suffix + "_original.png"
+        cropped: collectionId + def.suffix + "_cropped" + GALLERY_FILE_EXT,
+        raw:     collectionId + def.suffix + "_original" + GALLERY_FILE_EXT
       };
     }
     if (def.tier === "subgroup") {
       const ns = (!subGroupId || subGroupId === DEFAULT_SUBGROUP_ID) ? "" : "_" + subGroupId;
-      return { cropped: collectionId + ns + def.suffix + ".png" };
+      return { cropped: collectionId + ns + def.suffix + GALLERY_FILE_EXT };
     }
-    const n = (def.repeatable && indexAmongType != null) ? "_" + (indexAmongType + 1) : "";
-    return { cropped: collectionId + def.suffix + n + ".png" };
+    const n = (def.repeatable && indexAmongType != null)
+      ? "_" + String(indexAmongType + 1).padStart(2, "0") : "";
+    return { cropped: collectionId + def.suffix + n + GALLERY_FILE_EXT };
   }
 
   // Sparse demo seed, same by-CollectionID convention as FAKE_COIN_DETAILS/
@@ -9937,6 +10663,21 @@
       applyDiscOwnPhoto(discEl, setPhoto, "Photo of this set");
       return;
     }
+    // Tier 0c: this coin's own STORED photo, from the Photos tab (falling
+    // back to the legacy flat All.Obverse/Reverse filename). A cache hit
+    // paints immediately; a miss kicks off one real fetch and swaps the
+    // image in place when it lands, the same live-self-update the reference
+    // image tier below already does. Ranked ahead of the series reference
+    // image deliberately — an actual photograph of THIS coin always beats a
+    // generic picture of its series.
+    const storedName = storedPhotoFilename(coin, side);
+    if (storedName) {
+      const cached = getCachedCoinPhotoUrl(storedName);
+      if (cached) { applyDiscOwnPhoto(discEl, cached, "Photo of this coin"); return; }
+      ensureCoinPhotoFetch(storedName).then(url => {
+        if (url && document.contains(discEl)) applyDiscOwnPhoto(discEl, url, "Photo of this coin");
+      });
+    }
     if (hasReferenceImage(coin, side)) {
       applyRealReferenceImage(discEl, getCachedReferenceImageUrl(seriesKey, side));
     } else {
@@ -10561,9 +11302,20 @@
   // photo, not a real obverse/reverse pair, so only its one flag is checked;
   // an ordinary coin or Roll needs BOTH missing to count (Q5a — either
   // photo present means it's not missing).
+  // Photos-tab first, legacy flat booleans as the fallback. A record with a
+  // real Photos row but a blank All.Obverse (every photo captured through
+  // the new write layer) must not read as "missing a photo" just because
+  // the retired column was never backfilled.
   function coinMissingPhoto(coin) {
-    if (coin.denom === "Multiple") return !coin.hasObversePhoto;
-    return !coin.hasObversePhoto && !coin.hasReversePhoto;
+    if (coin.denom === "Multiple") {
+      // A Set bundle has one representative photo — its own OGP/whole-set
+      // front, or the legacy flat column.
+      return !storedPhotoRowsFor(coin.id).length && !coin.hasObversePhoto;
+    }
+    const rows = storedPhotoRowsFor(coin.id);
+    const hasObv = rows.some(r => r.galleryType === "obverse") || !!coin.hasObversePhoto;
+    const hasRev = rows.some(r => r.galleryType === "reverse") || !!coin.hasReversePhoto;
+    return !hasObv && !hasRev;
   }
 
   // Precious-metal content AND physical specs per coin, mirroring
@@ -12763,14 +13515,43 @@
     if (shippingCost != null) purchaseRows.push(["Shipping", "$" + shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
     if (vendor) purchaseRows.push(["Seller", vendor]);
     if (purchaseDate) purchaseRows.push(["Purchase Date", purchaseDate]);
-    // details.receipt holds the actual stored path directly (same
-    // stored-value-used-directly pattern as coin.certLink) — a real link
-    // when populated, row omitted entirely when blank.
-    if (details.receipt) {
-      purchaseRows.push(["Receipt", `<a href="${details.receipt}" target="_blank" rel="noopener">On file 🔗</a>`]);
+    // Receipt — the Receipts TAB first (falling back to the legacy flat
+    // All.Receipt column, and to the demo lookup with nothing real on file).
+    // Rendered as the filename immediately and upgraded to a real OneDrive
+    // link once that file's webUrl resolves, since this render is
+    // synchronous. The old version linked details.receipt straight into an
+    // href that had never resolved to anything (confirmed 404) — a real
+    // link in markup only.
+    //
+    // "Binder" and anything else without a file extension is NOT a filename
+    // — it is the placeholder meaning the paper receipt hasn't been scanned
+    // yet, on 18 real rows. looksLikeReceiptFilename() is what stops it
+    // becoming a link that can only ever break.
+    const storedReceipt = storedReceiptFor(coin);
+    if (storedReceipt) {
+      const safeName = escapeHtmlText(storedReceipt.filename);
+      purchaseRows.push(["Receipt",
+        `<span id="detailReceiptLink" data-receipt="${safeName}">${safeName}</span>`]);
+    } else {
+      // Nothing that resolves to a real file. A non-filename value is still
+      // worth showing — "Binder" means the paper receipt exists and hasn't
+      // been scanned — just never as a link.
+      const placeholder = [coin.receiptFile, details.receipt].map(v => String(v == null ? "" : v).trim())
+        .find(v => v && !looksLikeReceiptFilename(v));
+      if (placeholder) purchaseRows.push(["Receipt", escapeHtmlText(placeholder) + " (not scanned)"]);
     }
     if (purchaseRows.length) {
       appendAccordion(container, RECORD_SECTIONS.PURCHASE, detailRowsHtml(purchaseRows));
+      // Live self-upgrade to a real link, same pattern applyDiscContent()
+      // uses for a reference image: the row is already on screen, so this
+      // only rewrites it if the element is still in the document.
+      if (storedReceipt) {
+        getCachedReceiptWebUrl(storedReceipt.filename).then(url => {
+          const el = document.getElementById("detailReceiptLink");
+          if (!url || !el || !document.contains(el)) return;
+          el.innerHTML = `<a href="${url}" target="_blank" rel="noopener">${escapeHtmlText(storedReceipt.filename)} 🔗</a>`;
+        });
+      }
     }
 
     // --- 6. Storage (renamed from "Location") — Storage Location and
@@ -13305,6 +14086,11 @@
 
     // --- Photos: the one real photo-editing surface for this coin.
     renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin));
+    // The Receipt slot now writes for real, so it has to be bound to THIS
+    // coin and cleared of the previous one's state. (Nothing ever reset
+    // browseEditReceiptPreview between coins — harmless while Save was a
+    // stub, misleading the moment a capture is committed.)
+    prepareReceiptSlotForRecord("browseEditReceiptPreview", "browseEditReceiptPlaceholder", coin.id);
 
     // --- Specifications: read-only, same markup as detail.
     const specRows = specificationRows(coin);
@@ -13472,6 +14258,10 @@
     renderManagePhotosInto("editSetPhotosSections", buildManagePhotosCtx(coin), {
       showSetChildren: false
     });
+    // A Set's receipt keys on the Set's own CollectionID, so it commits for
+    // real even though Edit Set's FIELD save is still session-only — the
+    // photo/receipt write is self-contained and doesn't depend on it.
+    prepareReceiptSlotForRecord("editSetReceiptPreview", "editSetReceiptPlaceholder", coin.id);
 
     // --- Coins in this Set (identity list, drills into the child's detail
     // page). Leaving Edit Set for a child's detail page is a real navigation
@@ -14807,10 +15597,24 @@
     // slot's own filledBy CollectionID) always wins over the generic series
     // reference image. Resolved independently per side, same as elsewhere.
     const ownEntry = filled ? galleryFlipEntry(slot.filledBy, side) : null;
+    // The slot's coin's own STORED photo (Photos tab, legacy flat column as
+    // fallback), ranked between a just-captured session photo and the
+    // series reference image — the same order applyDiscContent() uses.
+    // String-templated render, so like the reference-image tier this only
+    // reflects what is already cached and kicks off the fetch on a miss; it
+    // picks up on the album's next render/reopen.
+    let storedUrl = null;
+    if (filled && !ownEntry) {
+      const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
+      if (storedName) {
+        storedUrl = getCachedCoinPhotoUrl(storedName);
+        if (!storedUrl) ensureCoinPhotoFetch(storedName);
+      }
+    }
     const referenceCoin = filled ? { description: slotDescription(slot) } : null;
-    const useReference = !ownEntry && referenceCoin && hasReferenceImage(referenceCoin, side);
+    const useReference = !ownEntry && !storedUrl && referenceCoin && hasReferenceImage(referenceCoin, side);
     const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(referenceCoin), side) : null;
-    const photoUrl = ownEntry ? ownEntry.url : referenceUrl;
+    const photoUrl = ownEntry ? ownEntry.url : (storedUrl || referenceUrl);
     const isLittleton = album && album.folderStyle === "littleton";
     const discClasses = ["coin-disc"];
     if (!filled) discClasses.push("empty");
@@ -17226,10 +18030,13 @@
   async function prepareReceiptFile(file) {
     const baseName = (file.name || "receipt").replace(/\.[^.]+$/, "");
     if (isPdfFile(file)) {
-      return { blob: file, filename: baseName + ".pdf" };
+      // sourceWasPdf drives storedReceiptFilename(): a picked PDF keeps its
+      // own name so the same document attached to several coins collides on
+      // filename and de-duplicates to one ReceiptID and one stored file.
+      return { blob: file, filename: baseName + ".pdf", sourceWasPdf: true };
     }
     const blob = await wrapImageFileAsPdf(file);
-    return { blob, filename: baseName + ".pdf" };
+    return { blob, filename: baseName + ".pdf", sourceWasPdf: false };
   }
 
   // receiptFiles[previewId] = { blob, filename } — the actual PDF that would
@@ -17243,6 +18050,128 @@
   // for a future consumer" posture the Add Set draft/reservation system
   // already established.
   const receiptFiles = {};
+
+
+  // ==================================================================
+  // COMMIT A CAPTURED RECEIPT
+  // ==================================================================
+  // Which slots commit for real, and against which record. Edit Coin and
+  // Edit Set register theirs when they open; every other receipt slot (Add
+  // Coin's, which rides its own Staging draft; Wishlist's and Batch
+  // Receipt's, which have no CollectionID to key a row on at all) is absent
+  // from this registry and behaves exactly as it did before.
+  const receiptCommitTargets = {};
+  function registerReceiptCommitTarget(previewId, getCollectionId) {
+    receiptCommitTargets[previewId] = getCollectionId;
+  }
+
+  // A stored receipt's filename, and the one decision that makes
+  // de-duplication actually reachable.
+  //
+  // An ALREADY-PDF pick keeps the picked file's own name. Ray's normal
+  // buying pattern is several coins on one receipt, and the only way two
+  // coins' captures of the same emailed PDF can be recognised as the same
+  // document is if they produce the same filename — which is also exactly
+  // the shape the real data already has (FindersKeepers_2026-06-27_receipt
+  // .pdf spans three coins). Naming every capture {CollectionID}_receipt.pdf
+  // would make the dedupe below dead code on its own common path.
+  //
+  // A PHOTOGRAPHED receipt is inherently per-coin (and a camera's own file
+  // name is meaningless — "image.jpg"), so it keeps the documented
+  // {CollectionID}_receipt.pdf convention.
+  function storedReceiptFilename(collectionId, prepared) {
+    if (prepared && prepared.sourceWasPdf && prepared.filename) {
+      return prepared.filename.replace(/[\\/:*?"<>|]/g, "_");
+    }
+    return collectionId + "_receipt.pdf";
+  }
+
+  // Uploads (unless an identical filename is already on file) and writes or
+  // replaces this coin's Receipts row. Reuses the existing ReceiptID when
+  // the same document is already recorded against another coin, so one
+  // physical receipt stays ONE id and ONE stored file however many coins it
+  // covers.
+  async function commitReceiptCapture(collectionId, prepared) {
+    const filename = storedReceiptFilename(collectionId, prepared);
+    let receiptId = await findExistingReceiptByFilename(filename);
+    const reused = !!receiptId;
+    if (!reused) {
+      await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob);
+      receiptId = await nextReceiptId();
+    }
+    const res = await writeReceiptRow(collectionId, filename, receiptId);
+    return { ...res, filename, reused };
+  }
+
+  // Status line inside the receipt photo-box — the same "a failure has to be
+  // visible on the control itself, not only in a toast" rule the photo tiles
+  // follow. The prepared PDF stays in receiptFiles either way, so a retry
+  // re-uploads without re-picking the file.
+  function showReceiptUploadState(previewId, text, isError, onRetry) {
+    const preview = document.getElementById(previewId);
+    if (!preview) return;
+    const box = preview.closest(".photo-box") || preview.parentElement;
+    if (!box) return;
+    let note = box.querySelector(".receipt-upload-state");
+    if (!note) {
+      note = document.createElement("div");
+      note.className = "receipt-upload-state photo-upload-state";
+      box.appendChild(note);
+    }
+    note.className = "receipt-upload-state photo-upload-state" + (isError ? " failed" : "");
+    note.textContent = text || "";
+    note.style.display = text ? "" : "none";
+    const old = box.querySelector(".receipt-retry-btn");
+    if (old) old.remove();
+    if (isError && onRetry) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "receipt-retry-btn gc-add-btn";
+      btn.style.cssText = "margin-top:6px; padding:4px 10px; font-size:12px;";
+      btn.textContent = "↻ Retry upload";
+      btn.addEventListener("click", onRetry);
+      box.appendChild(btn);
+    }
+  }
+
+  // Binds a receipt slot to a record and clears whatever the previous
+  // record left in it — preview, prepared file, and any upload-state note.
+  function prepareReceiptSlotForRecord(previewId, placeholderId, collectionId) {
+    delete receiptFiles[previewId];
+    registerReceiptCommitTarget(previewId, () => collectionId);
+    const preview = document.getElementById(previewId);
+    if (preview) {
+      preview.style.display = "none";
+      preview.removeAttribute("src");
+    }
+    clearReceiptPdfIndicator(previewId, placeholderId);
+    const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
+    if (placeholder) placeholder.style.display = "";
+    showReceiptUploadState(previewId, "", false, null);
+  }
+
+  function commitReceiptForSlot(previewId) {
+    const getId = receiptCommitTargets[previewId];
+    const prepared = receiptFiles[previewId];
+    if (!getId || !prepared || !prepared.blob) return Promise.resolve(null);
+    const collectionId = getId();
+    if (!collectionId || !addCoinWriteEnabled()) return Promise.resolve(null);
+    showReceiptUploadState(previewId, "Saving…", false, null);
+    return commitReceiptCapture(collectionId, prepared).then(res => {
+      showReceiptUploadState(previewId, res.reused
+        ? "Saved — matched the receipt already on file (" + res.receiptId + ")."
+        : "Saved " + res.filename + " to OneDrive.", false, null);
+      showToast(res.reused
+        ? "Attached " + collectionId + " to the existing receipt " + res.receiptId + "."
+        : "Saved " + res.filename + " to OneDrive.");
+      return res;
+    }).catch(e => {
+      const msg = String(e && e.message ? e.message : e);
+      showReceiptUploadState(previewId, "Not saved — tap retry.", true, () => commitReceiptForSlot(previewId));
+      showToast("Couldn't save the receipt — it's still attached here. (" + msg + ")");
+      return null;
+    });
+  }
 
   // Shared preview-state helpers for a Receipt slot's photo-box — either
   // the shared placeholder-icon shape (wireMockPhotoSlot's slots) or Add
@@ -17317,8 +18246,18 @@
   async function openPhotoAdjust(source, optsOrPreviewId, targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId) {
     const overlay = document.getElementById("photoAdjustOverlay");
     const img = document.getElementById("photoAdjustImg");
-    const circleSize = 240;
+    const circleEl = document.getElementById("photoAdjustCircle");
     const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
+    // Shown BEFORE the size is read: a display:none element measures 0.
+    overlay.classList.remove("hidden");
+    // The guide's real VISIBLE diameter, not its CSS width. This file sets
+    // `* { box-sizing: border-box }` and the circle carries a 2px border, so
+    // its content box is 236px inside a 240px element. The old hardcoded 240
+    // meant the preview scaled the image to 240 inside a 236px window (the
+    // outer ~2px per side sat under the border, unseen) while the bake
+    // exported the full 240 — so the saved image carried a thin ring the
+    // user never framed, ~1.7% of the diameter.
+    const circleSize = circleEl.clientWidth || 240;
     img.onload = () => {
       // Real live-run finding (#5): dragging inside the circle did nothing
       // at the default framing. Root cause is the "cover" fit math in
@@ -17354,7 +18293,6 @@
     // drawImage() honoring EXIF (it never does).
     const orientedCanvas = await loadOrientedImageCanvas(source);
     img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
-    overlay.classList.remove("hidden");
   }
 
   function closePhotoAdjust() {
@@ -17448,9 +18386,15 @@
       const scale = s.baseScale * s.zoom;
       const rotationRad = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
 
+      // Output at the source's own resolution across the guide, rather than
+      // a fixed 480 — this bake is now the STORED image (see
+      // runCropPipeline), so a fixed size would have downsampled every photo
+      // to 480px. circleSize / scale is exactly how many source pixels span
+      // the guide, so this neither up- nor down-samples; the bounds keep a
+      // heavily-zoomed crop legible and match Stage 1's own 1400 cap.
       const canvas = document.createElement("canvas");
-      canvas.width = 480;
-      canvas.height = 480;
+      const nativeAcross = Math.round(s.circleSize / scale);
+      canvas.width = canvas.height = Math.max(480, Math.min(1400, nativeAcross || 480));
       const canvasScale = canvas.width / s.circleSize;
       const ctx = canvas.getContext("2d");
       const img = document.getElementById("photoAdjustImg");
@@ -17786,7 +18730,7 @@
   // subGroupId (optional): only meaningful for the subgroup_* tier — namespaces
   // the photo to one sub-group so each sub-group keeps its own obverse/reverse
   // pair. Omitted/null means the implicit default (a flat Set).
-  function runCropPipeline(file, type, collectionId, onEntry, subGroupId) {
+  function runCropPipeline(file, type, collectionId, onEntry, subGroupId, opts) {
     const def = galleryTypeDef(type);
     if (!def) return;
     const rawUrl = def.retainRaw ? URL.createObjectURL(file) : null;
@@ -17794,26 +18738,48 @@
     const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
     const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
     openBgCrop(file, {
-      title: "Crop — " + def.label,
+      title: "Crop — " + def.label + ((opts && opts.titleSuffix) || ""),
       aspectLock: def.aspect === "square",
       onComplete: (rectBlob) => {
         const rectUrl = URL.createObjectURL(rectBlob);
-        // circleBlob is a session-only display convenience for flip sources
-        // (updates the capture slot's own circular preview) — it is NOT a
-        // stored asset; the flip card re-derives the circle from the stored
-        // rectangle. Null for gallery-only types.
-        const finish = (circleBlob) => onEntry({
-          type, url: rectUrl, rawUrl,
-          circleUrl: circleBlob ? URL.createObjectURL(circleBlob) : null,
-          // The cropped Blob itself, not just its display URL — the (gated,
-          // real) Add Set write path uploads Blobs, so a caller that feeds
-          // that path needs the bytes, not a blob: URL it can't upload.
-          blob: rectBlob,
-          caption: "",
-          filename: names.cropped,
-          rawFilename: names.raw || null,
-          subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
-        });
+        // FOR A FLIP SOURCE, STAGE 2'S OUTPUT IS THE STORED IMAGE.
+        //
+        // SUPERSEDED: circleBlob used to be "a session-only display
+        // convenience — NOT a stored asset; the flip card re-derives the
+        // circle from the stored rectangle." That is what put a visible ring
+        // of background between the coin and the circle's edge, reported live
+        // on AY-00002 and measured directly: the user frames the coin to FILL
+        // the circle guide, and then the card paints the STAGE 1 rectangle
+        // masked to a circle, discarding that framing entirely. With a
+        // realistic Stage-1 crop (coin at 80% of the square — Stage 1 trims
+        // background, it does not make the coin touch all four edges) the
+        // coin rendered at 0.80 of the circle's diameter against the 1.00 the
+        // user had just framed. Stage 2's 110% default zoom guarantees a gap
+        // even when Stage 1 is perfectly tight.
+        //
+        // The card still re-derives the circle by masking a square, exactly
+        // as before — the fix is WHICH square: the one actually framed in the
+        // guide, not the intermediate trim. Still one stored file per side.
+        const finish = (circleBlob) => {
+          // A non-flip type never runs Stage 2, so it keeps the Stage-1
+          // rectangle exactly as before.
+          const framedBlob = circleBlob || rectBlob;
+          const framedUrl = circleBlob ? URL.createObjectURL(circleBlob) : rectUrl;
+          onEntry({
+            type, url: framedUrl, rawUrl,
+            // Same bytes as `url` now for a flip source. Kept because the Add
+            // Coin slot preview reads it (applyCirclePreview).
+            circleUrl: circleBlob ? framedUrl : null,
+            // The cropped Blob itself, not just its display URL — the (gated,
+            // real) Add Set write path uploads Blobs, so a caller that feeds
+            // that path needs the bytes, not a blob: URL it can't upload.
+            blob: framedBlob,
+            caption: "",
+            filename: names.cropped,
+            rawFilename: names.raw || null,
+            subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
+          });
+        };
         if (def.flipSource) {
           // Stage 2: frame the flip-card circle from the clean rectangle.
           openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob) });
@@ -17821,6 +18787,421 @@
           finish(null);
         }
       }
+    });
+  }
+
+
+  // ==================================================================
+  // COMMIT A CAPTURED PHOTO — the step that used to be missing entirely
+  // ==================================================================
+  // Everything above this point produces an in-memory gallery entry holding
+  // a real Blob and a blob: URL. For a record that ALREADY EXISTS on the All
+  // sheet (Edit Coin, Edit Set, the standalone Manage Photos screen opened
+  // on an owned coin or Set) that entry is now written through for real: the
+  // bytes go to CoinPhotos and a row goes to the Photos tab.
+  //
+  // DRAFT-BACKED FLOWS ARE DELIBERATELY UNCHANGED. Add Coin and Add Set both
+  // capture against a record that has no All row yet, and both already
+  // upload into their own Staging folder and relocate on promotion. Writing
+  // straight to CoinPhotos from there would put a coin's photos in the final
+  // location before the coin itself exists, and would strand them if the
+  // draft were rejected. Those flows instead get their Photos/Receipts rows
+  // at promotion time, once the files have actually landed — see
+  // recordPromotedCoinPhotoRows().
+  //
+  // COMMIT IS IMMEDIATE, NOT DEFERRED TO A SAVE BUTTON, because the
+  // standalone Manage Photos screen has no Save button at all and the
+  // embedded sections re-render on every capture.
+  //
+  // A FAILURE IS LOUD AND LOSES NOTHING. This is a phone flow on a
+  // possibly-flaky connection, and silently dropping a capture would
+  // recreate the exact "photo vanished" problem this whole layer exists to
+  // fix. On failure the entry stays in the gallery with its Blob intact and
+  // an uploadError set, the host re-renders with a retry control, and a
+  // toast says so.
+  function photoCommitTargetId(targetId) {
+    // Only a real, already-owned CollectionID commits directly. The Add Coin
+    // temp key and any draft-reserved id fall through to their own flow.
+    if (!targetId || typeof targetId !== "string") return null;
+    // A cheap early-out for the obvious non-records (the Add Coin temp key).
+    // The ownership check below is the enforcement; this only saves a scan.
+    if (!/^AY-\d{5}(-[A-Za-z]+)?$/.test(targetId)) return null;
+    if (!addCoinWriteEnabled()) return null;
+    const owned = activeCoins().some(c => c.id === targetId) ||
+      Object.keys(FAKE_SET_CHILDREN).some(k => FAKE_SET_CHILDREN[k].some(ch => ch.id === targetId));
+    return owned ? targetId : null;
+  }
+
+  // Uploads one entry's file(s) and writes/replaces its Photos row.
+  // Filenames come off the entry itself — runCropPipeline() already built
+  // them against this exact target id, so there is no re-derivation here
+  // (unlike Add Coin, whose entries are named against a temp key).
+  async function commitGalleryPhoto(collectionId, entry) {
+    const p = writePaths();
+    if (!entry.filename) throw new Error("Entry has no filename to store under.");
+    if (entry.blob) {
+      await graph().uploadFile(p.coinPhotos + "/" + entry.filename, entry.blob);
+      // Point the read cache at the bytes just written. Without this a
+      // re-crop that lands on the SAME filename (adjusting an
+      // already-convention-named stored photo) would leave the flip card
+      // and Albums showing the pre-adjust image for the rest of the
+      // session, since both read through getCachedCoinPhotoUrl().
+      if (entry.url) coinPhotoCache[entry.filename] = entry.url;
+    }
+    let rawName = "";
+    if (entry.rawFilename && entry.rawUrl) {
+      const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
+      await graph().uploadFile(p.coinPhotos + "/" + entry.rawFilename, rawBlob);
+      coinPhotoCache[entry.rawFilename] = entry.rawUrl;
+      rawName = entry.rawFilename;
+    }
+    const res = await writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
+    syncStoredPhotoIndexUpsert(collectionId, {
+      photoId: res.photoId,
+      photoType: photoTypeForGalleryType(entry.type),
+      galleryType: entry.type,
+      subGroupId: entry.subGroupId && entry.subGroupId !== DEFAULT_SUBGROUP_ID ? entry.subGroupId : "",
+      filename: entry.filename,
+      originalFilename: rawName,
+      label: entry.caption || ""
+    });
+    return res;
+  }
+
+  // The single path every capture surface now goes through. `done` is the
+  // caller's own re-render (or preview update); it runs immediately so the
+  // photo appears at once, and again after the write settles so a failure
+  // badge can appear.
+  function addGalleryEntryAndCommit(targetId, entry, done) {
+    addGalleryEntry(targetId, entry);
+    const commitId = photoCommitTargetId(targetId);
+    if (!commitId) { if (done) done(entry); return Promise.resolve(null); }
+    entry.uploadPending = true;
+    entry.uploadError = "";
+    if (done) done(entry);
+    return commitGalleryPhoto(commitId, entry).then(res => {
+      entry.uploadPending = false;
+      entry.uploadError = "";
+      entry.storedFilename = entry.filename;
+      // Remember which row this became, so a later Replace on a repeatable
+      // type can update that row in place instead of adding another.
+      if (res && res.photoId) entry.storedPhotoId = res.photoId;
+      if (done) done(entry);
+      showToast("Saved " + entry.filename + " to OneDrive.");
+      return res;
+    }).catch(e => {
+      entry.uploadPending = false;
+      entry.uploadError = String(e && e.message ? e.message : e);
+      if (done) done(entry);
+      showToast("Couldn't save " + entry.filename + " — the photo is still here. Tap ↻ to retry. (" + entry.uploadError + ")");
+      return null;
+    });
+  }
+
+
+  // ==================================================================
+  // STORED PHOTOS IN THE CAPTURE UI — hydration
+  // ==================================================================
+  // Manage Photos (Edit Coin, Edit Set, the standalone screen) rendered
+  // EXCLUSIVELY from galleryStore — this session's captures plus the demo
+  // seed — and had no awareness of the Photos tab at all. So a coin with a
+  // real stored photo drew the "＋" empty face, showed no count, and hid
+  // both Remove and Adjust, because all three are gated on there being a
+  // gallery entry. Found live on AY-00208, whose PH-00004 row points at a
+  // screenshot of a PCGS cert page: the read side was correct, but there
+  // was no way to SEE that from the capture UI, and therefore no way to
+  // understand that tapping 📷 would replace it.
+  //
+  // Hydration merges the record's stored rows into its gallery as entries
+  // marked `stored: true`, so every existing consumer — the pair slots, the
+  // open-ended thumbnails, manageCount() — becomes correct at once rather
+  // than each growing its own Photos-tab lookup.
+  //
+  // A SESSION CAPTURE ALWAYS WINS. An entry already present for a slot is
+  // never overwritten by hydration: it is either newer than the sheet, or
+  // it is the thing currently being uploaded.
+  //
+  // THE FLIP CARD AND THIS MUST RESOLVE PHOTOS THE SAME WAY. They did not,
+  // and that is the second half of the AY-00002 report: storedPhotoFilename()
+  // (the card, Albums) reads the Photos tab and FALLS BACK to the legacy flat
+  // All.Obverse/Reverse column, while this read the Photos tab only. For a
+  // coin recorded only the old way — AY-00002 is one of the five — the card
+  // showed the real photo while Manage Photos drew an empty "＋" slot with no
+  // Replace, no Adjust and no Remove. Reproduced exactly before fixing.
+  //
+  // A legacy-only entry is marked `legacyOnly` because it has no Photos row
+  // behind it: it can be Replaced (which writes a proper row, migrating the
+  // coin onto the tab) but not detached, since this app never writes the flat
+  // columns.
+  function legacyStoredRowsFor(collectionId, existing) {
+    const coin = activeCoins().find(c => c.id === collectionId);
+    if (!coin) return [];
+    const out = [];
+    [["obverse", coin.obversePhotoFile], ["reverse", coin.reversePhotoFile]].forEach(([type, filename]) => {
+      if (!filename) return;
+      if (existing.some(r => r.galleryType === type)) return; // a real row wins
+      out.push({ photoId: "", photoType: photoTypeForGalleryType(type), galleryType: type,
+                 subGroupId: "", filename: String(filename), originalFilename: "", label: "",
+                 legacyOnly: true });
+    });
+    return out;
+  }
+
+  function hydrateStoredPhotos(collectionId) {
+    const tabRows = storedPhotoRowsFor(collectionId);
+    const rows = tabRows.concat(legacyStoredRowsFor(collectionId, tabRows));
+    if (!rows.length) return [];
+    const list = galleryFor(collectionId);
+    const added = [];
+    rows.forEach(row => {
+      const type = row.galleryType;
+      const def = type ? galleryTypeDef(type) : null;
+      if (!def) return; // a PhotoType this build has no gallery type for
+      const sg = def.tier === "subgroup" ? (row.subGroupId || DEFAULT_SUBGROUP_ID) : undefined;
+      const already = list.find(e =>
+        e.stored
+          ? e.storedFilename === row.filename
+          : (e.type === type &&
+             (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === sg) &&
+             (!def.repeatable || e.storedFilename === row.filename)));
+      if (already) {
+        // Keep an existing hydrated entry's fetched url; only refresh the
+        // fields the sheet owns.
+        if (already.stored) {
+          already.caption = row.label || already.caption || "";
+          already.storedPhotoId = row.photoId || already.storedPhotoId || "";
+          already.storedOriginalFilename = row.originalFilename || already.storedOriginalFilename || "";
+        }
+        return;
+      }
+      const entry = {
+        type,
+        url: getCachedCoinPhotoUrl(row.filename),
+        rawUrl: null,
+        circleUrl: null,
+        blob: null,
+        caption: row.label || "",
+        filename: row.filename,
+        rawFilename: null,
+        subGroupId: sg,
+        stored: true,
+        legacyOnly: !!row.legacyOnly,
+        storedFilename: row.filename,
+        storedPhotoId: row.photoId || "",
+        storedOriginalFilename: row.originalFilename || ""
+      };
+      list.push(entry);
+      added.push(entry);
+    });
+    return added;
+  }
+
+  // Fetches the thumbnails for whichever hydrated entries don't have one
+  // yet, then re-renders ONCE — not once per photo, and only if something
+  // actually resolved, so this can't loop against the re-render it triggers.
+  // ensureCoinPhotoFetch() dedupes per filename per session, so a repeat
+  // render costs nothing.
+  function ensureStoredThumbs(collectionId, render) {
+    const pending = galleryFor(collectionId).filter(e => e.stored && !e.url && e.storedFilename);
+    if (!pending.length) return;
+    Promise.all(pending.map(e =>
+      ensureCoinPhotoFetch(e.storedFilename).then(url => { if (url) { e.url = url; return true; } return false; })
+    )).then(results => { if (results.some(Boolean) && render) render(); });
+  }
+
+  // Whether a stored flip-source photo has a raw we can genuinely re-crop.
+  // Two ways: the sheet's own OriginalFilename column, or our own
+  // _cropped/_original naming pair, which this layer always uploads
+  // together. A legacy hand-filed name (AY-00208_obverse.jpg) has neither,
+  // so Adjust correctly stays hidden there — its real fix is Replace.
+  //
+  // Deliberately NOT offering "re-crop the displayed file": that re-crops
+  // an already-cropped, already-compressed JPEG, which is a real quality
+  // loss rather than a neutral convenience.
+  function storedRawFilenameFor(entry) {
+    if (!entry || !entry.stored) return "";
+    if (entry.storedOriginalFilename) return entry.storedOriginalFilename;
+    const name = entry.storedFilename || "";
+    return name.indexOf("_cropped.") !== -1 ? name.replace("_cropped.", "_original.") : "";
+  }
+
+  // Re-opens the crop pipeline on a stored photo. Fetches the bytes back out
+  // of CoinPhotos rather than assuming anything is still in memory — a
+  // stored photo was never captured this session.
+  //
+  // SOURCE PRIORITY, and the tradeoff behind it. The raw is used whenever
+  // one is genuinely available, because cropping from the untouched capture
+  // is lossless. When there isn't one, this falls back to re-cropping the
+  // DISPLAYED file — which does lose a little quality, since it re-encodes
+  // an already-cropped, already-compressed JPEG.
+  //
+  // That fallback exists because the restriction it replaces was too tight
+  // in practice: most photos already on the Photos tab predate the crop
+  // pipeline entirely and will NEVER have a resolvable raw, yet they are
+  // exactly the ones that are visibly mis-framed — off-centre, letterboxed,
+  // not filling the circle. Offering only Replace there meant re-taking a
+  // photo of a coin that may not be to hand, to fix framing.
+  //
+  // "Resolvable" means actually FETCHABLE, not merely name-derivable: a
+  // _cropped file implies an _original sibling by convention, but an older
+  // build may never have uploaded one, so a 404 falls through to the
+  // displayed file rather than dead-ending.
+  //
+  // What gets WRITTEN is identical either way — see
+  // replaceGalleryEntryAndCommit(). This only decides what the crop tool
+  // opens on.
+  // The source decision, split out so it can be exercised directly — it is
+  // the whole of what this change decides, and driving it through the real
+  // crop overlay would test the overlay instead.
+  async function resolveStoredAdjustSource(entry) {
+    if (!entry || !entry.storedFilename) return null;
+    const rawName = storedRawFilenameFor(entry);
+    const rawUrl = rawName ? await ensureCoinPhotoFetch(rawName) : null;
+    if (rawUrl) return { url: rawUrl, filename: rawName, fromRaw: true };
+    const url = await ensureCoinPhotoFetch(entry.storedFilename);
+    return url ? { url, filename: entry.storedFilename, fromRaw: false } : null;
+  }
+
+  async function adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done) {
+    const src = await resolveStoredAdjustSource(entry);
+    if (!src) { showToast("Couldn't load this photo to adjust it — use Replace instead."); return; }
+    const blob = await fetch(src.url).then(r => r.blob());
+    if (!src.fromRaw) {
+      showToast("No original on file — adjusting the stored photo itself, which re-crops it.");
+    }
+    runCropPipeline(blob, typeKey, targetId, (newEntry) => {
+      replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+    }, subGroupId, { titleSuffix: src.fromRaw ? " (from the original)" : " (re-crop)" });
+  }
+
+  // Replacing one specific photo — the pair slots' Replace, the open-ended
+  // thumbnails' Replace, and the Adjust round trip all land here.
+  //
+  // Carries the replaced photo's identity forward: its PhotoID (so the row
+  // is updated in place rather than dropped and re-added) and its
+  // caption/Label when the replacement doesn't bring one. Writes the
+  // CURRENT convention filename and updates the row to match; the old file
+  // is left on disk, never deleted.
+  function replaceGalleryEntryAndCommit(targetId, oldEntry, newEntry, done) {
+    const list = galleryFor(targetId);
+    const at = list.indexOf(oldEntry);
+    if (!newEntry.caption && oldEntry && oldEntry.caption) newEntry.caption = oldEntry.caption;
+    if (oldEntry && oldEntry.storedPhotoId) newEntry.storedPhotoId = oldEntry.storedPhotoId;
+    if (at >= 0) list.splice(at, 1);
+    return addGalleryEntryAndCommit(targetId, newEntry, done);
+  }
+
+  // Retry for a capture whose upload failed. The Blob never left memory, so
+  // this is the same call again with nothing re-captured.
+  function retryGalleryPhotoCommit(targetId, entry, done) {
+    if (!entry || !entry.uploadError) return Promise.resolve(null);
+    entry.uploadError = "";
+    return addGalleryEntryAndCommitExisting(targetId, entry, done);
+  }
+  function addGalleryEntryAndCommitExisting(targetId, entry, done) {
+    const commitId = photoCommitTargetId(targetId);
+    if (!commitId) { if (done) done(entry); return Promise.resolve(null); }
+    entry.uploadPending = true;
+    if (done) done(entry);
+    return commitGalleryPhoto(commitId, entry).then(res => {
+      entry.uploadPending = false;
+      entry.uploadError = "";
+      entry.storedFilename = entry.filename;
+      if (res && res.photoId) entry.storedPhotoId = res.photoId;
+      if (done) done(entry);
+      showToast("Saved " + entry.filename + " to OneDrive.");
+      return res;
+    }).catch(e => {
+      entry.uploadPending = false;
+      entry.uploadError = String(e && e.message ? e.message : e);
+      if (done) done(entry);
+      showToast("Still couldn't save " + entry.filename + ". (" + entry.uploadError + ")");
+      return null;
+    });
+  }
+
+  // Removing a photo detaches its Photos ROW and never deletes the file.
+  // The _original raw is locked in as "never deleted" by the crop-commit
+  // convention, and this write layer deliberately has no delete primitive
+  // for workbook records — a blanked row simply returns to the claimable
+  // pool, which is the same mechanism from the other side.
+  function detachGalleryPhoto(targetId, entry) {
+    const commitId = photoCommitTargetId(targetId);
+    if (!commitId || !entry) return Promise.resolve({ detached: false, noRecord: true });
+    const def = galleryTypeDef(entry.type);
+    const byName = (def && def.repeatable) || !def;
+    const filename = entry.storedFilename || entry.filename;
+    const p = byName
+      ? detachPhotoRowByFilename(commitId, filename)
+      : detachPhotoRow(commitId, entry.type, entry.subGroupId);
+    return p.then(res => {
+      // Keep the session's Photos index in step, or the next re-render
+      // hydrates the row straight back and the photo reappears.
+      if (res && res.detached) {
+        if (byName) syncStoredPhotoIndexRemoveByFilename(commitId, filename);
+        else syncStoredPhotoIndexRemove(commitId, photoTypeForGalleryType(entry.type), entry.subGroupId);
+      }
+      return res;
+    }).catch(e => ({ detached: false, error: e && e.message ? e.message : String(e) }));
+  }
+
+  // Trash — CONFIRMED FIRST. This sits immediately beside Replace's camera
+  // and library icons with no visual separation, which is exactly how it got
+  // tapped by accident on a real device, and the confirmation this was
+  // supposed to have was never wired.
+  //
+  // The removal is also no longer optimistic: the entry leaves this screen
+  // only once the workbook row is actually detached. Removing locally and
+  // firing the write off unawaited is what let the screen and the sheet
+  // disagree — the same defect class as the stale index above.
+  // Whether the legacy flat All column would STILL point at a photo for this
+  // side once the Photos row is gone. When it would, removing the row does
+  // not make the photo disappear — the card and this screen both fall back
+  // to it — and saying so up front is better than the user removing it and
+  // watching it stay.
+  function legacyFallbackFilenameFor(collectionId, type) {
+    if (type !== "obverse" && type !== "reverse") return "";
+    const coin = activeCoins().find(c => c.id === collectionId);
+    if (!coin) return "";
+    return String((type === "reverse" ? coin.reversePhotoFile : coin.obversePhotoFile) || "");
+  }
+
+  function confirmRemoveGalleryPhoto(targetId, entry, onRemoved) {
+    const def = galleryTypeDef(entry && entry.type);
+    const label = (def && def.label) || "this photo";
+    const legacyOnly = !!(entry && entry.legacyOnly);
+    const legacyKeeps = !legacyOnly && !!legacyFallbackFilenameFor(targetId, entry && entry.type);
+    const body = legacyOnly
+      ? "<p>This photo is recorded in the old <strong>All</strong> sheet columns, which this app never writes — so it can't be removed from here.</p>" +
+        "<p>Use <strong>Replace</strong> instead: that writes a proper Photos row and moves the coin onto the Photos tab.</p>"
+      : "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this record?</p>" +
+        "<p>Its row on the <strong>Photos</strong> tab is detached. The stored file itself is never deleted, so nothing is lost — you can re-attach it by capturing again.</p>" +
+        (legacyKeeps
+          ? "<p><strong>Note:</strong> this coin also has a photo recorded in the old <strong>All</strong> sheet columns, which this app never writes. Removing the Photos row won't make the photo disappear — it will keep showing from there.</p>"
+          : "");
+    showWriteGuard({
+      title: legacyOnly ? "Can't remove this one" : "Remove photo?",
+      bodyHtml: body,
+      buttons: legacyOnly
+        ? [{ label: "OK" }]
+        : [
+            { label: "Cancel" },
+            { label: "Remove", primary: true, onClick: async () => {
+                const res = await detachGalleryPhoto(targetId, entry);
+                if (res && res.error) {
+                  showToast("Couldn't detach the workbook row — nothing was removed. (" + res.error + ")");
+                  return;
+                }
+                if (res && !res.detached && !res.noRecord) {
+                  showToast("No Photos row was found for this one — nothing to remove.");
+                  return;
+                }
+                if (onRemoved) onRemoved();
+                showToast(legacyKeeps
+                  ? "Photos row detached. The photo still shows from the old All-sheet column, which this app doesn't write."
+                  : "Photos row detached. The stored file is untouched.");
+              } }
+          ]
     });
   }
 
@@ -17910,22 +19291,42 @@
     // blob: URL — fetch() on a blob: URL returns its underlying Blob — since
     // only the URL, not the original File object, survives across a
     // re-render; runCropPipeline/loadOrientedImageCanvas work from any Blob.
-    const canReadjust = !!(def.retainRaw && entry && entry.rawUrl);
+    // A session capture re-crops from its own in-memory raw. A STORED photo
+    // can always be adjusted: from its raw when one is resolvable, otherwise
+    // from the displayed file itself (see adjustStoredPhoto() for the
+    // quality tradeoff and why the raw-only restriction was too tight).
+    // Still flip sources only — retainRaw is the existing rule for which
+    // types have an adjuster at all, and mis-framing is a circle problem.
+    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || entry.stored));
+    const adjustsRaw = !!(entry && (entry.rawUrl || storedRawFilenameFor(entry)));
+    const adjustTitle = adjustsRaw ? "Adjust crop (from the original)" : "Adjust crop (re-crops the stored photo)";
+    // A filled slot's capture buttons are a REPLACE, and say so. This is
+    // the gap AY-00208 exposed: the buttons were always here, but a slot
+    // holding a stored photo drew the empty "＋" face and never said what
+    // tapping them would do.
+    const filled = !!entry;
+    const verb = filled ? "Replace" : "Add";
+    const loadingStored = !!(entry && entry.stored && !entry.url);
 
     const slot = document.createElement("div");
     slot.className = "sg-photo-slot";
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
-      : `<div class="sg-photo-empty">${entry ? def.icon : "＋"}</div>`;
+      : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
     slot.innerHTML = `
       ${face}
       <div class="sg-photo-label">${label}</div>
+      ${filled ? `<div class="sg-photo-replace">Replace</div>` : ""}
       <div class="sg-photo-actions">
-        <button type="button" data-act="camera" aria-label="Take photo with camera" title="Camera">📷</button>
-        <button type="button" data-act="library" aria-label="Choose photo from library" title="Library">🖼️</button>
-        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>` : ""}
+        <button type="button" data-act="camera" aria-label="${verb} photo using the camera" title="${verb} — camera">📷</button>
+        <button type="button" data-act="library" aria-label="${verb} photo from the library" title="${verb} — library">🖼️</button>
+        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">⤢</button>` : ""}
+        ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
       </div>
+      ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
+      ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
+      ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
     `;
@@ -17937,24 +19338,37 @@
       const f = input.files[0];
       if (!f) return;
       runCropPipeline(f, typeKey, targetId, (newEntry) => {
-        addGalleryEntry(targetId, newEntry);
-        if (onChange) onChange(newEntry, typeKey);
+        const done = () => { if (onChange) onChange(newEntry, typeKey); };
+        // Replacing carries the old photo's PhotoID and Label forward so
+        // its row is updated in place, not dropped and re-added.
+        if (entry) replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+        else addGalleryEntryAndCommit(targetId, newEntry, done);
       }, subGroupId);
     };
     cam.addEventListener("change", () => handle(cam));
     lib.addEventListener("change", () => handle(lib));
     const adjustBtn = slot.querySelector('[data-act="adjust"]');
     if (adjustBtn) adjustBtn.addEventListener("click", async () => {
-      const raw = await fetch(entry.rawUrl).then(r => r.blob());
-      runCropPipeline(raw, typeKey, targetId, (newEntry) => {
-        addGalleryEntry(targetId, newEntry);
-        if (onChange) onChange(newEntry, typeKey);
-      }, subGroupId);
+      const done = () => { if (onChange) onChange(entry, typeKey); };
+      if (entry.rawUrl) {
+        const raw = await fetch(entry.rawUrl).then(r => r.blob());
+        runCropPipeline(raw, typeKey, targetId, (newEntry) => {
+          replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+        }, subGroupId);
+      } else {
+        adjustStoredPhoto(targetId, entry, typeKey, subGroupId, done);
+      }
+    });
+    const retryBtn = slot.querySelector('[data-act="retry"]');
+    if (retryBtn) retryBtn.addEventListener("click", () => {
+      retryGalleryPhotoCommit(targetId, entry, () => { if (onChange) onChange(entry, typeKey); });
     });
     const rm = slot.querySelector('[data-act="remove"]');
     if (rm) rm.addEventListener("click", () => {
-      removeGalleryEntry(targetId, idx);
-      if (onChange) onChange(null, typeKey);
+      confirmRemoveGalleryPhoto(targetId, entry, () => {
+        removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
+        if (onChange) onChange(null, typeKey);
+      });
     });
     return slot;
   }
@@ -18297,15 +19711,47 @@
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
       thumb.className = "gc-thumb";
+      const loadingStored = !!(entry.stored && !entry.url);
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+        ${entry.uploadError ? `<button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${galleryThumbInner(entry)}
+        ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
+        ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
+        ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
+        <div class="gc-replace-row">
+          <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
+          <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
+          <span class="gc-replace-label">Replace</span>
+        </div>
+        <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
+        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
         <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
       `;
+      // Per-thumbnail Replace. A repeatable type has no fixed slot to match
+      // on, so this carries the photo's own PhotoID (and its Label) forward
+      // and updates that row in place rather than losing them.
+      const repCam = thumb.querySelector('[data-role="rep-cam-input"]');
+      const repLib = thumb.querySelector('[data-role="rep-lib-input"]');
+      thumb.querySelector('[data-role="rep-cam"]').addEventListener("click", () => { repCam.value = ""; repCam.click(); });
+      thumb.querySelector('[data-role="rep-lib"]').addEventListener("click", () => { repLib.value = ""; repLib.click(); });
+      const handleReplace = (input) => {
+        const f = input.files[0];
+        if (!f) return;
+        runCropPipeline(f, typeKey, targetId, (newEntry) => {
+          replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
+        });
+      };
+      repCam.addEventListener("change", () => handleReplace(repCam));
+      repLib.addEventListener("change", () => handleReplace(repLib));
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
-        removeGalleryEntry(targetId, index);
-        render();
+        confirmRemoveGalleryPhoto(targetId, entry, () => {
+          removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
+          render();
+        });
       });
+      const retry = thumb.querySelector(".gc-retry");
+      if (retry) retry.addEventListener("click", () => retryGalleryPhotoCommit(targetId, entry, render));
       thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
       grid.appendChild(thumb);
     });
@@ -18328,8 +19774,7 @@
       const f = input.files[0];
       if (!f) return;
       runCropPipeline(f, typeKey, targetId, (entry) => {
-        addGalleryEntry(targetId, entry);
-        render();
+        addGalleryEntryAndCommit(targetId, entry, render);
       });
     };
     cam.addEventListener("change", () => handle(cam));
@@ -18370,6 +19815,15 @@
     options = options || {};
     const render = () => renderManagePhotosInto(hostId, ctx, options);
     const returnHere = options.onReturnHere || (() => {});
+    // Merge in whatever this record already has on the Photos tab, so every
+    // section below shows the CURRENT photo for each slot rather than an
+    // empty "＋". Pure in-memory (the index is already fetched); the
+    // thumbnails themselves are fetched once per filename per session and
+    // trigger exactly one re-render when they land.
+    if (ctx.id) {
+      hydrateStoredPhotos(ctx.id);
+      ensureStoredThumbs(ctx.id, render);
+    }
     // Preserve which sections were open across a re-render (a capture
     // re-renders the whole screen, and collapsing everything underfoot would
     // be jarring).
@@ -18607,8 +20061,7 @@
       const type = pendingType;
       pendingType = null;
       runCropPipeline(file, type, id, (entry) => {
-        addGalleryEntry(id, entry);
-        render();
+        addGalleryEntryAndCommit(id, entry, render);
       });
     };
     camInput.addEventListener("change", () => handleAdd(camInput));
@@ -18712,8 +20165,7 @@
         slotFiles[frameId] = file;
         const id = getGalleryId();
         runCropPipeline(file, galleryType, id, (entry) => {
-          addGalleryEntry(id, entry);
-          applyCirclePreview(entry.circleUrl);
+          addGalleryEntryAndCommit(id, entry, () => applyCirclePreview(entry.circleUrl));
         });
       } else if (frameId) {
         // Circular coin photo — crop/zoom/pan before it becomes the preview.
@@ -18721,8 +20173,9 @@
         openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
       } else if (isPdfFile(file)) {
         // Already a PDF — passes through unchanged, no image preview to show.
-        receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf" };
+        receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf", sourceWasPdf: true };
         showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
+        commitReceiptForSlot(previewId);
       } else {
         // Receipt photo — plain rectangular live preview, no crop adjuster,
         // but still needs EXIF orientation applied explicitly (a raw blob
@@ -18737,6 +20190,7 @@
         // wrap failure must never break the preview that already succeeded.
         try {
           receiptFiles[previewId] = await prepareReceiptFile(file);
+          commitReceiptForSlot(previewId);
         } catch (e) {
           console.warn("Receipt PDF wrap failed for " + previewId + ":", e);
           delete receiptFiles[previewId];
@@ -18758,8 +20212,7 @@
         if (galleryType && getGalleryId) {
           const id = getGalleryId();
           runCropPipeline(file, galleryType, id, (entry) => {
-            addGalleryEntry(id, entry);
-            applyCirclePreview(entry.circleUrl);
+            addGalleryEntryAndCommit(id, entry, () => applyCirclePreview(entry.circleUrl));
           });
         } else {
           openPhotoAdjust(file, previewId, frameId, placeholderId, dotId, adjustBtnId);
