@@ -16823,7 +16823,17 @@
     // --- Other / Requires Photos. Rolls are never nag-worthy here (Q5b),
     // though they still appear in the standing Missing Photos audit filter
     // regardless of any dismissal below.
-    FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
+    //
+    // Real bug, same pattern already hit once in this file
+    // (applyDocketResolution() checking FAKE_COINS instead of activeCoins(),
+    // fixed in the Phase 2 write-path work): this used to read FAKE_COINS
+    // directly, so a live session's Docket always nagged about demo coins'
+    // missing photos instead of the real collection's. coinMissingPhoto()
+    // itself was already correct (storedPhotoRowsFor() reads the real
+    // LIVE_PHOTOS index, and mapWorkbookRowToCoin() sets a live coin's own
+    // hasObversePhoto/hasReversePhoto from the real All.Obverse/Reverse
+    // columns) — only the array being iterated was wrong.
+    activeCoins().filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
       otherRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
         // This row's flagged gap IS a photo gap, so it routes to Manage

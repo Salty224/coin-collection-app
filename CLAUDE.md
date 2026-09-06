@@ -6209,6 +6209,72 @@ he confirmed, not a further guess.
   — if it's still wrong, that's new information from an actual device, not
   a repeat of the same back-and-forth.
 
+### Docket: "Other / Requires Photos" read FAKE_COINS in a live session (BUILT, held on branch `claude/docket-missing-photos-live`, NOT merged)
+Real bug from Ray's report: the Docket's photo-gap section showed fake/demo
+coins in a live session — the same failure pattern as the Spotlight bug
+fixed on `claude/live-data-and-composition-fixes` (a data source with no
+live path), and the same class of bug this codebase had already hit once
+elsewhere in the Docket (`applyDocketResolution()` reading `FAKE_COINS`
+instead of `activeCoins()`, fixed in the Phase 2 write-path work).
+
+**Root cause, traced rather than guessed: exactly one line, and it's
+distinct from the previously-fixed instance.** `renderNeedsAttentionHub()`'s
+photo-gap block read `FAKE_COINS.filter(c => !c.rollId && coinMissingPhoto(c)
+&& !dismissedCoinPhotoGaps.has(c.id))` directly — unconditionally, with no
+live path at all. This is a DIFFERENT function/call site from the earlier
+`applyDocketResolution()` fix (that one resolves a Docket queue entry's
+CoinID re-link; this one builds the "Other / Requires Photos" row list) —
+the same class of gap recurring in a second, unrelated spot, not a
+regression of the earlier fix.
+
+**The missing-photo CHECK ITSELF (`coinMissingPhoto()`) needed NO change —
+confirmed by tracing it, not assumed.** Per the explicit instruction not to
+assume a "missing photo" report is real without tracing it to a live row:
+- `coinMissingPhoto()` already checks `storedPhotoRowsFor(coin.id)` FIRST —
+  the real Photos-tab index (`LIVE_PHOTOS`, populated by the just-merged
+  photo/receipt write layer) — before ever falling back to the coin's own
+  `hasObversePhoto`/`hasReversePhoto` flags.
+- Those flags themselves are **real** for a live coin, not a demo-only
+  field: `mapWorkbookRowToCoin()` sets them straight from
+  `!!colVal(row, "Obverse")` / `!!colVal(row, "Reverse")` — the real
+  All-sheet flat photo columns. `FAKE_COINS`' own sparse
+  `hasObversePhoto`/`hasReversePhoto` fields are a demo-only stand-in
+  (documented in this file as deliberately sparse so the demo hub doesn't
+  flood with ~20 rows at once) — but they were never what a LIVE coin
+  reads; a live coin was always going through the real column mapping.
+  **So the check function was correct all along; only the array being
+  iterated (`FAKE_COINS` instead of `activeCoins()`) was wrong.**
+
+**Fix**: `FAKE_COINS.filter(...)` → `activeCoins().filter(...)`, one line,
+same filter shape (`!c.rollId && coinMissingPhoto(c) &&
+!dismissedCoinPhotoGaps.has(c.id)`) — Rolls still excluded (Q5b, unchanged),
+a Set-bundle row still included (its own single-photo check inside
+`coinMissingPhoto()` is untouched), and `dismissedCoinPhotoGaps` (the
+in-memory, ephemeral dismissal set) still applies unchanged whether the IDs
+come from live or demo data.
+
+**Verified headless — new committed suite
+`tests/verify_docket_missing_photos_live.js` (9 assertions), all passing;
+1276 across 30 suites, zero failures, zero page errors.** Covers: a real
+live coin with no photo appearing in the Docket's photo-gap list; a real
+live coin with both photos correctly excluded; no `FAKE_COINS` demo name
+leaking into a live session's list (the exact reported symptom); the check
+itself correctly reading a live coin's real state through BOTH signals —
+a coin whose photos exist only in the real Photos-tab index (no coin-level
+flag at all) is correctly recognized as not missing, and a coin with
+neither signal is correctly still flagged; demo mode is unchanged (no live
+override still shows `FAKE_COINS`' own gaps); and a nav/overflow smoke
+check. **Two verified negative controls**: an in-page probe re-deriving the
+pre-fix `FAKE_COINS.filter(...)` reproduces demo names regardless of the
+live override; and — the stronger one — reverting the actual app-level fix
+(`activeCoins()` back to `FAKE_COINS` in the real function) reproduces the
+exact reported symptom and fails the two assertions built to catch it.
+Screenshot reviewed at 412px: only the live coin genuinely missing a photo
+appears in the section, with Dismiss intact.
+- **Not verified: any real device, any real OneDrive session.**
+- **Held on its own branch, not merged, per the explicit instruction** —
+  report findings and the fix before merge.
+
 ### Docket: three collapsible sections (BUILT and merged to main)
 The Docket opened onto one long flat list of everything needing action —
 undigestible in practice. Replaced with three collapsed-by-default
