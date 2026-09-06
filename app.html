@@ -5358,6 +5358,69 @@
   function __setLiveLookupGradersForTest(rows) { LIVE_LOOKUP_GRADERS = rows; } // test-only seam
   function __setLiveCoinsForTest(rows) { LIVE_COINS = rows; } // test-only seam — stands in for a real fetch landing, for renderStats()/activeCoins() tests
 
+  // ---- Specifications source (live) ----------------------------------
+  // Extracted out of ensureLiveNavDataFetch() deliberately, so the merge rule
+  // below can be driven directly by a test rather than only through a real
+  // Graph round trip this environment can't make. Same reasoning that split
+  // resolveStoredAdjustSource() out of its own call site.
+  function specNum(v) { const n = Number(v); return (v === "" || v == null || isNaN(n)) ? null : n; }
+
+  // DB_Coins carries every field the Specifications panel shows, so a live
+  // coin reaches its specs through its own catalog row and never goes near
+  // FAKE_METAL_CONTENT (see metalContentFor() for the wrong-coin collision
+  // that caused). Lookup_MetalContent is keyed by coin TYPE and only tops up
+  // what that row leaves blank.
+  function buildCoinSpecsIndexes(dbCoinsRows, metalContentRows) {
+    const byCoinId = {};
+    (dbCoinsRows || []).forEach(row => {
+      const coinId = colVal(row, "CoinID");
+      if (!coinId) return;
+      const composition = colVal(row, "Composition");
+      byCoinId[coinId] = {
+        composition: composition ? String(composition) : "",
+        weight: specNum(colVal(row, "Weight")),
+        goldOz: specNum(colVal(row, "GoldOz")),
+        silverOz: specNum(colVal(row, "SilverOz")),
+        platinumOz: specNum(colVal(row, "PlatinumOz")),
+        palladiumOz: specNum(colVal(row, "PalladiumOz")),
+        diameterMm: specNum(colVal(row, "Diameter")),
+        thicknessMm: specNum(colVal(row, "Thickness")),
+        edge: String(colVal(row, "Edge") || ""),
+        reedCount: specNum(colVal(row, "ReedCount"))
+      };
+    });
+    const byContentType = {};
+    (metalContentRows || []).forEach(row => {
+      const coinType = colVal(row, "CoinType");
+      if (!coinType) return;
+      byContentType[coinType] = {
+        composition: String(colVal(row, "Composition") || ""),
+        weight: specNum(colVal(row, "TotalWeight")),
+        goldOz: specNum(colVal(row, "GoldOz")),
+        silverOz: specNum(colVal(row, "SilverOz")),
+        platinumOz: specNum(colVal(row, "PlatinumOz")),
+        palladiumOz: specNum(colVal(row, "PalladiumOz"))
+      };
+    });
+    return { byCoinId, byContentType };
+  }
+
+  // A coin whose CoinID resolves to no catalog row gets NO specs — null,
+  // deliberately empty rather than borrowed from anywhere else. That is the
+  // whole point: a real coin must never inherit another coin's figures.
+  const SPEC_TOPUP_FIELDS = ["composition", "weight", "goldOz", "silverOz", "platinumOz", "palladiumOz"];
+  function resolveCoinSpecs(coinId, contentType, indexes) {
+    if (!indexes) return null;
+    const own = indexes.byCoinId[coinId];
+    if (!own) return null;
+    const byType = (contentType && indexes.byContentType[contentType]) || {};
+    const specs = Object.assign({}, own);
+    SPEC_TOPUP_FIELDS.forEach(k => {
+      if ((specs[k] === null || specs[k] === "") && byType[k] != null && byType[k] !== "") specs[k] = byType[k];
+    });
+    return specs;
+  }
+
   // Lazy and dedup'd, safe to call as often as needed (mirrors
   // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
   // REAL answer lands for both (not just "no token yet"), re-renders
@@ -5429,6 +5492,11 @@
       // as the MetalContentType map above rather than a second walk of the
       // same rows.
       const coinIdToComposition = {};
+      // The Specifications panel's real source. DB_Coins carries every field
+      // it shows directly — Composition, Weight, the four precious-metal Oz
+      // columns, Diameter, Thickness, Edge, ReedCount — so a live coin no
+      // longer has to go anywhere near FAKE_METAL_CONTENT (see
+      // metalContentFor() for the wrong-coin collision that caused).
       dbCoinsRows.forEach(row => {
         const coinId = colVal(row, "CoinID");
         const contentType = colVal(row, "MetalContentType");
@@ -5442,6 +5510,9 @@
         const category = colVal(row, "MetalCategory");
         if (coinType && category) contentTypeToCategory[coinType] = category;
       });
+      // Specifications, keyed both by the coin's own catalog row and by coin
+      // TYPE for the top-up — see buildCoinSpecsIndexes()/resolveCoinSpecs().
+      const specIndexes = buildCoinSpecsIndexes(dbCoinsRows, metalContentRows);
       // The DB_Coins rows are already in hand for the metal join above —
       // cache them as the real catalog too, rather than discarding them and
       // leaving every DB_Coins match running against the 12-row mock (see
@@ -5463,6 +5534,11 @@
         // Silent by design: the corner is supplementary, and inventing a
         // composition for an unlinked coin would be worse than omitting it.
         coin.composition = coinIdToComposition[coin.coinId] || "";
+        // Specifications, from the coin's own catalog row, topped up per
+        // coin TYPE where that row is blank. A coin whose CoinID resolves to
+        // nothing gets NO specs — deliberately empty rather than borrowed.
+        const specs = resolveCoinSpecs(coin.coinId, contentType, specIndexes);
+        if (specs) coin.specs = specs;
         return coin;
       });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
@@ -5475,6 +5551,10 @@
       // before it lands) must re-render it too, or it stays stuck on
       // whatever was on screen when the fetch started.
       else if (activeView && activeView.id === "view-stats") renderStats();
+      // Spotlight sits on the landing view and is now live-data-backed, so
+      // it has to re-render when the fetch lands — otherwise it keeps
+      // whatever it drew before, for a full SPOTLIGHT_DWELL_MS at best.
+      else if (activeView && activeView.id === "view-dashboard") renderSpotlight();
       return true;
     }).catch(err => {
       liveNavDataFetchPromise = null;
@@ -9521,6 +9601,16 @@
       scrollToCaseOnDashboard = false;
     }
 
+    if (viewId === "dashboard") {
+      // The Dashboard is the landing view, and Spotlight is now backed by
+      // live data — but the fetch only ever started from Catalog/Ledger, so
+      // a session that never opened those would show demo coins above the
+      // cabinet indefinitely. Never blocks: it returns immediately when
+      // already loaded or disabled, and re-renders Spotlight itself when it
+      // lands (see ensureLiveNavDataFetch).
+      ensureLiveNavDataFetch();
+      renderSpotlight();
+    }
     if (viewId === "albums") {
       showAlbumsList();
     }
@@ -9750,7 +9840,24 @@
   let spotlightIndex = 0;
   let spotlightSide = "obverse"; // auto-rotation flips this coin's own faces before advancing to the next coin
   let spotlightTimer;
-  const spotlightCoins = FAKE_COINS.slice(0, 5);
+  // Dashboard Spotlight's coins. Was `FAKE_COINS.slice(0, 5)` — a
+  // module-level const evaluated once at load, so the display above the
+  // cabinet showed demo coins forever, even in a live session with the real
+  // collection loaded. Same class as the Ledger/Stats fix: a view never
+  // wired past FAKE_* to activeCoins().
+  //
+  // SETS ARE EXCLUDED, and that is load-bearing rather than tidy. The old
+  // hardcoded slice happened to contain no Denomination="Multiple" row, and
+  // the Set flip-card removal was built on exactly that ("confirmed
+  // coins-only by construction... if spotlightCoins is ever wired to a live
+  // source that could include a Set, this needs revisiting" — CLAUDE.md).
+  // Wiring it live is that moment: a Set has no flip card, so it must never
+  // reach this carousel.
+  const SPOTLIGHT_COUNT = 5;
+  function spotlightCoinList() {
+    const all = activeCoins().filter(c => c && c.id && !isSetRow(c));
+    return all.slice(0, SPOTLIGHT_COUNT);
+  }
   // Per-side dwell (coin-flip interaction redesign) — how long each face
   // shows before the auto-cycle advances (obverse -> pause -> reverse ->
   // pause -> next coin). ~2x the original hardcoded 6500ms; a tunable
@@ -10380,7 +10487,11 @@
   }
 
   function renderSpotlight() {
-    const coin = spotlightCoins[spotlightIndex];
+    const coins = spotlightCoinList();
+    if (!coins.length) return;
+    // The list can change length underneath the index when live data lands.
+    if (spotlightIndex >= coins.length) spotlightIndex = 0;
+    const coin = coins[spotlightIndex];
     const frame = document.getElementById("spotlightFlipFrame");
     frame.style.opacity = 0;
     setTimeout(() => {
@@ -10407,7 +10518,8 @@
     frame.style.cursor = "pointer";
     frame.addEventListener("click", () => {
       if (spotlightSwiped) { spotlightSwiped = false; return; }
-      const coin = spotlightCoins[spotlightIndex];
+      const coin = spotlightCoinList()[spotlightIndex];
+      if (!coin) return;
       browseDetailBackHandler = () => navigate("dashboard");
       spotlightOriginated = true; // this navigate("browse") is case-, not drawer-, originated
       navigate("browse");
@@ -10429,9 +10541,11 @@
       touchStartX = null;
       if (Math.abs(deltaX) < 50) return;
       spotlightSwiped = true;
+      const n = spotlightCoinList().length;
+      if (!n) return;
       spotlightIndex = deltaX < 0
-        ? (spotlightIndex + 1) % spotlightCoins.length
-        : (spotlightIndex - 1 + spotlightCoins.length) % spotlightCoins.length;
+        ? (spotlightIndex + 1) % n
+        : (spotlightIndex - 1 + n) % n;
       spotlightSide = "obverse";
       renderSpotlight();
       resetSpotlightTimer();
@@ -10450,7 +10564,8 @@
         spotlightSide = "reverse";
       } else {
         spotlightSide = "obverse";
-        spotlightIndex = (spotlightIndex + 1) % spotlightCoins.length;
+        const n = spotlightCoinList().length;
+        spotlightIndex = n ? (spotlightIndex + 1) % n : 0;
       }
       renderSpotlight();
     }, SPOTLIGHT_DWELL_MS);
@@ -10620,7 +10735,28 @@
     "AY-00026": { composition: "90% Silver", silverOz: 15.468, metalCategory: "Silver" }  // Roll of 20 Silver Dollars (mixed dates) — 90% silver dollars regardless of specific date, 0.7734 oz/coin x 20
   };
 
+  // Physical specs for one coin — Composition, Weight, Diameter, Edge and
+  // the precious-metal Oz figures behind the Specifications panel.
+  //
+  // THE BUG THIS FIXES. This used to be `FAKE_METAL_CONTENT[coin.id]`, a
+  // MOCK lookup keyed by CollectionID, with no live path at all. In a live
+  // session every real coin whose CollectionID collided with a demo key got
+  // that DEMO COIN's specs. Reported on AY-00002: Ray's 1909 Lincoln Wheat
+  // Cent showed "Silver — 0.3617 oz, 12.5 g, 30.6 mm, Reeded" — every value
+  // an exact match for FAKE_METAL_CONTENT's own "AY-00002", a Walking
+  // Liberty Half. Wrong data presented as fact, not missing data.
+  //
+  // Live specs come from the coin's own DB_Coins row via its CoinID (see
+  // ensureLiveNavDataFetch), which is the same join the flip card's
+  // composition corner and the Metal filter already use.
+  //
+  // THE FALLBACK IS GATED ON DEMO MODE, NOT ON THE COIN. Falling back
+  // per-coin is precisely what produced the collision: a real coin with no
+  // catalog match would silently inherit a demo coin's specs. Once live data
+  // is loaded, a coin either has its own specs or shows none.
   function metalContentFor(coin) {
+    if (!coin) return {};
+    if (LIVE_COINS) return coin.specs || {};
     return FAKE_METAL_CONTENT[coin.id] || {};
   }
 
@@ -12336,10 +12472,22 @@
   function compositionTextFor(coin) {
     const metals = metalContentFor(coin);
     const metalLabels = { goldOz: "Gold", silverOz: "Silver", platinumOz: "Platinum", palladiumOz: "Palladium" };
-    return Object.keys(metalLabels)
+    // The precious-metal breakdown is what melt value hinges on (it is the
+    // reason Composition is promoted to a key fact for Rolls at all), so it
+    // is never dropped.
+    const ozText = Object.keys(metalLabels)
       .filter(key => metals[key] > 0)
       .map(key => metalLabels[key] + " — " + metals[key] + " oz")
       .join(" · ");
+    // ...but a coin with no precious-metal content used to render a BLANK
+    // Composition row even though a real composition string was sitting
+    // right there in the same record — every Bronze/Clad/Copper-Nickel demo
+    // row has carried one since FAKE_METAL_CONTENT was written, and a live
+    // coin now carries DB_Coins' own. Lead with the stated composition and
+    // append the breakdown when there is one.
+    const stated = String(metals.composition || "").trim();
+    if (stated && ozText) return stated + " · " + ozText;
+    return stated || ozText;
   }
 
   // Album linkage: the coin fills a slot somewhere in Albums (Albums.FilledBy
