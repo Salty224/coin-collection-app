@@ -6209,7 +6209,7 @@ he confirmed, not a further guess.
   — if it's still wrong, that's new information from an actual device, not
   a repeat of the same back-and-forth.
 
-### Docket: "Other / Requires Photos" read FAKE_COINS in a live session (BUILT, held on branch `claude/docket-missing-photos-live`, NOT merged)
+### Docket: "Other / Requires Photos" read FAKE_COINS in a live session (BUILT and merged to main)
 Real bug from Ray's report: the Docket's photo-gap section showed fake/demo
 coins in a live session — the same failure pattern as the Spotlight bug
 fixed on `claude/live-data-and-composition-fixes` (a data source with no
@@ -6272,8 +6272,7 @@ exact reported symptom and fails the two assertions built to catch it.
 Screenshot reviewed at 412px: only the live coin genuinely missing a photo
 appears in the section, with Dismiss intact.
 - **Not verified: any real device, any real OneDrive session.**
-- **Held on its own branch, not merged, per the explicit instruction** —
-  report findings and the fix before merge.
+- **Reviewed and approved by Ray, merged to main as-is, no changes.**
 
 ### Docket: three collapsible sections (BUILT and merged to main)
 The Docket opened onto one long flat list of everything needing action —
