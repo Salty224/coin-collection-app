@@ -12208,7 +12208,7 @@
       card.innerHTML = `
         <div class="album-card-icon">📦</div>
         <div class="album-card-info">
-          <div class="album-card-name">${coin.name}</div>
+          <div class="album-card-name">${escapeHtmlText(detailTitleText(coin))}</div>
           <div class="set-card-progress">${coin.category || "Set"} · $${coin.value.toLocaleString()}</div>
         </div>
         <span class="chevron">›</span>
