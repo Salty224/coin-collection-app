@@ -8211,7 +8211,15 @@ not weakening.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round on this branch.
 
-### Photo / receipt write layer — Photos & Receipts tabs (BUILT, held on branch `claude/photo-receipt-write-layer`, NOT merged)
+### Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main)
+Ray reviewed this whole feature (the write layer itself plus every
+live-device follow-up round below — Replace, Adjust's fallback, circle
+framing, Trash confirmation, and the gallery viewer fix) and gave explicit
+go-ahead to merge as-is, no changes. `claude/photo-receipt-write-layer` has
+no commits of its own that aren't now in main's history — **main is the
+source of truth for this whole feature**, same standing as every other
+merged-after-holding branch in this file.
+
 The gallery/crop UI has produced real Blobs and real filenames since it was
 built and then dropped them into an in-memory store, so **every capture
 outside Add Coin's own Staging flow vanished on reload**. And **nothing in
@@ -8219,9 +8227,7 @@ the app had ever written a row to the Photos or Receipts tab** — so even
 the files Add Coin genuinely did upload landed in CoinPhotos/CoinReceipts
 with nothing in the workbook pointing at them. This connects the
 already-proven `graph().uploadFile()` plumbing to the newer UI and adds the
-workbook half. Architectural (a new real write surface touching several
-entry points at once), so **held on its branch pending Ray's explicit
-go-ahead**, same standing as the gallery/crop UI itself was held to.
+workbook half.
 
 **Audit first — what was real vs. stub, read from the code (this corrects
 several assumptions a reader would draw from this file's own history):**
