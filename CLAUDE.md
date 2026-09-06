@@ -11661,6 +11661,33 @@ still doesn't cover Albums; that stays a separate, later task.
   real CoinID never matches any of the 12 `FAKE_DB_COINS` rows); the fix is
   a one-line, obviously-correct follow-on, not a new judgment call, so it
   was made directly rather than deferred.
+- **Key-date star badge (addendum, same branch/session) wired to real
+  `DB_Coins.KeyDate`.** The `.slot-cell.key-date`/`.key-date-badge` (★)
+  mechanism already existed — built for and only ever exercised by
+  `FAKE_ALBUMS`' own hand-set `keyDate: true` flags — so this is purely a
+  new real data source feeding an existing display, no CSS/visual change.
+  `buildAlbumKeyDateIndex(dbCoinsRows)` builds a `Set` of every CoinID whose
+  `KeyDate` cell is non-blank, joined into `groupAlbumSlotsByAlbumId()` the
+  same way composition/specs are already joined from DB_Coins elsewhere in
+  `ensureLiveNavDataFetch()`; `buildLiveAlbums()` gained a fourth
+  `dbCoinsRows` parameter to thread it through.
+  - **Any non-blank value counts, not an exact-match list.** Confirmed real
+    values are `"Key Date"`/`"Semi-Key Date"` plus casing variants
+    (`"Semi-Key"`/`"KEY"`) — rather than hardcoding those four strings (one
+    future data-entry variant away from silently missing a real key date),
+    the check is a plain non-blank test after trimming. The column has no
+    other populated meaning, so this is the correct rule, not just a
+    convenient shortcut.
+  - **Key vs. Semi-Key is deliberately NOT visually distinguished** — same
+    single boolean, same badge for both, per Ray's explicit scope call (the
+    existing CSS has no variant for it, and building one wasn't asked for).
+    Not flagged as needing a decision — building a real visual variant would
+    have been a genuine design choice, not something "trivial once in
+    there," so it was left alone exactly as scoped rather than guessed at.
+  - Applies regardless of whether the slot is filled — key-date-ness is a
+    property of the slot's own coin TYPE/position, not of ownership, same
+    reasoning `slotMintage()` already uses for showing regardless of fill
+    state.
 - **Deliberately out of scope, per the task's explicit instructions**: any
   write capability (adding/swapping a coin into a slot — Browse Edit's own
   write layer doesn't cover Albums either); per-album curated icon/history
@@ -11670,8 +11697,9 @@ still doesn't cover Albums; that stays a separate, later task.
   not this task's to fix.
 
 **Verified headless — new committed suite `tests/verify_albums_live_data.js`
-(52 assertions), all passing, zero page errors; 1328 across all 31 suites,
-zero failures.** Covers: `denomFromCoinId()` against both the mock's `"-M-"`
+(67 assertions, up from 52 once the key-date addendum landed), all passing,
+zero page errors; 1343 across all 31 suites, zero failures.** Covers:
+`denomFromCoinId()` against both the mock's `"-M-"`
 convention and the real double-dash convention (proving they parse
 identically), a dollar-denom code, and malformed/blank/null input;
 `buildLiveAlbums()` end-to-end from synthetic raw sheet rows — the correct
@@ -11699,19 +11727,45 @@ simulations) — reverting `renderAlbumsList()`'s `activeAlbums()` back to
 and reverting the filled-slot tap handler's `activeCoins()` back to
 `FAKE_COINS` fails exactly the two assertions covering that path — both
 reverts were applied to the real file, run, and undone, not just described.
+
+**Key-date addendum coverage (15 new assertions):** `buildAlbumKeyDateIndex()`
+against all four confirmed real values (`"Key Date"`/`"Semi-Key Date"`/
+`"Semi-Key"`/`"KEY"`) plus a blank cell, a row missing the `KeyDate` column
+entirely, a whitespace-only cell, a `null` `dbCoinsRows` array, and a CoinID
+with no matching row — all resolving correctly with no throw;
+`buildLiveAlbums()` end-to-end confirming a Semi-Key-Date coin's slot gets
+`keyDate:true` while a matched-but-blank-KeyDate slot and a no-DB_Coins-match
+slot both get `keyDate:false` (not `true` from mere presence, and not
+`undefined`/a throw); a real render check — the pre-existing `.key-date`
+class and `★` badge genuinely appear on a live key-date slot and genuinely
+don't on an ordinary one, proving the existing mechanism lights up for real
+data rather than just the field being set correctly in isolation. **One more
+negative control verified against the real app code**: reverting
+`groupAlbumSlotsByAlbumId()` to not set `keyDate` at all reproduces the
+pre-fix state and fails exactly the two assertions that depend on it — this
+one applied via an in-page function-reassignment (the same technique the
+`renderStats`/`renderAlbumsList` negative controls elsewhere in this file
+already rely on, confirmed to work) rather than editing the file, plus a
+second, separate real-file revert (`buildLiveAlbums()`'s own
+`keyDateIndex` forced to an always-empty `Set`) run and undone directly
+against `app.html` for extra rigor, which failed the identical two
+assertions.
 - **Not verified: any real device, any real OneDrive session.** This task's
   own instructions call for a live-device pass against the real 6 albums
   (Wheat Cents, Lincoln 1930-58, Memorial Cents, Lincoln 1999-2025, Mercury
   Dimes, Roosevelt Dimes) with their actual real fill counts before this
   merges — held on its branch for exactly that reason, not auto-merged
   despite being a small, well-scoped extension of an already-merged
-  pattern. Two things worth Ray's eyes specifically during that pass,
+  pattern. Three things worth Ray's eyes specifically during that pass,
   beyond "does it crash": whether `denom` derivation is correct for every
-  real album (each should read a clean, single denomination code), and
-  whether any real Albums-sheet row's `AlbumID` fails to match any DB_Sets
-  Album-type row's `SetID` (a slot that would then be silently dropped —
-  the sparse-linkage class of gap this file already documents elsewhere
-  for `SetID`, not something this task built a safety net for).
+  real album (each should read a clean, single denomination code); whether
+  any real Albums-sheet row's `AlbumID` fails to match any DB_Sets Album-type
+  row's `SetID` (a slot that would then be silently dropped — the
+  sparse-linkage class of gap this file already documents elsewhere for
+  `SetID`, not something this task built a safety net for); and whether the
+  real key-date stars land on the coins Ray actually expects (this
+  environment's own confirmation is limited to synthetic fixtures, not the
+  real `DB_Coins.KeyDate` population across all 6 albums' actual slots).
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back

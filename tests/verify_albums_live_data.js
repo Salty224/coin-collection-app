@@ -57,6 +57,18 @@ function rawWishlistRows() {
   ];
 }
 
+// DB_Coins rows for the key-date star badge join. The 1909-S VDB slot
+// (C-1909-S-1C-02) is a confirmed real-style "Semi-Key Date" value; every
+// other slot's CoinID either has no matching row here at all, or a row
+// with a blank KeyDate — both must resolve to keyDate:false.
+function rawDbCoinsRows() {
+  return [
+    { CoinID: "C-1909-S-1C-02", KeyDate: "Semi-Key Date" },
+    { CoinID: "C-1909--1C-01", KeyDate: "" },
+    { CoinID: "C-1916-D-10C-01", KeyDate: "" }
+  ];
+}
+
 module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) => {
   const page = await openApp(PHONE);
 
@@ -326,6 +338,94 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
     return { foundInFake: !!foundInFake, liveCoinId: liveCoin.id };
   }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows() });
   ok(!NEG_M2.foundInFake, "M2 negative control: the live coin's CollectionID (AY-90004) genuinely does not resolve against FAKE_COINS — confirms H2's activeCoins() swap is load-bearing, not incidental");
+
+  // ---------- O. key-date star badge, wired to real DB_Coins.KeyDate ----------
+  const O = await page.evaluate(() => ({
+    keyDateFull: buildAlbumKeyDateIndex([{ CoinID: "C-1", KeyDate: "Key Date" }]).has("C-1"),
+    semiKeyDate: buildAlbumKeyDateIndex([{ CoinID: "C-2", KeyDate: "Semi-Key Date" }]).has("C-2"),
+    semiKeyShort: buildAlbumKeyDateIndex([{ CoinID: "C-3", KeyDate: "Semi-Key" }]).has("C-3"),
+    keyUpper: buildAlbumKeyDateIndex([{ CoinID: "C-4", KeyDate: "KEY" }]).has("C-4"),
+    blank: buildAlbumKeyDateIndex([{ CoinID: "C-5", KeyDate: "" }]).has("C-5"),
+    missingColumn: buildAlbumKeyDateIndex([{ CoinID: "C-6" }]).has("C-6"),
+    whitespaceOnly: buildAlbumKeyDateIndex([{ CoinID: "C-7", KeyDate: "   " }]).has("C-7"),
+    noCoinsAtAll: buildAlbumKeyDateIndex(null).size,
+    noRowsMatchingIrrelevant: buildAlbumKeyDateIndex([{ CoinID: "C-1", KeyDate: "Key Date" }]).has("C-999")
+  }));
+  ok(O.keyDateFull, "O1 \"Key Date\" is truthy");
+  ok(O.semiKeyDate, "O2 \"Semi-Key Date\" is truthy");
+  ok(O.semiKeyShort, "O3 \"Semi-Key\" is truthy");
+  ok(O.keyUpper, "O4 \"KEY\" is truthy");
+  ok(!O.blank, "O5 a blank KeyDate cell is not key-date-ish");
+  ok(!O.missingColumn, "O6 a row missing the KeyDate column entirely doesn't throw and is not key-date-ish");
+  ok(!O.whitespaceOnly, "O7 a whitespace-only cell is treated as blank (trimmed)");
+  ok(O.noCoinsAtAll === 0, "O8 a null dbCoinsRows array degrades to an empty index, not a throw");
+  ok(!O.noRowsMatchingIrrelevant, "O9 a CoinID with no matching row is not key-date-ish");
+
+  const O2 = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows, dbCoinsRows }) => {
+    const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
+    const lincoln = live.find(a => a.setId === "S-2020-AL-01");
+    const keyDateSlot = lincoln.slots.find(s => s.coinId === "C-1909-S-1C-02"); // the VDB — Semi-Key Date
+    const plainSlot = lincoln.slots.find(s => s.coinId === "C-1909--1C-01");    // matched row, blank KeyDate
+    const noMatchSlot = lincoln.slots.find(s => s.coinId === "C-1910--1C-01");  // no DB_Coins row at all
+    return { keyDate: keyDateSlot.keyDate, plain: plainSlot.keyDate, noMatch: noMatchSlot.keyDate };
+  }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows(), dbCoinsRows: rawDbCoinsRows() });
+  ok(O2.keyDate === true, "O10 buildLiveAlbums() end-to-end: the Semi-Key Date coin's slot gets keyDate:true");
+  ok(O2.plain === false, "O11 a slot with a matched DB_Coins row but a blank KeyDate cell gets keyDate:false, not true from mere presence in the index-building rows");
+  ok(O2.noMatch === false, "O12 a slot whose CoinID has no DB_Coins row at all gets keyDate:false, not undefined/throw");
+
+  // Real render check — the badge/`.key-date` class mechanism already
+  // existed (built for FAKE_ALBUMS' own hand-set flags) and needed no CSS
+  // change; this confirms it genuinely lights up for a live slot fed real
+  // data, not just that the data field is set correctly in isolation.
+  const O3 = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows, dbCoinsRows }) => {
+    const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
+    __setLiveAlbumsForTest(live);
+    navigate("albums");
+    const index = live.findIndex(a => a.setId === "S-2020-AL-01");
+    showAlbumDetail(index);
+    document.getElementById("albumPageNextBtn").click();
+    document.getElementById("albumPageNextBtn").click();
+    const keyDateCell = document.querySelector('#albumsDetailContainer .slot-cell[data-coin-id="C-1909-S-1C-02"]');
+    const plainCell = document.querySelector('#albumsDetailContainer .slot-cell[data-coin-id="C-1909--1C-01"]');
+    const result = {
+      keyDateHasClass: keyDateCell.classList.contains("key-date"),
+      keyDateHasBadge: !!keyDateCell.querySelector(".key-date-badge"),
+      plainHasClass: plainCell.classList.contains("key-date"),
+      plainHasBadge: !!plainCell.querySelector(".key-date-badge")
+    };
+    __setLiveAlbumsForTest(null);
+    return result;
+  }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows(), dbCoinsRows: rawDbCoinsRows() });
+  ok(O3.keyDateHasClass && O3.keyDateHasBadge, "O13 a live key-date slot renders the existing .key-date class + ★ badge — the pre-built mechanism lights up for real data");
+  ok(!O3.plainHasClass && !O3.plainHasBadge, "O14 an ordinary live slot gets neither, confirming O13 isn't just always-on");
+
+  // Negative control against the REAL app code: revert groupAlbumSlotsByAlbumId()
+  // to not set keyDate at all and confirm the badge disappears — proves
+  // O13/O10 exercise the real wiring, not a coincidence of the fixture.
+  const NEG_O = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows, dbCoinsRows }) => {
+    const orig = window.groupAlbumSlotsByAlbumId;
+    window.groupAlbumSlotsByAlbumId = function (rows, wantIndex) {
+      const byAlbumId = {};
+      (rows || []).forEach(row => {
+        const albumId = String(colVal(row, "AlbumID"));
+        if (!albumId) return;
+        const coinId = String(colVal(row, "CoinID"));
+        const filledByRaw = colVal(row, "FilledBy");
+        const filledBy = filledByRaw ? String(filledByRaw) : null;
+        const slot = { year: colVal(row, "Year"), mintMark: String(colVal(row, "MintMark")),
+          description: String(colVal(row, "Description")), variety: String(colVal(row, "Variety")),
+          coinId, filledBy, want: false }; // no keyDate key at all — the pre-fix shape
+        (byAlbumId[albumId] || (byAlbumId[albumId] = [])).push(slot);
+      });
+      return byAlbumId;
+    };
+    const live = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
+    window.groupAlbumSlotsByAlbumId = orig;
+    const lincoln = live.find(a => a.setId === "S-2020-AL-01");
+    const keyDateSlot = lincoln.slots.find(s => s.coinId === "C-1909-S-1C-02");
+    return { keyDate: keyDateSlot.keyDate };
+  }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows(), dbCoinsRows: rawDbCoinsRows() });
+  ok(!NEG_O.keyDate, "O15 negative control: reverting groupAlbumSlotsByAlbumId() to not set keyDate reproduces the pre-fix (undefined/falsy) state — confirms O10 isn't a coincidental pass");
 
   // ---------- N. nav / overflow smoke ----------
   const N = await page.evaluate(() => {

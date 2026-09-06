@@ -5513,16 +5513,37 @@
     return set;
   }
 
+  // Raw DB_Coins rows -> a Set of CoinIDs whose KeyDate cell is populated at
+  // all, feeding the album slot key-date star badge (already built, only
+  // ever exercised by FAKE_ALBUMS' own hand-set `keyDate: true` flags).
+  // DB_Coins.KeyDate's confirmed real values are "Key Date"/"Semi-Key
+  // Date" plus a few inconsistently-cased variants ("Semi-Key"/"KEY") — the
+  // column has no other populated meaning, so ANY non-blank value is
+  // treated as key-date-ish rather than matching against an exact string
+  // list, which would only be one future data-entry casing variant away
+  // from silently missing a real key date. Key vs. Semi-Key is
+  // deliberately NOT distinguished here — the existing badge is one boolean
+  // with no visual variant for it today (Ray's explicit scope call).
+  function buildAlbumKeyDateIndex(dbCoinsRows) {
+    const set = new Set();
+    (dbCoinsRows || []).forEach(row => {
+      const coinId = colVal(row, "CoinID");
+      const keyDate = colVal(row, "KeyDate");
+      if (coinId && String(keyDate).trim()) set.add(String(coinId));
+    });
+    return set;
+  }
+
   // Raw Albums-sheet rows -> FAKE_ALBUMS' own slot shape (year/mintMark/
-  // description/variety/coinId/filledBy), grouped by AlbumID. Status is a
-  // calculated column on the real sheet — never read here, and never
-  // re-derived; FilledBy<>"" is the exact same signal it's computed from.
-  // Description and Variety are confirmed always separate real columns
-  // (never comma-embedded) — every mapped slot carries a real `variety`
-  // field, same as the Lincoln Cents entry in FAKE_ALBUMS already does, so
-  // slotDescription()/slotVariety() use it directly rather than falling
-  // back to the legacy comma-split convention.
-  function groupAlbumSlotsByAlbumId(albumRows, wantIndex) {
+  // description/variety/coinId/filledBy/keyDate), grouped by AlbumID.
+  // Status is a calculated column on the real sheet — never read here, and
+  // never re-derived; FilledBy<>"" is the exact same signal it's computed
+  // from. Description and Variety are confirmed always separate real
+  // columns (never comma-embedded) — every mapped slot carries a real
+  // `variety` field, same as the Lincoln Cents entry in FAKE_ALBUMS already
+  // does, so slotDescription()/slotVariety() use it directly rather than
+  // falling back to the legacy comma-split convention.
+  function groupAlbumSlotsByAlbumId(albumRows, wantIndex, keyDateIndex) {
     const byAlbumId = {};
     (albumRows || []).forEach(row => {
       const albumId = String(colVal(row, "AlbumID"));
@@ -5539,7 +5560,8 @@
         variety: String(colVal(row, "Variety")),
         coinId,
         filledBy,
-        want: !filledBy && wantIndex.has(albumId + "::" + coinId)
+        want: !filledBy && wantIndex.has(albumId + "::" + coinId),
+        keyDate: keyDateIndex.has(coinId)
       };
       (byAlbumId[albumId] || (byAlbumId[albumId] = [])).push(slot);
     });
@@ -5555,9 +5577,14 @@
   // computeAlbumGridLayout, renderAlbumPageContent, resolveCoinAlbumLink)
   // works unchanged against either source — the row SHAPE is the contract,
   // same convention as mapWorkbookRowToCoin()/mapWorkbookRowToDbSet().
-  function buildLiveAlbums(albumRows, dbSetsRows, wishlistRows) {
+  //
+  // dbCoinsRows is the raw (unmapped) DB_Coins rows for this same fetch
+  // cycle — joined in for the key-date index the same way composition/specs
+  // are already joined from DB_Coins elsewhere in ensureLiveNavDataFetch().
+  function buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows) {
     const wantIndex = buildAlbumWantIndex(wishlistRows);
-    const slotsByAlbumId = groupAlbumSlotsByAlbumId(albumRows, wantIndex);
+    const keyDateIndex = buildAlbumKeyDateIndex(dbCoinsRows);
+    const slotsByAlbumId = groupAlbumSlotsByAlbumId(albumRows, wantIndex, keyDateIndex);
     const out = [];
     (dbSetsRows || []).forEach(row => {
       const setId = String(colVal(row, "SetID"));
@@ -5952,7 +5979,7 @@
       // array identically (no want matches), so a Wishlist-only failure
       // degrades exactly like an empty sheet, never like a real fetch error.
       if (albumRows) {
-        LIVE_ALBUMS = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows);
+        LIVE_ALBUMS = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
         // The "Assign to Album" dropdown on Add Coin is built once at
         // page-load init from whatever activeAlbums() returned then (demo
         // data, since this fetch can't have resolved yet at that point) —
