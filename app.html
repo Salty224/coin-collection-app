@@ -5500,6 +5500,18 @@
   //     future Container-display or slot-count-validation pass will want
   //     them already sitting on the mapped row rather than a second pass
   //     over the raw sheet).
+  //   - history is new (Copilot pass, 2026-09-06): a real DB_Sets column,
+  //     populated today only on the 6 album rows (S-1909/1916/1930/1946/
+  //     1959/1999-AL-01) — every other DB_Sets row simply has a blank cell
+  //     here, same "sparse until researched" posture as every other
+  //     optional column this file reads. Read unconditionally on every row
+  //     (cheap, and Album-only population is a data fact, not something
+  //     this mapper needs to special-case) and fed straight through to
+  //     buildLiveAlbums() -> album.history, where it displays via
+  //     renderAlbumPageContent()'s existing `album.history || "No history
+  //     notes on file for this set yet."` fallback — an empty string is
+  //     falsy, so a row with no History cell still shows the fallback with
+  //     no extra branching needed.
   function mapWorkbookRowToDbSet(row) {
     const yearRaw = colVal(row, "Year");
     const yearNum = Number(yearRaw);
@@ -5516,7 +5528,8 @@
       productOption: String(colVal(row, "ProductOption")),
       mfgProductId: String(colVal(row, "MfgProductID")),
       containerName: String(colVal(row, "ContainerName")),
-      coinsCount: (coinsRaw === "" || isNaN(coinsNum)) ? null : coinsNum
+      coinsCount: (coinsRaw === "" || isNaN(coinsNum)) ? null : coinsNum,
+      history: String(colVal(row, "History"))
     };
   }
 
@@ -5664,10 +5677,12 @@
         mfgProductId: mapped.mfgProductId,
         containerName: mapped.containerName,
         coinsCount: mapped.coinsCount,
-        // No history blurb exists for a real album yet — deliberately left
-        // unset; renderAlbumPageContent()'s own fallback text ("No history
-        // notes on file for this set yet.") already handles a missing
-        // value, so there's nothing else to build here.
+        // Real History text (Copilot-populated, 6 rows today) — a blank
+        // cell maps to "", which renderAlbumPageContent()'s own
+        // `album.history || "No history notes on file for this set yet."`
+        // already treats as "nothing on file," so the remaining ~unpopulated
+        // albums fall through to that fallback with no extra code needed.
+        history: mapped.history,
         slots
       });
     });

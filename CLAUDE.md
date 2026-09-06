@@ -11767,6 +11767,49 @@ assertions.
   environment's own confirmation is limited to synthetic fixtures, not the
   real `DB_Coins.KeyDate` population across all 6 albums' actual slots).
 
+**History text (addendum, same branch/session) wired to real
+`DB_Sets.History`.** A Copilot pass added a real `History` column to
+DB_Sets, populated today on exactly the 6 album rows
+(`S-1909-AL-01`/`S-1916-AL-01`/`S-1930-AL-01`/`S-1946-AL-01`/`S-1959-AL-01`/
+`S-1999-AL-01`). The history page's own display logic
+(`renderAlbumPageContent()`'s `album.history || "No history notes on file
+for this set yet."`) already existed and needed no change — it was built
+during the original page-flip-book feature specifically anticipating a
+future real source, and this is that source arriving.
+- **`mapWorkbookRowToDbSet()` gained `history: String(colVal(row,
+  "History"))`**, read unconditionally on every DB_Sets row (not just Album
+  rows) — cheap, and matches how every other field on this mapper is read
+  regardless of which rows actually populate it (same as `mfgProductId`/
+  `containerName`/`coinsCount`). A row with no `History` cell maps to `""`
+  — falsy, so it falls straight through to the existing fallback with no
+  extra branching.
+- **`buildLiveAlbums()` now sets `history: mapped.history`** on the
+  constructed album object, replacing the "deliberately left unset" comment
+  that was there while no real source existed. This is the only other
+  change — the display path was already correct.
+- **Verified headless — 9 new assertions (block P, `verify_albums_live_data.js`),
+  all passing; 76 in that suite, 1367 across all 32 suites, zero
+  failures.** Covers `mapWorkbookRowToDbSet()` reading a populated History
+  cell verbatim and a missing one as `""` (not `undefined`); a populated
+  `DB_Sets.History` carrying through `buildLiveAlbums()` onto `album.history`
+  while an unpopulated album's stays `""`; and — the real end-to-end
+  check — driving the actual `renderAlbumPageContent()` history page for
+  both a populated and an unpopulated album, confirming the real text
+  displays for the populated one and the existing fallback still displays,
+  unchanged, for the unpopulated one. **Negative control**: reverting
+  `buildLiveAlbums()` to omit `history` (the pre-fix state) reproduces the
+  fallback even for the album with real History data, and the real text is
+  confirmed absent — proving the positive assertions depend on the actual
+  wiring, not a coincidental pass. One pre-existing assertion (`B12`, which
+  had asserted `history === undefined` as the deliberate pre-fix state) was
+  updated to assert the new real value (`""` for this fixture's un-historied
+  row), following the real design change rather than being weakened.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as the rest of this feature; specifically, whether the
+  real History text for all 6 named album rows displays as expected (line
+  breaks, length, any markup) on Ray's own device hasn't been checked from
+  this environment.
+
 ### Albums book layout: cover sizing + page-flip clip fix (BUILT, same branch, still held)
 Three display bugs from Ray's live-device pass against the real Mercury
 Dimes album (63/82 filled). Two are real, confirmed, fixed CSS/JS bugs; the

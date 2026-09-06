@@ -111,7 +111,7 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   ok(B.lincoln && B.lincoln.mfgProductId === "LCF18", "B9 mfgProductId pulled from DB_Sets.MfgProductID");
   ok(B.lincoln && B.lincoln.containerName === "Shelf B", "B10 containerName pulled from DB_Sets.ContainerName (extended mapWorkbookRowToDbSet())");
   ok(B.lincoln && B.lincoln.coinsCount === 8, "B11 coinsCount pulled from DB_Sets.Coins as a real number");
-  ok(B.lincoln && B.lincoln.history === undefined, "B12 history is deliberately left unset — renderAlbumPageContent()'s own fallback text handles it");
+  ok(B.lincoln && B.lincoln.history === "", "B12 history is now wired from DB_Sets.History (see block P) — this fixture row has no History cell, so it maps to \"\", not undefined, and falls through to renderAlbumPageContent()'s existing fallback text");
   ok(B.lincoln && B.lincoln.slots.length === 3, "B13 Lincoln Cents got all 3 of its Albums-sheet rows as slots");
   ok(B.mercury && B.mercury.denom === "10C", "B14 Mercury Dimes' denom derived correctly from its own slot");
 
@@ -426,6 +426,67 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
     return { keyDate: keyDateSlot.keyDate };
   }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows(), dbCoinsRows: rawDbCoinsRows() });
   ok(!NEG_O.keyDate, "O15 negative control: reverting groupAlbumSlotsByAlbumId() to not set keyDate reproduces the pre-fix (undefined/falsy) state — confirms O10 isn't a coincidental pass");
+
+  // ---------- P. DB_Sets.History wired to the album history page ----------
+  const P = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows }) => {
+    const dbSetsWithHistory = dbSetsRows.map(r =>
+      r.SetID === "S-2020-AL-01"
+        ? { ...r, History: "Introduced in 1909, the Lincoln cent was the first US coin to feature a real person." }
+        : r
+    ); // S-2021-AL-02 deliberately left with no History cell — must fall back
+    const live = buildLiveAlbums(albumRows, dbSetsWithHistory, wishlistRows);
+    const lincoln = live.find(a => a.setId === "S-2020-AL-01");
+    const mercury = live.find(a => a.setId === "S-2021-AL-02");
+
+    // mapWorkbookRowToDbSet() in isolation, both populated and blank.
+    const mappedWith = mapWorkbookRowToDbSet({ SetID: "S-1909-AL-01", History: "Real blurb text." });
+    const mappedBlank = mapWorkbookRowToDbSet({ SetID: "S-1916-AL-01" });
+
+    // Render the actual history PAGE content for both albums, through the
+    // real renderAlbumPageContent() the book uses — not just the mapped
+    // field — so this proves the real fallback text still renders for the
+    // no-History album via the unmodified rendering path.
+    const historyPage = { type: "history" };
+    const lincolnHtml = renderAlbumPageContent(historyPage, lincoln, false);
+    const mercuryHtml = renderAlbumPageContent(historyPage, mercury, false);
+
+    return {
+      lincolnHistory: lincoln.history,
+      mercuryHistory: mercury.history,
+      mappedWith: mappedWith.history,
+      mappedBlank: mappedBlank.history,
+      lincolnHtml, mercuryHtml
+    };
+  }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows() });
+  ok(P.mappedWith === "Real blurb text.", "P1 mapWorkbookRowToDbSet() reads a populated History cell verbatim");
+  ok(P.mappedBlank === "", "P2 a row with no History column at all maps to \"\", not undefined — falls through to the fallback rather than throwing");
+  ok(P.lincolnHistory === "Introduced in 1909, the Lincoln cent was the first US coin to feature a real person.", "P3 buildLiveAlbums() carries a populated DB_Sets.History through onto album.history");
+  ok(P.mercuryHistory === "", "P4 an album with no History cell gets \"\" (falsy), not a fabricated value");
+  ok(P.lincolnHtml.includes("Introduced in 1909, the Lincoln cent was the first US coin"), "P5 the real history page renders the actual DB_Sets.History text for a populated album");
+  ok(!P.lincolnHtml.includes("No history notes on file"), "P6 a populated album's history page does NOT show the fallback text");
+  ok(P.mercuryHtml.includes("No history notes on file for this set yet."), "P7 an unpopulated album's history page still shows the existing fallback text unchanged");
+
+  // Negative control: reverting buildLiveAlbums() to omit `history` entirely
+  // (its pre-fix state) must reproduce the fallback for BOTH albums, even
+  // the one with real History data — proving P3/P5 depend on the real wiring.
+  const NEG_P = await page.evaluate(({ albumRows, dbSetsRows, wishlistRows }) => {
+    const dbSetsWithHistory = dbSetsRows.map(r =>
+      r.SetID === "S-2020-AL-01" ? { ...r, History: "Real blurb text that must NOT appear." } : r
+    );
+    const origBuild = window.buildLiveAlbums;
+    window.buildLiveAlbums = function (albumRows, dbSetsRows, wishlistRows, dbCoinsRows) {
+      const live = origBuild(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
+      live.forEach(a => { delete a.history; }); // simulate the pre-fix "deliberately left unset" state
+      return live;
+    };
+    const live = window.buildLiveAlbums(albumRows, dbSetsWithHistory, wishlistRows);
+    const lincoln = live.find(a => a.setId === "S-2020-AL-01");
+    const html = renderAlbumPageContent({ type: "history" }, lincoln, false);
+    window.buildLiveAlbums = origBuild;
+    return { html };
+  }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows() });
+  ok(NEG_P.html.includes("No history notes on file for this set yet."), "P8 negative control: without wiring album.history, even a populated DB_Sets row shows the fallback — confirms P5 exercises the real fix");
+  ok(!NEG_P.html.includes("Real blurb text"), "P9 negative control: the real History text is genuinely absent when the wiring is reverted");
 
   // ---------- N. nav / overflow smoke ----------
   const N = await page.evaluate(() => {
