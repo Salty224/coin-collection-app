@@ -2052,9 +2052,29 @@
     padding: 8px 16px; border-radius: 20px; border: 1px solid var(--case-border);
     background: var(--bg-case); color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
   }
-  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 6px; }
-  .gallery-viewer-grid .gv-cell { width: 130px; text-align: center; }
-  .gallery-viewer-grid .gc-img { width: 130px; height: 130px; }
+  /* The gallery VIEWER. galleryThumbInner() paints its image as a
+     background on a .gc-img, and the full treatment for that
+     (center/cover, no-repeat, a dark ground, overflow hidden) lives on
+     `.gc-thumb .gc-img` — a selector the viewer's own `.gv-cell` never
+     matched. So the viewer inherited NONE of it: background-size fell back
+     to `auto` and background-position to `0% 0%`, painting the image at
+     natural size clipped to a 130px square. Measured on a 1600x900
+     reference photo: 1.17% of it visible, the top-left corner at 1:1 —
+     which for a PCGS cert screenshot is the "1916..." text, hence the
+     reported sliver reading "191".
+     A viewer wants the WHOLE image, so this is `contain` rather than the
+     thumbnails' `cover`, at a size worth opening a dialog for. */
+  #galleryViewerOverlay .photo-adjust-panel { max-width: min(560px, 94vw); }
+  .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 6px; }
+  .gallery-viewer-grid .gv-cell { width: 100%; text-align: center; }
+  .gallery-viewer-grid .gc-img {
+    width: 100%; height: min(52vh, 320px);
+    background-color: #000; background-size: contain;
+    background-position: center; background-repeat: no-repeat;
+    border-radius: 8px; border: 1px solid var(--case-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; color: var(--text-muted);
+  }
   .gallery-viewer-grid .gv-cap { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
   /* Year picker — decade grid, then a small grid of years within it, so

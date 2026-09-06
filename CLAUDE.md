@@ -8725,6 +8725,50 @@ column, and a FAILED detach removing nothing.
   note on `AY-00002`'s exact situation. No overflow.
 - **Not verified: any real device, any real OneDrive session.**
 
+**Follow-up (same branch): the gallery viewer showed a sliver, not the
+photo.** Reported live on AY-00207 — the reference-photo viewer showed a
+small zoomed portion ("191" of "1916...") filling the dialog.
+
+**Neither of the suspected causes.** Not object-fit, and nothing about how
+the file is served. `galleryThumbInner()` paints its image as a BACKGROUND
+on a `.gc-img`, and the whole treatment for that — `center/cover`,
+`no-repeat`, a dark ground, `overflow:hidden` — lives on **`.gc-thumb
+.gc-img`**, a selector the viewer's own `.gv-cell` never matched. The viewer
+therefore inherited none of it. Its only rule was `width/height: 130px`, so
+`background-size` fell back to `auto` and `background-position` to `0% 0%`:
+the image painted at NATURAL size, clipped to a 130px square, showing its
+top-left corner at 1:1 — which for a PCGS cert screenshot is exactly the
+"1916..." text. **Measured on a 1600×900 reference photo: 1.17% of the image
+visible.**
+
+The shared markup assumed a styling context one of its two call sites never
+provided — the same "two surfaces silently disagreeing" family as the
+hydration/flip-card split above, in CSS rather than JS.
+
+**Fix.** The viewer gets its own complete rule: `contain` (a viewer wants the
+WHOLE image, unlike the thumbnails' deliberate `cover` crop), centred,
+un-tiled, on a dark ground, in a box worth opening a dialog for —
+full-width cells up to a wider viewer-only panel (`#galleryViewerOverlay
+.photo-adjust-panel`), `min(52vh, 320px)` tall. Measured after: 100% of the
+image visible at 330px wide on a phone and 418px on a tablet, for both a
+wide and a portrait source. **The Manage Photos thumbnails are untouched** —
+still cover-cropped squares, asserted.
+
+Verified headless — **8 new assertions (156 in this suite; 1214 across 27,
+zero failures)**: the computed `background-size`/`position`/`repeat`, a wide
+and a tall photo each fitting whole in the expected dimension, the box size,
+and the thumbnail scope guard. **One verified negative control** — reverting
+the CSS fails 5 of them and reproduces the sliver.
+- **Two assertions initially passed against the broken CSS** and were
+  tightened: they computed what `contain` WOULD give for that box rather
+  than requiring the element to be in contain mode at all, so the
+  hypothetical held either way. They now assert the mode as part of the
+  claim. Sixth time on this branch; the tell is always the same — an
+  assertion whose broken case also returns the passing value.
+- Screenshots at both viewports with a wide and a tall photo open together.
+  No overflow.
+- **Not verified: any real device.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

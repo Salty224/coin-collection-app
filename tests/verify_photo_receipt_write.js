@@ -1067,6 +1067,85 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(U.afterFailedDetach.entries === 1 && U.afterFailedDetach.survived === true && U.afterFailedDetach.indexEntries === 1,
     "U14 a FAILED detach removes nothing — the SAME entry is still there, so the removal waits on the write rather than being optimistic");
 
+  // ---------- V. The gallery viewer shows the WHOLE photo --------------
+  // Reported live on AY-00207: the reference-photo viewer showed a small
+  // zoomed sliver ("191" of "1916...") instead of the image.
+  //
+  // Cause, measured rather than guessed, and it is neither object-fit nor
+  // anything about how the file is served. galleryThumbInner() paints its
+  // image as a BACKGROUND on a .gc-img, and the full treatment for that
+  // (center/cover, no-repeat, dark ground, overflow hidden) lives on
+  // `.gc-thumb .gc-img` — a selector the viewer's own `.gv-cell` never
+  // matched. The viewer therefore inherited none of it: background-size fell
+  // back to `auto` and background-position to `0% 0%`, painting the image at
+  // NATURAL size clipped to a 130px square. On a 1600x900 reference photo
+  // that is 1.17% of the image — its top-left corner at 1:1, which for a
+  // cert screenshot is exactly the "1916..." text.
+  const V = await page.evaluate(async () => {
+    const shot = async (w, h, label) => {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const x = c.getContext("2d");
+      x.fillStyle = "#fff"; x.fillRect(0, 0, w, h);
+      x.fillStyle = "#123c66"; x.font = "bold " + Math.round(h / 4) + "px sans-serif";
+      x.fillText(label, 20, h / 2);
+      return URL.createObjectURL(await new Promise(r => c.toBlob(r, "image/jpeg", 0.92)));
+    };
+    const id = "AY-00207";
+    const wide = [1600, 900], tall = [900, 1600];
+    galleryStore[id] = [
+      { type: "reference", url: await shot(wide[0], wide[1], "1916-D 10C"), caption: "", filename: "a.jpg" },
+      { type: "reference", url: await shot(tall[0], tall[1], "portrait"), caption: "tall", filename: "b.jpg" }
+    ];
+    openGalleryViewer(id, "Mercury Dime — photos");
+    const cells = [...document.querySelectorAll("#galleryViewerGrid .gc-img")];
+    const read = (img, nat) => {
+      const cs = getComputedStyle(img), r = img.getBoundingClientRect();
+      // With `contain` the whole image is inside the box and at least one
+      // dimension touches it. With the old `auto` neither holds.
+      const scale = Math.min(r.width / nat[0], r.height / nat[1]);
+      return {
+        boxW: Math.round(r.width), boxH: Math.round(r.height),
+        size: cs.backgroundSize, pos: cs.backgroundPosition, repeat: cs.backgroundRepeat,
+        renderedW: nat[0] * scale, renderedH: nat[1] * scale,
+        // What the OLD behaviour showed: natural size clipped to the box.
+        autoVisibleFraction: (r.width * r.height) / (nat[0] * nat[1])
+      };
+    };
+    const out = { wide: read(cells[0], wide), tall: read(cells[1], tall), count: cells.length };
+    document.getElementById("galleryViewerOverlay").classList.add("hidden");
+
+    // Scope guard: the Manage Photos THUMBNAIL must stay a cover-cropped
+    // square — this fix is the viewer's alone.
+    const host = document.getElementById("managePhotosSections");
+    renderManagePhotosInto("managePhotosSections", { id, name: "Mercury Dime", meta: id, kind: "coin" });
+    [...host.querySelectorAll(".accordion-header")].forEach(h => h.click());
+    const thumb = host.querySelector(".gc-thumb .gc-img");
+    out.thumbSize = thumb ? getComputedStyle(thumb).backgroundSize : null;
+    delete galleryStore[id];
+    return out;
+  });
+  ok(V.count === 2, "V1 the viewer renders one cell per photo");
+  ok(V.wide.size === "contain" && V.tall.size === "contain",
+    "V2 the viewer sizes its image to CONTAIN — it inherited no background-size at all before, so it painted at natural size");
+  ok(V.wide.pos === "50% 50%" && V.wide.repeat === "no-repeat",
+    "V3 centred and un-tiled (it was 0% 0% and repeat)");
+  // renderedW/H are what `contain` yields for that box — so these MUST also
+  // require the element to actually be in contain mode, or they pass against
+  // the broken CSS by computing a hypothetical. (Caught by the control: they
+  // did exactly that at first.)
+  ok(V.wide.size === "contain" &&
+     V.wide.renderedW <= V.wide.boxW + 1 && V.wide.renderedH <= V.wide.boxH + 1 &&
+     Math.abs(V.wide.renderedW - V.wide.boxW) < 1.5,
+    "V4 a WIDE photo shows whole, fitted to the box width");
+  ok(V.tall.size === "contain" &&
+     V.tall.renderedW <= V.tall.boxW + 1 && V.tall.renderedH <= V.tall.boxH + 1 &&
+     Math.abs(V.tall.renderedH - V.tall.boxH) < 1.5,
+    "V5 a TALL photo shows whole too, fitted to the box height");
+  ok(V.wide.autoVisibleFraction < 0.25,
+    "V6 the box is far smaller than the image, so painting at natural size showed a sliver — this is what the old CSS did");
+  ok(V.wide.boxW > 250, "V7 and the viewer is now a size worth opening a dialog for (was a 130px square)");
+  ok(V.thumbSize === "cover", "V8 the Manage Photos thumbnail is untouched — still a cover-cropped square");
+
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {
     const p2 = await openApp(vp);
