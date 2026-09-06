@@ -5660,6 +5660,12 @@
       out.push({
         name: mapped.name,
         setId: mapped.setId,
+        // Real DB_Sets.Year — the Denomination-then-Year sort in
+        // renderAlbumsList() reads this as its secondary key. mapped.year is
+        // already a number (or "" for a genuinely blank cell, per
+        // mapWorkbookRowToDbSet()'s own coercion) — carried through
+        // unchanged, same pattern as every other mapped.* field here.
+        year: mapped.year,
         // Real face-value data (All.FaceValue via DB_Sets) is inconsistent
         // across rows — a CoinID's own denomination segment is the
         // reliable signal instead. Every slot in a real album shares one
@@ -9666,6 +9672,12 @@
       name: "Lincoln Cents — Whitman Folder Vol. 1",
       icon: "🪙",
       denom: "1C",
+      // Representative year for the list view's Denomination-then-Year sort
+      // (renderAlbumsList()) — a live album gets this from its own DB_Sets
+      // row's real Year column; a mock entry has no such row, so it's the
+      // folder's own earliest slot year, same convention a real album's own
+      // DB_Sets.Year would follow (the year the folder/product starts).
+      year: 1909,
       folderStyle: "littleton",
       mfgProductId: "",
       history: "Designed by Victor David Brenner, the Lincoln cent debuted in 1909 as the " +
@@ -9694,6 +9706,7 @@
       name: "Morgan Dollars — Complete Date Set (P)",
       icon: "🏛️",
       denom: "$1",
+      year: 1878, // earliest slot year — see the Lincoln Cents entry's own comment
       folderStyle: "littleton",
       mfgProductId: "",
       history: "Named for engraver George T. Morgan, this silver dollar ran 1878–1904 and " +
@@ -9721,6 +9734,7 @@
       name: "Jefferson Nickels — Littleton Folder Vol. 3",
       icon: "🪙",
       denom: "5C",
+      year: 1971, // earliest slot year — see the Lincoln Cents entry's own comment
       folderStyle: "littleton",
       mfgProductId: "LCF19",
       history: "Designed by Felix Schlag, the Jefferson nickel replaced the Buffalo nickel " +
@@ -15798,7 +15812,13 @@
   // the six named ones, and would otherwise be unreachable by any pill) —
   // same blank/unmatched-falls-under-Other convention the Metal filter's own
   // Other pill already established.
-  const ALBUMS_DENOM_CODES = new Set(["1C", "5C", "10C", "25C", "50C", "$1"]);
+  // An ARRAY, not a Set — its own index order (smallest to largest face
+  // value, never alphabetized) is now also the Albums list's primary sort
+  // key (see compareAlbumsForList()/albumsDenomSortIndex() below), so the
+  // order here is load-bearing, not incidental. Membership checks
+  // (albumsFilterTest()'s "Other" bucket) use .includes() instead of a
+  // Set's .has() — same array, same values, no behavior change there.
+  const ALBUMS_DENOM_CODES = ["1C", "5C", "10C", "25C", "50C", "$1"];
   const ALBUMS_DENOM_CHIPS = [
     { key: "all", label: "All", isAll: true },
     { key: "1C",  label: "Cents" },
@@ -15813,8 +15833,39 @@
 
   function albumsFilterTest(album) {
     if (albumsSelectedDenoms.size === 0) return true;
-    if (albumsSelectedDenoms.has("other") && !ALBUMS_DENOM_CODES.has(album.denom)) return true;
+    if (albumsSelectedDenoms.has("other") && !ALBUMS_DENOM_CODES.includes(album.denom)) return true;
     return albumsSelectedDenoms.has(album.denom);
+  }
+
+  // Denomination-then-Year sort for the list view (Ray's request: smallest
+  // face value to largest via ALBUMS_DENOM_CODES' own array order — never
+  // alphabetized — then, within a denomination, oldest to newest by Year).
+  //
+  // An album whose denom isn't one of the 6 named codes (the same "Other"
+  // bucket albumsFilterTest() already carves out — a mixed-denomination
+  // album, or one with no resolvable denom at all) sorts AFTER every named
+  // denomination rather than before: indexOf()'s own -1 would otherwise put
+  // it first, which is backwards for a catch-all bucket.
+  function albumsDenomSortIndex(denom) {
+    const idx = ALBUMS_DENOM_CODES.indexOf(denom);
+    return idx === -1 ? ALBUMS_DENOM_CODES.length : idx;
+  }
+
+  // A blank/non-numeric Year (a live DB_Sets row with no Year populated, or
+  // a future album type with no year concept at all) sorts to the end of
+  // its own denomination group rather than producing NaN-driven sort noise
+  // — same "never let a missing value corrupt the whole ordering" rule
+  // rollYearNumber()/compareRollYear() already established for the Rolls
+  // tab's own year sort.
+  function albumYearSortValue(year) {
+    const num = Number(year);
+    return (year === "" || year == null || isNaN(num)) ? Infinity : num;
+  }
+
+  function compareAlbumsForList(a, b) {
+    const denomDiff = albumsDenomSortIndex(a.denom) - albumsDenomSortIndex(b.denom);
+    if (denomDiff !== 0) return denomDiff;
+    return albumYearSortValue(a.year) - albumYearSortValue(b.year);
   }
 
   function updateAlbumsFilterChipsUI() {
@@ -15828,24 +15879,32 @@
   function renderAlbumsList() {
     const listContainer = document.getElementById("albumsListContainer");
     listContainer.innerHTML = "";
-    activeAlbums().forEach((album, index) => {
-      if (!albumsFilterTest(album)) return;
-      const filledCount = album.slots.filter(s => s.filledBy).length;
-      const pct = Math.round((filledCount / album.slots.length) * 100);
-      const card = document.createElement("div");
-      card.className = "case album-card";
-      card.innerHTML = `
-        <div class="album-card-icon">${album.icon}</div>
-        <div class="album-card-info">
-          <div class="album-card-name">${album.name}</div>
-          <div class="album-card-progress">${filledCount} / ${album.slots.length} filled</div>
-          <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        </div>
-        <div class="chevron">›</div>
-      `;
-      card.addEventListener("click", () => showAlbumDetail(index));
-      listContainer.appendChild(card);
-    });
+    // Sorted for DISPLAY only — showAlbumDetail()/openAlbumAtPage() index
+    // into activeAlbums() directly (and currentAlbumIndex persists that
+    // index for next/prev book navigation), so the original, unsorted
+    // index has to travel with each entry through the filter+sort rather
+    // than being re-derived from position in the sorted list.
+    activeAlbums()
+      .map((album, index) => ({ album, index }))
+      .filter(entry => albumsFilterTest(entry.album))
+      .sort((a, b) => compareAlbumsForList(a.album, b.album))
+      .forEach(({ album, index }) => {
+        const filledCount = album.slots.filter(s => s.filledBy).length;
+        const pct = Math.round((filledCount / album.slots.length) * 100);
+        const card = document.createElement("div");
+        card.className = "case album-card";
+        card.innerHTML = `
+          <div class="album-card-icon">${album.icon}</div>
+          <div class="album-card-info">
+            <div class="album-card-name">${album.name}</div>
+            <div class="album-card-progress">${filledCount} / ${album.slots.length} filled</div>
+            <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+          </div>
+          <div class="chevron">›</div>
+        `;
+        card.addEventListener("click", () => showAlbumDetail(index));
+        listContainer.appendChild(card);
+      });
   }
 
   function initAlbums() {

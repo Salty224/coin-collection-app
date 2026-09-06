@@ -488,6 +488,116 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   ok(NEG_P.html.includes("No history notes on file for this set yet."), "P8 negative control: without wiring album.history, even a populated DB_Sets row shows the fallback — confirms P5 exercises the real fix");
   ok(!NEG_P.html.includes("Real blurb text"), "P9 negative control: the real History text is genuinely absent when the wiring is reverted");
 
+  // ---------- Q. Albums list sort: Denomination (ALBUMS_DENOM_CODES order), then Year ----------
+  // albumsDenomSortIndex()/albumYearSortValue()/compareAlbumsForList() in isolation.
+  const Q1 = await page.evaluate(() => ({
+    // ALBUMS_DENOM_CODES order is 1C,5C,10C,25C,50C,$1 — NOT alphabetical
+    // ("$1" would sort before "10C" alphabetically; it must not here).
+    order: ["1C", "5C", "10C", "25C", "50C", "$1"].map(d => albumsDenomSortIndex(d)),
+    dollarBeforeDime: albumsDenomSortIndex("$1") > albumsDenomSortIndex("10C"),
+    unknownSortsLast: albumsDenomSortIndex("Multiple") > albumsDenomSortIndex("$1"),
+    blankYear: albumYearSortValue(""),
+    nullYear: albumYearSortValue(null),
+    numYear: albumYearSortValue(1916),
+    stringNumYear: albumYearSortValue("1916")
+  }));
+  ok(JSON.stringify(Q1.order) === JSON.stringify([0, 1, 2, 3, 4, 5]), "Q1 albumsDenomSortIndex() follows ALBUMS_DENOM_CODES' own array order exactly");
+  ok(Q1.dollarBeforeDime, "Q2 $1 (Dollars) sorts AFTER 10C (Dimes) — proves this is array-index order, not alphabetical (which would put \"$1\" first)");
+  ok(Q1.unknownSortsLast, "Q3 an unrecognized/mixed denom (not one of the 6 named codes) sorts after every named denomination, not before (indexOf's own -1 would otherwise put it first)");
+  ok(Q1.blankYear === Infinity && Q1.nullYear === Infinity, "Q4 a blank/null Year sorts to the end of its own denomination group rather than corrupting the sort with NaN");
+  ok(Q1.numYear === 1916 && Q1.stringNumYear === 1916, "Q5 a numeric or numeric-string Year compares correctly either way");
+
+  // The real end-to-end check: the exact 6 real albums named in the task,
+  // fed in DELIBERATELY SCRAMBLED input order (never the expected output
+  // order) so a passing assertion can only mean the sort actually ran, not
+  // that insertion order happened to already match.
+  function sixRealAlbumsFixture() {
+    const defs = [
+      { name: "Lincoln Wheat Cents 1909-1929",   setId: "S-1909-AL-01", denom: "1C",  year: 1909, coinId: "C-1909--1C-01" },
+      { name: "Lincoln Cents 1930-1958",         setId: "S-1930-AL-01", denom: "1C",  year: 1930, coinId: "C-1930--1C-01" },
+      { name: "Lincoln Memorial Cents 1959-1998",setId: "S-1959-AL-01", denom: "1C",  year: 1959, coinId: "C-1959--1C-01" },
+      { name: "Lincoln Cents 1999-2025",         setId: "S-1999-AL-01", denom: "1C",  year: 1999, coinId: "C-1999--1C-01" },
+      { name: "Mercury Dimes 1916-1945",         setId: "S-1916-AL-01", denom: "10C", year: 1916, coinId: "C-1916--10C-01" },
+      { name: "Roosevelt Dimes 1946-1964",       setId: "S-1946-AL-01", denom: "10C", year: 1946, coinId: "C-1946--10C-01" }
+    ];
+    // Scrambled: neither the expected output order nor plain alphabetical.
+    const scrambleOrder = [3, 0, 5, 1, 4, 2];
+    const dbSetsRows = scrambleOrder.map(i => ({ SetID: defs[i].setId, Description: defs[i].name, Year: defs[i].year, Lineage: "" }));
+    const albumRows = scrambleOrder.map(i => ({ AlbumID: defs[i].setId, Year: defs[i].year, MintMark: "", Variety: "", Description: defs[i].name, CoinID: defs[i].coinId, FilledBy: "" }));
+    return { dbSetsRows, albumRows, defs };
+  }
+  const Q6 = await page.evaluate(({ dbSetsRows, albumRows }) => {
+    const live = buildLiveAlbums(albumRows, dbSetsRows, []);
+    __setLiveAlbumsForTest(live);
+    renderAlbumsList();
+    const names = [...document.querySelectorAll("#albumsListContainer .album-card-name")].map(el => el.textContent);
+    __setLiveAlbumsForTest(null);
+    return { names };
+  }, sixRealAlbumsFixture());
+  const expectedOrder = [
+    "Lincoln Wheat Cents 1909-1929", "Lincoln Cents 1930-1958", "Lincoln Memorial Cents 1959-1998",
+    "Lincoln Cents 1999-2025", "Mercury Dimes 1916-1945", "Roosevelt Dimes 1946-1964"
+  ];
+  ok(JSON.stringify(Q6.names) === JSON.stringify(expectedOrder), "Q6 the exact real-album order from a scrambled input: all four 1C albums oldest-to-newest, then both 10C albums oldest-to-newest — got " + JSON.stringify(Q6.names));
+
+  // The click handler must still open the CORRECT album after reordering —
+  // the sorted list's 3rd rendered card ("Lincoln Memorial Cents 1959-1998")
+  // is NOT activeAlbums()[2] in the scrambled input order, so this would
+  // fail if renderAlbumsList() started using sorted-list position instead
+  // of the original activeAlbums() index for its click handler.
+  const Q7 = await page.evaluate(({ dbSetsRows, albumRows }) => {
+    const live = buildLiveAlbums(albumRows, dbSetsRows, []);
+    __setLiveAlbumsForTest(live);
+    renderAlbumsList();
+    const cards = [...document.querySelectorAll("#albumsListContainer .album-card")];
+    const targetCard = cards[2]; // "Lincoln Memorial Cents 1959-1998" per Q6's expected order
+    targetCard.click();
+    const openedName = currentAlbumPages[0] ? currentAlbumIndex : null;
+    const opened = activeAlbums()[currentAlbumIndex];
+    showAlbumsList();
+    __setLiveAlbumsForTest(null);
+    return { openedName: opened && opened.name };
+  }, sixRealAlbumsFixture());
+  ok(Q7.openedName === "Lincoln Memorial Cents 1959-1998", "Q7 clicking the 3rd SORTED card opens the correct album (index preserved through the sort, not re-derived from sorted-list position) — got " + Q7.openedName);
+
+  // FAKE_ALBUMS (flag-off / demo path) gets the identical sort mechanism —
+  // Lincoln Cents (1C/1909), Jefferson Nickels (5C/1971), Morgan Dollars
+  // ($1/1878) — same 1C-before-5C-before-$1 order even though $1's own
+  // year (1878) is numerically the smallest of the three, proving Year is
+  // only ever a secondary key.
+  const Q8 = await page.evaluate(() => {
+    __setLiveAlbumsForTest(null);
+    renderAlbumsList();
+    const names = [...document.querySelectorAll("#albumsListContainer .album-card-name")].map(el => el.textContent);
+    return { names };
+  });
+  ok(Q8.names[0] === "Lincoln Cents — Whitman Folder Vol. 1", "Q8a FAKE_ALBUMS (flag-off) sorts 1C first");
+  ok(Q8.names[1] === "Jefferson Nickels — Littleton Folder Vol. 3", "Q8b then 5C");
+  ok(Q8.names[2] === "Morgan Dollars — Complete Date Set (P)", "Q8c then $1 LAST — despite 1878 being the smallest Year of the three, proving denom always wins over year");
+
+  // Negative control: reverting renderAlbumsList() to its pre-fix
+  // (unsorted, plain-iteration) body must reproduce the raw scrambled
+  // input order rather than Q6's expected sorted order.
+  const NEG_Q = await page.evaluate(({ dbSetsRows, albumRows }) => {
+    const live = buildLiveAlbums(albumRows, dbSetsRows, []);
+    __setLiveAlbumsForTest(live);
+    const listContainer = document.getElementById("albumsListContainer");
+    listContainer.innerHTML = "";
+    // The exact pre-fix body: plain forEach, no filter/sort.
+    live.forEach((album, index) => {
+      const card = document.createElement("div");
+      card.className = "case album-card";
+      card.innerHTML = `<div class="album-card-name">${album.name}</div>`;
+      listContainer.appendChild(card);
+    });
+    const names = [...document.querySelectorAll("#albumsListContainer .album-card-name")].map(el => el.textContent);
+    __setLiveAlbumsForTest(null);
+    renderAlbumsList();
+    return { names };
+  }, sixRealAlbumsFixture());
+  ok(NEG_Q.names[0] === "Lincoln Cents 1999-2025", "Q9 negative control: the pre-fix unsorted body reproduces the raw scrambled input order (first item = defs[3]) — confirms Q6 exercises the real sort, not a coincidence of fixture order");
+  ok(JSON.stringify(NEG_Q.names) !== JSON.stringify(expectedOrder), "Q10 negative control: the unsorted order is genuinely different from the expected sorted order");
+
   // ---------- N. nav / overflow smoke ----------
   const N = await page.evaluate(() => {
     __setLiveAlbumsForTest(null);

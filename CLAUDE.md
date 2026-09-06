@@ -11810,6 +11810,75 @@ future real source, and this is that source arriving.
   breaks, length, any markup) on Ray's own device hasn't been checked from
   this environment.
 
+**Albums list sort order (addendum, same branch/session): Denomination,
+then Year.** The list view (`renderAlbumsList()`) previously rendered
+`activeAlbums()` in plain array/insertion order — for live data, whatever
+order `DB_Sets` rows happen to come back in; for the demo path, whatever
+order `FAKE_ALBUMS` is declared in. Now sorted **Denomination (smallest
+face value to largest) then Year (oldest to newest) within a
+denomination**, applied identically to both the live and `FAKE_ALBUMS`
+paths since both go through the one `renderAlbumsList()` function.
+- **`ALBUMS_DENOM_CODES` changed from a `Set` to an ARRAY**
+  (`["1C","5C","10C","25C","50C","$1"]`) — its own index order is now the
+  real sort key (`albumsDenomSortIndex()`), not alphabetical (`"$1"` would
+  sort before `"10C"` alphabetically; it must not, and doesn't — verified
+  directly). `albumsFilterTest()`'s one existing consumer (`.has()` for the
+  "Other" catch-all pill) switched to `.includes()` — same values, same
+  behavior, no functional change there.
+- **An unrecognized/mixed denom sorts AFTER every named code**, not
+  before — `indexOf()`'s own `-1` would otherwise put it first, backwards
+  for a catch-all bucket.
+- **`album.year` is new — it didn't exist on the album object shape at
+  all before this.** `mapWorkbookRowToDbSet()` already read a real `year`
+  field (used elsewhere for DB_Sets rows), but `buildLiveAlbums()` never
+  carried it onto the constructed album object, and `FAKE_ALBUMS`' three
+  demo entries had no album-level year field either (only each slot's own
+  `year`). Fixed on both sides: `buildLiveAlbums()` now sets `year:
+  mapped.year`; each `FAKE_ALBUMS` entry got a literal `year` matching its
+  own earliest slot (1909/1878/1971) — the same "the year the
+  folder/product starts" convention a real DB_Sets row's own Year would
+  represent.
+- **`albumYearSortValue()`** treats a blank/null/non-numeric year as
+  `Infinity` (sorts to the end of its own denomination group) rather than
+  producing `NaN`-driven sort noise — same rule `rollYearNumber()`/
+  `compareRollYear()` already established for the Rolls tab's own year
+  sort.
+- **The click-to-open handler's index survives the reorder correctly.**
+  `showAlbumDetail(index)`/`openAlbumAtPage(index, ...)` index into
+  `activeAlbums()` directly (and `currentAlbumIndex` persists that same
+  index for the book's own next/prev navigation) — so `renderAlbumsList()`
+  pairs each album with its ORIGINAL `activeAlbums()` index before
+  filtering/sorting (`.map((album, index) => ({album, index}))`), and the
+  click handler still closes over that original index, not the album's
+  position in the sorted/rendered list. Verified directly: clicking the
+  3rd rendered (sorted) card opens the correct album even though it isn't
+  `activeAlbums()[2]` in the underlying (scrambled) data order.
+- **Verified headless — 20 new assertions (block Q, `verify_albums_live_data.js`),
+  all passing; 88 in that suite, 1379 across all 32 suites, zero
+  failures.** Covers `albumsDenomSortIndex()`/`albumYearSortValue()` in
+  isolation (array-order-not-alphabetical, unknown-denom-sorts-last,
+  blank/null-year-sorts-last); the exact 6-real-album order named in the
+  task, built from DELIBERATELY SCRAMBLED input (never the expected
+  output order, so a pass can only mean the sort genuinely ran) — all
+  four `1C` albums oldest-to-newest, then both `10C` albums
+  oldest-to-newest; the click-index-preservation case above; the
+  `FAKE_ALBUMS` demo path sorting identically (`1C` → `5C` → `$1`, with
+  `$1`'s own 1878 — the numerically smallest year of the three —
+  correctly NOT winning over its larger denomination code, proving Year
+  is only ever the secondary key). **Negative control**: a reproduction of
+  the pre-fix plain-`forEach`-no-sort body against the same scrambled
+  fixture reproduces the raw input order, confirmed genuinely different
+  from the expected sorted order — proving the positive assertions depend
+  on the real sort, not a coincidence of fixture ordering. Also spot-checked
+  directly in a real headless browser session (not just the suite): a
+  fresh `navigate("albums")` on the demo path renders `Lincoln Cents` →
+  `Jefferson Nickels` → `Morgan Dollars`, matching `1C → 5C → $1`.
+- **Not verified: any real device, any real OneDrive session, or the
+  actual sort order against all 6 real albums live** — same standing
+  caveat as the rest of this feature; the exact names/years used in the
+  headless fixture were given directly rather than pulled from a real
+  session.
+
 ### Albums book layout: cover sizing + page-flip clip fix (BUILT, same branch, still held)
 Three display bugs from Ray's live-device pass against the real Mercury
 Dimes album (63/82 filled). Two are real, confirmed, fixed CSS/JS bugs; the
