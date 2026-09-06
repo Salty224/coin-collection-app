@@ -11549,6 +11549,572 @@ under Other per an existing note in `Lookup_MetalContent`, not a gap).
   directly by Ray as confirmed against the real workbook, not independently
   re-verified from this environment.
 
+### Albums: live-wiring, read-only (BUILT and merged to main)
+`FAKE_ALBUMS` is swapped for real Albums-sheet + DB_Sets(Album-type) +
+Wishlist data, following the exact same `ensureLiveNavDataFetch()`/
+`fetchWorkbookSheetRows()`/`activeX()` accessor pattern the "Live nav data"
+section above already established for Catalog/Sets/Metal. **Read-only — no
+write capability of any kind.** The Browse Edit write layer's own scope
+still doesn't cover Albums; that stays a separate, later task.
+
+- **A live album is identified by SetID, not any Type/Category column** —
+  confirmed against the real workbook, DB_Sets has no such column. The
+  pattern is fixed: `S-YYYY-AL-##` (`ALBUM_SETID_RE`). One live album per
+  matching DB_Sets row, with its slots pulled from the Albums sheet's own
+  rows sharing that same value in its `AlbumID` column.
+- **`Status` is a calculated Albums-sheet column and is deliberately never
+  read.** `FilledBy<>""` is the exact same signal it's computed from — the
+  mapper reads `FilledBy` directly, same as every other live mapper in this
+  file reads a real column rather than re-deriving a formula's output.
+- **`denom` is derived from a slot's own CoinID, never from DB_Sets.FaceValue**
+  (confirmed inconsistent across real rows by Ray) — `denomFromCoinId()`
+  takes a CoinID's third dash-delimited segment
+  (`C-YYYY-MINT-DENOM-##`). **CRITICAL, and worth remembering**: the real
+  workbook encodes a blank mint mark as a double dash (`C-1909--1C-03`)
+  while `FAKE_ALBUMS`' own mock data uses a literal `"M"` placeholder
+  (`C-1909-M-1C-01`) — both conventions parse identically under plain
+  index-based splitting (mint mark is always segment 2, denom always
+  segment 3, regardless of what sits in segment 2), so `denomFromCoinId()`
+  never needs to special-case either one. It is also never used to derive a
+  mint mark — that's always its own real column (`Albums.MintMark`), read
+  directly.
+- **`want` (open-slot Wishlist match) is wired end-to-end but genuinely
+  inert today** — the real Wishlist sheet has no rows populating its
+  `AlbumID`/`SlotCoinID` columns yet, so `buildAlbumWantIndex()`'s Set is
+  always empty in practice. Forward-facing wiring, not dead code: the
+  moment a real Wishlist row exists, the open slot it names picks up
+  `want: true` with no further app change needed. Nothing in the UI
+  currently branches on this field (no ★-for-wanted display exists) — this
+  pass only makes the DATA available, matching the task's explicit scope
+  (no new slot-eligibility/display logic).
+- **`mapWorkbookRowToDbSet()` extended** with `mfgProductId`/`containerName`/
+  `coinsCount` (from `MfgProductID`/`ContainerName`/`Coins`) — harmless for
+  every other DB_Sets row (Proof/Mint/Silver Proof sets simply carry them
+  unused). `containerName`/`coinsCount` aren't consumed anywhere yet
+  (pulled per the task's own instruction, as future metadata for a
+  Container-display or slot-count-validation pass); `mfgProductId` is the
+  one already-wired field, same "future per-album metadata" posture the
+  `FAKE_ALBUMS` mock already established for it.
+- **A DB_Sets Album-type row with zero matching Albums-sheet rows is
+  skipped**, not rendered — `renderAlbumsList()`'s own fill-percentage math
+  divides by `slots.length`, so an album with nothing behind it would
+  render `NaN%` rather than being a real, useful "0/0" entry.
+- **`LIVE_ALBUMS` is additive, not part of the five-core-sheet
+  all-or-nothing gate** (`allRows`/`dbSetsRows`/`dbCoinsRows`/
+  `metalContentRows`/`gradersRows`) — same treatment Photos/Receipts
+  already get. An Albums-sheet or Wishlist-sheet hiccup must not block
+  Catalog/Sets/Metal from loading, and vice versa. `dbSetsRows` is always
+  available by the time Albums is built regardless (it's one of the five
+  gated sheets, so the function has already returned `false` otherwise) —
+  Albums doesn't need its own separate gate on that one.
+- **Consumers swapped from `FAKE_ALBUMS` to a new `activeAlbums()`
+  accessor** (`LIVE_ALBUMS || FAKE_ALBUMS`, same convention as
+  `activeCoins()`/`activeDbSets()`/`activeDbCoins()`): `renderAlbumsList()`,
+  the "Assign to Album" Add Coin dropdown (see below),
+  `resolveCoinAlbumLink()` (the Browse detail "Belongs to Album" linkage
+  chip), and the whole book-rendering chain — `showAlbumDetail()`/
+  `openAlbumAtPage()`/`buildAlbumPages()`/`turnAlbumPage()`/
+  `renderAlbumBook()`.
+- **A real, load-bearing fix inside the book-rendering chain, beyond the
+  literal `FAKE_ALBUMS` swap**: the filled-slot tap handler inside
+  `renderAlbumBook()` resolved the tapped coin via `FAKE_COINS.find(...)`
+  directly — a live album's `filledBy` values are real CollectionIDs that
+  only exist in `LIVE_COINS`, so tapping any filled slot in a live album
+  would have silently done nothing (the existing `if (!coin) return;` guard
+  swallows it). Swapped to `activeCoins()`. Verified via a real negative
+  control: reverting this one line back to `FAKE_COINS` fails exactly the
+  two assertions covering it, reproducing the dead-tap symptom.
+- **The "Assign to Album" dropdown-population logic was extracted out of
+  `initAlbums()` into its own `populateAssignAlbumOptions()`** —
+  `initAlbums()` only ever runs once, at page-load init, before any live
+  fetch could possibly have resolved, so leaving the dropdown-building
+  inline would have meant it stayed on `FAKE_ALBUMS`' demo slots for the
+  rest of the session even in a live one. The new function is called both
+  from `initAlbums()` (unchanged behavior at boot) and again from
+  `ensureLiveNavDataFetch()`'s own success callback once real Albums data
+  actually lands, clearing and rebuilding the dynamic `<option>`s each time
+  (the static "— not part of an album —" placeholder survives).
+- **`showAlbumsList()` now re-renders the list on every entry**, not just
+  once at init — previously `renderAlbumsList()` was called only from
+  `initAlbums()` and the denomination filter-chip handler, so a fetch that
+  had already resolved during an earlier Catalog/Ledger visit would leave
+  the Albums list stuck on `FAKE_ALBUMS`' demo data until the fetch's own
+  completion callback happened to fire while Albums was *already* the
+  active view. `navigate()`'s `"albums"` branch now also calls
+  `ensureLiveNavDataFetch()` first, mirroring the Dashboard branch's
+  established "never blocks" pattern.
+- **An already-open BOOK is deliberately left showing whatever it opened
+  with if the fetch lands mid-view** — rebuilding `currentAlbumPages` out
+  from under an open book risks landing on a different album at the same
+  array index (live and demo album counts/order don't correspond). Only
+  the Albums LIST screen re-renders when the fetch's own completion
+  callback fires; the book picks up fresh data on next open, same
+  "computed/cached once at open time, refreshed next reopen" tradeoff this
+  feature already accepts elsewhere (the reference-image tier's own
+  string-templated `renderSlotCell()`).
+- **`slotMintage()` also switched from `FAKE_DB_COINS` to `activeDbCoins()`
+  — flagged explicitly as a small, deliberate extension beyond the literal
+  `FAKE_ALBUMS` consumer list this task named.** Its own code comment
+  scoped it to the mock specifically because "Albums isn't wired to live
+  data yet" — a reason this exact task removes. Left on the mock, every
+  real album would have silently shown no mintage at all (a live slot's
+  real CoinID never matches any of the 12 `FAKE_DB_COINS` rows); the fix is
+  a one-line, obviously-correct follow-on, not a new judgment call, so it
+  was made directly rather than deferred.
+- **Key-date star badge (addendum, same branch/session) wired to real
+  `DB_Coins.KeyDate`.** The `.slot-cell.key-date`/`.key-date-badge` (★)
+  mechanism already existed — built for and only ever exercised by
+  `FAKE_ALBUMS`' own hand-set `keyDate: true` flags — so this is purely a
+  new real data source feeding an existing display, no CSS/visual change.
+  `buildAlbumKeyDateIndex(dbCoinsRows)` builds a `Set` of every CoinID whose
+  `KeyDate` cell is non-blank, joined into `groupAlbumSlotsByAlbumId()` the
+  same way composition/specs are already joined from DB_Coins elsewhere in
+  `ensureLiveNavDataFetch()`; `buildLiveAlbums()` gained a fourth
+  `dbCoinsRows` parameter to thread it through.
+  - **Any non-blank value counts, not an exact-match list.** Confirmed real
+    values are `"Key Date"`/`"Semi-Key Date"` plus casing variants
+    (`"Semi-Key"`/`"KEY"`) — rather than hardcoding those four strings (one
+    future data-entry variant away from silently missing a real key date),
+    the check is a plain non-blank test after trimming. The column has no
+    other populated meaning, so this is the correct rule, not just a
+    convenient shortcut.
+  - **Key vs. Semi-Key is deliberately NOT visually distinguished** — same
+    single boolean, same badge for both, per Ray's explicit scope call (the
+    existing CSS has no variant for it, and building one wasn't asked for).
+    Not flagged as needing a decision — building a real visual variant would
+    have been a genuine design choice, not something "trivial once in
+    there," so it was left alone exactly as scoped rather than guessed at.
+  - Applies regardless of whether the slot is filled — key-date-ness is a
+    property of the slot's own coin TYPE/position, not of ownership, same
+    reasoning `slotMintage()` already uses for showing regardless of fill
+    state.
+- **Deliberately out of scope, per the task's explicit instructions**: any
+  write capability (adding/swapping a coin into a slot — Browse Edit's own
+  write layer doesn't cover Albums either); per-album curated icon/history
+  content beyond the shared 🪙 placeholder and the existing "no history
+  notes on file yet" fallback text; and slot-eligibility validation
+  (CoinID-to-FilledBy consistency checking) — a known, already-tracked gap,
+  not this task's to fix.
+
+**Verified headless — new committed suite `tests/verify_albums_live_data.js`
+(67 assertions, up from 52 once the key-date addendum landed), all passing,
+zero page errors; 1343 across all 31 suites, zero failures.** Covers:
+`denomFromCoinId()` against both the mock's `"-M-"`
+convention and the real double-dash convention (proving they parse
+identically), a dollar-denom code, and malformed/blank/null input;
+`buildLiveAlbums()` end-to-end from synthetic raw sheet rows — the correct
+album count, an AL-pattern row with no matching slots correctly excluded, a
+non-Album DB_Sets row never leaking in, and every field (name/denom/icon/
+folderStyle/mfgProductId/containerName/coinsCount/history/slots) landing
+correctly; the mapped slot shape including `filledBy: null` (not `""`) for
+an open slot and the `want` flag in all three states (open+matched,
+open+unmatched, filled-so-never-true); `activeAlbums()`'s fallback/override
+behavior; `renderAlbumsList()` and `populateAssignAlbumOptions()` genuinely
+reading live data (real name, real fill count, real open slots offered, a
+filled slot never offered); the full book-rendering chain end-to-end
+through real clicks — a live album's cover name, a slot's real label,
+`slotMintage()` resolving through `activeDbCoins()`; tapping a FILLED live
+slot correctly resolving via `activeCoins()` and opening Browse detail for
+the live coin (a live-only CollectionID that provably does not exist in
+`FAKE_COINS`); tapping an OPEN live slot prefilling Add Coin's Denomination/
+Year/MintMark from the live album's own derived data; `resolveCoinAlbumLink()`
+resolving a live coin's album; the `mapWorkbookRowToDbSet()` extension
+staying harmless for an ordinary non-Album row; `navigate("albums")` priming
+the fetch; and a nav/overflow smoke check. **Two negative controls verified
+against the real app code itself** (not just the suite's own in-page
+simulations) — reverting `renderAlbumsList()`'s `activeAlbums()` back to
+`FAKE_ALBUMS` fails the three assertions that depend on it (and no others),
+and reverting the filled-slot tap handler's `activeCoins()` back to
+`FAKE_COINS` fails exactly the two assertions covering that path — both
+reverts were applied to the real file, run, and undone, not just described.
+
+**Key-date addendum coverage (15 new assertions):** `buildAlbumKeyDateIndex()`
+against all four confirmed real values (`"Key Date"`/`"Semi-Key Date"`/
+`"Semi-Key"`/`"KEY"`) plus a blank cell, a row missing the `KeyDate` column
+entirely, a whitespace-only cell, a `null` `dbCoinsRows` array, and a CoinID
+with no matching row — all resolving correctly with no throw;
+`buildLiveAlbums()` end-to-end confirming a Semi-Key-Date coin's slot gets
+`keyDate:true` while a matched-but-blank-KeyDate slot and a no-DB_Coins-match
+slot both get `keyDate:false` (not `true` from mere presence, and not
+`undefined`/a throw); a real render check — the pre-existing `.key-date`
+class and `★` badge genuinely appear on a live key-date slot and genuinely
+don't on an ordinary one, proving the existing mechanism lights up for real
+data rather than just the field being set correctly in isolation. **One more
+negative control verified against the real app code**: reverting
+`groupAlbumSlotsByAlbumId()` to not set `keyDate` at all reproduces the
+pre-fix state and fails exactly the two assertions that depend on it — this
+one applied via an in-page function-reassignment (the same technique the
+`renderStats`/`renderAlbumsList` negative controls elsewhere in this file
+already rely on, confirmed to work) rather than editing the file, plus a
+second, separate real-file revert (`buildLiveAlbums()`'s own
+`keyDateIndex` forced to an always-empty `Set`) run and undone directly
+against `app.html` for extra rigor, which failed the identical two
+assertions.
+- **Not verified: any real device, any real OneDrive session.** This task's
+  own instructions call for a live-device pass against the real 6 albums
+  (Wheat Cents, Lincoln 1930-58, Memorial Cents, Lincoln 1999-2025, Mercury
+  Dimes, Roosevelt Dimes) with their actual real fill counts before this
+  merges — held on its branch for exactly that reason, not auto-merged
+  despite being a small, well-scoped extension of an already-merged
+  pattern. Three things worth Ray's eyes specifically during that pass,
+  beyond "does it crash": whether `denom` derivation is correct for every
+  real album (each should read a clean, single denomination code); whether
+  any real Albums-sheet row's `AlbumID` fails to match any DB_Sets Album-type
+  row's `SetID` (a slot that would then be silently dropped — the
+  sparse-linkage class of gap this file already documents elsewhere for
+  `SetID`, not something this task built a safety net for); and whether the
+  real key-date stars land on the coins Ray actually expects (this
+  environment's own confirmation is limited to synthetic fixtures, not the
+  real `DB_Coins.KeyDate` population across all 6 albums' actual slots).
+
+**History text (addendum, same branch/session) wired to real
+`DB_Sets.History`.** A Copilot pass added a real `History` column to
+DB_Sets, populated today on exactly the 6 album rows
+(`S-1909-AL-01`/`S-1916-AL-01`/`S-1930-AL-01`/`S-1946-AL-01`/`S-1959-AL-01`/
+`S-1999-AL-01`). The history page's own display logic
+(`renderAlbumPageContent()`'s `album.history || "No history notes on file
+for this set yet."`) already existed and needed no change — it was built
+during the original page-flip-book feature specifically anticipating a
+future real source, and this is that source arriving.
+- **`mapWorkbookRowToDbSet()` gained `history: String(colVal(row,
+  "History"))`**, read unconditionally on every DB_Sets row (not just Album
+  rows) — cheap, and matches how every other field on this mapper is read
+  regardless of which rows actually populate it (same as `mfgProductId`/
+  `containerName`/`coinsCount`). A row with no `History` cell maps to `""`
+  — falsy, so it falls straight through to the existing fallback with no
+  extra branching.
+- **`buildLiveAlbums()` now sets `history: mapped.history`** on the
+  constructed album object, replacing the "deliberately left unset" comment
+  that was there while no real source existed. This is the only other
+  change — the display path was already correct.
+- **Verified headless — 9 new assertions (block P, `verify_albums_live_data.js`),
+  all passing; 76 in that suite, 1367 across all 32 suites, zero
+  failures.** Covers `mapWorkbookRowToDbSet()` reading a populated History
+  cell verbatim and a missing one as `""` (not `undefined`); a populated
+  `DB_Sets.History` carrying through `buildLiveAlbums()` onto `album.history`
+  while an unpopulated album's stays `""`; and — the real end-to-end
+  check — driving the actual `renderAlbumPageContent()` history page for
+  both a populated and an unpopulated album, confirming the real text
+  displays for the populated one and the existing fallback still displays,
+  unchanged, for the unpopulated one. **Negative control**: reverting
+  `buildLiveAlbums()` to omit `history` (the pre-fix state) reproduces the
+  fallback even for the album with real History data, and the real text is
+  confirmed absent — proving the positive assertions depend on the actual
+  wiring, not a coincidental pass. One pre-existing assertion (`B12`, which
+  had asserted `history === undefined` as the deliberate pre-fix state) was
+  updated to assert the new real value (`""` for this fixture's un-historied
+  row), following the real design change rather than being weakened.
+- **Not verified: any real device, any real OneDrive session** — same
+  standing caveat as the rest of this feature; specifically, whether the
+  real History text for all 6 named album rows displays as expected (line
+  breaks, length, any markup) on Ray's own device hasn't been checked from
+  this environment.
+
+**Albums list sort order (addendum, same branch/session): Denomination,
+then Year.** The list view (`renderAlbumsList()`) previously rendered
+`activeAlbums()` in plain array/insertion order — for live data, whatever
+order `DB_Sets` rows happen to come back in; for the demo path, whatever
+order `FAKE_ALBUMS` is declared in. Now sorted **Denomination (smallest
+face value to largest) then Year (oldest to newest) within a
+denomination**, applied identically to both the live and `FAKE_ALBUMS`
+paths since both go through the one `renderAlbumsList()` function.
+- **`ALBUMS_DENOM_CODES` changed from a `Set` to an ARRAY**
+  (`["1C","5C","10C","25C","50C","$1"]`) — its own index order is now the
+  real sort key (`albumsDenomSortIndex()`), not alphabetical (`"$1"` would
+  sort before `"10C"` alphabetically; it must not, and doesn't — verified
+  directly). `albumsFilterTest()`'s one existing consumer (`.has()` for the
+  "Other" catch-all pill) switched to `.includes()` — same values, same
+  behavior, no functional change there.
+- **An unrecognized/mixed denom sorts AFTER every named code**, not
+  before — `indexOf()`'s own `-1` would otherwise put it first, backwards
+  for a catch-all bucket.
+- **`album.year` is new — it didn't exist on the album object shape at
+  all before this.** `mapWorkbookRowToDbSet()` already read a real `year`
+  field (used elsewhere for DB_Sets rows), but `buildLiveAlbums()` never
+  carried it onto the constructed album object, and `FAKE_ALBUMS`' three
+  demo entries had no album-level year field either (only each slot's own
+  `year`). Fixed on both sides: `buildLiveAlbums()` now sets `year:
+  mapped.year`; each `FAKE_ALBUMS` entry got a literal `year` matching its
+  own earliest slot (1909/1878/1971) — the same "the year the
+  folder/product starts" convention a real DB_Sets row's own Year would
+  represent.
+- **`albumYearSortValue()`** treats a blank/null/non-numeric year as
+  `Infinity` (sorts to the end of its own denomination group) rather than
+  producing `NaN`-driven sort noise — same rule `rollYearNumber()`/
+  `compareRollYear()` already established for the Rolls tab's own year
+  sort.
+- **The click-to-open handler's index survives the reorder correctly.**
+  `showAlbumDetail(index)`/`openAlbumAtPage(index, ...)` index into
+  `activeAlbums()` directly (and `currentAlbumIndex` persists that same
+  index for the book's own next/prev navigation) — so `renderAlbumsList()`
+  pairs each album with its ORIGINAL `activeAlbums()` index before
+  filtering/sorting (`.map((album, index) => ({album, index}))`), and the
+  click handler still closes over that original index, not the album's
+  position in the sorted/rendered list. Verified directly: clicking the
+  3rd rendered (sorted) card opens the correct album even though it isn't
+  `activeAlbums()[2]` in the underlying (scrambled) data order.
+- **Verified headless — 20 new assertions (block Q, `verify_albums_live_data.js`),
+  all passing; 88 in that suite, 1379 across all 32 suites, zero
+  failures.** Covers `albumsDenomSortIndex()`/`albumYearSortValue()` in
+  isolation (array-order-not-alphabetical, unknown-denom-sorts-last,
+  blank/null-year-sorts-last); the exact 6-real-album order named in the
+  task, built from DELIBERATELY SCRAMBLED input (never the expected
+  output order, so a pass can only mean the sort genuinely ran) — all
+  four `1C` albums oldest-to-newest, then both `10C` albums
+  oldest-to-newest; the click-index-preservation case above; the
+  `FAKE_ALBUMS` demo path sorting identically (`1C` → `5C` → `$1`, with
+  `$1`'s own 1878 — the numerically smallest year of the three —
+  correctly NOT winning over its larger denomination code, proving Year
+  is only ever the secondary key). **Negative control**: a reproduction of
+  the pre-fix plain-`forEach`-no-sort body against the same scrambled
+  fixture reproduces the raw input order, confirmed genuinely different
+  from the expected sorted order — proving the positive assertions depend
+  on the real sort, not a coincidence of fixture ordering. Also spot-checked
+  directly in a real headless browser session (not just the suite): a
+  fresh `navigate("albums")` on the demo path renders `Lincoln Cents` →
+  `Jefferson Nickels` → `Morgan Dollars`, matching `1C → 5C → $1`.
+- **Not verified: any real device, any real OneDrive session, or the
+  actual sort order against all 6 real albums live** — same standing
+  caveat as the rest of this feature; the exact names/years used in the
+  headless fixture were given directly rather than pulled from a real
+  session.
+
+### Albums book layout: cover sizing + page-flip clip fix (BUILT and merged to main)
+Three display bugs from Ray's live-device pass against the real Mercury
+Dimes album (63/82 filled). Two are real, confirmed, fixed CSS/JS bugs; the
+third was investigated and diagnosed as **not a code bug** — see below.
+All three were invisible against `FAKE_ALBUMS`' own 8-slot mocks, which
+never had enough content to expose either real bug's actual condition.
+
+**Root-caused by reproduction, not guessed at.** Neither the real coin
+photo nor the real workbook is reachable from this environment, so a
+synthetic live album (97 slots across 1916–1952, not evenly divisible —
+deliberately, since the real album's own slot count doesn't divide evenly
+into whatever chunk size the viewport computes either) was built via
+`buildLiveAlbums()` and driven through the real render/animation code with
+direct `getBoundingClientRect()` measurement and screenshots, both before
+and after each fix, at both phone and tablet width.
+
+**Bug 1 — a coin photo renders undersized inside its own disc (Albums slot
+AND Browse detail's own flip card): diagnosed as NOT a code bug.**
+- `background-size: cover` (used identically by `applyDiscOwnPhoto()`,
+  Browse detail's own disc-fill function, and Albums' `renderSlotCell()`
+  inline style) **cannot leave a visible CSS-level gap** — cover always
+  fills its whole container by definition, cropping overflow if the source
+  image's aspect ratio doesn't match. Confirmed directly: a synthetic
+  "padded" source image (a bright coin circle occupying only ~62% of its
+  own square canvas, with a differently-colored margin baked into the
+  actual pixels) rendered through `.coin-disc`'s real `background-size:
+  cover` reproduces Ray's exact reported symptom — a visibly smaller coin
+  with a ring of margin around it — even though the CSS itself is doing
+  exactly what it's supposed to.
+- This matches CLAUDE.md's own already-documented, already-shipped
+  "Circle framing" fix (see "Photo / receipt write layer" above): before
+  that fix, a captured photo's Stage 2 bake stored the coin at ~0.80 of
+  the circle guide's diameter rather than 1.00, with the rest of the frame
+  filled by real background material — baked into the file's own pixels,
+  not a layout property. That section's own words: **"Photos already
+  stored from before this fix keep their old framing until re-adjusted —
+  the framing was never recorded, so there is nothing to recover
+  retroactively."**
+- `resolveStoredAdjustSource()` (the Adjust/⤢ button's own source picker)
+  was re-read to rule out a regression there specifically, since Ray
+  reported the gap persisting "even after re-saving/fixing the photo in
+  Edit": it already prefers a resolvable raw and explicitly falls back to
+  re-cropping the DISPLAYED (already-cropped) file when no raw exists —
+  with its own user-facing toast saying so ("No original on file —
+  adjusting the stored photo itself, which re-crops it"). Working exactly
+  as documented, not a bug: if this coin's stored photo has no resolvable
+  `_original`/`OriginalFilename` (a legacy capture, or one from before
+  original-retention existed), re-adjusting from that same already-damaged
+  source re-crops the SAME padding into the new output — no amount of
+  re-saving through Adjust can recover detail that was never retained.
+- **No fix was written for this** — there's no code bug to fix, only a
+  legacy-data condition this project has already named and accepted
+  elsewhere. **Flagged back to Ray rather than guessed at**: did the
+  "re-saving" he did use the Adjust (⤢) button, or a full fresh Camera/
+  Library recapture? And does this specific coin's photo predate the
+  circle-framing-fix merge? If it was a genuine fresh recapture (not an
+  Adjust re-crop of the same damaged source) and the gap still appeared,
+  that would be new information pointing at an actual bug — worth a
+  follow-up look, but not something to guess a fix for blind.
+
+**Bug 2 — the album cover renders visibly smaller than interior pages.**
+Root cause, confirmed by measurement: `.album-page` (the shared class
+EVERY page type uses — cover, history, coins, blank, back-cover) carried a
+bare `min-height: 360px`. A coins page naturally grows past that floor
+because its own content (a real slot grid, sized via
+`computeAlbumPageRows()` to roughly fill the actual viewport) needs the
+room; the cover's content (an icon, a name, one progress line) never does,
+so it always sat at exactly 360px while a real coins page routinely
+measured 600px+. The cover is also never paired with a taller sibling —
+`renderAlbumBook()`'s own comment already says so ("the cover… is a
+standalone sheet-front") — so unlike History (which DOES pair with a
+coins page and gets stretched to match it via `.book-pages`'
+`align-items: stretch`, confirmed still working correctly, unaffected by
+this fix), the cover never got a free ride from flex stretch either.
+Nothing had ever told it how tall a book page "should" be.
+
+- **Fix: `computeAlbumPageMinHeight(spread)`** reconstructs the exact same
+  available-space budget `computeAlbumPageRows()` already computes (rows ×
+  rowHeight) and adds back the page's own reserved chrome (padding,
+  border, the coins page's side-label row) to get a real outer page
+  height. `renderAlbumBook()` sets it as `--page-min-height` on
+  `#albumsDetailContainer` on every render (CSS custom properties
+  cascade/inherit, so this applies correctly regardless of whether it's
+  set before or after the page markup is built, and covers
+  `turnAlbumPage()`'s own mid-animation markup too, which renders inside
+  that same container without going through `renderAlbumBook()` itself).
+  `.album-page`'s CSS changed from a bare `min-height: 360px` to
+  `min-height: var(--page-min-height, 360px)` — every page type,
+  cover included, now targets one consistent computed height, with 360px
+  kept only as a safety fallback for a context where the var was never
+  set.
+- Measured directly, both widths: phone (412px, non-spread) — cover 710px,
+  History 710px, first coins page 710px, all matching exactly. Tablet
+  (1024px, spread) — cover 630px alone, History+Obverse pair 630px/630px,
+  all matching.
+
+**Bug 3 — the bottom of a page appears to clip during the flip animation.**
+Root cause, confirmed by measurement AND screenshot: during a turn,
+`.book-turn-slot` (the wrapper for whichever side is animating) IS
+correctly stretched to match its still-visible sibling's real height, via
+the same `.book-pages` `align-items: stretch` mechanism — confirmed
+directly (606px, matching the sibling). But `.static-under` (the plain,
+in-flow child holding the page that's about to be revealed underneath the
+turning leaf) had no height rule of its own, so it sat at its OWN natural
+content height instead — genuinely shorter than the stretched parent
+whenever the revealed page holds fewer rows than the page still showing
+(the book's own final, partially-filled pages are the most common case,
+but any two consecutive coins pages with different row counts can trigger
+it). The revealed page's own coin content was never wrong — it rendered
+completely and correctly, just inside a box that stopped short of its
+sibling's height, which reads as "the page's own bottom edge/background
+clips" even though nothing is actually being overflow-clipped
+(`.book-turn-slot`/`.leaf-turn` are both `overflow: visible`). Screenshot
+evidence: mid-flip, the revealed page's cream-colored background stopped
+three rows short of its sibling's, with a large black gap below it where
+the box should have extended to match.
+- **Fix**: `.book-turn-slot .static-under { height: 100%; }` (filling the
+  already-correctly-stretched parent, mirroring what `.leaf-face`'s own
+  `inset: 0` already does automatically for the turning leaf itself), plus
+  extending the existing `.leaf-face > .album-page { height: 100% }` rule
+  to also cover `.static-under > .album-page` — the SAME class of gap one
+  level down: the box wrapper stretching correctly is not enough if its
+  own child `.album-page` isn't also told to fill it.
+- **Real, useful interaction found while writing the negative control, not
+  a second bug**: with Bug 2's fix also in place, EVERY `.album-page`
+  (short or tall) already gets floored to `--page-min-height`, which
+  independently makes a short revealed page's own child at least as tall
+  as a full one — meaning Bug 2's fix alone, in most real scenarios,
+  already prevents Bug 3's symptom from showing, even without Bug 3's own
+  fix. Confirmed by testing Bug 3's fix in isolation (Bug 2's fix left
+  active): no reproduction. Both fixes are kept anyway, deliberately — the
+  min-height floor is a coincidental side effect for this case, not an
+  architectural guarantee (a page could in principle still need more room
+  than the precomputed floor, or the two could drift out of sync in a
+  future change), while `.static-under`'s own `height: 100%` is the
+  actually-correct, direct fix for what the box is supposed to do
+  regardless of any other page's min-height. Both are real, independently
+  justified fixes, not redundant work — the interaction is documented so a
+  future session doesn't "simplify" one away and reintroduce a
+  narrower-but-real version of Bug 3.
+
+**Verified headless — new committed suite `tests/verify_album_book_layout.js`
+(15 assertions), all passing, zero page errors; 1358 across all 32 suites,
+zero failures.** Drives a real 97-slot synthetic live album through the
+actual render/animation code (not a hand-rolled simulation) at both
+required viewports: cover/History/coins-page heights matching exactly at
+phone width (non-spread) and tablet width (spread); a real dispatched
+click triggering the actual 650ms CSS transition, measured mid-animation,
+confirming `.static-under`/`.book-turn-slot`/the turning leaf all now
+match; and a `computeVisibleIndices()`/`nextAlbumPageIndex()`-driven search
+(mirroring `turnAlbumPage()`'s own real logic) that finds the actual
+mismatched transition point rather than assuming a fixed page offset,
+since where the mismatch falls depends on live viewport math, not a fixed
+layout. **Two negative controls, via temporary `<style>` overrides
+reproducing the exact pre-fix rules** (not achievable via the usual
+function-reassignment technique, since both bugs are pure CSS): forcing
+the bare `min-height: 360px` back reproduces the undersized cover exactly
+(360px); forcing `.static-under`'s height back to `auto` — together with
+the bare `min-height: 360px` (needed to isolate Bug 3's own contribution
+from Bug 2's fix, per the interaction noted above) — reproduces the exact
+reported clip. Screenshots reviewed at both viewports for the fixed cover,
+the fixed mid-flip transition, and Bug 1's synthetic-padded-image
+reproduction.
+- **Not verified: any real device, Ray's own real coin photo, or the real
+  workbook's actual Mercury Dimes data.** This pass used a synthetic
+  live-data fixture throughout, per the same standing caveat as the rest
+  of this feature. Bug 1 in particular needs Ray's own answer (Adjust vs.
+  fresh recapture; whether the photo predates the circle-framing fix)
+  before any further action is warranted there.
+
+**Row cap: max 5 rows per page (addendum, same branch/session).** Ray's
+follow-up real-device report: a full album page on tablet and PC required
+vertical scrolling to see in full — the page itself was taller than the
+viewport. `computeAlbumPageRows()`'s own "fill available space" calculation
+is correct on narrower/shorter viewports where fewer than 5 rows fit (it's
+still the ACTIVE constraint there — a phone at 412×915 computes 5 rows
+uncapped for the same reason, only slightly under the cap), but on a tall
+viewport it kept growing past what a single screen shows.
+- **One-line fix**: `return Math.min(5, Math.max(1, Math.floor(available /
+  rowHeight)));` — clamps the existing calculation rather than replacing it.
+- **Nothing else needed changing, confirmed by reading the call graph
+  first, not assumed.** `computeAlbumChunkSize()` (coins per page = rows ×
+  columns) and `computeAlbumPageMinHeight()` (the `--page-min-height` CSS
+  variable driving both bug fixes from the section above) both derive
+  entirely from `computeAlbumPageRows()`'s own return value — capping rows
+  here automatically shrinks the page's own computed min-height and
+  increases page count for any album that previously computed more than 5
+  rows, with no separate change needed at either call site.
+- **The two CSS fixes above (the `--page-min-height` floor and
+  `.static-under`'s `height: 100%`) were re-verified, not just assumed
+  still correct** — both are generic mechanisms that adapt to whatever
+  `computeAlbumPageRows()` returns, and the existing committed suite
+  (`tests/verify_album_book_layout.js`, blocks A–D) re-passed unchanged
+  against the capped value with no edits needed to those blocks.
+- **Real-measured, not assumed: where the cap actually bites.** For the
+  committed 97-slot fixture, tablet (1024×768) naturally computes exactly
+  5 rows even UNCAPPED — its width (6 columns in spread mode) makes it
+  land right at the boundary on its own, so the cap is present-but-inert
+  there. PC (1920×1080, the same fixture) computes **8 rows uncapped**,
+  clamped to 5 — this is where the fix is actually load-bearing. Both are
+  covered by dedicated assertions (see below) rather than assuming tablet
+  alone proves the fix.
+- **Verified headless — 8 new assertions (block F,
+  `tests/verify_album_book_layout.js`), all passing; 26 in that suite, 1390
+  across all 32 suites, zero failures.** Covers: `computeAlbumPageRows()`
+  returning at most 5 at both tablet and PC width; every rendered coins
+  page (not just the formula in isolation) showing at most 5 rows of real
+  slot content at both widths; a real coins page's bottom edge fitting
+  within the viewport height with no scrolling needed, at both widths; no
+  vertical page overflow with a real 97-slot album open, at both widths;
+  and negative controls confirming the pre-cap formula is genuinely >5 at
+  PC width (proving the fix is doing real work, not passing by
+  coincidence) while correctly documenting that tablet's own uncapped
+  value already happens to be 5 for this fixture. Screenshots reviewed
+  directly (a separate synthetic 82-slot Mercury-Dimes-shaped fixture,
+  closer to the real album's real slot count than the committed suite's
+  97-slot one) at both tablet and PC width, mid-book: exactly 5 rows per
+  page, comfortable clearance below the page, no scrollbar.
+- **Not verified: any real device.** Same standing caveat as the rest of
+  this feature — this fix directly targets Ray's own tablet/PC report, so
+  his confirmation on those exact devices is the one that actually closes
+  this out, not a headless viewport simulation.
+
+**Merged to main.** Ray reviewed the whole Albums live-wiring feature —
+live data (Albums/DB_Sets/Wishlist wiring), the key-date badge, the
+History-text wiring, the list's Denomination-then-Year sort, the two
+cover-sizing/page-flip-clip bug fixes, and this row cap — and authorized
+merging `claude/code-primer-u8uv1d` to `main` once this fix was verified.
+`claude/code-primer-u8uv1d` has no commits of its own that aren't now in
+main's history — **main is the source of truth for the whole Albums
+live-wiring feature going forward**, same standing as every other
+merged-after-holding branch in this file. Both this section's own header
+and "Albums book layout: cover sizing + page-flip clip fix" above are
+updated to reflect it, rather than left reading "held" once it no longer
+is.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
