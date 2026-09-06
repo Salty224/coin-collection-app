@@ -12262,6 +12262,179 @@ own images before ever painting the book.
   his own connection — flagged as an explicit, expected follow-up, not a
   gap in this pass.
 
+### Splash + Album prefetch: three live-device fixes (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+Ray's first real-device pass on the two features just above (splash gating,
+album prefetch) found three real bugs — none of them new features, all of
+them the prior task's own design assumptions turning out wrong once run
+against a genuine signed-in session and a real album. All three are fixed
+here; per the task's own instruction this branch is **held pending Ray's
+live-device confirmation**, same standing as every other "awaiting live
+pass" item in this file.
+
+**Bug A — the splash hid too early on a real device.** The splash-gating
+section above already changed the gate from "any resolution hides it" to
+"only a real `true` hides it" — but that alone didn't fix Ray's report,
+because the REAL cause was a race that predates this feature entirely:
+`handleRedirectPromise()` (MSAL's own once-per-load call, fired at module
+init) was never awaited before the very first `acquireTokenSilent()` call
+several thousand lines later (`navigate("dashboard")`'s own synchronous
+`ensureLiveNavDataFetch()` call, run during init with no `await` in
+between). On a normal boot with a valid cached session, `acquireTokenSilent()`
+could fire while `handleRedirectPromise()` was still genuinely mid-flight —
+a well-documented MSAL gotcha, not specific to this app — and the resulting
+transient failure was previously enough to make the splash bail early (a
+`false`/error treated as "done").
+- **Fixed at the source**: `graphRedirectHandledPromise` now holds
+  `handleRedirectPromise()`'s own promise (kept, not fire-and-forgotten),
+  and `acquireGraphToken()` — the one serialized token-acquisition choke
+  point every Graph feature already shares — `await`s it before ever
+  calling `acquireTokenSilent()`. Since `handleRedirectPromise()` always
+  resolves (with `null` on every boot that isn't literally the instant
+  after a sign-in redirect lands), awaiting it costs nothing once already
+  settled and removes the race for every caller, not just the splash.
+- **Second, defense-in-depth half**: a throw from `acquireTokenSilent()`
+  does not always mean "no session, must redirect." With a cached account
+  on file, only MSAL's own `InteractionRequiredAuthError` genuinely means
+  interaction is unavoidable; anything else (a transient cache/network
+  hiccup) is now treated as "no answer yet, try again" rather than grounds
+  to yank the user into a real sign-in redirect. Extracted into a pure,
+  directly-testable function, `shouldStartInteractiveRedirect(hasAccount,
+  error, InteractionRequiredAuthErrorClass)`, specifically because
+  `acquireGraphToken()` itself can't be exercised end-to-end from this
+  sandbox (`graphMsalInstance` is always `null` here — no real MSAL ever
+  loads) — this is real coverage for the decision logic even though the
+  MSAL integration around it can't be driven headlessly.
+- **The splash's own gate is unchanged in shape from the section above**
+  (hide only on a genuine `true`, retry every `SPLASH_RETRY_INTERVAL_MS`
+  within the 5s ceiling) — Bug A was entirely about WHY a real session
+  could produce a spurious non-`true` answer in the first place, not about
+  the gate's own logic.
+- **A second, genuinely new bug found WHILE building this fix, not
+  guessed at**: `runSplashConnect()` is called more than once in real
+  usage (the Retry button, or a fast double-click) — every invocation used
+  to start its own fully independent 5s timeout with nothing canceling an
+  older one's. An older, still-pending invocation's timer could fire the
+  error box back up well after a NEWER, already-succeeded invocation had
+  hidden the splash — reproduced directly in testing (a stale 5s timer
+  fired ~3.75s into an unrelated later test block, corrupting its timing
+  measurement). Fixed with a generation token (`splashConnectGeneration`,
+  bumped at the top of every `runSplashConnect()` call) — a `stillCurrent()`
+  check gates every DOM mutation, so only the most-recently-STARTED
+  invocation is ever allowed to touch the splash, regardless of which one's
+  timers fire first.
+
+**Bug B — a fresh album open never prefetched real content.** The prior
+section's own "scoping decision" claimed a fresh open (`showAlbumDetail()`,
+always landing on the cover, pageIndex 0) correctly prefetches "zero
+reference-image fetches — the cover has no slots to prefetch." That was
+true and also exactly backwards from what the feature needed: the cover
+page is the ONE thing that never needs prefetched images (no slots), so
+scoping strictly to "whatever's currently visible" made the ONE path that
+actually needs this feature (a brand-new open) a guaranteed no-op — the
+user would still watch placeholders pop in the moment they turned past the
+cover to the first real coins page.
+- **Fix, inside `openAlbumAtPage()`**: after computing `visiblePages` via
+  `computeVisibleIndices()` exactly as before, a new check —
+  `if (!visiblePages.some(p => p.type === "coins"))` — catches the
+  cover-only case specifically (the ONLY way `computeVisibleIndices()` can
+  return a page set with no coins page in it, since `pageIndex` is only
+  ever 0 for a fresh open) and appends the album's first real coins page
+  to the prefetch target. **This does not change where the book opens** —
+  the cover still displays first, in order, completely unchanged — it only
+  widens what gets waited on BEFORE that reveal.
+- **Scoped narrowly, on purpose**: the widening only fires when the
+  visible set is genuinely cover-only. Reopening at a later coins page
+  (the filled-slot Browse-detail "Back" round trip) already has a real
+  coins page in its visible set and is completely untouched — it still
+  prefetches exactly that page's own series, never also the album's first
+  chunk on top of it.
+- **The prior section's own claim is now stale and superseded by this
+  note** — "a fresh open triggers zero reference-image fetches" described
+  the bug, not the fix; don't read that line as still-current behavior.
+
+**Bug C — a resolving image never repainted a page already on screen.**
+Confirmed real and pre-existing, untouched by either feature above:
+`renderSlotCell()` is a string-templated render (`innerHTML`), not a live
+element reference the way `applyDiscContent()` is — so a slot's own image
+fetch resolving had nothing to notify. The placeholder disc just sat there
+until the user flipped away and back, which forces a fresh render that
+finally reads the by-then-cached image.
+- **New `albumBookIsShowingSlot(matchSlot)`** answers "is the slot this
+  fetch was for still on screen right now" — fully derived from live state
+  on every call (current album, current page, whether the book is even
+  open vs. still on the list), no snapshot/token of its own needed: if the
+  user has since closed the album, opened a different one, or flipped to a
+  different page, it simply returns `false` and the caller skips the
+  redraw.
+- **Wired into `renderSlotCell()`'s two cache-miss tiers** (the stored
+  Photos-tab photo, and the series reference image) — each now attaches a
+  `.then(url => { if (url && albumBookIsShowingSlot(...)) renderAlbumBook();
+  })` onto its existing fetch call, so a resolving fetch redraws the page
+  in place, autonomously, exactly when the user is still looking at it.
+  The reference-image tier's redraw-triggering call is a deliberately
+  redundant, safe call to `ensureReferenceImageFetch()` — `hasReferenceImage()`
+  already kicks off the same fetch on its own cache miss, and this second
+  call dedupes against that same in-flight/cached promise (never a second
+  real fetch); it exists purely to attach this one callback.
+- **Deliberately scoped to the album book specifically** — not a
+  project-wide live-update mechanism for every other place in this file
+  with the same render-once-per-fetch pattern (e.g. Catalog/Browse's own
+  reference-image tiers), which would be a separate, much larger
+  undertaking. `hasReferenceImage()`/`ensureReferenceImageFetch()`
+  themselves are untouched, shared code — only `renderSlotCell()`'s own
+  call sites gained the new callback.
+- **A real bug found and fixed WHILE BUILDING the test for this, not in
+  the app itself** — worth recording since it cost real debugging time (a
+  test process pinned at 100%+ CPU for several minutes before being
+  root-caused): a test stub that fully replaces `ensureReferenceImageFetch()`
+  but never reproduces its real CACHING side effect (writing into
+  `referenceImageCache` once a real answer lands) creates an infinite
+  render→fetch→render cycle. `hasReferenceImage()` never sees a cache hit,
+  so `renderSlotCell()`'s own miss branch keeps re-calling
+  `ensureReferenceImageFetch()` on every redraw — and since an
+  ALREADY-RESOLVED promise's `.then()` fires on the very next microtask,
+  that becomes an unbounded cascade that starves the event loop's
+  macrotask queue (a real, reproduced hang, not a guess — a
+  `setTimeout`-based wait inside the test never got to fire). This is not
+  an app bug: production's real `ensureReferenceImageFetch()` does cache
+  correctly, so the cycle self-terminates there after one real resolution.
+  The committed test's stub was fixed to mimic that same caching side
+  effect, not just the return value — a lesson worth remembering for any
+  future stub of a memoizing function in this codebase.
+
+**Verified headless — the existing `tests/verify_splash_and_album_prefetch.js`
+suite was extended in place, not forked**, since all three bugs are
+corrections to the same two features that suite already covers. Block I
+(Bug B's scoping test) was rewritten to assert the new widened behavior —
+a fresh open now includes the album's first coins page's series, and a
+negative control confirms this is genuinely scoped to the cover-only case
+(a reopen at a later page does NOT also include the first chunk). Two new
+blocks were added for Bug C: `albumBookIsShowingSlot()` in isolation
+(on/off the matching page, a nonexistent slot, after closing the book) and
+a full end-to-end repro — driving the real `renderSlotCell()`/
+`renderAlbumBook()` code path with a controlled, cache-aware stub, asserting
+the disc has no image before, still none mid-flight, and the resolved image
+appears afterward with the test itself never calling `renderAlbumBook()`
+again — plus a negative control confirming the redraw is genuinely
+suppressed once the user has left the book, not that it always happens
+regardless. A new GEN/NEG_GEN pair covers the generation-token fix
+directly, including a negative control that recreates the pre-fix
+`runSplashConnect()` body inline and confirms it DOES reproduce the stale-timer
+symptom.
+- **Not verified: Bug A's actual live-device fix.** `graphMsalInstance` is
+  always `null` in this sandbox — real MSAL never loads here — so
+  `acquireGraphToken()`'s integration with `handleRedirectPromise()` and
+  the real timing race it fixes cannot be exercised end-to-end from this
+  environment at all. Only the extracted pure function
+  (`shouldStartInteractiveRedirect()`) has direct test coverage; the actual
+  fix needs Ray's own real signed-in-session pass to confirm it resolves
+  the reported symptom (not just the synthetic no-token fixture this suite
+  already runs against).
+- **Not verified: Bug B/C on a real device.** Both need the same "open
+  Mercury Dimes fresh from the album list, sit on the first coins page
+  without flipping, watch images populate in place" pass the task itself
+  asked for.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare

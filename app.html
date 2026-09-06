@@ -4903,13 +4903,45 @@
   // With only read features enabled the app still asks for read-only.
   const GRAPH_SCOPES = WRITE_LAYER_ENABLED ? ["Files.ReadWrite"] : ["Files.Read"];
 
-  // Exactly one redirect-response handler, run once at load.
+  // Exactly one redirect-response handler, run once at load. Its promise is
+  // now KEPT (not just fire-and-forgotten) — see acquireGraphToken() below,
+  // which awaits it before ever calling acquireTokenSilent(). Real bug this
+  // fixes (splash-gating live-device finding, Bug A): this script runs
+  // top-to-bottom with no await between this call and the very first
+  // acquireTokenSilent() call several thousand lines later (fired from
+  // navigate("dashboard")'s own ensureLiveNavDataFetch() call, itself run
+  // synchronously during init) — so on a normal boot, acquireTokenSilent()
+  // was firing while handleRedirectPromise() was still genuinely pending.
+  // handleRedirectPromise() always resolves (with null when there's no
+  // redirect response to process, the normal case on every boot that isn't
+  // literally the instant after a sign-in redirect lands), so awaiting it
+  // first costs nothing once it's already settled and removes the race
+  // entirely for every later caller.
+  let graphRedirectHandledPromise = Promise.resolve();
   if (graphMsalInstance) {
-    graphMsalInstance.handleRedirectPromise().catch(err => {
+    graphRedirectHandledPromise = graphMsalInstance.handleRedirectPromise().catch(err => {
       console.warn("Graph sign-in redirect error:", err);
     });
   } else if (ANY_GRAPH_FEATURE_ENABLED) {
     console.warn("MSAL failed to load — every real-Graph feature will degrade to demo/placeholder data.");
+  }
+
+  // Bug A, second half — pure and directly testable (no MSAL instance
+  // needed) so this decision has real coverage even though this sandbox
+  // can never load real MSAL to exercise acquireGraphToken() end-to-end.
+  // A throw from acquireTokenSilent() does NOT always mean "no session,
+  // must redirect." With a cached account on file, MSAL's own
+  // InteractionRequiredAuthError is the one signal that genuinely means
+  // interaction is unavoidable (consent/login/interaction_required —
+  // nothing silent can recover it); anything else with an account present
+  // (a transient cache/network hiccup, e.g.) is treated as "no answer yet,
+  // try again," the same as a token that's simply still being silently
+  // refreshed — NOT as grounds to yank the user into a real sign-in
+  // redirect. Only a genuinely account-less session (or a confirmed
+  // InteractionRequiredAuthError) needs one.
+  function shouldStartInteractiveRedirect(hasAccount, error, InteractionRequiredAuthErrorClass) {
+    if (!hasAccount) return true;
+    return !!(InteractionRequiredAuthErrorClass && error instanceof InteractionRequiredAuthErrorClass);
   }
 
   // Serialized token acquisition. Several features (and, within live nav
@@ -4926,13 +4958,17 @@
     if (graphTokenInFlight) return graphTokenInFlight;
     graphTokenInFlight = (async () => {
       try {
+        // See graphRedirectHandledPromise's own comment above — never call
+        // acquireTokenSilent() while a redirect response might still be
+        // mid-processing.
+        await graphRedirectHandledPromise;
         const account = graphMsalInstance.getAllAccounts()[0];
         const result = await graphMsalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
         return result.accessToken;
       } catch (e) {
-        // No cached session (or it expired) — hand off to a full-page
-        // redirect. Guarded so concurrent callers can't each start one.
-        if (!graphRedirectStarted) {
+        const hasAccount = graphMsalInstance.getAllAccounts().length > 0;
+        const InteractionRequiredAuthErrorClass = typeof msal !== "undefined" ? msal.InteractionRequiredAuthError : undefined;
+        if (shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass) && !graphRedirectStarted) {
           graphRedirectStarted = true;
           graphMsalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
         }
@@ -16183,15 +16219,34 @@
     // uses to decide what's on screen, not a hardcoded "first coins page"
     // assumption. This is what makes one mechanism correctly serve every
     // caller of openAlbumAtPage(): a fresh open always lands on the cover
-    // (pageIndex 0, no slots — an near-instant no-op), while returning here
-    // from a coin's own Browse detail view (see the filled-slot click
-    // handler below) reopens at whatever coins page the user was actually
-    // on — exactly the page that needs its images ready, not page 0's.
-    // Spread (tablet/desktop) mode shows TWO pages at once, so both are
-    // prefetched together, not just one of the pair.
+    // (pageIndex 0, no slots), while returning here from a coin's own
+    // Browse detail view (see the filled-slot click handler below) reopens
+    // at whatever coins page the user was actually on — exactly the page
+    // that needs its images ready, not page 0's. Spread (tablet/desktop)
+    // mode shows TWO pages at once, so both are prefetched together, not
+    // just one of the pair.
     const spread = isAlbumSpreadWidth();
-    const visiblePages = computeVisibleIndices(pageIndex, spread, currentAlbumPages.length)
+    let visiblePages = computeVisibleIndices(pageIndex, spread, currentAlbumPages.length)
       .map(i => currentAlbumPages[i]);
+
+    // BUG B FIX (live-device finding): a fresh open's visible set above is
+    // ALWAYS just the cover (pageIndex 0 never returns anything else — see
+    // computeVisibleIndices()), which has no slots of its own — so on the
+    // ONE path that most needs this feature (showAlbumDetail()/
+    // openAlbumFromLink(), both always opening at 0), the prefetch above
+    // was a guaranteed no-op and the user would still watch placeholders
+    // pop in the moment they flipped past the cover. This does NOT change
+    // where the book opens — the cover still displays first, in order,
+    // completely unchanged — it only widens what gets waited on BEFORE
+    // that reveal: if the visible set is genuinely just the cover (no
+    // "coins" page in it at all — the reopen-at-a-real-page case above
+    // already has one and is untouched by this), also warm the album's
+    // first real coins page, so by the time the user turns past the cover
+    // and History, its images are already cached instead of popping in.
+    if (!visiblePages.some(p => p && p.type === "coins")) {
+      const firstCoinsPage = currentAlbumPages.find(p => p.type === "coins");
+      if (firstCoinsPage) visiblePages = visiblePages.concat([firstCoinsPage]);
+    }
 
     const container = document.getElementById("albumsDetailContainer");
     container.innerHTML = "";
@@ -16248,6 +16303,36 @@
     return (dbCoin && dbCoin.mintage != null) ? dbCoin.mintage : null;
   }
 
+  // BUG C FIX (live-device finding): renderSlotCell() is a string-templated
+  // render (innerHTML), not a live element reference like applyDiscContent()
+  // — a slot's own image fetch resolving used to have nothing to notify, so
+  // a placeholder disc just sat there until the user flipped away and back,
+  // which forced a fresh render that finally read the by-then-cached image.
+  // This answers "is the slot this fetch was for still on screen right now"
+  // so a resolving fetch can trigger a real redraw in place — scoped to the
+  // album book specifically (not a project-wide live-update mechanism for
+  // every other place in this file with the same render-once-per-fetch
+  // pattern, e.g. Catalog/Browse's own reference-image tiers, which is a
+  // separate, much larger undertaking left untouched here).
+  //
+  // Fully derived from live state on every call (no snapshot/token) — if
+  // the user has since closed the album, opened a different one, or
+  // flipped to a different page, this simply returns false and the caller
+  // skips the redraw, rather than needing a staleness guard of its own.
+  function albumBookIsShowingSlot(matchSlot) {
+    if (currentAlbumIndex === null || !currentAlbumPages || !currentAlbumPages.length) return false;
+    const albumsView = document.getElementById("view-albums");
+    if (!albumsView || !albumsView.classList.contains("active")) return false;
+    const listView = document.getElementById("albumsListView");
+    if (!listView || listView.style.display !== "none") return false; // still on the list, not the open book
+    const spread = isAlbumSpreadWidth();
+    const indices = computeVisibleIndices(currentPageIndex, spread, currentAlbumPages.length);
+    return indices.some(i => {
+      const page = currentAlbumPages[i];
+      return page && page.type === "coins" && (page.slots || []).some(matchSlot);
+    });
+  }
+
   function renderSlotCell(slot, side, album) {
     const filled = !!slot.filledBy;
     // Keyed off the SLOT's own description, not the filled coin's — FAKE_COINS
@@ -16282,11 +16367,33 @@
       const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
       if (storedName) {
         storedUrl = getCachedCoinPhotoUrl(storedName);
-        if (!storedUrl) ensureCoinPhotoFetch(storedName);
+        if (!storedUrl) {
+          // BUG C FIX: redraw the book once this specific slot's photo
+          // actually lands, IF the user is still looking at the page it's
+          // on — matches applyDiscContent()'s own "self-upgrade in place"
+          // pattern for the live element case, adapted to this string-
+          // templated render's only real option (re-render the container).
+          ensureCoinPhotoFetch(storedName).then(url => {
+            if (url && albumBookIsShowingSlot(s => s.filledBy === slot.filledBy)) renderAlbumBook();
+          });
+        }
       }
     }
     const referenceCoin = filled ? { description: slotDescription(slot) } : null;
     const useReference = !ownEntry && !storedUrl && referenceCoin && hasReferenceImage(referenceCoin, side);
+    // BUG C FIX, reference-image tier: hasReferenceImage() above already
+    // kicked off ensureReferenceImageFetch() on its own cache miss (see its
+    // own comment) — calling it again here is a safe, deduped no-op against
+    // that SAME in-flight/cached promise (never a second real fetch), just
+    // to attach this redraw-in-place callback to it.
+    if (filled && !ownEntry && !storedUrl && !useReference && referenceCoin) {
+      const missSeriesKey = referenceSeriesKey(referenceCoin);
+      if (missSeriesKey) {
+        ensureReferenceImageFetch(missSeriesKey, side).then(url => {
+          if (url && albumBookIsShowingSlot(s => s.coinId === slot.coinId)) renderAlbumBook();
+        });
+      }
+    }
     const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(referenceCoin), side) : null;
     const photoUrl = ownEntry ? ownEntry.url : (storedUrl || referenceUrl);
     const isLittleton = album && album.folderStyle === "littleton";
@@ -23215,29 +23322,47 @@
     });
   }
 
-  // Initial splash screen — now gated on REAL data readiness, not a fixed
+  // Initial splash screen — gated on REAL data readiness, not a fixed
   // simulated delay. **Superseded**: this used to hide itself after a flat
   // SPLASH_SIMULATED_DELAY_MS (1400ms) regardless of whether any real data
   // had actually loaded, because there was no live connection to gate on
   // yet at the time this was built. There is now — ensureLiveNavDataFetch()
   // is the same real Promise.all (All/DB_Sets/DB_Coins/Lookup_MetalContent/
   // Lookup_Graders, plus Photos/Receipts/Albums/Wishlist) every other live
-  // surface in this app already waits on, and it ALWAYS resolves (never
-  // rejects — its own .catch() returns false), so racing it is safe with no
-  // extra error handling needed here.
+  // surface in this app already waits on.
   //
   // The rest of the app has already rendered underneath by the time this
   // runs (init below is synchronous, and navigate("dashboard") — which
   // already kicks off this exact same fetch — runs immediately before
-  // initSplash()); the splash just covers it until the fetch settles, or
-  // the 5s timeout below fires first.
+  // initSplash()); the splash just covers it until the fetch genuinely
+  // succeeds, or the 5s timeout below fires first.
   const SPLASH_DATA_TIMEOUT_MS = 5000; // may be refined after live testing
   // A separate, short, dev-only demo delay for ?splashError=1 (below) — kept
   // distinct from SPLASH_DATA_TIMEOUT_MS so the real timeout can be tuned
   // independently of this toggle's own pacing.
   const SPLASH_ERROR_DEMO_DELAY_MS = 1400;
+  // How often to re-check ensureLiveNavDataFetch() after a `false` answer,
+  // within the same 5s budget — see Bug A below.
+  const SPLASH_RETRY_INTERVAL_MS = 400;
+
+  // Bumped on every runSplashConnect() call so an OLDER invocation's own
+  // still-pending retry/timeout chain can recognize itself as superseded
+  // and never touch the DOM again — same staleness-guard pattern
+  // albumOpenToken (Albums book) already uses. Real bug this closes,
+  // caught while testing Bug A rather than guessed at: runSplashConnect()
+  // is called more than once in practice (the Retry button re-runs it, and
+  // a fast double-click could fire it twice) — every invocation used to
+  // start its OWN independent 5s timeout with nothing canceling a PRIOR
+  // one's, so an old invocation's timer could fire well after a newer one
+  // had already succeeded (or was itself still legitimately waiting),
+  // yanking the error box back up or otherwise clobbering the current
+  // invocation's own state out from under it.
+  let splashConnectGeneration = 0;
 
   function runSplashConnect() {
+    const myGeneration = ++splashConnectGeneration;
+    function stillCurrent() { return myGeneration === splashConnectGeneration; }
+
     const overlay = document.getElementById("splashScreen");
     const status = document.getElementById("splashStatus");
     const errorBox = document.getElementById("splashErrorBox");
@@ -23252,6 +23377,7 @@
     const forceError = new URLSearchParams(location.search).get("splashError") === "1";
     if (forceError) {
       setTimeout(() => {
+        if (!stillCurrent()) return;
         status.style.display = "none";
         errorBox.classList.remove("hidden");
       }, SPLASH_ERROR_DEMO_DELAY_MS);
@@ -23267,24 +23393,45 @@
       errorBox.classList.remove("hidden");
     }
 
-    // Whichever settles first wins — hideSplash() as soon as the real fetch
-    // resolves (true OR false; "resolves" is the gate, not "succeeds" — a
-    // false answer still means Graph genuinely responded, e.g. no signed-in
-    // session yet, which is the same "no answer yet, will retry" case every
-    // other Graph-token consumer in this file already treats as normal, not
-    // an error), never waiting out the full 5s if it's faster. `settled`
-    // guards against BOTH firing — the fetch settling after the timeout
-    // already showed the error box must not silently hide it again out from
-    // under the user.
+    // BUG A FIX (live-device finding): this used to hide on ANY resolution
+    // of ensureLiveNavDataFetch(), true or false — "resolves" was the wrong
+    // gate. On an ordinary boot with a perfectly valid cached session, the
+    // FIRST attempt could still legitimately answer `false` fast — the
+    // token was simply still being silently refreshed when that first
+    // attempt ran (see acquireGraphToken()'s own handleRedirectPromise/
+    // InteractionRequiredAuthError fix above for the actual root cause) —
+    // and hiding the splash on that meant the app showed itself as "ready,"
+    // Docket badge included, before any real data had actually landed.
+    // Only a genuine SUCCESS now hides it. A `false` isn't treated as a
+    // dead end either: it's retried within the same 5s budget rather than
+    // left to sit idle until the timeout — ensureLiveNavDataFetch() is
+    // already memoized/dedup'd (see its own comment), so a retry here is
+    // never a second real fetch stacked on a still-in-flight one, only a
+    // fresh check once the previous attempt has already settled.
     let settled = false;
-    ensureLiveNavDataFetch().then(() => {
-      if (settled) return;
-      settled = true;
-      hideSplash();
-    });
+    let retryTimer = null;
+    function attempt() {
+      if (settled || !stillCurrent()) return;
+      ensureLiveNavDataFetch().then(success => {
+        if (settled || !stillCurrent()) return;
+        if (success) {
+          settled = true;
+          hideSplash();
+        } else {
+          retryTimer = setTimeout(attempt, SPLASH_RETRY_INTERVAL_MS);
+        }
+      });
+    }
+    attempt();
+    // `settled`/stillCurrent() also guard this against the fetch finally
+    // succeeding right after this fires, or against a NEWER
+    // runSplashConnect() call (Retry) having superseded this one entirely —
+    // the timeout, once reached for the CURRENT invocation, means something
+    // real now (a genuine failure/hang), not "every ordinary boot."
     setTimeout(() => {
-      if (settled) return;
+      if (settled || !stillCurrent()) return;
       settled = true;
+      clearTimeout(retryTimer);
       showSplashError();
     }, SPLASH_DATA_TIMEOUT_MS);
   }
