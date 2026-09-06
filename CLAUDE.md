@@ -2888,6 +2888,53 @@ narrowing the list.
   filters, and weren't part of this fix; they still persist across an
   external Browse re-entry, unchanged.
 
+### Sets tab: list-mode cards now show Year (BUILT and merged to main)
+Real bug from Ray's live-device review: the Sets tab's own "All" pill (list
+mode — the branch of `applySetsTabFilters()` that does NOT switch into the
+completeness checklist) rendered several real owned rows visually
+identical — six rows all reading "United States Proof Set / Proof Set ·
+$155" etc., differing only in price — because `renderSetsGrid()`'s card
+title was bare `coin.name`, with no Year anywhere on the card, even though
+each row carries a distinct real Year (1955, 1956, 1957…). The completeness
+checklist's own tiles were never affected — `renderSetChecklist()` already
+prints `row.year` on every tile — and neither was drill-in, which already
+shows Year in the page title (`detailTitleText()`, "1957 United States
+Proof Set"). Only the list-level card was missing it.
+
+**Confirmed before touching display logic, per the explicit instruction**:
+this list is **not** on `FAKE_SETS` — that entity/picker model (named sets
+with member CollectionIDs, a separate "Sets" filter chip) was retired
+outright by the Browse navigation restructure and no longer exists anywhere
+in the file. It also isn't DB_Sets-backed (that's the checklist's own
+`activeDbSets()` path, a different branch of the same function) — the list
+reads **owned All-sheet rows** (`Denomination="Multiple"`) via
+`activeCoins()`, which was already correctly live-data-aware (falls back to
+`FAKE_COINS` only when no live session is loaded). So the bug was purely a
+missing field on the card, not a stale-data-source problem.
+
+**Fix: reuse `detailTitleText(coin)`**, the exact same year-prefixing
+helper drill-in already uses, rather than inventing a second rule that
+could drift from it — skips prefixing when the name already starts with
+its own year (e.g. "2021 Silver Proof Set" stays as-is, never doubled to
+"2021 2021 Silver Proof Set"), and leaves a Roll's literal "Various" year
+unprefixed (irrelevant here, since Rolls never reach this card, but the
+shared helper's rule carries over for free). Output routed through
+`escapeHtmlText()` since this card is built via `innerHTML` (unlike
+drill-in's own `textContent` set, which needed no escaping) — a small,
+strictly-safer addition alongside the fix, not a claim the old raw
+`${coin.name}` was exploitable in practice.
+
+Verified headless — new committed suite `tests/verify_sets_list_year.js`
+(10 assertions): confirms `FAKE_SETS` is genuinely absent from the source
+and the list branch reads `activeCoins()`; three synthetic rows sharing an
+undated Description ("United States Proof Set") at 1955/1956/1957 render as
+three genuinely distinct card titles; a name that already starts with its
+own year isn't doubled; and a nav/overflow smoke check. One verified
+negative control: the pre-fix bare-`coin.name` card reproduces the exact
+reported symptom (all three rows rendering identically). All prior suites
+re-run clean alongside it (1267 total across 29 suites).
+- **Not verified: any real device.** Screenshot reviewed at 412px only.
+
 ### Sets tab: completeness checklist (locked in)
 The Sets tab's three **Lineage** pills now double as an at-a-glance
 completeness checklist — "which years of the annual Proof Set / Uncirculated
