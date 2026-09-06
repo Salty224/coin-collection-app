@@ -1170,6 +1170,27 @@
   .book-turn-slot .static-under {
     position: relative;
     z-index: 1;
+    /* BUG FIX (page-flip bottom-clip, locked in): .book-turn-slot itself is
+       correctly stretched to match its sibling's real height via
+       .book-pages' align-items:stretch — confirmed by measurement (606px
+       for a full 36-slot page). But .static-under is a plain in-flow child,
+       not a flex item, so it was never told to fill that stretched box — it
+       sat at its OWN natural content height instead, which is genuinely
+       shorter than its sibling whenever the page being revealed underneath
+       (the "static" side of a turn) holds fewer rows than the one still
+       showing (e.g. the book's final, partially-filled page, or any
+       transition where consecutive pages hold different slot counts). The
+       revealed page's own coin content was never wrong — it rendered
+       completely and correctly, just inside a box that stopped short of
+       the row height its sibling occupied, which reads as "the page's own
+       bottom edge/background clips" even though nothing is actually being
+       overflow-clipped. Confirmed via direct measurement + screenshot: a
+       transition into an 18-slot page (vs. a 36-slot sibling) showed
+       static-under at 360px against a 606px container before this fix.
+       Never visible with FAKE_ALBUMS' own 8-slot mocks, whose few small
+       pages never differed in row count. height:100% here is what actually
+       fills the already-correctly-stretched parent. */
+    height: 100%;
   }
   .leaf-turn {
     position: absolute; inset: 0;
@@ -1186,11 +1207,36 @@
     -webkit-backface-visibility: hidden;
   }
   .leaf-face-back { transform: rotateY(180deg); }
-  .leaf-face > .album-page { max-width: none; width: 100%; height: 100%; }
+  /* .static-under's own child needs the identical height:100% treatment
+     .leaf-face's child already had — same bug, same fix, just the OTHER
+     half of a page turn's two rendered boxes (see the .static-under
+     comment above). */
+  .leaf-face > .album-page,
+  .book-turn-slot .static-under > .album-page {
+    max-width: none; width: 100%; height: 100%;
+  }
 
   .album-page {
     padding: 20px 18px;
-    min-height: 360px;
+    /* BUG FIX (cover-page undersized, locked in): min-height used to be a
+       bare 360px floor for every page type, cover included. A coins page
+       naturally grows past that floor because its own content (a full grid
+       of slot rows) needs the room; the cover's own content (an icon,
+       name, one progress line) never does, so it always rendered at
+       exactly 360px while a real coins page — sized via
+       computeAlbumPageRows() to roughly fill the actual available
+       viewport — routinely measured 600px+. The cover is also never paired
+       with a taller sibling (renderAlbumBook()'s own comment: "the cover…
+       is a standalone sheet-front"), so unlike History/coins pages it gets
+       no free ride from .book-pages' align-items:stretch either — nothing
+       ever told it how tall a page "should" be. --page-min-height is set
+       once per renderAlbumBook() call (see computeAlbumPageMinHeight()) to
+       the SAME available-space budget computeAlbumPageRows() already
+       computes, so every page type — cover included — targets one
+       consistent book-page height. Falls back to the original 360px
+       wherever the var isn't set (shouldn't happen in practice, but keeps
+       this rule safe standalone). */
+    min-height: var(--page-min-height, 360px);
     width: 100%;
     max-width: 460px;
   }
@@ -15883,6 +15929,29 @@
     return Math.max(1, Math.floor(available / rowHeight));
   }
 
+  // BUG FIX (cover-page undersized, locked in) — the shared page min-height
+  // every page type targets, cover/history/blank/back-cover included, not
+  // just coins pages. A coins page naturally grows past a bare CSS floor
+  // because its own slot grid needs the room; the cover's content (an
+  // icon, a name, one progress line) never does, so it always sat at the
+  // CSS floor while a real coins page — sized via computeAlbumPageRows()
+  // to roughly fill the actual viewport — routinely measured much taller.
+  // Reconstructs the SAME available-space budget computeAlbumPageRows()
+  // already computes (rows * rowHeight is that budget's own inner-content
+  // reading) and adds back the page's own reserved chrome (padding, border,
+  // the coins page's side-label row) to get a real outer page height,
+  // applied via --page-min-height (see .album-page's own min-height rule).
+  // Recomputed on every renderAlbumBook() call, not cached at open time
+  // like chunkSize — isAlbumSpreadWidth() itself is also re-evaluated fresh
+  // on every render, so this stays consistent with that.
+  function computeAlbumPageMinHeight(spread) {
+    const { discSize, gap } = computeAlbumGridLayout(albumPageContentWidth(spread));
+    const rows = computeAlbumPageRows(discSize, gap);
+    const rowHeight = discSize + 6 + 16 + gap;
+    const PAGE_PADDING_V = 40, PAGE_BORDER_V = 2, SIDE_LABEL_H = 24;
+    return rows * rowHeight + PAGE_PADDING_V + PAGE_BORDER_V + SIDE_LABEL_H;
+  }
+
   // Chunk size (coins per page) is computed once, at the point an album is
   // opened, from the actual available width and height at that moment —
   // "fill the page with as many coins as fit, don't push extras to a new
@@ -16349,6 +16418,15 @@
     const spread = isAlbumSpreadWidth();
     const totalPages = currentAlbumPages.length;
     const indices = computeVisibleIndices(currentPageIndex, spread, totalPages);
+
+    // --page-min-height cascades to every .album-page inside this container
+    // (CSS custom properties are inherited, so this works regardless of
+    // being set before or after the innerHTML below is built) — see
+    // computeAlbumPageMinHeight()/.album-page's own min-height rule. Also
+    // covers turnAlbumPage()'s own mid-animation markup, which renders
+    // inside this same container without going through renderAlbumBook()
+    // itself.
+    container.style.setProperty("--page-min-height", computeAlbumPageMinHeight(spread) + "px");
 
     container.innerHTML = `
       <div class="album-book">

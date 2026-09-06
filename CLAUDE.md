@@ -11767,6 +11767,176 @@ assertions.
   environment's own confirmation is limited to synthetic fixtures, not the
   real `DB_Coins.KeyDate` population across all 6 albums' actual slots).
 
+### Albums book layout: cover sizing + page-flip clip fix (BUILT, same branch, still held)
+Three display bugs from Ray's live-device pass against the real Mercury
+Dimes album (63/82 filled). Two are real, confirmed, fixed CSS/JS bugs; the
+third was investigated and diagnosed as **not a code bug** — see below.
+All three were invisible against `FAKE_ALBUMS`' own 8-slot mocks, which
+never had enough content to expose either real bug's actual condition.
+
+**Root-caused by reproduction, not guessed at.** Neither the real coin
+photo nor the real workbook is reachable from this environment, so a
+synthetic live album (97 slots across 1916–1952, not evenly divisible —
+deliberately, since the real album's own slot count doesn't divide evenly
+into whatever chunk size the viewport computes either) was built via
+`buildLiveAlbums()` and driven through the real render/animation code with
+direct `getBoundingClientRect()` measurement and screenshots, both before
+and after each fix, at both phone and tablet width.
+
+**Bug 1 — a coin photo renders undersized inside its own disc (Albums slot
+AND Browse detail's own flip card): diagnosed as NOT a code bug.**
+- `background-size: cover` (used identically by `applyDiscOwnPhoto()`,
+  Browse detail's own disc-fill function, and Albums' `renderSlotCell()`
+  inline style) **cannot leave a visible CSS-level gap** — cover always
+  fills its whole container by definition, cropping overflow if the source
+  image's aspect ratio doesn't match. Confirmed directly: a synthetic
+  "padded" source image (a bright coin circle occupying only ~62% of its
+  own square canvas, with a differently-colored margin baked into the
+  actual pixels) rendered through `.coin-disc`'s real `background-size:
+  cover` reproduces Ray's exact reported symptom — a visibly smaller coin
+  with a ring of margin around it — even though the CSS itself is doing
+  exactly what it's supposed to.
+- This matches CLAUDE.md's own already-documented, already-shipped
+  "Circle framing" fix (see "Photo / receipt write layer" above): before
+  that fix, a captured photo's Stage 2 bake stored the coin at ~0.80 of
+  the circle guide's diameter rather than 1.00, with the rest of the frame
+  filled by real background material — baked into the file's own pixels,
+  not a layout property. That section's own words: **"Photos already
+  stored from before this fix keep their old framing until re-adjusted —
+  the framing was never recorded, so there is nothing to recover
+  retroactively."**
+- `resolveStoredAdjustSource()` (the Adjust/⤢ button's own source picker)
+  was re-read to rule out a regression there specifically, since Ray
+  reported the gap persisting "even after re-saving/fixing the photo in
+  Edit": it already prefers a resolvable raw and explicitly falls back to
+  re-cropping the DISPLAYED (already-cropped) file when no raw exists —
+  with its own user-facing toast saying so ("No original on file —
+  adjusting the stored photo itself, which re-crops it"). Working exactly
+  as documented, not a bug: if this coin's stored photo has no resolvable
+  `_original`/`OriginalFilename` (a legacy capture, or one from before
+  original-retention existed), re-adjusting from that same already-damaged
+  source re-crops the SAME padding into the new output — no amount of
+  re-saving through Adjust can recover detail that was never retained.
+- **No fix was written for this** — there's no code bug to fix, only a
+  legacy-data condition this project has already named and accepted
+  elsewhere. **Flagged back to Ray rather than guessed at**: did the
+  "re-saving" he did use the Adjust (⤢) button, or a full fresh Camera/
+  Library recapture? And does this specific coin's photo predate the
+  circle-framing-fix merge? If it was a genuine fresh recapture (not an
+  Adjust re-crop of the same damaged source) and the gap still appeared,
+  that would be new information pointing at an actual bug — worth a
+  follow-up look, but not something to guess a fix for blind.
+
+**Bug 2 — the album cover renders visibly smaller than interior pages.**
+Root cause, confirmed by measurement: `.album-page` (the shared class
+EVERY page type uses — cover, history, coins, blank, back-cover) carried a
+bare `min-height: 360px`. A coins page naturally grows past that floor
+because its own content (a real slot grid, sized via
+`computeAlbumPageRows()` to roughly fill the actual viewport) needs the
+room; the cover's content (an icon, a name, one progress line) never does,
+so it always sat at exactly 360px while a real coins page routinely
+measured 600px+. The cover is also never paired with a taller sibling —
+`renderAlbumBook()`'s own comment already says so ("the cover… is a
+standalone sheet-front") — so unlike History (which DOES pair with a
+coins page and gets stretched to match it via `.book-pages`'
+`align-items: stretch`, confirmed still working correctly, unaffected by
+this fix), the cover never got a free ride from flex stretch either.
+Nothing had ever told it how tall a book page "should" be.
+
+- **Fix: `computeAlbumPageMinHeight(spread)`** reconstructs the exact same
+  available-space budget `computeAlbumPageRows()` already computes (rows ×
+  rowHeight) and adds back the page's own reserved chrome (padding,
+  border, the coins page's side-label row) to get a real outer page
+  height. `renderAlbumBook()` sets it as `--page-min-height` on
+  `#albumsDetailContainer` on every render (CSS custom properties
+  cascade/inherit, so this applies correctly regardless of whether it's
+  set before or after the page markup is built, and covers
+  `turnAlbumPage()`'s own mid-animation markup too, which renders inside
+  that same container without going through `renderAlbumBook()` itself).
+  `.album-page`'s CSS changed from a bare `min-height: 360px` to
+  `min-height: var(--page-min-height, 360px)` — every page type,
+  cover included, now targets one consistent computed height, with 360px
+  kept only as a safety fallback for a context where the var was never
+  set.
+- Measured directly, both widths: phone (412px, non-spread) — cover 710px,
+  History 710px, first coins page 710px, all matching exactly. Tablet
+  (1024px, spread) — cover 630px alone, History+Obverse pair 630px/630px,
+  all matching.
+
+**Bug 3 — the bottom of a page appears to clip during the flip animation.**
+Root cause, confirmed by measurement AND screenshot: during a turn,
+`.book-turn-slot` (the wrapper for whichever side is animating) IS
+correctly stretched to match its still-visible sibling's real height, via
+the same `.book-pages` `align-items: stretch` mechanism — confirmed
+directly (606px, matching the sibling). But `.static-under` (the plain,
+in-flow child holding the page that's about to be revealed underneath the
+turning leaf) had no height rule of its own, so it sat at its OWN natural
+content height instead — genuinely shorter than the stretched parent
+whenever the revealed page holds fewer rows than the page still showing
+(the book's own final, partially-filled pages are the most common case,
+but any two consecutive coins pages with different row counts can trigger
+it). The revealed page's own coin content was never wrong — it rendered
+completely and correctly, just inside a box that stopped short of its
+sibling's height, which reads as "the page's own bottom edge/background
+clips" even though nothing is actually being overflow-clipped
+(`.book-turn-slot`/`.leaf-turn` are both `overflow: visible`). Screenshot
+evidence: mid-flip, the revealed page's cream-colored background stopped
+three rows short of its sibling's, with a large black gap below it where
+the box should have extended to match.
+- **Fix**: `.book-turn-slot .static-under { height: 100%; }` (filling the
+  already-correctly-stretched parent, mirroring what `.leaf-face`'s own
+  `inset: 0` already does automatically for the turning leaf itself), plus
+  extending the existing `.leaf-face > .album-page { height: 100% }` rule
+  to also cover `.static-under > .album-page` — the SAME class of gap one
+  level down: the box wrapper stretching correctly is not enough if its
+  own child `.album-page` isn't also told to fill it.
+- **Real, useful interaction found while writing the negative control, not
+  a second bug**: with Bug 2's fix also in place, EVERY `.album-page`
+  (short or tall) already gets floored to `--page-min-height`, which
+  independently makes a short revealed page's own child at least as tall
+  as a full one — meaning Bug 2's fix alone, in most real scenarios,
+  already prevents Bug 3's symptom from showing, even without Bug 3's own
+  fix. Confirmed by testing Bug 3's fix in isolation (Bug 2's fix left
+  active): no reproduction. Both fixes are kept anyway, deliberately — the
+  min-height floor is a coincidental side effect for this case, not an
+  architectural guarantee (a page could in principle still need more room
+  than the precomputed floor, or the two could drift out of sync in a
+  future change), while `.static-under`'s own `height: 100%` is the
+  actually-correct, direct fix for what the box is supposed to do
+  regardless of any other page's min-height. Both are real, independently
+  justified fixes, not redundant work — the interaction is documented so a
+  future session doesn't "simplify" one away and reintroduce a
+  narrower-but-real version of Bug 3.
+
+**Verified headless — new committed suite `tests/verify_album_book_layout.js`
+(15 assertions), all passing, zero page errors; 1358 across all 32 suites,
+zero failures.** Drives a real 97-slot synthetic live album through the
+actual render/animation code (not a hand-rolled simulation) at both
+required viewports: cover/History/coins-page heights matching exactly at
+phone width (non-spread) and tablet width (spread); a real dispatched
+click triggering the actual 650ms CSS transition, measured mid-animation,
+confirming `.static-under`/`.book-turn-slot`/the turning leaf all now
+match; and a `computeVisibleIndices()`/`nextAlbumPageIndex()`-driven search
+(mirroring `turnAlbumPage()`'s own real logic) that finds the actual
+mismatched transition point rather than assuming a fixed page offset,
+since where the mismatch falls depends on live viewport math, not a fixed
+layout. **Two negative controls, via temporary `<style>` overrides
+reproducing the exact pre-fix rules** (not achievable via the usual
+function-reassignment technique, since both bugs are pure CSS): forcing
+the bare `min-height: 360px` back reproduces the undersized cover exactly
+(360px); forcing `.static-under`'s height back to `auto` — together with
+the bare `min-height: 360px` (needed to isolate Bug 3's own contribution
+from Bug 2's fix, per the interaction noted above) — reproduces the exact
+reported clip. Screenshots reviewed at both viewports for the fixed cover,
+the fixed mid-flip transition, and Bug 1's synthetic-padded-image
+reproduction.
+- **Not verified: any real device, Ray's own real coin photo, or the real
+  workbook's actual Mercury Dimes data.** This pass used a synthetic
+  live-data fixture throughout, per the same standing caveat as the rest
+  of this feature. Bug 1 in particular needs Ray's own answer (Adjust vs.
+  fresh recapture; whether the photo predates the circle-framing fix)
+  before any further action is warranted there.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
