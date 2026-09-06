@@ -212,4 +212,81 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
   });
   ok(E.bad.length === 0, "E1 every route still navigates cleanly: " + E.bad.join("; "));
   ok(E.overflow === false, "E2 no horizontal page overflow at tablet width");
+
+  // ---------- F. row cap: max 5 rows per page (Ray's real-device report — ----------
+  // tablet/PC required vertical scrolling to see a full page). PC is a
+  // deliberately wide+tall custom viewport (openApp accepts any {width,
+  // height}, not just PHONE/TABLET) — the widest/tallest real case this
+  // book has to handle without scrolling.
+  const PC = { width: 1920, height: 1080 };
+  const pc = await openApp(PC);
+
+  async function measureRowCap(page, viewport) {
+    return page.evaluate(({ albumRows, dbSetsRows }) => {
+      __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
+      navigate("albums");
+      showAlbumDetail(0);
+      const spread = isAlbumSpreadWidth();
+      const { discSize, gap, columns } = computeAlbumGridLayout(albumPageContentWidth(spread));
+      const rows = computeAlbumPageRows(discSize, gap);
+      // Advance past cover(+History) to a real coins page and check every
+      // coins page actually rendered, not just the computed row count in
+      // isolation — the real regression is a page whose CONTENT exceeds 5
+      // rows, not just what the formula returns.
+      document.getElementById("albumPageNextBtn").click();
+      document.getElementById("albumPageNextBtn").click();
+      let maxRowsRendered = 0;
+      currentAlbumPages.forEach(p => {
+        if (p.type !== "coins") return;
+        maxRowsRendered = Math.max(maxRowsRendered, Math.ceil(p.slots.length / columns));
+      });
+      const coinsPageEl = document.querySelector(".album-page-coins");
+      const bottom = coinsPageEl ? coinsPageEl.getBoundingClientRect().bottom : null;
+      const overflow = document.documentElement.scrollHeight > window.innerHeight;
+      __setLiveAlbumsForTest(null);
+      return { rows, maxRowsRendered, spread, columns, bottom, viewportHeight: window.innerHeight, overflow };
+    }, buildBigAlbumFixture());
+  }
+
+  const F_tablet = await measureRowCap(tablet, TABLET);
+  const F_pc = await measureRowCap(pc, PC);
+  ok(F_tablet.rows <= 5, `F1 computeAlbumPageRows() returns at most 5 at tablet width (${F_tablet.rows})`);
+  ok(F_pc.rows <= 5, `F2 computeAlbumPageRows() returns at most 5 at PC width (${F_pc.rows})`);
+  ok(F_tablet.maxRowsRendered <= 5, `F3 no rendered coins page shows more than 5 rows of slots at tablet width (max seen: ${F_tablet.maxRowsRendered}, columns: ${F_tablet.columns})`);
+  ok(F_pc.maxRowsRendered <= 5, `F4 no rendered coins page shows more than 5 rows of slots at PC width (max seen: ${F_pc.maxRowsRendered}, columns: ${F_pc.columns})`);
+  ok(F_tablet.bottom !== null && F_tablet.bottom <= F_tablet.viewportHeight, `F5 a coins page fits within the tablet viewport height with no scrolling needed (page bottom ${F_tablet.bottom} vs viewport ${F_tablet.viewportHeight})`);
+  ok(F_pc.bottom !== null && F_pc.bottom <= F_pc.viewportHeight, `F6 a coins page fits within the PC viewport height with no scrolling needed (page bottom ${F_pc.bottom} vs viewport ${F_pc.viewportHeight})`);
+  ok(F_tablet.overflow === false, "F7 no vertical page overflow at tablet width with a real album open");
+  ok(F_pc.overflow === false, "F8 no vertical page overflow at PC width with a real album open");
+  await tablet.waitForTimeout(200);
+  await pc.waitForTimeout(200);
+
+  // Negative control: the pre-cap formula (uncapped Math.max(1, ...)) must
+  // exceed 5 to prove the cap is doing real, load-bearing work rather than
+  // asserting a coincidence. Measured at BOTH widths first — tablet
+  // (1024x768) turns out to naturally land at exactly 5 uncapped for this
+  // geometry (not tall enough, relative to its 6-column width, to exceed
+  // the cap on its own) — worth recording rather than silently picking
+  // the width that happens to prove the point: F1/F5/F7 above still show
+  // the fix holds correctly there, it just isn't what makes the cap
+  // NECESSARY. PC's extra height is what actually demonstrates it: 8 rows
+  // uncapped for the identical fixture/column geometry.
+  async function measureUncapped(page) {
+    return page.evaluate(() => {
+      const { discSize, gap } = computeAlbumGridLayout(albumPageContentWidth(true));
+      const container = document.getElementById("albumsDetailContainer");
+      const containerTop = container ? container.getBoundingClientRect().top : 0;
+      const PAGE_PADDING_V = 40, PAGE_BORDER_V = 2, SIDE_LABEL_H = 24, BOOK_NAV_H = 52, SAFETY = 24;
+      const reserved = PAGE_PADDING_V + PAGE_BORDER_V + SIDE_LABEL_H + BOOK_NAV_H + SAFETY;
+      const available = window.innerHeight - containerTop - reserved;
+      const rowHeight = discSize + 6 + 16 + gap;
+      const uncapped = Math.max(1, Math.floor(available / rowHeight));
+      return { uncapped, capped: computeAlbumPageRows(discSize, gap) };
+    });
+  }
+  const NEG_F_tablet = await measureUncapped(tablet);
+  const NEG_F_pc = await measureUncapped(pc);
+  ok(NEG_F_tablet.capped === 5, `F9 the real computeAlbumPageRows() returns exactly 5 at tablet width for this geometry (${NEG_F_tablet.capped}) — matches F1`);
+  ok(NEG_F_pc.uncapped > 5, `F10 negative control: the pre-cap formula genuinely computes more than 5 rows at PC width for this geometry (${NEG_F_pc.uncapped}) — confirms the cap in F2/F4/F6 is actually constraining something at the width where it matters, not passing by coincidence`);
+  ok(NEG_F_pc.capped === 5, `F11 negative control (continued): the real computeAlbumPageRows() clamps that same PC geometry down to exactly 5 (${NEG_F_pc.capped})`);
 }, module);

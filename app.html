@@ -15993,6 +15993,18 @@
   // line, the book-nav controls, a small safety margin) — one live
   // measurement (container's position) plus known local constants, same
   // methodology as albumPageContentWidth().
+  //
+  // CAPPED AT 5 (Ray's real-device report): on a tall viewport (tablet/PC)
+  // the uncapped "fill available space" result kept growing past what a
+  // single screen shows, so a full page required vertical scrolling to see
+  // — the opposite of the "no scrolling to see one page" goal this function
+  // was built for in the first place. The fill-available-space math is
+  // still correct and still the ACTIVE constraint on shorter/narrower
+  // viewports where fewer than 5 rows fit; the cap only ever bites on tall
+  // ones. computeAlbumChunkSize()/buildAlbumPages() both derive page count
+  // from rows x columns with no other change needed — capping rows here
+  // means a tall-viewport album with fewer coins on more pages, not more
+  // scrolling to see one.
   function computeAlbumPageRows(discSize, gap) {
     const container = document.getElementById("albumsDetailContainer");
     const containerTop = container ? container.getBoundingClientRect().top : 0;
@@ -16000,7 +16012,7 @@
     const reserved = PAGE_PADDING_V + PAGE_BORDER_V + SIDE_LABEL_H + BOOK_NAV_H + SAFETY;
     const available = window.innerHeight - containerTop - reserved;
     const rowHeight = discSize + 6 /* slot-cell gap */ + 16 /* caption line */ + gap;
-    return Math.max(1, Math.floor(available / rowHeight));
+    return Math.min(5, Math.max(1, Math.floor(available / rowHeight)));
   }
 
   // BUG FIX (cover-page undersized, locked in) — the shared page min-height

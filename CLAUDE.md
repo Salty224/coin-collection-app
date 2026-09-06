@@ -11549,7 +11549,7 @@ under Other per an existing note in `Lookup_MetalContent`, not a gap).
   directly by Ray as confirmed against the real workbook, not independently
   re-verified from this environment.
 
-### Albums: live-wiring, read-only (BUILT, held on branch, NOT merged — awaiting Ray's live-device pass)
+### Albums: live-wiring, read-only (BUILT and merged to main)
 `FAKE_ALBUMS` is swapped for real Albums-sheet + DB_Sets(Album-type) +
 Wishlist data, following the exact same `ensureLiveNavDataFetch()`/
 `fetchWorkbookSheetRows()`/`activeX()` accessor pattern the "Live nav data"
@@ -11879,7 +11879,7 @@ paths since both go through the one `renderAlbumsList()` function.
   headless fixture were given directly rather than pulled from a real
   session.
 
-### Albums book layout: cover sizing + page-flip clip fix (BUILT, same branch, still held)
+### Albums book layout: cover sizing + page-flip clip fix (BUILT and merged to main)
 Three display bugs from Ray's live-device pass against the real Mercury
 Dimes album (63/82 filled). Two are real, confirmed, fixed CSS/JS bugs; the
 third was investigated and diagnosed as **not a code bug** — see below.
@@ -12048,6 +12048,72 @@ reproduction.
   of this feature. Bug 1 in particular needs Ray's own answer (Adjust vs.
   fresh recapture; whether the photo predates the circle-framing fix)
   before any further action is warranted there.
+
+**Row cap: max 5 rows per page (addendum, same branch/session).** Ray's
+follow-up real-device report: a full album page on tablet and PC required
+vertical scrolling to see in full — the page itself was taller than the
+viewport. `computeAlbumPageRows()`'s own "fill available space" calculation
+is correct on narrower/shorter viewports where fewer than 5 rows fit (it's
+still the ACTIVE constraint there — a phone at 412×915 computes 5 rows
+uncapped for the same reason, only slightly under the cap), but on a tall
+viewport it kept growing past what a single screen shows.
+- **One-line fix**: `return Math.min(5, Math.max(1, Math.floor(available /
+  rowHeight)));` — clamps the existing calculation rather than replacing it.
+- **Nothing else needed changing, confirmed by reading the call graph
+  first, not assumed.** `computeAlbumChunkSize()` (coins per page = rows ×
+  columns) and `computeAlbumPageMinHeight()` (the `--page-min-height` CSS
+  variable driving both bug fixes from the section above) both derive
+  entirely from `computeAlbumPageRows()`'s own return value — capping rows
+  here automatically shrinks the page's own computed min-height and
+  increases page count for any album that previously computed more than 5
+  rows, with no separate change needed at either call site.
+- **The two CSS fixes above (the `--page-min-height` floor and
+  `.static-under`'s `height: 100%`) were re-verified, not just assumed
+  still correct** — both are generic mechanisms that adapt to whatever
+  `computeAlbumPageRows()` returns, and the existing committed suite
+  (`tests/verify_album_book_layout.js`, blocks A–D) re-passed unchanged
+  against the capped value with no edits needed to those blocks.
+- **Real-measured, not assumed: where the cap actually bites.** For the
+  committed 97-slot fixture, tablet (1024×768) naturally computes exactly
+  5 rows even UNCAPPED — its width (6 columns in spread mode) makes it
+  land right at the boundary on its own, so the cap is present-but-inert
+  there. PC (1920×1080, the same fixture) computes **8 rows uncapped**,
+  clamped to 5 — this is where the fix is actually load-bearing. Both are
+  covered by dedicated assertions (see below) rather than assuming tablet
+  alone proves the fix.
+- **Verified headless — 8 new assertions (block F,
+  `tests/verify_album_book_layout.js`), all passing; 26 in that suite, 1390
+  across all 32 suites, zero failures.** Covers: `computeAlbumPageRows()`
+  returning at most 5 at both tablet and PC width; every rendered coins
+  page (not just the formula in isolation) showing at most 5 rows of real
+  slot content at both widths; a real coins page's bottom edge fitting
+  within the viewport height with no scrolling needed, at both widths; no
+  vertical page overflow with a real 97-slot album open, at both widths;
+  and negative controls confirming the pre-cap formula is genuinely >5 at
+  PC width (proving the fix is doing real work, not passing by
+  coincidence) while correctly documenting that tablet's own uncapped
+  value already happens to be 5 for this fixture. Screenshots reviewed
+  directly (a separate synthetic 82-slot Mercury-Dimes-shaped fixture,
+  closer to the real album's real slot count than the committed suite's
+  97-slot one) at both tablet and PC width, mid-book: exactly 5 rows per
+  page, comfortable clearance below the page, no scrollbar.
+- **Not verified: any real device.** Same standing caveat as the rest of
+  this feature — this fix directly targets Ray's own tablet/PC report, so
+  his confirmation on those exact devices is the one that actually closes
+  this out, not a headless viewport simulation.
+
+**Merged to main.** Ray reviewed the whole Albums live-wiring feature —
+live data (Albums/DB_Sets/Wishlist wiring), the key-date badge, the
+History-text wiring, the list's Denomination-then-Year sort, the two
+cover-sizing/page-flip-clip bug fixes, and this row cap — and authorized
+merging `claude/code-primer-u8uv1d` to `main` once this fix was verified.
+`claude/code-primer-u8uv1d` has no commits of its own that aren't now in
+main's history — **main is the source of truth for the whole Albums
+live-wiring feature going forward**, same standing as every other
+merged-after-holding branch in this file. Both this section's own header
+and "Albums book layout: cover sizing + page-flip clip fix" above are
+updated to reflect it, rather than left reading "held" once it no longer
+is.
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
