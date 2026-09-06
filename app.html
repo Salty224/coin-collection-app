@@ -5446,9 +5446,19 @@
   //     (FAKE_DB_SETS demo rows never populate itemNumber/productOption, so
   //     this stays a harmless no-op on demo data and today's demo codes
   //     keep matching unchanged).
+  //   - mfgProductId/containerName/coinsCount are new (Albums live-wiring):
+  //     every DB_Sets row carries them, not just Album-type ones, but only
+  //     Albums reads them today (mfgProductId as future per-album metadata,
+  //     same posture the FAKE_ALBUMS mock already established; containerName
+  //     and coinsCount aren't consumed anywhere yet — pulled because a
+  //     future Container-display or slot-count-validation pass will want
+  //     them already sitting on the mapped row rather than a second pass
+  //     over the raw sheet).
   function mapWorkbookRowToDbSet(row) {
     const yearRaw = colVal(row, "Year");
     const yearNum = Number(yearRaw);
+    const coinsRaw = colVal(row, "Coins");
+    const coinsNum = Number(coinsRaw);
     return {
       year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
       lineage: String(colVal(row, "Lineage")),
@@ -5457,8 +5467,138 @@
       name: String(colVal(row, "Description", "Name", "SetName")),
       category: String(colVal(row, "Lineage")),
       itemNumber: String(colVal(row, "ItemNumber")),
-      productOption: String(colVal(row, "ProductOption"))
+      productOption: String(colVal(row, "ProductOption")),
+      mfgProductId: String(colVal(row, "MfgProductID")),
+      containerName: String(colVal(row, "ContainerName")),
+      coinsCount: (coinsRaw === "" || isNaN(coinsNum)) ? null : coinsNum
     };
+  }
+
+  // ---- Albums (live) --------------------------------------------------
+  // A live album is one DB_Sets row identified by its own SetID rather than
+  // any dedicated Type/Category column — confirmed against the real
+  // workbook, there is no such column. The pattern is fixed: S-YYYY-AL-##.
+  const ALBUM_SETID_RE = /^S-\d{4}-AL-\d+$/;
+
+  // A CoinID's own third dash-delimited segment (C-YYYY-MINT-DENOM-##) is
+  // always the denomination code, regardless of what sits in the mint-mark
+  // segment before it — a blank real mint mark is a double dash
+  // ("C-1909--1C-03"), the FAKE_ALBUMS mock's own placeholder is a literal
+  // "M" ("C-1909-M-1C-01") — both are exactly one token at the same
+  // position, so this never needs to special-case either convention.
+  // CRITICAL: never used to construct/reformat a CoinID, and never used to
+  // derive a mint mark — that's always its own real column
+  // (Albums.MintMark), read directly, never parsed out of CoinID.
+  function denomFromCoinId(coinId) {
+    const parts = String(coinId || "").split("-");
+    return parts.length > 3 ? parts[3] : "";
+  }
+
+  // Raw Wishlist rows -> a Set of "AlbumID::CoinID" combos, for the open-slot
+  // "want" flag. Confirmed real columns: AlbumID, SlotCoinID. The Wishlist
+  // sheet carries no real rows with these populated yet, so this is
+  // genuinely empty today — forward-facing wiring, not dead code: the
+  // moment a real row exists, the open slot it names picks up `want: true`
+  // with no further change needed here, the same way the real Status
+  // formula would compute it. Never gates anything else — a null/failed
+  // Wishlist fetch just means every slot's `want` is false, same as an
+  // empty sheet.
+  function buildAlbumWantIndex(wishlistRows) {
+    const set = new Set();
+    (wishlistRows || []).forEach(row => {
+      const albumId = colVal(row, "AlbumID");
+      const coinId = colVal(row, "SlotCoinID");
+      if (albumId && coinId) set.add(albumId + "::" + coinId);
+    });
+    return set;
+  }
+
+  // Raw Albums-sheet rows -> FAKE_ALBUMS' own slot shape (year/mintMark/
+  // description/variety/coinId/filledBy), grouped by AlbumID. Status is a
+  // calculated column on the real sheet — never read here, and never
+  // re-derived; FilledBy<>"" is the exact same signal it's computed from.
+  // Description and Variety are confirmed always separate real columns
+  // (never comma-embedded) — every mapped slot carries a real `variety`
+  // field, same as the Lincoln Cents entry in FAKE_ALBUMS already does, so
+  // slotDescription()/slotVariety() use it directly rather than falling
+  // back to the legacy comma-split convention.
+  function groupAlbumSlotsByAlbumId(albumRows, wantIndex) {
+    const byAlbumId = {};
+    (albumRows || []).forEach(row => {
+      const albumId = String(colVal(row, "AlbumID"));
+      if (!albumId) return;
+      const yearRaw = colVal(row, "Year");
+      const yearNum = Number(yearRaw);
+      const coinId = String(colVal(row, "CoinID"));
+      const filledByRaw = colVal(row, "FilledBy");
+      const filledBy = filledByRaw ? String(filledByRaw) : null;
+      const slot = {
+        year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
+        mintMark: String(colVal(row, "MintMark")),
+        description: String(colVal(row, "Description")),
+        variety: String(colVal(row, "Variety")),
+        coinId,
+        filledBy,
+        want: !filledBy && wantIndex.has(albumId + "::" + coinId)
+      };
+      (byAlbumId[albumId] || (byAlbumId[albumId] = [])).push(slot);
+    });
+    return byAlbumId;
+  }
+
+  // One live album per DB_Sets Album-type row, with its slots pulled from
+  // the Albums sheet's own rows for that AlbumID (matched against the
+  // DB_Sets row's own SetID — the Albums sheet's AlbumID column is that
+  // same value). Mirrors FAKE_ALBUMS' exact shape (name/icon/denom/
+  // folderStyle/mfgProductId/history/slots) so every existing render
+  // function (renderAlbumsList, initAlbums, showAlbumDetail, buildAlbumPages,
+  // computeAlbumGridLayout, renderAlbumPageContent, resolveCoinAlbumLink)
+  // works unchanged against either source — the row SHAPE is the contract,
+  // same convention as mapWorkbookRowToCoin()/mapWorkbookRowToDbSet().
+  function buildLiveAlbums(albumRows, dbSetsRows, wishlistRows) {
+    const wantIndex = buildAlbumWantIndex(wishlistRows);
+    const slotsByAlbumId = groupAlbumSlotsByAlbumId(albumRows, wantIndex);
+    const out = [];
+    (dbSetsRows || []).forEach(row => {
+      const setId = String(colVal(row, "SetID"));
+      if (!ALBUM_SETID_RE.test(setId)) return;
+      const slots = slotsByAlbumId[setId];
+      // A DB_Sets Album row with no matching Albums-sheet rows has nothing
+      // to render — renderAlbumsList()'s own fill-percentage math divides
+      // by album.slots.length — so it's skipped, same "not usable yet"
+      // treatment every other live mapper here gives a row with no real
+      // data behind it (e.g. LIVE_COINS dropping a row with no
+      // CollectionID).
+      if (!slots || !slots.length) return;
+      const mapped = mapWorkbookRowToDbSet(row);
+      out.push({
+        name: mapped.name,
+        setId: mapped.setId,
+        // Real face-value data (All.FaceValue via DB_Sets) is inconsistent
+        // across rows — a CoinID's own denomination segment is the
+        // reliable signal instead. Every slot in a real album shares one
+        // denomination, so the first slot with a resolvable segment speaks
+        // for the whole album.
+        denom: (slots.map(s => denomFromCoinId(s.coinId)).find(d => d) || ""),
+        // No real per-album icon source exists — every live album defaults
+        // to the same placeholder FAKE_ALBUMS' own entries already use,
+        // rather than inventing per-album icons (out of scope this pass).
+        icon: "🪙",
+        // Every live album gets the same Littleton treatment as every
+        // FAKE_ALBUMS entry — not gated on MfgProductID (Ray's call; see
+        // the folderStyle comment above FAKE_ALBUMS).
+        folderStyle: "littleton",
+        mfgProductId: mapped.mfgProductId,
+        containerName: mapped.containerName,
+        coinsCount: mapped.coinsCount,
+        // No history blurb exists for a real album yet — deliberately left
+        // unset; renderAlbumPageContent()'s own fallback text ("No history
+        // notes on file for this set yet.") already handles a missing
+        // value, so there's nothing else to build here.
+        slots
+      });
+    });
+    return out;
   }
 
   // A real DB_Coins row -> the same shape FAKE_DB_COINS rows use, so every
@@ -5579,6 +5719,10 @@
   // feature. Same "cache once per session, fall back to FAKE_* until loaded"
   // posture as every other LIVE_* array here.
   let LIVE_LOOKUP_GRADERS = null;
+  // Read-only Albums live-wiring — one entry per DB_Sets Album-type row
+  // (see buildLiveAlbums()). Same "null until a real fetch lands" posture
+  // as every other LIVE_* array here.
+  let LIVE_ALBUMS = null;
   let liveNavDataFetchPromise = null;
 
   // The single swap point every nav function reads through — this is what
@@ -5589,9 +5733,11 @@
   function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
   function activeDbCoins() { return LIVE_DB_COINS || FAKE_DB_COINS; }
   function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
+  function activeAlbums() { return LIVE_ALBUMS || FAKE_ALBUMS; }
   function __setLiveDbCoinsForTest(rows) { LIVE_DB_COINS = rows; } // test-only seam
   function __setLiveLookupGradersForTest(rows) { LIVE_LOOKUP_GRADERS = rows; } // test-only seam
   function __setLiveCoinsForTest(rows) { LIVE_COINS = rows; } // test-only seam — stands in for a real fetch landing, for renderStats()/activeCoins() tests
+  function __setLiveAlbumsForTest(rows) { LIVE_ALBUMS = rows; } // test-only seam
 
   // ---- Specifications source (live) ----------------------------------
   // Extracted out of ensureLiveNavDataFetch() deliberately, so the merge rule
@@ -5717,8 +5863,16 @@
       // the Docket's photo-gap rows, All.Receipt was not read at all, and
       // no coin's own stored photo was ever displayed anywhere.
       fetchWorkbookSheetRows("Photos"),
-      fetchWorkbookSheetRows("Receipts")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows]) => {
+      fetchWorkbookSheetRows("Receipts"),
+      // Albums (Table: AlbumSlots) + Wishlist — Albums live-wiring
+      // (read-only; no write capability this pass). Additive, same as
+      // Photos/Receipts above: a fetch hiccup here must not block
+      // Catalog/Sets/Metal from loading, and Albums has nothing to build
+      // without dbSetsRows anyway, which is already all-or-nothing gated
+      // with the other four core sheets below.
+      fetchWorkbookSheetRows("Albums"),
+      fetchWorkbookSheetRows("Wishlist")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows]) => {
       liveNavDataFetchPromise = null;
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) return false;
@@ -5790,6 +5944,22 @@
       // like the reference-image fetcher's own attempted/not-attempted rule.
       if (photoRows) LIVE_PHOTOS = buildPhotoIndex(photoRows);
       if (receiptRows) LIVE_RECEIPTS = buildReceiptIndex(receiptRows);
+      // Albums — additive too, same reasoning: an Albums-sheet hiccup must
+      // not wipe out an already-loaded live album view, and dbSetsRows is
+      // guaranteed present here (the five-core-sheet gate above already
+      // returned false otherwise). wishlistRows is passed through as-is —
+      // buildLiveAlbums()/buildAlbumWantIndex() already treat a null/empty
+      // array identically (no want matches), so a Wishlist-only failure
+      // degrades exactly like an empty sheet, never like a real fetch error.
+      if (albumRows) {
+        LIVE_ALBUMS = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows);
+        // The "Assign to Album" dropdown on Add Coin is built once at
+        // page-load init from whatever activeAlbums() returned then (demo
+        // data, since this fetch can't have resolved yet at that point) —
+        // refresh it now regardless of which view is on screen, so Add
+        // Coin offers real open slots the first time it's actually opened.
+        populateAssignAlbumOptions();
+      }
       const activeView = document.querySelector(".view.active");
       if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
       // Same reasoning as the Browse branch above, extended to Ledger/Stats
@@ -5802,6 +5972,16 @@
       // it has to re-render when the fetch lands — otherwise it keeps
       // whatever it drew before, for a full SPOTLIGHT_DWELL_MS at best.
       else if (activeView && activeView.id === "view-dashboard") renderSpotlight();
+      // Albums' list screen only — a book already open when the fetch lands
+      // is deliberately left showing whatever it opened with (same "picks
+      // up on next render/reopen" tradeoff this feature's own reference-
+      // image tier already accepts for renderSlotCell()'s string-templated
+      // render); rebuilding currentAlbumPages out from under an open book
+      // risks landing on a different album at that same array index.
+      else if (activeView && activeView.id === "view-albums" &&
+               document.getElementById("albumsListView").style.display !== "none") {
+        renderAlbumsList();
+      }
       return true;
     }).catch(err => {
       liveNavDataFetchPromise = null;
@@ -10338,6 +10518,13 @@
       renderSpotlight();
     }
     if (viewId === "albums") {
+      // Same "never blocks" pattern as the Dashboard branch above — kicks
+      // off the live fetch (a no-op when disabled/already loaded/in
+      // flight), then shows whatever's already available. showAlbumsList()
+      // renders the list fresh every time, so a fetch that already landed
+      // during an earlier Catalog/Ledger visit is reflected immediately
+      // here too, not just the next time this fetch itself resolves.
+      ensureLiveNavDataFetch();
       showAlbumsList();
     }
     if (viewId === "addcoin") {
@@ -13280,10 +13467,11 @@
   // one chip, carrying forward the pre-existing behavior unchanged; properly
   // resolving multi-slot membership is deliberately out of scope this pass.
   function resolveCoinAlbumLink(coin) {
-    for (let i = 0; i < FAKE_ALBUMS.length; i++) {
-      const slot = FAKE_ALBUMS[i].slots.find(s => s.filledBy === coin.id);
+    const albums = activeAlbums();
+    for (let i = 0; i < albums.length; i++) {
+      const slot = albums[i].slots.find(s => s.filledBy === coin.id);
       if (slot) {
-        return { albumIndex: i, albumName: FAKE_ALBUMS[i].name, slot };
+        return { albumIndex: i, albumName: albums[i].name, slot };
       }
     }
     return null;
@@ -15552,7 +15740,7 @@
   function renderAlbumsList() {
     const listContainer = document.getElementById("albumsListContainer");
     listContainer.innerHTML = "";
-    FAKE_ALBUMS.forEach((album, index) => {
+    activeAlbums().forEach((album, index) => {
       if (!albumsFilterTest(album)) return;
       const filledCount = album.slots.filter(s => s.filledBy).length;
       const pct = Math.round((filledCount / album.slots.length) * 100);
@@ -15597,11 +15785,27 @@
 
     document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
 
-    // Populate the "Assign to Album" select on the Add Coin form with every open slot.
-    // Keyed by CoinID, not year/mint — two slots can share year+mint (e.g. a plain date
-    // and its VDB variety) and only CoinID actually disambiguates them.
+    populateAssignAlbumOptions();
+  }
+
+  // Populates the "Assign to Album" select on the Add Coin form with every
+  // open slot across every album. Keyed by CoinID, not year/mint — two
+  // slots can share year+mint (e.g. a plain date and its VDB variety) and
+  // only CoinID actually disambiguates them.
+  //
+  // A standalone function (not inlined in initAlbums(), which only ever
+  // runs once at page-load init) so ensureLiveNavDataFetch() can call it
+  // again once real album data lands — otherwise this dropdown would keep
+  // offering FAKE_ALBUMS' demo slots for the rest of the session even in a
+  // live one.
+  function populateAssignAlbumOptions() {
     const assignSelect = document.getElementById("assignAlbum");
-    FAKE_ALBUMS.forEach(album => {
+    if (!assignSelect) return;
+    // Keep only the static "not part of an album" placeholder (option 0);
+    // every dynamic option is rebuilt fresh so a live landing after init()
+    // doesn't leave FAKE_ALBUMS' demo options sitting alongside real ones.
+    while (assignSelect.options.length > 1) assignSelect.remove(1);
+    activeAlbums().forEach(album => {
       album.slots.filter(s => !s.filledBy).forEach(slot => {
         const opt = document.createElement("option");
         opt.value = album.name + " :: " + slot.coinId;
@@ -15615,6 +15819,12 @@
     document.getElementById("albumsListView").style.display = "block";
     document.getElementById("albumsDetailView").style.display = "none";
     setNavBack(() => navigate("dashboard")); // albums list is the section root
+    // Rendered fresh on every entry (not just once at init) — otherwise a
+    // live fetch that already resolved during an earlier Catalog/Ledger
+    // visit would leave this list stuck showing FAKE_ALBUMS' demo data
+    // until the next time ensureLiveNavDataFetch() itself happens to
+    // resolve while this view is already the active one.
+    renderAlbumsList();
   }
 
   // An album "book": cover, then a history/facts page, then the slots grouped
@@ -15724,7 +15934,7 @@
     document.getElementById("albumsListView").style.display = "none";
     document.getElementById("albumsDetailView").style.display = "block";
     setNavBack(() => showAlbumsList()); // open album → albums list
-    currentAlbumPages = buildAlbumPages(FAKE_ALBUMS[index], computeAlbumChunkSize());
+    currentAlbumPages = buildAlbumPages(activeAlbums()[index], computeAlbumChunkSize());
     currentPageIndex = pageIndex;
     renderAlbumBook();
   }
@@ -15738,15 +15948,21 @@
   // DB_Coins.Mintage via the slot's own CoinID, the same disambiguation key
   // CLAUDE.md already establishes for telling apart two slots that share
   // the same Year+MintMark (not DB_Sets.Mintage, which is the Set-*bundle*
-  // aggregate figure, not a per-date/mintmark one). Mockup-only for this
-  // batch, per Ray's explicit scope call — reads FAKE_DB_COINS directly,
-  // same as the rest of Albums (which isn't wired to any live data yet);
-  // every FAKE_ALBUMS slot already carries a real `coinId` matching a
-  // FAKE_DB_COINS row, so no schema change was needed. Shown regardless of
+  // aggregate figure, not a per-date/mintmark one). Shown regardless of
   // whether the slot is filled — mintage is printed on a real album page
   // for the date itself, not tied to ownership.
+  //
+  // **Superseded — reads activeDbCoins(), not FAKE_DB_COINS directly.** This
+  // was scoped to the mock deliberately ("same as the rest of Albums, which
+  // isn't wired to any live data yet") back when that was true. Now that
+  // Albums IS live-wired, leaving this on the 12-row mock would mean every
+  // real album silently showed no mintage at all (a live slot's real
+  // CoinID never matches a FAKE_DB_COINS row) — a small, obviously-correct
+  // follow-on to the live-wiring this function's own stated reason for
+  // being mock-only no longer holds against. Flagged here as a deliberate
+  // one-line extension beyond FAKE_ALBUMS itself, not a silent scope creep.
   function slotMintage(slot) {
-    const dbCoin = FAKE_DB_COINS.find(c => c.coinId === slot.coinId);
+    const dbCoin = activeDbCoins().find(c => c.coinId === slot.coinId);
     return (dbCoin && dbCoin.mintage != null) ? dbCoin.mintage : null;
   }
 
@@ -16039,7 +16255,7 @@
     const pagesEl = container.querySelector(".book-pages");
     if (!pagesEl) { currentPageIndex = newPageIndex; renderAlbumBook(); return; }
 
-    const album = FAKE_ALBUMS[currentAlbumIndex];
+    const album = activeAlbums()[currentAlbumIndex];
     // The leaf turning this time is whichever slot's content is changing:
     // forward turns the current right-hand page; backward turns the current
     // left-hand page. Its front face is what's showing there right now; its
@@ -16101,7 +16317,7 @@
   }
 
   function renderAlbumBook() {
-    const album = FAKE_ALBUMS[currentAlbumIndex];
+    const album = activeAlbums()[currentAlbumIndex];
     const container = document.getElementById("albumsDetailContainer");
     const spread = isAlbumSpreadWidth();
     const totalPages = currentAlbumPages.length;
@@ -16158,7 +16374,10 @@
     container.querySelectorAll(".slot-cell:not(.want)").forEach(el => {
       el.addEventListener("click", () => {
         const slot = album.slots.find(s => s.coinId === el.dataset.coinId);
-        const coin = FAKE_COINS.find(c => c.id === slot.filledBy);
+        // activeCoins(), not FAKE_COINS directly — a live album's filledBy
+        // values are real CollectionIDs that only exist in LIVE_COINS; a
+        // live slot's coin would otherwise never resolve here at all.
+        const coin = activeCoins().find(c => c.id === slot.filledBy);
         if (!coin) return;
         const albumIndex = currentAlbumIndex;
         const pageAtClick = currentPageIndex;

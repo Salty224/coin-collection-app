@@ -11549,6 +11549,170 @@ under Other per an existing note in `Lookup_MetalContent`, not a gap).
   directly by Ray as confirmed against the real workbook, not independently
   re-verified from this environment.
 
+### Albums: live-wiring, read-only (BUILT, held on branch, NOT merged — awaiting Ray's live-device pass)
+`FAKE_ALBUMS` is swapped for real Albums-sheet + DB_Sets(Album-type) +
+Wishlist data, following the exact same `ensureLiveNavDataFetch()`/
+`fetchWorkbookSheetRows()`/`activeX()` accessor pattern the "Live nav data"
+section above already established for Catalog/Sets/Metal. **Read-only — no
+write capability of any kind.** The Browse Edit write layer's own scope
+still doesn't cover Albums; that stays a separate, later task.
+
+- **A live album is identified by SetID, not any Type/Category column** —
+  confirmed against the real workbook, DB_Sets has no such column. The
+  pattern is fixed: `S-YYYY-AL-##` (`ALBUM_SETID_RE`). One live album per
+  matching DB_Sets row, with its slots pulled from the Albums sheet's own
+  rows sharing that same value in its `AlbumID` column.
+- **`Status` is a calculated Albums-sheet column and is deliberately never
+  read.** `FilledBy<>""` is the exact same signal it's computed from — the
+  mapper reads `FilledBy` directly, same as every other live mapper in this
+  file reads a real column rather than re-deriving a formula's output.
+- **`denom` is derived from a slot's own CoinID, never from DB_Sets.FaceValue**
+  (confirmed inconsistent across real rows by Ray) — `denomFromCoinId()`
+  takes a CoinID's third dash-delimited segment
+  (`C-YYYY-MINT-DENOM-##`). **CRITICAL, and worth remembering**: the real
+  workbook encodes a blank mint mark as a double dash (`C-1909--1C-03`)
+  while `FAKE_ALBUMS`' own mock data uses a literal `"M"` placeholder
+  (`C-1909-M-1C-01`) — both conventions parse identically under plain
+  index-based splitting (mint mark is always segment 2, denom always
+  segment 3, regardless of what sits in segment 2), so `denomFromCoinId()`
+  never needs to special-case either one. It is also never used to derive a
+  mint mark — that's always its own real column (`Albums.MintMark`), read
+  directly.
+- **`want` (open-slot Wishlist match) is wired end-to-end but genuinely
+  inert today** — the real Wishlist sheet has no rows populating its
+  `AlbumID`/`SlotCoinID` columns yet, so `buildAlbumWantIndex()`'s Set is
+  always empty in practice. Forward-facing wiring, not dead code: the
+  moment a real Wishlist row exists, the open slot it names picks up
+  `want: true` with no further app change needed. Nothing in the UI
+  currently branches on this field (no ★-for-wanted display exists) — this
+  pass only makes the DATA available, matching the task's explicit scope
+  (no new slot-eligibility/display logic).
+- **`mapWorkbookRowToDbSet()` extended** with `mfgProductId`/`containerName`/
+  `coinsCount` (from `MfgProductID`/`ContainerName`/`Coins`) — harmless for
+  every other DB_Sets row (Proof/Mint/Silver Proof sets simply carry them
+  unused). `containerName`/`coinsCount` aren't consumed anywhere yet
+  (pulled per the task's own instruction, as future metadata for a
+  Container-display or slot-count-validation pass); `mfgProductId` is the
+  one already-wired field, same "future per-album metadata" posture the
+  `FAKE_ALBUMS` mock already established for it.
+- **A DB_Sets Album-type row with zero matching Albums-sheet rows is
+  skipped**, not rendered — `renderAlbumsList()`'s own fill-percentage math
+  divides by `slots.length`, so an album with nothing behind it would
+  render `NaN%` rather than being a real, useful "0/0" entry.
+- **`LIVE_ALBUMS` is additive, not part of the five-core-sheet
+  all-or-nothing gate** (`allRows`/`dbSetsRows`/`dbCoinsRows`/
+  `metalContentRows`/`gradersRows`) — same treatment Photos/Receipts
+  already get. An Albums-sheet or Wishlist-sheet hiccup must not block
+  Catalog/Sets/Metal from loading, and vice versa. `dbSetsRows` is always
+  available by the time Albums is built regardless (it's one of the five
+  gated sheets, so the function has already returned `false` otherwise) —
+  Albums doesn't need its own separate gate on that one.
+- **Consumers swapped from `FAKE_ALBUMS` to a new `activeAlbums()`
+  accessor** (`LIVE_ALBUMS || FAKE_ALBUMS`, same convention as
+  `activeCoins()`/`activeDbSets()`/`activeDbCoins()`): `renderAlbumsList()`,
+  the "Assign to Album" Add Coin dropdown (see below),
+  `resolveCoinAlbumLink()` (the Browse detail "Belongs to Album" linkage
+  chip), and the whole book-rendering chain — `showAlbumDetail()`/
+  `openAlbumAtPage()`/`buildAlbumPages()`/`turnAlbumPage()`/
+  `renderAlbumBook()`.
+- **A real, load-bearing fix inside the book-rendering chain, beyond the
+  literal `FAKE_ALBUMS` swap**: the filled-slot tap handler inside
+  `renderAlbumBook()` resolved the tapped coin via `FAKE_COINS.find(...)`
+  directly — a live album's `filledBy` values are real CollectionIDs that
+  only exist in `LIVE_COINS`, so tapping any filled slot in a live album
+  would have silently done nothing (the existing `if (!coin) return;` guard
+  swallows it). Swapped to `activeCoins()`. Verified via a real negative
+  control: reverting this one line back to `FAKE_COINS` fails exactly the
+  two assertions covering it, reproducing the dead-tap symptom.
+- **The "Assign to Album" dropdown-population logic was extracted out of
+  `initAlbums()` into its own `populateAssignAlbumOptions()`** —
+  `initAlbums()` only ever runs once, at page-load init, before any live
+  fetch could possibly have resolved, so leaving the dropdown-building
+  inline would have meant it stayed on `FAKE_ALBUMS`' demo slots for the
+  rest of the session even in a live one. The new function is called both
+  from `initAlbums()` (unchanged behavior at boot) and again from
+  `ensureLiveNavDataFetch()`'s own success callback once real Albums data
+  actually lands, clearing and rebuilding the dynamic `<option>`s each time
+  (the static "— not part of an album —" placeholder survives).
+- **`showAlbumsList()` now re-renders the list on every entry**, not just
+  once at init — previously `renderAlbumsList()` was called only from
+  `initAlbums()` and the denomination filter-chip handler, so a fetch that
+  had already resolved during an earlier Catalog/Ledger visit would leave
+  the Albums list stuck on `FAKE_ALBUMS`' demo data until the fetch's own
+  completion callback happened to fire while Albums was *already* the
+  active view. `navigate()`'s `"albums"` branch now also calls
+  `ensureLiveNavDataFetch()` first, mirroring the Dashboard branch's
+  established "never blocks" pattern.
+- **An already-open BOOK is deliberately left showing whatever it opened
+  with if the fetch lands mid-view** — rebuilding `currentAlbumPages` out
+  from under an open book risks landing on a different album at the same
+  array index (live and demo album counts/order don't correspond). Only
+  the Albums LIST screen re-renders when the fetch's own completion
+  callback fires; the book picks up fresh data on next open, same
+  "computed/cached once at open time, refreshed next reopen" tradeoff this
+  feature already accepts elsewhere (the reference-image tier's own
+  string-templated `renderSlotCell()`).
+- **`slotMintage()` also switched from `FAKE_DB_COINS` to `activeDbCoins()`
+  — flagged explicitly as a small, deliberate extension beyond the literal
+  `FAKE_ALBUMS` consumer list this task named.** Its own code comment
+  scoped it to the mock specifically because "Albums isn't wired to live
+  data yet" — a reason this exact task removes. Left on the mock, every
+  real album would have silently shown no mintage at all (a live slot's
+  real CoinID never matches any of the 12 `FAKE_DB_COINS` rows); the fix is
+  a one-line, obviously-correct follow-on, not a new judgment call, so it
+  was made directly rather than deferred.
+- **Deliberately out of scope, per the task's explicit instructions**: any
+  write capability (adding/swapping a coin into a slot — Browse Edit's own
+  write layer doesn't cover Albums either); per-album curated icon/history
+  content beyond the shared 🪙 placeholder and the existing "no history
+  notes on file yet" fallback text; and slot-eligibility validation
+  (CoinID-to-FilledBy consistency checking) — a known, already-tracked gap,
+  not this task's to fix.
+
+**Verified headless — new committed suite `tests/verify_albums_live_data.js`
+(52 assertions), all passing, zero page errors; 1328 across all 31 suites,
+zero failures.** Covers: `denomFromCoinId()` against both the mock's `"-M-"`
+convention and the real double-dash convention (proving they parse
+identically), a dollar-denom code, and malformed/blank/null input;
+`buildLiveAlbums()` end-to-end from synthetic raw sheet rows — the correct
+album count, an AL-pattern row with no matching slots correctly excluded, a
+non-Album DB_Sets row never leaking in, and every field (name/denom/icon/
+folderStyle/mfgProductId/containerName/coinsCount/history/slots) landing
+correctly; the mapped slot shape including `filledBy: null` (not `""`) for
+an open slot and the `want` flag in all three states (open+matched,
+open+unmatched, filled-so-never-true); `activeAlbums()`'s fallback/override
+behavior; `renderAlbumsList()` and `populateAssignAlbumOptions()` genuinely
+reading live data (real name, real fill count, real open slots offered, a
+filled slot never offered); the full book-rendering chain end-to-end
+through real clicks — a live album's cover name, a slot's real label,
+`slotMintage()` resolving through `activeDbCoins()`; tapping a FILLED live
+slot correctly resolving via `activeCoins()` and opening Browse detail for
+the live coin (a live-only CollectionID that provably does not exist in
+`FAKE_COINS`); tapping an OPEN live slot prefilling Add Coin's Denomination/
+Year/MintMark from the live album's own derived data; `resolveCoinAlbumLink()`
+resolving a live coin's album; the `mapWorkbookRowToDbSet()` extension
+staying harmless for an ordinary non-Album row; `navigate("albums")` priming
+the fetch; and a nav/overflow smoke check. **Two negative controls verified
+against the real app code itself** (not just the suite's own in-page
+simulations) — reverting `renderAlbumsList()`'s `activeAlbums()` back to
+`FAKE_ALBUMS` fails the three assertions that depend on it (and no others),
+and reverting the filled-slot tap handler's `activeCoins()` back to
+`FAKE_COINS` fails exactly the two assertions covering that path — both
+reverts were applied to the real file, run, and undone, not just described.
+- **Not verified: any real device, any real OneDrive session.** This task's
+  own instructions call for a live-device pass against the real 6 albums
+  (Wheat Cents, Lincoln 1930-58, Memorial Cents, Lincoln 1999-2025, Mercury
+  Dimes, Roosevelt Dimes) with their actual real fill counts before this
+  merges — held on its branch for exactly that reason, not auto-merged
+  despite being a small, well-scoped extension of an already-merged
+  pattern. Two things worth Ray's eyes specifically during that pass,
+  beyond "does it crash": whether `denom` derivation is correct for every
+  real album (each should read a clean, single denomination code), and
+  whether any real Albums-sheet row's `AlbumID` fails to match any DB_Sets
+  Album-type row's `SetID` (a slot that would then be silently dropped —
+  the sparse-linkage class of gap this file already documents elsewhere
+  for `SetID`, not something this task built a safety net for).
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
