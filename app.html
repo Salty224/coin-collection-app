@@ -5526,6 +5526,14 @@
       originSetId: String(colVal(row, "OriginSetID")),
       setId: String(colVal(row, "SetID")),
       designation: String(colVal(row, "Designation")),
+      // All!Finish — a real, long-populated column (Part-F live-pass note:
+      // "All.Finish populated on all 542 rows") this mapper never read
+      // until now, same class of gap as Seller_Link/Shipping/PurchaseDate/
+      // Remarks/ValueSource elsewhere in this function ("the rows existed;
+      // the data never reached them"). Added for the SMS-finish flip-card
+      // flag (see gradeDesignationCornerText()), which needs coin.finish on
+      // a live coin the same way it's already available on a demo/draft one.
+      finish: String(colVal(row, "Finish")),
       // All!CACBean — a single cell, data-validated to exactly "Green"/"Gold"
       // (confirmed against the real workbook, All!R2:R1543) or blank.
       cacBean: String(colVal(row, "CACBean")),
@@ -11667,6 +11675,30 @@
     }
   }
 
+  // Grade + Designation (see below) plus a trailing " (SMS)" flag when
+  // Finish is literally "SMS" (Special Mint Set, 1965-67 issues) — Ray's
+  // call, scoped to that exact Finish value only, not a general "show any
+  // non-default Finish" rule. Placed on the grade corner rather than the
+  // Type/Denom corner because it explains a certification-relevant fact
+  // about THIS specimen (why it might eventually be graded Specimen rather
+  // than Mint State by a service like PCGS), same reasoning as putting
+  // GradeSource next to Grade elsewhere in this app. Applies across every
+  // denomination that can appear in an SMS set (cent through half dollar) —
+  // not cent-specific — since it keys on coin.finish alone, with no
+  // denomination branch. Shared by BOTH real render paths that build this
+  // corner: applyFlipCorners() below (Browse detail + Spotlight — one
+  // shared function) and renderBrowseGrid()'s own separate Catalog-grid
+  // corner build (see CLAUDE.md "Catalog grid: Variety + Designation on the
+  // mini flip card" for why that one is genuinely NOT the same code path) —
+  // factored out here so the two can't independently drift on this one
+  // rule. trim() only matters for the blank-Grade-and-Designation case
+  // (an SMS coin with neither set) — without it the result would carry a
+  // stray leading space (" (SMS)") rather than "(SMS)" alone.
+  function gradeDesignationCornerText(coin) {
+    const base = (coin.grade || "") + (coin.designation || "");
+    return (base + (coin.finish === "SMS" ? " (SMS)" : "")).trim();
+  }
+
   // Shared by every place a single *saved* coin gets the flip-label treatment
   // (Spotlight, Browse detail) — corner text plus a screen-reader-only summary,
   // since the overlay is the visible presentation but shouldn't be the only way
@@ -11753,9 +11785,12 @@
     // (composition) corner and 26px past the frame's own right edge. Exactly
     // the TL failure, one corner down. Ordinary grades ("MS-64", "MS-65RD")
     // measure unchanged at the natural 27px — this only engages when a value
-    // genuinely doesn't fit.
+    // genuinely doesn't fit. gradeDesignationCornerText() appends " (SMS)"
+    // for a Finish="SMS" coin — a longer string through this same fitting
+    // pipeline, no new mechanism needed (measured directly, see
+    // verify_sms_finish_flag.js).
     renderFittedCornerLines(document.getElementById(prefix + "BL"),
-      [(coin.grade || "") + (coin.designation || "")], 0);
+      [gradeDesignationCornerText(coin)], 0);
 
     // BR: the coin's own composition, but ONLY when a precious metal is
     // actually involved — see preciousMetalCompositionFor() for the rule and
@@ -12713,6 +12748,10 @@
       // with NO space ("MS-65RD"), deliberately the same join style that
       // card uses — not a new rule, and not Add Coin's own two-line
       // stacking, which is a different corner with a different pairing.
+      // Same gradeDesignationCornerText() applyFlipCorners() uses, so a
+      // Finish="SMS" coin's " (SMS)" flag matches on both surfaces —
+      // wired here separately since this is a genuinely different render
+      // path, not shared code, per the note above.
       // Both run after appendChild and after sizeCoinElement(), since the
       // fit test measures against real layout and the disc's real size.
       // Raw, unescaped — renderCornerLines() escapes. Pre-escaping here would
@@ -12721,7 +12760,7 @@
       renderGridIdentityCorner(card.querySelector(".flip-label.tl"),
         yearMint, coin.variety || "");
       renderFittedCornerLines(card.querySelector(".flip-label.bl"),
-        [(coin.grade || "") + (coin.designation || "")], 0);
+        [gradeDesignationCornerText(coin)], 0);
       // Composition — same rule and same shared renderer as the full
       // flip-frame's BR corner (Browse detail/Spotlight): precious metal
       // only, stacked value/metal lines when it splits cleanly, sized
