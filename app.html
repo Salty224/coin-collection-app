@@ -5913,6 +5913,19 @@
       // null (not 0/NaN) when absent — every display site already guards on
       // `!= null` rather than assuming a number is there.
       mintage: (mintageRaw === "" || isNaN(mintageNum)) ? null : mintageNum,
+      // DB_Coins.MintageInclusive — new column (Copilot, 94 rows flagged
+      // "Y"), positioned next to Mintage on the real sheet (cosmetic
+      // reordering only — colVal() reads by header name, not position).
+      // Marks a CoinID whose Mintage figure is COPIED from its parent date/
+      // mint rather than a genuinely distinct, separately-published total —
+      // die varieties/designations the Mint never tallied on their own
+      // (1945-S Micro S, 1942/41 overdates, Mercury FB designations, 1982
+      // cent variants), as opposed to something like 1909 VDB, which has
+      // its own real distinct total. Read here (not just consumed at the
+      // one Albums call site) so it travels with the row wherever this
+      // mapper's output goes — see slotMintage()/formatAlbumMintage() for
+      // the one place it currently changes a display.
+      mintageInclusive: String(colVal(row, "MintageInclusive")),
       funFact: String(colVal(row, "FunFact")),
       // DB_Coins.Notes — a real, heavily-populated catalog column (1,101 of
       // 4,227 rows, far more than FunFact's 79) that nothing in the app read
@@ -9918,7 +9931,17 @@
         { year: 1910, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-M-1C-01", filledBy: null },
         { year: 1910, mintMark: "S", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-S-1C-01", filledBy: null },
         { year: 1911, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-M-1C-01", filledBy: null },
-        { year: 1911, mintMark: "D", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-D-1C-01", filledBy: null }
+        { year: 1911, mintMark: "D", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-D-1C-01", filledBy: null },
+        // Variety-not-key-date demo (see the matching FAKE_DB_COINS row's
+        // own comment) — deliberately NO keyDate flag, so this slot proves
+        // the variety label shows on its own, independent of key-date
+        // status. Its DB_Coins mintage (500,000) is also under 1,000,000,
+        // so this slot doubles as the "exact figure, no rounding" case.
+        { year: 1912, mintMark: "D", description: "Lincoln Wheat Cent", variety: "Doubled Die", coinId: "C-1912-D-1C-02", filledBy: null },
+        // MintageInclusive="Y" demo — 1945-S Micro S (see the matching
+        // FAKE_DB_COINS row's own comment for why its Mintage line reads
+        // "Included" rather than a number).
+        { year: 1945, mintMark: "S", description: "Lincoln Wheat Cent", variety: "Micro S", coinId: "C-1945-S-1C-02", filledBy: null }
       ]
     },
     {
@@ -10600,6 +10623,22 @@
     // Staging" / Designation re-resolution below), not collapsed into one row.
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000, designation: "RD" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-03",  pcgs: "2431",  mintage: 1825000, designation: "BN" },
+    // Variety-not-key-date demo (Albums bug fix — the variety label used to
+    // only show when a slot was ALSO flagged key-date, an accidental
+    // coupling). "Doubled Die" here is a representative stand-in, not a
+    // claim about a real 1912-D Lincoln variety/mintage — same "demo data,
+    // not historical fact" posture as every other synthetic FAKE_DB_COINS
+    // row in this file. Under 1,000,000 too, so this same row doubles as
+    // the "exact figure, no rounding" comparison case.
+    { denom: "1C",  year: 1912, mint: "D",  variety: "Doubled Die", description: "Lincoln Wheat Cent", finish: "Business Strike", gsid: "",       coinId: "C-1912-D-1C-02", pcgs: "",      mintage: 500000,  designation: "" },
+    // MintageInclusive="Y" demo — 1945-S Micro S, the exact example named
+    // when this column was introduced: a die variety the Mint never
+    // tallied separately, so its Mintage figure is the parent 1945-S
+    // date/mint's own real total, copied rather than distinct. The real
+    // mintage number is still stored (matching how Copilot's real backfill
+    // works — the column sits ALONGSIDE Mintage, not instead of it); it's
+    // formatAlbumMintage() that masks it to "Included" for display.
+    { denom: "1C",  year: 1945, mint: "S",  variety: "Micro S", description: "Lincoln Wheat Cent", finish: "Business Strike", gsid: "",       coinId: "C-1945-S-1C-02", pcgs: "",      mintage: 181770000, designation: "", mintageInclusive: "Y" },
     { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan Dollar",        finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000,  designation: "" },
     { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber Quarter",       finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664,   designation: "" },
     { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000, designation: "" },
@@ -16527,9 +16566,41 @@
   // follow-on to the live-wiring this function's own stated reason for
   // being mock-only no longer holds against. Flagged here as a deliberate
   // one-line extension beyond FAKE_ALBUMS itself, not a silent scope creep.
+  // Returns null when there's nothing to show at all (no catalog match, or
+  // a match with neither a real Mintage nor an Inclusive flag) — the caller
+  // omits the whole .slot-mintage line in that case, same as before.
+  // Otherwise returns a real object ({ inclusive: true } or
+  // { inclusive: false, value: <number> }) for formatAlbumMintage() below
+  // to render — the inclusive flag is independent of whether a number also
+  // happens to be present (Copilot's real backfill sets both), so it's
+  // checked first and wins outright rather than being derived from the
+  // number's own magnitude.
   function slotMintage(slot) {
     const dbCoin = activeDbCoins().find(c => c.coinId === slot.coinId);
-    return (dbCoin && dbCoin.mintage != null) ? dbCoin.mintage : null;
+    if (!dbCoin) return null;
+    const inclusive = String(dbCoin.mintageInclusive || "").trim().toUpperCase() === "Y";
+    if (inclusive) return { inclusive: true, value: null };
+    if (dbCoin.mintage == null) return null;
+    return { inclusive: false, value: dbCoin.mintage };
+  }
+
+  // Albums book view ONLY (renderSlotCell() below is its one caller) — every
+  // other mintage display in the app (Browse detail, Catalog, the
+  // ambiguous-match picker, Set Details facts) shows the exact researched
+  // figure unchanged and does NOT go through this. Mimics Ray's physical
+  // Littleton folders, which print a rounded figure for a large mintage
+  // rather than the full digit string.
+  //   - MintageInclusive="Y" -> "Included", replacing the number entirely
+  //     (nothing to round — the figure is borrowed from the parent date/
+  //     mint, not this coin's own).
+  //   - >= 1,000,000 -> one decimal place + " Million" (175,090,000 ->
+  //     "175.1 Million").
+  //   - < 1,000,000 -> the exact figure, comma-formatted, unchanged.
+  function formatAlbumMintage(mintage) {
+    if (mintage.inclusive) return "Included";
+    return mintage.value >= 1000000
+      ? (mintage.value / 1000000).toFixed(1) + " Million"
+      : mintage.value.toLocaleString();
   }
 
   // BUG C FIX (live-device finding): renderSlotCell() is a string-templated
@@ -16657,17 +16728,24 @@
     // pages (default/Numis-style pages keep both lines, unchanged).
     const metaLine = isLittleton ? "" : `<div class="slot-meta">${slotDescription(slot)}${slotVariety(slot) ? ", " + slotVariety(slot) : ""}</div>`;
 
-    // Key-date coins (e.g. the 1909-S VDB Lincoln cent) print the variety
-    // right under the date/mintmark, same as a real folder calls out the
-    // one date in a run that needs distinguishing — not shown for ordinary
-    // slots, where the plain date is already unambiguous. Independent of
-    // metaLine/isLittleton above: this shows on Littleton pages too, since
-    // dropping the *description* line there was about not repeating the
-    // series name, not about hiding a distinguishing variety.
-    const varietyLine = (slot.keyDate && slotVariety(slot)) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
+    // Print the variety right under the date/mintmark, same as a real
+    // folder calls out the one date in a run that needs distinguishing.
+    // **BUG FIX**: this used to be gated on `slot.keyDate` too (`slot.keyDate
+    // && slotVariety(slot)`) — an accidental coupling of two unrelated
+    // things. A slot's variety label and its key-date star are independent
+    // facts (a VDB is both a variety AND a key date; a Doubled Die or a
+    // Micro S is a variety with no bearing on key-date status either way),
+    // so the label must show whenever the slot HAS a variety, full stop —
+    // the key-date star (rendered separately below) is untouched, same
+    // correctly-working mechanism, it just happened to share this one
+    // gating condition by mistake. Independent of metaLine/isLittleton
+    // above: this shows on Littleton pages too, since dropping the
+    // *description* line there was about not repeating the series name,
+    // not about hiding a distinguishing variety.
+    const varietyLine = slotVariety(slot) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
 
     const mintage = slotMintage(slot);
-    const mintageLine = mintage != null ? `<div class="slot-mintage">Mintage ${mintage.toLocaleString()}</div>` : "";
+    const mintageLine = mintage ? `<div class="slot-mintage">Mintage ${formatAlbumMintage(mintage)}</div>` : "";
 
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">

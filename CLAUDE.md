@@ -12886,6 +12886,118 @@ reach any other way.
   ever hit for some other reason) is what would confirm which of the two
   hypothesized mechanisms (hang vs. malformed content) it actually was.
 
+### Albums: variety-label bug fix, rounded Mintage, "Included" for shared figures (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+Three related Albums-book-view fixes/additions, all previously scoped with
+Ray. Held on the same branch, same "awaiting live-device confirmation"
+standing as everything else on it.
+
+**1. BUG — the variety label was accidentally coupled to key-date
+status.** `renderSlotCell()`'s `.slot-variety` line — "VDB" under a 1909-S
+Lincoln cent, "Micro S" under a 1945-S — used to render only when
+`slot.keyDate && slotVariety(slot)` were BOTH true, gating a variety's
+visibility on a completely unrelated fact about the same coin. Real
+example this hid: a "Doubled Die" or "Micro S" variety on a date the
+workbook doesn't (or shouldn't) flag as a key/semi-key date never showed
+its variety label at all, even though the slot genuinely has one. **Fixed
+by dropping the `slot.keyDate` half of the condition entirely** — the line
+now shows whenever `slotVariety(slot)` is truthy, full stop. **The
+key-date star badge itself (`.key-date-badge`, the separate `<span>` a few
+lines below) is completely untouched** — same correctly-working mechanism,
+it only ever shared this one gating condition by coincidence, not by
+design.
+
+**2. NEW — rounded Mintage display, Albums book view ONLY.** Mimics Ray's
+physical Littleton folders, which print a rounded figure for a large
+mintage rather than the full digit string:
+- `>= 1,000,000` → one decimal place + `" Million"` (175,090,000 → `"175.1
+  Million"`; the boundary itself, exactly 1,000,000, belongs to this
+  branch too — `"1.0 Million"`, not `"1,000,000"`).
+- `< 1,000,000` → the exact figure, comma-formatted, completely unchanged.
+- **Scoped to `renderSlotCell()`'s one call site alone** — every other
+  mintage display in the app (Browse detail, Catalog's candidate pickers,
+  Set Details facts, the ambiguous-match picker) reads through its own
+  separate `.toLocaleString()` call, confirmed via source search before
+  touching anything, and keeps showing the exact researched figure
+  unchanged.
+- **New `formatAlbumMintage(mintage)`** does the rounding/formatting;
+  `slotMintage(slot)` (already the one function resolving a slot's Mintage
+  via its CoinID, through `activeDbCoins()`) now returns a small shape —
+  `null` when there's genuinely nothing to show (no catalog match, or a
+  match with neither a real Mintage nor the Inclusive flag below), or
+  `{ inclusive: false, value: <number> }` / `{ inclusive: true, value: null
+  }` otherwise — rather than a bare number, so `formatAlbumMintage()` has
+  what it needs without re-querying the catalog a second time.
+
+**3. NEW — `DB_Coins.MintageInclusive="Y"` displays as the plain word
+"Included," replacing the number entirely.** A new, real workbook column
+(Copilot-populated, 94 rows flagged `"Y"`, positioned next to Mintage —
+cosmetic reordering only, `colVal()` reads by header name so this needed
+no code change on its own) marking a CoinID whose Mintage figure is
+**copied from its parent date/mint** rather than a genuinely distinct,
+separately-published total — die varieties/designations the Mint never
+tallied on their own (1945-S Micro S, 1942/41 overdates, Mercury FB
+designations, 1982 cent variants), as opposed to something like 1909 VDB,
+which has its own real distinct total.
+- **`mapWorkbookRowToDbCoin()` gained `mintageInclusive`**, read via
+  `colVal(row, "MintageInclusive")` like every other real DB_Coins field —
+  a blank cell or a row with no such column at all both map cleanly to
+  `""`, never a throw.
+- **The inclusive flag is checked FIRST and wins outright**, independent
+  of whatever numeric Mintage value also happens to be stored alongside it
+  (Copilot's real backfill populates both columns — the number isn't
+  erased, just masked for display) — `slotMintage()` never derives
+  "inclusive" from the number's own magnitude, only from the flag itself.
+  **Self-explanatory on its own, no asterisk or footnote** — matches the
+  underlying reality that the figure is borrowed rather than owned, per
+  Ray's explicit spec.
+- **Independent of the variety label and the key-date star** — a
+  MintageInclusive coin's own variety ("Micro S") and key-date status (if
+  any) render exactly as they would for any other slot; only the Mintage
+  line itself changes.
+
+**Demo data**: `FAKE_ALBUMS`' Lincoln Cents album gained two new slots —
+a non-key-date "Doubled Die" variety (1912-D, a representative stand-in,
+not a claim about a real coin/mintage) demonstrating fix #1, and the real
+named example from the spec, 1945-S Micro S, demonstrating fix #3 — each
+with a matching new `FAKE_DB_COINS` row. The existing 1909-M Lincoln slot
+(mintage 1,825,000) already demonstrated fix #2 without needing new data,
+so the committed suite's own end-to-end fixture is what actually exercises
+the worked 175,090,000 → "175.1 Million" example from the task.
+
+**Verified headless — new committed suite
+`tests/verify_albums_variety_mintage.js` (25 assertions), all passing;
+1505 across all 36 suites, zero failures, zero page errors.** Uses its own
+small, precisely-sized live fixture (6 slots, all confirmed to land on one
+coins page at phone width) rather than the evolving `FAKE_ALBUMS` demo
+album, so every assertion reads from one render with no page-hunting.
+Covers: **the bug fix**, driven through the real render path — a key-date
+slot with a variety still shows both (unchanged), the Doubled Die slot
+(confirmed genuinely NOT flagged key-date) now shows its variety (the
+actual fix), a slot with no variety still shows none either way — **plus a
+negative control** reproducing the exact old `slot.keyDate &&
+slotVariety(slot)` gate inline against the identical slot, confirming it
+would have hidden the variety, proving the fix is real and not a
+tautology; **Million-rounding**, end-to-end through the real render — the
+large-mintage slot rounds to the exact worked example, the small-mintage
+slot stays exact, a no-catalog-match slot still shows no line at all;
+**"Included"**, end-to-end — the flagged slot's Mintage line reads exactly
+`"Included"` while its Variety line still independently shows `"Micro
+S"`, plus a negative control confirming an ordinary large-mintage slot
+with no flag formats as the rounded number, not `"Included"`;
+`formatAlbumMintage()`/`slotMintage()` in isolation, including the
+1,000,000 boundary, the inclusive-flag-wins-over-value rule, a
+no-catalog-match `null`, and an inclusive row with no numeric mintage at
+all still reporting `inclusive:true`; and `mapWorkbookRowToDbCoin()`
+reading a real `"Y"`, a blank cell, and a row with no such column present.
+A nav/overflow smoke check closes it out.
+- **Not verified: any real device.** Per the task's own instruction, needs
+  a live-device pass spot-checking exactly the three named cases: a
+  variety that's NOT a key date, a large-mintage coin, and a
+  MintageInclusive=Y coin like 1945-S Micro S — plus confirming Ray's
+  updated database copy (94 flagged rows, `MintageInclusive` repositioned
+  next to `Mintage`) reads correctly against this build, which this
+  environment has no way to confirm on its own.
+
 ### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
 The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
 "Prev/next stepping at the detail level" above) had exactly three callers —
