@@ -10683,12 +10683,16 @@
     { denom: "10C", year: 2005, mint: "",   variety: "",        description: "Roosevelt Dime",       finish: "Business Strike", gsid: "",       coinId: "C-2005-M-10C-09", pcgs: "5401",  mintage: 8000000, designation: "", mintFull: "Philadelphia" }
   ];
 
-  // In-memory "Needs DB_Coins Entry" backlog — seeded with a couple of examples so the
-  // list isn't empty on first load; grows when Save is used on an unmatched coin.
-  const FAKE_NEEDS_QUEUE = [
-    { denom: "25C", year: "1932", mint: "D", variety: "", desc: "Washington", dateFlagged: "2026-07-08" },
-    { denom: "1C",  year: "1943", mint: "S", variety: "Steel", desc: "Lincoln Wheat", dateFlagged: "2026-07-09" }
-  ];
+  // In-memory "Needs DB_Coins Entry" backlog — fallback used only when
+  // ENABLE_DOCKET_WRITE is off (or the durable docket.json can't be read).
+  // Cleared to [] deliberately (Ray's explicit call, 2026-09-07): the real
+  // durable queue has fully superseded this as a fallback, so an empty
+  // Docket is the correct display when the write layer is off, same as it
+  // will be once ENABLE_DOCKET_WRITE eventually goes on for real. Used to
+  // be seeded with two demo rows (1932-D Washington Quarter, 1943-S Lincoln
+  // Wheat Steel Cent) that were mistaken for real orphaned data — see the
+  // "Docket research queue" section of CLAUDE.md.
+  const FAKE_NEEDS_QUEUE = [];
 
   // Relative sizing so coin discs/photos read as roughly the right size next to each
   // other — proportional to real diameters (dime is genuinely smaller than a cent,

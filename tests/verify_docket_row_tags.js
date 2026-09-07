@@ -28,12 +28,17 @@ module.exports = defineSuite("docket-row-tags", async ({ ok, openApp, PHONE }) =
 
   // ---------- B. A real Docket queue entry (genuine no-match) tags "Research" ----------
   const B = await page.evaluate(async () => {
+    // FAKE_NEEDS_QUEUE ships empty (the real durable queue supersedes it as
+    // a fallback — see CLAUDE.md "Docket research queue"), so this test
+    // seeds its own queue entry the same way a real no-DB_Coins-match save
+    // would, via appendDocketEntry() (docketWriteEnabled() is off by
+    // default, so this lands in FAKE_NEEDS_QUEUE exactly like a genuine
+    // flag-off entry would).
+    await appendDocketEntry({ denom: "25C", year: "1932", mint: "D", desc: "Washington" });
     await renderNeedsAttentionHub();
     await new Promise(r => setTimeout(r, 200));
     const rows = [...document.querySelectorAll('#docketResearchContainer .wish-item')];
-    // The two seeded FAKE_NEEDS_QUEUE demo rows are real Docket queue
-    // entries — genuine no-catalog-match research items.
-    const queueRow = rows.find(r => /1932|1943/.test(r.textContent));
+    const queueRow = rows.find(r => /1932/.test(r.textContent));
     return {
       found: !!queueRow,
       tagText: queueRow && queueRow.querySelector('.docket-tag') && queueRow.querySelector('.docket-tag').textContent,
