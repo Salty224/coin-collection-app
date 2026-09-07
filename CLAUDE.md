@@ -10116,6 +10116,99 @@ the fix rather than passing vacuously.
   `All.Finish` values on a live coin hasn't been click-through-confirmed
   from this environment.
 
+### Set/child linkage: live-data path added (BUILT, display-only)
+Real bug from Ray breaking out 5 real children under a real 1967 SMS Set
+for the first time (e.g. `AY-00555-A`, `OriginSetID` confirmed populated
+pointing at the parent's own CollectionID): no "Coins in this Set" content
+on the parent, no "Belongs to → Set" chip on the children. Investigated
+first (see the prior session's report), fixed here on Ray's explicit
+go-ahead.
+
+**Root cause was NOT another missing-mapper gap like `Finish`** —
+`mapWorkbookRowToCoin()` already reads `OriginSetID` correctly (confirmed
+against the real workbook when that field was originally added). The real
+cause is structural: `setChildrenFor()` (feeds "Coins in this Set") and
+`resolveChildParentSet()` (feeds the child's "Belongs to → Set" chip) were
+**100% demo-only** — they read `FAKE_SET_CHILDREN`/`FAKE_COINS` directly,
+with no live-data path at all, confirmed by grepping the whole file for any
+`activeSetChildren`/`LIVE_SET_CHILDREN`-style equivalent and finding none.
+For any real Set this always returned `[]`/`null`, regardless of how
+correctly `OriginSetID` was populated.
+
+**A second, independent problem stacked on top: the matching logic itself
+assumed a convention real data doesn't use.** The demo data (and the app's
+own session-only "link a coin to this Set" feature) has the PARENT carry
+its own `originSetId`, shared verbatim with its children — a derived
+string like `"OS-1986-STL-01"` or `"OS-LOCAL-AY-00019"`. The real workbook
+convention, confirmed against the app's own real Add Set write path
+(`addChildToSetDraft()`: `originSetId: draft.collectionID`) and matching
+exactly what Ray's real children show, is that a **child's own
+`OriginSetID` IS the parent's CollectionID directly** — a real parent Set
+row carries no `OriginSetID` of its own at all. So even a naive
+`FAKE_COINS` → `activeCoins()` swap would have kept failing: the old guard
+(`if (!coin.originSetId) return []` on the PARENT) never even reached a
+lookup for a real Set, since a real parent's own `originSetId` is blank by
+design.
+
+**Fix: both functions now try two conventions, real/live first:**
+- `setChildrenFor(coin)` — tier 1 searches the live pool for any row whose
+  `originSetId` equals the parent's own `id` (the real convention); tier 2
+  falls back to the old `FAKE_SET_CHILDREN[coin.originSetId]` lookup
+  unchanged (demo data + the session-only linking feature, both of which
+  use the shared-string convention). Real children live as ordinary rows
+  in `activeCoins()` (unlike demo children, deliberately kept out of
+  `FAKE_COINS`), so no separate live index was needed.
+- `resolveChildParentSet(coin)` — same two-tier order: a live Set row whose
+  own `id` equals the child's `originSetId`, falling back to the old
+  shared-string search.
+- **New `originSetIdKeysMatch(a, b)`** — trims before comparing (`colVal()`
+  does no trimming of its own, and this environment has no live OneDrive
+  session to directly inspect Ray's real cell content for stray whitespace,
+  flagged as a real, unverified risk rather than assumed fine) and
+  explicitly requires both sides to be non-blank after trimming — a real
+  bug in the helper's first draft, caught by its own committed unit test:
+  two blanks (or `null`/`undefined`) compared equal under a naive
+  `String(a||"").trim() === String(b||"").trim()`, which would have
+  matched any parentless coin against any childless Set had a future
+  caller ever reached it without the surrounding guards already in place.
+- **Read-only, as scoped** — neither function writes anything; no change
+  to `ALL_NEVER_WRITE_COLUMNS` or any write path. `resolveCoinSetLink()`
+  (the separate Issue-3 `setId` "belongs to" chip, a different field/
+  relationship) has the same `FAKE_COINS`-only gap but was left untouched —
+  out of scope for this fix, not asked for, flagged for a future pass if
+  it turns out to matter.
+
+**Verified headless — new suite `tests/verify_set_child_linkage_live.js`
+(27 assertions), all passing; 1568 across 38 suites, zero failures.**
+Covers: `originSetIdKeysMatch()` in isolation including the two-blanks
+case that caught the helper's own bug; a synthetic live Set + 5 real-shaped
+children (mirroring Ray's exact AY-00555 scenario) resolved via the
+live-data tier with no leakage from an unrelated Set's own children; the
+pre-existing demo fallback (`AY-00022`, 3 children) and the session-only
+linking feature's own shared-string convention both still working
+unchanged; and — the real end-to-end check, not just the functions in
+isolation — driving `showBrowseDetail()` for the real Set and confirming
+the "Coins in this Set" accordion actually renders all 5 real children,
+and separately for a real child confirming the "Belongs to → Set" chip
+renders, names the real parent, and its click handler actually navigates
+there. **Verified via negative control**: reverting both functions to
+their exact pre-fix bodies reproduces the precise reported symptom (0
+children found, chip absent, accordion never renders) while every
+demo-data/control assertion keeps passing unchanged — confirming the
+suite depends on the real fix, not a coincidence of the fixture.
+- **Not verified: any real device, any real OneDrive session.** In
+  particular, whether Ray's real `AY-00555`/`AY-00555-A..E` cells have any
+  stray whitespace was flagged as a real risk and defended against
+  (`originSetIdKeysMatch()`'s trim), but not independently confirmed from
+  this environment — worth a live click-through to close out.
+- **Task 2 (the "attribute coin to Set" picker) stays parked, untouched**,
+  per Ray's explicit instruction — gated on the still-undecided Set
+  write-layer scope question, not part of this dispatch. See the prior
+  investigation report for its own findings (candidate list is real/live
+  but excludes any coin already carrying an `OriginSetID`, including one
+  already pointing at the very Set being edited; linking there is
+  deliberately session-only, per `ALL_NEVER_WRITE_COLUMNS`).
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch

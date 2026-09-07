@@ -13630,13 +13630,54 @@
   // here — all retired with the child mini-flip grid. setChildrenFor() below
   // is very much still used: it feeds the "Coins in this Set" accordion.)
 
-  // A Set's child coins (multi-coin display) — keyed by the parent's
-  // originSetId in FAKE_SET_CHILDREN. Returns [] for non-Sets, Sets with no
-  // originSetId, and Sets whose breakdown isn't populated yet (the childless
-  // backlog) — every one of which falls back to the single-flip display.
+  // A Set's child coins (multi-coin display, feeds "Coins in this Set").
+  // Two matching conventions, tried in order — this was 100% demo-only
+  // until now (real Sets always returned [] regardless of real
+  // OriginSetID data), per Ray's real-data report (a real 1967 SMS Set +
+  // 5 real broken-out children, e.g. AY-00555-A, each with OriginSetID
+  // confirmed populated pointing at the parent's own CollectionID).
+  //
+  // 1. REAL/LIVE convention — a child's own OriginSetID IS the parent's
+  //    CollectionID directly, confirmed against the app's own real Add Set
+  //    write path (addChildToSetDraft(): `originSetId: draft.collectionID`).
+  //    A real parent Set row carries no OriginSetID of its own (only
+  //    children do), so this searches the live pool by the PARENT's id,
+  //    not by coin.originSetId — the old guard (`!coin.originSetId` on the
+  //    PARENT) was itself part of the bug: it never even reached a lookup
+  //    for a real Set, since a real parent's own originSetId is blank.
+  //    Real children live as ordinary rows in activeCoins() (unlike the
+  //    demo convention below), so no separate index is needed.
+  // 2. DEMO/MOCKUP fallback (and the session-only "link a coin" feature,
+  //    which uses the same mechanism via ensureOriginSetId()) — parent AND
+  //    children share one derived originSetId STRING, kept in the separate
+  //    FAKE_SET_CHILDREN lookup rather than FAKE_COINS itself (demo
+  //    children were deliberately never added to FAKE_COINS). Never true
+  //    for real data. activeCoins() already resolves to FAKE_COINS itself
+  //    when no live data is loaded, so this fallback's own search space is
+  //    unaffected by tier 1 running first.
+  //
+  // originSetIdKeysMatch() trims before comparing — colVal() does no
+  // trimming of its own, and this environment has no live OneDrive
+  // session to directly inspect Ray's actual cell content for stray
+  // whitespace (flagged as a real, unverified risk rather than assumed
+  // fine). Cheap and safe either way: a no-op against clean data, a real
+  // fix if the real cells ever carry incidental leading/trailing space.
+  // Two blanks must NEVER match (caught by the committed suite, not
+  // guessed) — the callers below already guard against a blank `coin.id`/
+  // `coin.originSetId` before ever reaching this, so it's inert in
+  // practice today, but the helper needs to be correct on its own terms
+  // rather than rely on every future caller re-deriving that guard.
+  function originSetIdKeysMatch(a, b) {
+    const x = String(a || "").trim();
+    const y = String(b || "").trim();
+    return !!x && x === y;
+  }
   function setChildrenFor(coin) {
-    if (!isSetRow(coin) || !coin.originSetId) return [];
-    return FAKE_SET_CHILDREN[coin.originSetId] || [];
+    if (!isSetRow(coin)) return [];
+    const live = activeCoins().filter(c =>
+      originSetIdKeysMatch(c.originSetId, coin.id) && !isSetRow(c) && c.id !== coin.id);
+    if (live.length) return live;
+    return (coin.originSetId && FAKE_SET_CHILDREN[coin.originSetId]) || [];
   }
 
   // Item 7: prev/next at the detail level.
@@ -13909,11 +13950,22 @@
   // different field, different relationship, never merged. Only an individual
   // child row resolves here: a Set bundle viewed directly (isSetRow) returns
   // null so it never links to itself, and a normal coin with no originSetId
-  // returns null. The parent bundle IS in FAKE_COINS (only children are
-  // nested-only), so this find() resolves it.
+  // returns null.
+  //
+  // Same two-tier matching as setChildrenFor() above, in the same order —
+  // real/live first (the child's OriginSetID IS the parent's own
+  // CollectionID), demo/mockup + session-only-linking string-sharing
+  // convention as the fallback. Shares originSetIdKeysMatch() (the
+  // trim-before-comparing helper) with that function, but not the search
+  // itself — the two shapes genuinely differ (all children of a parent vs.
+  // the one parent of a child), so factoring the whole search out would
+  // obscure more than it'd save.
   function resolveChildParentSet(coin) {
     if (!coin.originSetId || isSetRow(coin)) return null;
-    return FAKE_COINS.find(c => c.denom === "Multiple" && c.originSetId === coin.originSetId) || null;
+    const pool = activeCoins();
+    const byParentId = pool.find(c => isSetRow(c) && originSetIdKeysMatch(c.id, coin.originSetId));
+    if (byParentId) return byParentId;
+    return pool.find(c => isSetRow(c) && c.id !== coin.id && c.originSetId === coin.originSetId) || null;
   }
 
   // Renders the "Belongs to" chips into ANY host element — all three chip
