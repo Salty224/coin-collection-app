@@ -12435,6 +12435,169 @@ symptom.
   without flipping, watch images populate in place" pass the task itself
   asked for.
 
+### Splash: Docket badge gap closed; Value floored at face value + one shared currency formatter (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+Two independent fixes from the same dispatch — a data-fetch gating gap
+found on the same live-device pass as the three bugs immediately above, and
+a display/formatting cleanup. Neither is architectural; held on the same
+branch, same "awaiting live-device confirmation" standing as everything
+else on it.
+
+**Part A — the Docket badge still lagged ~3s after the cabinet appeared.**
+Confirmed on the same real-device pass that verified the splash-gating fix
+above: that fix waits on `ensureLiveNavDataFetch()` (All/DB_Sets/DB_Coins/
+Lookup_MetalContent/Lookup_Graders/Photos/Receipts/Albums/Wishlist) before
+hiding the splash — genuinely fixed the album-image gap it targeted — but
+the Docket fob (`updateDocketFob()`, fed by `renderNeedsAttentionHub()`'s
+own `stagingRows`/`researchRows`/`otherRows`) depends on a COMPLETELY
+SEPARATE fetch, `loadDocketQueue()` (`_Docket/docket.json`), that the
+splash gate never accounted for at all. The fob only ever gets its real
+count once THAT fetch lands, well after the splash had already handed
+control to the Dashboard.
+- **`runSplashConnect()`'s `attempt()` now gates on BOTH fetches**, via
+  `Promise.all([ensureLiveNavDataFetch(), docketQueueReady()])` — sharing
+  the existing 5s ceiling/400ms retry loop rather than standing up a
+  second independent timer, since both are genuinely part of the same
+  "is the app's real data ready yet" question the splash already exists to
+  answer.
+- **New `docketQueueReady()`**: `true` immediately when
+  `docketWriteEnabled()` is `false` (the write layer is off — same
+  "nothing to wait for" logic `ensureLiveNavDataFetch()`'s own callers
+  already apply to a disabled feature), otherwise `(await
+  loadDocketQueue()) !== null`. `loadDocketQueue()` already distinguishes a
+  genuine fetch failure (returns `null`) from a genuinely-empty-but-real
+  result (`emptyDocketQueue()`, a real non-null object) — so **a
+  genuinely-empty Staging/Docket session resolves `true` on the FIRST
+  attempt, same as any other successful-but-empty fetch**, never waiting
+  out the timeout for "no data" to mean something more. This mirrors
+  `ensureLiveNavDataFetch()`'s own "resolve on genuine success, not just
+  any resolution" principle exactly.
+- **`loadDocketQueue()` gained its own in-flight dedup**
+  (`docketQueueFetchPromise`), the same pattern
+  `liveNavDataFetchPromise`/`graphTokenInFlight`/
+  `referenceImageFetchesInFlight` already establish elsewhere in this
+  file — not explicitly asked for, but directly necessary: the splash is
+  now a SECOND caller of `loadDocketQueue()` alongside
+  `renderNeedsAttentionHub()`'s own init-time call, and without dedup the
+  two would race into two independent real Graph fetches at boot rather
+  than sharing one in-flight promise the way every other multi-caller
+  fetch in this app already does.
+- **A real, non-obvious cross-cutting test-isolation bug found and fixed
+  while verifying this, not a flaky test.** `addcoin-phase1`'s own
+  flag-off Graph-call-isolation block (`A9`) installs a `graph()` spy via
+  `__setGraphClientForTest()` and asserts nothing calls it. `graph()`
+  resolves the CURRENT `activeGraphClient` dynamically at call time (not
+  bound once at promise-chain start) — and unlike
+  `ensureLiveNavDataFetch()` (a completely separate token/`fetch()`
+  mechanism that never touches `graph()`), the splash's Docket retry loop
+  DOES call `loadDocketQueue()` → `graph()` every ~400ms for up to 5s
+  after every page load. A retry firing during that test's own window
+  false-positived `touched = true` — root-caused by tracing `graph()`'s
+  dynamic resolution semantics, then confirmed via a clean standalone
+  re-run, not assumed flaky. **Fixed by isolating the test itself** — the
+  A9 block now wraps with `__setDocketWriteEnabledForTest(false)` /
+  `(null)`, using the existing test seam to precisely exclude this
+  unrelated background activity from the window the test cares about,
+  rather than weakening what the test asserts. `splash-and-album-prefetch.js`'s
+  own Block B and GEN block needed the identical treatment for the inverse
+  reason: both stub `ensureLiveNavDataFetch()` only, so once the gate
+  requires BOTH fetches to succeed, the real (unstubbed)
+  `loadDocketQueue()` — which always resolves `false` in this sandboxed
+  no-MSAL environment — permanently blocked "success" regardless of the
+  stubbed main fetch's own resolution, breaking both blocks' original,
+  narrower intent (testing only the main-fetch retry/generation-guard
+  behavior). Same fix, same seam, both restored to their original scope.
+
+**Part B — Value floored at face value, one shared currency formatter
+everywhere.** Two related display-only cleanup items; neither touches what
+gets stored anywhere (workbook writes, Edit-form save logic are unchanged).
+- **`mapWorkbookRowToCoin()` gained `coin.faceValue`**, read from a new
+  `FaceValue` column via `colVal(row, "FaceValue")` — **this exact column
+  name is NOT independently confirmed against the real workbook from this
+  environment**, same caveat every other not-yet-device-confirmed column
+  read in this file already carries; if it turns out to be named/shaped
+  differently, `colVal()`'s own graceful-miss behavior (blank → `null`
+  faceValue → the floor becomes a no-op) means nothing breaks, it just
+  silently does nothing until the real name is confirmed and added as a
+  candidate. **Worth Ray's direct confirmation before this is trusted.**
+- **New `valueWithFaceFloor(value, faceValue)`**: `Math.max(value,
+  faceValue)` when `faceValue` is a real positive finite number, otherwise
+  returns `value` unchanged — so a coin with no `faceValue` on file (every
+  coin in this mockup today, and any live row until the column is
+  confirmed) displays exactly as it always has, no floor applied. Applied
+  everywhere `coin.value` is DISPLAYED: the Catalog/Sets/Rolls grid cards,
+  Browse detail's Overview "Value" row (presence guard now computes the
+  floored value FIRST and gates on THAT, so a coin with a blank/zero
+  stored Value but a real FaceValue still shows the row rather than hiding
+  it), the reverse-face flip corner's obverse-side sr-only Value text, and
+  `renderStats()`'s `totalValue`/`maxDenomValue`/per-group value sums —
+  **floored per-coin, before summing**, not floored on the aggregate
+  total, so a mixed batch of low-value coins each contributes its own real
+  floor rather than the total being floored once at the end (which would
+  under-correct a batch of many sub-face-value coins).
+- **`SalePrice`/`Cost`/`Shipping`/`Total`/Wishlist prices are NOT
+  floored** — the floor is specifically "a coin is never worth less than
+  its own face value," which only makes sense for the coin's own
+  estimated worth (`Value`), not a purchase-price or sale-price figure
+  that can legitimately be anything (a below-face buy, a below-face sale,
+  a $0 gift). Only formatting (below) applies to those.
+- **New shared `formatCurrency(n)`** — always exactly two decimal places
+  with thousands separators (`"$1,234.56"`, `"$0.00"`), via
+  `.toLocaleString(undefined, {minimumFractionDigits:2,
+  maximumFractionDigits:2})`, non-finite input defaulting to `0` rather
+  than throwing/`NaN`-displaying. Replaces roughly 20 separate display
+  sites that had each grown their own ad hoc formatting (`.toFixed(2)`
+  strings with no thousands separator, `.toLocaleString()` with no
+  decimal-place floor, or a bare template-literal `` `$${n}` `` with no
+  rounding at all) across: Catalog/Sets/Rolls cards, Browse detail's Share
+  button text, Overview's Value/Sale Price rows, Purchase Details' Total/
+  Cost/Shipping rows, `buildSetChildRow()`'s child facts line, Wishlist's
+  grid item price/share text/detail meta/purchase summary, Ledger's coin
+  search and exit-history sale-price columns, Add Coin's live flip corner
+  reverse-side price display, and Add Set's purchase-row summary.
+- **`formatMoney()` (the old Ledger/Stats-only helper) is REMOVED
+  entirely**, not just superseded — it rounded to whole dollars
+  (`Math.round`, no cents at all), which is exactly the inconsistency this
+  cleanup exists to close. All 4 of its call sites in `renderStats()` now
+  use `formatCurrency()` instead, so Ledger's totals show cents like every
+  other dollar figure in the app, for the first time.
+- **Deliberately left UNCHANGED**: every `roundToCents()`-populated
+  Edit-form `<input type="number">` value (`browseEditValue`,
+  `editSetValue`, Add Coin's/Add Set's own value inputs) — a formatted
+  `"$1,234.56"` STRING is not a valid value for a number input, so these
+  correctly stay raw numbers; `roundToCents()` itself is untouched, still
+  serving its original "round when populating a numeric form field" job,
+  a genuinely different job from `formatCurrency()`'s "render as display
+  text." Also unchanged: Mintage's own `.toLocaleString()` displays (not a
+  currency value) and denomination code strings like `"$1"` (a label, not
+  a computed figure).
+
+**Verified headless — every affected suite's stale exact-string assertions
+were updated to the new 2-decimal format, following a real, deliberate
+design change, not weakened**: `verify_reverse_face_and_set_flip.js`
+(`"$620"` → `"$620.00"`, `"Cost$800"` → `"Cost$800.00"`,
+`"Cost$620"` → `"Cost$620.00"`), `verify_stats_live_data.js`
+(`formatMoney()`'s old whole-dollar `"$12"`/`"$57"` → `formatCurrency()`'s
+`"$12.34"`/`"$56.78"`, matching the test's own synthetic coin's exact
+cost/value with no faceValue set, so the floor is confirmed a no-op there),
+`verify_status_exit.js` (`"$690"` → `"$690.00"`, `"$0"` → `"$0.00"`).
+`verify_addcoin_phase1.js`'s A9 block and
+`verify_splash_and_album_prefetch.js`'s Block B / GEN block were fixed per
+the test-isolation finding above, each restored to its original, narrower
+intent rather than weakened to tolerate the new cross-cutting background
+activity. **Full regression re-run clean: 1441 assertions across all 33
+suites, zero failures, zero page errors** — this includes both Part A's
+Docket-badge-gating fix and Part B's floor/formatting changes exercised
+together, since every suite shares the same page load the splash fix now
+gates.
+- **Not verified: any real device.** Per the task's own explicit
+  instruction, this needs a live-device pass confirming (Part A) no more
+  gap between the cabinet appearing and the Docket badge populating with
+  its real count, and (Part B) a real low-value coin (e.g. a cent whose
+  stored Value is blank or sub-cent) displaying/counting at its
+  1-cent floor, alongside a Stats total, both showing two decimal places
+  — **and specifically whether `FaceValue` is in fact the real All-sheet
+  column name**, which this environment cannot confirm on its own.
+
 ### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
 The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
 "Prev/next stepping at the detail level" above) had exactly three callers —

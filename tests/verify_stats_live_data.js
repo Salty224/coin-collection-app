@@ -39,7 +39,12 @@ module.exports = defineSuite("stats-live-data", async ({ ok, openApp, PHONE }) =
   });
   ok(A.live.total === "1", "A1 renderStats() reflects a live single-coin dataset (total items = 1), not FAKE_COINS' own count");
   ok(A.live.sub === "1 coins, 0 medals", "A2 the coins/medals sub-line is derived from the live dataset");
-  ok(A.live.spent === "$12" && A.live.value === "$57", "A3 spent/value totals come from the live coin's own cost/value, not demo data (formatMoney rounds to whole dollars)");
+  // "$12.34"/"$56.78", not "$12"/"$57" -- Value-display cleanup task:
+  // formatMoney() (whole-dollar rounding) was replaced by the shared
+  // formatCurrency() (always exactly two decimal places). This coin has no
+  // faceValue, so the new value floor is a no-op here -- the figure is
+  // exactly the coin's own stored value, just formatted to the cent.
+  ok(A.live.spent === "$12.34" && A.live.value === "$56.78", "A3 spent/value totals come from the live coin's own cost/value, not demo data (formatCurrency always shows two decimal places)");
   ok(A.restored === A.baseline, "A4 clearing the live override falls back to FAKE_COINS again (activeCoins()'s own documented fallback)");
 
   // Negative control: confirms this assertion actually exercises the real

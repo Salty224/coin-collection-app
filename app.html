@@ -5430,6 +5430,19 @@
       // is no EstValue column — dropped from the candidate list; it was a
       // guess that turned out wrong.
       value: Number(colVal(row, "Value", "SpotValue")) || 0,
+      // Value floor (Value-display cleanup task) — NOT confirmed against the
+      // real workbook the way every other field in this mapper is (that
+      // audit hasn't been re-run for this specific column); DB_Sets is
+      // confirmed to carry a FaceValue column, but whether All does too is
+      // unverified from this environment. Read defensively either way: a
+      // missing/blank cell resolves to null (see the ""->null convention
+      // shippingCost/salePrice already use just below), and every consumer
+      // of this field (valueWithFaceFloor()) already treats null/blank as
+      // "nothing to floor against, show today's figure unchanged" — so an
+      // unconfirmed or absent column degrades to a complete no-op rather
+      // than a wrong number. Worth Ray's own confirmation before relying on
+      // it further.
+      faceValue: colVal(row, "FaceValue") === "" ? null : Number(colVal(row, "FaceValue")),
       // No direct real-photo-presence column — approximated from whether
       // the Obverse/Reverse filename cells are populated, per the documented
       // "Obverse/Reverse hold whichever filename is currently displayed"
@@ -8923,23 +8936,38 @@
   function __setLiveDocketQueueForTest(doc) { LIVE_DOCKET_QUEUE = doc; } // test-only seam
   function __getLiveDocketQueueForTest() { return LIVE_DOCKET_QUEUE; }    // test-only seam
 
+  // In-flight dedup (docketQueueFetchPromise), same pattern
+  // ensureLiveNavDataFetch()'s own liveNavDataFetchPromise already uses —
+  // added when the splash screen became a second caller of this function
+  // (see runSplashConnect() below) alongside renderNeedsAttentionHub()'s
+  // own docketOpenEntries() call: both fire within milliseconds of each
+  // other at boot, and without this they'd each independently GET
+  // _Docket/docket.json rather than sharing the one real request already
+  // in flight.
+  let docketQueueFetchPromise = null;
   async function loadDocketQueue(force) {
     if (!docketWriteEnabled()) return null;
     if (LIVE_DOCKET_QUEUE && !force) return LIVE_DOCKET_QUEUE;
-    try {
-      const doc = await graph().getJson(docketQueuePath());
-      // A missing file is the normal first-run state, not an error.
-      LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
-      if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
-    } catch (e) {
-      // Not signed in / offline / transient Graph failure. Leave the cache
-      // null so a later call retries for real rather than caching an empty
-      // queue that would read as "nothing to research" — same
-      // only-cache-a-real-answer rule the reference-image fetch follows.
-      console.warn("Docket queue read failed:", e);
-      return null;
-    }
-    return LIVE_DOCKET_QUEUE;
+    if (docketQueueFetchPromise) return docketQueueFetchPromise;
+    docketQueueFetchPromise = (async () => {
+      try {
+        const doc = await graph().getJson(docketQueuePath());
+        // A missing file is the normal first-run state, not an error.
+        LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
+        if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
+        return LIVE_DOCKET_QUEUE;
+      } catch (e) {
+        // Not signed in / offline / transient Graph failure. Leave the cache
+        // null so a later call retries for real rather than caching an empty
+        // queue that would read as "nothing to research" — same
+        // only-cache-a-real-answer rule the reference-image fetch follows.
+        console.warn("Docket queue read failed:", e);
+        return null;
+      } finally {
+        docketQueueFetchPromise = null;
+      }
+    })();
+    return docketQueueFetchPromise;
   }
 
   async function saveDocketQueue(doc) {
@@ -11425,7 +11453,7 @@
 
     if (brEl) {
       if (coin.cost) {
-        renderCornerLines(brEl, ["Cost", "$" + Number(coin.cost).toLocaleString()]);
+        renderCornerLines(brEl, ["Cost", formatCurrency(coin.cost)]);
       } else {
         brEl.style.fontSize = ""; brEl.innerHTML = "";
       }
@@ -11440,7 +11468,7 @@
       // be redundant with the text itself.
       if (split) parts.push(split.obverse, split.reverse);
       else if (errorText) parts.push("error " + errorText);
-      if (coin.cost) parts.push("cost $" + Number(coin.cost).toLocaleString());
+      if (coin.cost) parts.push("cost " + formatCurrency(coin.cost));
       srEl.textContent = parts.join(", ") + " (" + coin.id + "), reverse";
     }
   }
@@ -11575,10 +11603,11 @@
       // accessible equivalent), so a fact that only ever appeared in a corner
       // would otherwise be invisible to a screen reader.
       const srComposition = preciousMetalCompositionFor(coin);
+      const srDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
         (srComposition ? ", composition " + srComposition : "") +
-        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        (srDisplayValue ? ", value " + formatCurrency(srDisplayValue) : "") +
         " (" + coin.id + ")" +
         (COMBINED_PHOTO_COIN_IDS.includes(coin.id) ? " — combined obverse/reverse photo, not yet cropped" : "");
     }
@@ -12458,7 +12487,7 @@
           <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
         </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
-        <div class="value">$${coin.value.toLocaleString()}</div>
+        <div class="value">${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
       `;
       card.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
@@ -12538,7 +12567,7 @@
         <div class="album-card-icon">📦</div>
         <div class="album-card-info">
           <div class="album-card-name">${escapeHtmlText(detailTitleText(coin))}</div>
-          <div class="set-card-progress">${coin.category || "Set"} · $${coin.value.toLocaleString()}</div>
+          <div class="set-card-progress">${coin.category || "Set"} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -12573,7 +12602,7 @@
         <div class="album-card-icon">🪙</div>
         <div class="album-card-info">
           <div class="album-card-name">${coin.name}</div>
-          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · $${coin.value.toLocaleString()}</div>
+          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -13297,9 +13326,10 @@
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
+      const shareDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       const text = yearMint + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
-        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        (shareDisplayValue ? ", value " + formatCurrency(shareDisplayValue) : "") +
         " (" + coin.id + ")";
       shareContent({ title: coin.name, text, mailtoSubject: "Coin: " + coin.name });
     });
@@ -13858,7 +13888,12 @@
     }
     const certHtml = certDisplayHtml(coin);
     if (certHtml) overviewRows.push(["Cert", certHtml]);
-    if (coin.value) overviewRows.push(["Value", "$" + coin.value.toLocaleString()]);
+    // Floored at face value (see valueWithFaceFloor()'s own comment) —
+    // computed once so the presence guard and the displayed figure can
+    // never disagree, e.g. a coin with a blank stored Value but a real
+    // FaceValue now correctly shows the row rather than staying hidden.
+    const overviewDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
+    if (overviewDisplayValue) overviewRows.push(["Value", formatCurrency(overviewDisplayValue)]);
     // Value provenance, read-only here (editable in Edit Coin). Folded into
     // the Value row's own line when both are present, so a figure never sits
     // on screen with no indication of where it came from — the gap that made
@@ -13880,7 +13915,7 @@
       if (coin.buyer) overviewRows.push(["Buyer / Recipient", coin.buyer]);
       // != null, not truthy — Gifted's own convention is a real, meaningful
       // $0, not "no price recorded".
-      if (coin.salePrice != null) overviewRows.push(["Sale Price", "$" + coin.salePrice.toLocaleString()]);
+      if (coin.salePrice != null) overviewRows.push(["Sale Price", formatCurrency(coin.salePrice)]);
       if (coin.platform) overviewRows.push(["Platform", coin.platform]);
     }
 
@@ -14015,10 +14050,10 @@
     const purchaseDate = coin.purchaseDate || details.purchaseDate;
     const purchaseRows = [];
     if (coin.cost && shippingCost != null) {
-      purchaseRows.push(["Total", "$" + (coin.cost + shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+      purchaseRows.push(["Total", formatCurrency(coin.cost + shippingCost)]);
     }
-    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
-    if (shippingCost != null) purchaseRows.push(["Shipping", "$" + shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (coin.cost) purchaseRows.push(["Cost", formatCurrency(coin.cost)]);
+    if (shippingCost != null) purchaseRows.push(["Shipping", formatCurrency(shippingCost)]);
     if (vendor) purchaseRows.push(["Seller", vendor]);
     if (purchaseDate) purchaseRows.push(["Purchase Date", purchaseDate]);
     // Receipt — the Receipts TAB first (falling back to the legacy flat
@@ -14244,7 +14279,8 @@
     row.className = "case album-card";
     row.style.cssText = "cursor:pointer; margin-top:8px;";
     const identity = [yearMintText(child), child.denom, child.variety].filter(Boolean).join(" · ");
-    const facts = [child.grade, child.value ? "$" + child.value.toLocaleString() : ""].filter(Boolean).join(" · ");
+    const childDisplayValue = valueWithFaceFloor(child.value, child.faceValue);
+    const facts = [child.grade, childDisplayValue ? formatCurrency(childDisplayValue) : ""].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div class="album-card-icon">🪙</div>
       <div class="album-card-info">
@@ -14899,6 +14935,48 @@
     if (v === null || v === undefined || v === "") return "";
     const n = Number(v);
     return Number.isFinite(n) ? (Math.round(n * 100) / 100) : "";
+  }
+
+  // ONE shared currency-DISPLAY formatter, used at every dollar-figure
+  // display site in the app (Catalog/Browse cards, Sets/Rolls cards, detail
+  // overview, Wishlist, Stats totals, the flip cards' own Cost/Purchase
+  // Price corners, etc.) — always exactly two decimal places, rounded to
+  // the nearest cent, with the same thousands-grouping toLocaleString()
+  // already gives for free (deliberately NOT a bare .toFixed(2), which
+  // several call sites used before this and which drops that grouping —
+  // e.g. "1234.50" instead of "1,234.50"). Display-only: this never
+  // populates an editable form input — roundToCents() above already owns
+  // that job (a plain, unformatted number, since a "$1,234.56" string is
+  // not valid input for a number field) — and never changes what's stored
+  // anywhere. A non-finite input (blank/null/NaN) reads as $0.00 rather
+  // than "$NaN" or throwing; every real call site already guards presence
+  // itself (the same "omit the row when there's nothing to show" rule this
+  // app already follows), so this is a safety net, not the presence logic.
+  function formatCurrency(n) {
+    const num = Number(n);
+    return "$" + (Number.isFinite(num) ? num : 0).toLocaleString(undefined,
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Floors a coin's DISPLAYED/computed Value at its own face value — e.g. a
+  // cent with a stored All.Value of $0.001 or blank must never show/count
+  // as worth less than $0.01. Display/computation floor only: this never
+  // rewrites the underlying workbook Value column (Browse/Edit's own save
+  // logic, and the roundToCents()-populated Value inputs, are completely
+  // untouched by this — they still read/write the RAW stored figure, which
+  // is what an edit should show and act on).
+  //
+  // A missing/blank/non-numeric/zero faceValue means there is nothing to
+  // floor against, so the value passes through completely unchanged — the
+  // explicit "no floor to apply" fallback for every coin whose faceValue
+  // never resolved: a demo row with no faceValue field, a Set/Roll row
+  // (All has no single face value for a bundle), or a real coin if the
+  // workbook's own FaceValue column turns out unpopulated for it. See
+  // mapWorkbookRowToCoin()'s own comment on this field.
+  function valueWithFaceFloor(value, faceValue) {
+    const v = Number(value) || 0;
+    const fv = Number(faceValue);
+    return (Number.isFinite(fv) && fv > 0) ? Math.max(v, fv) : v;
   }
 
   function initBrowseEdit() {
@@ -16895,7 +16973,7 @@
           <div class="wish-notes">${item.notes}</div>
           <div class="wish-date">Added ${item.dateAdded}</div>
         </div>
-        <div class="wish-price">$${item.price.toLocaleString()}</div>
+        <div class="wish-price">${formatCurrency(item.price)}</div>
       `;
       row.addEventListener("click", () => showWishlistDetail(item));
       container.appendChild(row);
@@ -16907,7 +16985,7 @@
 
     document.getElementById("wishlistShareBtn").addEventListener("click", () => {
       const lines = FAKE_WISHLIST.map(item => {
-        const price = item.price ? " — target $" + item.price.toLocaleString() : "";
+        const price = item.price ? " — target " + formatCurrency(item.price) : "";
         return "• " + item.desc + price + (item.notes ? " (" + item.notes + ")" : "");
       });
       const text = "My coin wishlist:\n\n" + lines.join("\n");
@@ -16969,7 +17047,7 @@
     currentWishlistItem = item;
     document.getElementById("wishlistDetailName").textContent = item.desc;
     document.getElementById("wishlistDetailMeta").textContent =
-      "Target $" + item.price.toLocaleString() + " · Added " + item.dateAdded;
+      "Target " + formatCurrency(item.price) + " · Added " + item.dateAdded;
     document.getElementById("wishlistDetailNotes").value = item.notes;
 
     // Purchase Details / Photos are freeform per-visit fields on this placeholder —
@@ -17001,7 +17079,7 @@
     const price = document.getElementById("wishlistPurchasePrice").value;
     const vendor = document.getElementById("wishlistVendor").value;
     const purchaseParts = [];
-    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (price) purchaseParts.push(formatCurrency(price));
     if (vendor) purchaseParts.push(vendor);
     document.getElementById("wishlistPurchaseSummary").textContent =
       purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add, once you've bought this one";
@@ -18483,10 +18561,6 @@
   const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];
   const DENOM_LABELS = { "H1C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3CS": "Three-Cent Silver", "3CN": "Three-Cent Nickel", "H10C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars", "5oz": "Five-Ounce Silver" };
 
-  function formatMoney(n) {
-    return "$" + Math.round(n).toLocaleString();
-  }
-
   function renderStats() {
     // Real bug, found reviewing the workbook-alignment batch: this read
     // FAKE_COINS directly, never activeCoins() — the one live-data swap
@@ -18503,20 +18577,29 @@
     const coins = all.filter(c => c.denom !== "Medal");
     const medals = all.filter(c => c.denom === "Medal");
     const totalSpent = all.reduce((sum, c) => sum + (c.cost || 0), 0);
-    const totalValue = all.reduce((sum, c) => sum + (c.value || 0), 0);
+    // Value-display cleanup task: floored per-coin BEFORE summing, same
+    // valueWithFaceFloor() every other Value display now uses — a no-op
+    // for any coin whose faceValue never resolved, so this is never a
+    // change in practice until that field actually carries real data.
+    // Cost (totalSpent above) is a different concept (what was paid, not
+    // what it's worth) and is deliberately never floored.
+    const totalValue = all.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
     const net = totalValue - totalSpent;
 
     document.getElementById("statTotalItems").textContent = all.length.toLocaleString();
     document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
-    document.getElementById("statTotalSpent").textContent = formatMoney(totalSpent);
-    document.getElementById("statTotalValue").textContent = formatMoney(totalValue);
+    document.getElementById("statTotalSpent").textContent = formatCurrency(totalSpent);
+    document.getElementById("statTotalValue").textContent = formatCurrency(totalValue);
 
     const netEl = document.getElementById("statNetGain");
-    netEl.textContent = (net >= 0 ? "+" : "−") + formatMoney(Math.abs(net));
+    netEl.textContent = (net >= 0 ? "+" : "−") + formatCurrency(Math.abs(net));
     netEl.classList.toggle("negative", net < 0);
 
+    // Same per-coin floor applied here — the breakdown bars must agree
+    // with totalValue above, not silently disagree with it because only
+    // one of the two summed the raw, unfloored figure.
     const maxDenomValue = Math.max(...STATS_DENOM_ORDER.map(denom =>
-      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + c.value, 0)
+      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0)
     ), 1);
 
     const breakdown = document.getElementById("statsBreakdown");
@@ -18524,14 +18607,14 @@
     STATS_DENOM_ORDER.forEach(denom => {
       const group = coins.filter(c => c.denom === denom);
       if (!group.length) return;
-      const groupValue = group.reduce((sum, c) => sum + c.value, 0);
+      const groupValue = group.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
       const pct = Math.round((groupValue / maxDenomValue) * 100);
       const row = document.createElement("div");
       row.className = "stat-row";
       row.innerHTML = `
         <div class="stat-row-label">${DENOM_LABELS[denom]}</div>
         <div class="stat-row-bar-track"><div class="stat-row-bar-fill" style="width:${pct}%"></div></div>
-        <div class="stat-row-value">${group.length} · ${formatMoney(groupValue)}</div>
+        <div class="stat-row-value">${group.length} · ${formatCurrency(groupValue)}</div>
       `;
       breakdown.appendChild(row);
     });
@@ -18565,12 +18648,13 @@
       const row = document.createElement("div");
       row.className = "case wish-item";
       row.style.cursor = "pointer";
+      const searchDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       row.innerHTML = `
         <div>
           <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
           <div class="wish-notes">${escapeHtmlText(yearMintText(coin))}${coin.denom ? " · " + escapeHtmlText(coin.denom) : ""}</div>
         </div>
-        <div class="wish-price">${coin.value ? "$" + coin.value.toLocaleString() : ""}</div>
+        <div class="wish-price">${searchDisplayValue ? formatCurrency(searchDisplayValue) : ""}</div>
       `;
       row.addEventListener("click", () => openLedgerCoin(coin));
       container.appendChild(row);
@@ -18602,7 +18686,7 @@
           <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
           <div class="wish-notes">${escapeHtmlText(coin.status)}${detailParts.length ? " · " + escapeHtmlText(detailParts.join(" · ")) : ""}</div>
         </div>
-        <div class="wish-price">${coin.salePrice != null ? "$" + coin.salePrice.toLocaleString() : ""}</div>
+        <div class="wish-price">${coin.salePrice != null ? formatCurrency(coin.salePrice) : ""}</div>
       `;
       row.addEventListener("click", () => openLedgerCoin(coin));
       container.appendChild(row);
@@ -23043,7 +23127,7 @@
     // official numismatic standard) — matches the price sticker placement he
     // sees at his local coin shop.
     document.getElementById("flipReverseTL").textContent = errorText;
-    document.getElementById("flipReverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
+    document.getElementById("flipReverseBR").textContent = price ? formatCurrency(price) : "";
   }
 
   function initAddCoin() {
@@ -23427,13 +23511,43 @@
     // already memoized/dedup'd (see its own comment), so a retry here is
     // never a second real fetch stacked on a still-in-flight one, only a
     // fresh check once the previous attempt has already settled.
+    //
+    // DOCKET BADGE GAP FIX (live-device finding, same principle extended):
+    // the Docket badge (updateDocketFob(), fed by renderNeedsAttentionHub()'s
+    // stagingRows/researchRows/otherRows) depends on loadDocketQueue()
+    // (fetching _Docket/docket.json) — a completely separate fetch from
+    // ensureLiveNavDataFetch() that this gate never accounted for, so the
+    // cabinet could appear up to ~3s before the badge actually populated.
+    // Shares this same timeout/retry loop rather than a second one of its
+    // own — both are genuinely part of "is the app ready to show," so one
+    // unified gate is simpler than racing two independent timers.
+    //
+    // "Genuine success" for the docket half is deliberately NOT "loadDocketQueue()
+    // returned non-null" alone: with the write layer off (docketWriteEnabled()
+    // false — e.g. WRITE_TARGET flipped to "live" without ENABLE_DOCKET_WRITE
+    // re-enabled, see "Real-Graph flags always on" in CLAUDE.md),
+    // loadDocketQueue() returns null on EVERY call, forever — waiting on a
+    // non-null answer there would hang every boot at the 5s ceiling. So
+    // docketQueueReady() treats "the feature is off" as immediately ready
+    // (nothing to wait for) and only "the feature is ON but hasn't answered
+    // yet" (not signed in, a transient Graph failure) as "retry." A
+    // genuinely-empty/first-run docket (no docket.json on file yet) still
+    // resolves loadDocketQueue() to a real, non-null emptyDocketQueue()
+    // object (see its own comment — a 404 there is the normal first-run
+    // state, not an error), so an empty session hides the badge immediately
+    // rather than waiting out the timeout for "no data" to mean more than it
+    // does.
+    async function docketQueueReady() {
+      if (!docketWriteEnabled()) return true;
+      return (await loadDocketQueue()) !== null;
+    }
     let settled = false;
     let retryTimer = null;
     function attempt() {
       if (settled || !stillCurrent()) return;
-      ensureLiveNavDataFetch().then(success => {
+      Promise.all([ensureLiveNavDataFetch(), docketQueueReady()]).then(([dataReady, docketReady]) => {
         if (settled || !stillCurrent()) return;
-        if (success) {
+        if (dataReady && docketReady) {
           settled = true;
           hideSplash();
         } else {
@@ -24097,9 +24211,9 @@
     const shipping = document.getElementById("addSetShippingCost").value;
     const vendor = document.getElementById("addSetVendor").value;
     const purchaseParts = [];
-    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (price) purchaseParts.push(formatCurrency(price));
     if (vendor) purchaseParts.push(vendor);
-    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
+    if (shipping) purchaseParts.push("+" + formatCurrency(shipping) + " shipping");
     document.getElementById("addSetPurchaseInfoSummary").textContent =
       purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
 

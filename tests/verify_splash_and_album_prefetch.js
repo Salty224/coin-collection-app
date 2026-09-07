@@ -55,7 +55,17 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
 
   // ---------- B. a `false` resolution keeps the splash up and retries — ----------
   // only a genuine `true` hides it. (stubbed fetch, deterministic timing)
+  //
+  // Docket-badge splash fix (see CLAUDE.md): the real gate is now
+  // Promise.all([ensureLiveNavDataFetch(), docketQueueReady()]) — this block
+  // is about the MAIN fetch's own retry-then-succeed behavior only, so the
+  // docket half is disabled via the existing test seam
+  // (__setDocketWriteEnabledForTest(false), the same one A9 in
+  // verify_addcoin_phase1.js uses for the identical reason), making
+  // docketQueueReady() resolve true immediately and keeping this block
+  // isolated to what it actually tests.
   const B = await page.evaluate(async () => {
+    __setDocketWriteEnabledForTest(false);
     const origFetch = window.ensureLiveNavDataFetch;
     let callCount = 0;
     const resolvers = [];
@@ -71,6 +81,7 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
     await new Promise(r => setTimeout(r, 500)); // plenty past the 320ms fade
     const hiddenAfterTrue = document.getElementById("splashScreen").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
+    __setDocketWriteEnabledForTest(null);
     return { hiddenBeforeAnyAnswer, hiddenAfterFalse, retriedCount, hiddenAfterTrue };
   });
   ok(B.hiddenBeforeAnyAnswer === false, "B1 the splash stays visible while the fetch is still pending, unaffected by this fix");
@@ -87,6 +98,11 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
   // old invocation's timer could fire the error box back up well after a
   // newer, already-succeeded invocation had hidden the splash.
   const GEN = await page.evaluate(async () => {
+    // Same reasoning as Block B above — this block is about the generation
+    // guard, not the docket half, so the docket half is disabled for the
+    // duration so docketQueueReady() resolves true immediately and can
+    // never be the reason "success" doesn't arrive.
+    __setDocketWriteEnabledForTest(false);
     const origFetch = window.ensureLiveNavDataFetch;
     window.ensureLiveNavDataFetch = () => new Promise(() => {}); // OLDER invocation: hangs forever
     runSplashConnect(); // starts a 5s timer that (if unsuperseded) shows the error box at ~5000ms
@@ -101,6 +117,7 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
     const stillHiddenPastOldTimer = document.getElementById("splashScreen").classList.contains("hidden");
     const errorShownByStaleTimer = !document.getElementById("splashErrorBox").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
+    __setDocketWriteEnabledForTest(null);
     return { hiddenAfterNewerSucceeds, stillHiddenPastOldTimer, errorShownByStaleTimer };
   });
   ok(GEN.hiddenAfterNewerSucceeds, "GEN1 a newer runSplashConnect() call still hides the splash normally, even with an older superseded invocation still pending");
