@@ -48,6 +48,21 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
   // scenario is now requested explicitly): a save must not touch Graph at all
   const AOff = await page.evaluate(async () => {
     __setAddCoinWriteEnabledForTest(false);
+    // Docket-badge splash fix (see CLAUDE.md): runSplashConnect() now also
+    // retries loadDocketQueue() on the same ~400ms cadence for up to 5s
+    // after every page load, and loadDocketQueue() -- unlike
+    // ensureLiveNavDataFetch(), which this spy was already immune to --
+    // goes through the SAME swappable graph() client this spy wraps. A
+    // retry landing during this block's own window would false-positive
+    // "touched" for a Graph call that has nothing to do with
+    // saveAddCoinForm(). Disabling the docket write layer for this block's
+    // duration stops loadDocketQueue() from touching graph() at all
+    // (docketWriteEnabled() false -> immediate null, no fetch attempted),
+    // isolating this assertion from that unrelated background activity --
+    // not a workaround for a bug, the correct way to isolate a test that
+    // cares about one feature's own Graph usage from another feature that
+    // also happens to share the same client abstraction.
+    __setDocketWriteEnabledForTest(false);
     const mock = createMockGraphClient({});
     let touched = false;
     const spy = new Proxy(mock, { get(t, k) {
@@ -66,6 +81,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     const res = { touched, added: FAKE_STAGING.length - before, storeSize: mock._store.size };
     __setGraphClientForTest(null);
     __setAddCoinWriteEnabledForTest(null);
+    __setDocketWriteEnabledForTest(null);
     return res;
   });
   ok(AOff.touched === false, "A9 flag off: save makes no Graph call");

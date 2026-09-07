@@ -338,9 +338,12 @@ module.exports = defineSuite("status-exit", async ({ ok, openApp, PHONE }) => {
     };
   });
   ok(G.soldStatus === "Sold", "G1 an exit-status coin (AY-00005, seeded Sold) shows a 'Status' Overview row");
-  ok(G.soldPrice === "$690", "G2 -- and its Sale Price");
+  // "$690.00"/"$0.00", not "$690"/"$0" -- Value-display cleanup task: every
+  // dollar figure now goes through the shared formatCurrency(), always
+  // exactly two decimal places.
+  ok(G.soldPrice === "$690.00", "G2 -- and its Sale Price");
   ok(G.giftedStatus === "Gifted", "G3 the Gifted demo row (AY-00007) shows 'Gifted'");
-  ok(G.giftedPrice === "$0", "G4 -- and its real $0 Sale Price is SHOWN, not omitted (!= null, not truthy -- Gifted's own convention)");
+  ok(G.giftedPrice === "$0.00", "G4 -- and its real $0 Sale Price is SHOWN, not omitted (!= null, not truthy -- Gifted's own convention)");
   ok(G.ownedStatus === null, "G5 a plain Owned/blank-Status coin shows no Status row at all -- omitted, not shown blank");
 
   // ================================================================

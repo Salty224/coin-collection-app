@@ -81,7 +81,10 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
   ok(C.TL === "Obv. Die Polish Lines" && C.BL === "Rev. Die Crack",
     "C1 a clean split puts the Obv.-half in TL and the Rev.-half in BL, prefix kept: " + JSON.stringify(C));
   ok(C.TR === "", "C2 TR is unused on the reverse face — confirmed nothing else claims it");
-  ok(JSON.stringify(C.BR) === JSON.stringify(["Cost", "$620"]), "C3 BR shows Cost, stacked two lines, not Value: " + JSON.stringify(C.BR));
+  // "$620.00" not "$620" -- Value-display cleanup task: every dollar figure
+  // in the app now goes through the shared formatCurrency(), always exactly
+  // two decimal places. Following the real design change, not weakened.
+  ok(JSON.stringify(C.BR) === JSON.stringify(["Cost", "$620.00"]), "C3 BR shows Cost, stacked two lines, not Value: " + JSON.stringify(C.BR));
   ok(C.TLwide, "C4 TL gets the corner-wide class on the reverse face (allowed to use TR's territory)");
   ok(C.TLfits, "C5 -- and the text genuinely fits within that widened box (real measurement, not just rendered without visible clipping)");
 
@@ -113,7 +116,8 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
     };
   });
   ok(E.TL === "" && E.BL === "", "E1 no Error at all -> TL and BL both blank");
-  ok(E.BR === "Cost$800", "E2 -- but Cost still renders normally");
+  // "$800.00" not "$800" -- same Value-display cleanup as C3 above.
+  ok(E.BR === "Cost$800.00", "E2 -- but Cost still renders normally");
   ok(E.TLwide === false, "E3 -- and TL's corner-wide class is correctly NOT left on when there's nothing to render there");
 
   // ---------- F. Reverse: no Cost, Error still shows ----------
@@ -190,7 +194,8 @@ module.exports = defineSuite("reverse-face-and-set-flip", async ({ ok, openApp, 
     return { obv, rev };
   });
   ok(I.obv.TL === "1889-CC" && I.obv.TR === "Morgan$1", "I1 Spotlight's obverse is unaffected: " + JSON.stringify(I.obv));
-  ok(I.rev.TL === "Obv. Die Polish Lines" && I.rev.TR === "" && I.rev.BR === "Cost$620",
+  // "$620.00" not "$620" -- same Value-display cleanup as C3/E2 above.
+  ok(I.rev.TL === "Obv. Die Polish Lines" && I.rev.TR === "" && I.rev.BR === "Cost$620.00",
     "I2 Spotlight's reverse now shows the same distinct content Browse detail does (it already re-invoked applyFlipCorners() every cycle -- just needed the side threaded through): " + JSON.stringify(I.rev));
 
   // ---------- J. sr-only summary is face-aware too ----------

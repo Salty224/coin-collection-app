@@ -622,6 +622,78 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
   ok(T2.childPrevHidden && T2.childNextHidden,
     "R7 -- while a Set child (" + T2.childId + ") correctly gets none, since it belongs to no browsable list");
 
+  // ---------- R8-R11: opening a coin from an Album slot steps through the ----------
+  // album's own slot order, not the plain CollectionID fallback. A
+  // synthetic album is built with its filled slots deliberately OUT of
+  // CollectionID order (AY-00003, AY-00001, AY-00002) and one open/unfilled
+  // slot sitting between the first two filled ones — so the test can tell
+  // "real slot order" apart from "coincidentally already sorted," and
+  // confirm the open slot is skipped rather than breaking the chain.
+  await page.evaluate(() => {
+    const albumRows = [
+      { AlbumID: "S-1900-AL-09", Year: 1801, MintMark: "", Variety: "", Description: "Step Order Test", CoinID: "C-STEP-01", FilledBy: "AY-00003" },
+      { AlbumID: "S-1900-AL-09", Year: 1802, MintMark: "", Variety: "", Description: "Step Order Test", CoinID: "C-STEP-02", FilledBy: "" },
+      { AlbumID: "S-1900-AL-09", Year: 1803, MintMark: "", Variety: "", Description: "Step Order Test", CoinID: "C-STEP-03", FilledBy: "AY-00001" },
+      { AlbumID: "S-1900-AL-09", Year: 1804, MintMark: "", Variety: "", Description: "Step Order Test", CoinID: "C-STEP-04", FilledBy: "AY-00002" }
+    ];
+    const dbSetsRows = [
+      { SetID: "S-1900-AL-09", Description: "Step Order Test Folder", Year: 1801, Lineage: "" }
+    ];
+    const live = buildLiveAlbums(albumRows, dbSetsRows, []);
+    __setLiveAlbumsForTest(live);
+    navigate("albums");
+    window.__origComputeAlbumChunkSize = computeAlbumChunkSize; // save — this is a top-level
+    // function DECLARATION, not a `var`; `delete window.computeAlbumChunkSize`
+    // silently fails on it (confirmed directly: returns false, leaves the
+    // stub in place) — must be restored by reassignment, not delete.
+    window.computeAlbumChunkSize = () => 4; // all 4 slots on one chunk/page, deterministic
+  });
+  await page.evaluate(async () => {
+    await openAlbumAtPage(activeAlbums().findIndex(a => a.name === "Step Order Test Folder"), 2); // chunk0 Obverse
+  });
+  const V2 = await page.evaluate(() => {
+    document.querySelector('[data-coin-id="C-STEP-01"]').click(); // AY-00003, the album's FIRST filled slot
+    const opened = currentBrowseCoin.id;
+    const prevHiddenAtStart = document.getElementById("browseDetailPrevBtn").classList.contains("hidden");
+    document.getElementById("browseDetailNextBtn").click();
+    const second = currentBrowseCoin.id; // should be AY-00001 (slot order), not AY-00004 (CollectionID order)
+    document.getElementById("browseDetailNextBtn").click();
+    const third = currentBrowseCoin.id; // AY-00002
+    const nextHiddenAtEnd = document.getElementById("browseDetailNextBtn").classList.contains("hidden");
+    document.getElementById("browseDetailPrevBtn").click();
+    document.getElementById("browseDetailPrevBtn").click();
+    const backToFirst = currentBrowseCoin.id;
+    return { opened, prevHiddenAtStart, second, third, nextHiddenAtEnd, backToFirst };
+  });
+  ok(V2.opened === "AY-00003", "R8 tapping the album's first filled slot opens its own coin (AY-00003)");
+  ok(V2.prevHiddenAtStart, "R9 Previous is hidden on the album's first filled slot");
+  ok(V2.second === "AY-00001" && V2.third === "AY-00002",
+    "R10 Next steps in the ALBUM'S OWN SLOT ORDER (AY-00003 -> AY-00001 -> AY-00002) — not CollectionID order (which would go AY-00003 -> AY-00004), and the open/unfilled slot between the first two filled ones is skipped rather than breaking the chain");
+  ok(V2.nextHiddenAtEnd, "R11 Next hides at the album's last filled slot (AY-00002)");
+  ok(V2.backToFirst === "AY-00003", "R12 stepping Previous back through the same order returns to AY-00003");
+  // Restore the real function (the stub above shadowed it on `window`, and
+  // this file's other blocks/suites must not inherit a fixed chunk size).
+  await page.evaluate(() => {
+    window.computeAlbumChunkSize = window.__origComputeAlbumChunkSize;
+    __setLiveAlbumsForTest(null);
+  });
+
+  // Negative control: the same album, but stepping into it the OLD way
+  // (skipping the new setBrowseStepContext() call and going straight to
+  // showBrowseDetail(), i.e. simulating the pre-fix handler) falls through
+  // to browseStepListFallback()'s plain CollectionID order instead — Next
+  // from AY-00003 would land on AY-00004 (the real next CollectionID),
+  // never on AY-00001. This is what the fix actually prevents.
+  const NEG_V = await page.evaluate(() => {
+    navigate("browse");
+    browseStepIds.length = 0; // no context set — the pre-fix behavior
+    showBrowseDetail(FAKE_COINS.find(c => c.id === "AY-00003"));
+    document.getElementById("browseDetailNextBtn").click();
+    return { landed: currentBrowseCoin.id };
+  });
+  ok(NEG_V.landed === "AY-00004",
+    "negative control: with no album-slot step context set, Next from AY-00003 falls through to plain CollectionID order (AY-00004) — confirming R10 actually depends on the new setBrowseStepContext() call, not a coincidence of the demo data's own ordering");
+
   // ---------- Nav + overflow smoke, both viewports ----------
   for (const vp of [PHONE, TABLET]) {
     const pg = vp === PHONE ? page : await openApp(TABLET);

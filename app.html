@@ -194,6 +194,17 @@
   .splash-error.hidden { display: none; }
   .splash-error-title { color: #e07a6c; font-weight: 700; margin-bottom: 8px; }
   .splash-error-text { font-size: 13px; color: var(--text-muted); margin: 0 0 12px; }
+  /* Diagnostic-only, temporary — a real technical dump under the friendly
+     message above, meant to be screenshotted, not styled nicely. <pre>
+     preserves the line breaks buildSplashDiagnosticText() builds in;
+     white-space: pre-wrap (rather than plain pre) still wraps a long line
+     instead of forcing horizontal scroll on a narrow phone/tablet. */
+  .splash-error-detail {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.5; color: var(--text-muted);
+    background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px;
+    margin: 0 0 12px; white-space: pre-wrap; word-break: break-word;
+  }
   #splashRetryBtn {
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
     border: none; color: #241c05; font-weight: 700;
@@ -2404,6 +2415,11 @@
           those it actually was) — a real next-steps message per cause is
           separate, still-open work.
         </p>
+        <!-- Diagnostic-only, temporary: the real technical detail behind
+             the friendly message above, so it can be screenshotted directly
+             instead of needing a device console log — see
+             buildSplashDiagnosticText() in the script. -->
+        <pre class="splash-error-detail" id="splashErrorDetail"></pre>
         <button type="button" id="splashRetryBtn">Retry</button>
       </div>
     </div>
@@ -4903,13 +4919,87 @@
   // With only read features enabled the app still asks for read-only.
   const GRAPH_SCOPES = WRITE_LAYER_ENABLED ? ["Files.ReadWrite"] : ["Files.Read"];
 
-  // Exactly one redirect-response handler, run once at load.
+  // Exactly one redirect-response handler, run once at load. Its promise is
+  // now KEPT (not just fire-and-forgotten) — see acquireGraphToken() below,
+  // which awaits it before ever calling acquireTokenSilent(). Real bug this
+  // fixes (splash-gating live-device finding, Bug A): this script runs
+  // top-to-bottom with no await between this call and the very first
+  // acquireTokenSilent() call several thousand lines later (fired from
+  // navigate("dashboard")'s own ensureLiveNavDataFetch() call, itself run
+  // synchronously during init) — so on a normal boot, acquireTokenSilent()
+  // was firing while handleRedirectPromise() was still genuinely pending.
+  // handleRedirectPromise() always resolves (with null when there's no
+  // redirect response to process, the normal case on every boot that isn't
+  // literally the instant after a sign-in redirect lands), so awaiting it
+  // first costs nothing once it's already settled and removes the race
+  // entirely for every later caller.
+  let graphRedirectHandledPromise = Promise.resolve();
   if (graphMsalInstance) {
-    graphMsalInstance.handleRedirectPromise().catch(err => {
+    graphRedirectHandledPromise = graphMsalInstance.handleRedirectPromise().catch(err => {
       console.warn("Graph sign-in redirect error:", err);
     });
   } else if (ANY_GRAPH_FEATURE_ENABLED) {
     console.warn("MSAL failed to load — every real-Graph feature will degrade to demo/placeholder data.");
+  }
+
+  // Bug A, second half — pure and directly testable (no MSAL instance
+  // needed) so this decision has real coverage even though this sandbox
+  // can never load real MSAL to exercise acquireGraphToken() end-to-end.
+  // A throw from acquireTokenSilent() does NOT always mean "no session,
+  // must redirect." With a cached account on file, MSAL's own
+  // InteractionRequiredAuthError is the one signal that genuinely means
+  // interaction is unavoidable (consent/login/interaction_required —
+  // nothing silent can recover it); anything else with an account present
+  // (a transient cache/network hiccup, e.g.) is treated as "no answer yet,
+  // try again," the same as a token that's simply still being silently
+  // refreshed — NOT as grounds to yank the user into a real sign-in
+  // redirect. Only a genuinely account-less session (or a confirmed
+  // InteractionRequiredAuthError) needs one.
+  function shouldStartInteractiveRedirect(hasAccount, error, InteractionRequiredAuthErrorClass) {
+    if (!hasAccount) return true;
+    return !!(InteractionRequiredAuthErrorClass && error instanceof InteractionRequiredAuthErrorClass);
+  }
+
+  // Bug A FOLLOW-UP (live-blocking regression, real-device report): the rule
+  // above alone can loop forever. shouldStartInteractiveRedirect() is
+  // correct for a genuine ONE-OFF silent hiccup (a transient cache/network
+  // blip with an account present) — but it has no memory, so the SAME
+  // non-InteractionRequiredAuthError failure repeating on every single
+  // acquireGraphToken() call never escalates to the one thing that would
+  // actually fix a PERSISTENT case: a real interactive redirect. The
+  // splash's own retry loop calls acquireGraphToken() (via
+  // ensureLiveNavDataFetch()/loadDocketQueue()) every SPLASH_RETRY_INTERVAL_MS,
+  // so a persistent silent-acquisition failure (e.g. a silent-iframe
+  // failure — a BrowserAuthError like monitor_window_timeout, common on
+  // mobile Chrome when third-party cookies are restricted) produces an
+  // infinite silent-fail loop: "Couldn't connect," and Retry just restarts
+  // the identical doomed loop, since nothing about hitting Retry changes
+  // what acquireTokenSilent() keeps throwing.
+  //
+  // Fix: widen the escalation rule with a failure-count ceiling on the
+  // "retry silently" branch specifically — after
+  // GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD CONSECUTIVE such failures,
+  // escalate anyway, same as a missing account or a confirmed
+  // InteractionRequiredAuthError already does. 3 was chosen as enough to
+  // rule out a genuine one-off blip (the exact case this branch exists to
+  // absorb) without leaving the user stuck for long — at the splash's own
+  // 400ms retry interval that's ~1.2s into a boot attempt, comfortably
+  // inside its 5s display ceiling, so a persistent failure escalates within
+  // a SINGLE boot/Retry click rather than needing several. The counter is
+  // intentionally NOT tied to runSplashConnect()/Retry in any way (no reset
+  // on a new invocation) — it's a property of the shared token-acquisition
+  // choke point, not the splash specifically, so it keeps accumulating
+  // across repeated calls regardless of which feature is driving them, and
+  // a persistent failure trips the ceiling on its own without requiring the
+  // user to click Retry a specific number of times.
+  //
+  // Pure and directly testable, same reasoning as shouldStartInteractiveRedirect()
+  // itself — this sandbox can never load real MSAL to exercise
+  // acquireGraphToken() end-to-end.
+  const GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD = 3;
+  function shouldEscalateAfterSilentFailures(hasAccount, error, InteractionRequiredAuthErrorClass, silentFailureCount) {
+    if (shouldStartInteractiveRedirect(hasAccount, error, InteractionRequiredAuthErrorClass)) return true;
+    return silentFailureCount >= GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD;
   }
 
   // Serialized token acquisition. Several features (and, within live nav
@@ -4921,19 +5011,37 @@
   // initiated at most once per page load.
   let graphTokenInFlight = null;
   let graphRedirectStarted = false;
+  // Consecutive non-InteractionRequiredAuthError silent failures (an account
+  // WAS present) — see shouldEscalateAfterSilentFailures() above. Reset on
+  // any real success; NOT reset by a new runSplashConnect()/Retry call, by
+  // design (see that function's own comment).
+  let graphSilentFailureCount = 0;
   function acquireGraphToken() {
     if (!graphMsalInstance) return Promise.resolve(null); // MSAL didn't load, or every feature is off
     if (graphTokenInFlight) return graphTokenInFlight;
     graphTokenInFlight = (async () => {
       try {
+        // See graphRedirectHandledPromise's own comment above — never call
+        // acquireTokenSilent() while a redirect response might still be
+        // mid-processing.
+        await graphRedirectHandledPromise;
         const account = graphMsalInstance.getAllAccounts()[0];
         const result = await graphMsalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+        graphSilentFailureCount = 0; // a real success clears any accumulated silent-failure streak
         return result.accessToken;
       } catch (e) {
-        // No cached session (or it expired) — hand off to a full-page
-        // redirect. Guarded so concurrent callers can't each start one.
-        if (!graphRedirectStarted) {
+        const hasAccount = graphMsalInstance.getAllAccounts().length > 0;
+        const InteractionRequiredAuthErrorClass = typeof msal !== "undefined" ? msal.InteractionRequiredAuthError : undefined;
+        // Only count a genuine "retry silently" verdict — an immediate-
+        // escalation case (missing account, or a confirmed
+        // InteractionRequiredAuthError) doesn't need the ceiling and
+        // shouldn't inflate it.
+        if (!shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass)) {
+          graphSilentFailureCount++;
+        }
+        if (shouldEscalateAfterSilentFailures(hasAccount, e, InteractionRequiredAuthErrorClass, graphSilentFailureCount) && !graphRedirectStarted) {
           graphRedirectStarted = true;
+          graphSilentFailureCount = 0;
           graphMsalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
         }
         return null; // callers treat null as "no answer yet", never as an error
@@ -4943,7 +5051,7 @@
     })();
     return graphTokenInFlight;
   }
-  function __resetGraphTokenStateForTest() { graphTokenInFlight = null; graphRedirectStarted = false; } // test-only seam
+  function __resetGraphTokenStateForTest() { graphTokenInFlight = null; graphRedirectStarted = false; graphSilentFailureCount = 0; } // test-only seam
 
   // Per-feature entry points. Each keeps its OWN flag check — that's what
   // actually enforces "this feature may not touch Graph", now that the
@@ -5294,6 +5402,38 @@
   // safety measure here — it's the bug.
   function liveNavWorkbookPath() { return writePaths().workbook; }
 
+  // DIAGNOSTIC-ONLY (temporary — not a fix, just visibility). Captures WHAT
+  // HAPPENED on the most recent attempt for each sheet this fetch reads, so
+  // the splash's "Couldn't connect" error box (see buildSplashDiagnosticText()/
+  // runSplashConnect() below) can show a real, screenshot-able technical
+  // detail instead of needing a device console log we can't easily get.
+  // Deliberately reflects only the MOST RECENT call per sheet, not a
+  // history — "pending" is set at the very top of fetchWorkbookSheetRows(),
+  // before anything is awaited, specifically so a request that never
+  // resolves at all (no timeout on the fetch() call below — a genuine hang,
+  // not a clean failure) shows up honestly as "still in flight" rather than
+  // silently keeping a stale success left over from an earlier, faster
+  // attempt.
+  let liveNavDataDiagnostics = {};
+  const LIVE_NAV_DATA_SHEETS = ["All", "DB_Sets", "DB_Coins", "Lookup_MetalContent", "Lookup_Graders", "Photos", "Receipts", "Albums", "Wishlist"];
+  function __getLiveNavDataDiagnosticsForTest() { return liveNavDataDiagnostics; } // test-only seam
+  function __setLiveNavDataDiagnosticsForTest(obj) { liveNavDataDiagnostics = obj || {}; } // test-only seam
+
+  // DIAGNOSTIC-ONLY (temporary), companion to liveNavDataDiagnostics above —
+  // set ONLY when every individual sheet fetch already succeeded but the
+  // Promise.all(...).then(...) processing block in ensureLiveNavDataFetch()
+  // (the mapping/join logic that builds LIVE_COINS etc.) then throws. This
+  // is the "got data back but it was malformed" case the diagnostic task
+  // specifically asked to distinguish from a token/HTTP failure — e.g. a
+  // real-data shape the mappers don't expect choking a .map()/.forEach()
+  // call. Cleared at the top of every genuinely new fetch attempt so a
+  // stale failure from an earlier attempt can't linger once a later one
+  // succeeds.
+  let liveNavDataProcessingError = null;
+  function __getLiveNavDataProcessingErrorForTest() { return liveNavDataProcessingError; } // test-only seam
+  function __setLiveNavDataProcessingErrorForTest(obj) { liveNavDataProcessingError = obj || null; } // test-only seam
+  function __resetLiveNavDataDiagnosticsForTest() { liveNavDataDiagnostics = {}; liveNavDataProcessingError = null; } // test-only seam
+
   // GETs a worksheet's full used range and returns an array of plain
   // objects keyed by the header row's own text (trimmed) — no assumptions
   // about which columns exist beyond what's actually in row 1. Returns
@@ -5302,27 +5442,32 @@
   // genuinely empty" and avoid caching a false empty result — same
   // { attempted } reasoning fetchReferenceImageBlob() already uses.
   async function fetchWorkbookSheetRows(sheet) {
+    liveNavDataDiagnostics[sheet] = { kind: "pending" };
     const token = await getLiveNavToken();
-    if (!token) return null;
+    if (!token) { liveNavDataDiagnostics[sheet] = { kind: "no-token" }; return null; }
     const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
       liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
       ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
     try {
       const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) {
+        liveNavDataDiagnostics[sheet] = { kind: "http-error", status: res.status };
         console.warn("Live nav data: sheet read failed", sheet, res.status);
         return null; // transient/permission error — worth retrying later, don't cache
       }
       const data = await res.json();
       const values = data.values || [];
-      if (values.length < 2) return []; // header row only (or truly empty) — a real, cacheable answer
+      if (values.length < 2) { liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: 0 }; return []; } // header row only (or truly empty) — a real, cacheable answer
       const headers = values[0].map(h => String(h == null ? "" : h).trim());
-      return values.slice(1).map(r => {
+      const rows = values.slice(1).map(r => {
         const obj = {};
         headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
         return obj;
       });
+      liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: rows.length };
+      return rows;
     } catch (e) {
+      liveNavDataDiagnostics[sheet] = { kind: "exception", message: (e && e.message) || String(e) };
       console.warn("Live nav data fetch error:", sheet, e.message);
       return null;
     }
@@ -5394,6 +5539,19 @@
       // is no EstValue column — dropped from the candidate list; it was a
       // guess that turned out wrong.
       value: Number(colVal(row, "Value", "SpotValue")) || 0,
+      // Value floor (Value-display cleanup task) — NOT confirmed against the
+      // real workbook the way every other field in this mapper is (that
+      // audit hasn't been re-run for this specific column); DB_Sets is
+      // confirmed to carry a FaceValue column, but whether All does too is
+      // unverified from this environment. Read defensively either way: a
+      // missing/blank cell resolves to null (see the ""->null convention
+      // shippingCost/salePrice already use just below), and every consumer
+      // of this field (valueWithFaceFloor()) already treats null/blank as
+      // "nothing to floor against, show today's figure unchanged" — so an
+      // unconfirmed or absent column degrades to a complete no-op rather
+      // than a wrong number. Worth Ray's own confirmation before relying on
+      // it further.
+      faceValue: colVal(row, "FaceValue") === "" ? null : Number(colVal(row, "FaceValue")),
       // No direct real-photo-presence column — approximated from whether
       // the Obverse/Reverse filename cells are populated, per the documented
       // "Obverse/Reverse hold whichever filename is currently displayed"
@@ -5755,6 +5913,19 @@
       // null (not 0/NaN) when absent — every display site already guards on
       // `!= null` rather than assuming a number is there.
       mintage: (mintageRaw === "" || isNaN(mintageNum)) ? null : mintageNum,
+      // DB_Coins.MintageInclusive — new column (Copilot, 94 rows flagged
+      // "Y"), positioned next to Mintage on the real sheet (cosmetic
+      // reordering only — colVal() reads by header name, not position).
+      // Marks a CoinID whose Mintage figure is COPIED from its parent date/
+      // mint rather than a genuinely distinct, separately-published total —
+      // die varieties/designations the Mint never tallied on their own
+      // (1945-S Micro S, 1942/41 overdates, Mercury FB designations, 1982
+      // cent variants), as opposed to something like 1909 VDB, which has
+      // its own real distinct total. Read here (not just consumed at the
+      // one Albums call site) so it travels with the row wherever this
+      // mapper's output goes — see slotMintage()/formatAlbumMintage() for
+      // the one place it currently changes a display.
+      mintageInclusive: String(colVal(row, "MintageInclusive")),
       funFact: String(colVal(row, "FunFact")),
       // DB_Coins.Notes — a real, heavily-populated catalog column (1,101 of
       // 4,227 rows, far more than FunFact's 79) that nothing in the app read
@@ -5935,6 +6106,12 @@
     // real loading state. Left out here on that basis; still wired at the
     // two call sites where the container is genuinely empty/stale until
     // the real fetch resolves.
+    //
+    // DIAGNOSTIC-ONLY (temporary): clear any stale processing failure from
+    // an earlier attempt right before this genuinely new one starts — see
+    // liveNavDataProcessingError's own declaration below for what it
+    // captures and why.
+    liveNavDataProcessingError = null;
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -6083,6 +6260,11 @@
       return true;
     }).catch(err => {
       liveNavDataFetchPromise = null;
+      // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
+      // call catches its own errors and never rejects, so reaching this
+      // catch means the PROCESSING block above (after every sheet already
+      // resolved) threw — see liveNavDataProcessingError's own declaration.
+      liveNavDataProcessingError = { message: (err && err.message) || String(err), name: err && err.name };
       console.warn("Live nav data fetch error:", err.message);
       return false;
     });
@@ -8887,23 +9069,69 @@
   function __setLiveDocketQueueForTest(doc) { LIVE_DOCKET_QUEUE = doc; } // test-only seam
   function __getLiveDocketQueueForTest() { return LIVE_DOCKET_QUEUE; }    // test-only seam
 
+  // In-flight dedup (docketQueueFetchPromise), same pattern
+  // ensureLiveNavDataFetch()'s own liveNavDataFetchPromise already uses —
+  // added when the splash screen became a second caller of this function
+  // (see runSplashConnect() below) alongside renderNeedsAttentionHub()'s
+  // own docketOpenEntries() call: both fire within milliseconds of each
+  // other at boot, and without this they'd each independently GET
+  // _Docket/docket.json rather than sharing the one real request already
+  // in flight.
+  let docketQueueFetchPromise = null;
+
+  // DIAGNOSTIC-ONLY (temporary), same purpose/rules as liveNavDataDiagnostics
+  // above for the separate _Docket/docket.json fetch — a single object
+  // (one fetch, not nine), overwritten on every real attempt, "pending" set
+  // right before the actual Graph call so a hung request is distinguishable
+  // from a stale earlier success rather than silently keeping it. "disabled"
+  // is set for the (expected, not-a-failure) case where the write layer
+  // itself is off — docketQueueReady() already treats that as immediately
+  // ready, so it's informational only, never the cause of a timeout.
+  let docketQueueDiagnostic = null;
+  function __getDocketQueueDiagnosticForTest() { return docketQueueDiagnostic; } // test-only seam
+  function __setDocketQueueDiagnosticForTest(obj) { docketQueueDiagnostic = obj || null; } // test-only seam
+
   async function loadDocketQueue(force) {
-    if (!docketWriteEnabled()) return null;
+    if (!docketWriteEnabled()) { docketQueueDiagnostic = { kind: "disabled" }; return null; }
     if (LIVE_DOCKET_QUEUE && !force) return LIVE_DOCKET_QUEUE;
-    try {
-      const doc = await graph().getJson(docketQueuePath());
-      // A missing file is the normal first-run state, not an error.
-      LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
-      if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
-    } catch (e) {
-      // Not signed in / offline / transient Graph failure. Leave the cache
-      // null so a later call retries for real rather than caching an empty
-      // queue that would read as "nothing to research" — same
-      // only-cache-a-real-answer rule the reference-image fetch follows.
-      console.warn("Docket queue read failed:", e);
-      return null;
-    }
-    return LIVE_DOCKET_QUEUE;
+    if (docketQueueFetchPromise) return docketQueueFetchPromise;
+    docketQueueFetchPromise = (async () => {
+      docketQueueDiagnostic = { kind: "pending" };
+      try {
+        const doc = await graph().getJson(docketQueuePath());
+        // A missing file is the normal first-run state, not an error.
+        LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
+        if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
+        docketQueueDiagnostic = { kind: "ok" };
+        return LIVE_DOCKET_QUEUE;
+      } catch (e) {
+        // Not signed in / offline / transient Graph failure. Leave the cache
+        // null so a later call retries for real rather than caching an empty
+        // queue that would read as "nothing to research" — same
+        // only-cache-a-real-answer rule the reference-image fetch follows.
+        //
+        // DIAGNOSTIC-ONLY: RealGraphClient.getJson() throws one of exactly
+        // three distinct message shapes — "Write layer unavailable." (no
+        // token), "GET json <path> failed: <status>" (a real HTTP error),
+        // or a raw fetch()/JSON-parse exception message (network/CORS) —
+        // parsed here rather than re-deriving a second token check.
+        const message = (e && e.message) || String(e);
+        let kind = "exception";
+        let status = null;
+        if (/unavailable/i.test(message)) {
+          kind = "no-token";
+        } else {
+          const m = /failed:\s*(\d+)/.exec(message);
+          if (m) { kind = "http-error"; status = Number(m[1]); }
+        }
+        docketQueueDiagnostic = { kind, status, message };
+        console.warn("Docket queue read failed:", e);
+        return null;
+      } finally {
+        docketQueueFetchPromise = null;
+      }
+    })();
+    return docketQueueFetchPromise;
   }
 
   async function saveDocketQueue(doc) {
@@ -9703,7 +9931,17 @@
         { year: 1910, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-M-1C-01", filledBy: null },
         { year: 1910, mintMark: "S", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1910-S-1C-01", filledBy: null },
         { year: 1911, mintMark: "",  description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-M-1C-01", filledBy: null },
-        { year: 1911, mintMark: "D", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-D-1C-01", filledBy: null }
+        { year: 1911, mintMark: "D", description: "Lincoln Wheat Cent", variety: "",    coinId: "C-1911-D-1C-01", filledBy: null },
+        // Variety-not-key-date demo (see the matching FAKE_DB_COINS row's
+        // own comment) — deliberately NO keyDate flag, so this slot proves
+        // the variety label shows on its own, independent of key-date
+        // status. Its DB_Coins mintage (500,000) is also under 1,000,000,
+        // so this slot doubles as the "exact figure, no rounding" case.
+        { year: 1912, mintMark: "D", description: "Lincoln Wheat Cent", variety: "Doubled Die", coinId: "C-1912-D-1C-02", filledBy: null },
+        // MintageInclusive="Y" demo — 1945-S Micro S (see the matching
+        // FAKE_DB_COINS row's own comment for why its Mintage line reads
+        // "Included" rather than a number).
+        { year: 1945, mintMark: "S", description: "Lincoln Wheat Cent", variety: "Micro S", coinId: "C-1945-S-1C-02", filledBy: null }
       ]
     },
     {
@@ -10385,6 +10623,22 @@
     // Staging" / Designation re-resolution below), not collapsed into one row.
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-01",  pcgs: "2431",  mintage: 1825000, designation: "RD" },
     { denom: "1C",  year: 1909, mint: "S",  variety: "",        description: "Lincoln Wheat Cent",   finish: "Business Strike", gsid: "",       coinId: "C-1909-M-1C-03",  pcgs: "2431",  mintage: 1825000, designation: "BN" },
+    // Variety-not-key-date demo (Albums bug fix — the variety label used to
+    // only show when a slot was ALSO flagged key-date, an accidental
+    // coupling). "Doubled Die" here is a representative stand-in, not a
+    // claim about a real 1912-D Lincoln variety/mintage — same "demo data,
+    // not historical fact" posture as every other synthetic FAKE_DB_COINS
+    // row in this file. Under 1,000,000 too, so this same row doubles as
+    // the "exact figure, no rounding" comparison case.
+    { denom: "1C",  year: 1912, mint: "D",  variety: "Doubled Die", description: "Lincoln Wheat Cent", finish: "Business Strike", gsid: "",       coinId: "C-1912-D-1C-02", pcgs: "",      mintage: 500000,  designation: "" },
+    // MintageInclusive="Y" demo — 1945-S Micro S, the exact example named
+    // when this column was introduced: a die variety the Mint never
+    // tallied separately, so its Mintage figure is the parent 1945-S
+    // date/mint's own real total, copied rather than distinct. The real
+    // mintage number is still stored (matching how Copilot's real backfill
+    // works — the column sits ALONGSIDE Mintage, not instead of it); it's
+    // formatAlbumMintage() that masks it to "Included" for display.
+    { denom: "1C",  year: 1945, mint: "S",  variety: "Micro S", description: "Lincoln Wheat Cent", finish: "Business Strike", gsid: "",       coinId: "C-1945-S-1C-02", pcgs: "",      mintage: 181770000, designation: "", mintageInclusive: "Y" },
     { denom: "$1",  year: 1889, mint: "CC", variety: "",        description: "Morgan Dollar",        finish: "Business Strike", gsid: "",       coinId: "C-1889-M-$1-01",  pcgs: "7162",  mintage: 350000,  designation: "" },
     { denom: "25C", year: 1901, mint: "S",  variety: "",        description: "Barber Quarter",       finish: "Business Strike", gsid: "",       coinId: "C-1901-M-25C-01", pcgs: "5610",  mintage: 72664,   designation: "" },
     { denom: "5C",  year: 1937, mint: "D",  variety: "3-Legged",description: "Buffalo Nickel",       finish: "Business Strike", gsid: "",       coinId: "C-1937-M-5C-02",  pcgs: "3969",  mintage: 17826000, designation: "" },
@@ -11389,7 +11643,7 @@
 
     if (brEl) {
       if (coin.cost) {
-        renderCornerLines(brEl, ["Cost", "$" + Number(coin.cost).toLocaleString()]);
+        renderCornerLines(brEl, ["Cost", formatCurrency(coin.cost)]);
       } else {
         brEl.style.fontSize = ""; brEl.innerHTML = "";
       }
@@ -11404,7 +11658,7 @@
       // be redundant with the text itself.
       if (split) parts.push(split.obverse, split.reverse);
       else if (errorText) parts.push("error " + errorText);
-      if (coin.cost) parts.push("cost $" + Number(coin.cost).toLocaleString());
+      if (coin.cost) parts.push("cost " + formatCurrency(coin.cost));
       srEl.textContent = parts.join(", ") + " (" + coin.id + "), reverse";
     }
   }
@@ -11539,10 +11793,11 @@
       // accessible equivalent), so a fact that only ever appeared in a corner
       // would otherwise be invisible to a screen reader.
       const srComposition = preciousMetalCompositionFor(coin);
+      const srDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
         (srComposition ? ", composition " + srComposition : "") +
-        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        (srDisplayValue ? ", value " + formatCurrency(srDisplayValue) : "") +
         " (" + coin.id + ")" +
         (COMBINED_PHOTO_COIN_IDS.includes(coin.id) ? " — combined obverse/reverse photo, not yet cropped" : "");
     }
@@ -12422,7 +12677,7 @@
           <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
         </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
-        <div class="value">$${coin.value.toLocaleString()}</div>
+        <div class="value">${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
       `;
       card.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
@@ -12502,7 +12757,7 @@
         <div class="album-card-icon">📦</div>
         <div class="album-card-info">
           <div class="album-card-name">${escapeHtmlText(detailTitleText(coin))}</div>
-          <div class="set-card-progress">${coin.category || "Set"} · $${coin.value.toLocaleString()}</div>
+          <div class="set-card-progress">${coin.category || "Set"} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -12537,7 +12792,7 @@
         <div class="album-card-icon">🪙</div>
         <div class="album-card-info">
           <div class="album-card-name">${coin.name}</div>
-          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · $${coin.value.toLocaleString()}</div>
+          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -13261,9 +13516,10 @@
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
+      const shareDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       const text = yearMint + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
-        (coin.value ? ", value $" + coin.value.toLocaleString() : "") +
+        (shareDisplayValue ? ", value " + formatCurrency(shareDisplayValue) : "") +
         " (" + coin.id + ")";
       shareContent({ title: coin.name, text, mailtoSubject: "Coin: " + coin.name });
     });
@@ -13822,7 +14078,12 @@
     }
     const certHtml = certDisplayHtml(coin);
     if (certHtml) overviewRows.push(["Cert", certHtml]);
-    if (coin.value) overviewRows.push(["Value", "$" + coin.value.toLocaleString()]);
+    // Floored at face value (see valueWithFaceFloor()'s own comment) —
+    // computed once so the presence guard and the displayed figure can
+    // never disagree, e.g. a coin with a blank stored Value but a real
+    // FaceValue now correctly shows the row rather than staying hidden.
+    const overviewDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
+    if (overviewDisplayValue) overviewRows.push(["Value", formatCurrency(overviewDisplayValue)]);
     // Value provenance, read-only here (editable in Edit Coin). Folded into
     // the Value row's own line when both are present, so a figure never sits
     // on screen with no indication of where it came from — the gap that made
@@ -13844,7 +14105,7 @@
       if (coin.buyer) overviewRows.push(["Buyer / Recipient", coin.buyer]);
       // != null, not truthy — Gifted's own convention is a real, meaningful
       // $0, not "no price recorded".
-      if (coin.salePrice != null) overviewRows.push(["Sale Price", "$" + coin.salePrice.toLocaleString()]);
+      if (coin.salePrice != null) overviewRows.push(["Sale Price", formatCurrency(coin.salePrice)]);
       if (coin.platform) overviewRows.push(["Platform", coin.platform]);
     }
 
@@ -13979,10 +14240,10 @@
     const purchaseDate = coin.purchaseDate || details.purchaseDate;
     const purchaseRows = [];
     if (coin.cost && shippingCost != null) {
-      purchaseRows.push(["Total", "$" + (coin.cost + shippingCost).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+      purchaseRows.push(["Total", formatCurrency(coin.cost + shippingCost)]);
     }
-    if (coin.cost) purchaseRows.push(["Cost", "$" + coin.cost.toLocaleString()]);
-    if (shippingCost != null) purchaseRows.push(["Shipping", "$" + shippingCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })]);
+    if (coin.cost) purchaseRows.push(["Cost", formatCurrency(coin.cost)]);
+    if (shippingCost != null) purchaseRows.push(["Shipping", formatCurrency(shippingCost)]);
     if (vendor) purchaseRows.push(["Seller", vendor]);
     if (purchaseDate) purchaseRows.push(["Purchase Date", purchaseDate]);
     // Receipt — the Receipts TAB first (falling back to the legacy flat
@@ -14208,7 +14469,8 @@
     row.className = "case album-card";
     row.style.cssText = "cursor:pointer; margin-top:8px;";
     const identity = [yearMintText(child), child.denom, child.variety].filter(Boolean).join(" · ");
-    const facts = [child.grade, child.value ? "$" + child.value.toLocaleString() : ""].filter(Boolean).join(" · ");
+    const childDisplayValue = valueWithFaceFloor(child.value, child.faceValue);
+    const facts = [child.grade, childDisplayValue ? formatCurrency(childDisplayValue) : ""].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div class="album-card-icon">🪙</div>
       <div class="album-card-info">
@@ -14863,6 +15125,48 @@
     if (v === null || v === undefined || v === "") return "";
     const n = Number(v);
     return Number.isFinite(n) ? (Math.round(n * 100) / 100) : "";
+  }
+
+  // ONE shared currency-DISPLAY formatter, used at every dollar-figure
+  // display site in the app (Catalog/Browse cards, Sets/Rolls cards, detail
+  // overview, Wishlist, Stats totals, the flip cards' own Cost/Purchase
+  // Price corners, etc.) — always exactly two decimal places, rounded to
+  // the nearest cent, with the same thousands-grouping toLocaleString()
+  // already gives for free (deliberately NOT a bare .toFixed(2), which
+  // several call sites used before this and which drops that grouping —
+  // e.g. "1234.50" instead of "1,234.50"). Display-only: this never
+  // populates an editable form input — roundToCents() above already owns
+  // that job (a plain, unformatted number, since a "$1,234.56" string is
+  // not valid input for a number field) — and never changes what's stored
+  // anywhere. A non-finite input (blank/null/NaN) reads as $0.00 rather
+  // than "$NaN" or throwing; every real call site already guards presence
+  // itself (the same "omit the row when there's nothing to show" rule this
+  // app already follows), so this is a safety net, not the presence logic.
+  function formatCurrency(n) {
+    const num = Number(n);
+    return "$" + (Number.isFinite(num) ? num : 0).toLocaleString(undefined,
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Floors a coin's DISPLAYED/computed Value at its own face value — e.g. a
+  // cent with a stored All.Value of $0.001 or blank must never show/count
+  // as worth less than $0.01. Display/computation floor only: this never
+  // rewrites the underlying workbook Value column (Browse/Edit's own save
+  // logic, and the roundToCents()-populated Value inputs, are completely
+  // untouched by this — they still read/write the RAW stored figure, which
+  // is what an edit should show and act on).
+  //
+  // A missing/blank/non-numeric/zero faceValue means there is nothing to
+  // floor against, so the value passes through completely unchanged — the
+  // explicit "no floor to apply" fallback for every coin whose faceValue
+  // never resolved: a demo row with no faceValue field, a Set/Roll row
+  // (All has no single face value for a bundle), or a real coin if the
+  // workbook's own FaceValue column turns out unpopulated for it. See
+  // mapWorkbookRowToCoin()'s own comment on this field.
+  function valueWithFaceFloor(value, faceValue) {
+    const v = Number(value) || 0;
+    const fv = Number(faceValue);
+    return (Number.isFinite(fv) && fv > 0) ? Math.max(v, fv) : v;
   }
 
   function initBrowseEdit() {
@@ -16183,15 +16487,34 @@
     // uses to decide what's on screen, not a hardcoded "first coins page"
     // assumption. This is what makes one mechanism correctly serve every
     // caller of openAlbumAtPage(): a fresh open always lands on the cover
-    // (pageIndex 0, no slots — an near-instant no-op), while returning here
-    // from a coin's own Browse detail view (see the filled-slot click
-    // handler below) reopens at whatever coins page the user was actually
-    // on — exactly the page that needs its images ready, not page 0's.
-    // Spread (tablet/desktop) mode shows TWO pages at once, so both are
-    // prefetched together, not just one of the pair.
+    // (pageIndex 0, no slots), while returning here from a coin's own
+    // Browse detail view (see the filled-slot click handler below) reopens
+    // at whatever coins page the user was actually on — exactly the page
+    // that needs its images ready, not page 0's. Spread (tablet/desktop)
+    // mode shows TWO pages at once, so both are prefetched together, not
+    // just one of the pair.
     const spread = isAlbumSpreadWidth();
-    const visiblePages = computeVisibleIndices(pageIndex, spread, currentAlbumPages.length)
+    let visiblePages = computeVisibleIndices(pageIndex, spread, currentAlbumPages.length)
       .map(i => currentAlbumPages[i]);
+
+    // BUG B FIX (live-device finding): a fresh open's visible set above is
+    // ALWAYS just the cover (pageIndex 0 never returns anything else — see
+    // computeVisibleIndices()), which has no slots of its own — so on the
+    // ONE path that most needs this feature (showAlbumDetail()/
+    // openAlbumFromLink(), both always opening at 0), the prefetch above
+    // was a guaranteed no-op and the user would still watch placeholders
+    // pop in the moment they flipped past the cover. This does NOT change
+    // where the book opens — the cover still displays first, in order,
+    // completely unchanged — it only widens what gets waited on BEFORE
+    // that reveal: if the visible set is genuinely just the cover (no
+    // "coins" page in it at all — the reopen-at-a-real-page case above
+    // already has one and is untouched by this), also warm the album's
+    // first real coins page, so by the time the user turns past the cover
+    // and History, its images are already cached instead of popping in.
+    if (!visiblePages.some(p => p && p.type === "coins")) {
+      const firstCoinsPage = currentAlbumPages.find(p => p.type === "coins");
+      if (firstCoinsPage) visiblePages = visiblePages.concat([firstCoinsPage]);
+    }
 
     const container = document.getElementById("albumsDetailContainer");
     container.innerHTML = "";
@@ -16243,9 +16566,71 @@
   // follow-on to the live-wiring this function's own stated reason for
   // being mock-only no longer holds against. Flagged here as a deliberate
   // one-line extension beyond FAKE_ALBUMS itself, not a silent scope creep.
+  // Returns null when there's nothing to show at all (no catalog match, or
+  // a match with neither a real Mintage nor an Inclusive flag) — the caller
+  // omits the whole .slot-mintage line in that case, same as before.
+  // Otherwise returns a real object ({ inclusive: true } or
+  // { inclusive: false, value: <number> }) for formatAlbumMintage() below
+  // to render — the inclusive flag is independent of whether a number also
+  // happens to be present (Copilot's real backfill sets both), so it's
+  // checked first and wins outright rather than being derived from the
+  // number's own magnitude.
   function slotMintage(slot) {
     const dbCoin = activeDbCoins().find(c => c.coinId === slot.coinId);
-    return (dbCoin && dbCoin.mintage != null) ? dbCoin.mintage : null;
+    if (!dbCoin) return null;
+    const inclusive = String(dbCoin.mintageInclusive || "").trim().toUpperCase() === "Y";
+    if (inclusive) return { inclusive: true, value: null };
+    if (dbCoin.mintage == null) return null;
+    return { inclusive: false, value: dbCoin.mintage };
+  }
+
+  // Albums book view ONLY (renderSlotCell() below is its one caller) — every
+  // other mintage display in the app (Browse detail, Catalog, the
+  // ambiguous-match picker, Set Details facts) shows the exact researched
+  // figure unchanged and does NOT go through this. Mimics Ray's physical
+  // Littleton folders, which print a rounded figure for a large mintage
+  // rather than the full digit string.
+  //   - MintageInclusive="Y" -> "Included", replacing the number entirely
+  //     (nothing to round — the figure is borrowed from the parent date/
+  //     mint, not this coin's own).
+  //   - >= 1,000,000 -> one decimal place + " Million" (175,090,000 ->
+  //     "175.1 Million").
+  //   - < 1,000,000 -> the exact figure, comma-formatted, unchanged.
+  function formatAlbumMintage(mintage) {
+    if (mintage.inclusive) return "Included";
+    return mintage.value >= 1000000
+      ? (mintage.value / 1000000).toFixed(1) + " Million"
+      : mintage.value.toLocaleString();
+  }
+
+  // BUG C FIX (live-device finding): renderSlotCell() is a string-templated
+  // render (innerHTML), not a live element reference like applyDiscContent()
+  // — a slot's own image fetch resolving used to have nothing to notify, so
+  // a placeholder disc just sat there until the user flipped away and back,
+  // which forced a fresh render that finally read the by-then-cached image.
+  // This answers "is the slot this fetch was for still on screen right now"
+  // so a resolving fetch can trigger a real redraw in place — scoped to the
+  // album book specifically (not a project-wide live-update mechanism for
+  // every other place in this file with the same render-once-per-fetch
+  // pattern, e.g. Catalog/Browse's own reference-image tiers, which is a
+  // separate, much larger undertaking left untouched here).
+  //
+  // Fully derived from live state on every call (no snapshot/token) — if
+  // the user has since closed the album, opened a different one, or
+  // flipped to a different page, this simply returns false and the caller
+  // skips the redraw, rather than needing a staleness guard of its own.
+  function albumBookIsShowingSlot(matchSlot) {
+    if (currentAlbumIndex === null || !currentAlbumPages || !currentAlbumPages.length) return false;
+    const albumsView = document.getElementById("view-albums");
+    if (!albumsView || !albumsView.classList.contains("active")) return false;
+    const listView = document.getElementById("albumsListView");
+    if (!listView || listView.style.display !== "none") return false; // still on the list, not the open book
+    const spread = isAlbumSpreadWidth();
+    const indices = computeVisibleIndices(currentPageIndex, spread, currentAlbumPages.length);
+    return indices.some(i => {
+      const page = currentAlbumPages[i];
+      return page && page.type === "coins" && (page.slots || []).some(matchSlot);
+    });
   }
 
   function renderSlotCell(slot, side, album) {
@@ -16282,11 +16667,33 @@
       const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
       if (storedName) {
         storedUrl = getCachedCoinPhotoUrl(storedName);
-        if (!storedUrl) ensureCoinPhotoFetch(storedName);
+        if (!storedUrl) {
+          // BUG C FIX: redraw the book once this specific slot's photo
+          // actually lands, IF the user is still looking at the page it's
+          // on — matches applyDiscContent()'s own "self-upgrade in place"
+          // pattern for the live element case, adapted to this string-
+          // templated render's only real option (re-render the container).
+          ensureCoinPhotoFetch(storedName).then(url => {
+            if (url && albumBookIsShowingSlot(s => s.filledBy === slot.filledBy)) renderAlbumBook();
+          });
+        }
       }
     }
     const referenceCoin = filled ? { description: slotDescription(slot) } : null;
     const useReference = !ownEntry && !storedUrl && referenceCoin && hasReferenceImage(referenceCoin, side);
+    // BUG C FIX, reference-image tier: hasReferenceImage() above already
+    // kicked off ensureReferenceImageFetch() on its own cache miss (see its
+    // own comment) — calling it again here is a safe, deduped no-op against
+    // that SAME in-flight/cached promise (never a second real fetch), just
+    // to attach this redraw-in-place callback to it.
+    if (filled && !ownEntry && !storedUrl && !useReference && referenceCoin) {
+      const missSeriesKey = referenceSeriesKey(referenceCoin);
+      if (missSeriesKey) {
+        ensureReferenceImageFetch(missSeriesKey, side).then(url => {
+          if (url && albumBookIsShowingSlot(s => s.coinId === slot.coinId)) renderAlbumBook();
+        });
+      }
+    }
     const referenceUrl = useReference ? getCachedReferenceImageUrl(referenceSeriesKey(referenceCoin), side) : null;
     const photoUrl = ownEntry ? ownEntry.url : (storedUrl || referenceUrl);
     const isLittleton = album && album.folderStyle === "littleton";
@@ -16321,17 +16728,28 @@
     // pages (default/Numis-style pages keep both lines, unchanged).
     const metaLine = isLittleton ? "" : `<div class="slot-meta">${slotDescription(slot)}${slotVariety(slot) ? ", " + slotVariety(slot) : ""}</div>`;
 
-    // Key-date coins (e.g. the 1909-S VDB Lincoln cent) print the variety
-    // right under the date/mintmark, same as a real folder calls out the
-    // one date in a run that needs distinguishing — not shown for ordinary
-    // slots, where the plain date is already unambiguous. Independent of
-    // metaLine/isLittleton above: this shows on Littleton pages too, since
-    // dropping the *description* line there was about not repeating the
-    // series name, not about hiding a distinguishing variety.
-    const varietyLine = (slot.keyDate && slotVariety(slot)) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
+    // Print the variety right under the date/mintmark, same as a real
+    // folder calls out the one date in a run that needs distinguishing.
+    // **BUG FIX**: this used to be gated on `slot.keyDate` too (`slot.keyDate
+    // && slotVariety(slot)`) — an accidental coupling of two unrelated
+    // things. A slot's variety label and its key-date star are independent
+    // facts (a VDB is both a variety AND a key date; a Doubled Die or a
+    // Micro S is a variety with no bearing on key-date status either way),
+    // so the label must show whenever the slot HAS a variety, full stop —
+    // the key-date star (rendered separately below) is untouched, same
+    // correctly-working mechanism, it just happened to share this one
+    // gating condition by mistake. Independent of metaLine/isLittleton
+    // above: this shows on Littleton pages too, since dropping the
+    // *description* line there was about not repeating the series name,
+    // not about hiding a distinguishing variety.
+    const varietyLine = slotVariety(slot) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
 
+    // Ray's follow-up correction: drop the "Mintage" label prefix — the
+    // figure (rounded/"Included" per formatAlbumMintage()) speaks for
+    // itself on the slot; no header word needed, matching how a real
+    // folder just prints the number under the date.
     const mintage = slotMintage(slot);
-    const mintageLine = mintage != null ? `<div class="slot-mintage">Mintage ${mintage.toLocaleString()}</div>` : "";
+    const mintageLine = mintage ? `<div class="slot-mintage">${formatAlbumMintage(mintage)}</div>` : "";
 
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
@@ -16340,8 +16758,8 @@
           ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
         </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
-        ${mintageLine}
         ${varietyLine}
+        ${mintageLine}
         ${metaLine}
       </div>
     `;
@@ -16674,6 +17092,25 @@
         const pageAtClick = currentPageIndex;
         browseDetailBackHandler = () => { navigate("albums"); openAlbumAtPage(albumIndex, pageAtClick); };
         navigate("browse");
+        // AFTER navigate("browse"), not before: navigate() itself renders
+        // the Catalog grid (showBrowseTab("coins") -> renderBrowseGrid()),
+        // which calls setBrowseStepContext() with the FULL catalog — set
+        // any earlier would just get overwritten by that render before
+        // showBrowseDetail() below ever runs.
+        //
+        // The album's own filled slots, in their existing slot order — not
+        // the whole album (an open/unfilled slot has no coin to step to; it
+        // simply gets skipped rather than stopping the chain, same as any
+        // other id that fails to resolve). Without this, the arrows fell
+        // through to browseStepListFallback()'s plain CollectionID sort,
+        // which has no relationship to how the coins are actually laid out
+        // on the page the user tapped in from.
+        setBrowseStepContext(
+          album.slots
+            .filter(s => s.filledBy)
+            .map(s => activeCoins().find(c => c.id === s.filledBy))
+            .filter(Boolean)
+        );
         showBrowseDetail(coin);
       });
     });
@@ -16769,7 +17206,7 @@
           <div class="wish-notes">${item.notes}</div>
           <div class="wish-date">Added ${item.dateAdded}</div>
         </div>
-        <div class="wish-price">$${item.price.toLocaleString()}</div>
+        <div class="wish-price">${formatCurrency(item.price)}</div>
       `;
       row.addEventListener("click", () => showWishlistDetail(item));
       container.appendChild(row);
@@ -16781,7 +17218,7 @@
 
     document.getElementById("wishlistShareBtn").addEventListener("click", () => {
       const lines = FAKE_WISHLIST.map(item => {
-        const price = item.price ? " — target $" + item.price.toLocaleString() : "";
+        const price = item.price ? " — target " + formatCurrency(item.price) : "";
         return "• " + item.desc + price + (item.notes ? " (" + item.notes + ")" : "");
       });
       const text = "My coin wishlist:\n\n" + lines.join("\n");
@@ -16843,7 +17280,7 @@
     currentWishlistItem = item;
     document.getElementById("wishlistDetailName").textContent = item.desc;
     document.getElementById("wishlistDetailMeta").textContent =
-      "Target $" + item.price.toLocaleString() + " · Added " + item.dateAdded;
+      "Target " + formatCurrency(item.price) + " · Added " + item.dateAdded;
     document.getElementById("wishlistDetailNotes").value = item.notes;
 
     // Purchase Details / Photos are freeform per-visit fields on this placeholder —
@@ -16875,7 +17312,7 @@
     const price = document.getElementById("wishlistPurchasePrice").value;
     const vendor = document.getElementById("wishlistVendor").value;
     const purchaseParts = [];
-    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (price) purchaseParts.push(formatCurrency(price));
     if (vendor) purchaseParts.push(vendor);
     document.getElementById("wishlistPurchaseSummary").textContent =
       purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add, once you've bought this one";
@@ -18357,10 +18794,6 @@
   const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];
   const DENOM_LABELS = { "H1C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3CS": "Three-Cent Silver", "3CN": "Three-Cent Nickel", "H10C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars", "5oz": "Five-Ounce Silver" };
 
-  function formatMoney(n) {
-    return "$" + Math.round(n).toLocaleString();
-  }
-
   function renderStats() {
     // Real bug, found reviewing the workbook-alignment batch: this read
     // FAKE_COINS directly, never activeCoins() — the one live-data swap
@@ -18377,20 +18810,29 @@
     const coins = all.filter(c => c.denom !== "Medal");
     const medals = all.filter(c => c.denom === "Medal");
     const totalSpent = all.reduce((sum, c) => sum + (c.cost || 0), 0);
-    const totalValue = all.reduce((sum, c) => sum + (c.value || 0), 0);
+    // Value-display cleanup task: floored per-coin BEFORE summing, same
+    // valueWithFaceFloor() every other Value display now uses — a no-op
+    // for any coin whose faceValue never resolved, so this is never a
+    // change in practice until that field actually carries real data.
+    // Cost (totalSpent above) is a different concept (what was paid, not
+    // what it's worth) and is deliberately never floored.
+    const totalValue = all.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
     const net = totalValue - totalSpent;
 
     document.getElementById("statTotalItems").textContent = all.length.toLocaleString();
     document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
-    document.getElementById("statTotalSpent").textContent = formatMoney(totalSpent);
-    document.getElementById("statTotalValue").textContent = formatMoney(totalValue);
+    document.getElementById("statTotalSpent").textContent = formatCurrency(totalSpent);
+    document.getElementById("statTotalValue").textContent = formatCurrency(totalValue);
 
     const netEl = document.getElementById("statNetGain");
-    netEl.textContent = (net >= 0 ? "+" : "−") + formatMoney(Math.abs(net));
+    netEl.textContent = (net >= 0 ? "+" : "−") + formatCurrency(Math.abs(net));
     netEl.classList.toggle("negative", net < 0);
 
+    // Same per-coin floor applied here — the breakdown bars must agree
+    // with totalValue above, not silently disagree with it because only
+    // one of the two summed the raw, unfloored figure.
     const maxDenomValue = Math.max(...STATS_DENOM_ORDER.map(denom =>
-      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + c.value, 0)
+      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0)
     ), 1);
 
     const breakdown = document.getElementById("statsBreakdown");
@@ -18398,14 +18840,14 @@
     STATS_DENOM_ORDER.forEach(denom => {
       const group = coins.filter(c => c.denom === denom);
       if (!group.length) return;
-      const groupValue = group.reduce((sum, c) => sum + c.value, 0);
+      const groupValue = group.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
       const pct = Math.round((groupValue / maxDenomValue) * 100);
       const row = document.createElement("div");
       row.className = "stat-row";
       row.innerHTML = `
         <div class="stat-row-label">${DENOM_LABELS[denom]}</div>
         <div class="stat-row-bar-track"><div class="stat-row-bar-fill" style="width:${pct}%"></div></div>
-        <div class="stat-row-value">${group.length} · ${formatMoney(groupValue)}</div>
+        <div class="stat-row-value">${group.length} · ${formatCurrency(groupValue)}</div>
       `;
       breakdown.appendChild(row);
     });
@@ -18439,12 +18881,13 @@
       const row = document.createElement("div");
       row.className = "case wish-item";
       row.style.cursor = "pointer";
+      const searchDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
       row.innerHTML = `
         <div>
           <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
           <div class="wish-notes">${escapeHtmlText(yearMintText(coin))}${coin.denom ? " · " + escapeHtmlText(coin.denom) : ""}</div>
         </div>
-        <div class="wish-price">${coin.value ? "$" + coin.value.toLocaleString() : ""}</div>
+        <div class="wish-price">${searchDisplayValue ? formatCurrency(searchDisplayValue) : ""}</div>
       `;
       row.addEventListener("click", () => openLedgerCoin(coin));
       container.appendChild(row);
@@ -18476,7 +18919,7 @@
           <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
           <div class="wish-notes">${escapeHtmlText(coin.status)}${detailParts.length ? " · " + escapeHtmlText(detailParts.join(" · ")) : ""}</div>
         </div>
-        <div class="wish-price">${coin.salePrice != null ? "$" + coin.salePrice.toLocaleString() : ""}</div>
+        <div class="wish-price">${coin.salePrice != null ? formatCurrency(coin.salePrice) : ""}</div>
       `;
       row.addEventListener("click", () => openLedgerCoin(coin));
       container.appendChild(row);
@@ -22917,7 +23360,7 @@
     // official numismatic standard) — matches the price sticker placement he
     // sees at his local coin shop.
     document.getElementById("flipReverseTL").textContent = errorText;
-    document.getElementById("flipReverseBR").textContent = price ? "$" + Number(price).toFixed(2) : "";
+    document.getElementById("flipReverseBR").textContent = price ? formatCurrency(price) : "";
   }
 
   function initAddCoin() {
@@ -23215,32 +23658,115 @@
     });
   }
 
-  // Initial splash screen — now gated on REAL data readiness, not a fixed
+  // Initial splash screen — gated on REAL data readiness, not a fixed
   // simulated delay. **Superseded**: this used to hide itself after a flat
   // SPLASH_SIMULATED_DELAY_MS (1400ms) regardless of whether any real data
   // had actually loaded, because there was no live connection to gate on
   // yet at the time this was built. There is now — ensureLiveNavDataFetch()
   // is the same real Promise.all (All/DB_Sets/DB_Coins/Lookup_MetalContent/
   // Lookup_Graders, plus Photos/Receipts/Albums/Wishlist) every other live
-  // surface in this app already waits on, and it ALWAYS resolves (never
-  // rejects — its own .catch() returns false), so racing it is safe with no
-  // extra error handling needed here.
+  // surface in this app already waits on.
   //
   // The rest of the app has already rendered underneath by the time this
   // runs (init below is synchronous, and navigate("dashboard") — which
   // already kicks off this exact same fetch — runs immediately before
-  // initSplash()); the splash just covers it until the fetch settles, or
-  // the 5s timeout below fires first.
+  // initSplash()); the splash just covers it until the fetch genuinely
+  // succeeds, or the 5s timeout below fires first.
   const SPLASH_DATA_TIMEOUT_MS = 5000; // may be refined after live testing
   // A separate, short, dev-only demo delay for ?splashError=1 (below) — kept
   // distinct from SPLASH_DATA_TIMEOUT_MS so the real timeout can be tuned
   // independently of this toggle's own pacing.
   const SPLASH_ERROR_DEMO_DELAY_MS = 1400;
+  // How often to re-check ensureLiveNavDataFetch() after a `false` answer,
+  // within the same 5s budget — see Bug A below.
+  const SPLASH_RETRY_INTERVAL_MS = 400;
+  // Max time the splash will wait on the Docket queue specifically before
+  // proceeding without it — see docketQueueReadyWithGrace()'s own comment
+  // below (the "Retry doesn't help" regression fix) for why this is a
+  // separate, shorter, best-effort budget rather than sharing
+  // SPLASH_DATA_TIMEOUT_MS. Long enough that a normal Graph GET (well under
+  // 1s in practice) still lands inside it, so the Docket badge stays
+  // synchronized with the cabinet appearing in the ordinary case; short
+  // enough that a broken/hung request can't meaningfully delay the app.
+  const SPLASH_DOCKET_GRACE_MS = 2000;
+
+  // Bumped on every runSplashConnect() call so an OLDER invocation's own
+  // still-pending retry/timeout chain can recognize itself as superseded
+  // and never touch the DOM again — same staleness-guard pattern
+  // albumOpenToken (Albums book) already uses. Real bug this closes,
+  // caught while testing Bug A rather than guessed at: runSplashConnect()
+  // is called more than once in practice (the Retry button re-runs it, and
+  // a fast double-click could fire it twice) — every invocation used to
+  // start its OWN independent 5s timeout with nothing canceling a PRIOR
+  // one's, so an old invocation's timer could fire well after a newer one
+  // had already succeeded (or was itself still legitimately waiting),
+  // yanking the error box back up or otherwise clobbering the current
+  // invocation's own state out from under it.
+  let splashConnectGeneration = 0;
+
+  // DIAGNOSTIC-ONLY (temporary, per Ray's explicit request — not final
+  // wording, just something real he can screenshot on a tablet with no easy
+  // devtools access, in place of a device console log we can't easily get).
+  // Turns whatever the most recent fetch attempt(s) actually reported
+  // (liveNavDataDiagnostics/liveNavDataProcessingError/docketQueueDiagnostic
+  // — see their own declarations above) into a short technical detail
+  // string, shown as small secondary text under the splash's existing
+  // friendly error message (never replacing it).
+  function describeDiagnosticEntry(entry) {
+    if (!entry) return "not yet reported (fetch may still be in flight or never started)";
+    switch (entry.kind) {
+      case "pending": return "pending (still in flight / never returned)";
+      case "no-token": return "no token";
+      case "http-error": return "HTTP " + entry.status;
+      case "exception": return "error — " + entry.message;
+      case "disabled": return "feature disabled";
+      case "ok": return "ok" + (typeof entry.rowCount === "number" ? " (" + entry.rowCount + " rows)" : "");
+      default: return JSON.stringify(entry);
+    }
+  }
+  function buildSplashDiagnosticText() {
+    if (!ENABLE_LIVE_NAV_DATA) {
+      return "Live nav data fetch is disabled (ENABLE_LIVE_NAV_DATA is false) — nothing was ever attempted.";
+    }
+    const lines = [];
+    const sheetEntries = LIVE_NAV_DATA_SHEETS.map(s => liveNavDataDiagnostics[s]).filter(Boolean);
+    const dq = docketQueueDiagnostic;
+    const allEntries = sheetEntries.concat(dq ? [dq] : []);
+    // Headline classification — distinguishes the three cases specifically
+    // asked for (never got a token / got a token but the request(s) failed /
+    // got data back but it was malformed), plus a genuine-hang signal
+    // ("pending" surviving to the moment the error box shows means a
+    // request literally never got a response).
+    if (liveNavDataProcessingError) {
+      lines.push("Every Graph request succeeded, but processing the returned data threw an error (likely a malformed/unexpected data shape):");
+      lines.push("  " + (liveNavDataProcessingError.name ? liveNavDataProcessingError.name + ": " : "") + liveNavDataProcessingError.message);
+    } else if (allEntries.length === 0) {
+      lines.push("No fetch attempt has reported back yet.");
+    } else if (allEntries.some(e => e.kind === "pending")) {
+      lines.push("At least one request is still in flight / never returned a response (no timeout on the underlying fetch) — see \"pending\" rows below.");
+    } else if (allEntries.every(e => e.kind === "no-token")) {
+      lines.push("No Microsoft Graph token was ever acquired — every request reports \"no token.\"");
+    } else if (allEntries.some(e => e.kind === "http-error" || e.kind === "exception")) {
+      lines.push("A token was acquired, but one or more Graph request(s) failed:");
+    } else {
+      lines.push("Every request reports success — timed out with no captured error.");
+    }
+    lines.push("");
+    LIVE_NAV_DATA_SHEETS.forEach(sheet => {
+      lines.push(sheet + ": " + describeDiagnosticEntry(liveNavDataDiagnostics[sheet]));
+    });
+    lines.push("Docket queue: " + describeDiagnosticEntry(dq));
+    return lines.join("\n");
+  }
 
   function runSplashConnect() {
+    const myGeneration = ++splashConnectGeneration;
+    function stillCurrent() { return myGeneration === splashConnectGeneration; }
+
     const overlay = document.getElementById("splashScreen");
     const status = document.getElementById("splashStatus");
     const errorBox = document.getElementById("splashErrorBox");
+    const errorDetail = document.getElementById("splashErrorDetail");
     overlay.classList.remove("fade-out", "hidden");
     errorBox.classList.add("hidden");
     status.style.display = "block";
@@ -23248,11 +23774,15 @@
 
     // `?splashError=1` forces the error path on demand for testing/demoing
     // it — a dev-only toggle, deliberately NOT real-data-gated, so it always
-    // shows the same thing regardless of connection state.
+    // shows the same thing regardless of connection state. No real fetch was
+    // ever attempted on this path, so the diagnostic detail says so plainly
+    // rather than showing a stale or misleading dump.
     const forceError = new URLSearchParams(location.search).get("splashError") === "1";
     if (forceError) {
       setTimeout(() => {
+        if (!stillCurrent()) return;
         status.style.display = "none";
+        errorDetail.textContent = "(?splashError=1 demo — no real fetch was attempted, so there's nothing real to show here.)";
         errorBox.classList.remove("hidden");
       }, SPLASH_ERROR_DEMO_DELAY_MS);
       return;
@@ -23264,27 +23794,119 @@
     }
     function showSplashError() {
       status.style.display = "none";
+      errorDetail.textContent = buildSplashDiagnosticText();
       errorBox.classList.remove("hidden");
     }
 
-    // Whichever settles first wins — hideSplash() as soon as the real fetch
-    // resolves (true OR false; "resolves" is the gate, not "succeeds" — a
-    // false answer still means Graph genuinely responded, e.g. no signed-in
-    // session yet, which is the same "no answer yet, will retry" case every
-    // other Graph-token consumer in this file already treats as normal, not
-    // an error), never waiting out the full 5s if it's faster. `settled`
-    // guards against BOTH firing — the fetch settling after the timeout
-    // already showed the error box must not silently hide it again out from
-    // under the user.
+    // BUG A FIX (live-device finding): this used to hide on ANY resolution
+    // of ensureLiveNavDataFetch(), true or false — "resolves" was the wrong
+    // gate. On an ordinary boot with a perfectly valid cached session, the
+    // FIRST attempt could still legitimately answer `false` fast — the
+    // token was simply still being silently refreshed when that first
+    // attempt ran (see acquireGraphToken()'s own handleRedirectPromise/
+    // InteractionRequiredAuthError fix above for the actual root cause) —
+    // and hiding the splash on that meant the app showed itself as "ready,"
+    // Docket badge included, before any real data had actually landed.
+    // Only a genuine SUCCESS now hides it. A `false` isn't treated as a
+    // dead end either: it's retried within the same 5s budget rather than
+    // left to sit idle until the timeout — ensureLiveNavDataFetch() is
+    // already memoized/dedup'd (see its own comment), so a retry here is
+    // never a second real fetch stacked on a still-in-flight one, only a
+    // fresh check once the previous attempt has already settled.
+    //
+    // DOCKET BADGE GAP FIX (live-device finding, same principle extended):
+    // the Docket badge (updateDocketFob(), fed by renderNeedsAttentionHub()'s
+    // stagingRows/researchRows/otherRows) depends on loadDocketQueue()
+    // (fetching _Docket/docket.json) — a completely separate fetch from
+    // ensureLiveNavDataFetch() that this gate never accounted for, so the
+    // cabinet could appear up to ~3s before the badge actually populated.
+    //
+    // "Genuine success" for the docket half is deliberately NOT "loadDocketQueue()
+    // returned non-null" alone: with the write layer off (docketWriteEnabled()
+    // false — e.g. WRITE_TARGET flipped to "live" without ENABLE_DOCKET_WRITE
+    // re-enabled, see "Real-Graph flags always on" in CLAUDE.md),
+    // loadDocketQueue() returns null on EVERY call, forever — waiting on a
+    // non-null answer there would hang every boot at the 5s ceiling. So
+    // docketQueueReady() treats "the feature is off" as immediately ready
+    // (nothing to wait for) and only "the feature is ON but hasn't answered
+    // yet" (not signed in, a transient Graph failure) as "retry." A
+    // genuinely-empty/first-run docket (no docket.json on file yet) still
+    // resolves loadDocketQueue() to a real, non-null emptyDocketQueue()
+    // object (see its own comment — a 404 there is the normal first-run
+    // state, not an error), so an empty session hides the badge immediately
+    // rather than waiting out the timeout for "no data" to mean more than it
+    // does.
+    async function docketQueueReady() {
+      if (!docketWriteEnabled()) return true;
+      return (await loadDocketQueue()) !== null;
+    }
+
+    // REGRESSION FIX — confirmed by a direct A/B test (Ray switched GitHub
+    // Pages' deploy source from this branch to main, no other change, and
+    // "Couldn't connect"/Retry-does-nothing disappeared completely; main has
+    // no Docket gating at all, so this is the delta). The original fix above
+    // shared docketQueueReady() in the SAME hard Promise.all gate as
+    // ensureLiveNavDataFetch() on the reasoning that "both are genuinely
+    // part of is-the-app-ready, so one unified gate is simpler than racing
+    // two independent timers" — that reasoning is WRONG and is what this
+    // fix corrects: it made a persistently-failing _Docket/docket.json (a
+    // deterministic parse/shape failure against a real file, or a genuinely
+    // hung fetch — either one settles identically here, since neither ever
+    // resolves docketQueueReady() to true) capable of blocking the ENTIRE
+    // APP behind the splash forever, with Retry never helping, because
+    // nothing about clicking Retry changes what's wrong with that one file/
+    // request. The Docket badge is comparatively low-stakes — a fob count,
+    // not anything Catalog/Browse/Add Coin/etc. actually need to function —
+    // so it must never be able to hold up the rest of the app this way,
+    // exactly the same "additive, must never block the rest of the app"
+    // rule ensureLiveNavDataFetch() itself already applies to Photos/
+    // Receipts/Albums.
+    //
+    // Fix: give the docket half its OWN, SHORTER grace period
+    // (SPLASH_DOCKET_GRACE_MS), raced against the real docketQueueReady()
+    // call — whichever settles first wins, and the timeout side always
+    // resolves `true` ("proceed without it"), never `false`. The real
+    // fetch is NOT aborted; it keeps running in the background (loadDocketQueue()
+    // has its own in-flight dedup, so this costs nothing extra), and
+    // updateDocketFob()'s own existing mechanism — already fired once at
+    // launch via renderNeedsAttentionHub(), completely independent of the
+    // splash — still shows a real count whenever/if that fetch does
+    // eventually land. In the common/working case (the one the original
+    // docket-badge-gap fix targeted) the real fetch still normally settles
+    // well inside the grace window, so the badge is still synchronized with
+    // the cabinet appearing; only a genuinely broken/hung case degrades
+    // instead of blocking forever.
+    function docketQueueReadyWithGrace() {
+      return Promise.race([
+        docketQueueReady(),
+        new Promise(resolve => setTimeout(() => resolve(true), SPLASH_DOCKET_GRACE_MS))
+      ]);
+    }
+
     let settled = false;
-    ensureLiveNavDataFetch().then(() => {
-      if (settled) return;
-      settled = true;
-      hideSplash();
-    });
+    let retryTimer = null;
+    function attempt() {
+      if (settled || !stillCurrent()) return;
+      Promise.all([ensureLiveNavDataFetch(), docketQueueReadyWithGrace()]).then(([dataReady, docketReady]) => {
+        if (settled || !stillCurrent()) return;
+        if (dataReady && docketReady) {
+          settled = true;
+          hideSplash();
+        } else {
+          retryTimer = setTimeout(attempt, SPLASH_RETRY_INTERVAL_MS);
+        }
+      });
+    }
+    attempt();
+    // `settled`/stillCurrent() also guard this against the fetch finally
+    // succeeding right after this fires, or against a NEWER
+    // runSplashConnect() call (Retry) having superseded this one entirely —
+    // the timeout, once reached for the CURRENT invocation, means something
+    // real now (a genuine failure/hang), not "every ordinary boot."
     setTimeout(() => {
-      if (settled) return;
+      if (settled || !stillCurrent()) return;
       settled = true;
+      clearTimeout(retryTimer);
       showSplashError();
     }, SPLASH_DATA_TIMEOUT_MS);
   }
@@ -23931,9 +24553,9 @@
     const shipping = document.getElementById("addSetShippingCost").value;
     const vendor = document.getElementById("addSetVendor").value;
     const purchaseParts = [];
-    if (price) purchaseParts.push("$" + Number(price).toFixed(2));
+    if (price) purchaseParts.push(formatCurrency(price));
     if (vendor) purchaseParts.push(vendor);
-    if (shipping) purchaseParts.push("+$" + Number(shipping).toFixed(2) + " shipping");
+    if (shipping) purchaseParts.push("+" + formatCurrency(shipping) + " shipping");
     document.getElementById("addSetPurchaseInfoSummary").textContent =
       purchaseParts.length ? purchaseParts.join(" · ") : "Tap to add price, seller, shipping";
 

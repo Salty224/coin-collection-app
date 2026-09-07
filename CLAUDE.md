@@ -12262,6 +12262,834 @@ own images before ever painting the book.
   his own connection — flagged as an explicit, expected follow-up, not a
   gap in this pass.
 
+### Splash + Album prefetch: three live-device fixes (BUILT and merged to main)
+**Merge status: confirmed and merged.** Everything from this section
+through "Albums: variety-label bug fix, rounded Mintage, 'Included' for
+shared figures" below (five sections in total — the splash/album-prefetch
+bug fixes, the Docket-badge grace-period fix + Value floor/currency
+formatting, the graph-auth escalation-threshold fix, the confirmed Docket
+regression fix, and the Albums variety/Mintage display work) was built
+across several rounds on `claude/code-primer-u8uv1d` and held pending a
+live-device pass. Ray confirmed live: the Docket-badge ~3s lag is the
+accepted, designed tradeoff of the grace-period fix (not a bug, no further
+work needed); the Value floor + two-decimal currency formatting; the album
+next/prev coin-order arrows; and the album image prefetch/population
+("great now") are all working correctly, and gave explicit go-ahead to
+merge the whole branch. Two small Albums display corrections (the
+"Mintage" label prefix removed, variety/mintage render order swapped —
+see that section's own follow-up note) landed in the same merge. **`main`
+is now the source of truth for all of it**, same standing as every other
+merged-after-holding branch in this file — the section headers below are
+kept as "BUILT and merged to main" rather than rewritten, matching the
+convention every other merged branch in this file already follows.
+
+Ray's first real-device pass on the two features just above (splash gating,
+album prefetch) found three real bugs — none of them new features, all of
+them the prior task's own design assumptions turning out wrong once run
+against a genuine signed-in session and a real album. All three are fixed
+here.
+
+**Bug A — the splash hid too early on a real device.** The splash-gating
+section above already changed the gate from "any resolution hides it" to
+"only a real `true` hides it" — but that alone didn't fix Ray's report,
+because the REAL cause was a race that predates this feature entirely:
+`handleRedirectPromise()` (MSAL's own once-per-load call, fired at module
+init) was never awaited before the very first `acquireTokenSilent()` call
+several thousand lines later (`navigate("dashboard")`'s own synchronous
+`ensureLiveNavDataFetch()` call, run during init with no `await` in
+between). On a normal boot with a valid cached session, `acquireTokenSilent()`
+could fire while `handleRedirectPromise()` was still genuinely mid-flight —
+a well-documented MSAL gotcha, not specific to this app — and the resulting
+transient failure was previously enough to make the splash bail early (a
+`false`/error treated as "done").
+- **Fixed at the source**: `graphRedirectHandledPromise` now holds
+  `handleRedirectPromise()`'s own promise (kept, not fire-and-forgotten),
+  and `acquireGraphToken()` — the one serialized token-acquisition choke
+  point every Graph feature already shares — `await`s it before ever
+  calling `acquireTokenSilent()`. Since `handleRedirectPromise()` always
+  resolves (with `null` on every boot that isn't literally the instant
+  after a sign-in redirect lands), awaiting it costs nothing once already
+  settled and removes the race for every caller, not just the splash.
+- **Second, defense-in-depth half**: a throw from `acquireTokenSilent()`
+  does not always mean "no session, must redirect." With a cached account
+  on file, only MSAL's own `InteractionRequiredAuthError` genuinely means
+  interaction is unavoidable; anything else (a transient cache/network
+  hiccup) is now treated as "no answer yet, try again" rather than grounds
+  to yank the user into a real sign-in redirect. Extracted into a pure,
+  directly-testable function, `shouldStartInteractiveRedirect(hasAccount,
+  error, InteractionRequiredAuthErrorClass)`, specifically because
+  `acquireGraphToken()` itself can't be exercised end-to-end from this
+  sandbox (`graphMsalInstance` is always `null` here — no real MSAL ever
+  loads) — this is real coverage for the decision logic even though the
+  MSAL integration around it can't be driven headlessly.
+- **The splash's own gate is unchanged in shape from the section above**
+  (hide only on a genuine `true`, retry every `SPLASH_RETRY_INTERVAL_MS`
+  within the 5s ceiling) — Bug A was entirely about WHY a real session
+  could produce a spurious non-`true` answer in the first place, not about
+  the gate's own logic.
+- **A second, genuinely new bug found WHILE building this fix, not
+  guessed at**: `runSplashConnect()` is called more than once in real
+  usage (the Retry button, or a fast double-click) — every invocation used
+  to start its own fully independent 5s timeout with nothing canceling an
+  older one's. An older, still-pending invocation's timer could fire the
+  error box back up well after a NEWER, already-succeeded invocation had
+  hidden the splash — reproduced directly in testing (a stale 5s timer
+  fired ~3.75s into an unrelated later test block, corrupting its timing
+  measurement). Fixed with a generation token (`splashConnectGeneration`,
+  bumped at the top of every `runSplashConnect()` call) — a `stillCurrent()`
+  check gates every DOM mutation, so only the most-recently-STARTED
+  invocation is ever allowed to touch the splash, regardless of which one's
+  timers fire first.
+
+**Bug B — a fresh album open never prefetched real content.** The prior
+section's own "scoping decision" claimed a fresh open (`showAlbumDetail()`,
+always landing on the cover, pageIndex 0) correctly prefetches "zero
+reference-image fetches — the cover has no slots to prefetch." That was
+true and also exactly backwards from what the feature needed: the cover
+page is the ONE thing that never needs prefetched images (no slots), so
+scoping strictly to "whatever's currently visible" made the ONE path that
+actually needs this feature (a brand-new open) a guaranteed no-op — the
+user would still watch placeholders pop in the moment they turned past the
+cover to the first real coins page.
+- **Fix, inside `openAlbumAtPage()`**: after computing `visiblePages` via
+  `computeVisibleIndices()` exactly as before, a new check —
+  `if (!visiblePages.some(p => p.type === "coins"))` — catches the
+  cover-only case specifically (the ONLY way `computeVisibleIndices()` can
+  return a page set with no coins page in it, since `pageIndex` is only
+  ever 0 for a fresh open) and appends the album's first real coins page
+  to the prefetch target. **This does not change where the book opens** —
+  the cover still displays first, in order, completely unchanged — it only
+  widens what gets waited on BEFORE that reveal.
+- **Scoped narrowly, on purpose**: the widening only fires when the
+  visible set is genuinely cover-only. Reopening at a later coins page
+  (the filled-slot Browse-detail "Back" round trip) already has a real
+  coins page in its visible set and is completely untouched — it still
+  prefetches exactly that page's own series, never also the album's first
+  chunk on top of it.
+- **The prior section's own claim is now stale and superseded by this
+  note** — "a fresh open triggers zero reference-image fetches" described
+  the bug, not the fix; don't read that line as still-current behavior.
+
+**Bug C — a resolving image never repainted a page already on screen.**
+Confirmed real and pre-existing, untouched by either feature above:
+`renderSlotCell()` is a string-templated render (`innerHTML`), not a live
+element reference the way `applyDiscContent()` is — so a slot's own image
+fetch resolving had nothing to notify. The placeholder disc just sat there
+until the user flipped away and back, which forces a fresh render that
+finally reads the by-then-cached image.
+- **New `albumBookIsShowingSlot(matchSlot)`** answers "is the slot this
+  fetch was for still on screen right now" — fully derived from live state
+  on every call (current album, current page, whether the book is even
+  open vs. still on the list), no snapshot/token of its own needed: if the
+  user has since closed the album, opened a different one, or flipped to a
+  different page, it simply returns `false` and the caller skips the
+  redraw.
+- **Wired into `renderSlotCell()`'s two cache-miss tiers** (the stored
+  Photos-tab photo, and the series reference image) — each now attaches a
+  `.then(url => { if (url && albumBookIsShowingSlot(...)) renderAlbumBook();
+  })` onto its existing fetch call, so a resolving fetch redraws the page
+  in place, autonomously, exactly when the user is still looking at it.
+  The reference-image tier's redraw-triggering call is a deliberately
+  redundant, safe call to `ensureReferenceImageFetch()` — `hasReferenceImage()`
+  already kicks off the same fetch on its own cache miss, and this second
+  call dedupes against that same in-flight/cached promise (never a second
+  real fetch); it exists purely to attach this one callback.
+- **Deliberately scoped to the album book specifically** — not a
+  project-wide live-update mechanism for every other place in this file
+  with the same render-once-per-fetch pattern (e.g. Catalog/Browse's own
+  reference-image tiers), which would be a separate, much larger
+  undertaking. `hasReferenceImage()`/`ensureReferenceImageFetch()`
+  themselves are untouched, shared code — only `renderSlotCell()`'s own
+  call sites gained the new callback.
+- **A real bug found and fixed WHILE BUILDING the test for this, not in
+  the app itself** — worth recording since it cost real debugging time (a
+  test process pinned at 100%+ CPU for several minutes before being
+  root-caused): a test stub that fully replaces `ensureReferenceImageFetch()`
+  but never reproduces its real CACHING side effect (writing into
+  `referenceImageCache` once a real answer lands) creates an infinite
+  render→fetch→render cycle. `hasReferenceImage()` never sees a cache hit,
+  so `renderSlotCell()`'s own miss branch keeps re-calling
+  `ensureReferenceImageFetch()` on every redraw — and since an
+  ALREADY-RESOLVED promise's `.then()` fires on the very next microtask,
+  that becomes an unbounded cascade that starves the event loop's
+  macrotask queue (a real, reproduced hang, not a guess — a
+  `setTimeout`-based wait inside the test never got to fire). This is not
+  an app bug: production's real `ensureReferenceImageFetch()` does cache
+  correctly, so the cycle self-terminates there after one real resolution.
+  The committed test's stub was fixed to mimic that same caching side
+  effect, not just the return value — a lesson worth remembering for any
+  future stub of a memoizing function in this codebase.
+
+**Verified headless — the existing `tests/verify_splash_and_album_prefetch.js`
+suite was extended in place, not forked**, since all three bugs are
+corrections to the same two features that suite already covers. Block I
+(Bug B's scoping test) was rewritten to assert the new widened behavior —
+a fresh open now includes the album's first coins page's series, and a
+negative control confirms this is genuinely scoped to the cover-only case
+(a reopen at a later page does NOT also include the first chunk). Two new
+blocks were added for Bug C: `albumBookIsShowingSlot()` in isolation
+(on/off the matching page, a nonexistent slot, after closing the book) and
+a full end-to-end repro — driving the real `renderSlotCell()`/
+`renderAlbumBook()` code path with a controlled, cache-aware stub, asserting
+the disc has no image before, still none mid-flight, and the resolved image
+appears afterward with the test itself never calling `renderAlbumBook()`
+again — plus a negative control confirming the redraw is genuinely
+suppressed once the user has left the book, not that it always happens
+regardless. A new GEN/NEG_GEN pair covers the generation-token fix
+directly, including a negative control that recreates the pre-fix
+`runSplashConnect()` body inline and confirms it DOES reproduce the stale-timer
+symptom.
+- **Not verified: Bug A's actual live-device fix.** `graphMsalInstance` is
+  always `null` in this sandbox — real MSAL never loads here — so
+  `acquireGraphToken()`'s integration with `handleRedirectPromise()` and
+  the real timing race it fixes cannot be exercised end-to-end from this
+  environment at all. Only the extracted pure function
+  (`shouldStartInteractiveRedirect()`) has direct test coverage; the actual
+  fix needs Ray's own real signed-in-session pass to confirm it resolves
+  the reported symptom (not just the synthetic no-token fixture this suite
+  already runs against).
+- **Not verified: Bug B/C on a real device.** Both need the same "open
+  Mercury Dimes fresh from the album list, sit on the first coins page
+  without flipping, watch images populate in place" pass the task itself
+  asked for.
+
+### Splash: Docket badge gap closed; Value floored at face value + one shared currency formatter (BUILT and merged to main)
+Two independent fixes from the same dispatch — a data-fetch gating gap
+found on the same live-device pass as the three bugs immediately above, and
+a display/formatting cleanup. Neither is architectural; held on the same
+branch, same "awaiting live-device confirmation" standing as everything
+else on it.
+
+**Part A — the Docket badge still lagged ~3s after the cabinet appeared.**
+Confirmed on the same real-device pass that verified the splash-gating fix
+above: that fix waits on `ensureLiveNavDataFetch()` (All/DB_Sets/DB_Coins/
+Lookup_MetalContent/Lookup_Graders/Photos/Receipts/Albums/Wishlist) before
+hiding the splash — genuinely fixed the album-image gap it targeted — but
+the Docket fob (`updateDocketFob()`, fed by `renderNeedsAttentionHub()`'s
+own `stagingRows`/`researchRows`/`otherRows`) depends on a COMPLETELY
+SEPARATE fetch, `loadDocketQueue()` (`_Docket/docket.json`), that the
+splash gate never accounted for at all. The fob only ever gets its real
+count once THAT fetch lands, well after the splash had already handed
+control to the Dashboard.
+- **`runSplashConnect()`'s `attempt()` now gates on BOTH fetches**, via
+  `Promise.all([ensureLiveNavDataFetch(), docketQueueReady()])` — sharing
+  the existing 5s ceiling/400ms retry loop rather than standing up a
+  second independent timer, since both are genuinely part of the same
+  "is the app's real data ready yet" question the splash already exists to
+  answer.
+- **New `docketQueueReady()`**: `true` immediately when
+  `docketWriteEnabled()` is `false` (the write layer is off — same
+  "nothing to wait for" logic `ensureLiveNavDataFetch()`'s own callers
+  already apply to a disabled feature), otherwise `(await
+  loadDocketQueue()) !== null`. `loadDocketQueue()` already distinguishes a
+  genuine fetch failure (returns `null`) from a genuinely-empty-but-real
+  result (`emptyDocketQueue()`, a real non-null object) — so **a
+  genuinely-empty Staging/Docket session resolves `true` on the FIRST
+  attempt, same as any other successful-but-empty fetch**, never waiting
+  out the timeout for "no data" to mean something more. This mirrors
+  `ensureLiveNavDataFetch()`'s own "resolve on genuine success, not just
+  any resolution" principle exactly.
+- **`loadDocketQueue()` gained its own in-flight dedup**
+  (`docketQueueFetchPromise`), the same pattern
+  `liveNavDataFetchPromise`/`graphTokenInFlight`/
+  `referenceImageFetchesInFlight` already establish elsewhere in this
+  file — not explicitly asked for, but directly necessary: the splash is
+  now a SECOND caller of `loadDocketQueue()` alongside
+  `renderNeedsAttentionHub()`'s own init-time call, and without dedup the
+  two would race into two independent real Graph fetches at boot rather
+  than sharing one in-flight promise the way every other multi-caller
+  fetch in this app already does.
+- **A real, non-obvious cross-cutting test-isolation bug found and fixed
+  while verifying this, not a flaky test.** `addcoin-phase1`'s own
+  flag-off Graph-call-isolation block (`A9`) installs a `graph()` spy via
+  `__setGraphClientForTest()` and asserts nothing calls it. `graph()`
+  resolves the CURRENT `activeGraphClient` dynamically at call time (not
+  bound once at promise-chain start) — and unlike
+  `ensureLiveNavDataFetch()` (a completely separate token/`fetch()`
+  mechanism that never touches `graph()`), the splash's Docket retry loop
+  DOES call `loadDocketQueue()` → `graph()` every ~400ms for up to 5s
+  after every page load. A retry firing during that test's own window
+  false-positived `touched = true` — root-caused by tracing `graph()`'s
+  dynamic resolution semantics, then confirmed via a clean standalone
+  re-run, not assumed flaky. **Fixed by isolating the test itself** — the
+  A9 block now wraps with `__setDocketWriteEnabledForTest(false)` /
+  `(null)`, using the existing test seam to precisely exclude this
+  unrelated background activity from the window the test cares about,
+  rather than weakening what the test asserts. `splash-and-album-prefetch.js`'s
+  own Block B and GEN block needed the identical treatment for the inverse
+  reason: both stub `ensureLiveNavDataFetch()` only, so once the gate
+  requires BOTH fetches to succeed, the real (unstubbed)
+  `loadDocketQueue()` — which always resolves `false` in this sandboxed
+  no-MSAL environment — permanently blocked "success" regardless of the
+  stubbed main fetch's own resolution, breaking both blocks' original,
+  narrower intent (testing only the main-fetch retry/generation-guard
+  behavior). Same fix, same seam, both restored to their original scope.
+
+**Part B — Value floored at face value, one shared currency formatter
+everywhere.** Two related display-only cleanup items; neither touches what
+gets stored anywhere (workbook writes, Edit-form save logic are unchanged).
+- **`mapWorkbookRowToCoin()` gained `coin.faceValue`**, read from a new
+  `FaceValue` column via `colVal(row, "FaceValue")` — **this exact column
+  name is NOT independently confirmed against the real workbook from this
+  environment**, same caveat every other not-yet-device-confirmed column
+  read in this file already carries; if it turns out to be named/shaped
+  differently, `colVal()`'s own graceful-miss behavior (blank → `null`
+  faceValue → the floor becomes a no-op) means nothing breaks, it just
+  silently does nothing until the real name is confirmed and added as a
+  candidate. **Worth Ray's direct confirmation before this is trusted.**
+- **New `valueWithFaceFloor(value, faceValue)`**: `Math.max(value,
+  faceValue)` when `faceValue` is a real positive finite number, otherwise
+  returns `value` unchanged — so a coin with no `faceValue` on file (every
+  coin in this mockup today, and any live row until the column is
+  confirmed) displays exactly as it always has, no floor applied. Applied
+  everywhere `coin.value` is DISPLAYED: the Catalog/Sets/Rolls grid cards,
+  Browse detail's Overview "Value" row (presence guard now computes the
+  floored value FIRST and gates on THAT, so a coin with a blank/zero
+  stored Value but a real FaceValue still shows the row rather than hiding
+  it), the reverse-face flip corner's obverse-side sr-only Value text, and
+  `renderStats()`'s `totalValue`/`maxDenomValue`/per-group value sums —
+  **floored per-coin, before summing**, not floored on the aggregate
+  total, so a mixed batch of low-value coins each contributes its own real
+  floor rather than the total being floored once at the end (which would
+  under-correct a batch of many sub-face-value coins).
+- **`SalePrice`/`Cost`/`Shipping`/`Total`/Wishlist prices are NOT
+  floored** — the floor is specifically "a coin is never worth less than
+  its own face value," which only makes sense for the coin's own
+  estimated worth (`Value`), not a purchase-price or sale-price figure
+  that can legitimately be anything (a below-face buy, a below-face sale,
+  a $0 gift). Only formatting (below) applies to those.
+- **New shared `formatCurrency(n)`** — always exactly two decimal places
+  with thousands separators (`"$1,234.56"`, `"$0.00"`), via
+  `.toLocaleString(undefined, {minimumFractionDigits:2,
+  maximumFractionDigits:2})`, non-finite input defaulting to `0` rather
+  than throwing/`NaN`-displaying. Replaces roughly 20 separate display
+  sites that had each grown their own ad hoc formatting (`.toFixed(2)`
+  strings with no thousands separator, `.toLocaleString()` with no
+  decimal-place floor, or a bare template-literal `` `$${n}` `` with no
+  rounding at all) across: Catalog/Sets/Rolls cards, Browse detail's Share
+  button text, Overview's Value/Sale Price rows, Purchase Details' Total/
+  Cost/Shipping rows, `buildSetChildRow()`'s child facts line, Wishlist's
+  grid item price/share text/detail meta/purchase summary, Ledger's coin
+  search and exit-history sale-price columns, Add Coin's live flip corner
+  reverse-side price display, and Add Set's purchase-row summary.
+- **`formatMoney()` (the old Ledger/Stats-only helper) is REMOVED
+  entirely**, not just superseded — it rounded to whole dollars
+  (`Math.round`, no cents at all), which is exactly the inconsistency this
+  cleanup exists to close. All 4 of its call sites in `renderStats()` now
+  use `formatCurrency()` instead, so Ledger's totals show cents like every
+  other dollar figure in the app, for the first time.
+- **Deliberately left UNCHANGED**: every `roundToCents()`-populated
+  Edit-form `<input type="number">` value (`browseEditValue`,
+  `editSetValue`, Add Coin's/Add Set's own value inputs) — a formatted
+  `"$1,234.56"` STRING is not a valid value for a number input, so these
+  correctly stay raw numbers; `roundToCents()` itself is untouched, still
+  serving its original "round when populating a numeric form field" job,
+  a genuinely different job from `formatCurrency()`'s "render as display
+  text." Also unchanged: Mintage's own `.toLocaleString()` displays (not a
+  currency value) and denomination code strings like `"$1"` (a label, not
+  a computed figure).
+
+**Verified headless — every affected suite's stale exact-string assertions
+were updated to the new 2-decimal format, following a real, deliberate
+design change, not weakened**: `verify_reverse_face_and_set_flip.js`
+(`"$620"` → `"$620.00"`, `"Cost$800"` → `"Cost$800.00"`,
+`"Cost$620"` → `"Cost$620.00"`), `verify_stats_live_data.js`
+(`formatMoney()`'s old whole-dollar `"$12"`/`"$57"` → `formatCurrency()`'s
+`"$12.34"`/`"$56.78"`, matching the test's own synthetic coin's exact
+cost/value with no faceValue set, so the floor is confirmed a no-op there),
+`verify_status_exit.js` (`"$690"` → `"$690.00"`, `"$0"` → `"$0.00"`).
+`verify_addcoin_phase1.js`'s A9 block and
+`verify_splash_and_album_prefetch.js`'s Block B / GEN block were fixed per
+the test-isolation finding above, each restored to its original, narrower
+intent rather than weakened to tolerate the new cross-cutting background
+activity. **Full regression re-run clean: 1441 assertions across all 33
+suites, zero failures, zero page errors** — this includes both Part A's
+Docket-badge-gating fix and Part B's floor/formatting changes exercised
+together, since every suite shares the same page load the splash fix now
+gates.
+- **Not verified: any real device.** Per the task's own explicit
+  instruction, this needs a live-device pass confirming (Part A) no more
+  gap between the cabinet appearing and the Docket badge populating with
+  its real count, and (Part B) a real low-value coin (e.g. a cent whose
+  stored Value is blank or sub-cent) displaying/counting at its
+  1-cent floor, alongside a Stats total, both showing two decimal places
+  — **and specifically whether `FaceValue` is in fact the real All-sheet
+  column name**, which this environment cannot confirm on its own.
+
+### Graph auth: a persistent silent failure now escalates to a real redirect (BUILT and merged to main)
+Live-blocking regression from the splash-gating Bug A fix (see "Splash +
+Album prefetch: three live-device fixes" above): Ray hit "Couldn't
+connect," and Retry never helped, no matter how many times he clicked it.
+
+**Root cause, diagnosed rather than guessed at, and confirmed as the
+correct mechanism once traced.** Bug A's own fix
+(`shouldStartInteractiveRedirect()`) correctly narrowed which
+`acquireTokenSilent()` failures deserve a real interactive redirect — with
+a cached account present, only a confirmed `InteractionRequiredAuthError`
+does; anything else (a transient cache/network hiccup) is treated as "no
+answer yet, try again." That's the right call for a genuine one-off blip.
+**But the rule has no memory** — it re-evaluates the exact same way on
+every single call, so a failure that ISN'T one-off (a silent-iframe
+failure, e.g. a `BrowserAuthError` like `monitor_window_timeout` — common
+on mobile Chrome when third-party cookies are restricted) repeats
+identically forever. The splash's own retry loop calls `acquireGraphToken()`
+(via `ensureLiveNavDataFetch()`/`loadDocketQueue()`) every
+`SPLASH_RETRY_INTERVAL_MS` for up to `SPLASH_DATA_TIMEOUT_MS` — so this
+produces an infinite silent-fail loop that never reaches the one thing
+that would actually work: a real `acquireTokenRedirect()`. Retry just
+restarts the identical doomed loop, since nothing about clicking it
+changes what `acquireTokenSilent()` keeps throwing.
+
+**No real-device console log was available to confirm the exact MSAL
+error class** — this sandbox can never load real MSAL (`graphMsalInstance`
+is always `null` here, same standing limitation Bug A's own fix already
+carries), so the mechanism is diagnosed from the code's own logic rather
+than a captured stack trace. The fix below is built to be correct
+REGARDLESS of which specific non-`InteractionRequiredAuthError` MSAL
+throws — it doesn't special-case `monitor_window_timeout` or any other
+particular error class, so it holds even if the real error turns out to
+be something else entirely.
+
+**Fix: a failure-count ceiling on the "retry silently" branch
+specifically**, layered on top of `shouldStartInteractiveRedirect()`
+rather than replacing it — that function's own immediate-escalation rule
+(missing account, or a confirmed `InteractionRequiredAuthError`) is
+untouched and still fires instantly, unaffected by any of this.
+- **New `shouldEscalateAfterSilentFailures(hasAccount, error,
+  InteractionRequiredAuthErrorClass, silentFailureCount)`** — pure and
+  directly testable, same reasoning as `shouldStartInteractiveRedirect()`
+  itself. Defers to that function first (its own immediate-escalation
+  cases pass straight through); only when it says "retry silently" does
+  the new ceiling apply: `silentFailureCount >=
+  GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD` also escalates.
+- **`GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD = 3`** — small enough to
+  rule out a genuine one-off blip (the exact case `shouldStartInteractiveRedirect()`'s
+  "retry silently" branch exists to absorb) without leaving the user stuck
+  for long: at the splash's own 400ms retry interval, 3 consecutive
+  failures is ~1.2s into a boot attempt, comfortably inside the 5s display
+  ceiling. Chosen, not derived — worth revisiting if a live pass shows it
+  firing too eagerly or too slowly.
+- **New `graphSilentFailureCount`**, a module-level counter alongside
+  `graphTokenInFlight`/`graphRedirectStarted`. Incremented in
+  `acquireGraphToken()`'s catch block only when `shouldStartInteractiveRedirect()`
+  itself says "retry silently" (an immediate-escalation case doesn't need
+  the ceiling and shouldn't inflate it); reset to `0` on any real
+  `acquireTokenSilent()` success (a coin that recovers mid-streak must not
+  carry a stale count into a later, unrelated failure streak); reset again
+  once an escalation actually fires (defensive — `graphRedirectStarted`
+  already prevents a second redirect on top of it, so this is belt-and-
+  braces, not load-bearing).
+- **Deliberately NOT tied to `runSplashConnect()`/Retry in any way — no
+  reset on a new invocation.** The counter is a property of the shared
+  token-acquisition choke point (`acquireGraphToken()`), not the splash
+  specifically, so it keeps accumulating across repeated calls regardless
+  of which feature is driving them. This is what satisfies the real
+  requirement: a persistent failure trips the ceiling **within a single
+  boot/Retry attempt** on its own (3 failures well inside the 5s window),
+  never requiring the user to click Retry a specific number of times to
+  slowly build up a count across separate invocations. A page reload (not
+  just a Retry click) still clears it for free, same as every other
+  module-level auth-state variable in this file — that's ordinary JS
+  module-state lifetime, not something this fix manages explicitly.
+- **`__resetGraphTokenStateForTest()` now also clears
+  `graphSilentFailureCount`**, alongside the two variables it already
+  reset.
+
+**Not `monitor_window_timeout`-specific, and deliberately not scoped
+narrower than "any non-`InteractionRequiredAuthError` failure with an
+account present."** Special-casing one MSAL `BrowserAuthError` subtype
+would have meant guessing at exactly which error Ray's device throws
+without a confirmed log — the ceiling instead treats every persistent
+failure of that general shape the same way, so it's correct whether the
+real cause turns out to be `monitor_window_timeout`, a different
+silent-iframe failure, or something else again.
+
+**Verified headless — new committed suite
+`tests/verify_graph_auth_escalation.js` (13 assertions), all passing;
+1454 across 34 suites, zero failures, zero page errors.** Covers
+`shouldEscalateAfterSilentFailures()` in isolation across every branch
+(missing account always escalates regardless of count; a confirmed
+`InteractionRequiredAuthError` always escalates regardless of count; a
+non-`InteractionRequiredAuthError` failure with an account present does
+NOT escalate below the threshold — the one-off-blip case the original
+Bug A rule exists to protect — but DOES escalate at and past it); a
+**negative control reproducing the exact reported symptom** — driving
+`shouldStartInteractiveRedirect()` ALONE (the pre-fix decision, with no
+failure-count widening) repeatedly and confirming it never escalates a
+persistent failure no matter how many times it's called, proving the
+positive assertions exercise a real fix and not a restatement of the old
+rule; and a sandbox-limitation acknowledgment block — confirming
+`graphMsalInstance` is genuinely `null` here (documenting WHY the real
+`acquireGraphToken()` catch-block integration, the counter actually
+incrementing and calling `acquireTokenRedirect()`, cannot be driven
+end-to-end from this environment, same standing limitation
+`shouldStartInteractiveRedirect()`'s own Bug A coverage already carries)
+plus regression checks that `acquireGraphToken()` still resolves to
+`null` immediately with no MSAL instance and that
+`__resetGraphTokenStateForTest()` is still callable without throwing.
+- **Not verified: the actual live fix.** This is the same acknowledged gap
+  Bug A's own fix carried, now inherited by its follow-up: the real
+  integration (a genuinely repeating `acquireTokenSilent()` failure on
+  Ray's own device actually escalating to a real `acquireTokenRedirect()`
+  after 3 attempts, and that redirect actually resolving his "Couldn't
+  connect") needs his own live-device pass — this environment can only
+  verify the pure decision logic in isolation. **If it's still reproducible
+  after this fix, the most useful next artifact is a real console log of
+  the actual thrown error** (its `errorCode`/`name`) — that would let a
+  follow-up either confirm the diagnosis directly or reveal a different
+  mechanism entirely (e.g. a genuinely-expired refresh token that MSAL
+  itself should be classifying as `InteractionRequiredAuthError` but
+  isn't, which would point at a different fix).
+
+**SUPERSEDED — this was investigating the wrong layer.** A direct A/B
+test (Ray switched GitHub Pages' deploy source from this branch to `main`,
+no other change) made "Couldn't connect"/Retry-does-nothing disappear
+completely. `main` has none of this branch's splash-gating code at
+all — not the `handleRedirectPromise()` race fix, not the
+`InteractionRequiredAuthError` distinction, not this escalation-threshold
+fix, and (the actual culprit) not the Docket-badge gate either — so
+NONE of it can be the real cause; the escalation-threshold work above is
+kept as a real, independently-justified improvement (a persistent silent
+auth failure genuinely should escalate eventually), but it was not what
+Ray was hitting. See "Splash: the Docket queue can no longer block the
+whole app" below for the confirmed regression and its fix.
+
+### Splash: the Docket queue can no longer block the whole app (BUILT and merged to main)
+The actual regression behind "Couldn't connect," Retry-does-nothing —
+found by direct investigation of the one substantial thing this branch's
+splash flow adds that `main` doesn't have at all: `docketQueueReady()`/
+`loadDocketQueue()` (the Docket-badge gap fix, see that section above).
+
+**Root cause.** That fix folded `docketQueueReady()` into the SAME hard
+`Promise.all([ensureLiveNavDataFetch(), docketQueueReady()])` gate
+`ensureLiveNavDataFetch()` already had, reasoning "both are genuinely part
+of is-the-app-ready, so one unified gate is simpler than racing two
+independent timers." **That reasoning was wrong, and is what this fix
+corrects.** The Docket badge (a fob count) is comparatively low-stakes —
+nothing Catalog, Browse, Add Coin, or any other real feature depends on
+it — but folding it into the hard gate meant a persistently failing or
+hung `_Docket/docket.json` request could block the ENTIRE APP behind the
+splash forever. Two concrete ways that request can fail this way, either
+one fully explaining the symptom without requiring a device log to
+confirm: (a) a genuinely hung `fetch()` — this codebase has no
+`AbortController`/timeout anywhere, so a request that never gets a
+response never resolves `loadDocketQueue()`'s promise, which means
+`Promise.all(...)` itself never resolves, which means `attempt()`'s own
+`.then()` never fires to schedule a retry — the whole loop silently stalls
+on its very first attempt until the unrelated outer 5s timer fires; or (b)
+a deterministic parse/shape failure against Ray's REAL `_Docket/docket.json`
+content (this project has real precedent for exactly this class of bug —
+see "The AllCoins table is 987 rows longer than its data" and the
+SpotValue/Total formula-flattening incident elsewhere in this file) —
+`res.json()` throwing on malformed JSON is caught and returns `null`
+cleanly (not a hang), but since the SAME broken file is read identically
+on every retry, `docketQueueReady()` returns `false` on every single
+attempt within the window, exhausting the full 5s just as surely as a
+genuine hang would, and Retry repeats the identical failure forever since
+nothing about clicking it changes what's wrong with that one file. Either
+mechanism produces the exact reported symptom and the exact reason Retry
+never helps; both are fixed by the same change.
+
+**Fix: give the Docket half its own, shorter, non-blocking grace
+period — `SPLASH_DOCKET_GRACE_MS` (2000ms) — raced against the real
+`docketQueueReady()` call, via a new `docketQueueReadyWithGrace()`.**
+Whichever settles first wins; the timeout side always resolves `true`
+("proceed without it"), never `false`. `Promise.all([ensureLiveNavDataFetch(),
+docketQueueReadyWithGrace()])` now only ever waits on the Docket half for
+up to 2s — after that, the splash's hide/retry decision depends on
+`ensureLiveNavDataFetch()` (the app's actual real data) alone, exactly
+the same "additive, must never block the rest of the app" rule
+`ensureLiveNavDataFetch()` itself already applies to Photos/Receipts/
+Albums.
+- **The real fetch is NOT aborted or cancelled** — `loadDocketQueue()`
+  keeps running in the background exactly as before (it already has its
+  own in-flight dedup, so racing it costs nothing extra); if it does
+  eventually resolve, `LIVE_DOCKET_QUEUE` gets populated for real and
+  `updateDocketFob()`'s own existing mechanism — already fired once at
+  launch via `renderNeedsAttentionHub()`, completely independent of the
+  splash — shows the real count whenever/if that lands, same as it always
+  has.
+- **The common/working case is unaffected in practice.** A normal Graph
+  GET is typically well under 1s, comfortably inside the 2s grace window,
+  so the Docket badge stays synchronized with the cabinet appearing —
+  preserving the whole point of the original Docket-badge-gap fix — for
+  every ordinary boot. Only a genuinely broken/hung request now degrades
+  gracefully instead of blocking forever.
+- **2000ms was chosen, not derived**: long enough that a normal request
+  lands inside it in the ordinary case: short enough that a broken one
+  can't meaningfully delay the app, and comfortably inside the outer 5s
+  ceiling with room for at least one more retry if `ensureLiveNavDataFetch()`
+  itself is still the slow half. Worth revisiting after a live pass if it
+  turns out too tight or too generous.
+- **`docketQueueReady()` itself is untouched** — same function, same
+  "feature off = immediately ready" / "empty first-run docket = a real,
+  cacheable, non-null answer" rules as before. Only how the splash's
+  `attempt()` USES its result changed.
+
+**The diagnostic-detail work from the same dispatch is kept, per the
+task's own instruction — still useful for confirming the next live-device
+pass, even though it wasn't what surfaced this particular root cause**
+(that came from direct code investigation prompted by the A/B test, not
+from a captured error string). `#splashErrorDetail` (a `<pre>`, small
+monospace text under the existing friendly message, never replacing it)
+shows a real technical dump whenever the error box appears:
+- **`liveNavDataDiagnostics`** (keyed by sheet name: `All`, `DB_Sets`,
+  `DB_Coins`, `Lookup_MetalContent`, `Lookup_Graders`, `Photos`,
+  `Receipts`, `Albums`, `Wishlist`) — each entry is `pending` (set at the
+  very top of `fetchWorkbookSheetRows()`, before anything is awaited, so a
+  request that never resolves at all shows up honestly as "still in
+  flight" instead of silently keeping a stale success from an earlier,
+  faster attempt), `no-token`, `http-error` (with the real status code),
+  `exception` (with the real caught message), or `ok` (with the real row
+  count).
+- **`liveNavDataProcessingError`** — set only when every individual sheet
+  fetch already succeeded but the `Promise.all(...).then(...)` processing
+  block in `ensureLiveNavDataFetch()` (the mapping/join logic building
+  `LIVE_COINS` etc.) then throws. This is the "got data back but it was
+  malformed" case the diagnostic task specifically asked to distinguish —
+  an unexpected real-data shape choking a mapper function, e.g. Cleared at
+  the top of every genuinely new fetch attempt.
+- **`docketQueueDiagnostic`** — the same shape for the single
+  `_Docket/docket.json` fetch, with an added `disabled` kind for the
+  (expected, not-a-failure) case where the write layer itself is off.
+  `RealGraphClient.getJson()` throws one of exactly three distinguishable
+  message shapes (`"Write layer unavailable."` / `"GET json ... failed:
+  <status>"` / a raw network exception) — parsed into the same
+  `no-token`/`http-error`/`exception` vocabulary rather than re-deriving a
+  second token check.
+- **`buildSplashDiagnosticText()`** builds the headline classification —
+  distinguishing exactly the three cases the diagnostic task asked for
+  ("never got a token at all" / "got a token but the request(s) failed" /
+  "got data back but it was malformed"), plus a fourth signal worth having
+  ("at least one request is still pending/hung") — followed by the
+  per-sheet + Docket-queue dump. `ENABLE_LIVE_NAV_DATA` being off is
+  checked too, though it can't be exercised at runtime (a hardcoded `const
+  true` by design, per "Real-Graph flags always on") — covered by a
+  source-text guard instead of a live override.
+- The `?splashError=1` dev-only demo toggle gets its own honest detail
+  text ("no real fetch was attempted") rather than showing a stale or
+  misleading dump, since that path never runs a real fetch at all.
+
+**Verified headless — new committed suite
+`tests/verify_splash_docket_regression.js` (26 assertions), all passing;
+1480 across all 35 suites, zero failures, zero page errors.** Covers: the
+grace constant's sanity (positive, shorter than the outer ceiling, a
+reasonable share of the 5s budget); **the actual fix, driven through the
+real `runSplashConnect()`** with `ensureLiveNavDataFetch()` stubbed to
+succeed immediately and `loadDocketQueue()` stubbed to never resolve (the
+worst case) — confirming the splash genuinely hides well inside the grace
+window rather than sitting blocked for the full 5s, with the error box
+never shown; a **negative control** reproducing the exact pre-fix hard-gate
+formula against the identical stubbed functions, confirming that formula
+genuinely never resolves within the same window (proving the positive
+assertions exercise a real fix, not a tautology, and reproducing the exact
+reported hang); every `describeDiagnosticEntry()` shape; `buildSplashDiagnosticText()`'s
+headline classification for all three requested cases plus the pending/hang
+signal, each verified against its own real per-sheet dump; the
+`ENABLE_LIVE_NAV_DATA` source-text guard; the `?splashError=1` demo path's
+honest "nothing real was attempted" text, driven end-to-end; and a nav/
+overflow smoke check. New test-only setter seams
+(`__setLiveNavDataDiagnosticsForTest`, `__setLiveNavDataProcessingErrorForTest`,
+`__setDocketQueueDiagnosticForTest`) mirror the existing getters, since
+these diagnostics live in module-scoped `let`/`const` bindings a test can't
+reach any other way.
+- **Not verified: any real device.** This directly addresses a confirmed
+  live-blocking issue, so — per the standing rule for exactly this class of
+  fix — it needs Ray's own live-device pass before merge, same as every
+  other item still held on this branch. Worth specifically confirming: (1)
+  the app genuinely becomes usable now even if the Docket badge itself
+  stays at a stale/zero count for a beat; (2) whether `docket.json`'s real
+  content or the folder path turns out to be the deeper issue, in which
+  case the diagnostic detail text (still shown if the OVERALL 5s ceiling is
+  ever hit for some other reason) is what would confirm which of the two
+  hypothesized mechanisms (hang vs. malformed content) it actually was.
+
+### Albums: variety-label bug fix, rounded Mintage, "Included" for shared figures (BUILT and merged to main)
+Three related Albums-book-view fixes/additions, all previously scoped with
+Ray. Held on the same branch, same "awaiting live-device confirmation"
+standing as everything else on it.
+
+**1. BUG — the variety label was accidentally coupled to key-date
+status.** `renderSlotCell()`'s `.slot-variety` line — "VDB" under a 1909-S
+Lincoln cent, "Micro S" under a 1945-S — used to render only when
+`slot.keyDate && slotVariety(slot)` were BOTH true, gating a variety's
+visibility on a completely unrelated fact about the same coin. Real
+example this hid: a "Doubled Die" or "Micro S" variety on a date the
+workbook doesn't (or shouldn't) flag as a key/semi-key date never showed
+its variety label at all, even though the slot genuinely has one. **Fixed
+by dropping the `slot.keyDate` half of the condition entirely** — the line
+now shows whenever `slotVariety(slot)` is truthy, full stop. **The
+key-date star badge itself (`.key-date-badge`, the separate `<span>` a few
+lines below) is completely untouched** — same correctly-working mechanism,
+it only ever shared this one gating condition by coincidence, not by
+design.
+
+**2. NEW — rounded Mintage display, Albums book view ONLY.** Mimics Ray's
+physical Littleton folders, which print a rounded figure for a large
+mintage rather than the full digit string:
+- `>= 1,000,000` → one decimal place + `" Million"` (175,090,000 → `"175.1
+  Million"`; the boundary itself, exactly 1,000,000, belongs to this
+  branch too — `"1.0 Million"`, not `"1,000,000"`).
+- `< 1,000,000` → the exact figure, comma-formatted, completely unchanged.
+- **Scoped to `renderSlotCell()`'s one call site alone** — every other
+  mintage display in the app (Browse detail, Catalog's candidate pickers,
+  Set Details facts, the ambiguous-match picker) reads through its own
+  separate `.toLocaleString()` call, confirmed via source search before
+  touching anything, and keeps showing the exact researched figure
+  unchanged.
+- **New `formatAlbumMintage(mintage)`** does the rounding/formatting;
+  `slotMintage(slot)` (already the one function resolving a slot's Mintage
+  via its CoinID, through `activeDbCoins()`) now returns a small shape —
+  `null` when there's genuinely nothing to show (no catalog match, or a
+  match with neither a real Mintage nor the Inclusive flag below), or
+  `{ inclusive: false, value: <number> }` / `{ inclusive: true, value: null
+  }` otherwise — rather than a bare number, so `formatAlbumMintage()` has
+  what it needs without re-querying the catalog a second time.
+
+**3. NEW — `DB_Coins.MintageInclusive="Y"` displays as the plain word
+"Included," replacing the number entirely.** A new, real workbook column
+(Copilot-populated, 94 rows flagged `"Y"`, positioned next to Mintage —
+cosmetic reordering only, `colVal()` reads by header name so this needed
+no code change on its own) marking a CoinID whose Mintage figure is
+**copied from its parent date/mint** rather than a genuinely distinct,
+separately-published total — die varieties/designations the Mint never
+tallied on their own (1945-S Micro S, 1942/41 overdates, Mercury FB
+designations, 1982 cent variants), as opposed to something like 1909 VDB,
+which has its own real distinct total.
+- **`mapWorkbookRowToDbCoin()` gained `mintageInclusive`**, read via
+  `colVal(row, "MintageInclusive")` like every other real DB_Coins field —
+  a blank cell or a row with no such column at all both map cleanly to
+  `""`, never a throw.
+- **The inclusive flag is checked FIRST and wins outright**, independent
+  of whatever numeric Mintage value also happens to be stored alongside it
+  (Copilot's real backfill populates both columns — the number isn't
+  erased, just masked for display) — `slotMintage()` never derives
+  "inclusive" from the number's own magnitude, only from the flag itself.
+  **Self-explanatory on its own, no asterisk or footnote** — matches the
+  underlying reality that the figure is borrowed rather than owned, per
+  Ray's explicit spec.
+- **Independent of the variety label and the key-date star** — a
+  MintageInclusive coin's own variety ("Micro S") and key-date status (if
+  any) render exactly as they would for any other slot; only the Mintage
+  line itself changes.
+
+**Demo data**: `FAKE_ALBUMS`' Lincoln Cents album gained two new slots —
+a non-key-date "Doubled Die" variety (1912-D, a representative stand-in,
+not a claim about a real coin/mintage) demonstrating fix #1, and the real
+named example from the spec, 1945-S Micro S, demonstrating fix #3 — each
+with a matching new `FAKE_DB_COINS` row. The existing 1909-M Lincoln slot
+(mintage 1,825,000) already demonstrated fix #2 without needing new data,
+so the committed suite's own end-to-end fixture is what actually exercises
+the worked 175,090,000 → "175.1 Million" example from the task.
+
+**Verified headless — new committed suite
+`tests/verify_albums_variety_mintage.js` (25 assertions), all passing;
+1505 across all 36 suites, zero failures, zero page errors.** Uses its own
+small, precisely-sized live fixture (6 slots, all confirmed to land on one
+coins page at phone width) rather than the evolving `FAKE_ALBUMS` demo
+album, so every assertion reads from one render with no page-hunting.
+Covers: **the bug fix**, driven through the real render path — a key-date
+slot with a variety still shows both (unchanged), the Doubled Die slot
+(confirmed genuinely NOT flagged key-date) now shows its variety (the
+actual fix), a slot with no variety still shows none either way — **plus a
+negative control** reproducing the exact old `slot.keyDate &&
+slotVariety(slot)` gate inline against the identical slot, confirming it
+would have hidden the variety, proving the fix is real and not a
+tautology; **Million-rounding**, end-to-end through the real render — the
+large-mintage slot rounds to the exact worked example, the small-mintage
+slot stays exact, a no-catalog-match slot still shows no line at all;
+**"Included"**, end-to-end — the flagged slot's Mintage line reads exactly
+`"Included"` while its Variety line still independently shows `"Micro
+S"`, plus a negative control confirming an ordinary large-mintage slot
+with no flag formats as the rounded number, not `"Included"`;
+`formatAlbumMintage()`/`slotMintage()` in isolation, including the
+1,000,000 boundary, the inclusive-flag-wins-over-value rule, a
+no-catalog-match `null`, and an inclusive row with no numeric mintage at
+all still reporting `inclusive:true`; and `mapWorkbookRowToDbCoin()`
+reading a real `"Y"`, a blank cell, and a row with no such column present.
+A nav/overflow smoke check closes it out.
+- **Not verified: any real device.** Per the task's own instruction, needs
+  a live-device pass spot-checking exactly the three named cases: a
+  variety that's NOT a key date, a large-mintage coin, and a
+  MintageInclusive=Y coin like 1945-S Micro S — plus confirming Ray's
+  updated database copy (94 flagged rows, `MintageInclusive` repositioned
+  next to `Mintage`) reads correctly against this build, which this
+  environment has no way to confirm on its own.
+
+**Follow-up (same branch, merged together with everything above): two
+small display corrections from Ray's live-device pass on the build
+above.**
+1. **The `"Mintage "` label prefix is gone** — the slot's mintage line now
+   shows just the value (`formatAlbumMintage(mintage)` alone), e.g.
+   `"175.1 Million"` / `"500,000"` / `"Included"`, no header word. Matches
+   a real folder, which just prints the number under the date with nothing
+   labeling it.
+2. **Render order swapped: variety now renders ABOVE mintage**, not below —
+   `renderSlotCell()`'s markup now emits `varietyLine` before `mintageLine`
+   (was the reverse). Both `.slot-variety`/`.slot-mintage`'s own small
+   negative `margin-top` offsets are generic (pull toward whichever element
+   immediately precedes them), so the swap needed no CSS change — confirmed
+   via screenshot, no overlap or visual regression at either order.
+
+Both are display-only, markup-position/text changes — `slotMintage()`/
+`formatAlbumMintage()`'s own logic (Million-rounding, the "Included"
+rule) is completely unchanged. `verify_albums_variety_mintage.js`'s
+`B1`/`B2`/`C1` assertions and `verify_albums_live_data.js`'s `G3` were
+updated to the new label-less strings, following the real design change
+rather than weakened.
+
+### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
+The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
+"Prev/next stepping at the detail level" above) had exactly three callers —
+`renderBrowseGrid()`, `renderSetsGrid()`, `renderRollsGrid()` — so a coin
+opened from an Album's filled slot never called it, and fell through to
+`browseStepListFallback()`'s plain CollectionID sort instead. Stepping
+through an album this way had no relationship to how the coins are actually
+laid out on the page the user tapped in from.
+
+- **Fix: the album slot-cell click handler now calls
+  `setBrowseStepContext()`** with the album's own FILLED slots, in their
+  existing slot order — `album.slots.filter(s => s.filledBy).map(s =>
+  activeCoins().find(c => c.id === s.filledBy)).filter(Boolean)` — not the
+  whole album including open/unfilled slots, which have no coin to step to.
+  An open slot sitting between two filled ones is simply skipped rather than
+  breaking the chain, since it's filtered out before the id list is ever
+  built.
+- **A real ordering bug found while testing this, not assumed correct on
+  first write**: the obvious placement — calling `setBrowseStepContext()`
+  BEFORE `navigate("browse")` — silently did nothing, because `navigate()`'s
+  own `"browse"` branch renders the Catalog grid internally
+  (`showBrowseTab("coins")` → `renderBrowseGrid()`), which calls
+  `setBrowseStepContext()` itself with the full catalog and overwrote the
+  album-scoped context before `showBrowseDetail(coin)` ever ran. Caught
+  directly by a failing test, not by inspection. Fixed by moving the call to
+  AFTER `navigate("browse")` and before `showBrowseDetail(coin)` — the same
+  ordering every other in-app navigation that also needs step context after
+  entering Browse would need to follow.
+- **No change to the stepping mechanism itself** — `browseStepList()`,
+  `browseStepNeighbour()`, `updateBrowseStepButtons()` are all untouched.
+  This is purely a new SOURCE of the ordered id list, confirmed by the same
+  existing "not in the list → no arrows" / "at either end → that arrow
+  hides" behaviors holding unchanged for this new context.
+
+**Verified headless — 5 new assertions added to
+`tests/verify_phase2_and_retest_batch.js`** (R8–R12, plus a negative
+control; 78 assertions in that suite now, 1441 across all 33 suites, zero
+failures), using a synthetic live album (`buildLiveAlbums()`) with its
+filled slots deliberately OUT of CollectionID order (AY-00003, AY-00001,
+AY-00002) and one open/unfilled slot sitting between the first two filled
+ones, so the test can tell "real slot order" apart from "coincidentally
+already sorted": tapping the album's first filled slot opens its own coin
+with Previous hidden; Next steps AY-00003 → AY-00001 → AY-00002 (not
+CollectionID order, which would go AY-00003 → AY-00004) with the open slot
+skipped rather than breaking the chain; Next hides at the album's last
+filled slot; and Previous steps back through the same order. **Verified
+negative control**: with no step context set at all (simulating the
+pre-fix handler), Next from AY-00003 falls through to plain CollectionID
+order (AY-00004) — confirming the positive assertions depend on the real
+fix, not a coincidence of the demo data's own ordering.
+- **Not verified: any real device.**
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
