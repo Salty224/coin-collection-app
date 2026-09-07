@@ -12598,6 +12598,131 @@ gates.
   — **and specifically whether `FaceValue` is in fact the real All-sheet
   column name**, which this environment cannot confirm on its own.
 
+### Graph auth: a persistent silent failure now escalates to a real redirect (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+Live-blocking regression from the splash-gating Bug A fix (see "Splash +
+Album prefetch: three live-device fixes" above): Ray hit "Couldn't
+connect," and Retry never helped, no matter how many times he clicked it.
+
+**Root cause, diagnosed rather than guessed at, and confirmed as the
+correct mechanism once traced.** Bug A's own fix
+(`shouldStartInteractiveRedirect()`) correctly narrowed which
+`acquireTokenSilent()` failures deserve a real interactive redirect — with
+a cached account present, only a confirmed `InteractionRequiredAuthError`
+does; anything else (a transient cache/network hiccup) is treated as "no
+answer yet, try again." That's the right call for a genuine one-off blip.
+**But the rule has no memory** — it re-evaluates the exact same way on
+every single call, so a failure that ISN'T one-off (a silent-iframe
+failure, e.g. a `BrowserAuthError` like `monitor_window_timeout` — common
+on mobile Chrome when third-party cookies are restricted) repeats
+identically forever. The splash's own retry loop calls `acquireGraphToken()`
+(via `ensureLiveNavDataFetch()`/`loadDocketQueue()`) every
+`SPLASH_RETRY_INTERVAL_MS` for up to `SPLASH_DATA_TIMEOUT_MS` — so this
+produces an infinite silent-fail loop that never reaches the one thing
+that would actually work: a real `acquireTokenRedirect()`. Retry just
+restarts the identical doomed loop, since nothing about clicking it
+changes what `acquireTokenSilent()` keeps throwing.
+
+**No real-device console log was available to confirm the exact MSAL
+error class** — this sandbox can never load real MSAL (`graphMsalInstance`
+is always `null` here, same standing limitation Bug A's own fix already
+carries), so the mechanism is diagnosed from the code's own logic rather
+than a captured stack trace. The fix below is built to be correct
+REGARDLESS of which specific non-`InteractionRequiredAuthError` MSAL
+throws — it doesn't special-case `monitor_window_timeout` or any other
+particular error class, so it holds even if the real error turns out to
+be something else entirely.
+
+**Fix: a failure-count ceiling on the "retry silently" branch
+specifically**, layered on top of `shouldStartInteractiveRedirect()`
+rather than replacing it — that function's own immediate-escalation rule
+(missing account, or a confirmed `InteractionRequiredAuthError`) is
+untouched and still fires instantly, unaffected by any of this.
+- **New `shouldEscalateAfterSilentFailures(hasAccount, error,
+  InteractionRequiredAuthErrorClass, silentFailureCount)`** — pure and
+  directly testable, same reasoning as `shouldStartInteractiveRedirect()`
+  itself. Defers to that function first (its own immediate-escalation
+  cases pass straight through); only when it says "retry silently" does
+  the new ceiling apply: `silentFailureCount >=
+  GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD` also escalates.
+- **`GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD = 3`** — small enough to
+  rule out a genuine one-off blip (the exact case `shouldStartInteractiveRedirect()`'s
+  "retry silently" branch exists to absorb) without leaving the user stuck
+  for long: at the splash's own 400ms retry interval, 3 consecutive
+  failures is ~1.2s into a boot attempt, comfortably inside the 5s display
+  ceiling. Chosen, not derived — worth revisiting if a live pass shows it
+  firing too eagerly or too slowly.
+- **New `graphSilentFailureCount`**, a module-level counter alongside
+  `graphTokenInFlight`/`graphRedirectStarted`. Incremented in
+  `acquireGraphToken()`'s catch block only when `shouldStartInteractiveRedirect()`
+  itself says "retry silently" (an immediate-escalation case doesn't need
+  the ceiling and shouldn't inflate it); reset to `0` on any real
+  `acquireTokenSilent()` success (a coin that recovers mid-streak must not
+  carry a stale count into a later, unrelated failure streak); reset again
+  once an escalation actually fires (defensive — `graphRedirectStarted`
+  already prevents a second redirect on top of it, so this is belt-and-
+  braces, not load-bearing).
+- **Deliberately NOT tied to `runSplashConnect()`/Retry in any way — no
+  reset on a new invocation.** The counter is a property of the shared
+  token-acquisition choke point (`acquireGraphToken()`), not the splash
+  specifically, so it keeps accumulating across repeated calls regardless
+  of which feature is driving them. This is what satisfies the real
+  requirement: a persistent failure trips the ceiling **within a single
+  boot/Retry attempt** on its own (3 failures well inside the 5s window),
+  never requiring the user to click Retry a specific number of times to
+  slowly build up a count across separate invocations. A page reload (not
+  just a Retry click) still clears it for free, same as every other
+  module-level auth-state variable in this file — that's ordinary JS
+  module-state lifetime, not something this fix manages explicitly.
+- **`__resetGraphTokenStateForTest()` now also clears
+  `graphSilentFailureCount`**, alongside the two variables it already
+  reset.
+
+**Not `monitor_window_timeout`-specific, and deliberately not scoped
+narrower than "any non-`InteractionRequiredAuthError` failure with an
+account present."** Special-casing one MSAL `BrowserAuthError` subtype
+would have meant guessing at exactly which error Ray's device throws
+without a confirmed log — the ceiling instead treats every persistent
+failure of that general shape the same way, so it's correct whether the
+real cause turns out to be `monitor_window_timeout`, a different
+silent-iframe failure, or something else again.
+
+**Verified headless — new committed suite
+`tests/verify_graph_auth_escalation.js` (13 assertions), all passing;
+1454 across 34 suites, zero failures, zero page errors.** Covers
+`shouldEscalateAfterSilentFailures()` in isolation across every branch
+(missing account always escalates regardless of count; a confirmed
+`InteractionRequiredAuthError` always escalates regardless of count; a
+non-`InteractionRequiredAuthError` failure with an account present does
+NOT escalate below the threshold — the one-off-blip case the original
+Bug A rule exists to protect — but DOES escalate at and past it); a
+**negative control reproducing the exact reported symptom** — driving
+`shouldStartInteractiveRedirect()` ALONE (the pre-fix decision, with no
+failure-count widening) repeatedly and confirming it never escalates a
+persistent failure no matter how many times it's called, proving the
+positive assertions exercise a real fix and not a restatement of the old
+rule; and a sandbox-limitation acknowledgment block — confirming
+`graphMsalInstance` is genuinely `null` here (documenting WHY the real
+`acquireGraphToken()` catch-block integration, the counter actually
+incrementing and calling `acquireTokenRedirect()`, cannot be driven
+end-to-end from this environment, same standing limitation
+`shouldStartInteractiveRedirect()`'s own Bug A coverage already carries)
+plus regression checks that `acquireGraphToken()` still resolves to
+`null` immediately with no MSAL instance and that
+`__resetGraphTokenStateForTest()` is still callable without throwing.
+- **Not verified: the actual live fix.** This is the same acknowledged gap
+  Bug A's own fix carried, now inherited by its follow-up: the real
+  integration (a genuinely repeating `acquireTokenSilent()` failure on
+  Ray's own device actually escalating to a real `acquireTokenRedirect()`
+  after 3 attempts, and that redirect actually resolving his "Couldn't
+  connect") needs his own live-device pass — this environment can only
+  verify the pure decision logic in isolation. **If it's still reproducible
+  after this fix, the most useful next artifact is a real console log of
+  the actual thrown error** (its `errorCode`/`name`) — that would let a
+  follow-up either confirm the diagnosis directly or reveal a different
+  mechanism entirely (e.g. a genuinely-expired refresh token that MSAL
+  itself should be classifying as `InteractionRequiredAuthError` but
+  isn't, which would point at a different fix).
+
 ### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
 The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
 "Prev/next stepping at the detail level" above) had exactly three callers —

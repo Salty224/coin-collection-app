@@ -4944,6 +4944,48 @@
     return !!(InteractionRequiredAuthErrorClass && error instanceof InteractionRequiredAuthErrorClass);
   }
 
+  // Bug A FOLLOW-UP (live-blocking regression, real-device report): the rule
+  // above alone can loop forever. shouldStartInteractiveRedirect() is
+  // correct for a genuine ONE-OFF silent hiccup (a transient cache/network
+  // blip with an account present) — but it has no memory, so the SAME
+  // non-InteractionRequiredAuthError failure repeating on every single
+  // acquireGraphToken() call never escalates to the one thing that would
+  // actually fix a PERSISTENT case: a real interactive redirect. The
+  // splash's own retry loop calls acquireGraphToken() (via
+  // ensureLiveNavDataFetch()/loadDocketQueue()) every SPLASH_RETRY_INTERVAL_MS,
+  // so a persistent silent-acquisition failure (e.g. a silent-iframe
+  // failure — a BrowserAuthError like monitor_window_timeout, common on
+  // mobile Chrome when third-party cookies are restricted) produces an
+  // infinite silent-fail loop: "Couldn't connect," and Retry just restarts
+  // the identical doomed loop, since nothing about hitting Retry changes
+  // what acquireTokenSilent() keeps throwing.
+  //
+  // Fix: widen the escalation rule with a failure-count ceiling on the
+  // "retry silently" branch specifically — after
+  // GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD CONSECUTIVE such failures,
+  // escalate anyway, same as a missing account or a confirmed
+  // InteractionRequiredAuthError already does. 3 was chosen as enough to
+  // rule out a genuine one-off blip (the exact case this branch exists to
+  // absorb) without leaving the user stuck for long — at the splash's own
+  // 400ms retry interval that's ~1.2s into a boot attempt, comfortably
+  // inside its 5s display ceiling, so a persistent failure escalates within
+  // a SINGLE boot/Retry click rather than needing several. The counter is
+  // intentionally NOT tied to runSplashConnect()/Retry in any way (no reset
+  // on a new invocation) — it's a property of the shared token-acquisition
+  // choke point, not the splash specifically, so it keeps accumulating
+  // across repeated calls regardless of which feature is driving them, and
+  // a persistent failure trips the ceiling on its own without requiring the
+  // user to click Retry a specific number of times.
+  //
+  // Pure and directly testable, same reasoning as shouldStartInteractiveRedirect()
+  // itself — this sandbox can never load real MSAL to exercise
+  // acquireGraphToken() end-to-end.
+  const GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD = 3;
+  function shouldEscalateAfterSilentFailures(hasAccount, error, InteractionRequiredAuthErrorClass, silentFailureCount) {
+    if (shouldStartInteractiveRedirect(hasAccount, error, InteractionRequiredAuthErrorClass)) return true;
+    return silentFailureCount >= GRAPH_SILENT_FAILURE_ESCALATION_THRESHOLD;
+  }
+
   // Serialized token acquisition. Several features (and, within live nav
   // data alone, four parallel sheet fetches) can ask for a token in the
   // same tick; without this they would each independently reach the
@@ -4953,6 +4995,11 @@
   // initiated at most once per page load.
   let graphTokenInFlight = null;
   let graphRedirectStarted = false;
+  // Consecutive non-InteractionRequiredAuthError silent failures (an account
+  // WAS present) — see shouldEscalateAfterSilentFailures() above. Reset on
+  // any real success; NOT reset by a new runSplashConnect()/Retry call, by
+  // design (see that function's own comment).
+  let graphSilentFailureCount = 0;
   function acquireGraphToken() {
     if (!graphMsalInstance) return Promise.resolve(null); // MSAL didn't load, or every feature is off
     if (graphTokenInFlight) return graphTokenInFlight;
@@ -4964,12 +5011,21 @@
         await graphRedirectHandledPromise;
         const account = graphMsalInstance.getAllAccounts()[0];
         const result = await graphMsalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+        graphSilentFailureCount = 0; // a real success clears any accumulated silent-failure streak
         return result.accessToken;
       } catch (e) {
         const hasAccount = graphMsalInstance.getAllAccounts().length > 0;
         const InteractionRequiredAuthErrorClass = typeof msal !== "undefined" ? msal.InteractionRequiredAuthError : undefined;
-        if (shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass) && !graphRedirectStarted) {
+        // Only count a genuine "retry silently" verdict — an immediate-
+        // escalation case (missing account, or a confirmed
+        // InteractionRequiredAuthError) doesn't need the ceiling and
+        // shouldn't inflate it.
+        if (!shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass)) {
+          graphSilentFailureCount++;
+        }
+        if (shouldEscalateAfterSilentFailures(hasAccount, e, InteractionRequiredAuthErrorClass, graphSilentFailureCount) && !graphRedirectStarted) {
           graphRedirectStarted = true;
+          graphSilentFailureCount = 0;
           graphMsalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
         }
         return null; // callers treat null as "no answer yet", never as an error
@@ -4979,7 +5035,7 @@
     })();
     return graphTokenInFlight;
   }
-  function __resetGraphTokenStateForTest() { graphTokenInFlight = null; graphRedirectStarted = false; } // test-only seam
+  function __resetGraphTokenStateForTest() { graphTokenInFlight = null; graphRedirectStarted = false; graphSilentFailureCount = 0; } // test-only seam
 
   // Per-feature entry points. Each keeps its OWN flag check — that's what
   // actually enforces "this feature may not touch Graph", now that the
