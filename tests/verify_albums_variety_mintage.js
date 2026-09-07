@@ -145,8 +145,8 @@ module.exports = defineSuite("albums-variety-mintage", async ({ ok, openApp, PHO
     __setLiveDbCoinsForTest(null);
     return result;
   }, fixture);
-  ok(B.big === "Mintage 175.1 Million", "B1 a large mintage (175,090,000) rounds to one decimal + \" Million\" — matches the exact worked example from the task");
-  ok(B.small === "Mintage 500,000", "B2 a mintage under 1,000,000 (500,000) still shows the exact comma-formatted figure, unrounded");
+  ok(B.big === "175.1 Million", "B1 a large mintage (175,090,000) rounds to one decimal + \" Million\" — matches the exact worked example from the task (no \"Mintage\" label prefix, per Ray's follow-up correction)");
+  ok(B.small === "500,000", "B2 a mintage under 1,000,000 (500,000) still shows the exact comma-formatted figure, unrounded");
   ok(B.noMatch === "(no mintage line)", "B3 a slot with no DB_Coins match at all still shows no mintage line, unchanged");
 
   // ================================================================
@@ -171,7 +171,7 @@ module.exports = defineSuite("albums-variety-mintage", async ({ ok, openApp, PHO
     __setLiveDbCoinsForTest(null);
     return result;
   }, fixture);
-  ok(C.mintageText === "Mintage Included", "C1 a MintageInclusive=\"Y\" row shows the word \"Included\" in place of any number — the exact 1945-S Micro S example named in the task");
+  ok(C.mintageText === "Included", "C1 a MintageInclusive=\"Y\" row shows the word \"Included\" in place of any number — the exact 1945-S Micro S example named in the task (no \"Mintage\" label prefix)");
   ok(C.varietyText === "Micro S", "C2 the variety label (a completely independent field) still shows normally on the same slot — MintageInclusive doesn't affect it");
 
   // Negative control — a coin with a large mintage and NO inclusive flag

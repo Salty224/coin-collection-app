@@ -16744,8 +16744,12 @@
     // not about hiding a distinguishing variety.
     const varietyLine = slotVariety(slot) ? `<div class="slot-variety">${slotVariety(slot)}</div>` : "";
 
+    // Ray's follow-up correction: drop the "Mintage" label prefix — the
+    // figure (rounded/"Included" per formatAlbumMintage()) speaks for
+    // itself on the slot; no header word needed, matching how a real
+    // folder just prints the number under the date.
     const mintage = slotMintage(slot);
-    const mintageLine = mintage ? `<div class="slot-mintage">Mintage ${formatAlbumMintage(mintage)}</div>` : "";
+    const mintageLine = mintage ? `<div class="slot-mintage">${formatAlbumMintage(mintage)}</div>` : "";
 
     return `
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
@@ -16754,8 +16758,8 @@
           ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
         </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
-        ${mintageLine}
         ${varietyLine}
+        ${mintageLine}
         ${metaLine}
       </div>
     `;

@@ -12262,14 +12262,32 @@ own images before ever painting the book.
   his own connection — flagged as an explicit, expected follow-up, not a
   gap in this pass.
 
-### Splash + Album prefetch: three live-device fixes (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+### Splash + Album prefetch: three live-device fixes (BUILT and merged to main)
+**Merge status: confirmed and merged.** Everything from this section
+through "Albums: variety-label bug fix, rounded Mintage, 'Included' for
+shared figures" below (five sections in total — the splash/album-prefetch
+bug fixes, the Docket-badge grace-period fix + Value floor/currency
+formatting, the graph-auth escalation-threshold fix, the confirmed Docket
+regression fix, and the Albums variety/Mintage display work) was built
+across several rounds on `claude/code-primer-u8uv1d` and held pending a
+live-device pass. Ray confirmed live: the Docket-badge ~3s lag is the
+accepted, designed tradeoff of the grace-period fix (not a bug, no further
+work needed); the Value floor + two-decimal currency formatting; the album
+next/prev coin-order arrows; and the album image prefetch/population
+("great now") are all working correctly, and gave explicit go-ahead to
+merge the whole branch. Two small Albums display corrections (the
+"Mintage" label prefix removed, variety/mintage render order swapped —
+see that section's own follow-up note) landed in the same merge. **`main`
+is now the source of truth for all of it**, same standing as every other
+merged-after-holding branch in this file — the section headers below are
+kept as "BUILT and merged to main" rather than rewritten, matching the
+convention every other merged branch in this file already follows.
+
 Ray's first real-device pass on the two features just above (splash gating,
 album prefetch) found three real bugs — none of them new features, all of
 them the prior task's own design assumptions turning out wrong once run
 against a genuine signed-in session and a real album. All three are fixed
-here; per the task's own instruction this branch is **held pending Ray's
-live-device confirmation**, same standing as every other "awaiting live
-pass" item in this file.
+here.
 
 **Bug A — the splash hid too early on a real device.** The splash-gating
 section above already changed the gate from "any resolution hides it" to
@@ -12435,7 +12453,7 @@ symptom.
   without flipping, watch images populate in place" pass the task itself
   asked for.
 
-### Splash: Docket badge gap closed; Value floored at face value + one shared currency formatter (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+### Splash: Docket badge gap closed; Value floored at face value + one shared currency formatter (BUILT and merged to main)
 Two independent fixes from the same dispatch — a data-fetch gating gap
 found on the same live-device pass as the three bugs immediately above, and
 a display/formatting cleanup. Neither is architectural; held on the same
@@ -12598,7 +12616,7 @@ gates.
   — **and specifically whether `FaceValue` is in fact the real All-sheet
   column name**, which this environment cannot confirm on its own.
 
-### Graph auth: a persistent silent failure now escalates to a real redirect (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+### Graph auth: a persistent silent failure now escalates to a real redirect (BUILT and merged to main)
 Live-blocking regression from the splash-gating Bug A fix (see "Splash +
 Album prefetch: three live-device fixes" above): Ray hit "Couldn't
 connect," and Retry never helped, no matter how many times he clicked it.
@@ -12736,7 +12754,7 @@ auth failure genuinely should escalate eventually), but it was not what
 Ray was hitting. See "Splash: the Docket queue can no longer block the
 whole app" below for the confirmed regression and its fix.
 
-### Splash: the Docket queue can no longer block the whole app (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+### Splash: the Docket queue can no longer block the whole app (BUILT and merged to main)
 The actual regression behind "Couldn't connect," Retry-does-nothing —
 found by direct investigation of the one substantial thing this branch's
 splash flow adds that `main` doesn't have at all: `docketQueueReady()`/
@@ -12886,7 +12904,7 @@ reach any other way.
   ever hit for some other reason) is what would confirm which of the two
   hypothesized mechanisms (hang vs. malformed content) it actually was.
 
-### Albums: variety-label bug fix, rounded Mintage, "Included" for shared figures (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+### Albums: variety-label bug fix, rounded Mintage, "Included" for shared figures (BUILT and merged to main)
 Three related Albums-book-view fixes/additions, all previously scoped with
 Ray. Held on the same branch, same "awaiting live-device confirmation"
 standing as everything else on it.
@@ -12997,6 +13015,28 @@ A nav/overflow smoke check closes it out.
   updated database copy (94 flagged rows, `MintageInclusive` repositioned
   next to `Mintage`) reads correctly against this build, which this
   environment has no way to confirm on its own.
+
+**Follow-up (same branch, merged together with everything above): two
+small display corrections from Ray's live-device pass on the build
+above.**
+1. **The `"Mintage "` label prefix is gone** — the slot's mintage line now
+   shows just the value (`formatAlbumMintage(mintage)` alone), e.g.
+   `"175.1 Million"` / `"500,000"` / `"Included"`, no header word. Matches
+   a real folder, which just prints the number under the date with nothing
+   labeling it.
+2. **Render order swapped: variety now renders ABOVE mintage**, not below —
+   `renderSlotCell()`'s markup now emits `varietyLine` before `mintageLine`
+   (was the reverse). Both `.slot-variety`/`.slot-mintage`'s own small
+   negative `margin-top` offsets are generic (pull toward whichever element
+   immediately precedes them), so the swap needed no CSS change — confirmed
+   via screenshot, no overlap or visual regression at either order.
+
+Both are display-only, markup-position/text changes — `slotMintage()`/
+`formatAlbumMintage()`'s own logic (Million-rounding, the "Included"
+rule) is completely unchanged. `verify_albums_variety_mintage.js`'s
+`B1`/`B2`/`C1` assertions and `verify_albums_live_data.js`'s `G3` were
+updated to the new label-less strings, following the real design change
+rather than weakened.
 
 ### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
 The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see

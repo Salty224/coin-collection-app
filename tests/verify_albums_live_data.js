@@ -206,11 +206,12 @@ module.exports = defineSuite("albums-live-data", async ({ ok, openApp, PHONE }) 
   }, { albumRows: rawAlbumRows(), dbSetsRows: rawDbSetsRows(), wishlistRows: rawWishlistRows() });
   ok(G.coverName === "Lincoln Cents — LIVE TEST Folder", "G1 the book's cover shows the live album's real name");
   ok(G.labels.some(l => l === "1909"), "G2 a slot's rendered label comes from the live slot's own year/mintMark");
-  // "Mintage 72.7 Million", not the raw "Mintage 72,700,420" — the Albums
-  // book view's Million-rounding rule (see the "Albums display fixes"
-  // section in CLAUDE.md) applies here too, following the real design
-  // change rather than weakening this assertion.
-  ok(G.mintage === "Mintage 72.7 Million", "G3 slotMintage() now resolves through activeDbCoins() — a live catalog row's mintage renders for a live album slot, rounded per the Albums-only Million rule");
+  // "72.7 Million", not the raw "72,700,420" — the Albums book view's
+  // Million-rounding rule (see the "Albums display fixes" section in
+  // CLAUDE.md) applies here too, following the real design change rather
+  // than weakening this assertion. No "Mintage" label prefix either, per
+  // Ray's follow-up correction.
+  ok(G.mintage === "72.7 Million", "G3 slotMintage() now resolves through activeDbCoins() — a live catalog row's mintage renders for a live album slot, rounded per the Albums-only Million rule, no label prefix");
 
   // ---------- H. tapping a FILLED slot resolves via activeCoins(), not FAKE_COINS ----------
   const H = await page.evaluate(async ({ albumRows, dbSetsRows, wishlistRows }) => {
