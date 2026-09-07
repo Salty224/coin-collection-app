@@ -12723,6 +12723,169 @@ plus regression checks that `acquireGraphToken()` still resolves to
   itself should be classifying as `InteractionRequiredAuthError` but
   isn't, which would point at a different fix).
 
+**SUPERSEDED — this was investigating the wrong layer.** A direct A/B
+test (Ray switched GitHub Pages' deploy source from this branch to `main`,
+no other change) made "Couldn't connect"/Retry-does-nothing disappear
+completely. `main` has none of this branch's splash-gating code at
+all — not the `handleRedirectPromise()` race fix, not the
+`InteractionRequiredAuthError` distinction, not this escalation-threshold
+fix, and (the actual culprit) not the Docket-badge gate either — so
+NONE of it can be the real cause; the escalation-threshold work above is
+kept as a real, independently-justified improvement (a persistent silent
+auth failure genuinely should escalate eventually), but it was not what
+Ray was hitting. See "Splash: the Docket queue can no longer block the
+whole app" below for the confirmed regression and its fix.
+
+### Splash: the Docket queue can no longer block the whole app (BUILT, held on branch `claude/code-primer-u8uv1d`, NOT merged — awaiting Ray's live-device pass)
+The actual regression behind "Couldn't connect," Retry-does-nothing —
+found by direct investigation of the one substantial thing this branch's
+splash flow adds that `main` doesn't have at all: `docketQueueReady()`/
+`loadDocketQueue()` (the Docket-badge gap fix, see that section above).
+
+**Root cause.** That fix folded `docketQueueReady()` into the SAME hard
+`Promise.all([ensureLiveNavDataFetch(), docketQueueReady()])` gate
+`ensureLiveNavDataFetch()` already had, reasoning "both are genuinely part
+of is-the-app-ready, so one unified gate is simpler than racing two
+independent timers." **That reasoning was wrong, and is what this fix
+corrects.** The Docket badge (a fob count) is comparatively low-stakes —
+nothing Catalog, Browse, Add Coin, or any other real feature depends on
+it — but folding it into the hard gate meant a persistently failing or
+hung `_Docket/docket.json` request could block the ENTIRE APP behind the
+splash forever. Two concrete ways that request can fail this way, either
+one fully explaining the symptom without requiring a device log to
+confirm: (a) a genuinely hung `fetch()` — this codebase has no
+`AbortController`/timeout anywhere, so a request that never gets a
+response never resolves `loadDocketQueue()`'s promise, which means
+`Promise.all(...)` itself never resolves, which means `attempt()`'s own
+`.then()` never fires to schedule a retry — the whole loop silently stalls
+on its very first attempt until the unrelated outer 5s timer fires; or (b)
+a deterministic parse/shape failure against Ray's REAL `_Docket/docket.json`
+content (this project has real precedent for exactly this class of bug —
+see "The AllCoins table is 987 rows longer than its data" and the
+SpotValue/Total formula-flattening incident elsewhere in this file) —
+`res.json()` throwing on malformed JSON is caught and returns `null`
+cleanly (not a hang), but since the SAME broken file is read identically
+on every retry, `docketQueueReady()` returns `false` on every single
+attempt within the window, exhausting the full 5s just as surely as a
+genuine hang would, and Retry repeats the identical failure forever since
+nothing about clicking it changes what's wrong with that one file. Either
+mechanism produces the exact reported symptom and the exact reason Retry
+never helps; both are fixed by the same change.
+
+**Fix: give the Docket half its own, shorter, non-blocking grace
+period — `SPLASH_DOCKET_GRACE_MS` (2000ms) — raced against the real
+`docketQueueReady()` call, via a new `docketQueueReadyWithGrace()`.**
+Whichever settles first wins; the timeout side always resolves `true`
+("proceed without it"), never `false`. `Promise.all([ensureLiveNavDataFetch(),
+docketQueueReadyWithGrace()])` now only ever waits on the Docket half for
+up to 2s — after that, the splash's hide/retry decision depends on
+`ensureLiveNavDataFetch()` (the app's actual real data) alone, exactly
+the same "additive, must never block the rest of the app" rule
+`ensureLiveNavDataFetch()` itself already applies to Photos/Receipts/
+Albums.
+- **The real fetch is NOT aborted or cancelled** — `loadDocketQueue()`
+  keeps running in the background exactly as before (it already has its
+  own in-flight dedup, so racing it costs nothing extra); if it does
+  eventually resolve, `LIVE_DOCKET_QUEUE` gets populated for real and
+  `updateDocketFob()`'s own existing mechanism — already fired once at
+  launch via `renderNeedsAttentionHub()`, completely independent of the
+  splash — shows the real count whenever/if that lands, same as it always
+  has.
+- **The common/working case is unaffected in practice.** A normal Graph
+  GET is typically well under 1s, comfortably inside the 2s grace window,
+  so the Docket badge stays synchronized with the cabinet appearing —
+  preserving the whole point of the original Docket-badge-gap fix — for
+  every ordinary boot. Only a genuinely broken/hung request now degrades
+  gracefully instead of blocking forever.
+- **2000ms was chosen, not derived**: long enough that a normal request
+  lands inside it in the ordinary case: short enough that a broken one
+  can't meaningfully delay the app, and comfortably inside the outer 5s
+  ceiling with room for at least one more retry if `ensureLiveNavDataFetch()`
+  itself is still the slow half. Worth revisiting after a live pass if it
+  turns out too tight or too generous.
+- **`docketQueueReady()` itself is untouched** — same function, same
+  "feature off = immediately ready" / "empty first-run docket = a real,
+  cacheable, non-null answer" rules as before. Only how the splash's
+  `attempt()` USES its result changed.
+
+**The diagnostic-detail work from the same dispatch is kept, per the
+task's own instruction — still useful for confirming the next live-device
+pass, even though it wasn't what surfaced this particular root cause**
+(that came from direct code investigation prompted by the A/B test, not
+from a captured error string). `#splashErrorDetail` (a `<pre>`, small
+monospace text under the existing friendly message, never replacing it)
+shows a real technical dump whenever the error box appears:
+- **`liveNavDataDiagnostics`** (keyed by sheet name: `All`, `DB_Sets`,
+  `DB_Coins`, `Lookup_MetalContent`, `Lookup_Graders`, `Photos`,
+  `Receipts`, `Albums`, `Wishlist`) — each entry is `pending` (set at the
+  very top of `fetchWorkbookSheetRows()`, before anything is awaited, so a
+  request that never resolves at all shows up honestly as "still in
+  flight" instead of silently keeping a stale success from an earlier,
+  faster attempt), `no-token`, `http-error` (with the real status code),
+  `exception` (with the real caught message), or `ok` (with the real row
+  count).
+- **`liveNavDataProcessingError`** — set only when every individual sheet
+  fetch already succeeded but the `Promise.all(...).then(...)` processing
+  block in `ensureLiveNavDataFetch()` (the mapping/join logic building
+  `LIVE_COINS` etc.) then throws. This is the "got data back but it was
+  malformed" case the diagnostic task specifically asked to distinguish —
+  an unexpected real-data shape choking a mapper function, e.g. Cleared at
+  the top of every genuinely new fetch attempt.
+- **`docketQueueDiagnostic`** — the same shape for the single
+  `_Docket/docket.json` fetch, with an added `disabled` kind for the
+  (expected, not-a-failure) case where the write layer itself is off.
+  `RealGraphClient.getJson()` throws one of exactly three distinguishable
+  message shapes (`"Write layer unavailable."` / `"GET json ... failed:
+  <status>"` / a raw network exception) — parsed into the same
+  `no-token`/`http-error`/`exception` vocabulary rather than re-deriving a
+  second token check.
+- **`buildSplashDiagnosticText()`** builds the headline classification —
+  distinguishing exactly the three cases the diagnostic task asked for
+  ("never got a token at all" / "got a token but the request(s) failed" /
+  "got data back but it was malformed"), plus a fourth signal worth having
+  ("at least one request is still pending/hung") — followed by the
+  per-sheet + Docket-queue dump. `ENABLE_LIVE_NAV_DATA` being off is
+  checked too, though it can't be exercised at runtime (a hardcoded `const
+  true` by design, per "Real-Graph flags always on") — covered by a
+  source-text guard instead of a live override.
+- The `?splashError=1` dev-only demo toggle gets its own honest detail
+  text ("no real fetch was attempted") rather than showing a stale or
+  misleading dump, since that path never runs a real fetch at all.
+
+**Verified headless — new committed suite
+`tests/verify_splash_docket_regression.js` (26 assertions), all passing;
+1480 across all 35 suites, zero failures, zero page errors.** Covers: the
+grace constant's sanity (positive, shorter than the outer ceiling, a
+reasonable share of the 5s budget); **the actual fix, driven through the
+real `runSplashConnect()`** with `ensureLiveNavDataFetch()` stubbed to
+succeed immediately and `loadDocketQueue()` stubbed to never resolve (the
+worst case) — confirming the splash genuinely hides well inside the grace
+window rather than sitting blocked for the full 5s, with the error box
+never shown; a **negative control** reproducing the exact pre-fix hard-gate
+formula against the identical stubbed functions, confirming that formula
+genuinely never resolves within the same window (proving the positive
+assertions exercise a real fix, not a tautology, and reproducing the exact
+reported hang); every `describeDiagnosticEntry()` shape; `buildSplashDiagnosticText()`'s
+headline classification for all three requested cases plus the pending/hang
+signal, each verified against its own real per-sheet dump; the
+`ENABLE_LIVE_NAV_DATA` source-text guard; the `?splashError=1` demo path's
+honest "nothing real was attempted" text, driven end-to-end; and a nav/
+overflow smoke check. New test-only setter seams
+(`__setLiveNavDataDiagnosticsForTest`, `__setLiveNavDataProcessingErrorForTest`,
+`__setDocketQueueDiagnosticForTest`) mirror the existing getters, since
+these diagnostics live in module-scoped `let`/`const` bindings a test can't
+reach any other way.
+- **Not verified: any real device.** This directly addresses a confirmed
+  live-blocking issue, so — per the standing rule for exactly this class of
+  fix — it needs Ray's own live-device pass before merge, same as every
+  other item still held on this branch. Worth specifically confirming: (1)
+  the app genuinely becomes usable now even if the Docket badge itself
+  stays at a stale/zero count for a beat; (2) whether `docket.json`'s real
+  content or the folder path turns out to be the deeper issue, in which
+  case the diagnostic detail text (still shown if the OVERALL 5s ceiling is
+  ever hit for some other reason) is what would confirm which of the two
+  hypothesized mechanisms (hang vs. malformed content) it actually was.
+
 ### Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main)
 The prev/next arrows' list-capture mechanism (`setBrowseStepContext()`, see
 "Prev/next stepping at the detail level" above) had exactly three callers —

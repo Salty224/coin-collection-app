@@ -194,6 +194,17 @@
   .splash-error.hidden { display: none; }
   .splash-error-title { color: #e07a6c; font-weight: 700; margin-bottom: 8px; }
   .splash-error-text { font-size: 13px; color: var(--text-muted); margin: 0 0 12px; }
+  /* Diagnostic-only, temporary — a real technical dump under the friendly
+     message above, meant to be screenshotted, not styled nicely. <pre>
+     preserves the line breaks buildSplashDiagnosticText() builds in;
+     white-space: pre-wrap (rather than plain pre) still wraps a long line
+     instead of forcing horizontal scroll on a narrow phone/tablet. */
+  .splash-error-detail {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.5; color: var(--text-muted);
+    background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px 10px;
+    margin: 0 0 12px; white-space: pre-wrap; word-break: break-word;
+  }
   #splashRetryBtn {
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
     border: none; color: #241c05; font-weight: 700;
@@ -2404,6 +2415,11 @@
           those it actually was) — a real next-steps message per cause is
           separate, still-open work.
         </p>
+        <!-- Diagnostic-only, temporary: the real technical detail behind
+             the friendly message above, so it can be screenshotted directly
+             instead of needing a device console log — see
+             buildSplashDiagnosticText() in the script. -->
+        <pre class="splash-error-detail" id="splashErrorDetail"></pre>
         <button type="button" id="splashRetryBtn">Retry</button>
       </div>
     </div>
@@ -5386,6 +5402,38 @@
   // safety measure here — it's the bug.
   function liveNavWorkbookPath() { return writePaths().workbook; }
 
+  // DIAGNOSTIC-ONLY (temporary — not a fix, just visibility). Captures WHAT
+  // HAPPENED on the most recent attempt for each sheet this fetch reads, so
+  // the splash's "Couldn't connect" error box (see buildSplashDiagnosticText()/
+  // runSplashConnect() below) can show a real, screenshot-able technical
+  // detail instead of needing a device console log we can't easily get.
+  // Deliberately reflects only the MOST RECENT call per sheet, not a
+  // history — "pending" is set at the very top of fetchWorkbookSheetRows(),
+  // before anything is awaited, specifically so a request that never
+  // resolves at all (no timeout on the fetch() call below — a genuine hang,
+  // not a clean failure) shows up honestly as "still in flight" rather than
+  // silently keeping a stale success left over from an earlier, faster
+  // attempt.
+  let liveNavDataDiagnostics = {};
+  const LIVE_NAV_DATA_SHEETS = ["All", "DB_Sets", "DB_Coins", "Lookup_MetalContent", "Lookup_Graders", "Photos", "Receipts", "Albums", "Wishlist"];
+  function __getLiveNavDataDiagnosticsForTest() { return liveNavDataDiagnostics; } // test-only seam
+  function __setLiveNavDataDiagnosticsForTest(obj) { liveNavDataDiagnostics = obj || {}; } // test-only seam
+
+  // DIAGNOSTIC-ONLY (temporary), companion to liveNavDataDiagnostics above —
+  // set ONLY when every individual sheet fetch already succeeded but the
+  // Promise.all(...).then(...) processing block in ensureLiveNavDataFetch()
+  // (the mapping/join logic that builds LIVE_COINS etc.) then throws. This
+  // is the "got data back but it was malformed" case the diagnostic task
+  // specifically asked to distinguish from a token/HTTP failure — e.g. a
+  // real-data shape the mappers don't expect choking a .map()/.forEach()
+  // call. Cleared at the top of every genuinely new fetch attempt so a
+  // stale failure from an earlier attempt can't linger once a later one
+  // succeeds.
+  let liveNavDataProcessingError = null;
+  function __getLiveNavDataProcessingErrorForTest() { return liveNavDataProcessingError; } // test-only seam
+  function __setLiveNavDataProcessingErrorForTest(obj) { liveNavDataProcessingError = obj || null; } // test-only seam
+  function __resetLiveNavDataDiagnosticsForTest() { liveNavDataDiagnostics = {}; liveNavDataProcessingError = null; } // test-only seam
+
   // GETs a worksheet's full used range and returns an array of plain
   // objects keyed by the header row's own text (trimmed) — no assumptions
   // about which columns exist beyond what's actually in row 1. Returns
@@ -5394,27 +5442,32 @@
   // genuinely empty" and avoid caching a false empty result — same
   // { attempted } reasoning fetchReferenceImageBlob() already uses.
   async function fetchWorkbookSheetRows(sheet) {
+    liveNavDataDiagnostics[sheet] = { kind: "pending" };
     const token = await getLiveNavToken();
-    if (!token) return null;
+    if (!token) { liveNavDataDiagnostics[sheet] = { kind: "no-token" }; return null; }
     const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
       liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
       ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
     try {
       const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) {
+        liveNavDataDiagnostics[sheet] = { kind: "http-error", status: res.status };
         console.warn("Live nav data: sheet read failed", sheet, res.status);
         return null; // transient/permission error — worth retrying later, don't cache
       }
       const data = await res.json();
       const values = data.values || [];
-      if (values.length < 2) return []; // header row only (or truly empty) — a real, cacheable answer
+      if (values.length < 2) { liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: 0 }; return []; } // header row only (or truly empty) — a real, cacheable answer
       const headers = values[0].map(h => String(h == null ? "" : h).trim());
-      return values.slice(1).map(r => {
+      const rows = values.slice(1).map(r => {
         const obj = {};
         headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
         return obj;
       });
+      liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: rows.length };
+      return rows;
     } catch (e) {
+      liveNavDataDiagnostics[sheet] = { kind: "exception", message: (e && e.message) || String(e) };
       console.warn("Live nav data fetch error:", sheet, e.message);
       return null;
     }
@@ -6040,6 +6093,12 @@
     // real loading state. Left out here on that basis; still wired at the
     // two call sites where the container is genuinely empty/stale until
     // the real fetch resolves.
+    //
+    // DIAGNOSTIC-ONLY (temporary): clear any stale processing failure from
+    // an earlier attempt right before this genuinely new one starts — see
+    // liveNavDataProcessingError's own declaration below for what it
+    // captures and why.
+    liveNavDataProcessingError = null;
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -6188,6 +6247,11 @@
       return true;
     }).catch(err => {
       liveNavDataFetchPromise = null;
+      // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
+      // call catches its own errors and never rejects, so reaching this
+      // catch means the PROCESSING block above (after every sheet already
+      // resolved) threw — see liveNavDataProcessingError's own declaration.
+      liveNavDataProcessingError = { message: (err && err.message) || String(err), name: err && err.name };
       console.warn("Live nav data fetch error:", err.message);
       return false;
     });
@@ -9001,22 +9065,53 @@
   // _Docket/docket.json rather than sharing the one real request already
   // in flight.
   let docketQueueFetchPromise = null;
+
+  // DIAGNOSTIC-ONLY (temporary), same purpose/rules as liveNavDataDiagnostics
+  // above for the separate _Docket/docket.json fetch — a single object
+  // (one fetch, not nine), overwritten on every real attempt, "pending" set
+  // right before the actual Graph call so a hung request is distinguishable
+  // from a stale earlier success rather than silently keeping it. "disabled"
+  // is set for the (expected, not-a-failure) case where the write layer
+  // itself is off — docketQueueReady() already treats that as immediately
+  // ready, so it's informational only, never the cause of a timeout.
+  let docketQueueDiagnostic = null;
+  function __getDocketQueueDiagnosticForTest() { return docketQueueDiagnostic; } // test-only seam
+  function __setDocketQueueDiagnosticForTest(obj) { docketQueueDiagnostic = obj || null; } // test-only seam
+
   async function loadDocketQueue(force) {
-    if (!docketWriteEnabled()) return null;
+    if (!docketWriteEnabled()) { docketQueueDiagnostic = { kind: "disabled" }; return null; }
     if (LIVE_DOCKET_QUEUE && !force) return LIVE_DOCKET_QUEUE;
     if (docketQueueFetchPromise) return docketQueueFetchPromise;
     docketQueueFetchPromise = (async () => {
+      docketQueueDiagnostic = { kind: "pending" };
       try {
         const doc = await graph().getJson(docketQueuePath());
         // A missing file is the normal first-run state, not an error.
         LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
         if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
+        docketQueueDiagnostic = { kind: "ok" };
         return LIVE_DOCKET_QUEUE;
       } catch (e) {
         // Not signed in / offline / transient Graph failure. Leave the cache
         // null so a later call retries for real rather than caching an empty
         // queue that would read as "nothing to research" — same
         // only-cache-a-real-answer rule the reference-image fetch follows.
+        //
+        // DIAGNOSTIC-ONLY: RealGraphClient.getJson() throws one of exactly
+        // three distinct message shapes — "Write layer unavailable." (no
+        // token), "GET json <path> failed: <status>" (a real HTTP error),
+        // or a raw fetch()/JSON-parse exception message (network/CORS) —
+        // parsed here rather than re-deriving a second token check.
+        const message = (e && e.message) || String(e);
+        let kind = "exception";
+        let status = null;
+        if (/unavailable/i.test(message)) {
+          kind = "no-token";
+        } else {
+          const m = /failed:\s*(\d+)/.exec(message);
+          if (m) { kind = "http-error"; status = Number(m[1]); }
+        }
+        docketQueueDiagnostic = { kind, status, message };
         console.warn("Docket queue read failed:", e);
         return null;
       } finally {
@@ -23503,6 +23598,15 @@
   // How often to re-check ensureLiveNavDataFetch() after a `false` answer,
   // within the same 5s budget — see Bug A below.
   const SPLASH_RETRY_INTERVAL_MS = 400;
+  // Max time the splash will wait on the Docket queue specifically before
+  // proceeding without it — see docketQueueReadyWithGrace()'s own comment
+  // below (the "Retry doesn't help" regression fix) for why this is a
+  // separate, shorter, best-effort budget rather than sharing
+  // SPLASH_DATA_TIMEOUT_MS. Long enough that a normal Graph GET (well under
+  // 1s in practice) still lands inside it, so the Docket badge stays
+  // synchronized with the cabinet appearing in the ordinary case; short
+  // enough that a broken/hung request can't meaningfully delay the app.
+  const SPLASH_DOCKET_GRACE_MS = 2000;
 
   // Bumped on every runSplashConnect() call so an OLDER invocation's own
   // still-pending retry/timeout chain can recognize itself as superseded
@@ -23518,6 +23622,61 @@
   // invocation's own state out from under it.
   let splashConnectGeneration = 0;
 
+  // DIAGNOSTIC-ONLY (temporary, per Ray's explicit request — not final
+  // wording, just something real he can screenshot on a tablet with no easy
+  // devtools access, in place of a device console log we can't easily get).
+  // Turns whatever the most recent fetch attempt(s) actually reported
+  // (liveNavDataDiagnostics/liveNavDataProcessingError/docketQueueDiagnostic
+  // — see their own declarations above) into a short technical detail
+  // string, shown as small secondary text under the splash's existing
+  // friendly error message (never replacing it).
+  function describeDiagnosticEntry(entry) {
+    if (!entry) return "not yet reported (fetch may still be in flight or never started)";
+    switch (entry.kind) {
+      case "pending": return "pending (still in flight / never returned)";
+      case "no-token": return "no token";
+      case "http-error": return "HTTP " + entry.status;
+      case "exception": return "error — " + entry.message;
+      case "disabled": return "feature disabled";
+      case "ok": return "ok" + (typeof entry.rowCount === "number" ? " (" + entry.rowCount + " rows)" : "");
+      default: return JSON.stringify(entry);
+    }
+  }
+  function buildSplashDiagnosticText() {
+    if (!ENABLE_LIVE_NAV_DATA) {
+      return "Live nav data fetch is disabled (ENABLE_LIVE_NAV_DATA is false) — nothing was ever attempted.";
+    }
+    const lines = [];
+    const sheetEntries = LIVE_NAV_DATA_SHEETS.map(s => liveNavDataDiagnostics[s]).filter(Boolean);
+    const dq = docketQueueDiagnostic;
+    const allEntries = sheetEntries.concat(dq ? [dq] : []);
+    // Headline classification — distinguishes the three cases specifically
+    // asked for (never got a token / got a token but the request(s) failed /
+    // got data back but it was malformed), plus a genuine-hang signal
+    // ("pending" surviving to the moment the error box shows means a
+    // request literally never got a response).
+    if (liveNavDataProcessingError) {
+      lines.push("Every Graph request succeeded, but processing the returned data threw an error (likely a malformed/unexpected data shape):");
+      lines.push("  " + (liveNavDataProcessingError.name ? liveNavDataProcessingError.name + ": " : "") + liveNavDataProcessingError.message);
+    } else if (allEntries.length === 0) {
+      lines.push("No fetch attempt has reported back yet.");
+    } else if (allEntries.some(e => e.kind === "pending")) {
+      lines.push("At least one request is still in flight / never returned a response (no timeout on the underlying fetch) — see \"pending\" rows below.");
+    } else if (allEntries.every(e => e.kind === "no-token")) {
+      lines.push("No Microsoft Graph token was ever acquired — every request reports \"no token.\"");
+    } else if (allEntries.some(e => e.kind === "http-error" || e.kind === "exception")) {
+      lines.push("A token was acquired, but one or more Graph request(s) failed:");
+    } else {
+      lines.push("Every request reports success — timed out with no captured error.");
+    }
+    lines.push("");
+    LIVE_NAV_DATA_SHEETS.forEach(sheet => {
+      lines.push(sheet + ": " + describeDiagnosticEntry(liveNavDataDiagnostics[sheet]));
+    });
+    lines.push("Docket queue: " + describeDiagnosticEntry(dq));
+    return lines.join("\n");
+  }
+
   function runSplashConnect() {
     const myGeneration = ++splashConnectGeneration;
     function stillCurrent() { return myGeneration === splashConnectGeneration; }
@@ -23525,6 +23684,7 @@
     const overlay = document.getElementById("splashScreen");
     const status = document.getElementById("splashStatus");
     const errorBox = document.getElementById("splashErrorBox");
+    const errorDetail = document.getElementById("splashErrorDetail");
     overlay.classList.remove("fade-out", "hidden");
     errorBox.classList.add("hidden");
     status.style.display = "block";
@@ -23532,12 +23692,15 @@
 
     // `?splashError=1` forces the error path on demand for testing/demoing
     // it — a dev-only toggle, deliberately NOT real-data-gated, so it always
-    // shows the same thing regardless of connection state.
+    // shows the same thing regardless of connection state. No real fetch was
+    // ever attempted on this path, so the diagnostic detail says so plainly
+    // rather than showing a stale or misleading dump.
     const forceError = new URLSearchParams(location.search).get("splashError") === "1";
     if (forceError) {
       setTimeout(() => {
         if (!stillCurrent()) return;
         status.style.display = "none";
+        errorDetail.textContent = "(?splashError=1 demo — no real fetch was attempted, so there's nothing real to show here.)";
         errorBox.classList.remove("hidden");
       }, SPLASH_ERROR_DEMO_DELAY_MS);
       return;
@@ -23549,6 +23712,7 @@
     }
     function showSplashError() {
       status.style.display = "none";
+      errorDetail.textContent = buildSplashDiagnosticText();
       errorBox.classList.remove("hidden");
     }
 
@@ -23574,9 +23738,6 @@
     // (fetching _Docket/docket.json) — a completely separate fetch from
     // ensureLiveNavDataFetch() that this gate never accounted for, so the
     // cabinet could appear up to ~3s before the badge actually populated.
-    // Shares this same timeout/retry loop rather than a second one of its
-    // own — both are genuinely part of "is the app ready to show," so one
-    // unified gate is simpler than racing two independent timers.
     //
     // "Genuine success" for the docket half is deliberately NOT "loadDocketQueue()
     // returned non-null" alone: with the write layer off (docketWriteEnabled()
@@ -23597,11 +23758,54 @@
       if (!docketWriteEnabled()) return true;
       return (await loadDocketQueue()) !== null;
     }
+
+    // REGRESSION FIX — confirmed by a direct A/B test (Ray switched GitHub
+    // Pages' deploy source from this branch to main, no other change, and
+    // "Couldn't connect"/Retry-does-nothing disappeared completely; main has
+    // no Docket gating at all, so this is the delta). The original fix above
+    // shared docketQueueReady() in the SAME hard Promise.all gate as
+    // ensureLiveNavDataFetch() on the reasoning that "both are genuinely
+    // part of is-the-app-ready, so one unified gate is simpler than racing
+    // two independent timers" — that reasoning is WRONG and is what this
+    // fix corrects: it made a persistently-failing _Docket/docket.json (a
+    // deterministic parse/shape failure against a real file, or a genuinely
+    // hung fetch — either one settles identically here, since neither ever
+    // resolves docketQueueReady() to true) capable of blocking the ENTIRE
+    // APP behind the splash forever, with Retry never helping, because
+    // nothing about clicking Retry changes what's wrong with that one file/
+    // request. The Docket badge is comparatively low-stakes — a fob count,
+    // not anything Catalog/Browse/Add Coin/etc. actually need to function —
+    // so it must never be able to hold up the rest of the app this way,
+    // exactly the same "additive, must never block the rest of the app"
+    // rule ensureLiveNavDataFetch() itself already applies to Photos/
+    // Receipts/Albums.
+    //
+    // Fix: give the docket half its OWN, SHORTER grace period
+    // (SPLASH_DOCKET_GRACE_MS), raced against the real docketQueueReady()
+    // call — whichever settles first wins, and the timeout side always
+    // resolves `true` ("proceed without it"), never `false`. The real
+    // fetch is NOT aborted; it keeps running in the background (loadDocketQueue()
+    // has its own in-flight dedup, so this costs nothing extra), and
+    // updateDocketFob()'s own existing mechanism — already fired once at
+    // launch via renderNeedsAttentionHub(), completely independent of the
+    // splash — still shows a real count whenever/if that fetch does
+    // eventually land. In the common/working case (the one the original
+    // docket-badge-gap fix targeted) the real fetch still normally settles
+    // well inside the grace window, so the badge is still synchronized with
+    // the cabinet appearing; only a genuinely broken/hung case degrades
+    // instead of blocking forever.
+    function docketQueueReadyWithGrace() {
+      return Promise.race([
+        docketQueueReady(),
+        new Promise(resolve => setTimeout(() => resolve(true), SPLASH_DOCKET_GRACE_MS))
+      ]);
+    }
+
     let settled = false;
     let retryTimer = null;
     function attempt() {
       if (settled || !stillCurrent()) return;
-      Promise.all([ensureLiveNavDataFetch(), docketQueueReady()]).then(([dataReady, docketReady]) => {
+      Promise.all([ensureLiveNavDataFetch(), docketQueueReadyWithGrace()]).then(([dataReady, docketReady]) => {
         if (settled || !stillCurrent()) return;
         if (dataReady && docketReady) {
           settled = true;
