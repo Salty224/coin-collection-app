@@ -10038,6 +10038,84 @@ what the assertions check.
   workbook by `WRITE_TARGET`. Worth Ray's own confirmation that the first
   real sign-in redirect on the live site behaves as expected.
 
+### Docket: FAKE_NEEDS_QUEUE demo rows cleared (BUILT, Ray's explicit go-ahead)
+The two "Awaiting Copilot Research" entries Ray flagged (`1932-D ·
+Washington`, `1943-S · Lincoln Wheat · Steel`) were investigated and
+confirmed to be the hardcoded `FAKE_NEEDS_QUEUE` mockup fallback rows, not
+real orphaned Force Add data: no `collectionId` on either seed object
+(a real Force-Added coin always carries one), the dates predate the real
+Docket build entirely, and this very file used to cite one of them as its
+own illustrative example. `docketOpenEntries()` only ever falls back to
+this array when `ENABLE_DOCKET_WRITE` is off (the default/shipped state)
+or the durable `docket.json` can't be read — the real durable queue has
+fully superseded it as a fallback, so Ray's call was to clear it to `[]`
+rather than keep it as demo filler. An empty Docket is now the correct
+display with the write layer off, same as it will be once
+`ENABLE_DOCKET_WRITE` eventually goes on for real.
+`verify_docket_row_tags.js`'s "a real Docket queue entry tags Research"
+check relied on those two seeded rows existing — updated to seed its own
+entry via `appendDocketEntry()` instead (the same mechanism a real
+flag-off no-DB_Coins-match save already uses), not weakened.
+
+### SMS finish indicator on the flip card (BUILT and merged to main)
+Surfaces `Finish === "SMS"` (Special Mint Set, 1965-67 issues) as a
+trailing **" (SMS)"** flag appended to the existing Grade+Designation
+corner (`MS-65 (SMS)`, `MS-67FB (SMS)` when a Designation is present, or
+`(SMS)` alone with neither Grade nor Designation set — no leading space).
+Scoped to the exact literal Finish value `"SMS"` only — **not** a general
+"show any non-default Finish" rule (Proof/Satin Finish/Burnished etc. are
+explicitly out of scope). Applies across every denomination that can
+appear in an SMS set (cent through half dollar) since it keys purely on
+`coin.finish`, with no denomination branch — SMS coins carry no mint mark
+despite all being struck at San Francisco, which is part of why SMS
+specifically gets this treatment. Placed on the grade corner rather than
+the Type/Denom corner because it explains a certification-relevant fact
+about the specimen (why it might eventually be graded Specimen rather than
+Mint State by a service like PCGS) — it belongs next to the field it's
+explaining, same reasoning GradeSource sits next to Grade elsewhere.
+
+**Pre-build investigation (Ray's three questions) found one real gap and
+confirmed one real risk was already handled:**
+1. **`Finish` was NOT mapped onto a live coin object at all.**
+   `mapWorkbookRowToDbCoin()` (the DB_Coins catalog mapper) already read
+   `Finish`; the ALL-sheet coin mapper, `mapWorkbookRowToCoin()`, never
+   did — same class of gap as Seller_Link/Shipping/PurchaseDate/Remarks/
+   ValueSource before those were fixed ("the rows existed; the data never
+   reached them"). Added `finish: String(colVal(row, "Finish"))` there.
+2. **Grade+Designation is genuinely built on TWO separate render paths**,
+   confirmed by reading the code rather than assumed — `applyFlipCorners()`
+   (shared by Browse detail + Spotlight, one function) and
+   `renderBrowseGrid()`'s own inline Catalog-grid corner build (see
+   "Catalog grid: Variety + Designation on the mini flip card" above for
+   why that one is a genuinely separate path, not shared code). New
+   `gradeDesignationCornerText(coin)` factors the shared text-building rule
+   out so the two call sites can't independently drift on this one rule;
+   both are wired and independently verified, not assumed from one passing.
+3. **Overflow/collision risk was tested directly, not assumed away.** The
+   existing fitted-corner pipeline (`renderFittedCornerLines()` — shrink,
+   then wrap, then re-shrink; `cornerFits()`/`cornerClearsDisc()` checking
+   both box-width and real disc clearance) already covers a longer string
+   with no new mechanism needed — confirmed clean at both viewports,
+   including the worst already-documented BL case ("XF Details -
+   Improperly Cleaned") with " (SMS)" appended, on both the full flip card
+   and the Catalog grid's narrower card (the surface with the least room).
+
+**Verified headless — new suite `tests/verify_sms_finish_flag.js` (36
+assertions), all passing; 1013 across 24 suites, zero failures.** Covers
+the pure formatting function (including the blank-Grade-and-Designation
+"(SMS) alone, no leading space" case, and non-SMS Finish values correctly
+showing no flag); the live-mapper fix; all three real render paths across
+four denominations (nickel/cent/quarter/half dollar) plus a Business-Strike
+control; and the overflow/disc-clearance checks at both viewports.
+**Verified via negative control**: temporarily neutering the SMS
+comparison fails 16 assertions across every surface with exactly the
+expected symptom (flag missing), confirming the suite actually exercises
+the fix rather than passing vacuously.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as every round in this file — `Finish` reading real
+  `All.Finish` values on a live coin hasn't been click-through-confirmed
+  from this environment.
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
