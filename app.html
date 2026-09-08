@@ -186,6 +186,18 @@
     animation: splashSpin 1.6s linear infinite;
   }
   .coin-grid .section-loading { grid-column: 1 / -1; }
+  /* FEATURE C — a spinning coin disc INSIDE a pending action button
+     (Promote, Force Add, Mark ready, Re-check, Reject, Add Coin's own Save
+     to Database…), reusing the identical splashSpin keyframes the splash
+     screen and showSectionLoading() already use, at button-text scale.
+     runWithButtonPending() wires this into every real-write action button
+     in the app — see its own comment for why the old "just gray it out and
+     change the label" state wasn't visible enough during a write that can
+     take several real seconds (the AY-00706 double-submit incident). */
+  .btn-spin-disc {
+    display: inline-block; font-size: 13px; margin-right: 6px;
+    animation: splashSpin 1.6s linear infinite; vertical-align: -1px;
+  }
   .splash-error {
     margin-top: 20px; background: var(--danger-bg);
     border: 1px solid rgba(181,72,60,0.4); border-radius: 10px;
@@ -3983,7 +3995,7 @@
                the primary action. -->
           <div class="banner context-banner hidden" id="saveConfidentBanner">
             <span class="icon">✅</span>
-            <span class="msg">No unrecognized Variety flagged — ready for a direct save. (A missing DB_Coins catalog entry, if noted above, won't block this on its own.)</span>
+            <span class="msg" id="saveConfidentMsg">Resolved to a single, clean DB_Coins match — ready for a direct save.</span>
           </div>
           <div class="banner pending-banner hidden" id="saveNotConfidentBanner">
             <span class="icon">⚠️</span>
@@ -3991,13 +4003,13 @@
           </div>
           <div class="banner pending-banner hidden" id="addCoinInterimBanner">
             <span class="icon">🚧</span>
-            <span class="msg"><strong>Two-step save.</strong> <em>Save to Database</em> writes
-            to the same real Staging draft on OneDrive as <em>Save to Staging</em> — neither
-            option adds an All-sheet row directly from here. A real in-app <em>Promote</em>
-            step (from Staging Review or the Docket, once the draft's catalog match is
-            resolved) is what actually moves it into All. Which option you chose is still
-            recorded on the draft, so a direct save stays distinguishable from a staged
-            one.</span>
+            <span class="msg"><em>Save to Database</em> writes a real Staging draft first,
+            same as <em>Save to Staging</em> — but when your coin resolves to exactly one
+            clean, unambiguous DB_Coins match, it then writes straight into the All sheet in
+            that same step, no separate trip to Promote needed. Ambiguous, conflicting, or
+            unmatched coins fall back to a Staging-only save — use Re-check, Promote, or
+            Force Add from Staging Review or the Docket once resolved. Which option you chose
+            is still recorded on the draft either way.</span>
           </div>
           <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
             <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
@@ -4123,11 +4135,13 @@
         </p>
         <div class="banner pending-banner hidden" id="stagingInterimBanner">
           <span class="icon">🚧</span>
-          <span class="msg"><strong>Two-step save.</strong> These are real Staging drafts
-          on OneDrive. <strong>Mark ready</strong> flags a draft as ready to promote — it
-          does not add the All-sheet row itself. Once a draft has a resolved CoinID,
-          <strong>Promote</strong> is offered right here and writes it into the All sheet
-          for real — no Copilot step required to move it across.</span>
+          <span class="msg">These are real Staging drafts on OneDrive. A coin whose match was
+          clean and unambiguous at capture already wrote straight to the All sheet from Add
+          Coin, so it won't sit here — what's listed below still needs a decision.
+          <strong>Mark ready</strong> flags a draft as ready to promote — it does not add the
+          All-sheet row itself. Once a draft has a resolved CoinID, <strong>Promote</strong>
+          is offered right here and writes it into the All sheet for real — no Copilot step
+          required to move it across.</span>
         </div>
         <p class="placeholder-note" id="stagingMockNote">Placeholder only — nothing is written to OneDrive yet.</p>
         <p style="font-size:13px; margin-top:0;" id="stagingWorkbookLinkRow"></p>
@@ -16483,34 +16497,54 @@
     // (there is no such literal anywhere in this function), so a value that
     // has stopped occurring simply stops reaching it. Deleting the fallback
     // would break "Various" today and any future All-only value tomorrow.
-    if (candidates.length > 1 && normField(shape.finish || "")) {
+    if (normField(shape.finish || "")) {
       const finishNorm = normField(shape.finish);
-      const byFinish = candidates.filter(c => normField(c.finish || "") === finishNorm);
-      if (byFinish.length) {
-        candidates = byFinish;
-      } else if (knownDbCoinsFinishValues().has(finishNorm)) {
-        // Retest #2: distinguish "this Finish value isn't a real DB_Coins
-        // category at all" (Circulated/Various — All-only wear-state
-        // values, never a valid strike method DB_Coins tracks; the
-        // original reason this tier falls back softly) from "this IS a
-        // real DB_Coins Finish category, it just genuinely has zero rows
-        // for THIS coin's exact date/mint/denom/variety" (e.g. Proof
-        // recorded on a date DB_Coins has no Proof row for). The first
-        // case carries no identity signal for this coin and must keep
-        // falling back to the full set, unchanged. The second case IS a
-        // real signal — the recorded Finish and this candidate group
-        // disagree — and narrowing to zero here is what the Finish field's
-        // own tooltip already promises ("recording this narrows the
-        // match"); previously it silently ignored Finish and returned the
-        // still-ambiguous full set instead, which contradicted that
-        // promise. Still never creates a false miss on an All-only value —
-        // only a value DB_Coins itself recognizes can narrow to zero.
-        candidates = [];
+      if (candidates.length > 1) {
+        const byFinish = candidates.filter(c => normField(c.finish || "") === finishNorm);
+        if (byFinish.length) {
+          candidates = byFinish;
+        } else if (knownDbCoinsFinishValues().has(finishNorm)) {
+          // Retest #2: distinguish "this Finish value isn't a real DB_Coins
+          // category at all" (Circulated/Various — All-only wear-state
+          // values, never a valid strike method DB_Coins tracks; the
+          // original reason this tier falls back softly) from "this IS a
+          // real DB_Coins Finish category, it just genuinely has zero rows
+          // for THIS coin's exact date/mint/denom/variety" (e.g. Proof
+          // recorded on a date DB_Coins has no Proof row for). The first
+          // case carries no identity signal for this coin and must keep
+          // falling back to the full set, unchanged. The second case IS a
+          // real signal — the recorded Finish and this candidate group
+          // disagree — and narrowing to zero here is what the Finish field's
+          // own tooltip already promises ("recording this narrows the
+          // match"); previously it silently ignored Finish and returned the
+          // still-ambiguous full set instead, which contradicted that
+          // promise. Still never creates a false miss on an All-only value —
+          // only a value DB_Coins itself recognizes can narrow to zero.
+          candidates = [];
+        }
+        // else: `shape.finish` matches no candidate AND isn't a recognized
+        // DB_Coins category anywhere in the catalog — falls through with
+        // `candidates` unchanged (the original soft-fallback-to-full-set
+        // behavior), exactly as before for Circulated/Various.
+      } else if (candidates.length === 1) {
+        // FIX A (2026-09-08, confirmed root cause of a real 2025 Reverse
+        // Proof cent silently matching a Business-Strike-only catalog row):
+        // the single-candidate path used to skip Finish entirely — this
+        // tier was always guarded by `candidates.length > 1`, so a real
+        // Finish MISMATCH against the one and only candidate was never
+        // caught; that lone (wrong) candidate was accepted unconditionally.
+        // Same recognized-vs-unrecognized distinction as the multi-candidate
+        // branch above: only a real, KNOWN DB_Coins Finish value that
+        // actively contradicts the sole candidate's own Finish routes this
+        // to No Match (so it reaches the Docket / a human) — an unrecognized
+        // or blank Finish (Circulated/Various, or nothing recorded) must
+        // never manufacture a miss here, same protection the multi-candidate
+        // branch already gives All-only values.
+        const only = normField(candidates[0].finish || "");
+        if (only !== finishNorm && knownDbCoinsFinishValues().has(finishNorm)) {
+          candidates = [];
+        }
       }
-      // else: `shape.finish` matches no candidate AND isn't a recognized
-      // DB_Coins category anywhere in the catalog — falls through with
-      // `candidates` unchanged (the original soft-fallback-to-full-set
-      // behavior), exactly as before for Circulated/Various.
     }
     // --- Designation tier. Same "reduce ambiguity, never create a miss"
     // spirit as Finish, but DELIBERATELY STRONGER in one specific way: a
@@ -18945,7 +18979,11 @@
   function runWithButtonPending(btn, pendingLabel, fn) {
     if (!btn) return Promise.resolve(fn());
     if (btn.disabled) return Promise.resolve(); // already running — ignore the repeat click
-    const originalLabel = btn.textContent;
+    // innerHTML, not textContent — FEATURE C needs to inject the spinning
+    // disc alongside the label, and restore() must put back exactly what
+    // was there before (every real caller's original label is plain text,
+    // so capturing/restoring via innerHTML is lossless for all of them).
+    const originalHtml = btn.innerHTML;
     // Call FIRST, then decide. An async handler returns its promise
     // synchronously, so the button still goes pending in the same tick — but
     // a handler that only OPENS A CONFIRMATION DIALOG returns undefined, and
@@ -18957,13 +18995,19 @@
     const result = fn();
     if (!result || typeof result.then !== "function") return Promise.resolve(result);
     btn.disabled = true;
-    btn.textContent = pendingLabel;
+    // FEATURE C — a visible loading indicator during the write, not just a
+    // grayed-out button and a swapped label: a spinning coin disc, reusing
+    // the exact splashSpin keyframes the splash screen and
+    // showSectionLoading() already use (see .btn-spin-disc's own CSS
+    // comment), so a real multi-second write (Promote especially) reads as
+    // "working," not "did this do anything at all?"
+    btn.innerHTML = '<span class="btn-spin-disc" aria-hidden="true">🪙</span><span>' + escapeHtmlText(pendingLabel) + '</span>';
     return result.then(
       (v) => { restore(); return v; },
       (e) => { restore(); throw e; }
     );
     function restore() {
-      if (btn.isConnected) { btn.disabled = false; btn.textContent = originalLabel; }
+      if (btn.isConnected) { btn.disabled = false; btn.innerHTML = originalHtml; }
     }
   }
 
@@ -23165,16 +23209,37 @@
     document.getElementById("saveConfidentBanner").classList.toggle("hidden", !hasEnoughToEvaluate || !confident);
     document.getElementById("saveNotConfidentBanner").classList.toggle("hidden", !hasEnoughToEvaluate || confident);
     document.getElementById("saveToDatabaseBtn").style.display = confident ? "block" : "none";
+    // FEATURE B: the ✅ banner now reflects the REAL readiness check, not a
+    // static Variety-only claim — when the write layer is on, a confident
+    // match here means Save to Database is about to write straight to the
+    // All sheet in one step (see completeAddCoinSave()'s own comment for
+    // why match.how !== "none" is the trustworthy signal, folding in Fix
+    // A's Finish-aware matching). With the write layer off, this is still
+    // just the Staging-draft mockup behaviour it always was.
+    if (hasEnoughToEvaluate && confident) {
+      document.getElementById("saveConfidentMsg").textContent = addCoinWriteEnabled()
+        ? "Resolved to a single, clean DB_Coins match — Save to Database writes this coin straight to the All sheet in one step."
+        : "Resolved to a single, clean DB_Coins match — ready for a direct save. (A missing DB_Coins catalog entry, if noted above, won't block this on its own.)";
+    }
     if (hasEnoughToEvaluate && !confident) {
-      // Two different reasons reach this banner now, and they need different
-      // wording — telling someone their Variety is unrecognized when the real
-      // problem is that no catalog row matches at all sends them to fix the
-      // wrong field.
-      document.getElementById("saveNotConfidentMsg").textContent = !isVarietyRecognized()
-        ? "Variety \"" + document.getElementById("variety").value + "\" isn't a recognized option for this coin — " +
-          "this needs a closer look before it can be saved directly. Save to Staging instead."
-        : "No single DB_Coins entry resolved for this coin yet, so there's no catalog row to link it to. " +
+      // Three different reasons can reach this banner now, and they need
+      // different wording — telling someone their Variety is unrecognized
+      // when the real problem is an unresolved ambiguous match (or the
+      // reverse) sends them to fix the wrong thing.
+      const state = currentAddCoinMatchState();
+      let msg;
+      if (!isVarietyRecognized()) {
+        msg = "Variety \"" + document.getElementById("variety").value + "\" isn't a recognized option for this coin — " +
+          "this needs a closer look before it can be saved directly. Save to Staging instead.";
+      } else if (state.candidates.length > 1 && !state.resolvedPick) {
+        msg = state.candidates.length + " catalog entries match this coin, and none is picked yet — " +
+          "Save to Database is unavailable until you resolve which one (you'll be asked when you save). " +
+          "Save to Staging in the meantime.";
+      } else {
+        msg = "No single DB_Coins entry resolved for this coin yet, so there's no catalog row to link it to. " +
           "Save to Staging — you can Re-check once the catalog entry exists, or Force Add it unlinked.";
+      }
+      document.getElementById("saveNotConfidentMsg").textContent = msg;
     }
   }
 
@@ -23347,9 +23412,14 @@
   async function completeAddCoinSave(destination, match) {
     const btnId = destination === "database" ? "saveToDatabaseBtn" : "saveToStagingBtn";
     const btn = document.getElementById(btnId);
-    const originalLabel = btn.textContent;
+    const originalHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.textContent = "Saving…";
+    // FEATURE C: same spinning-disc treatment runWithButtonPending() gives
+    // every other real-write action button (Promote, Force Add, etc.) — a
+    // "database" save that resolves to a clean match now genuinely writes
+    // straight into All (see the FEATURE B branch below), so a plain
+    // grayed-out "Saving…" undersold what was actually happening.
+    btn.innerHTML = '<span class="btn-spin-disc" aria-hidden="true">🪙</span><span>Saving…</span>';
     try {
       // An EDIT reuses the draft's own CollectionID. Reserving here would
       // burn a fresh id and write a second draft folder, orphaning the first
@@ -23429,6 +23499,39 @@
       await writeCoinDraft(draft);
 
       resetAddCoinAfterSave();
+
+      // FEATURE B — real direct-write path for a clean, unambiguous match.
+      // match.how is only ever "single" (exactly one DB_Coins candidate) or
+      // "picked" (a deliberate human choice from the ambiguous list) here —
+      // never "none" — and Fix A's Finish-aware dbCoinsCandidatesFor()
+      // already folds a real Finish disagreement into that resolution
+      // itself (a single candidate whose Finish contradicts the recorded
+      // one now resolves to ZERO candidates, i.e. "none"), so there is no
+      // separate Finish-conflict flag to check here — match.how !== "none"
+      // IS the "no Finish/Composition conflict" signal. (Composition has no
+      // producer on Add Coin today — see dbCoinsCandidatesFor()'s own
+      // comment — so its hard tier never narrows anything from this form;
+      // nothing further is needed for it either.) Reuses promoteCoinDraft()
+      // itself, not a second copy of its write path, so this is exactly the
+      // same write/toast/photo-move/cache-refresh a manual Promote click
+      // performs — just triggered in the same motion as the save instead of
+      // needing a separate trip to Staging Review or the Docket.
+      //
+      // The `match.how !== "none"` check is real, not redundant with the
+      // button's own visibility: updateSaveConfidenceUI() only SHOWS this
+      // button once the match looked resolved at render time, but
+      // resolveAddCoinCatalogMatch() re-resolves fresh at save time — an
+      // identity edit between a render and this click (or a "None of
+      // these" pick inside the picker this very click just opened) can
+      // still land here with a genuinely unresolved match, and that must
+      // fall through to the ordinary Staging-only save below, not attempt
+      // a promote with no CoinID.
+      if (destination === "database" && match.how !== "none" && addCoinWriteEnabled()) {
+        await promoteCoinDraft(collectionId);
+        await refreshCoinDraftCache();
+        return;
+      }
+
       // Re-read the folder rather than pushing onto the cache: the cache can
       // legitimately be null here (nothing has opened Staging Review yet, or
       // the launch-time prime failed), and appending to an unprimed cache
@@ -23445,7 +23548,7 @@
       showToast("Couldn't save: " + String(e && e.message || e) + " — nothing was written; your entry is still here.");
     } finally {
       btn.disabled = false;
-      btn.textContent = originalLabel;
+      btn.innerHTML = originalHtml;
     }
   }
 

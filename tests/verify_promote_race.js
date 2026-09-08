@@ -318,7 +318,7 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
     const op = () => { calls++; return gate; };
 
     const running = runWithButtonPending(btn, "Promoting…", op);
-    const during = { disabled: btn.disabled, label: btn.textContent };
+    const during = { disabled: btn.disabled, label: btn.textContent, hasSpinDisc: !!btn.querySelector(".btn-spin-disc") };
 
     // A repeat click while it is running must not start a second operation.
     await runWithButtonPending(btn, "Promoting…", op);
@@ -326,7 +326,7 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
 
     release();
     await running;
-    const after = { disabled: btn.disabled, label: btn.textContent };
+    const after = { disabled: btn.disabled, label: btn.textContent, hasSpinDisc: !!btn.querySelector(".btn-spin-disc") };
 
     // A button removed by the re-render its own operation triggers must not
     // be resurrected by the finally block.
@@ -348,14 +348,20 @@ module.exports = defineSuite("promote-race", async ({ ok, openApp, PHONE }) => {
              detachedStillDisabled: gone.disabled, detachedLabel: gone.textContent };
   });
 
-  ok(H.during.disabled === true && H.during.label === "Promoting…",
-    "H1 the button disables and relabels immediately on click, before any await resolves");
+  ok(H.during.disabled === true && /Promoting…/.test(H.during.label),
+    "H1 the button disables and relabels immediately on click, before any await resolves — " +
+    "checked via substring, not exact-equality, since FEATURE C's spinning-disc span means " +
+    "textContent now also carries the (aria-hidden) coin glyph alongside the label text");
+  ok(H.during.hasSpinDisc === true,
+    "H1b FEATURE C: a real .btn-spin-disc element (the same splashSpin-keyframed coin glyph the " +
+    "splash screen and showSectionLoading() already use) is genuinely present on the button while pending");
   ok(H.afterRepeat.calls === 1,
     "H2 a repeat click while it is running starts nothing — the operation ran once");
-  ok(H.after.disabled === false && H.after.label === "Promote",
-    "H3 -- and it is restored afterwards when it is still on the page");
-  ok(H.detachedStillDisabled === true && H.detachedLabel === "Promoting…",
-    "H4 a button its own operation removed from the DOM is left alone, not pointlessly restored");
+  ok(H.after.disabled === false && H.after.label === "Promote" && H.after.hasSpinDisc === false,
+    "H3 -- and it is restored afterwards when it is still on the page, spinning disc removed too");
+  ok(H.detachedStillDisabled === true && /Promoting…/.test(H.detachedLabel),
+    "H4 a button its own operation removed from the DOM is left alone, not pointlessly restored — " +
+    "same substring check as H1, for the same FEATURE C reason");
   ok(H.syncState.disabled === false && H.syncState.label === "Reject",
     "H5 a handler that returns nothing (it only opened a dialog) gets no pending state at all — " +
       "not even a one-frame flash before the user has decided");

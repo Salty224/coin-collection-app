@@ -13573,6 +13573,185 @@ errors.
   pass shows FaceValue not landing/reading correctly, check the real
   column name first before assuming the mapping logic is wrong.
 
+### Finish conflict on a single match, real direct-write for a clean match, visible Promote loading state (BUILT, held on branch `claude/code-primer-u8uv1d` — live-device testing required before merge, especially FEATURE B, per Ray's own explicit instruction)
+Three items from Ray's live Add Coin testing, the second building directly
+on the first's now-trustworthy signal.
+
+**FIX A — the single-candidate path skipped the Finish check entirely.**
+`dbCoinsCandidatesFor()`'s Finish-narrowing tier was gated by `candidates
+.length > 1` — so once the base Denom+Year+Mint+Variety key resolved to
+exactly ONE candidate, Finish was never consulted at all, and a real
+mismatch was silently accepted. **Confirmed root cause of a real 2025
+Reverse Proof cent silently matching a Business-Strike-only catalog row.**
+Every other tier in this function (Composition, Description, Category,
+Designation) either runs unconditionally or is a genuine disambiguator
+that only earns its keep with 2+ candidates — Finish was the one tier that
+skipped its own correctness check on exactly the case (a lone, wrong
+candidate) where a check matters most.
+- **Fixed by restructuring the outer gate from `candidates.length > 1` to
+  a plain `normField(shape.finish || "")` check**, with the multi- and
+  single-candidate cases handled as two internal branches rather than one
+  now-wider condition — the multi-candidate branch is copied verbatim,
+  untouched in behavior. The new single-candidate branch follows the exact
+  same recognized-vs-unrecognized rule the multi-candidate branch already
+  established: only a real, **known** DB_Coins Finish value
+  (`knownDbCoinsFinishValues()`) that actively **disagrees** with the sole
+  candidate's own Finish routes to No Match (zero candidates); a blank or
+  unrecognized/All-only Finish value (Circulated, Various — never a real
+  DB_Coins category) never manufactures a false miss, same protection the
+  multi-candidate branch already gives those values.
+- **No change to any other tier, and no change to the multi-candidate
+  Finish logic itself** — this is purely closing the one case that tier
+  never reached.
+
+**FEATURE B — the real direct-write path for a clean, unambiguous match.**
+Until now, both Add Coin save buttons wrote only a Staging draft; a
+separate, manual Promote click (Staging Review or the Docket) was always
+required to reach `All`. Now: when a coin resolves to exactly one
+unambiguous DB_Coins match (`match.how !== "none"` — either a lone
+candidate, now Finish-checked thanks to Fix A, or a candidate the user
+deliberately picked from the ambiguous list), **"Save to Database" writes
+the Staging draft AND immediately reuses `promoteCoinDraft()`'s own real
+write path in the same click** — no separate trip to Promote needed. An
+ambiguous, conflicting, or unmatched coin keeps "Save to Database"
+unavailable (`display:none`, same mechanism as before); "Save to Staging"
+is completely unaffected and always available regardless of match quality.
+- **`match.how !== "none"` IS the "no Finish/Composition conflict" signal
+  — there is no separate flag to check.** Fix A already folds a real
+  Finish disagreement into `dbCoinsCandidatesFor()`'s own resolution: a
+  lone candidate whose Finish contradicts the recorded one now resolves to
+  zero candidates, i.e. `match.how === "none"`, before `completeAddCoinSave()`
+  ever sees it. Composition has no producer on Add Coin at all today (see
+  `dbCoinsCandidatesFor()`'s own comment — "Add Coin deliberately has no
+  Composition input... the reachable behavior is the Ambiguous path, not
+  this one") — its hard tier never narrows anything from this form, so
+  there is nothing further to check for it either. Both halves of "no
+  Finish/Composition conflict" are already true by construction once
+  `match.how !== "none"`.
+- **Reuses `promoteCoinDraft()` directly — not a second copy of its write
+  path.** `completeAddCoinSave()` writes the draft (with photos/receipt)
+  exactly as before, then, for `destination === "database"` with a
+  resolved match and the write layer on, calls `promoteCoinDraft(collectionId)`
+  — the SAME function Staging Review's and the Docket's own Promote
+  buttons call, including its own toast, the real photo move
+  (`movePromotedCoinFiles()`), and the live-data cache refresh
+  (`refreshLiveCoinsAfterWrite()`). Nothing about `promoteCoinDraftToAllSheetUnlocked()`
+  or its lock (`coinPromoteInFlight`) needed touching — a save-triggered
+  promote and a manual one are now genuinely the same code path with two
+  entry points.
+- **The check is real, not redundant with the button's own visibility.**
+  `updateSaveConfidenceUI()` only SHOWS the button once the match looks
+  resolved at RENDER time, but `resolveAddCoinCatalogMatch()` re-resolves
+  fresh at SAVE time — an identity edit between a render and the click (or
+  clicking "None of these" inside the very picker this click just opened)
+  can still land in `completeAddCoinSave()` with a genuinely unresolved
+  match despite the button having been visible. `destination === "database"
+  && match.how !== "none"` is checked again at that point, and a mismatch
+  falls straight through to the ordinary Staging-only save below it —
+  verified directly (a synthetic `match.how: "none"` passed to a
+  `"database"` save writes nothing to `All` and never calls
+  `promoteCoinDraft()`).
+- **The static "No unrecognized Variety flagged — ready for a direct save"
+  message is gone**, replaced with real logic in `updateSaveConfidenceUI()`:
+  - **Confident** (`#saveConfidentMsg`, now populated dynamically): with
+    the write layer on, "Resolved to a single, clean DB_Coins match — Save
+    to Database writes this coin straight to the All sheet in one step."
+    With it off, the original mockup-appropriate wording is kept ("ready
+    for a direct save").
+  - **Not confident** now distinguishes THREE reasons, not two — Variety
+    unrecognized (unchanged wording), a genuinely unresolved 2+ ambiguous
+    match (new: "N catalog entries match this coin, and none is picked
+    yet — Save to Database is unavailable until you resolve which one...
+    Save to Staging in the meantime"), and a genuine zero-candidate miss
+    (unchanged wording, "No single DB_Coins entry resolved..."). Before
+    this fix the ambiguous and zero-candidate cases shared one message
+    that was actively misleading for the ambiguous case (claiming "there's
+    no catalog row to link it to" when there are 2+).
+- **Both interim banners updated again**, since FIX 1's own rewording
+  ("both options write to the same Staging draft... neither adds an
+  All-sheet row directly") is no longer universally true. `addCoinInterimBanner`
+  now states the real behavior: a clean match writes straight into All in
+  the same step; anything else falls back to a Staging-only save.
+  `stagingInterimBanner` gained one clause noting that a cleanly-matched
+  coin won't show up there at all anymore, since it already wrote straight
+  to `All` from Add Coin.
+
+**FEATURE C — a visible loading indicator during a real write.** Clicking
+Promote used to just gray the button and swap its text to "Promoting…" —
+not obvious enough on a write that can take several real seconds (this is
+literally what caused the AY-00706 double-submit incident this project has
+already fixed once). Reuses the splash screen's own spinning-coin
+motif — the identical `splashSpin` keyframes `showSectionLoading()`/
+`hideSectionLoading()` already reuse at section scale — rather than
+inventing a third loading style.
+- **New `.btn-spin-disc` CSS** — a small inline-block 🪙 glyph, `splashSpin`
+  animation, sized for button text (13px, `vertical-align: -1px`).
+- **`runWithButtonPending()` (the ONE shared helper every real-write action
+  button in the app already goes through — Promote, Force Add, Mark ready,
+  Re-check, Reject, Revert to Draft, Dismiss, on both Staging Review and
+  the Docket) now injects it** alongside the pending label:
+  `<span class="btn-spin-disc" aria-hidden="true">🪙</span><span>Promoting…</span>`,
+  in place of a bare `textContent` swap. Capture/restore switched from
+  `textContent` to `innerHTML` accordingly (`originalHtml`, not
+  `originalLabel`) — lossless for every real caller, since every existing
+  button label is plain text. One change here covers every button already
+  wired through this helper, with no per-button edits needed.
+- **Add Coin's own Save button gets the identical treatment**, inlined at
+  its own two call sites (the "Saving…" label at the top of
+  `completeAddCoinSave()`, and its `finally` restore) rather than routed
+  through `runWithButtonPending()` — that function's own "call first, then
+  decide" shape doesn't fit a save that's already inside its own
+  `try/finally`, so this is the same visual output via the same CSS class,
+  applied directly.
+
+**Verified headless — new committed suite
+`tests/verify_finish_conflict_and_direct_write.js` (31 assertions), all
+passing; 1723 across all 41 suites, zero failures, zero page errors.**
+Covers: FIX A's single-candidate branch in all four states (a real
+recognized disagreement zeroing out, agreement staying at 1, a blank
+Finish never narrowing, an unrecognized/All-only Finish never manufacturing
+a miss) plus a sanity check that the pre-existing multi-candidate branch is
+untouched; FEATURE B's readiness banners at the UI level for a clean match,
+a Finish-conflict "single" candidate (FIX A engaged, reading exactly like a
+genuine miss), an unresolved ambiguous match (its own new wording,
+distinct from a genuine miss), and a genuine zero-candidate miss (original
+wording preserved); a full end-to-end save-to-database through the real
+mock Graph client — the coin lands directly in `All` with both keys and
+its other captured data, the draft ends `Promoted` (never sitting in
+Staging Review's "Needs a decision" list), and `promoteCoinDraft()` is
+confirmed CALLED (not a parallel write) via a wrapped spy; the identical
+clean match through Save to Staging confirmed to NOT auto-promote (no
+`promoteCoinDraft()` call, the All sheet untouched, the draft written as an
+ordinary awaiting-Promote Staging draft); the defensive `match.how ===
+"none"` fallback for a database-destination save invoked directly with an
+unresolved match (no throw, no promote attempt, nothing written); and
+FEATURE C's spinning disc genuinely absent before, present with the
+correct label during, and cleaned up after a real gated Add Coin save.
+**Two verified negative controls**: FIX A's own NEG block reconstructs the
+exact pre-fix rule (Finish only ever checked when `candidates.length > 1`)
+against the identical fixture and confirms it WOULD have silently accepted
+the mismatched row (`oldRuleResult === 1`) while the real, currently-shipping
+function correctly reports zero — proving the positive assertions exercise
+a genuine fix, not a restatement of already-passing behavior; and
+`verify_promote_race.js`'s own pre-existing "pending-state helper" block
+(H1/H4) was updated (not weakened) from an exact-equality `textContent`
+check to a substring check plus a dedicated `.btn-spin-disc`
+presence/absence assertion, following FEATURE C's real design change — the
+button's `textContent` now genuinely includes the (aria-hidden) coin glyph
+alongside the label during the pending state, and a bare substring match
+alone wouldn't prove the actual new element exists, which the added
+`hasSpinDisc` check does directly.
+- **Not verified: any real device, any real OneDrive session.** Per the
+  task's own explicit instruction, this needs a live pass before merge —
+  especially FEATURE B: confirm a genuinely clean match (single
+  unambiguous DB_Coins row, Finish agreeing) writes straight to All with
+  Save to Database and no separate Promote step is needed; confirm a real
+  Finish mismatch or a genuinely ambiguous match correctly makes Save to
+  Database unavailable rather than writing the wrong row; and confirm Save
+  to Staging still works unconditionally regardless of match quality. Held
+  on `claude/code-primer-u8uv1d`, not merged to `main`, until that pass
+  comes back clean.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
