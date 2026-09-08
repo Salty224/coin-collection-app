@@ -3991,12 +3991,13 @@
           </div>
           <div class="banner pending-banner hidden" id="addCoinInterimBanner">
             <span class="icon">🚧</span>
-            <span class="msg"><strong>Interim behaviour (Phase 1).</strong> Both save options
-            write a real Staging draft on OneDrive — the app does not add All-sheet rows yet,
-            so Copilot reconciliation moves the row across. Which option you chose is recorded
-            on the draft, so a direct save stays distinguishable from a staged one. Once
-            Phase 2's direct-write path lands, <em>Save to Database</em> creates the row itself
-            and this notice goes away.</span>
+            <span class="msg"><strong>Two-step save.</strong> <em>Save to Database</em> writes
+            to the same real Staging draft on OneDrive as <em>Save to Staging</em> — neither
+            option adds an All-sheet row directly from here. A real in-app <em>Promote</em>
+            step (from Staging Review or the Docket, once the draft's catalog match is
+            resolved) is what actually moves it into All. Which option you chose is still
+            recorded on the draft, so a direct save stays distinguishable from a staged
+            one.</span>
           </div>
           <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
             <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
@@ -4122,11 +4123,11 @@
         </p>
         <div class="banner pending-banner hidden" id="stagingInterimBanner">
           <span class="icon">🚧</span>
-          <span class="msg"><strong>Interim behaviour (Phase 1).</strong> These are real
-          Staging drafts on OneDrive, but the app does not write the workbook yet.
-          <strong>Mark ready</strong> flags a draft for Copilot reconciliation to move
-          into the All sheet — it does not add the row itself. Once Phase 2's direct-write
-          path lands, this action becomes a real promotion and this notice goes away.</span>
+          <span class="msg"><strong>Two-step save.</strong> These are real Staging drafts
+          on OneDrive. <strong>Mark ready</strong> flags a draft as ready to promote — it
+          does not add the All-sheet row itself. Once a draft has a resolved CoinID,
+          <strong>Promote</strong> is offered right here and writes it into the All sheet
+          for real — no Copilot step required to move it across.</span>
         </div>
         <p class="placeholder-note" id="stagingMockNote">Placeholder only — nothing is written to OneDrive yet.</p>
         <p style="font-size:13px; margin-top:0;" id="stagingWorkbookLinkRow"></p>
@@ -6845,6 +6846,13 @@
   const ALL_WRITABLE_COLUMNS = [
     "Year", "MintMark", "Denomination", "Variety", "Description",
     "Category", "Finish", "Error",
+    // FaceValue: same treatment as Category/Finish/Error above — allow-
+    // listed so coinDraftToAllValues()'s promotion write isn't silently
+    // dropped, but there's no Browse Edit UI input for it either (it's
+    // derived from Denomination at promotion time, via
+    // faceValueForDenomCode(), never hand-typed). See "FaceValue fix" —
+    // valueWithFaceFloor() depends on this column being populated.
+    "FaceValue",
     "Value", "ValueSource", "ValueDate", "Cost", "Shipping", "Seller_Link", "PurchaseDate",
     "StorageLocation", "Container", "Grade", "GradeSource", "Designation",
     "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified",
@@ -6900,6 +6908,19 @@
   const EXIT_STATUSES = ["Sold", "Gifted", "Returned", "Spent"];
   const STATUS_OPTIONS = ["Owned"].concat(EXIT_STATUSES);
   function isExitStatus(status) { return EXIT_STATUSES.indexOf(status) !== -1; }
+
+  // The one shared "current collection, for a list/grid display" filter —
+  // activeCoins() itself stays raw (Ledger's own Exit History and any
+  // direct single-coin CollectionID lookup need every row, exit-status
+  // included), so every LIST/GRID surface that means "what I still own"
+  // goes through this instead. Real bug this closes: Catalog never checked
+  // Status at all — a Sold/Gifted/Returned/Spent coin displayed exactly
+  // like an owned one — and the same gap existed independently in Stats'
+  // totals (would have silently summed a returned coin's value) and
+  // Spotlight (could randomly surface an exited coin on the dashboard).
+  // One helper, swapped into every one of those consumers, rather than
+  // patching Catalog alone and leaving the same class of bug elsewhere.
+  function ownedCoins() { return activeCoins().filter(c => !isExitStatus(c.status)); }
 
   // One populate function for all three Status selects (Add Coin, Edit
   // Coin, Edit Set) — same "one function, not hand-duplicated per form"
@@ -8946,6 +8967,58 @@
   // every populated field as changed, and stamps Reviewed/LastModified,
   // all of which is exactly right for an app-created row.
 
+  // FaceValue fix — the Value-floor feature (valueWithFaceFloor(), see
+  // "Splash: close Docket badge gap; Value floored at face value") depends
+  // entirely on All.FaceValue being populated, but coinDraftToAllValues()
+  // below never wrote it at all — it was simply absent from the mapping,
+  // so every newly-promoted coin silently got no floor and could show
+  // $0.00 instead of at least its own denomination's real value.
+  //
+  // No numeric face-value table exists anywhere in the workbook to read
+  // from — Lookup_Denominations and Lookup_DenomCodes were both checked
+  // and neither carries a dollar-amount column — so this is a small,
+  // explicit, hardcoded mapping from denomination CODE to its real
+  // dollar face value, cross-checked against this file's own
+  // DENOM_CODE_INFO/BULLION_TIER_OPTIONS (the real, confirmed codes this
+  // app actually generates; see the "workbook-alignment batch" section
+  // for how H1C/H10C/3CS/3CN were confirmed against the real
+  // Lookup_DenomCodes table). A "$N"-style code (the bullion/gold tier's
+  // own plain face-value codes: $1, $2.5, $3, $5, $10, $20, $25, $50,
+  // $100...) parses N directly rather than needing its own table entry —
+  // this deliberately covers modern bullion denominations too, since a
+  // $50 gold coin's legal face value really is $50, distinct from its
+  // market value, which is exactly the distinction the floor feature
+  // exists to protect. A code matching neither this table nor the "$N"
+  // pattern (5oz — not a face value at all; Medal — has no face value;
+  // or any genuinely new/unrecognized code) resolves to null, the same
+  // "nothing to floor against" fallback valueWithFaceFloor() already
+  // handles gracefully, rather than writing a wrong number.
+  const DENOM_CODE_FACE_VALUE = {
+    "H1C": 0.005,  // Half Cent
+    "1C": 0.01,    // Cent
+    "2C": 0.02,    // Two-Cent Piece
+    "3CS": 0.03,   // Three-Cent Silver
+    "3CN": 0.03,   // Three-Cent Nickel — same value, different metal
+    "H10C": 0.05,  // Half Dime — its own historical denomination, NOT half of 10C
+    "5C": 0.05,    // Nickel
+    "10C": 0.10,   // Dime
+    "20C": 0.20,   // Twenty-Cent Piece
+    "25C": 0.25,   // Quarter
+    "50C": 0.50    // Half Dollar
+  };
+  function faceValueForDenomCode(code) {
+    if (!code) return null;
+    if (Object.prototype.hasOwnProperty.call(DENOM_CODE_FACE_VALUE, code)) {
+      return DENOM_CODE_FACE_VALUE[code];
+    }
+    // Only a code actually SHAPED like a dollar amount is parsed this way
+    // — a blind numeric-extraction regex over every code would wrongly
+    // pull "1" out of "H1C" or "3" out of "3CS", which is exactly the
+    // prefixed/suffixed-code trap this function exists to avoid.
+    if (/^\$\d+(\.\d+)?$/.test(code)) return Number(code.slice(1));
+    return null;
+  }
+
   // Draft field -> All column. Only columns on ALL_WRITABLE_COLUMNS appear
   // here; buildRowCellEdits() would filter anything else out regardless,
   // but keeping the map honest means the two can't quietly disagree.
@@ -9004,6 +9077,15 @@
     // text pasted straight in. buildRowCellEdits() then applies the explicit
     // yyyy-mm-dd number format (isDateCol lists it).
     if (draft.valueDate) v.ValueDate = excelSerialFromISODate(draft.valueDate);
+    // FaceValue — derived from the draft's own Denomination code, not
+    // captured on the form (there's nowhere for Ray to type it, and
+    // there's no reason to ask him to — it's a fixed fact about the
+    // denomination, not specimen data). See faceValueForDenomCode()'s own
+    // comment for the mapping and why an unmatched code is left unset
+    // rather than guessed. This is what valueWithFaceFloor() needs to
+    // stop a newly-promoted low-value coin from showing $0.00.
+    const faceValue = faceValueForDenomCode(draft.denom);
+    if (faceValue != null) v.FaceValue = faceValue;
     return v;
   }
 
@@ -11376,7 +11458,14 @@
   function __resetSpotlightSelectionForTest() { spotlightSelectionSource = null; spotlightSelectionIds = null; } // test-only seam
   function spotlightCoinList() {
     const source = activeCoins();
-    const pool = source.filter(c => c && c.id && !isSetRow(c));
+    // isExitStatus() excluded here too — a Sold/Gifted/Returned/Spent coin
+    // must never be randomly surfaced on the dashboard, same reasoning as
+    // Catalog/Sets/Rolls/Stats. Filtering source (not ownedCoins()' own
+    // return) keeps this function's existing "keyed to the source array's
+    // own identity" caching rule intact — ownedCoins() itself always
+    // returns a new filtered array, which would defeat the `source !==
+    // spotlightSelectionSource` check below.
+    const pool = source.filter(c => c && c.id && !isSetRow(c) && !isExitStatus(c.status));
     if (spotlightSelectionSource !== source) {
       spotlightSelectionSource = source;
       const shuffled = pool.slice();
@@ -13127,14 +13216,16 @@
     // tab again (see BROWSE_FILTER_CHIPS), not a separate tab, so the Catalog
     // page owns them. Still excludes Set-bundle rows (Denomination="Multiple")
     // and Roll rows (RollID populated), which have their own destinations.
-    // Reads through activeCoins() — live All-sheet data once loaded (see
-    // "Live Nav Data" above), FAKE_COINS otherwise.
-    return activeCoins().filter(c => c.denom !== "Multiple" && !c.rollId);
+    // Reads through ownedCoins() — live All-sheet data once loaded (see
+    // "Live Nav Data" above), FAKE_COINS otherwise, with exit-status rows
+    // (Sold/Gifted/Returned/Spent) excluded — a coin that's left the
+    // collection has no business in general Catalog browsing.
+    return ownedCoins().filter(c => c.denom !== "Multiple" && !c.rollId);
   }
 
   // Medal tab's base row-set — the mirror image of the exclusion above.
   function medalTabBaseRows() {
-    return activeCoins().filter(c => c.denom === "Medal");
+    return ownedCoins().filter(c => c.denom === "Medal");
   }
 
   // Same blank/Philadelphia, P, D, S, CC, O, W order as the Mint Mark
@@ -13194,7 +13285,7 @@
       // List mode (All/Commemorative/Other): original owned-rows behaviour,
       // untouched. Hide the scope dropdown.
       scopeRow.style.display = "none";
-      const rows = activeCoins().filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
+      const rows = ownedCoins().filter(c => c.denom === "Multiple").filter(browseSetCategoryTest).filter(yearRowTest)
         .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
       renderSetsGrid(rows);
     }
@@ -13313,7 +13404,7 @@
   }
 
   function applyRollsTabFilters() {
-    const base = activeCoins().filter(c => !!c.rollId);
+    const base = ownedCoins().filter(c => !!c.rollId);
     const rows = base
       .filter(rollsDenomTest).filter(rollsMetalTest).filter(yearRowTest)
       .filter(c => !browseMissingPhotoOnly || coinMissingPhoto(c));
@@ -19302,22 +19393,29 @@
     // never called ensureLiveNavDataFetch() either, so nothing ever primed
     // the fetch from here in the first place. Both are fixed together below.
     const all = activeCoins();
+    // Totals below use the owned-only subset (excludes Sold/Gifted/
+    // Returned/Spent) — a returned coin's value/cost has no business in
+    // the collection's own aggregate totals, same reasoning as Catalog/
+    // Sets/Rolls/Spotlight. `all` itself stays raw/unfiltered — Exit
+    // History (below) needs every exit-status row, and Ledger's own coin
+    // search filters itself directly (renderLedgerCoinSearch()).
+    const owned = all.filter(c => !isExitStatus(c.status));
     // Denomination="Medal" is the real medal signal now (see FAKE_COINS) —
     // superseded the old itemType field, which doesn't exist in the real
     // workbook.
-    const coins = all.filter(c => c.denom !== "Medal");
-    const medals = all.filter(c => c.denom === "Medal");
-    const totalSpent = all.reduce((sum, c) => sum + (c.cost || 0), 0);
+    const coins = owned.filter(c => c.denom !== "Medal");
+    const medals = owned.filter(c => c.denom === "Medal");
+    const totalSpent = owned.reduce((sum, c) => sum + (c.cost || 0), 0);
     // Value-display cleanup task: floored per-coin BEFORE summing, same
     // valueWithFaceFloor() every other Value display now uses — a no-op
     // for any coin whose faceValue never resolved, so this is never a
     // change in practice until that field actually carries real data.
     // Cost (totalSpent above) is a different concept (what was paid, not
     // what it's worth) and is deliberately never floored.
-    const totalValue = all.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
+    const totalValue = owned.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
     const net = totalValue - totalSpent;
 
-    document.getElementById("statTotalItems").textContent = all.length.toLocaleString();
+    document.getElementById("statTotalItems").textContent = owned.length.toLocaleString();
     document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
     document.getElementById("statTotalSpent").textContent = formatCurrency(totalSpent);
     document.getElementById("statTotalValue").textContent = formatCurrency(totalValue);
@@ -19368,7 +19466,7 @@
     container.innerHTML = "";
     const query = input.value.trim();
     if (!query) return; // nothing typed yet — don't dump every Owned row unasked
-    const matches = activeCoins().filter(c => !isExitStatus(c.status) && coinMatchesSearchQuery(c, query));
+    const matches = ownedCoins().filter(c => coinMatchesSearchQuery(c, query));
     if (!matches.length) {
       container.innerHTML = '<p class="placeholder-note">No matching Owned coins.</p>';
       return;
@@ -24659,7 +24757,7 @@
   // quirks" note in CLAUDE.md.
   function ownedSetForSetId(setId) {
     if (!setId) return null;
-    return activeCoins().find(c => c.denom === "Multiple" && c.setId && c.setId === setId) || null;
+    return ownedCoins().find(c => c.denom === "Multiple" && c.setId && c.setId === setId) || null;
   }
 
   let currentSetDraft = null;                 // the draft being captured/resumed

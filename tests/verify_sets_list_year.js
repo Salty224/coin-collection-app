@@ -17,22 +17,31 @@
 // level. Fixed by reusing the exact same detailTitleText() helper drill-in
 // already uses, so the two levels can't drift on the rule (skip prefixing
 // a name that already starts with its own year).
+//
+// SUPERSEDED (2026-09-08, "Three confirmed bugs..." Fix 3): this branch now
+// reads through ownedCoins() instead of activeCoins() directly, so an
+// exited (Sold/Gifted/Returned/Spent) Set bundle no longer appears in
+// general Sets browsing -- ownedCoins() itself still wraps activeCoins(),
+// so the underlying "live coins when loaded, demo fallback otherwise"
+// guarantee this block checks is completely unaffected.
 
 const { defineSuite } = require("./harness");
 
 module.exports = defineSuite("sets-list-year", async ({ ok, openApp, PHONE }) => {
   const page = await openApp(PHONE);
 
-  // ---------- A. list mode reads activeCoins(), confirmed (not FAKE_SETS) ----------
+  // ---------- A. list mode reads ownedCoins() (activeCoins() underneath), confirmed (not FAKE_SETS) ----------
   const A = await page.evaluate(() => {
     const src = document.documentElement.innerHTML;
     return {
       hasFakeSets: /FAKE_SETS\b/.test(src),
-      readsActiveCoins: /activeCoins\(\)\.filter\(c => c\.denom === "Multiple"\)/.test(src)
+      readsOwnedCoins: /ownedCoins\(\)\.filter\(c => c\.denom === "Multiple"\)/.test(src),
+      ownedCoinsWrapsActiveCoins: /function ownedCoins\(\) \{ return activeCoins\(\)\.filter/.test(src)
     };
   });
   ok(A.hasFakeSets === false, "A1 FAKE_SETS (the retired entity/picker model) does not exist anywhere in the source");
-  ok(A.readsActiveCoins, "A2 the Sets list-mode branch reads activeCoins() -- live coins when loaded, demo fallback otherwise -- confirming this was never stuck on mock data");
+  ok(A.readsOwnedCoins, "A2 the Sets list-mode branch reads ownedCoins() -- live coins when loaded, demo fallback otherwise, exit-status rows excluded -- confirming this was never stuck on mock data");
+  ok(A.ownedCoinsWrapsActiveCoins, "A2b ownedCoins() itself still wraps activeCoins(), so the underlying live-data guarantee this block checks is unaffected by the Fix-3 swap");
 
   // ---------- B. Year now appears on the list card, reusing detailTitleText() ----------
   const B = await page.evaluate(() => {

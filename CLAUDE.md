@@ -13413,6 +13413,166 @@ order (AY-00004) — confirming the positive assertions depend on the real
 fix, not a coincidence of the demo data's own ordering.
 - **Not verified: any real device.**
 
+### Three confirmed bugs from Ray's Add Coin → Promote → Catalog/Ledger live-device test (BUILT, held on branch `claude/code-primer-u8uv1d` — live-device testing required before merge, per Ray's own explicit instruction for Fix 2 and Fix 3)
+Three separate, unrelated fixes reported together from one live pass.
+
+**FIX 1 — stale banner wording.** `addCoinInterimBanner`/`stagingInterimBanner`
+still said "Copilot reconciliation moves the row across" — true when the
+banner was first written, no longer true once the real in-app Promote path
+(`promoteCoinDraftToAllSheet()` and friends, see "Phase 2 promote:
+duplicate-row bug" above) landed. Reworded both banners: dropped the
+Copilot claim and the stale "(Phase 1)"/"Phase 2's direct-write path lands"
+numbered-phase framing (Phase 2 already shipped), and now say plainly that
+a real in-app Promote step (offered on Staging Review and the Docket once
+a draft's CoinID resolves) is what moves the draft into All — no Copilot
+step required. **Kept, verbatim in spirit**: Add Coin's own banner still
+states that `Save to Database` writes to the same Staging draft on OneDrive
+as `Save to Staging` — that claim was and still is true, and removing it
+was explicitly out of scope. Text-only change; no behavior touched.
+
+**FIX 2 — FaceValue never written on promotion (real bug, root cause of the
+$0.00 Value symptom).** `coinDraftToAllValues()` — the function that maps a
+Staging draft's fields onto the row written to All when a coin is Promoted
+— never included `FaceValue` in its output at all; it was simply absent
+from the mapping. Since `valueWithFaceFloor()` (the Value-floor feature,
+see "Splash: close Docket badge gap; Value floored at face value") depends
+entirely on `All.FaceValue` being populated to have anything to floor
+against, every newly-promoted coin silently got no floor and could display
+$0.00 instead of at least its own denomination's real legal-tender value.
+- **No numeric face-value column exists anywhere in the workbook to read
+  from** — checked directly, not assumed: neither `Lookup_Denominations`
+  nor `Lookup_DenomCodes` carries a dollar-amount column. So this needed a
+  small, explicit, hardcoded mapping (`DENOM_CODE_FACE_VALUE` +
+  `faceValueForDenomCode()`) from denomination CODE to real dollar value,
+  cross-checked against this file's own `DENOM_CODE_INFO`/
+  `BULLION_TIER_OPTIONS` (the actual codes this app generates, already
+  confirmed against the real `Lookup_DenomCodes` table by the
+  workbook-alignment batch — `H1C`/`H10C`/`3CS`/`3CN` in particular).
+- **Table-first, not regex-first — deliberately, to avoid the exact trap
+  the task named.** A blind numeric-extraction regex over every code would
+  wrongly pull `1` out of `H1C` or `3` out of `3CS`; the fixed sub-dollar
+  codes (`H1C`=0.005, `1C`=0.01, `2C`=0.02, `3CS`=0.03, `3CN`=0.03,
+  `H10C`=0.05 — its own historical denomination, not half of `10C`,
+  `5C`=0.05, `10C`=0.10, `20C`=0.20, `25C`=0.25, `50C`=0.50) are matched
+  against an explicit table FIRST; only a code genuinely SHAPED like a
+  dollar amount (`/^\$\d+(\.\d+)?$/`) falls through to being parsed
+  directly as its own face value — `$1`, `$2.5`, `$3`, `$5`, `$10`, `$20`,
+  `$25`, `$50`, `$100`, and any future `$N` code, covering the classic gold
+  and modern bullion tiers at once with no per-code table entry (a bullion
+  pick's own `denom` is already the real plain face value, per
+  `BULLION_TIER_OPTIONS`'s design — so a Silver Eagle picked via the
+  Bullion toggle correctly gets `FaceValue=1`, a $50 Gold Eagle gets
+  `FaceValue=50`, distinct from its market value, exactly the distinction
+  the floor feature exists to protect).
+- **`5oz` and `Medal`** (the two `DENOM_CODE_INFO` codes with no real
+  face value) resolve to `null` — `5oz` isn't a face value at all, `Medal`
+  has none — same "nothing to floor against" fallback `valueWithFaceFloor()`
+  already handles gracefully. Checked every code currently in
+  `DENOM_CODE_INFO`/`BULLION_TIER_OPTIONS` against the reference table;
+  nothing uncovered was found, so there was nothing to check with Ray.
+- **`FaceValue` added to `ALL_WRITABLE_COLUMNS`** (same treatment as
+  Category/Finish/Error before it — allow-listed so the promotion write
+  isn't silently dropped, but there's no Browse Edit UI input for it
+  either; it's derived at promotion time, never hand-typed). Not on
+  `ALL_NEVER_WRITE_COLUMNS` — it's a plain column, not a live formula.
+
+**FIX 3 — Catalog (and, once audited, several other surfaces) never
+excluded exited coins.** Confirmed: `EXIT_STATUSES`/`isExitStatus()` were
+already used correctly by Ledger's own Exit History and coin search, but
+nothing else in the app checked Status at all — a Sold/Gifted/Returned/
+Spent coin displayed in Catalog exactly like an owned one, and the same
+gap turned out to exist independently everywhere else "the current
+collection" is treated as a list/grid.
+- **One new shared helper, `ownedCoins()`** (`activeCoins()` filtered to
+  `!isExitStatus(c.status)`), placed right next to `EXIT_STATUSES`/
+  `isExitStatus()` since it's their direct consumer. `activeCoins()` itself
+  is completely untouched — it stays the raw, unfiltered source, since
+  Ledger's own Exit History and every direct single-coin CollectionID
+  lookup still need every row, exit-status included.
+- **Audited every real `activeCoins()` call site in the file** (not
+  guessed at) and swapped each LIST/GRID "current collection" consumer to
+  `ownedCoins()`: `coinsTabBaseRows()`/`medalTabBaseRows()` (Catalog),
+  `applySetsTabFilters()`'s list-mode branch and `ownedSetForSetId()` (Sets
+  — the latter also closes the completeness checklist's own "owned" tile,
+  which would otherwise have lit up for a Gifted Set bundle),
+  `applyRollsTabFilters()` (Rolls), `renderStats()` (Stats — `all` stays
+  raw for Exit History, a new `owned` derived variable feeds every total/
+  breakdown figure and the item count), `spotlightCoinList()` (Spotlight —
+  filtered at the `pool` stage rather than swapping in `ownedCoins()`'s own
+  return value, since that function's caching is deliberately keyed to
+  `activeCoins()`'s own source-array identity and `ownedCoins()` always
+  returns a fresh array that would defeat the cache), and
+  `renderLedgerCoinSearch()` (Search — was already independently filtering
+  with `!isExitStatus`, simplified to read through the new shared helper
+  instead of duplicating the check).
+- **Left deliberately untouched, per the task's own explicit boundary**:
+  `renderLedgerExitHistory()` (still reads the raw, unfiltered `all` —
+  it specifically wants exited coins); every direct single-coin
+  CollectionID lookup (`legacyStoredRowsFor`, `photoCommitTargetId`,
+  the album filled-slot tap, `applyDocketResolution`, etc. — all still
+  read `activeCoins()` raw, so a coin that's left the collection is still
+  individually viewable, e.g. tapped into directly from Exit History);
+  `setChildrenFor()`/`resolveChildParentSet()`/`resolveCoinSetLink()` (a
+  Set's own child-linkage resolution — not named in the task, and genuinely
+  different in kind from a general browsing list); and the Docket's own
+  "Other / Requires Photos" missing-photo audit (also not named in the
+  task — left alone rather than assumed in scope).
+
+**Verified headless — new committed suite
+`tests/verify_promote_catalog_fixes.js` (59 assertions), all passing.**
+Covers: both banners' actual text (the Copilot claim and stale phase
+framing gone, the still-true Save-to-Database/Save-to-Staging claim
+intact, both mentioning Promote); `faceValueForDenomCode()` against every
+value in the task's own reference table plus the `$N` bullion codes,
+`5oz`/`Medal`/blank/unknown all resolving to `null`, and a direct negative
+control proving a naive numeric-extraction regex WOULD get the prefixed/
+suffixed codes wrong (confirming the table-first approach is load-bearing);
+`coinDraftToAllValues()` actually carrying `FaceValue` for a classic coin,
+a bullion pick (Silver Eagle sharing `$1` with an ordinary Dollar, a $50
+Gold Eagle), and correctly omitting the key entirely for an unmatched
+code; `ALL_WRITABLE_COLUMNS`/`ALL_NEVER_WRITE_COLUMNS` membership; a full
+end-to-end Promote through the mock Graph client writing `FaceValue=0.01`
+for a real low-value Cent draft and `valueWithFaceFloor()` then correctly
+showing `$0.01` instead of `$0.00` — **with a negative control** that
+strips `FaceValue` from the mapping (reproducing the old code exactly) and
+confirms the identical scenario leaves the cell blank and the display at
+the unfloored `$0`; `ownedCoins()` excluding all four exit statuses while
+keeping Owned/blank/`"At PCGS"`; Catalog's Coins and Medal base rows,
+Rolls' base set, Sets' list mode, and `ownedSetForSetId()` each excluding
+an exit-status row end-to-end through the real render path (not just the
+underlying filter functions in isolation, for Rolls/Sets); Stats'
+totals/item-count excluding a Sold coin's value while Exit History still
+shows it; Ledger's own coin search excluding a Returned coin with an
+otherwise-identical name; Spotlight never surfacing a Sold coin even when
+doing so would complete a valid 5-of-6 selection — **with a negative
+control** reverting the pool filter to its pre-fix shape and confirming
+the Sold coin becomes eligible again; and a direct-lookup sanity check
+that `activeCoins()` itself still resolves an exited coin's full record
+unfiltered. One pre-existing suite (`verify_sets_list_year.js`) needed
+updating, not weakening — its own source-text assertion literally matched
+the old `activeCoins().filter(...)` pattern in the Sets list-mode branch;
+updated to match the new `ownedCoins().filter(...)` pattern plus a new
+assertion confirming `ownedCoins()` itself still wraps `activeCoins()`, so
+the underlying "live coins when loaded, demo fallback otherwise" guarantee
+that suite cares about is unaffected. Full `npm test` regression re-run
+clean: 1691 assertions across all 40 suites, zero failures, zero page
+errors.
+- **Not verified: any real device, any real OneDrive session** — per the
+  task's own explicit instruction, Fix 2 and Fix 3 both need a live pass
+  before merge: confirm a freshly promoted low-value coin shows its real
+  face value (not $0.00), and confirm a coin marked Returned disappears
+  from Catalog/Stats/Spotlight while still showing correctly in Ledger's
+  Exit History and still openable directly. Held on
+  `claude/code-primer-u8uv1d`, not merged to `main`, until that pass comes
+  back clean.
+- **Open question for Ray, not guessed at**: the exact `All` column name
+  for FaceValue is `FaceValue` — this matches the read side's own existing
+  `colVal(row, "FaceValue")` (built in an earlier round, itself flagged as
+  "not independently confirmed against the real workbook from this
+  environment"). This fix assumes that column name is correct; if the live
+  pass shows FaceValue not landing/reading correctly, check the real
+  column name first before assuming the mapping logic is wrong.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare
