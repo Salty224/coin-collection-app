@@ -1059,6 +1059,28 @@
   }
   .album-card .progress-fill { height: 100%; background: var(--gold); }
   .album-card .chevron { color: var(--text-muted); font-size: 18px; }
+  /* Detach control on an Edit Set child row (opt-in — see buildSetChildRow's
+     onDetach param). Deliberately quiet and set apart from the chevron: it
+     is destructive, and this project has already been bitten once by a
+     destructive control sitting flush against navigational ones (the photo
+     Trash button, mis-tapped on a real device). Its own confirmation
+     dialog is the real guard; the spacing is the second line of defence. */
+  .set-child-detach {
+    /* No margin-left:auto needed — .album-card-info already has flex:1, so
+       it takes the free space and this sits right of it, one parent `gap`
+       (14px) clear of the chevron. */
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid var(--case-border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 6px 9px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .set-child-detach:hover { border-color: var(--gold); color: var(--gold); }
 
   /* ---------- Rolls tab: list rows (reuses the Albums picker's .album-card
      visual language exactly, same as the Sets tab does — see renderRollsGrid) ---------- */
@@ -3149,13 +3171,15 @@
 
           <!-- 3. COINS IN THIS SET — identity list, same as detail (tapping a
                row drills into that child's own detail page), plus a linking
-               control. SESSION-ONLY linkage (Ray's Q6 call): real
-               persistence would mean writing All.OriginSetID on the CHILD's
-               row, and OriginSetID is on ALL_NEVER_WRITE_COLUMNS — a second
-               never-write exception, held for its own later pass rather
-               than stacked into this one. Everything here operates on the
-               same in-memory FAKE_SET_CHILDREN model the read side already
-               uses, so it round-trips visibly and resets on reload. -->
+               control and (write layer on only) a per-row detach control.
+               SUPERSEDED: this was session-only, on the reasoning that real
+               persistence would need a never-write exception for
+               All.OriginSetID "held for its own later pass". That pass
+               happened — see ENABLE_SET_LINK_WRITE and
+               applySetLinkageWrite(). With the flag ON, linking and
+               removing write the CHILD's own OriginSetID cell for real;
+               with it off, the original session-only FAKE_SET_CHILDREN
+               behaviour is unchanged and says so in its own toast. -->
           <div class="detail-accordion">
             <button type="button" class="accordion-header" id="editSetChildrenHeader" aria-expanded="false">
               <span>Coins in this Set</span><span class="accordion-chevron">›</span>
@@ -3169,9 +3193,8 @@
                 <div class="accordion-body hidden" id="editSetLinkCoinBody">
                   <label for="editSetLinkCoinSelect">Coin</label>
                   <select id="editSetLinkCoinSelect"><option value="">— choose a coin —</option></select>
-                  <p class="placeholder-note" style="margin:4px 0 10px;">
-                    Lists owned coins not already linked to a Set. Linking is kept for
-                    this session only — it isn't written to the workbook yet.
+                  <p class="placeholder-note" style="margin:4px 0 10px;" id="editSetLinkCoinNote">
+                    Lists owned coins not already linked to a Set.
                   </p>
                   <div class="staging-actions">
                     <button type="button" class="staging-btn promote" id="editSetLinkCoinBtn">Link coin</button>
@@ -4792,6 +4815,8 @@
   //                              plus a CoinID cell on resolve)
   //   ENABLE_ADDCOIN_WRITE     — Add Coin's own write layer (Phase 1: writes a
   //                              Staging coin draft + its photos)
+  //   ENABLE_SET_LINK_WRITE    — attach/detach a coin to/from a Set (writes
+  //                              ONE cell: OriginSetID on the CHILD's row)
   //
   // SUPERSEDED — none of these are gated behind a local dev-flags.local.js
   // override anymore (that whole mechanism, and the file/README/.gitignore
@@ -4835,9 +4860,21 @@
   //   Phase 3 — nothing further for this flag; photo capture already lands
   //     in Phase 1.
   const ENABLE_ADDCOIN_WRITE = (WRITE_TARGET === "copy");
+  // Attaching/detaching a coin to/from a Set — writing All.OriginSetID on
+  // the CHILD's row. Its OWN flag for the same reason as every other one,
+  // and here the reason is unusually concrete: this is the app's first
+  // CROSS-ROW-TARGET write. Every other workbook write in this file edits
+  // the row the user is looking at; this one is initiated from a Set's Edit
+  // form and lands on a DIFFERENT row (the coin's). Riding
+  // ENABLE_BROWSE_EDIT_WRITE would mean enabling Edit Coin's ordinary field
+  // writes silently also enables that, which is exactly the coupling the
+  // one-flag-per-write-type rule exists to prevent; riding
+  // ENABLE_SET_WRITE_LAYER would conflate "writes Staging JSON files" with
+  // "writes workbook cells", which are not the same capability at all.
+  const ENABLE_SET_LINK_WRITE = (WRITE_TARGET === "copy");
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE;
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE;
   const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
 
   // **ONE PublicClientApplication for the whole app.** This is not a
@@ -6923,6 +6960,14 @@
   }
   function __setBrowseEditWriteEnabledForTest(v) { browseEditWriteEnabledOverride = v; } // test-only seam
 
+  // Same seam, for the Set attach/detach write (OriginSetID on a child's
+  // row). Its own gate, matching its own flag — see ENABLE_SET_LINK_WRITE.
+  let setLinkWriteEnabledOverride = null;
+  function setLinkWriteEnabled() {
+    return setLinkWriteEnabledOverride === null ? ENABLE_SET_LINK_WRITE : setLinkWriteEnabledOverride;
+  }
+  function __setSetLinkWriteEnabledForTest(v) { setLinkWriteEnabledOverride = v; } // test-only seam
+
   (function assertWriteColumnListsDisjoint() {
     const overlap = ALL_WRITABLE_COLUMNS.filter(c => ALL_NEVER_WRITE_COLUMNS.indexOf(c) !== -1);
     if (overlap.length) {
@@ -7586,6 +7631,180 @@
           "Press Force Add (or Promote) again: if the keys did land, the retry completes the row.");
       }
       return rows[0];
+    });
+  }
+
+  // ==================================================================
+  // SET ATTACH / DETACH — All.OriginSetID on the CHILD's row
+  // ==================================================================
+  // The app's first CROSS-ROW-TARGET write. Every other workbook write in
+  // this file edits the row the user is looking at; this one is initiated
+  // from a Set's Edit form and lands on a DIFFERENT row entirely — the
+  // coin's. That is the whole reason it carries its own flag
+  // (ENABLE_SET_LINK_WRITE) rather than riding Browse Edit's.
+  //
+  // OriginSetID is on ALL_NEVER_WRITE_COLUMNS and STAYS there: no ordinary
+  // field edit (Grade, Cost, Storage, ...) has any business changing which
+  // Set a coin belongs to. Attaching/detaching is the one genuine
+  // exception, and it follows writeCoinIdCell()'s established precedent
+  // exactly — a separate, narrow, single-purpose, explicitly-audited path
+  // that bypasses the allow-list machinery entirely and can write nothing
+  // but this one column (plus LastModified, below). The allow-list and the
+  // never-write list are both untouched.
+  //
+  // Attach and detach are the SAME primitive with different values (the
+  // parent's CollectionID, or ""), so the audited write surface stays at
+  // exactly one function rather than two.
+  //
+  // DELIBERATELY NOT A TWO-ROW WRITE. The real convention — confirmed
+  // against the app's own Add Set write path (addChildToSetDraft() writes
+  // `originSetId: draft.collectionID`) and against Ray's real hand-built
+  // 1967 SMS set — is that linkage lives ENTIRELY on the child. A real
+  // parent Set row carries no OriginSetID of its own, so there is no second
+  // row to keep in step, and therefore no cross-row atomicity problem to
+  // solve here at all: this is a single-row, one-or-two-cell PATCH that
+  // either lands or doesn't.
+
+  // Compares a cell's literal CONTENT against an expected literal value,
+  // where blank-vs-blank IS a match (an unattached coin's cell really is
+  // ""). Deliberately NOT originSetIdKeysMatch(), which answers a
+  // different question — "do these two strings identify the same Set?" —
+  // and for which two blanks must never match, since that would link every
+  // parentless coin to every childless Set. Two similar-looking helpers,
+  // two genuinely different jobs; don't collapse them.
+  function originSetCellEquals(a, b) {
+    return String(a == null ? "" : a).trim() === String(b == null ? "" : b).trim();
+  }
+
+  // Field-scoped fresh read of ONE row's OriginSetID cell.
+  //
+  // This is what stands in for the whole-row snapshot every other write in
+  // this layer takes, and the divergence is deliberate (Ray's explicit
+  // call). saveCoinRowToWorkbook()'s snapshot model assumes a form that was
+  // OPENED against the row being written, so it can capture a baseline at
+  // open time and diff every allow-listed column at save time. None of that
+  // holds here: the row written is not the row being edited, Edit Set takes
+  // no snapshot at all (it has no write layer of its own), and there is no
+  // "form open" moment for the child — it is picked from a dropdown. Note
+  // also that OriginSetID is not even in readAllRowWritableValues()'s read
+  // set (ALL_WRITABLE_COLUMNS + ALL_CONTEXT_COLUMNS), so the existing
+  // machinery is blind to this field regardless.
+  //
+  // Returns the trimmed cell content, or null when the column is genuinely
+  // absent from this workbook.
+  async function readOriginSetIdCell(rowNumber) {
+    const map = await ensureAllHeaderMap();
+    if (!map.OriginSetID) return null;
+    const a1 = columnIndexToLetters(map.OriginSetID) + rowNumber;
+    const rows = await graph().readWorkbookRange(
+      writePaths().workbook, ALL_SHEET_NAME, a1 + ":" + a1);
+    const cell = (rows[0] || [])[0];
+    return String(cell == null ? "" : cell).trim();
+  }
+
+  // The one narrow write. `originSetId` is the parent's CollectionID to
+  // attach, or "" to detach.
+  //
+  // LastModified is stamped: it is documented as "last app touch", and the
+  // app did touch this row — leaving it stale would make it lie. Reviewed
+  // is deliberately NOT blanked, which is this path's one divergence from
+  // saveCoinRowToWorkbook()'s blanket "Reviewed is blanked on EVERY
+  // successful save" rule (Ray's explicit call): Reviewed means a human has
+  // eyeballed this coin's own attributes, and re-parenting it changes none
+  // of them.
+  async function writeOriginSetIdCell(rowNumber, originSetId) {
+    const map = await ensureAllHeaderMap();
+    if (!map.OriginSetID) throw new Error("The All sheet has no OriginSetID column.");
+    const edits = [{
+      address: columnIndexToLetters(map.OriginSetID) + rowNumber,
+      values: [[originSetId]]
+    }];
+    if (map.LastModified) {
+      edits.push({
+        address: columnIndexToLetters(map.LastModified) + rowNumber,
+        values: [[excelSerialToday()]],
+        numberFormat: [[WORKBOOK_DATE_FORMAT]]
+      });
+    }
+    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
+  }
+
+  // Serialises attach/detach per CHILD CollectionID, so a double-tap on
+  // "Link coin" (or on a row's detach control) can't produce two writes for
+  // the same coin. Same shape as coinPromoteInFlight: a second call for the
+  // same child coalesces onto the first rather than being rejected, since
+  // the honest outcome of a double-tap is "that coin got linked", not an
+  // error. Keyed per child, so two different coins never block each other.
+  const setLinkInFlight = new Map(); // child CollectionID -> in-flight promise
+
+  function withSetLinkLock(childId, fn) {
+    const key = String(childId);
+    const running = setLinkInFlight.get(key);
+    if (running) return running.then(r => Object.assign({}, r, { coalesced: true }));
+    const p = (async () => fn())();
+    setLinkInFlight.set(key, p);
+    return p.finally(() => { setLinkInFlight.delete(key); });
+  }
+
+  // Attach = applySetLinkageWrite(childId, "", parentId)
+  // Detach = applySetLinkageWrite(childId, parentId, "")
+  //
+  // Conflict detection is field-scoped and read IMMEDIATELY before the
+  // write, rather than diffed against a form-open snapshot:
+  //   - attach requires the child's cell to be genuinely blank right now;
+  //   - detach requires it to still name the parent being detached from.
+  // Either mismatch refuses, reports what the cell actually says, and
+  // writes nothing. This is deliberately STRONGER than the general
+  // whole-row check for the case that actually matters (something
+  // re-parented this coin since the picker was populated) and deliberately
+  // weaker on unrelated fields — a concurrent edit to the child's Grade has
+  // no bearing on whether it belongs to this Set, and blocking on it would
+  // be noise.
+  //
+  // Never throws for an expected outcome; every caller renders the reason.
+  async function applySetLinkageWrite(childId, expectedCurrent, nextValue) {
+    if (!setLinkWriteEnabled()) {
+      return { ok: false, reason: "disabled",
+        message: "The Set-linkage write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
+    }
+    return withSetLinkLock(childId, async () => {
+      try {
+        // Rule 1 of this layer: a row is located by CollectionID at write
+        // time, never by a remembered or derived position.
+        const rowNumber = await findAllSheetRowNumber(childId);
+        if (!rowNumber) {
+          return { ok: false, reason: "not-found", message: childId + " is no longer on the All sheet." };
+        }
+        const current = await readOriginSetIdCell(rowNumber);
+        if (current === null) {
+          return { ok: false, reason: "no-column", message: "The All sheet has no OriginSetID column." };
+        }
+        if (!originSetCellEquals(current, expectedCurrent)) {
+          return { ok: false, reason: "conflict", current, expected: String(expectedCurrent || ""), rowNumber };
+        }
+        await writeOriginSetIdCell(rowNumber, nextValue);
+
+        // Verify by reading the cell back through the SAME endpoint family
+        // the write used (a worksheet range) — the read most likely to be
+        // consistent with the write that just happened. Bounded retry for
+        // the same reason createAllSheetRow()'s own verify has one: the app
+        // holds no workbook session, so read-after-write is not guaranteed,
+        // and a miss immediately after a write is far more likely to be lag
+        // than a lost write.
+        let after = await readOriginSetIdCell(rowNumber);
+        for (let attempt = 0; attempt < ROW_VERIFY_RETRIES && !originSetCellEquals(after, nextValue); attempt++) {
+          await new Promise(r => setTimeout(r, ROW_VERIFY_RETRY_MS));
+          after = await readOriginSetIdCell(rowNumber);
+        }
+        if (!originSetCellEquals(after, nextValue)) {
+          return { ok: false, reason: "verify-failed", current: after, rowNumber,
+            message: "Wrote OriginSetID for " + childId + " at row " + rowNumber +
+              " but it reads back as \"" + String(after == null ? "" : after) + "\". Try again." };
+        }
+        return { ok: true, rowNumber, value: nextValue };
+      } catch (e) {
+        return { ok: false, reason: "error", message: String(e && e.message || e) };
+      }
     });
   }
 
@@ -14490,7 +14709,13 @@
   // "Coins in this Set" accordion and Edit Set's own copy of it, so the two
   // are literally the same list. onBeforeNavigate lets Edit Set set the
   // return path up correctly before leaving.
-  function renderSetChildRowsInto(hostId, parentSet, onBeforeNavigate) {
+  //
+  // `onDetach` is OPT-IN and passed straight through to buildSetChildRow().
+  // Only Edit Set passes it, so the read-only surfaces that share this
+  // renderer (Browse detail's own accordion, the Manage Photos drill-down)
+  // are STRUCTURALLY unable to render a destructive control — they can't
+  // show what they never pass.
+  function renderSetChildRowsInto(hostId, parentSet, onBeforeNavigate, onDetach) {
     const host = document.getElementById(hostId);
     if (!host) return 0;
     const children = setChildrenFor(parentSet);
@@ -14500,7 +14725,7 @@
       return 0;
     }
     children.forEach(child => {
-      host.appendChild(buildSetChildRow(child, parentSet, onBeforeNavigate));
+      host.appendChild(buildSetChildRow(child, parentSet, onBeforeNavigate, onDetach));
     });
     return children.length;
   }
@@ -14539,11 +14764,26 @@
   // originSetIds follow an OS-YYYY-XXX-## shape; a derived one is clearly
   // marked as app-generated rather than imitating that format, since it
   // isn't a catalogued provenance id and shouldn't be mistaken for one.
+  //
+  // HARD GUARD (Ray's explicit call): this must NEVER fire once the real
+  // linkage write layer is on. The real convention is that a parent Set row
+  // carries NO OriginSetID of its own — linkage lives entirely on the child
+  // — so stamping an invented "OS-LOCAL-..." onto a real parent would put a
+  // value into a real record's in-memory shape that has no business being
+  // there, and would then be the thing a later save or read reasoned about.
+  // Guarded explicitly rather than left to incidental branching, so a future
+  // caller can't reach it by a path nobody thought about.
   function ensureOriginSetId(parentSet) {
+    if (setLinkWriteEnabled()) {
+      throw new Error("ensureOriginSetId() is demo-mode only — a real parent Set's OriginSetID must stay blank.");
+    }
     if (!parentSet.originSetId) parentSet.originSetId = "OS-LOCAL-" + parentSet.id;
     return parentSet.originSetId;
   }
 
+  // Session-only linking, unchanged — the demo-mode / flag-off path. Kept
+  // exactly as it was (it is what the existing suites exercise); the real
+  // write path is linkCoinToSetWrite() below.
   function linkCoinToSet(parentSet, coinId) {
     const child = activeCoins().find(c => c.id === coinId);
     if (!child) { showToast("Couldn't find " + coinId + "."); return false; }
@@ -14556,10 +14796,145 @@
     return true;
   }
 
+  // --- Real attach / detach -------------------------------------------
+  // Both are NON-OPTIMISTIC: the in-memory record is mutated only after the
+  // workbook write is confirmed, per the photo-detach fix's own hard-won
+  // precedent ("removing locally and firing the write off unawaited is what
+  // let the screen and the sheet disagree"). On failure nothing local
+  // changes at all, and the caller reports why.
+  //
+  // On success the in-memory record is updated DIRECTLY rather than calling
+  // refreshLiveCoinsAfterWrite() (Ray's confirmed call): the exact delta is
+  // already known — one field on one row — and a full refetch of All +
+  // DB_Sets + DB_Coins + Lookup_MetalContent to learn it would be wasteful.
+  async function linkCoinToSetWrite(parentSet, coinId) {
+    const child = activeCoins().find(c => c.id === coinId);
+    if (!child) return { ok: false, reason: "not-found", message: "Couldn't find " + coinId + "." };
+    if (child.originSetId) {
+      return { ok: false, reason: "already-linked",
+        message: child.id + " is already linked to " + child.originSetId + "." };
+    }
+    const res = await applySetLinkageWrite(child.id, "", parentSet.id);
+    if (res.ok) child.originSetId = parentSet.id;
+    return Object.assign({ child }, res);
+  }
+
+  async function unlinkCoinFromSetWrite(parentSet, child) {
+    const res = await applySetLinkageWrite(child.id, parentSet.id, "");
+    if (res.ok) child.originSetId = "";
+    return Object.assign({ child }, res);
+  }
+
+  // --- Edit Set: rendering + the detach confirmation -------------------
+  // One place that knows how Edit Set's child list is wired, so the two
+  // call sites (opening the form, and re-rendering after a change) can't
+  // drift on whether the detach control is present.
+  //
+  // The detach control is offered ONLY when the real linkage write layer is
+  // on. With it off there is nothing real to detach from — the session-only
+  // link has never been persisted — so showing a Remove button would be
+  // offering to undo something that was never written.
+  function renderEditSetChildRows(parentSet) {
+    return renderSetChildRowsInto("editSetChildrenRows", parentSet,
+      () => { document.getElementById("browseEditSetView").style.display = "none"; },
+      setLinkWriteEnabled() ? (child, btn) => confirmDetachCoinFromSet(parentSet, child, btn) : null);
+  }
+
+  // Everything that goes stale the moment the child list changes: the list
+  // itself, the picker below it (a linked coin must drop out of the
+  // candidates; a detached one must come back), and the Set-level facts
+  // (coin count is DERIVED from the children, not stored).
+  function refreshEditSetChildrenUI(parentSet) {
+    renderEditSetChildRows(parentSet);
+    populateEditSetLinkCoinOptions(parentSet);
+    // The picker's own note has to tell the truth about what pressing
+    // "Link coin" will actually DO, which now depends on the flag.
+    const note = document.getElementById("editSetLinkCoinNote");
+    if (note) {
+      note.textContent = setLinkWriteEnabled()
+        ? "Lists owned coins not already linked to a Set. Linking writes OriginSetID on the coin's own row."
+        : "Lists owned coins not already linked to a Set. Linking is kept for this session only — it isn't written to the workbook.";
+    }
+    const factRows = setDetailsFactsRows(parentSet);
+    fillReadOnlySection("editSetFactsRows", factRows.length ? detailRowsHtml(factRows) : "");
+  }
+
+  // Detach confirms; attach does not. Deliberately asymmetric (Ray's
+  // confirmed call): attaching is additive, trivially reversible, and
+  // already a deliberate two-step through the picker, whereas detaching
+  // reverses a provenance fact from a small row-level control sitting in a
+  // list — the easiest kind of mis-tap, and this project has been bitten by
+  // exactly that before (the photo Trash button).
+  //
+  // Worded more strongly than the photo-detach dialog on purpose. That one
+  // could truthfully say "the stored file itself is never deleted, so
+  // nothing is lost". Here the OriginSetID value is genuinely destroyed:
+  // nothing else in the workbook records which Set this coin came out of,
+  // and that is precisely the information being cleared.
+  function confirmDetachCoinFromSet(parentSet, child, btn) {
+    // A suffixed child id (AY-00555-A) still encodes its parent, which is a
+    // real and useful mitigation — but only say so when it's actually true
+    // of THIS coin, rather than implying a guarantee that doesn't hold for
+    // a coin linked to a Set it isn't id-descended from.
+    const idEncodesParent = String(child.id || "").indexOf(String(parentSet.id || "") + "-") === 0;
+    const body =
+      "<p>Remove <strong>" + escapeHtmlText(child.id) + "</strong>" +
+      (child.name ? " (" + escapeHtmlText(child.name) + ")" : "") +
+      " from <strong>" + escapeHtmlText(detailTitleText(parentSet)) + "</strong>?</p>" +
+      "<p>This clears <strong>OriginSetID</strong> on that coin's own row in the workbook. " +
+      "Nothing else records which Set it came out of, so this isn't recoverable from " +
+      "anywhere else — unlike removing a photo, where the stored file survives.</p>" +
+      (idEncodesParent
+        ? "<p>Its CollectionID still reads <strong>" + escapeHtmlText(child.id) +
+          "</strong>, which encodes this Set, so it stays identifiable — but the CollectionID is " +
+          "never rewritten by this app, Set membership or not.</p>"
+        : "") +
+      "<p>The coin itself, its photos and its CollectionID are untouched. You can re-link it afterwards.</p>";
+    showWriteGuard({
+      title: "Remove from this Set?",
+      bodyHtml: body,
+      buttons: [
+        { label: "Cancel" },
+        // Returns the promise so the button goes pending for the real
+        // write, not while the dialog is still open — see
+        // runWithButtonPending()'s own note on that distinction.
+        { label: "Remove", primary: true, onClick: () => runWithButtonPending(btn, "Removing…", async () => {
+            const res = await unlinkCoinFromSetWrite(parentSet, child);
+            if (res.ok) {
+              // Non-optimistic: the list only re-renders once the workbook
+              // write is confirmed (unlinkCoinFromSetWrite mutates the
+              // in-memory record only on success).
+              refreshEditSetChildrenUI(parentSet);
+              showToast(child.id + " removed from " + parentSet.id + ".");
+              return;
+            }
+            showToast(setLinkageFailureMessage(res, child, parentSet, "remove"));
+          }) }
+      ]
+    });
+  }
+
+  // One place that turns an applySetLinkageWrite() failure into something
+  // worth reading, so attach and detach report the same way.
+  function setLinkageFailureMessage(res, child, parentSet, verb) {
+    if (res.reason === "conflict") {
+      return "Couldn't " + verb + " " + child.id + " — its OriginSetID now reads \"" +
+        (res.current || "(blank)") + "\", not what this screen expected. Nothing was written; reopen the Set and try again.";
+    }
+    if (res.reason === "already-linked") return res.message;
+    if (res.reason === "not-found") return res.message;
+    return "Couldn't " + verb + " " + child.id + " — nothing was written. (" +
+      (res.message || res.reason) + ")";
+  }
+
   // One child row: name + identity (year/mint · denom · variety) + grade and
   // value. Explicitly NO photo — a child's photos are only reachable after
   // drilling into that child's own detail page.
-  function buildSetChildRow(child, parentSet, onBeforeNavigate) {
+  //
+  // `onDetach` is opt-in (see renderSetChildRowsInto()): when a caller
+  // passes one, and only then, the row grows a detach control. Read-only
+  // surfaces don't pass it and so cannot render it.
+  function buildSetChildRow(child, parentSet, onBeforeNavigate, onDetach) {
     const row = document.createElement("div");
     row.className = "case album-card";
     row.style.cssText = "cursor:pointer; margin-top:8px;";
@@ -14572,8 +14947,18 @@
         <div class="album-card-name">${child.name || identity}</div>
         <div class="roll-card-meta">${[identity, facts].filter(Boolean).join(" — ")}</div>
       </div>
+      ${onDetach ? `<button type="button" class="set-child-detach" aria-label="Remove ${escapeHtmlText(child.id)} from this Set" title="Remove from this Set">✕</button>` : ""}
       <span class="chevron">›</span>
     `;
+    if (onDetach) {
+      // The row itself is already a navigate-into-the-child click target,
+      // so this MUST stop propagation or a detach tap would also navigate
+      // away mid-write.
+      row.querySelector(".set-child-detach").addEventListener("click", (e) => {
+        e.stopPropagation();
+        onDetach(child, e.currentTarget);
+      });
+    }
     // Back from the child returns to the parent Set, and the parent's own
     // Back target is captured and restored so it still goes wherever it
     // originally came from — same per-origin back-handler pattern the
@@ -15092,11 +15477,14 @@
 
     // --- Coins in this Set (identity list, drills into the child's detail
     // page). Leaving Edit Set for a child's detail page is a real navigation
-    // away from this form, so hide the form first.
-    renderSetChildRowsInto("editSetChildrenRows", coin, () => {
-      document.getElementById("browseEditSetView").style.display = "none";
-    });
-    populateEditSetLinkCoinOptions(coin);
+    // away from this form, so hide the form first (renderEditSetChildRows
+    // owns that, along with whether the detach control is offered).
+    // Same helper the post-change refresh uses, so form-open and
+    // post-link/post-detach can't drift on the detach control or the
+    // picker's own note. (It also fills the Set-level facts, which the
+    // Notes & Facts block below sets again to the identical value —
+    // idempotent, and cheaper than a second code path.)
+    refreshEditSetChildrenUI(coin);
 
     // --- Notes & Facts: the Set-level facts block stays read-only; Fun Fact
     // and Notes are editable, same as Edit Coin.
@@ -15724,21 +16112,36 @@
     // Nested inside the Coins-in-this-Set accordion — its own disclosure, so
     // the linking control doesn't add height to the list until it's wanted.
     wireStaticAccordionToggle("editSetLinkCoinHeader", "editSetLinkCoinBody");
-    document.getElementById("editSetLinkCoinBtn").addEventListener("click", () => {
+    // Attach. No confirmation dialog, deliberately (see
+    // confirmDetachCoinFromSet() for the asymmetry): picking from the
+    // dropdown and pressing this button is already a deliberate two-step,
+    // and the result is additive and reversible.
+    document.getElementById("editSetLinkCoinBtn").addEventListener("click", (e) => {
       const sel = document.getElementById("editSetLinkCoinSelect");
       if (!sel.value) { showToast("Pick a coin to link first."); return; }
       if (!currentBrowseCoin) return;
-      if (!linkCoinToSet(currentBrowseCoin, sel.value)) return;
-      // Re-render the list and re-populate the picker so the just-linked
-      // coin appears above and disappears from the candidates below.
-      renderSetChildRowsInto("editSetChildrenRows", currentBrowseCoin, () => {
-        document.getElementById("browseEditSetView").style.display = "none";
+      const parentSet = currentBrowseCoin;
+      const coinId = sel.value;
+
+      // Flag off: the unchanged session-only path, with its own honest
+      // "not written to the workbook" toast.
+      if (!setLinkWriteEnabled()) {
+        if (!linkCoinToSet(parentSet, coinId)) return;
+        refreshEditSetChildrenUI(parentSet);
+        return;
+      }
+
+      // Flag on: the real write. Non-optimistic — nothing local changes
+      // until the workbook write is confirmed.
+      return runWithButtonPending(e.currentTarget, "Linking…", async () => {
+        const res = await linkCoinToSetWrite(parentSet, coinId);
+        if (res.ok) {
+          refreshEditSetChildrenUI(parentSet);
+          showToast(coinId + " linked to " + parentSet.id + ".");
+          return;
+        }
+        showToast(setLinkageFailureMessage(res, { id: coinId }, parentSet, "link"));
       });
-      populateEditSetLinkCoinOptions(currentBrowseCoin);
-      // Set-level facts (coin count) are derived from the children, so they
-      // go stale the moment one is added.
-      const factRows = setDetailsFactsRows(currentBrowseCoin);
-      fillReadOnlySection("editSetFactsRows", factRows.length ? detailRowsHtml(factRows) : "");
     });
     // "Back" collapses the linking control and returns to the plain
     // Coins-in-this-Set list — the individual Set level, still inside Edit
