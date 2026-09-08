@@ -10209,6 +10209,158 @@ suite depends on the real fix, not a coincidence of the fixture.
   already pointing at the very Set being edited; linking there is
   deliberately session-only, per `ALL_NEVER_WRITE_COLUMNS`).
 
+### Set attach / detach: the real OriginSetID write layer (BUILT, HELD on `claude/add-coin-write-path-fs2rf8`)
+The app's **first cross-row-target write**: initiated from a Set's Edit
+form, but landing on a DIFFERENT row entirely (the coin's). Architectural
+per the standing rule, so it is **held for Ray's explicit merge go-ahead**
+— not auto-merged despite a clean suite.
+
+**What existed before (confirmed directly, not assumed).** Attach was
+session-only (`linkCoinToSet()` mutating `FAKE_SET_CHILDREN`), and **detach
+did not exist at all — not even session-only**: `FAKE_SET_CHILDREN` was
+only ever pushed to (no splice/delete anywhere), `originSetId` was only
+ever assigned and never cleared, `buildSetChildRow()` rendered icon + name
++ meta + chevron with no remove control, and Edit Set's markup had exactly
+two buttons ("Link coin", "Back"). Every `detach` hit in the file belonged
+to the unrelated photo system. **Edit Set also has no write layer of its
+own at all** — its Save is still session-only (`applyEditsToRecord`), which
+is why attach/detach had to be immediate self-contained actions rather than
+part of a form Save (same reasoning as the photo-commit path, which commits
+on capture because its host screen has no Save button).
+
+**The write primitive.** `writeOriginSetIdCell(rowNumber, originSetId)` —
+one narrow, single-purpose, explicitly-audited path following
+`writeCoinIdCell()`'s established precedent exactly. **`OriginSetID` stays
+on `ALL_NEVER_WRITE_COLUMNS` and is NOT added to `ALL_WRITABLE_COLUMNS`** —
+the general PATCH machinery still has no code path to it, which is the
+whole point of the precedent (asserted, both directions). Attach and detach
+are the **same primitive with different values** (the parent's CollectionID,
+or `""`), so the audited write surface stays at exactly one function.
+
+**Deliberately NOT a two-row write.** The real convention — confirmed
+against the app's own `addChildToSetDraft()` (`originSetId:
+draft.collectionID`) and against Ray's real hand-built 1967 SMS set — is
+that linkage lives **entirely on the child**; a real parent Set row carries
+no OriginSetID of its own. So despite the "cross-row" framing there is no
+second row to keep in step and **no cross-row atomicity problem to solve**:
+this is a single-row, one-or-two-cell PATCH that either lands or doesn't.
+The cross-row aspect is only *which* row, handled by resolving
+`findAllSheetRowNumber(childId)` fresh at write time (rule 1 of this layer)
+plus a read-back verify.
+
+**Conflict detection — a deliberate divergence from the whole-row snapshot
+convention** (Ray's confirmed call). `saveCoinRowToWorkbook()`'s model
+assumes a form OPENED against the row being written, so it can snapshot a
+baseline at open time and diff every allow-listed column at save. None of
+that holds here: the row written isn't the row being edited, Edit Set
+snapshots nothing, and there is no form-open moment for the child (it comes
+from a dropdown). `OriginSetID` isn't even in
+`readAllRowWritableValues()`'s read set (`ALL_WRITABLE_COLUMNS` +
+`ALL_CONTEXT_COLUMNS`), so the existing machinery is blind to it regardless.
+Instead: a **field-scoped fresh read immediately before writing** —
+attach requires the cell to be genuinely blank; detach requires it to still
+name the parent being detached from; either mismatch refuses, reports what
+the cell actually says, and writes nothing. Stronger than the general check
+for the case that matters (something re-parented this coin since the picker
+was built), deliberately weaker on unrelated fields (a concurrent Grade edit
+has no bearing on Set membership).
+
+**`LastModified` is stamped; `Reviewed` is deliberately NOT blanked.** This
+is the one place this layer diverges from the blanket *"Reviewed is blanked
+on EVERY successful save"* rule (Ray's explicit call): Reviewed means a
+human has eyeballed this coin's own attributes, and re-parenting changes
+none of them. `LastModified` is stamped because it is documented as "last
+app touch" and the app did touch the row.
+
+**`originSetCellEquals()` vs `originSetIdKeysMatch()` — two similar-looking
+helpers, two genuinely different jobs; don't collapse them.** The new one
+compares a cell's literal CONTENT to an expected literal, where
+**blank-vs-blank IS a match** (an unattached coin's cell really is `""`).
+The existing one answers "do these identify the same Set?", where two blanks
+must NEVER match or every parentless coin links to every childless Set.
+Both directions asserted.
+
+**Per-child in-flight lock** (`setLinkInFlight`, same shape as
+`coinPromoteInFlight`): a double-tap coalesces onto the first write rather
+than erroring, and produces exactly ONE workbook write. Keyed per child, so
+two different coins never block each other.
+
+**UI.**
+- **Detach control is opt-in per call site** (`buildSetChildRow(child,
+  parentSet, onBeforeNavigate, onDetach)`, threaded through
+  `renderSetChildRowsInto()`). Only Edit Set passes it, so the read-only
+  surfaces that share the renderer (Browse detail's own accordion, the
+  Manage Photos drill-down) are **structurally unable** to render a
+  destructive control. `stopPropagation()` is load-bearing — the row is
+  already a navigate-into-the-child click target.
+- **Offered only when the write layer is on.** Flag off, there is nothing
+  real to undo (the session-only link was never persisted), so no control
+  renders and the picker's note says linking is session-only.
+- **Confirmation is asymmetric.** Attach has none (additive, reversible,
+  already a deliberate two-step through the picker). Detach confirms via
+  `showWriteGuard()`, worded **more strongly than the photo-detach dialog**:
+  that one could truthfully say the stored file survives, whereas here the
+  OriginSetID value is genuinely destroyed and nothing else records which
+  Set the coin came out of. The dialog notes a suffixed child id
+  (`AY-00555-A`) still encodes its parent — but only when that's actually
+  true of that coin — and states that **the CollectionID is never rewritten,
+  Set membership or not** (it is a never-write key regardless).
+- **Non-optimistic throughout**: in-memory state changes only after the
+  write is confirmed, per the photo-detach fix's own precedent. On success
+  the record is mutated **directly** rather than calling
+  `refreshLiveCoinsAfterWrite()` — the exact delta is already known.
+
+**`ensureOriginSetId()` is hard-guarded, not left to incidental
+branching** (Ray's explicit call): it **throws** if reached while
+`ENABLE_SET_LINK_WRITE` is on, since a real parent's OriginSetID must stay
+blank always. Its `OS-LOCAL-…` demo behaviour is otherwise completely
+unchanged for demo mode / flag-off / the existing suites.
+
+**Verified headless — new suite `tests/verify_set_link_write.js` (63
+assertions); 1631 across 39 suites, zero failures.** Covers the
+never-write/allow-list invariants; attach and detach writing the real cell
+with no other column and **no other row** touched; all four conflict cases;
+the two comparison helpers' opposite blank semantics; the lock coalescing a
+double-tap to one write; the `ensureOriginSetId()` guard; the opt-in detach
+control (including zero controls on read-only Browse detail); the
+stopPropagation; full end-to-end through Edit Set's own UI for both attach
+and detach including the confirmation dialog's Cancel and Confirm paths; and
+flag-off inertness (no controls, no writes, session-only path intact).
+
+**Five verified negative controls**, each re-run against the real file and
+confirmed to fail exactly its own assertions: conflict check removed
+(D1–D4, cells clobbered); per-child lock removed (F2/F3, two writes);
+detach control made unconditional (H1/H2/L1 — the destructive control leaks
+into read-only Browse detail); `ensureOriginSetId()` guard removed (G1/G2);
+and an optimistic detach (N2/N6).
+
+- **A REAL GAP THE NEGATIVE CONTROLS CAUGHT, worth remembering.** The
+  optimistic-detach control initially failed NOTHING — every block
+  exercised only the SUCCESS path, where optimistic and non-optimistic are
+  indistinguishable. The discriminating case is a write that FAILS, which
+  nothing tested. Block N was added for exactly that (a rejected
+  `patchWorkbookRanges`, so the failure lands after the conflict check
+  passes — precisely where an optimistic implementation has already mutated
+  memory) and now fails the control. **Seventh time this project has hit
+  the "green suite hiding a real bug" trap; the tell is always the same —
+  an assertion whose broken case also returns the passing value.**
+- One existing block (`verify_phase2_and_retest_batch.js` K) needed
+  `__setSetLinkWriteEnabledForTest(false)`: it tests the session-only path,
+  which is now the flag-OFF behaviour. Following the established
+  deliberately-flag-off convention, not weakened.
+- **Not verified: any real device, any real OneDrive session.** This is a
+  new write surface and wants a live `_Testing` run before it is trusted —
+  in particular confirming that a real attach/detach lands on the child's
+  row and that the conflict refusal reads sensibly on a phone.
+- **Explicitly out of scope and untouched**: Set-level Value re-estimation,
+  Sell/Remove for Sets, every other Edit Set field write (its Save is still
+  session-only), and the candidate-list UX/filtering polish from Task 2's
+  report. **Correction carried forward from that report: the picker's
+  `!c.originSetId` exclusion is NOT a bug and was deliberately left alone** —
+  it was a symptom of the `setChildrenFor()` gap fixed the round before, and
+  loosening it now would make already-attached children appear as
+  attachable candidates.
+
 ## App structure
 Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
 Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch

@@ -390,6 +390,13 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
 
   // ---------- K. Edit Set: session-only child linking ----------
   const K = await page.evaluate(() => {
+    // This block is specifically about the SESSION-ONLY linking path, which
+    // is now the flag-OFF behaviour: ENABLE_SET_LINK_WRITE ships on (it is
+    // (WRITE_TARGET === "copy")), so without this the button would take the
+    // real write path and need a mock Graph client. Forcing the gate off is
+    // what keeps this testing what it says it tests — the same seam every
+    // other deliberately-flag-off block in these suites already uses.
+    __setSetLinkWriteEnabledForTest(false);
     navigate("browse");
     const set = FAKE_COINS.find(c => c.id === "AY-00019"); // childless
     showBrowseDetail(set);
@@ -408,6 +415,7 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     const closedAfterBack = document.getElementById("editSetLinkCoinBody").classList.contains("hidden");
     // A Set is never offered as its own child, and a linked coin can't be double-claimed.
     const candidates = linkableCoinsForSet(set).map(c => c.id);
+    __setSetLinkWriteEnabledForTest(null);
     return { before, after, optionsBefore, optionsAfter, childCount, bodyHiddenAtRest, opened,
              closedAfterBack, noSets: !candidates.some(id => isSetRow(FAKE_COINS.find(c => c.id === id))),
              linkedGone: !candidates.includes("AY-00005") };
