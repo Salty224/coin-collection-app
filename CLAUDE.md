@@ -13413,7 +13413,16 @@ order (AY-00004) — confirming the positive assertions depend on the real
 fix, not a coincidence of the demo data's own ordering.
 - **Not verified: any real device.**
 
-### Three confirmed bugs from Ray's Add Coin → Promote → Catalog/Ledger live-device test (BUILT, held on branch `claude/code-primer-u8uv1d` — live-device testing required before merge, per Ray's own explicit instruction for Fix 2 and Fix 3)
+### Three confirmed bugs from Ray's Add Coin → Promote → Catalog/Ledger live-device test (BUILT and merged to main)
+**Merge status correction:** this section previously read "held on branch
+`claude/code-primer-u8uv1d`, live-device testing required before merge, per
+Ray's own explicit instruction for Fix 2 and Fix 3." Ray ran that live pass
+himself — confirmed working — and gave explicit merge go-ahead ("all was
+tested and good"). The branch was merged to `main` (fast-forward, no
+conflicts) with the full 1723-assertion suite re-run clean on the merged
+tree. **`main` is now the source of truth for all three fixes**, same
+standing as every other merged-after-holding branch in this file.
+
 Three separate, unrelated fixes reported together from one live pass.
 
 **FIX 1 — stale banner wording.** `addCoinInterimBanner`/`stagingInterimBanner`
@@ -13573,7 +13582,17 @@ errors.
   pass shows FaceValue not landing/reading correctly, check the real
   column name first before assuming the mapping logic is wrong.
 
-### Finish conflict on a single match, real direct-write for a clean match, visible Promote loading state (BUILT, held on branch `claude/code-primer-u8uv1d` — live-device testing required before merge, especially FEATURE B, per Ray's own explicit instruction)
+### Finish conflict on a single match, real direct-write for a clean match, visible Promote loading state (BUILT and merged to main)
+**Merge status correction:** this section previously read "held on branch
+`claude/code-primer-u8uv1d`, live-device testing required before merge,
+especially FEATURE B, per Ray's own explicit instruction." Ray ran that
+live pass himself — including the FEATURE B direct-write path specifically
+— confirmed working, and gave explicit merge go-ahead ("all was tested and
+good"). The branch was merged to `main` (fast-forward, no conflicts) with
+the full 1723-assertion suite re-run clean on the merged tree. **`main` is
+now the source of truth for FIX A/FEATURE B/FEATURE C**, same standing as
+every other merged-after-holding branch in this file.
+
 Three items from Ray's live Add Coin testing, the second building directly
 on the first's now-trustworthy signal.
 
