@@ -5416,6 +5416,24 @@
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
     LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.filename !== filename);
   }
+  // PhotoID-keyed variant — Purge's full-row removal uses this instead of
+  // the Filename-keyed one above, since a row mid-purge (one file already
+  // independently cleared) can have a genuinely blank Filename.
+  function syncStoredPhotoIndexRemoveByPhotoId(collectionId, photoId) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.photoId !== photoId);
+  }
+  // A PARTIAL clear: the row survives, only one of its two file fields
+  // blanks. Left unsynced, purgeablePhotosFor()'s own "what's left to purge"
+  // count — what finalisePurgedFlag() keys off within the SAME purge call —
+  // would still see the just-deleted file as present, same class of gap as
+  // the two functions above.
+  function syncStoredPhotoIndexClearField(collectionId, photoId, field) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    const key = field === "Filename" ? "filename" : "originalFilename";
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].map(r =>
+      r.photoId === photoId ? Object.assign({}, r, { [key]: "" }) : r);
+  }
   function syncStoredPhotoIndexUpsert(collectionId, row) {
     if (!LIVE_PHOTOS) LIVE_PHOTOS = {};
     const list = LIVE_PHOTOS[collectionId] || (LIVE_PHOTOS[collectionId] = []);
@@ -8305,6 +8323,63 @@
     return { detached: true, row: hit.__row, filename: hit.Filename };
   }
 
+  // Locates one Photos row by its own PhotoID. Purge's file-level delete
+  // (below) needs this rather than a Filename match: once a photo's crop
+  // and original can be cleared independently, either field can legitimately
+  // be blank while the other still identifies the row — Filename alone stops
+  // being a safe lookup key the moment that's possible.
+  async function findPhotoRowByPhotoId(photoId) {
+    const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
+    return rows.find(r => r.PhotoID === photoId) || null;
+  }
+
+  // Rebuilds a full-row `values` object for patchRecordRow() from an
+  // already-read row, applying `overrides` on top. patchRecordRow() always
+  // writes every mapped column — anything missing from `values` blanks — so
+  // a partial edit (clearing just one file field) has to carry every OTHER
+  // column's CURRENT value forward explicitly, not just the one changing.
+  //
+  // DateAdded needs its own coercion: readRecordRows() stringifies every
+  // cell (String(raw).trim()), but a real date has to go back in as a
+  // NUMBER — passing the stringified value straight through would write a
+  // numeric-looking TEXT string into a cell still carrying a date number
+  // format, the same ISO/text-date corruption class this workbook has
+  // already suffered once (see CLAUDE.md's ValueDate history).
+  function buildPhotoRowPatch(hit, map, overrides) {
+    const values = {};
+    Object.keys(map).forEach(name => { values[name] = hit[name]; });
+    if (map.DateAdded) values.DateAdded = hit.DateAdded === "" ? "" : Number(hit.DateAdded);
+    Object.assign(values, overrides);
+    return values;
+  }
+
+  // Clears exactly ONE file field (Filename or OriginalFilename) on a row,
+  // leaving every other column — including the row's OTHER file — untouched.
+  // Used when only one of a photo's two files is being purged; the row
+  // stays, since it still references the surviving file. Full removal
+  // (detachPhotoRowByPhotoId, below) is for when nothing would be left.
+  async function clearPhotoRowField(collectionId, photoId, field) {
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const hit = await findPhotoRowByPhotoId(photoId);
+    if (!hit || hit.CollectionID !== collectionId) return { cleared: false };
+    const values = buildPhotoRowPatch(hit, map, { [field]: "" });
+    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, values);
+    return { cleared: true, row: hit.__row };
+  }
+
+  // Full detach by PhotoID — the same blank-the-row mechanism
+  // detachPhotoRow()/detachPhotoRowByFilename() already use, keyed on the
+  // one identifier that stays reliable once a photo's own Filename may
+  // already be blank (the "one file already gone, the other is what's being
+  // purged now" case a prior partial purge on this same photo can produce).
+  async function detachPhotoRowByPhotoId(collectionId, photoId) {
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const hit = await findPhotoRowByPhotoId(photoId);
+    if (!hit || hit.CollectionID !== collectionId) return { detached: false };
+    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
+    return { detached: true, row: hit.__row };
+  }
+
   // ==================================================================
   // PURGE — permanent photo deletion for an EXITED coin
   // ==================================================================
@@ -8385,6 +8460,51 @@
     return p.label ? base + " — " + p.label : base;
   }
 
+  // Flattens purgeablePhotosFor()'s photo-level entries into one row per
+  // FILE — a photo with both a crop and a surviving _original produces two
+  // independently-selectable rows; a photo already down to one file (say,
+  // an earlier partial purge already took the other) produces one. Pure and
+  // takes the array directly (not a collectionId) so the caller can build
+  // `purgeable`/`legacy` from ONE purgeablePhotosFor() call and keep the
+  // same object references — the write side groups selections back by
+  // photo identity (photo.photoId), so those refs have to actually match.
+  function fileRowsForPhotos(photos) {
+    const rows = [];
+    (photos || []).forEach(photo => {
+      if (photo.legacyOnly) return; // never independently selectable
+      if (photo.filename) rows.push({ photo, kind: "crop", file: photo.filename });
+      if (photo.originalFilename && photo.originalFilename !== photo.filename) {
+        rows.push({ photo, kind: "original", file: photo.originalFilename });
+      }
+    });
+    return rows;
+  }
+
+  // A file row's own display word — "Photo" for the crop, "Original" for
+  // the retained raw. Sits alongside purgePhotoLabel()'s type-based label
+  // ("Obverse", "Slab — front") in the dialog, so a photo with both reads as
+  // e.g. "Obverse — Photo" / "Obverse — Original" rather than two
+  // identically-labelled rows.
+  function purgeFileRowKindLabel(row) {
+    return row.kind === "original" ? "Original" : "Photo";
+  }
+
+  // Groups a set of CHECKED file rows back by the photo they belong to, so
+  // the write side can tell "both of this photo's files are being purged"
+  // (remove the row) apart from "only one is" (clear just that field, keep
+  // the row referencing the other). Keyed on photo.photoId — the one
+  // identifier that stays stable regardless of which file field is or isn't
+  // currently blank.
+  function groupPurgeSelectionByPhoto(selected) {
+    const byPhotoId = new Map();
+    (selected || []).forEach(row => {
+      const key = row.photo.photoId;
+      if (!byPhotoId.has(key)) byPhotoId.set(key, { photo: row.photo, kinds: new Set() });
+      byPhotoId.get(key).kinds.add(row.kind);
+    });
+    return [...byPhotoId.values()];
+  }
+
   // Serialises per CollectionID, so a double-tap on Purge can't fire two
   // delete passes for the same coin. Same shape as coinPromoteInFlight /
   // setLinkInFlight: a second call coalesces onto the first rather than
@@ -8419,25 +8539,34 @@
     return { fullyPurged: true };
   }
 
-  // The orchestrator. `selected` is the list of purgeablePhotosFor() entries
-  // Ray actually checked; anything he unchecked is left completely alone,
-  // file and row alike.
+  // The orchestrator. `selected` is a list of fileRowsForPhotos() entries
+  // Ray actually checked — one per FILE, independently — grouped back by
+  // photo here. Anything he left unchecked is left completely alone, file
+  // and row alike.
   //
-  // ORDER IS ROW-THEN-FILE, per photo. If the row detach fails, nothing is
-  // deleted at all for that photo. If a file delete fails after the row is
-  // gone, we've lost a pointer to a file that still exists — visible,
-  // recoverable, and reported by name. The reverse order risks a row
-  // pointing at bytes that no longer exist, which is the worse failure.
+  // A photo's row is only ever fully removed when EVERY file it currently
+  // has is among the checked rows (both crop and original, when both exist;
+  // the one file it has, when only one does). Checking just one of a
+  // photo's two files clears that one field and leaves the row — it still
+  // references the surviving file, so nothing is dropped that Ray didn't
+  // ask to delete.
+  //
+  // ORDER IS STILL ROW-THEN-FILE, per photo. If the row change fails,
+  // nothing is deleted at all for that photo. If a file delete fails after
+  // the row change lands, we've lost a pointer to a file that still exists
+  // — visible, recoverable, and reported by name. The reverse order risks a
+  // row pointing at bytes that no longer exist, which is the worse failure.
   //
   // Per-photo, not all-or-nothing: one failure never abandons the rest, and
   // every outcome is reported. deleteItem() already treats a 404 as success,
   // so a re-run after a partial failure is idempotent for the file half.
   //
-  // KNOWN, ACCEPTED, AND REPORTED: if a row detach succeeded but its file
-  // delete then failed, a LATER re-run finds no row for that filename and
-  // skips it rather than deleting on stale information — so that one file
-  // stays behind. The summary names it at the time, which is the "loud
-  // failure, lose nothing silently" posture the rest of this layer uses.
+  // KNOWN, ACCEPTED, AND REPORTED: if a row change succeeded but a file
+  // delete then failed, a LATER re-run finds no row (or no matching field)
+  // for that file and skips it rather than deleting on stale information —
+  // so that one file stays behind. The summary names it at the time, which
+  // is the "loud failure, lose nothing silently" posture the rest of this
+  // layer uses.
   async function purgeCoinPhotos(collectionId, selected) {
     if (!purgeWriteEnabled()) {
       return { ok: false, disabled: true, deleted: [], failed: [], skipped: [] };
@@ -8447,33 +8576,50 @@
       const failed = [];
       const skipped = [];
       const p = writePaths();
-      for (const photo of (selected || [])) {
+      const groups = groupPurgeSelectionByPhoto(selected);
+      for (const group of groups) {
+        const photo = group.photo;
         if (photo.legacyOnly) {
           skipped.push({ photo, reason: "recorded only in the old All-sheet columns" });
           continue;
         }
-        let detach;
+        const removingWholeRow = group.kinds.size >= photo.files.length;
+        const filesToDelete = [];
+        if (group.kinds.has("crop") && photo.filename) {
+          filesToDelete.push({ file: photo.filename, field: "Filename" });
+        }
+        if (group.kinds.has("original") && photo.originalFilename) {
+          filesToDelete.push({ file: photo.originalFilename, field: "OriginalFilename" });
+        }
+
+        let rowResult;
         try {
-          detach = await detachPhotoRowByFilename(collectionId, photo.filename);
+          rowResult = removingWholeRow
+            ? await detachPhotoRowByPhotoId(collectionId, photo.photoId)
+            : await clearPhotoRowField(collectionId, photo.photoId, filesToDelete[0].field);
         } catch (e) {
-          failed.push({ photo, stage: "row", error: String(e && e.message || e) });
+          filesToDelete.forEach(f => failed.push({ photo, file: f.file, stage: "row", error: String(e && e.message || e) }));
           continue;
         }
-        if (!detach || !detach.detached) {
-          // The row is already gone — removed elsewhere, or a previous pass
-          // got this far. Deleting the file now would be acting on stale
-          // information about what that filename belongs to, so don't.
-          skipped.push({ photo, reason: "its Photos row was already gone" });
+        if (!rowResult || (!rowResult.detached && !rowResult.cleared)) {
+          // The row (or the field) is already gone — removed elsewhere, or
+          // a previous pass got this far. Deleting the file now would be
+          // acting on stale information about what it belongs to, so don't.
+          filesToDelete.forEach(f => skipped.push({ photo, file: f.file, reason: "its Photos row was already gone" }));
           continue;
         }
-        syncStoredPhotoIndexRemoveByFilename(collectionId, photo.filename);
-        for (const file of photo.files) {
+        if (removingWholeRow) {
+          syncStoredPhotoIndexRemoveByPhotoId(collectionId, photo.photoId);
+        } else {
+          syncStoredPhotoIndexClearField(collectionId, photo.photoId, filesToDelete[0].field);
+        }
+        for (const f of filesToDelete) {
           try {
-            await graph().deleteItem(p.coinPhotos + "/" + file);
-            deleted.push(file);
-            delete coinPhotoCache[file]; // don't keep serving a deleted photo this session
+            await graph().deleteItem(p.coinPhotos + "/" + f.file);
+            deleted.push(f.file);
+            delete coinPhotoCache[f.file]; // don't keep serving a deleted photo this session
           } catch (e) {
-            failed.push({ photo, file, stage: "file", error: String(e && e.message || e) });
+            failed.push({ photo, file: f.file, stage: "file", error: String(e && e.message || e) });
           }
         }
       }
@@ -20078,8 +20224,13 @@
 
 
   // ---- Purge UI ----------------------------------------------------
-  // Two stages, deliberately. Stage 1 picks WHICH photos (checkboxes, all
-  // checked by default, so the common "purge everything" case is one tap).
+  // Two stages, deliberately. Stage 1 picks WHICH FILES — a photo with both
+  // a crop and a surviving _original shows two independent checkboxes, one
+  // per file, so Ray can delete just the crop, just the original, or both.
+  // ALL UNCHECKED BY DEFAULT (Ray's explicit call, reversing the original
+  // build): nothing is pre-selected, so the destructive action always
+  // starts from "nothing happens" and Continue stays disabled until at
+  // least one file is actually checked (wireGuardCheckboxGate, below).
   // Stage 2 is the confirmation, and it names the exact files rather than
   // asking a generic "are you sure?" — the whole point is that Ray can see
   // what is about to be destroyed before it happens. showWriteGuard()
@@ -20113,14 +20264,26 @@
       return;
     }
 
-    const listHtml = purgeable.map((p, i) =>
-      '<label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:8px;">' +
-        '<input type="checkbox" class="purge-photo-check" data-idx="' + i + '" checked style="margin-top:3px;">' +
-        '<span><strong>' + escapeHtmlText(purgePhotoLabel(p)) + '</strong><br>' +
-        '<span style="font-size:12px; color:var(--text-muted);">' +
-        escapeHtmlText(p.files.join(", ")) +
-        (p.files.length > 1 ? " (photo and its original)" : "") +
-        '</span></span></label>').join("");
+    // Same reference-array `purgeable` both here and inside fileRowsForPhotos()
+    // — one purgeablePhotosFor() call, so a file row's own `.photo` is the
+    // SAME object grouping-by-photoId later relies on, not a freshly-built
+    // lookalike from a second call.
+    const fileRows = fileRowsForPhotos(purgeable);
+
+    // Grouped by photo for display (a photo's own two files sit under one
+    // shared type label), but each checkbox still targets exactly one file
+    // row via data-idx — the Continue handler reads file rows, not photos.
+    const groupsHtml = purgeable.map(p => {
+      const rowsForPhoto = fileRows.filter(r => r.photo === p);
+      const rowsHtml = rowsForPhoto.map(r => {
+        const idx = fileRows.indexOf(r);
+        return '<label style="display:flex; gap:8px; align-items:flex-start; margin:4px 0 4px 16px;">' +
+          '<input type="checkbox" class="purge-file-check" data-idx="' + idx + '" style="margin-top:3px;">' +
+          '<span><strong>' + escapeHtmlText(purgeFileRowKindLabel(r)) + '</strong> — ' +
+          '<span style="font-size:12px; color:var(--text-muted);">' + escapeHtmlText(r.file) + '</span></span></label>';
+      }).join("");
+      return '<div style="margin-bottom:10px;"><strong>' + escapeHtmlText(purgePhotoLabel(p)) + '</strong>' + rowsHtml + '</div>';
+    }).join("");
 
     const legacyHtml = legacy.length
       ? '<p style="margin-top:12px; opacity:0.6;"><strong>Can\'t be purged</strong><br>' +
@@ -20131,44 +20294,70 @@
 
     showWriteGuard({
       title: "Purge photos for " + coin.id,
-      bodyHtml: "<p>Choose which photos to permanently delete. Everything is selected by default; " +
-        "uncheck anything you want to keep.</p>" + listHtml + legacyHtml,
+      bodyHtml: "<p>Nothing is selected. Check exactly the file(s) you want to permanently delete " +
+        "— a photo's crop and its original can be deleted independently.</p>" + groupsHtml + legacyHtml,
       buttons: [
         { label: "Cancel" },
         { label: "Continue", primary: true,
           // Read the checkboxes BEFORE teardown — onClick runs after the
           // dialog closes, by which point the body is gone.
-          collect: () => [...document.querySelectorAll(".purge-photo-check")]
+          collect: () => [...document.querySelectorAll(".purge-file-check")]
             .filter(cb => cb.checked)
-            .map(cb => purgeable[Number(cb.dataset.idx)])
+            .map(cb => fileRows[Number(cb.dataset.idx)])
             .filter(Boolean),
           onClick: chosen => {
+            // Continue is disabled with nothing checked (see the gate wired
+            // below), so this is a defensive fallback, not the real gate.
             if (!chosen || !chosen.length) {
               showToast("Nothing selected — nothing was deleted.");
               return;
             }
-            confirmPurge(coin, chosen, purgeable.length, legacy.length, originBtn);
+            confirmPurge(coin, chosen, fileRows.length, legacy.length, originBtn);
           } }
       ]
     });
+    // Disables Continue until at least one checkbox is checked — makes the
+    // "nothing to confirm" state unreachable by click, rather than only
+    // rejecting it after the fact via the onClick guard above.
+    wireGuardCheckboxGate("Continue", ".purge-file-check");
   }
 
-  // Stage 2. Names every file, states plainly that it is permanent, and
-  // states what is being KEPT — the All row, the CollectionID, any
-  // receipts, and any photo left unchecked. A receipt is never touched
-  // under any circumstance: one receipt routinely covers several coins, so
-  // deleting it from a single coin's action would destroy another coin's
-  // record of its own purchase.
-  function confirmPurge(coin, chosen, purgeableCount, legacyCount, originBtn) {
-    const files = chosen.reduce((acc, p) => acc.concat(p.files), []);
-    const keptPhotos = purgeableCount - chosen.length;
+  // Generic: disables a showWriteGuard() button (matched by its own label,
+  // since showWriteGuard() hands back no element references) until at least
+  // one checkbox matching `checkboxSelector` is checked in the dialog body.
+  // Purge is the only caller today, but nothing here is Purge-specific.
+  function wireGuardCheckboxGate(buttonLabel, checkboxSelector) {
+    const body = document.getElementById("writeGuardBody");
+    const btnRow = document.getElementById("writeGuardBtns");
+    if (!body || !btnRow) return;
+    const btn = [...btnRow.querySelectorAll("button")].find(b => b.textContent === buttonLabel);
+    if (!btn) return;
+    const update = () => {
+      const any = !!body.querySelector(checkboxSelector + ":checked");
+      btn.disabled = !any;
+      btn.style.opacity = any ? "" : "0.45";
+      btn.style.cursor = any ? "" : "not-allowed";
+    };
+    body.addEventListener("change", update);
+    update(); // starts disabled — nothing is checked yet
+  }
+
+  // Stage 2. Names every checked file, states plainly that it is permanent,
+  // and states what is being KEPT — the All row, the CollectionID, any
+  // receipts, any file left unchecked, and any legacy-only photo. A receipt
+  // is never touched under any circumstance: one receipt routinely covers
+  // several coins, so deleting it from a single coin's action would destroy
+  // another coin's record of its own purchase.
+  function confirmPurge(coin, chosen, totalFileCount, legacyCount, originBtn) {
+    const files = chosen.map(r => r.file);
+    const keptFiles = totalFileCount - chosen.length;
     const keptBits = ["the coin's record (<strong>" + escapeHtmlText(coin.id) + "</strong>) and any receipts"];
-    if (keptPhotos > 0) keptBits.push(keptPhotos + " unchecked photo(s)");
+    if (keptFiles > 0) keptBits.push(keptFiles + " unselected file(s)");
     if (legacyCount > 0) keptBits.push(legacyCount + " photo(s) this app can't purge");
     showWriteGuard({
       title: "Permanently delete " + files.length + " file(s)?",
       bodyHtml:
-        "<p>This permanently deletes these " + files.length + " photo file(s) of <strong>" +
+        "<p>This permanently deletes these " + files.length + " file(s) of <strong>" +
           escapeHtmlText(detailTitleText(coin)) + "</strong> from OneDrive:</p>" +
         "<ul style=\"margin:8px 0 12px 18px; padding:0;\">" +
           files.map(f => "<li style=\"margin-bottom:4px;\"><code>" + escapeHtmlText(f) + "</code></li>").join("") +

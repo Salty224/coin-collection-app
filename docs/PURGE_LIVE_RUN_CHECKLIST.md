@@ -19,14 +19,23 @@ nothing here can touch the real `CoinCollection (AI).xlsx`, the real
 > only test copies you are willing to lose.** If any file there is the only
 > copy of something, copy it out first. The app cannot tell the difference.
 
-All app-side logic is verified headless — 97 new automated assertions
-(`tests/verify_former_holdings_purge.js`), plus the 1723 from prior rounds:
-**1820 total, zero failures, zero page errors**, driven by a mock Graph
-client. Eight of those assertions are backed by negative controls that were
-run against the real `app.html` and confirmed to fail. This checklist exists
-to confirm the **real Graph API** behaves the way the mock did on your
-account — the mock proves our logic is right, not that Graph accepts these
-exact calls.
+All app-side logic is verified headless — 116 automated assertions
+(`tests/verify_former_holdings_purge.js`), plus every other suite:
+**1839 total, zero failures, zero page errors**, driven by a mock Graph
+client. Several of those assertions are backed by negative controls that
+were run against the real `app.html` and confirmed to fail. This checklist
+exists to confirm the **real Graph API** behaves the way the mock did on
+your account — the mock proves our logic is right, not that Graph accepts
+these exact calls.
+
+**Follow-up build, same branch, still held: a photo's crop and its
+`_original` are now independently selectable — two checkboxes, not one
+bundled one — and every checkbox starts UNCHECKED (a reversal of the
+original "all checked by default" design). Deleting only one of a photo's
+two files clears just that field on its Photos row and leaves the row in
+place, referencing the surviving file; only checking BOTH of a photo's
+current files removes the row. Continue is disabled with nothing checked.
+Part D below reflects this.**
 
 ## Setup
 
@@ -95,34 +104,45 @@ exact calls.
 
 - [ ] **D1** Tap **Purge** on a Former Holdings row. A dialog opens titled
       "Purge photos for AY-…".
-- [ ] **D2** Every one of that coin's photos has its own checkbox, **all
-      checked by default**.
-- [ ] **D3** Each row shows the real filename(s). A photo that retained an
-      `_original` raw shows **both** filenames and says "(photo and its
-      original)".
-- [ ] **D4** Uncheck one photo, press **Continue**. The confirmation names
-      **exactly** the files from the still-checked photos, and does **not**
-      name the unchecked one.
-- [ ] **D5** The confirmation says the deletion **cannot be undone**, and
-      states what is kept: the coin's record, any receipts, and the unchecked
-      photo(s).
-- [ ] **D6** Press **Cancel**. Check `_Testing/CoinPhotos/` — **every file is
+- [ ] **D2** Every checkbox starts **UNCHECKED**. A photo that retained an
+      `_original` raw shows **two independent rows** — "Photo" and
+      "Original" — under its own type label (e.g. "Obverse"); a photo with
+      only one file left shows one row.
+- [ ] **D3** **Continue is disabled** with nothing checked. Check exactly one
+      file — Continue becomes enabled. Uncheck it — Continue disables again.
+- [ ] **D4** Each row shows its own real filename.
+- [ ] **D5** Check just the **crop** of a two-file photo (leave its original
+      unchecked), press **Continue**. The confirmation names **exactly** that
+      one file, and does **not** name the original or any other photo's
+      files.
+- [ ] **D6** The confirmation says the deletion **cannot be undone**, and
+      states what is kept: the coin's record, any receipts, and every
+      unselected file.
+- [ ] **D7** Press **Cancel**. Check `_Testing/CoinPhotos/` — **every file is
       still there**, and the `Photos` tab is unchanged.
-- [ ] **D7** If you have a coin whose only photo is recorded in the old flat
+- [ ] **D8** If you have a coin whose only photo is recorded in the old flat
       `All.Obverse`/`Reverse` columns with no `Photos` row: tapping Purge on
       it says "Nothing to purge" and explains why. (Skip if you have none.)
 
 ## Part E — A PARTIAL purge (the reversible-ish one; do this first)
 
-Pick a coin with **two or more** photos.
+Pick a coin with a photo that has **both** a crop and a surviving
+`_original` raw.
 
-- [ ] **E1** Purge → uncheck one photo → Continue → **Delete permanently**.
-- [ ] **E2** A toast reports how many files were deleted.
-- [ ] **E3** In `_Testing/CoinPhotos/`: the checked photo's file(s) are
-      **gone** — including its `_original` raw if it had one.
-- [ ] **E4** The **unchecked** photo's file is **still there**.
-- [ ] **E5** On the `Photos` tab: only the purged photo's row is blanked. The
-      unchecked photo's row is intact.
+- [ ] **E1** Purge → check **only the crop's checkbox** (leave the original
+      unchecked) → Continue → **Delete permanently**.
+- [ ] **E2** A toast reports how many files were deleted (should be 1).
+- [ ] **E3** In `_Testing/CoinPhotos/`: the crop file is **gone**. The
+      **original file is still there.**
+- [ ] **E4** On the `Photos` tab: that photo's row is **still there** —
+      `Filename` is now **blank**, `OriginalFilename` is **completely
+      unchanged**. This is the row surviving because it still references the
+      surviving file — it is NOT detached.
+- [ ] **E5** Repeat, this time checking **only the original's checkbox** for
+      a different two-file photo (or the same one, if it still has both — it
+      won't, after E1; pick another). Confirm the mirror image: the original
+      file is gone, the crop survives, `OriginalFilename` is blank on the
+      row while `Filename` is untouched.
 - [ ] **E6** On the `All` tab: the coin's row still exists, its
       **CollectionID is unchanged**, and `Purged` is **still blank** (a
       partial purge does not set it).
@@ -136,13 +156,19 @@ Pick a coin with **two or more** photos.
       receipt shares a `ReceiptID` with another coin, confirm that other
       coin's row is also intact. This is the single most important check in
       this document.
+- [ ] **E10** Reopen Purge on the SAME coin/photo from E1 (now down to just
+      the surviving original). It should offer exactly one checkbox for it.
+      Check it, delete it. **This time the row itself should disappear**
+      from the `Photos` tab — only checking BOTH of a photo's remaining
+      files (here, the one file left) removes the row.
 
 ## Part F — A FULL purge
 
-Use the same coin (it now has one photo left), or another one.
+Pick a coin whose photos you're ready to fully remove (Part E may already
+have left one down to nothing).
 
-- [ ] **F1** Purge → leave everything checked → Continue → Delete
-      permanently.
+- [ ] **F1** Purge → check EVERY box (every crop and every original) →
+      Continue → Delete permanently.
 - [ ] **F2** The toast says the coin **is now fully purged and will only be
       reachable by CollectionID**.
 - [ ] **F3** `All.Purged` is now **`Y`** for that row, and `LastModified` is

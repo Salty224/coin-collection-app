@@ -12,14 +12,15 @@
 // quietly undo:
 //   - the All row, the CollectionID and Receipts are NEVER touched (a
 //     receipt routinely covers several coins);
-//   - an UNCHECKED photo keeps both its file and its Photos row;
+//   - an UNSELECTED file keeps both itself and its Photos row's reference
+//     to it untouched;
 //   - a LEGACY-ONLY photo (recorded solely in the old flat All.Obverse/
 //     Reverse columns, no Photos row) is refused, because this app never
 //     writes those columns and deleting the file would leave them pointing
 //     at nothing — so such a coin can never reach fully-purged;
-//   - the row is detached BEFORE the file is deleted, so a failure leaves a
-//     pointer to a file that still exists rather than a row pointing at
-//     bytes that don't;
+//   - the row change is made BEFORE the file is deleted, so a failure
+//     leaves a pointer to a file that still exists rather than a row
+//     pointing at bytes that don't;
 //   - Purged is written only at FULL purge, and derived at write time.
 //
 // The one deliberate exception recorded here: Purge DOES delete the
@@ -27,6 +28,16 @@
 // rule (Ray's explicit call). That rule protects re-cropping an OWNED coin,
 // which cannot apply to an exited one, and the raw is usually the larger
 // file.
+//
+// SUPERSEDED, same branch, follow-up build: a photo's crop and its
+// _original are now INDEPENDENTLY selectable — two checkboxes per photo
+// that has both, not one bundled checkbox — and EVERY checkbox now starts
+// UNCHECKED (a reversal of the original "all checked by default"). Deleting
+// only one of a photo's two files clears just that field on its Photos row
+// and leaves the row in place, referencing the surviving file; only when
+// BOTH of a photo's current files are selected does the row itself get
+// removed. The Continue button in the dialog is disabled with nothing
+// checked, not just rejected after the fact on click.
 
 const { defineSuite } = require("./harness");
 
@@ -56,7 +67,12 @@ function seed() {
       ],
       Photos: [
         PHOTO_HEADERS.slice(),
-        ["PH-00001", "AY-90001", "Obverse", "", "AY-90001_obverse_cropped.jpg", "", "", "AY-90001_obverse_original.jpg"],
+        // DateAdded (46000, a real Excel serial) is populated on PURPOSE —
+        // it's what exercises buildPhotoRowPatch()'s Number() coercion; a
+        // real date that survives a partial clear as a NUMBER, not a
+        // stringified-then-rewritten text value, is exactly the ISO/text-
+        // date corruption class this workbook has already suffered once.
+        ["PH-00001", "AY-90001", "Obverse", "", "AY-90001_obverse_cropped.jpg", "", 46000, "AY-90001_obverse_original.jpg"],
         ["PH-00002", "AY-90001", "Reference", "", "AY-90001_reference_01.jpg", "Auction listing", "", ""],
         ["PH-00003", "AY-90002", "Obverse", "", "AY-90002_obverse_cropped.jpg", "", "", ""],
         blank(PHOTO_HEADERS.length),
@@ -311,25 +327,42 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     "E5 a legacy-only photo (All.Obverse, no Photos row) is surfaced but flagged legacyOnly");
   ok(E.noneCount === 0, "E6 a record with no stored photos offers nothing");
 
-  // ---------- F. The dialog -------------------------------------------
+  // ---------- F. The dialog: independent selection, unchecked by
+  // default, Continue disabled until something's checked ---------------
   const F = await page.evaluate(async () => {
     window.__setup();
     navigate("stats");
     const rowFor = id => [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
       .find(r => r.textContent.indexOf(id) !== -1);
     const purgeBtnFor = id => [...rowFor(id).querySelectorAll("button")].find(b => b.textContent === "Purge");
+    const continueBtn = () => [...document.querySelectorAll("#writeGuardBtns button")].find(b => b.textContent === "Continue");
     purgeBtnFor("AY-90001").click();
-    const boxes = [...document.querySelectorAll(".purge-photo-check")];
+    // Obverse has a crop AND a surviving original -> two rows; Reference
+    // has only its crop -> one row. Rendered in that order (see openPurgeDialog).
+    const boxes = [...document.querySelectorAll(".purge-file-check")];
     const out = {
       dialogOpen: !document.getElementById("writeGuardOverlay").classList.contains("hidden"),
       title: document.getElementById("writeGuardTitle").textContent,
       boxCount: boxes.length,
-      allChecked: boxes.every(b => b.checked),
+      noneChecked: boxes.every(b => !b.checked),
+      continueDisabledAtStart: continueBtn().disabled,
       body: document.getElementById("writeGuardBody").textContent
     };
-    // Uncheck the reference photo, continue -> stage 2 names the exact files.
-    boxes[1].checked = false;
-    [...document.querySelectorAll("#writeGuardBtns button")].find(b => b.textContent === "Continue").click();
+    // Checking exactly one file enables Continue...
+    boxes[0].checked = true; // Obverse — Photo (the crop)
+    boxes[0].dispatchEvent(new Event("change", { bubbles: true }));
+    out.continueEnabledAfterOneCheck = !continueBtn().disabled;
+    // ...and unchecking it again disables it.
+    boxes[0].checked = false;
+    boxes[0].dispatchEvent(new Event("change", { bubbles: true }));
+    out.continueDisabledAfterUncheck = continueBtn().disabled;
+    // Re-check the Obverse crop plus the Reference photo's own (only) file
+    // — deliberately leaving the Obverse ORIGINAL unchecked — and continue.
+    boxes[0].checked = true;
+    boxes[0].dispatchEvent(new Event("change", { bubbles: true }));
+    boxes[2].checked = true; // Reference — Photo
+    boxes[2].dispatchEvent(new Event("change", { bubbles: true }));
+    continueBtn().click();
     out.confirmTitle = document.getElementById("writeGuardTitle").textContent;
     out.confirmBody = document.getElementById("writeGuardBody").textContent;
     // Cancel writes nothing.
@@ -342,28 +375,104 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     return out;
   });
   ok(F.dialogOpen && /Purge photos for AY-90001/.test(F.title), "F1 Purge opens a dialog naming the coin");
-  ok(F.boxCount === 2 && F.allChecked, "F2 every photo gets its own checkbox, all checked by default");
-  ok(/AY-90001_obverse_original\.jpg/.test(F.body) && /photo and its original/.test(F.body),
-    "F3 the picker states that a flip source's original is covered too");
+  ok(F.boxCount === 3,
+    "F2 a photo with both a crop and a surviving original gets TWO independent checkboxes, not one bundled one: " + F.boxCount);
+  ok(F.noneChecked, "F3 every checkbox starts UNCHECKED — nothing is pre-selected");
+  ok(F.continueDisabledAtStart, "F4 Continue starts disabled with nothing checked");
+  ok(F.continueEnabledAfterOneCheck, "F5 checking exactly one file enables Continue");
+  ok(F.continueDisabledAfterUncheck, "F6 ... and unchecking it again disables Continue");
   ok(/Permanently delete 2 file\(s\)\?/.test(F.confirmTitle),
-    "F4 stage 2 counts the files, not the photos: " + F.confirmTitle);
+    "F7 stage 2 counts exactly the checked FILES: " + F.confirmTitle);
   ok(/AY-90001_obverse_cropped\.jpg/.test(F.confirmBody) &&
-     /AY-90001_obverse_original\.jpg/.test(F.confirmBody) &&
-     !/AY-90001_reference_01\.jpg/.test(F.confirmBody),
-    "F5 the confirmation names EXACTLY the checked files and not the unchecked one");
-  ok(/cannot be undone/i.test(F.confirmBody), "F6 ... says plainly that it is permanent");
-  ok(/receipts/i.test(F.confirmBody) && /unchecked photo/i.test(F.confirmBody),
-    "F7 ... and states what is KEPT: the record, receipts, and the unchecked photo");
+     /AY-90001_reference_01\.jpg/.test(F.confirmBody) &&
+     !/AY-90001_obverse_original\.jpg/.test(F.confirmBody),
+    "F8 the confirmation names EXACTLY the checked files (the crop and the reference photo) and NOT the unchecked original");
+  ok(/cannot be undone/i.test(F.confirmBody), "F9 ... says plainly that it is permanent");
+  ok(/receipts/i.test(F.confirmBody) && /unselected file/i.test(F.confirmBody),
+    "F10 ... and states what is KEPT: the record, receipts, and the unselected file (the Obverse original)");
   ok(/Nothing to purge/.test(F.legacyDialog) && /old \*?\*?All/.test(F.legacyDialog.replace(/\s+/g, " ")),
-    "F8 a legacy-only coin is refused with the reason, not silently offered");
+    "F11 a legacy-only coin is refused with the reason, not silently offered");
 
-  // ---------- G. Execution: what is deleted, and what is NOT -----------
-  const G = await page.evaluate(async () => {
+  // ---------- G. Execution: independent crop/original deletion --------
+  // AY-90001's Obverse photo is the exact case per-file checkboxes exist
+  // for — a crop AND a surviving original on ONE Photos row. Three fresh
+  // setups: crop only, original only, and both (the only case that removes
+  // the row) — then a fourth confirming a SECOND pass still works once the
+  // row's Filename is already blank from the first.
+  const G1 = await page.evaluate(async () => {
     const mock = window.__setup();
-    const chosen = purgeablePhotosFor("AY-90001").filter(p => p.galleryType === "obverse");
-    const res = await purgeCoinPhotos("AY-90001", chosen);
+    const fileRows = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
+    const cropRow = fileRows.find(r => r.photo.galleryType === "obverse" && r.kind === "crop");
+    const res = await purgeCoinPhotos("AY-90001", [cropRow]);
+    // (Defensive: a bad revert of the partial-clear fix blanks the WHOLE
+    // row, PhotoID included, so this find() can legitimately come back
+    // empty — that's real signal for a negative control, not something to
+    // crash the run over.)
+    const photoRow = mock._grids.Photos.find(r => r[0] === "PH-00001") || [];
     const out = {
       deleted: res.deleted.slice(),
+      failed: res.failed.length,
+      cropGone: !window.__hasFile(mock, "AY-90001_obverse_cropped.jpg"),
+      rawKept: window.__hasFile(mock, "AY-90001_obverse_original.jpg"),
+      photoRowIds: window.__photoRows(mock).map(r => r[0]),
+      rowFilename: photoRow[4],
+      rowOriginal: photoRow[7],
+      rowDateAddedType: typeof photoRow[6],
+      rowDateAddedValue: photoRow[6],
+      sessionEntry: JSON.parse(JSON.stringify((storedPhotoRowsFor("AY-90001") || []).find(r => r.photoId === "PH-00001") || null)),
+      purgedFlag: window.__cell(mock, "AY-90001", "Purged"),
+      stillListed: formerHoldings().map(c => c.id).indexOf("AY-90001") !== -1
+    };
+    window.__teardown();
+    return out;
+  });
+  ok(G1.deleted.length === 1 && G1.deleted[0] === "AY-90001_obverse_cropped.jpg" && G1.failed === 0,
+    "G1 deleting only the CROP deletes exactly that one file");
+  ok(G1.cropGone && G1.rawKept, "G2 ... the crop is gone from OneDrive; the original SURVIVES");
+  ok(G1.photoRowIds.indexOf("PH-00001") !== -1,
+    "G3 ... the Photos ROW STAYS — it still references the surviving original — not removed");
+  ok(G1.rowFilename === "" && G1.rowOriginal === "AY-90001_obverse_original.jpg",
+    "G4 ... Filename is cleared on the row while OriginalFilename is completely untouched");
+  ok(G1.rowDateAddedType === "number" && G1.rowDateAddedValue === 46000,
+    "G5 ... and DateAdded survives the partial patch as a real NUMBER, not a stringified-then-rewritten text value " +
+    "(readRecordRows() stringifies every cell; the write side must coerce it back before patching the row)");
+  ok(G1.sessionEntry && G1.sessionEntry.filename === "" && G1.sessionEntry.originalFilename === "AY-90001_obverse_original.jpg",
+    "G6 the SESSION index is kept in step too, so a later purgeablePhotosFor() call in the same session sees the crop as gone");
+  ok(G1.purgedFlag === "" && G1.stillListed, "G7 a crop-only purge is partial — Purged stays blank, coin stays listed");
+
+  const G2 = await page.evaluate(async () => {
+    const mock = window.__setup();
+    const fileRows = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
+    const originalRow = fileRows.find(r => r.photo.galleryType === "obverse" && r.kind === "original");
+    const res = await purgeCoinPhotos("AY-90001", [originalRow]);
+    const photoRow = mock._grids.Photos.find(r => r[0] === "PH-00001") || [];
+    const out = {
+      deleted: res.deleted.slice(),
+      cropKept: window.__hasFile(mock, "AY-90001_obverse_cropped.jpg"),
+      rawGone: !window.__hasFile(mock, "AY-90001_obverse_original.jpg"),
+      photoRowIds: window.__photoRows(mock).map(r => r[0]),
+      rowFilename: photoRow[4],
+      rowOriginal: photoRow[7],
+      purgedFlag: window.__cell(mock, "AY-90001", "Purged")
+    };
+    window.__teardown();
+    return out;
+  });
+  ok(G2.deleted.length === 1 && G2.deleted[0] === "AY-90001_obverse_original.jpg",
+    "G8 deleting only the ORIGINAL deletes exactly that one file — the mirror image of G1");
+  ok(G2.cropKept && G2.rawGone, "G9 ... the crop SURVIVES; the original is gone");
+  ok(G2.photoRowIds.indexOf("PH-00001") !== -1, "G10 ... the row stays, referencing the surviving crop");
+  ok(G2.rowFilename === "AY-90001_obverse_cropped.jpg" && G2.rowOriginal === "",
+    "G11 ... OriginalFilename is cleared while Filename is completely untouched");
+  ok(G2.purgedFlag === "", "G12 ... still partial, Purged stays blank");
+
+  const G3 = await page.evaluate(async () => {
+    const mock = window.__setup();
+    const fileRows = fileRowsForPhotos(purgeablePhotosFor("AY-90001"))
+      .filter(r => r.photo.galleryType === "obverse"); // BOTH of Obverse's files
+    const res = await purgeCoinPhotos("AY-90001", fileRows);
+    const out = {
+      deleted: res.deleted.slice().sort(),
       failed: res.failed.length,
       cropGone: !window.__hasFile(mock, "AY-90001_obverse_cropped.jpg"),
       rawGone: !window.__hasFile(mock, "AY-90001_obverse_original.jpg"),
@@ -381,23 +490,57 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     window.__teardown();
     return out;
   });
-  ok(G.deleted.length === 2 && G.failed === 0, "G1 both files of the checked photo were deleted");
-  ok(G.cropGone && G.rawGone, "G2 the crop AND its _original are both really gone from OneDrive");
-  ok(G.refKept, "G3 the UNCHECKED photo's file is untouched");
-  ok(G.photoRowIds.join(",") === "PH-00002,PH-00003",
-    "G4 only the purged photo's Photos row was detached; the unchecked one's row survives");
-  ok(G.receiptKept && G.receiptRows === 2,
-    "G5 RECEIPTS ARE NEVER TOUCHED — neither the file nor either of the two rows sharing RC-00001");
-  ok(G.allRowStillThere === "AY-90001" && G.remarksUntouched === "keep me" && G.receiptCellUntouched === "r1.pdf",
-    "G6 the All row, its CollectionID and its other cells are all untouched");
-  ok(G.purgedFlag === "" && G.fullyPurged === false,
-    "G7 a PARTIAL purge does not set Purged — one photo remains");
-  ok(G.stillListed, "G8 ... and the coin stays visible in Former Holdings, exactly as a partial purge should");
+  ok(G3.deleted.length === 2 && G3.failed === 0 &&
+     G3.deleted[0] === "AY-90001_obverse_cropped.jpg" && G3.deleted[1] === "AY-90001_obverse_original.jpg",
+    "G13 checking BOTH of a photo's files deletes both");
+  ok(G3.cropGone && G3.rawGone, "G14 ... both are really gone from OneDrive");
+  ok(G3.refKept, "G15 ... the OTHER photo's file (never selected) is untouched");
+  ok(G3.photoRowIds.join(",") === "PH-00002,PH-00003",
+    "G16 checking BOTH files is what removes the row — PH-00001 is gone, PH-00002/3 survive");
+  ok(G3.receiptKept && G3.receiptRows === 2,
+    "G17 RECEIPTS ARE NEVER TOUCHED — neither the file nor either of the two rows sharing RC-00001");
+  ok(G3.allRowStillThere === "AY-90001" && G3.remarksUntouched === "keep me" && G3.receiptCellUntouched === "r1.pdf",
+    "G18 the All row, its CollectionID and its other cells are all untouched");
+  ok(G3.purgedFlag === "" && G3.fullyPurged === false,
+    "G19 still partial — the Reference photo remains, so Purged is not set");
+  ok(G3.stillListed, "G20 ... and the coin stays visible in Former Holdings");
+
+  // Confirms the PhotoID-based lookup (not Filename-based) is what makes a
+  // SECOND pass work correctly: after a crop-only purge already left this
+  // row's Filename blank, purging the now-last-remaining original must
+  // still find and fully remove the row — a Filename-keyed lookup would
+  // fail here, since Filename is already "".
+  const G4 = await page.evaluate(async () => {
+    const mock = window.__setup();
+    const fileRows1 = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
+    const cropRow = fileRows1.find(r => r.photo.galleryType === "obverse" && r.kind === "crop");
+    await purgeCoinPhotos("AY-90001", [cropRow]);
+    const fileRows2 = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
+    const remaining = fileRows2.filter(r => r.photo.galleryType === "obverse");
+    const res = await purgeCoinPhotos("AY-90001", remaining);
+    const out = {
+      remainingCount: remaining.length,
+      remainingKind: remaining[0] && remaining[0].kind,
+      deleted: res.deleted.slice(),
+      failed: res.failed.length,
+      rawGone: !window.__hasFile(mock, "AY-90001_obverse_original.jpg"),
+      photoRowIds: window.__photoRows(mock).map(r => r[0])
+    };
+    window.__teardown();
+    return out;
+  });
+  ok(G4.remainingCount === 1 && G4.remainingKind === "original",
+    "G21 after a crop-only purge, a fresh lookup correctly offers only the surviving original");
+  ok(G4.deleted.length === 1 && G4.deleted[0] === "AY-90001_obverse_original.jpg" && G4.failed === 0,
+    "G22 purging that last file succeeds — the PhotoID-based lookup finds the row even though Filename is already blank");
+  ok(G4.rawGone, "G23 ... the file is really gone");
+  ok(G4.photoRowIds.indexOf("PH-00001") === -1,
+    "G24 ... and since it was the LAST file, the row itself is now fully removed");
 
   // ---------- H. Full purge, and what it changes ----------------------
   const H = await page.evaluate(async () => {
     const mock = window.__setup();
-    const res = await purgeCoinPhotos("AY-90002", purgeablePhotosFor("AY-90002"));
+    const res = await purgeCoinPhotos("AY-90002", fileRowsForPhotos(purgeablePhotosFor("AY-90002")));
     const out = {
       fullyPurged: res.flag.fullyPurged,
       purgedCell: window.__cell(mock, "AY-90002", "Purged"),
@@ -427,8 +570,13 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   const I = await page.evaluate(async () => {
     const mock = window.__setup();
     // A legacy-only photo can never be purged, so its coin can never reach
-    // fully-purged.
-    const res = await purgeCoinPhotos("AY-90007", purgeablePhotosFor("AY-90007"));
+    // fully-purged. fileRowsForPhotos() itself already excludes legacy-only
+    // photos (there's nothing independently selectable about them) — so the
+    // only way to exercise purgeCoinPhotos()'s own write-side guard is to
+    // hand it a file-row that bypasses that filter directly, same
+    // defence-in-depth reasoning as before, adapted to the file-row shape.
+    const legacyPhoto = purgeablePhotosFor("AY-90007")[0];
+    const res = await purgeCoinPhotos("AY-90007", [{ photo: legacyPhoto, kind: "crop", file: legacyPhoto.filename }]);
     const out = {
       deleted: res.deleted.length,
       skipped: res.skipped.length,
@@ -460,9 +608,14 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   // ---------- J. Failure handling, idempotence, locking ---------------
   const J = await page.evaluate(async () => {
     const mock = window.__setup();
-    const chosen = purgeablePhotosFor("AY-90001");
-    // Fail the SECOND file delete only. The row is already detached by then,
-    // which is the exact case the row-then-file order is chosen for.
+    // Selecting every file row for AY-90001 (both of Obverse's, plus
+    // Reference's own) — same processing order as before (Obverse's crop,
+    // then its original, then Reference's crop), just expressed as
+    // independent file rows rather than bundled photo-level entries.
+    const chosen = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
+    // Fail the SECOND file delete only (Obverse's original). The row is
+    // already detached by then, which is the exact case the row-then-file
+    // order is chosen for.
     const realDelete = mock.deleteItem.bind(mock);
     let n = 0;
     mock.deleteItem = p => (++n === 2 ? Promise.reject(new Error("boom")) : realDelete(p));
@@ -495,8 +648,9 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(J.refGone, "J3 one photo failing never abandons the photos after it");
   ok(J.purgedCell === "Y",
     "J4 the flag follows the ROWS (all detached), which is the documented consequence of row-then-file order");
-  ok(J.rerunDeleted === 0 && J.rerunSkipped === 2 && J.rerunOk,
-    "J5 a re-run is idempotent — rows already gone, nothing deleted twice, no throw");
+  ok(J.rerunDeleted === 0 && J.rerunSkipped === 3 && J.rerunOk,
+    "J5 a re-run is idempotent — rows already gone, nothing deleted twice, no throw " +
+    "(3 skips, not 2 — this reports per FILE now: Obverse's crop+original plus Reference's crop)");
 
   // The assertion that actually pins ROW-THEN-FILE order. If the file were
   // deleted first, a failing row detach would leave the bytes destroyed and
@@ -505,7 +659,7 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   // discriminates between the two orders.
   const J2 = await page.evaluate(async () => {
     const mock = window.__setup();
-    const chosen = purgeablePhotosFor("AY-90001");
+    const chosen = fileRowsForPhotos(purgeablePhotosFor("AY-90001"));
     const realPatch = mock.patchWorkbookRanges.bind(mock);
     // Fail exactly the Photos-sheet detach; leave every other write alone.
     mock.patchWorkbookRanges = (wb, sheet, edits) =>
@@ -527,14 +681,16 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(J2.deleted === 0, "J6 ROW-THEN-FILE: a failing row detach deletes NO file at all");
   ok(J2.cropIntact && J2.rawIntact && J2.refIntact,
     "J7 ... every file is still on disk, so nothing was destroyed on a failed write");
-  ok(J2.failedStages.every(st => st === "row") && J2.failedStages.length === 2,
-    "J8 ... and both photos report failing at the ROW stage, never the file stage");
+  ok(J2.failedStages.every(st => st === "row") && J2.failedStages.length === 3,
+    "J8 ... and every FILE (3, not 2 photos) reports failing at the ROW stage, never the file stage");
   ok(J2.rows === 3 && J2.purgedCell === "",
     "J9 ... no Photos row was detached and Purged was not written");
 
   const K = await page.evaluate(async () => {
     const mock = window.__setup();
-    const chosen = purgeablePhotosFor("AY-90001").filter(p => p.galleryType === "obverse");
+    // Both of Obverse's files -> one group, removingWholeRow -> the same
+    // 2-deleteItem-call shape as before, expressed as file rows.
+    const chosen = fileRowsForPhotos(purgeablePhotosFor("AY-90001").filter(p => p.galleryType === "obverse"));
     let calls = 0;
     const realDelete = mock.deleteItem.bind(mock);
     mock.deleteItem = p => { calls++; return realDelete(p); };
@@ -556,7 +712,7 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     let touched = false;
     const realDelete = mock.deleteItem.bind(mock);
     mock.deleteItem = p => { touched = true; return realDelete(p); };
-    const res = await purgeCoinPhotos("AY-90001", purgeablePhotosFor("AY-90001"));
+    const res = await purgeCoinPhotos("AY-90001", fileRowsForPhotos(purgeablePhotosFor("AY-90001")));
     navigate("stats");
     const row = [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
       .find(r => r.textContent.indexOf("AY-90001") !== -1);

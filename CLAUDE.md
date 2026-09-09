@@ -8976,9 +8976,11 @@ off never requires also turning off Edit Coin's ordinary field writes, and
 enabling those never silently enables permanent deletion.
 - **Reachable only from Former Holdings**, and the `formerHoldings()` base
   set is what structurally guarantees it can never appear on an Owned coin.
-- **Two-stage dialog.** Stage 1 lists every photo with its own checkbox,
-  **all checked by default**. Stage 2 **names the exact files**, states
-  plainly that it cannot be undone, and states what is KEPT.
+- **Two-stage dialog.** Stage 1 lists every photo's files, independently
+  checkable — see the follow-up build below for the final crop/original
+  design, which supersedes the original "one bundled checkbox per photo,
+  all checked by default" description. Stage 2 **names the exact files**,
+  states plainly that it cannot be undone, and states what is KEPT.
 - **NEVER touched, under any circumstance:** the `All` row, the
   CollectionID, and **Receipts**. One receipt routinely covers several coins
   (RC-00001 already spans three), so deleting it from a single coin's action
@@ -9051,7 +9053,7 @@ enabling those never silently enables permanent deletion.
   attribute — the class being present proves nothing if the rule doesn't
   apply.
 
-**Verified headless — new committed suite
+**Verified headless (original build) — new committed suite
 `tests/verify_former_holdings_purge.js` (97 assertions); 1820 across 42
 suites, zero failures, zero page errors.** Covers the schema/flag
 invariants (including that CollectionID/CoinID/OriginSetID are *still*
@@ -9078,9 +9080,118 @@ inertness.
   writing the bug on purpose. It is a **guard** assertion — it exists to
   catch a future change, not to prove today's code, and should be read that
   way.
-- **Not verified: any real device, any real OneDrive session.** This is a
-  destructive write path and wants a live `_Testing` run before it is
-  trusted — see the checklist. **`WRITE_TARGET` stays `"copy"` throughout.**
+
+### Purge follow-up: independent crop/original selection, all unchecked by default (BUILT, same branch, still held)
+Ray's live testing surfaced a real gap between what was scoped for the
+original build (Q2: Purge deletes both the crop and the `_original` raw
+together) and what would actually be desirable in hand: rather than a
+single bundled checkbox per photo, a photo's crop and its retained original
+are now **two independently selectable rows**, and **every checkbox starts
+unchecked** (a reversal of the original "all checked by default" design) —
+Ray wants to hand-pick exactly what gets deleted each time, nothing
+pre-selected.
+
+- **Data model, resolved per Ray's own proposed rule, confirmed against the
+  actual code:** a `Photos` row can carry two files under one row
+  (`Filename`, the crop; `OriginalFilename`, the retained raw). Checking
+  only ONE of a photo's two files clears just that one field on the row and
+  **leaves the row in place**, since it still references the surviving
+  file. Only when **both** of a photo's currently-present files are checked
+  does the row itself get removed. `groupPurgeSelectionByPhoto()` groups
+  the checked file rows back by `photo.photoId` to decide which case
+  applies per photo — `group.kinds.size >= photo.files.length` is the exact
+  test ("does the selection cover every file this photo currently has").
+- **`patchRecordRow()` was already a full-row rewrite, not a merge** — a
+  real structural fact that had to be worked around, not something new:
+  every column absent from its `values` argument gets blanked. So a partial
+  clear (`clearPhotoRowField()`) has to read the row's CURRENT full values
+  first (`readRecordRows()`) and re-pass everything, only the one target
+  field changed (`buildPhotoRowPatch()`).
+- **A real, non-obvious pitfall found and fixed while doing that:**
+  `readRecordRows()` stringifies every cell (`String(raw).trim()`),
+  including `DateAdded`, which Graph returns as a raw numeric Excel serial.
+  Carrying that stringified value straight back into a `patchRecordRow()`
+  call would write a numeric-LOOKING TEXT string into a cell still carrying
+  a date number format — the same ISO/text-date corruption class this
+  workbook has already suffered once (see the ValueDate history elsewhere
+  in this file). `buildPhotoRowPatch()` coerces `DateAdded` back to a real
+  `Number` before it goes anywhere near a write.
+- **Row lookups are now keyed by `PhotoID`, not `Filename`.** Once a
+  photo's crop or original can independently go blank, `Filename` stops
+  being a safe lookup key — a partially-purged row can have a genuinely
+  blank `Filename` while `OriginalFilename` is what still identifies it.
+  New `findPhotoRowByPhotoId()`/`clearPhotoRowField()`/
+  `detachPhotoRowByPhotoId()` all key on the one identifier that stays
+  stable regardless of which file field is or isn't currently blank; the
+  original `detachPhotoRowByFilename()` is untouched and still used
+  elsewhere (Manage Photos' own detach).
+- **The session index (`LIVE_PHOTOS`) gets the same treatment** — a new
+  `syncStoredPhotoIndexClearField()` mutates just one field on the matching
+  in-memory entry for a partial clear, alongside the existing
+  `syncStoredPhotoIndexRemoveByPhotoId()` (a PhotoID-keyed sibling to the
+  original `...RemoveByFilename()`) for a full row removal. Without this,
+  `finalisePurgedFlag()`'s own "what's left to purge" count — computed via
+  `purgeablePhotosFor()`, which reads straight from `LIVE_PHOTOS` — would
+  still see a just-deleted file as present within the SAME purge call.
+- **`fileRowsForPhotos(photos)`** is the new pure flattening function: one
+  row per FILE (a photo with both a crop and a surviving original produces
+  two; one already down to a single file produces one). Deliberately takes
+  the already-computed photo array rather than a CollectionID, so the
+  dialog can call `purgeablePhotosFor()` exactly ONCE and have both its
+  `purgeable`/`legacy` arrays and every file row's own `.photo` reference
+  point at the identical objects — the write side's photoId-based grouping
+  depends on that.
+- **Continue is genuinely DISABLED, not just rejected on click, until at
+  least one file is checked** — a new, small, Purge-specific-but-generic
+  `wireGuardCheckboxGate(buttonLabel, checkboxSelector)` toggles the real
+  `disabled` DOM property on `showWriteGuard()`'s own rendered button
+  (matched by its label, since that shared dialog hands back no element
+  references) via a delegated `change` listener. The old "nothing selected"
+  toast in the `onClick` handler stays as a defensive fallback, since a
+  disabled button can't dispatch `click` at all under normal use.
+- **The legacy-only guard inside `purgeCoinPhotos()` is now genuinely
+  unreachable from the real UI** — `fileRowsForPhotos()` already excludes
+  legacy-only photos, so nothing the dialog builds can ever select one.
+  The write-side guard is kept anyway as defence in depth (same posture as
+  the original build) and is now exercised in tests by handing
+  `purgeCoinPhotos()` a hand-built file-row that deliberately bypasses that
+  filter.
+
+**Verified headless — the existing suite grew from 97 to 116 assertions;
+1839 across 42 suites, zero failures, zero page errors.** Covers: the
+dialog rendering two independent checkboxes for a two-file photo and one
+for a single-file photo, all starting unchecked; Continue's disabled state
+toggling correctly as a box is checked and unchecked; the confirmation
+naming exactly the checked files across a mixed crop+non-crop selection;
+crop-only deletion (file gone, original survives, row survives with
+`Filename` blank and `OriginalFilename` untouched, the session index
+updated, `DateAdded` surviving as a real Number, `Purged` staying blank);
+the mirror-image original-only deletion; checking both of a photo's files
+(the only case that removes the row), with the other photo's file and the
+receipts/All-row boundaries re-confirmed unaffected; and a targeted
+second-pass scenario proving the PhotoID-keyed lookup finds and fully
+removes a row on a SECOND purge even though a prior partial purge already
+left its `Filename` blank. `J`/`J2`/`K` (failure handling, row-then-file
+order, locking) were adapted to the new file-row calling convention with
+the same outcomes, except idempotent-rerun and failed-stage counts, which
+now correctly report per FILE (3) rather than per photo (2) — a deliberate,
+more granular improvement, not a behavior change.
+- **Four verified negative controls, each applied to the real `app.html`,
+  run, and reverted:** the unchecked-default + Continue-gate removed (fails
+  6, exactly F3/F4/F6/F7/F8/F10); the partial-clear distinction removed —
+  reverted to "any selection fully detaches the row" (fails 9, exactly the
+  row-survives/field-preserved/session-index/second-pass assertions,
+  nothing else); the `DateAdded` Number coercion removed (fails exactly the
+  one assertion built to catch it); and the `PhotoID`-based lookup broken
+  (matched against the wrong column) — this one is broadly load-bearing,
+  failing 24 assertions across every real write scenario (G/H/J/K), which
+  is itself the honest finding: the whole partial-and-full write path
+  depends on this one lookup being correct, not just the narrow second-pass
+  case it was originally designed to protect.
+- **Not verified: any real device, any real OneDrive session.** This is
+  still a destructive write path and wants a live `_Testing` run before it
+  is trusted — see the checklist, updated for this build's dialog changes.
+  **`WRITE_TARGET` stays `"copy"` throughout.**
 
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
