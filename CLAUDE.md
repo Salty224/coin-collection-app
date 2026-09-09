@@ -453,7 +453,11 @@ CoinCollection/
   filename himself**: once the crop tool runs (on a normal obverse/reverse upload,
   or on a combined image — see below), the app:
   1. Preserves the untouched input as `{CollectionID}_obverse_original.jpg` (or
-     `_reverse_original.jpg`) — **never deleted**.
+     `_reverse_original.jpg`) — **never deleted**. **One documented
+     exception, Ray-approved: Purge deletes it too** (see "Former Holdings
+     sub-catalog + Purge"). This rule exists to protect re-cropping an
+     OWNED coin, which cannot apply to an exited one — and the raw is
+     usually the larger file, so leaving it would orphan the bigger half.
   2. Writes the baked/cropped result as `{CollectionID}_obverse_cropped.jpg` (or
      `_reverse_cropped.jpg`).
 - **No dedicated splitter tool for combined images.** Cropping a `_combined.jpg`
@@ -4231,8 +4235,9 @@ Container, and can attach additional photos/receipts to an existing coin at any 
 **Widened by the Browse Edit write layer below** — the real allow-list is now
 that list plus Year, MintMark, Denomination, Variety, Description, Category,
 Finish, Error, Value, Cost, Shipping, Seller_Link, PurchaseDate, CACBean,
-Remarks, Reviewed, LastModified, and (see "Status vocabulary simplification +
-Sell/Remove action") Status, SaleDate, SalePrice, Buyer, Platform; see
+Remarks, Reviewed, LastModified, (see "Status vocabulary simplification +
+Sell/Remove action") Status, SaleDate, SalePrice, Buyer, Platform, and
+Purged (see "Former Holdings sub-catalog + Purge"); see
 `ALL_WRITABLE_COLUMNS` for the authoritative version. The "no research or
 judgment" boundary below is unchanged.
 **Being on that list is NOT the same as being editable in Browse Edit** —
@@ -8891,6 +8896,192 @@ the CSS fails 5 of them and reproduces the sliver.
   No overflow.
 - **Not verified: any real device.**
 
+### Former Holdings sub-catalog + Purge (BUILT, HELD on `claude/vigilant-cerf-maworr`)
+The app's first genuinely **DESTRUCTIVE** write. Architectural and
+irreversible, so it is **held for Ray's explicit merge go-ahead** — not
+auto-merged despite a clean suite — and he wants to run the delete path
+himself against `_Testing` first. See
+`docs/PURGE_LIVE_RUN_CHECKLIST.md`.
+
+**One premise correction worth carrying forward: `deleteItem()` is NOT new.**
+It has always existed and is already used on real OneDrive files — the
+promotion move does `getItemMeta → getFileBytes → uploadBytes → verify →
+deleteItem(source)`. What is new is deleting bytes with **nothing to recover
+from**: every prior use deletes a source only after a verified copy exists
+elsewhere. Don't re-litigate this as "the first delete primitive"; the risk
+is the destructiveness, not the API.
+
+**Part 1 — "Exit History" is now "Former Holdings", a real sub-catalog.**
+Scope is the exact inverse of `ownedCoins()`: `formerHoldings()` =
+`activeCoins()` filtered to `isExitStatus(status)` minus anything fully
+purged. **No new schema was needed for the list** — Set bundles and Rolls
+already live in the same `All` sheet with the same `Status` column, so all
+three record kinds come through one filter. Sorted by Year then MintMark via
+the same `sortCoinsTabRows()` Catalog uses, not left in sheet order.
+- **Five filter chip rows**, all multi-select/OR, all ANDing together, plus
+  a Year button and a free-text search: **record kind** (All/Coins/Sets/
+  Rolls), **exit reason** (All + the four `EXIT_STATUSES`), then
+  Denomination, Metal and Grading Service **reusing Catalog's own chip
+  DEFINITIONS** (`BROWSE_FILTER_CHIPS`/`BROWSE_METAL_CHIPS`/
+  `BROWSE_GRADING_SERVICE_CHIPS`) so the two pages can never disagree about
+  what "Silver" or "Dimes" means — but each with its **own selection Set**,
+  so filtering one page never narrows the other.
+- **The record-kind row is load-bearing, not decoration.** Catalog splits
+  coins/Sets/Rolls across tabs with different filter sets; this list mixes
+  them. A Set bundle is `Denomination="Multiple"`, which **no Denomination
+  chip can ever match** — so without the kind row, selecting any
+  denomination would make Sets and Rolls silently unreachable rather than
+  merely unfiltered. Asserted in both directions.
+- **Exit reason is a chip row, not a sort or grouped headers** (Ray's call):
+  it matches every other filter axis in the app and needs no new
+  interaction pattern.
+- **`chipRowTest(chips, selectedKeys, coin)`** is one shared OR-test,
+  extracted because `browseFilterTest`/`browseMetalTest`/
+  `browseGradingServiceTest` are byte-identical in shape and this page needs
+  five more — writing it a sixth through tenth time by hand is exactly how
+  two of them drift.
+- **Former Holdings keeps its own Year state** (`formerYearFilter`), on the
+  same per-page principle as the Browse tabs. The ONE shared
+  `#yearFilterOverlay` now serves both: whichever Year button opens it
+  claims it via `yearFilterTarget`, and Apply/Clear write back to that
+  page's own state (`activeYearFilterState()`/
+  `updateActiveYearFilterButtonUI()`/`applyAfterYearFilterChange()`).
+  `yearRowTest()` delegates to a new `yearRowTestAgainst(coin, yf)` so every
+  existing call site is byte-identical in behaviour.
+
+**Part 2 — the `Purged` flag.** A new `All` column, `Y`/blank, separate from
+`Status` (Status says *why* it left; Purged is a later, optional action on
+top of an already-exited coin).
+- **Read from the flag, NOT derived live from the Photos row count on every
+  render.** Two real reasons: a coin that never had any photos would read as
+  fully purged the instant it exited and would **silently vanish from Former
+  Holdings without anyone ever purging it**; and live derivation would make
+  a list's contents shift as the Photos index arrives.
+- **Derived at WRITE time** (`finalisePurgedFlag()`) — written once, at the
+  moment a purge leaves zero photos behind. A partial purge simply leaves it
+  blank, which is exactly the "still visible" state, with **no third value**
+  needed.
+- Written by **`writePurgedCell()`**, a narrow single-purpose audited path
+  following `writeCoinIdCell()`/`writeOriginSetIdCell()`'s precedent — it is
+  never hand-edited and has exactly one producer. Its
+  `ALL_WRITABLE_COLUMNS` entry exists only so the general machinery can't
+  silently drop it if it ever arrives another way (same treatment as
+  Category/Finish/Error/FaceValue). **`LastModified` is stamped; `Reviewed`
+  is deliberately NOT blanked** — same divergence and same reasoning as the
+  Set-linkage write: deleting photos changes no attribute a human reviewed.
+
+**Part 3 — Purge itself.** Gated on its own `ENABLE_PURGE_WRITE`
+(`WRITE_TARGET === "copy"`, folded into `WRITE_LAYER_ENABLED`) so turning it
+off never requires also turning off Edit Coin's ordinary field writes, and
+enabling those never silently enables permanent deletion.
+- **Reachable only from Former Holdings**, and the `formerHoldings()` base
+  set is what structurally guarantees it can never appear on an Owned coin.
+- **Two-stage dialog.** Stage 1 lists every photo with its own checkbox,
+  **all checked by default**. Stage 2 **names the exact files**, states
+  plainly that it cannot be undone, and states what is KEPT.
+- **NEVER touched, under any circumstance:** the `All` row, the
+  CollectionID, and **Receipts**. One receipt routinely covers several coins
+  (RC-00001 already spans three), so deleting it from a single coin's action
+  would destroy another coin's record of its own purchase. True record
+  deletion is a manual database action outside the app; this never offers
+  it.
+- **ROW-THEN-FILE order, per photo.** If the row detach fails, nothing is
+  deleted for that photo. If a file delete fails after the row is gone,
+  we've lost a pointer to a file that still exists — visible, recoverable,
+  reported by name. The reverse risks a row pointing at bytes that no longer
+  exist, which is the worse failure. **This is the one design choice nothing
+  else in the suite discriminates**, so it has its own dedicated assertion
+  block (J6–J9) that fails the row detach and proves zero files were
+  deleted.
+- **Per-photo, not all-or-nothing**: one failure never abandons the rest,
+  and every outcome is reported by filename. `deleteItem()` already treats
+  404 as success, so the file half of a re-run is idempotent.
+- Per-CollectionID lock (`coinPurgeInFlight`, same shape as
+  `coinPromoteInFlight`) so a double-tap coalesces rather than
+  double-deleting.
+
+**Three boundary decisions, all confirmed with Ray before building:**
+- **The `_original` raw IS deleted too** — a deliberate, explicit exception
+  to the crop-commit convention's "never deleted" rule. That rule protects
+  re-cropping an **owned** coin, which by definition cannot apply to an
+  exited one, and the raw is usually the larger file, so leaving it would
+  orphan the bigger half and defeat the point. Both filenames are named in
+  the confirmation.
+- **A LEGACY-ONLY photo is refused** — one recorded solely in the old flat
+  `All.Obverse`/`Reverse` columns with no Photos row (5 real rows are like
+  this, AY-00706 among them). This app never writes those columns, so
+  deleting the file would leave them pointing at bytes that no longer exist.
+  Consequence, working as intended: **such a coin can never reach
+  fully-purged** until that's fixed workbook-side. Shown greyed with the
+  reason rather than silently omitted.
+  - **Worth knowing: this guard is defence in depth, and the outcome alone
+    cannot prove it exists.** A legacy-only photo has no Photos row, so the
+    row-must-exist rule catches it a step later and produces an identical
+    `deleted=0/skipped=1` result. Removing the explicit guard passed the
+    first version of the suite. The **skip REASON** is what discriminates,
+    and is what's asserted now. **Eighth time this project has hit the
+    "green suite hiding a real bug" trap; the tell is always the same — an
+    assertion whose broken case also returns the passing value.**
+- **A fully-purged coin stays reachable ONLY by direct CollectionID
+  lookup** — and **that mechanism did not exist as a user-facing surface**.
+  Confirmed by grep: Catalog search and Ledger's "Find a Coin" both read
+  `ownedCoins()`, so exited coins were already invisible to both, purged or
+  not. As originally specified, a purged coin would have become completely
+  unreachable in the app. So a small **"Open by CollectionID"** input was
+  built into Ledger (`openLedgerCoinById()`), reading **raw
+  `activeCoins()`** — the one surface that must never filter, matching the
+  existing precedent that direct single-coin lookups are never
+  ownership-filtered.
+
+**Two fixes beyond the literal ask, both flagged rather than assumed:**
+- **`browseStepListFallback()` now reads `ownedCoins()`, not raw
+  `activeCoins()`** — prev/next could step from an owned coin straight into
+  a Sold/Gifted/Returned/Spent one, the same leak class Catalog/Stats/
+  Spotlight already closed. Ray asked for this while I was in there.
+  Former Holdings rows set their own step context, so the arrows walk that
+  list; a coin opened by CollectionID is in no list and correctly gets no
+  arrows.
+- **Real pre-existing bug fixed: Ledger's "Find a Coin" box has rendered as
+  an unstyled WHITE input on this dark page since it was built.** The
+  generic input rule lists `text`/`number`/`date`/`textarea`/`select` and
+  **not `search`**. Fixed with a shared `.ledger-search` class rather than
+  widening that rule, because an `input[type=search]` type selector (0,1,1)
+  would out-specify Catalog's own `.browse-search` class (0,1,0) and
+  restyle its box too. Asserted on **computed style**, not on the class
+  attribute — the class being present proves nothing if the rule doesn't
+  apply.
+
+**Verified headless — new committed suite
+`tests/verify_former_holdings_purge.js` (97 assertions); 1820 across 42
+suites, zero failures, zero page errors.** Covers the schema/flag
+invariants (including that CollectionID/CoinID/OriginSetID are *still*
+never-write — Purge loosened nothing); `formerHoldings()` scope across all
+three record kinds; the rename with "Exit History" gone from the page
+entirely; all five filter axes plus AND-combination, per-page year state,
+and the empty-result message; what Purge offers (both files for a flip
+source, legacy-only flagged); both dialog stages naming exactly the checked
+files; and full execution against the mock Graph client — partial purge
+leaving the flag blank and the coin listed, full purge writing `Y` and
+dropping it from the list while remaining reachable by ID, receipts and the
+All row provably untouched, failure/idempotence/locking, and flag-off
+inertness.
+- **Eight verified negative controls**, each applied to the real `app.html`,
+  run, and reverted: the purge filter removed from `formerHoldings()` (fails
+  10); the legacy-only guard removed (fails I1b only — see the trap note
+  above); **file-then-row order** (fails 6, including J6/J7); the step
+  fallback reverted (fails N1); the per-coin lock removed (fails K1/K2);
+  purge ignoring the selection (fails 7, including the unchecked-photo
+  guarantees); `Purged` written on a partial purge (fails 4); and the
+  search-styling fix reverted (fails P1/P2).
+- **Honest scope note on the Receipts assertions (G5):** nothing in the code
+  touches Receipts, so there is no revert that would make G5 fail short of
+  writing the bug on purpose. It is a **guard** assertion — it exists to
+  catch a future change, not to prove today's code, and should be read that
+  way.
+- **Not verified: any real device, any real OneDrive session.** This is a
+  destructive write path and wants a live `_Testing` run before it is
+  trusted — see the checklist. **`WRITE_TARGET` stays `"copy"` throughout.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
@@ -9815,7 +10006,9 @@ Set's Save has always shown.
     statuses, one combined list with the Status (and Sale Price, including
     a real `$0` for Gifted — shown, never omitted) inline per row — not
     split by reason (Ray's call; splitting later is easy if it turns out
-    to matter).
+    to matter). **SUPERSEDED — this is now "Former Holdings", a real
+    filterable/sortable sub-catalog with a Purge action, and it excludes
+    anything fully purged.** See "Former Holdings sub-catalog + Purge".
   - Both reuse the existing `.wish-item` row styling; tapping a row opens
     that coin's Browse detail view (where the real Edit/Sell-Remove action
     lives), Back returning to Ledger via the same per-origin

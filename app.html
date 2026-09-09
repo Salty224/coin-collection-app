@@ -974,6 +974,22 @@
   .browse-search:focus { outline: none; border-color: var(--gold); }
   .browse-search.hidden { display: none; }
 
+  /* Ledger's two full-width search boxes. They are input[type=search],
+     which the generic input rule further down does NOT cover (it lists
+     text/number/date/textarea/select) — so #ledgerSearchInput has rendered
+     as an unstyled white box on this dark page since it was built. Given a
+     class rather than widening that generic rule, because an
+     input[type=search] type selector (0,1,1) would out-specify Catalog's
+     own .browse-search class (0,1,0) and restyle its search box too. */
+  .ledger-search {
+    width: 100%; box-sizing: border-box; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid var(--case-border);
+    background: var(--bg-case); color: var(--text);
+    font-family: inherit; font-size: 14px;
+  }
+  .ledger-search::placeholder { color: var(--text-muted); }
+  .ledger-search:focus { outline: none; border-color: var(--gold); }
+
   .browse-result-count {
     font-size: 12px; color: var(--text-muted); margin-bottom: 8px; min-height: 15px;
   }
@@ -4185,15 +4201,44 @@
              locate it). A plain flat search, not Catalog's full filter-chip
              parity — this is a means to one coin, not a browsing surface. -->
         <div class="section-label">Find a Coin</div>
-        <input type="search" id="ledgerSearchInput" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:10px;"
+        <input type="search" id="ledgerSearchInput" class="ledger-search" style="margin-bottom:10px;"
           placeholder="Search Owned coins by ID, year, or name…" aria-label="Search Owned coins">
         <div id="ledgerSearchResults"></div>
 
-        <!-- Exit history — every coin/Set carrying one of the four exit
-             statuses, one combined list with a Status badge per row (not
-             split by reason — can be split later if it turns out to
-             matter). -->
-        <div class="section-label">Exit History</div>
+        <!-- Open a specific record by CollectionID, whatever its Status —
+             including a fully-purged one, which by design appears in no
+             list anywhere. Reads raw activeCoins(), deliberately: this is
+             the one surface that must never filter. -->
+        <div class="section-label">Open by CollectionID</div>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <input type="text" id="ledgerOpenByIdInput" style="flex:1; min-width:0; box-sizing:border-box; padding:10px 12px;"
+            placeholder="AY-00123" autocomplete="off" aria-label="Open a record by CollectionID">
+          <button type="button" class="staging-btn" id="ledgerOpenByIdBtn">Open</button>
+        </div>
+        <p class="placeholder-note" style="margin-top:-4px;">Finds any record by its ID — Owned, exited, or purged.</p>
+
+        <!-- FORMER HOLDINGS — a real, sortable/filterable sub-catalog of
+             every record that has LEFT the collection, not a flat log. Was
+             "Exit History". Scope is the inverse of ownedCoins(): any row
+             whose Status is one of EXIT_STATUSES, minus anything fully
+             purged. -->
+        <div class="section-label">Former Holdings</div>
+        <input type="search" id="formerSearchInput" class="ledger-search" style="margin-bottom:8px;"
+          placeholder="Search…" aria-label="Search Former Holdings">
+        <!-- Record kind first: this list mixes coins, Set bundles and Rolls,
+             which Catalog splits across tabs with different filter sets. A
+             Set bundle is Denomination="Multiple", so a Denomination chip
+             can never match one — without this row, filtering by
+             denomination would make Sets and Rolls unreachable. -->
+        <div class="filter-row" id="formerKindFilters"></div>
+        <div class="filter-row" id="formerReasonFilters" style="margin-top:6px;"></div>
+        <div class="filter-row" id="formerDenomFilters" style="margin-top:6px;"></div>
+        <div class="filter-row" id="formerMetalFilters" style="margin-top:6px;"></div>
+        <div class="filter-row" id="formerGradingServiceFilters" style="margin-top:6px;"></div>
+        <div class="browse-toolbar" style="margin-top:8px;">
+          <button type="button" class="filter-chip" id="formerYearFilterBtn">Year</button>
+          <span class="browse-result-count" id="formerResultCount"></span>
+        </div>
         <div id="ledgerExitHistoryList"></div>
         <p class="placeholder-note hidden" id="ledgerExitHistoryEmpty">No coins marked Sold, Gifted, Returned, or Spent yet.</p>
       </section>
@@ -4887,9 +4932,18 @@
   // ENABLE_SET_WRITE_LAYER would conflate "writes Staging JSON files" with
   // "writes workbook cells", which are not the same capability at all.
   const ENABLE_SET_LINK_WRITE = (WRITE_TARGET === "copy");
+  // Purging an EXITED coin's photos — the app's first genuinely DESTRUCTIVE
+  // write. deleteItem() itself is not new (the promotion move has always
+  // used it), but every existing use deletes a source only AFTER a verified
+  // copy exists somewhere else; this one deletes bytes with nothing to
+  // recover from. Its own flag for that reason above all: turning Purge off
+  // must not require also turning off Edit Coin's ordinary field writes, and
+  // enabling those must never silently enable permanent deletion. It also
+  // writes All.Purged, through its own narrow audited cell write.
+  const ENABLE_PURGE_WRITE = (WRITE_TARGET === "copy");
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE;
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE || ENABLE_PURGE_WRITE;
   const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
 
   // **ONE PublicClientApplication for the whole app.** This is not a
@@ -5681,6 +5735,11 @@
       // (4 rows today) comes through unchanged too — this mapper never
       // filters or judges the value, it only reads it.
       status: String(colVal(row, "Status")),
+      // All.Purged — Y/blank. Blank (or a missing column entirely) means
+      // "not purged", so an older workbook without this column degrades to
+      // a complete no-op rather than a wrong answer, same defensive shape
+      // as faceValue above.
+      purged: String(colVal(row, "Purged")),
       // The four columns behind an exit status, reused generically across
       // Sold/Gifted/Returned/Spent rather than as Sold-only fields.
       saleDate: colVal(row, "SaleDate") === ""
@@ -6880,7 +6939,15 @@
     // or off of it. An existing "At PCGS" row is displayed as-is (see
     // setSelectValuePreservingUnknown() at the Status select) and left
     // alone unless a human explicitly picks one of the five real options.
-    "Status", "SaleDate", "SalePrice", "Buyer", "Platform"
+    "Status", "SaleDate", "SalePrice", "Buyer", "Platform",
+    // Purged (Y/blank) — set only when an EXITED coin's photos have all
+    // been permanently deleted. Same treatment as Category/Finish/Error/
+    // FaceValue: allow-listed so the general machinery can never silently
+    // drop it, but there is no Browse Edit input for it either. It is only
+    // ever written by writePurgedCell(), a narrow single-purpose audited
+    // path, because it is never hand-edited — it records the outcome of one
+    // specific irreversible action.
+    "Purged"
   ];
 
   // Never written, under any circumstance. Total and SpotValue are LIVE
@@ -6935,6 +7002,38 @@
   // One helper, swapped into every one of those consumers, rather than
   // patching Catalog alone and leaving the same class of bug elsewhere.
   function ownedCoins() { return activeCoins().filter(c => !isExitStatus(c.status)); }
+
+  // "Fully purged" — every one of this coin's photos has been permanently
+  // deleted. Read from the All.Purged flag, NOT derived live from the Photos
+  // row count on every render. Two reasons, both real:
+  //   - A coin that never had any photos at all would read as fully purged
+  //     the instant it exited, and would silently vanish from Former
+  //     Holdings without anyone ever purging it. The flag is what
+  //     distinguishes "purged" from "never had any".
+  //   - Live derivation would make a list's own CONTENTS shift as the
+  //     Photos index arrives, rather than the list being stable once
+  //     rendered.
+  // The flag is written once, at the moment a purge leaves zero photos
+  // behind (see finalisePurgedFlag()) — derived at WRITE time, not at read
+  // time. A partial purge simply leaves it blank, which is exactly the
+  // "still visible in Former Holdings" state the spec asks for, with no
+  // third value to represent.
+  function isFullyPurged(coin) {
+    return String((coin && coin.purged) || "").trim().toUpperCase() === "Y";
+  }
+
+  // The inverse of ownedCoins(): every record that has LEFT the collection
+  // and has not been fully purged. This is Former Holdings' own base row
+  // set — coins, Set bundles and Rolls alike, since Status lives on the one
+  // All sheet for all three record kinds.
+  //
+  // A fully-purged coin drops out here (and, being exit-status, is already
+  // absent from Catalog/Ledger search, both of which read ownedCoins()).
+  // It stays reachable by direct CollectionID lookup — see
+  // openLedgerCoinById(), which deliberately reads raw activeCoins().
+  function formerHoldings() {
+    return activeCoins().filter(c => isExitStatus(c.status) && !isFullyPurged(c));
+  }
 
   // One populate function for all three Status selects (Add Coin, Edit
   // Coin, Edit Set) — same "one function, not hand-duplicated per form"
@@ -7002,6 +7101,14 @@
     return setLinkWriteEnabledOverride === null ? ENABLE_SET_LINK_WRITE : setLinkWriteEnabledOverride;
   }
   function __setSetLinkWriteEnabledForTest(v) { setLinkWriteEnabledOverride = v; } // test-only seam
+
+  // Same seam, for Purge (permanent photo deletion + All.Purged). Its own
+  // gate, matching its own flag — see ENABLE_PURGE_WRITE.
+  let purgeWriteEnabledOverride = null;
+  function purgeWriteEnabled() {
+    return purgeWriteEnabledOverride === null ? ENABLE_PURGE_WRITE : purgeWriteEnabledOverride;
+  }
+  function __setPurgeWriteEnabledForTest(v) { purgeWriteEnabledOverride = v; } // test-only seam
 
   (function assertWriteColumnListsDisjoint() {
     const overlap = ALL_WRITABLE_COLUMNS.filter(c => ALL_NEVER_WRITE_COLUMNS.indexOf(c) !== -1);
@@ -7764,6 +7871,35 @@
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
   }
 
+  // The one narrow write for All.Purged. Deliberately NOT routed through
+  // buildRowCellEdits()/the general allow-list machinery, following
+  // writeCoinIdCell()/writeOriginSetIdCell()'s own precedent: Purged is
+  // never hand-edited and has exactly one producer, so giving it a general
+  // code path would widen the write surface for no benefit. Its
+  // ALL_WRITABLE_COLUMNS entry exists only so the machinery can't silently
+  // drop the value if it ever arrives by some other route.
+  //
+  // LastModified is stamped (the app did touch the row). Reviewed is
+  // deliberately NOT blanked — the same divergence, for the same reason, as
+  // writeOriginSetIdCell(): Reviewed means a human has eyeballed this
+  // coin's own attributes, and deleting its photos changes none of them.
+  async function writePurgedCell(rowNumber, value) {
+    const map = await ensureAllHeaderMap();
+    if (!map.Purged) throw new Error("The All sheet has no Purged column.");
+    const edits = [{
+      address: columnIndexToLetters(map.Purged) + rowNumber,
+      values: [[value]]
+    }];
+    if (map.LastModified) {
+      edits.push({
+        address: columnIndexToLetters(map.LastModified) + rowNumber,
+        values: [[excelSerialToday()]],
+        numberFormat: [[WORKBOOK_DATE_FORMAT]]
+      });
+    }
+    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
+  }
+
   // Serialises attach/detach per CHILD CollectionID, so a double-tap on
   // "Link coin" (or on a row's detach control) can't produce two writes for
   // the same coin. Same shape as coinPromoteInFlight: a second call for the
@@ -8167,6 +8303,188 @@
     if (!hit) return { detached: false };
     await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
     return { detached: true, row: hit.__row, filename: hit.Filename };
+  }
+
+  // ==================================================================
+  // PURGE — permanent photo deletion for an EXITED coin
+  // ==================================================================
+  // The app's first genuinely DESTRUCTIVE write. Every other use of
+  // graph().deleteItem() in this file deletes a source only AFTER a verified
+  // copy exists elsewhere (see movePromotedCoinFiles' copy-verify-delete);
+  // this deletes bytes with nothing to recover from. Reachable ONLY from
+  // Former Holdings, only on a row whose Status is one of EXIT_STATUSES, and
+  // gated on its own ENABLE_PURGE_WRITE flag.
+  //
+  // WHAT IT NEVER TOUCHES, under any circumstance: the All row itself, the
+  // CollectionID, and Receipts. A receipt routinely covers several coins
+  // (RC-00001 already spans three), so deleting one from a single coin's
+  // action would destroy another coin's record of its own purchase. True
+  // record deletion is a manual database action Ray does outside the app;
+  // this never offers it.
+  //
+  // THE _original RAW IS DELETED TOO, and this is a deliberate, Ray-approved
+  // exception to the crop-commit convention's "never deleted" rule (see
+  // CLAUDE.md). That rule exists to protect re-cropping an OWNED coin, which
+  // by definition doesn't apply here — and the raw is usually the larger
+  // file, so leaving it would orphan the bigger half and defeat the point.
+  // Both files are named in the confirmation.
+
+  // Every photo of this coin that Purge can act on, plus the ones it can't.
+  // Reads the session Photos index (what every other read path in the app
+  // displays, so the list can't disagree with what Ray is looking at); the
+  // delete path itself re-reads the sheet per photo, which is what actually
+  // guards against a concurrent change.
+  //
+  // A LEGACY-ONLY photo — recorded solely in the old flat All.Obverse/
+  // All.Reverse columns, with no Photos row behind it (5 real rows are like
+  // this, AY-00706 among them) — is returned marked `legacyOnly` and is NOT
+  // purgeable. This app never writes those columns (a standing boundary),
+  // so deleting the file would leave the column pointing at bytes that no
+  // longer exist. Refusing is better than a dangling reference, and it means
+  // such a coin can't reach fully-purged until that's fixed workbook-side.
+  function purgeablePhotosFor(collectionId) {
+    const tabRows = storedPhotoRowsFor(collectionId);
+    const legacy = legacyStoredRowsFor(collectionId, tabRows);
+    const out = [];
+    tabRows.forEach(r => {
+      const files = [];
+      if (r.filename) files.push(r.filename);
+      // The untouched raw, when this photo retained one. Same row, second
+      // file — both go, or neither does.
+      if (r.originalFilename && r.originalFilename !== r.filename) files.push(r.originalFilename);
+      if (!files.length) return; // a row pointing at nothing has nothing to delete
+      out.push({
+        photoId: r.photoId || "",
+        galleryType: r.galleryType || "",
+        photoType: r.photoType || "",
+        label: r.label || "",
+        filename: r.filename,
+        originalFilename: r.originalFilename || "",
+        files,
+        legacyOnly: false
+      });
+    });
+    legacy.forEach(r => {
+      out.push({
+        photoId: "", galleryType: r.galleryType || "", photoType: r.photoType || "",
+        label: r.label || "", filename: r.filename, originalFilename: "",
+        files: r.filename ? [r.filename] : [],
+        legacyOnly: true
+      });
+    });
+    return out;
+  }
+
+  // A human-readable name for one purgeable photo, for the checkbox list and
+  // the confirmation. Prefers the gallery type's own label ("Obverse",
+  // "Slab — front"), falling back to the raw PhotoType so an unrecognised
+  // value still reads as something rather than blank.
+  function purgePhotoLabel(p) {
+    const def = p.galleryType ? galleryTypeDef(p.galleryType) : null;
+    const base = (def && def.label) || p.photoType || "Photo";
+    return p.label ? base + " — " + p.label : base;
+  }
+
+  // Serialises per CollectionID, so a double-tap on Purge can't fire two
+  // delete passes for the same coin. Same shape as coinPromoteInFlight /
+  // setLinkInFlight: a second call coalesces onto the first rather than
+  // erroring, since the honest outcome of a double-tap is "that coin got
+  // purged", not a failure.
+  const coinPurgeInFlight = new Map();
+  function withCoinPurgeLock(collectionId, fn) {
+    const key = String(collectionId);
+    const running = coinPurgeInFlight.get(key);
+    if (running) return running.then(r => Object.assign({}, r, { coalesced: true }));
+    const p = (async () => fn())();
+    coinPurgeInFlight.set(key, p);
+    return p.finally(() => { coinPurgeInFlight.delete(key); });
+  }
+
+  // Writes All.Purged="Y" when, after this pass, the coin has no photos of
+  // any kind left — no Photos rows, and no legacy-only ones either (a
+  // legacy photo can't be purged, so a coin carrying one can never reach
+  // this state; that's the Q3 boundary, working as intended).
+  //
+  // Derived HERE, at write time, from the state the purge actually left
+  // behind — never re-derived on render. Returns what happened so the
+  // caller can report it honestly.
+  async function finalisePurgedFlag(collectionId) {
+    const remaining = purgeablePhotosFor(collectionId);
+    if (remaining.length) return { fullyPurged: false, remaining: remaining.length };
+    const rowNumber = await findAllSheetRowNumber(collectionId);
+    if (!rowNumber) return { fullyPurged: false, noAllRow: true };
+    await writePurgedCell(rowNumber, "Y");
+    const coin = activeCoins().find(c => c.id === collectionId);
+    if (coin) coin.purged = "Y"; // keep the in-memory record in step; no re-fetch needed
+    return { fullyPurged: true };
+  }
+
+  // The orchestrator. `selected` is the list of purgeablePhotosFor() entries
+  // Ray actually checked; anything he unchecked is left completely alone,
+  // file and row alike.
+  //
+  // ORDER IS ROW-THEN-FILE, per photo. If the row detach fails, nothing is
+  // deleted at all for that photo. If a file delete fails after the row is
+  // gone, we've lost a pointer to a file that still exists — visible,
+  // recoverable, and reported by name. The reverse order risks a row
+  // pointing at bytes that no longer exist, which is the worse failure.
+  //
+  // Per-photo, not all-or-nothing: one failure never abandons the rest, and
+  // every outcome is reported. deleteItem() already treats a 404 as success,
+  // so a re-run after a partial failure is idempotent for the file half.
+  //
+  // KNOWN, ACCEPTED, AND REPORTED: if a row detach succeeded but its file
+  // delete then failed, a LATER re-run finds no row for that filename and
+  // skips it rather than deleting on stale information — so that one file
+  // stays behind. The summary names it at the time, which is the "loud
+  // failure, lose nothing silently" posture the rest of this layer uses.
+  async function purgeCoinPhotos(collectionId, selected) {
+    if (!purgeWriteEnabled()) {
+      return { ok: false, disabled: true, deleted: [], failed: [], skipped: [] };
+    }
+    return withCoinPurgeLock(collectionId, async () => {
+      const deleted = [];
+      const failed = [];
+      const skipped = [];
+      const p = writePaths();
+      for (const photo of (selected || [])) {
+        if (photo.legacyOnly) {
+          skipped.push({ photo, reason: "recorded only in the old All-sheet columns" });
+          continue;
+        }
+        let detach;
+        try {
+          detach = await detachPhotoRowByFilename(collectionId, photo.filename);
+        } catch (e) {
+          failed.push({ photo, stage: "row", error: String(e && e.message || e) });
+          continue;
+        }
+        if (!detach || !detach.detached) {
+          // The row is already gone — removed elsewhere, or a previous pass
+          // got this far. Deleting the file now would be acting on stale
+          // information about what that filename belongs to, so don't.
+          skipped.push({ photo, reason: "its Photos row was already gone" });
+          continue;
+        }
+        syncStoredPhotoIndexRemoveByFilename(collectionId, photo.filename);
+        for (const file of photo.files) {
+          try {
+            await graph().deleteItem(p.coinPhotos + "/" + file);
+            deleted.push(file);
+            delete coinPhotoCache[file]; // don't keep serving a deleted photo this session
+          } catch (e) {
+            failed.push({ photo, file, stage: "file", error: String(e && e.message || e) });
+          }
+        }
+      }
+      let flag = { fullyPurged: false };
+      try {
+        flag = await finalisePurgedFlag(collectionId);
+      } catch (e) {
+        flag = { fullyPurged: false, error: String(e && e.message || e) };
+      }
+      return { ok: true, deleted, failed, skipped, flag };
+    });
   }
 
   // ---- Receipts ----------------------------------------------------
@@ -13188,27 +13506,55 @@
     return yearFilterByTab[activeBrowseTab] || yearFilterByTab.coins;
   }
 
+  // Former Holdings (Ledger) keeps its own year state, on the same
+  // per-page principle as the Browse tabs above — it is a different page
+  // with a different row set, and carrying Catalog's year across to it
+  // would silently narrow a list the user never filtered.
+  const formerYearFilter = { begin: null, end: null };
+  // Which page's year state the ONE shared #yearFilterOverlay is currently
+  // editing. Set by whichever Year button opened it; "browse" is the
+  // default so nothing about Catalog's own behaviour changes.
+  let yearFilterTarget = "browse";
+  function activeYearFilterState() {
+    return yearFilterTarget === "former" ? formerYearFilter : currentYearFilter();
+  }
+
   // A row with no real single year (a mixed-date Roll carries the literal
   // string "Various", see CLAUDE.md Roll cards) can't be tested against a
   // specific year/range — excluded whenever the filter is active, same
   // reasoning rollYearNumber() already uses for Rolls-tab sorting.
-  function yearRowTest(coin) {
-    const yf = currentYearFilter();
+  function yearRowTestAgainst(coin, yf) {
     if (yf.begin === null) return true;
     const year = Number(coin.year);
     if (isNaN(year)) return false;
     if (yf.end === null) return year === yf.begin;
     return year >= yf.begin && year <= yf.end;
   }
+  function yearRowTest(coin) { return yearRowTestAgainst(coin, currentYearFilter()); }
 
-  function updateYearFilterButtonUI() {
-    const btn = document.getElementById("browseYearFilterBtn");
-    const yf = currentYearFilter();
+  function applyYearFilterButtonLabel(btn, yf) {
+    if (!btn) return;
     const active = yf.begin !== null;
     btn.classList.toggle("active", active);
     btn.textContent = !active ? "Year"
       : yf.end === null ? "Year: " + yf.begin
       : "Year: " + yf.begin + "–" + yf.end;
+  }
+  function updateYearFilterButtonUI() {
+    applyYearFilterButtonLabel(document.getElementById("browseYearFilterBtn"), currentYearFilter());
+  }
+  function updateFormerYearFilterButtonUI() {
+    applyYearFilterButtonLabel(document.getElementById("formerYearFilterBtn"), formerYearFilter);
+  }
+  // Whichever page's Year button opened the shared overlay is the one that
+  // gets relabelled and re-rendered when Apply/Clear lands.
+  function updateActiveYearFilterButtonUI() {
+    if (yearFilterTarget === "former") updateFormerYearFilterButtonUI();
+    else updateYearFilterButtonUI();
+  }
+  function applyAfterYearFilterChange() {
+    if (yearFilterTarget === "former") renderFormerHoldings();
+    else applyActiveBrowseTabFilters();
   }
 
   function applyActiveBrowseTabFilters() {
@@ -13818,12 +14164,19 @@
     const yearFilterOverlay = document.getElementById("yearFilterOverlay");
     const yearFilterBeginInput = document.getElementById("yearFilterBegin");
     const yearFilterEndInput = document.getElementById("yearFilterEnd");
-    document.getElementById("browseYearFilterBtn").addEventListener("click", () => {
-      const yf = currentYearFilter();
+    // The ONE shared year overlay serves both Catalog and Former Holdings.
+    // Whichever button opens it claims it (yearFilterTarget), and Apply/
+    // Clear below write back to that page's own state.
+    function openYearFilterOverlay(target) {
+      yearFilterTarget = target;
+      const yf = activeYearFilterState();
       yearFilterBeginInput.value = yf.begin === null ? "" : yf.begin;
       yearFilterEndInput.value = yf.end === null ? "" : yf.end;
       yearFilterOverlay.classList.remove("hidden");
-    });
+    }
+    document.getElementById("browseYearFilterBtn").addEventListener("click", () => openYearFilterOverlay("browse"));
+    const formerYearBtn = document.getElementById("formerYearFilterBtn");
+    if (formerYearBtn) formerYearBtn.addEventListener("click", () => openYearFilterOverlay("former"));
     document.getElementById("yearFilterApplyBtn").addEventListener("click", () => {
       const beginRaw = yearFilterBeginInput.value.trim();
       const endRaw = yearFilterEndInput.value.trim();
@@ -13837,21 +14190,23 @@
         showToast("End Year can't be before Begin Year.");
         return;
       }
-      // Writes to the ACTIVE tab's own year state only (per-page filter).
-      const yf = currentYearFilter();
+      // Writes to the ACTIVE page's own year state only (per-page filter) —
+      // the active Browse tab, or Former Holdings, depending on which
+      // button opened this.
+      const yf = activeYearFilterState();
       yf.begin = begin;
       yf.end = end;
-      updateYearFilterButtonUI();
+      updateActiveYearFilterButtonUI();
       yearFilterOverlay.classList.add("hidden");
-      applyActiveBrowseTabFilters();
+      applyAfterYearFilterChange();
     });
     document.getElementById("yearFilterClearBtn").addEventListener("click", () => {
-      const yf = currentYearFilter();
+      const yf = activeYearFilterState();
       yf.begin = null;
       yf.end = null;
-      updateYearFilterButtonUI();
+      updateActiveYearFilterButtonUI();
       yearFilterOverlay.classList.add("hidden");
-      applyActiveBrowseTabFilters();
+      applyAfterYearFilterChange();
     });
 
     // The standing "Missing Photos" Browse filter was retired — missing-photo
@@ -14016,8 +14371,16 @@
   // nested lookup, never in a browse list, and stepping from a child into
   // an unrelated top-level coin would be a jump, not a step. A child simply
   // gets no arrows.
+  // Reads ownedCoins(), not raw activeCoins(): stepping from an owned coin
+  // into a Sold/Gifted/Returned/Spent one is the same leak Catalog/Stats/
+  // Spotlight already closed — an exited coin has no business appearing in
+  // a walk through "the collection". A coin reached deliberately (a Former
+  // Holdings row, an Open-by-CollectionID lookup) still opens fine; it just
+  // isn't somewhere the arrows wander into. An exited coin opened that way
+  // is absent from this list and so simply gets no arrows, exactly like a
+  // Set child.
   function browseStepListFallback() {
-    return activeCoins().slice()
+    return ownedCoins().slice()
       .sort((a, b) => String(a.id).localeCompare(String(b.id)))
       .map(c => c.id);
   }
@@ -19493,7 +19856,7 @@
     });
 
     renderLedgerCoinSearch();
-    renderLedgerExitHistory(all);
+    renderFormerHoldings();
   }
 
   // "Find a still-Owned coin to act on" (Sell/Remove lives on the coin's
@@ -19534,36 +19897,330 @@
     });
   }
 
-  // Exit history — every coin/Set/Roll carrying one of the four exit
-  // statuses, one combined list with a Status badge per row (Ray's
-  // explicit call — not split by reason; can be split later if it turns
-  // out to matter). Reads whatever renderStats() already fetched, so this
-  // never triggers a second live-data read.
-  function renderLedgerExitHistory(all) {
+  // ==================================================================
+  // FORMER HOLDINGS — a real sub-catalog of everything that has left the
+  // collection. Replaces the old flat, unsorted "Exit History" list.
+  // ==================================================================
+  // Scope is the inverse of ownedCoins(): any All row whose Status is one of
+  // EXIT_STATUSES, minus anything fully purged (formerHoldings()). No new
+  // schema was needed for the list itself — Set bundles and Rolls already
+  // live in the same All sheet with the same Status column, so all three
+  // record kinds come through one filter.
+
+  // Record kind first, because this list MIXES kinds and Catalog does not:
+  // Catalog splits coins/Sets/Rolls across tabs with different filter sets,
+  // and a Set bundle is Denomination="Multiple", which no Denomination chip
+  // can ever match. Without this row, selecting any denomination would make
+  // Sets and Rolls silently unreachable rather than merely unfiltered.
+  const FORMER_KIND_CHIPS = [
+    { key: "all",   label: "All",   isAll: true },
+    { key: "coins", label: "Coins", test: c => !isSetRow(c) && !isRollRow(c) },
+    { key: "sets",  label: "Sets",  test: c => isSetRow(c) },
+    { key: "rolls", label: "Rolls", test: c => isRollRow(c) }
+  ];
+  // Exit reason — the Status value itself. A chip row rather than a sort or
+  // grouped headers (Ray's call): it matches every other filter axis in this
+  // app and needs no new interaction pattern.
+  const FORMER_REASON_CHIPS = [
+    { key: "all", label: "All", isAll: true },
+    ...EXIT_STATUSES.map(st => ({ key: st, label: st, test: c => c.status === st }))
+  ];
+
+  let formerSelectedKindKeys = new Set();
+  let formerSelectedReasonKeys = new Set();
+  let formerSelectedDenomKeys = new Set();
+  let formerSelectedMetalKeys = new Set();
+  let formerSelectedGradingServiceKeys = new Set();
+  let formerSearchQuery = "";
+
+  // One OR-test over a chip list + its selected-key Set. Empty Set = "All".
+  // Extracted because Former Holdings has five of these rows and the
+  // existing per-row copies (browseFilterTest/browseMetalTest/
+  // browseGradingServiceTest) are byte-identical in shape — writing it a
+  // sixth through tenth time by hand is exactly how two of them drift.
+  function chipRowTest(chips, selectedKeys, coin) {
+    if (selectedKeys.size === 0) return true;
+    return [...selectedKeys].some(key => {
+      const chip = chips.find(c => c.key === key);
+      return chip && chip.test && chip.test(coin);
+    });
+  }
+
+  // Builds one multi-select chip row: "All" clears, every other chip
+  // toggles. Same interaction and same active-class rule as Catalog's own
+  // Denomination/Metal rows, via the existing updateMetalChipsUI() helper
+  // (generic by container id despite the name).
+  function buildFormerChipRow(containerId, chips, selectedKeys) {
+    const row = document.getElementById(containerId);
+    if (!row) return;
+    row.innerHTML = "";
+    chips.forEach(spec => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (spec.isAll ? " active" : "");
+      chip.textContent = spec.label;
+      chip.dataset.key = spec.key;
+      chip.addEventListener("click", () => {
+        if (spec.isAll) selectedKeys.clear();
+        else if (selectedKeys.has(spec.key)) selectedKeys.delete(spec.key);
+        else selectedKeys.add(spec.key);
+        updateMetalChipsUI(containerId, selectedKeys);
+        renderFormerHoldings();
+      });
+      row.appendChild(chip);
+    });
+  }
+
+  function initFormerHoldingsFilters() {
+    buildFormerChipRow("formerKindFilters", FORMER_KIND_CHIPS, formerSelectedKindKeys);
+    buildFormerChipRow("formerReasonFilters", FORMER_REASON_CHIPS, formerSelectedReasonKeys);
+    // Denomination/Metal/Grading Service reuse Catalog's own chip
+    // DEFINITIONS (not its state) — the same buckets and the same per-coin
+    // tests, so the two pages can never disagree about what "Silver" or
+    // "Dimes" means. Each keeps its own selection Set, so filtering one page
+    // never narrows the other.
+    buildFormerChipRow("formerDenomFilters", BROWSE_FILTER_CHIPS, formerSelectedDenomKeys);
+    buildFormerChipRow("formerMetalFilters", BROWSE_METAL_CHIPS, formerSelectedMetalKeys);
+    buildFormerChipRow("formerGradingServiceFilters", BROWSE_GRADING_SERVICE_CHIPS, formerSelectedGradingServiceKeys);
+  }
+
+  function applyFormerHoldingsFilters() {
+    const base = formerHoldings();
+    const filtered = base.filter(c =>
+      chipRowTest(FORMER_KIND_CHIPS, formerSelectedKindKeys, c) &&
+      chipRowTest(FORMER_REASON_CHIPS, formerSelectedReasonKeys, c) &&
+      chipRowTest(BROWSE_FILTER_CHIPS, formerSelectedDenomKeys, c) &&
+      chipRowTest(BROWSE_METAL_CHIPS, formerSelectedMetalKeys, c) &&
+      chipRowTest(BROWSE_GRADING_SERVICE_CHIPS, formerSelectedGradingServiceKeys, c) &&
+      yearRowTestAgainst(c, formerYearFilter) &&
+      coinMatchesSearchQuery(c, formerSearchQuery)
+    );
+    return { base, filtered };
+  }
+
+  // Sorted the same way Catalog's own grid is (Year, then Mint Mark) rather
+  // than left in whatever order the sheet happens to return — this is a
+  // browsable sub-catalog now, not a log feed.
+  function renderFormerHoldings() {
     const container = document.getElementById("ledgerExitHistoryList");
     const empty = document.getElementById("ledgerExitHistoryEmpty");
     if (!container || !empty) return;
     container.innerHTML = "";
-    const exited = all.filter(c => isExitStatus(c.status));
-    empty.classList.toggle("hidden", exited.length > 0);
-    exited.forEach(coin => {
+    const { base, filtered } = applyFormerHoldingsFilters();
+    const rows = sortCoinsTabRows(filtered);
+
+    const countEl = document.getElementById("formerResultCount");
+    if (countEl) countEl.textContent = base.length ? "Showing " + rows.length + " of " + base.length : "";
+
+    empty.classList.toggle("hidden", base.length > 0);
+    if (base.length && !rows.length) {
+      container.innerHTML = '<p class="placeholder-note">No former holdings match these filters.</p>';
+      return;
+    }
+
+    rows.forEach(coin => {
       const row = document.createElement("div");
       row.className = "case wish-item";
-      row.style.cursor = "pointer";
       const detailParts = [];
       if (coin.saleDate) detailParts.push(coin.saleDate);
       if (coin.buyer) detailParts.push(coin.buyer);
       if (coin.platform) detailParts.push(coin.platform);
-      row.innerHTML = `
-        <div>
-          <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
-          <div class="wish-notes">${escapeHtmlText(coin.status)}${detailParts.length ? " · " + escapeHtmlText(detailParts.join(" · ")) : ""}</div>
-        </div>
-        <div class="wish-price">${coin.salePrice != null ? formatCurrency(coin.salePrice) : ""}</div>
-      `;
-      row.addEventListener("click", () => openLedgerCoin(coin));
+      const identity = yearMintText(coin);
+      const info = document.createElement("div");
+      info.style.cursor = "pointer";
+      info.style.flex = "1";
+      info.style.minWidth = "0";
+      info.innerHTML =
+        '<div class="wish-desc">' + escapeHtmlText(coin.id) +
+          (coin.name ? " — " + escapeHtmlText(coin.name) : "") + '</div>' +
+        '<div class="wish-notes">' + escapeHtmlText(coin.status) +
+          (identity ? " · " + escapeHtmlText(identity) : "") +
+          (coin.denom ? " · " + escapeHtmlText(coin.denom) : "") +
+          (detailParts.length ? " · " + escapeHtmlText(detailParts.join(" · ")) : "") + '</div>';
+      // Stepping walks THIS list — the same "the list the user actually
+      // arrived from" rule renderBrowseGrid() follows. Set at click time,
+      // after navigate(), inside openLedgerCoin().
+      info.addEventListener("click", () => openLedgerCoin(coin, rows));
+      row.appendChild(info);
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "8px";
+      right.style.flexShrink = "0";
+      if (coin.salePrice != null) {
+        const price = document.createElement("div");
+        price.className = "wish-price";
+        price.textContent = formatCurrency(coin.salePrice);
+        right.appendChild(price);
+      }
+      // Purge is offered ONLY here, and only on an exit-status row — the
+      // formerHoldings() base set is what guarantees the second half, so
+      // there is no way to reach this button from an Owned coin.
+      const purgeBtn = document.createElement("button");
+      purgeBtn.type = "button";
+      purgeBtn.className = "staging-btn";
+      purgeBtn.textContent = "Purge";
+      purgeBtn.title = "Permanently delete this record's photo files";
+      purgeBtn.addEventListener("click", e => {
+        e.stopPropagation(); // the row itself navigates; this must not
+        // The row's own button is handed down to the dialog so it can go
+        // pending once the user actually confirms — showWriteGuard tears
+        // its own buttons down before onClick runs, so the dialog's button
+        // can't carry that state itself. Same pattern as Reject/Force Add/
+        // Dismiss (see runWithButtonPending's own comment).
+        openPurgeDialog(coin, purgeBtn);
+      });
+      right.appendChild(purgeBtn);
+      row.appendChild(right);
       container.appendChild(row);
     });
+  }
+
+
+  // ---- Purge UI ----------------------------------------------------
+  // Two stages, deliberately. Stage 1 picks WHICH photos (checkboxes, all
+  // checked by default, so the common "purge everything" case is one tap).
+  // Stage 2 is the confirmation, and it names the exact files rather than
+  // asking a generic "are you sure?" — the whole point is that Ray can see
+  // what is about to be destroyed before it happens. showWriteGuard()
+  // explicitly supports a handler opening another dialog, so the two chain
+  // cleanly.
+  function openPurgeDialog(coin, originBtn) {
+    if (!purgeWriteEnabled()) {
+      showWriteGuard({
+        title: "Purge unavailable",
+        bodyHtml: "<p>Photo purging is turned off in this build " +
+          "(<code>ENABLE_PURGE_WRITE</code>). Nothing has been deleted.</p>",
+        buttons: [{ label: "OK" }]
+      });
+      return;
+    }
+    const photos = purgeablePhotosFor(coin.id);
+    const purgeable = photos.filter(p => !p.legacyOnly);
+    const legacy = photos.filter(p => p.legacyOnly);
+
+    if (!purgeable.length) {
+      showWriteGuard({
+        title: "Nothing to purge",
+        bodyHtml: legacy.length
+          ? "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no photos this app can purge.</p>" +
+            "<p>Its " + legacy.length + " photo(s) are recorded only in the old <strong>All</strong> sheet " +
+            "columns, which this app never writes — deleting the files would leave those columns pointing " +
+            "at nothing. Fix that at the workbook level first.</p>"
+          : "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no stored photos to purge.</p>",
+        buttons: [{ label: "OK" }]
+      });
+      return;
+    }
+
+    const listHtml = purgeable.map((p, i) =>
+      '<label style="display:flex; gap:8px; align-items:flex-start; margin-bottom:8px;">' +
+        '<input type="checkbox" class="purge-photo-check" data-idx="' + i + '" checked style="margin-top:3px;">' +
+        '<span><strong>' + escapeHtmlText(purgePhotoLabel(p)) + '</strong><br>' +
+        '<span style="font-size:12px; color:var(--text-muted);">' +
+        escapeHtmlText(p.files.join(", ")) +
+        (p.files.length > 1 ? " (photo and its original)" : "") +
+        '</span></span></label>').join("");
+
+    const legacyHtml = legacy.length
+      ? '<p style="margin-top:12px; opacity:0.6;"><strong>Can\'t be purged</strong><br>' +
+        '<span style="font-size:12px;">' + escapeHtmlText(legacy.map(p => p.filename).join(", ")) +
+        ' — recorded only in the old All-sheet columns, which this app never writes. ' +
+        'Deleting these would leave those columns pointing at missing files.</span></p>'
+      : "";
+
+    showWriteGuard({
+      title: "Purge photos for " + coin.id,
+      bodyHtml: "<p>Choose which photos to permanently delete. Everything is selected by default; " +
+        "uncheck anything you want to keep.</p>" + listHtml + legacyHtml,
+      buttons: [
+        { label: "Cancel" },
+        { label: "Continue", primary: true,
+          // Read the checkboxes BEFORE teardown — onClick runs after the
+          // dialog closes, by which point the body is gone.
+          collect: () => [...document.querySelectorAll(".purge-photo-check")]
+            .filter(cb => cb.checked)
+            .map(cb => purgeable[Number(cb.dataset.idx)])
+            .filter(Boolean),
+          onClick: chosen => {
+            if (!chosen || !chosen.length) {
+              showToast("Nothing selected — nothing was deleted.");
+              return;
+            }
+            confirmPurge(coin, chosen, purgeable.length, legacy.length, originBtn);
+          } }
+      ]
+    });
+  }
+
+  // Stage 2. Names every file, states plainly that it is permanent, and
+  // states what is being KEPT — the All row, the CollectionID, any
+  // receipts, and any photo left unchecked. A receipt is never touched
+  // under any circumstance: one receipt routinely covers several coins, so
+  // deleting it from a single coin's action would destroy another coin's
+  // record of its own purchase.
+  function confirmPurge(coin, chosen, purgeableCount, legacyCount, originBtn) {
+    const files = chosen.reduce((acc, p) => acc.concat(p.files), []);
+    const keptPhotos = purgeableCount - chosen.length;
+    const keptBits = ["the coin's record (<strong>" + escapeHtmlText(coin.id) + "</strong>) and any receipts"];
+    if (keptPhotos > 0) keptBits.push(keptPhotos + " unchecked photo(s)");
+    if (legacyCount > 0) keptBits.push(legacyCount + " photo(s) this app can't purge");
+    showWriteGuard({
+      title: "Permanently delete " + files.length + " file(s)?",
+      bodyHtml:
+        "<p>This permanently deletes these " + files.length + " photo file(s) of <strong>" +
+          escapeHtmlText(detailTitleText(coin)) + "</strong> from OneDrive:</p>" +
+        "<ul style=\"margin:8px 0 12px 18px; padding:0;\">" +
+          files.map(f => "<li style=\"margin-bottom:4px;\"><code>" + escapeHtmlText(f) + "</code></li>").join("") +
+        "</ul>" +
+        "<p><strong>This cannot be undone.</strong></p>" +
+        "<p>Kept: " + keptBits.join(", ") + ".</p>",
+      buttons: [
+        { label: "Cancel" },
+        { label: "Delete permanently", primary: true, onClick: () => {
+            // The re-render below detaches originBtn; runWithButtonPending's
+            // own isConnected check is what makes that safe.
+            runWithButtonPending(originBtn, "Purging…", async () => {
+              const res = await purgeCoinPhotos(coin.id, chosen);
+              reportPurgeResult(coin, res);
+              renderFormerHoldings();
+            });
+          } }
+      ]
+    });
+  }
+
+  // Every outcome is reported by name, per-photo — a partial failure must
+  // never look like a clean run.
+  function reportPurgeResult(coin, res) {
+    if (!res || res.disabled) { showToast("Purge is turned off in this build — nothing was deleted."); return; }
+    const bits = [];
+    if (res.deleted.length) bits.push("Deleted " + res.deleted.length + " file(s)");
+    if (res.skipped.length) bits.push("skipped " + res.skipped.length);
+    if (res.failed.length) {
+      const names = res.failed.map(f => f.file || (f.photo && f.photo.filename) || "?").join(", ");
+      bits.push("COULDN'T delete: " + names);
+    }
+    if (res.flag && res.flag.fullyPurged) {
+      bits.push(coin.id + " is now fully purged and will only be reachable by CollectionID");
+    }
+    showToast(bits.length ? bits.join(" · ") + "." : "Nothing was deleted.");
+  }
+
+  // Open any record by CollectionID, whatever its Status — including a
+  // fully-purged one, which by design appears in no list anywhere. This is
+  // the one surface that must NOT filter, so it reads raw activeCoins()
+  // rather than ownedCoins()/formerHoldings(), matching the existing
+  // precedent that direct single-coin lookups are never ownership-filtered.
+  function openLedgerCoinById() {
+    const input = document.getElementById("ledgerOpenByIdInput");
+    if (!input) return;
+    const raw = input.value.trim();
+    if (!raw) { showToast("Enter a CollectionID, e.g. AY-00123."); return; }
+    const want = raw.toUpperCase();
+    const coin = activeCoins().find(c => String(c.id).trim().toUpperCase() === want);
+    if (!coin) { showToast("No record found with CollectionID " + raw + "."); return; }
+    openLedgerCoin(coin);
   }
 
   // Shared by both Ledger lists — opens the coin's own Browse detail view
@@ -19572,9 +20229,15 @@
   // row in this app already follows. Back returns to Ledger, not Browse's
   // own grid — same per-origin browseDetailBackHandler pattern Spotlight's
   // click-through and Albums' filled-slot tap already use.
-  function openLedgerCoin(coin) {
+  // `stepList` (optional): the list the user arrived from, so prev/next walk
+  // it. Set AFTER navigate() — navigate("browse") renders the Catalog grid
+  // internally, which calls setBrowseStepContext() with the full catalog and
+  // would overwrite anything set beforehand (the same ordering trap the
+  // Albums slot handler already documents).
+  function openLedgerCoin(coin, stepList) {
     browseDetailBackHandler = () => navigate("stats");
     navigate("browse");
+    if (stepList && stepList.length) setBrowseStepContext(stepList);
     showBrowseDetail(coin);
   }
 
@@ -25894,6 +26557,15 @@
   if (addCoinWriteEnabled()) refreshCoinDraftCache();
   updateInProgressSetsBadge();
   document.getElementById("ledgerSearchInput").addEventListener("input", renderLedgerCoinSearch);
+  initFormerHoldingsFilters();
+  document.getElementById("formerSearchInput").addEventListener("input", e => {
+    formerSearchQuery = e.target.value;
+    renderFormerHoldings();
+  });
+  document.getElementById("ledgerOpenByIdBtn").addEventListener("click", openLedgerCoinById);
+  document.getElementById("ledgerOpenByIdInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); openLedgerCoinById(); }
+  });
   renderStats();
   navigate("dashboard");
   initSplash();
