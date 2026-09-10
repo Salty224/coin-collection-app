@@ -14227,6 +14227,157 @@ alone wouldn't prove the actual new element exists, which the added
   on `claude/code-primer-u8uv1d`, not merged to `main`, until that pass
   comes back clean.
 
+### Description consistency gate + Category lone-candidate fix (BUILT, HELD on `claude/brave-wozniak-6fobpg`)
+Ray's live repro: Year 2026 / no mint / `$1` / Business Strike with
+**"Trump"** typed into Description silently auto-matched `C-2026--$1-01` —
+a different real 2026 dollar — behind a green "Matched DB_Coins" banner
+with no picker. He ran it twice; the first run he promoted deliberately, so
+a mismatched row sits in `_Testing` (disposable, no cleanup needed). Core
+identity-matching territory, so **held for Ray's explicit merge go-ahead**,
+same standing as Thread A and the Docket build.
+
+**Investigated before building, and the investigation changed the fix.**
+Two independent causes, both confirmed by driving the real form headlessly
+rather than by reading the code:
+1. `addCoinIdentityShape()` blanks a **free-typed** Description before the
+   matcher sees it — only Ref_Denominations' controlled series values pass
+   through (the standing "Commemorative / Description blind spot" rule).
+   Working as designed. For `$1`/2026 the controlled vocabulary is exactly
+   `Various Issues` / `Native American` / `American Innovation` — **none of
+   which is a Trump dollar**, so the picker offered no honest option either.
+2. **Even a controlled Description could not have stopped it.** Verified
+   directly: substituting a real controlled series still returned the same
+   single candidate. The Description tier is `candidates.length > 1`-guarded
+   and soft. **A tier guarded by `length > 1` can never validate a LONE
+   candidate** — structurally the identical blind spot FIX A closed for
+   Finish (2026-09-08).
+
+**Measured: which tiers can reject a lone wrong candidate.** Composition →
+yes (hard, unguarded — but no producer exists, so unreachable). Finish →
+yes, since FIX A. Designation → no, soft by design. **Description → no.
+Category → no.** So fixing Description alone would have left the same class
+of bug one tier down; both are fixed here.
+
+**Part A — the Description gate is a CONFIDENCE gate, not a matcher tier.**
+It lives beside `isVarietyRecognized()` and `dbCoinsCandidatesFor()` is
+untouched by it. The asymmetry that makes this safe, and that the standing
+rule does not forbid: **using loosely-corresponding text to REJECT a match
+is safe where using it to SELECT one is not** — rejecting never picks a
+row, it only declines to trust one silently.
+- **Token overlap, never string equality.** Equality would have been a fix
+  worse than the bug: Ref_Denominations is program-level (`Washington ATB`
+  covers 2010-2021) while DB_Coins carries the per-design name (`Grand
+  Canyon Quarter`) — `applyMatchedDescriptionToForm()` exists *because* they
+  differ — so equality would refuse every State Quarter, ATB and First
+  Spouse. Sharing one identity-bearing word is the test.
+- **`DESCRIPTION_GENERIC_TOKENS` is deliberately tight** and must stay so:
+  every word added makes a false refusal likelier. It strips denomination
+  nouns, the country and connectives, and pure-numeric tokens (Year is
+  already the matcher's own base key). **Never add an identity-bearing word
+  to it** — `EAGLE` stays (it is all that survives "Quarter Eagle"), and so
+  do `GOLD`/`SILVER`. Stripping `DOLLAR` is what stops "Trump Dollar"
+  agreeing with "American Silver Eagle Dollar" on that word alone.
+- **Fail-safe throughout**, same posture as every soft tier: blank
+  Description, a controlled series value, a row with no Description, or a
+  typed value with no identity-bearing token left all return "consistent".
+- **A deliberate pick from the 2+ picker is exempt.** That is the one place
+  this app already forces a human to look, the candidate list renders each
+  row's Description, and they chose anyway — refusing afterwards would be
+  second-guessing the strongest signal in the system.
+- **KNOWN, ACCEPTED LIMIT, asserted rather than left implicit**: one shared
+  word is the threshold, so "Gold Eagle" vs "American Silver Eagle Dollar"
+  passes this gate (they share `EAGLE`). It does not need to catch that —
+  a Bullion-tier pick carries a Category, and the Category tier rejects
+  exactly that pair. This gate is the backstop for free-typed text, not a
+  second matcher.
+
+**Part B — the CoinID is withheld, not just the button (this is the actual
+fix).** Withholding direct-write alone would have been a delay, not a fix:
+Promote is offered on any draft whose CoinID resolved, so a conflicted coin
+saved to Staging would still carry the contested link and could be promoted
+into All a step later — reproducing the exact harm (a row reading "Trump"
+whose CoinID pulls another coin's Mintage, PCGS# and, through the SpotValue
+formula chain, its spot value). `resolveAddCoinCatalogMatch()` now resolves
+a conflict as `how: "none"` with **no CoinID attached**. `"none"` rather
+than a new value on purpose — every existing consumer then does the right
+thing with no changes: CoinID pending, draft lands in the Docket's research
+section, Promote correctly unavailable, Force Add still there as the
+deliberate override. A `descriptionConflict` marker rides along so
+`buildCoinDraft()`'s research note says a link was **withheld** (naming the
+row) rather than claiming no catalog row exists — different problems,
+different fixes.
+
+**Part C — the green banner is suppressed, not just the button** (Ray's
+call): a confident-looking banner beside a row we have privately decided
+not to trust is worse than an honest unresolved state, because the
+Staging-unmatched review meant to catch it would sit behind a banner that
+looks fine. Its own `#dbDescriptionConflictBanner`, not a reuse of
+`dbNoMatchBanner` — "no catalog entry exists" and "one exists but probably
+is not this coin" need a human to do different things. It **names the row
+and its CoinID** so the disagreement is checkable, and the contested row's
+name is deliberately NOT written over what the user typed (that would erase
+the very disagreement being reported). Two live recovery paths, both
+asserted: clear the Description, or correct it to one that agrees.
+
+**A real gap found while building, not in the original scope.** Typing into
+Description did not re-run `checkDbCoinsMatch()` — its listener only reset
+the autofill flags. So the first version of this fix left the green banner
+and the Save button showing whatever the last Year/Denom/Mint/Variety/Finish
+change computed, going stale the instant only the Description changed —
+which is the repro itself. Description is now a real input to the match
+*evaluation* (though still not to `dbCoinsCandidatesFor()` when free-typed),
+so its listener calls `checkDbCoinsMatch()`, same rule the Finish/
+Designation/GradeSource listeners already follow for their own tiers.
+
+**Part D — Category's identical `length > 1` gap, closed.** Mirrors FIX A.
+The body already handled both cases correctly (a hit keeps the row; a miss
+zeroes a hard category and falls through for a soft one), so unlike FIX A
+this needed no branch split — only the guard removed. Still gated on
+`shape.category` being set, which only a Bullion-tier pick ever does.
+**Blank Category is deliberately still NOT treated as a value** ("this is
+not a bullion coin") — most real rows legitimately have none, DB_Coins has
+no Category column at all, and defining that blank is a flagged open
+question, explicitly out of scope.
+
+**BLAST RADIUS IS ZERO FOR DESCRIPTION, AND ACKNOWLEDGED-NOT-ZERO FOR
+CATEGORY.** `buildBrowseEditIdentityShape()` carries neither `description`
+nor `category` (asserted), and `docketRecheckEntry()` carries neither — both
+completely unaffected. **The one exception, flagged rather than buried:
+`recheckCoinDraftMatch()` (the Docket's coin-draft Re-check) is the only
+non-Add-Coin caller that passes `category`**, so a draft carrying a
+confirmed hard Category now gets "still nothing found" instead of a lone
+disagreeing candidate offered for confirmation. Same safe direction, only
+reachable for a Category that came from the controlled Bullion dropdown, and
+Re-check never auto-applied anyway — but it is a real behaviour change
+outside Add Coin, and it is asserted (block L) so it cannot be forgotten.
+
+**Verified headless — new committed suite
+`tests/verify_description_conflict_gate.js` (62 assertions).** Covers the
+token helpers in isolation including every fail-safe; the exemptions; the
+reported repro end-to-end through the real UI (green banner suppressed,
+conflict banner shown and naming the row, direct write withheld, the fourth
+not-confident reason, the typed value not overwritten); **the
+false-positive guard** (a free-typed "Grand Canyon" against "Grand Canyon
+Quarter" is accepted, green banner and direct write intact); the deliberate
+pick exemption; the save path withholding the CoinID with an agreeing
+control still resolving normally; the draft's distinct research note; the
+Category tier's four states; the blast-radius assertions; the two recovery
+paths; and a nav/overflow smoke. **Two negative controls**, each
+reproducing the pre-fix rule verbatim against the identical fixture and
+confirming it WOULD have accepted the coin — proving the assertions
+exercise real fixes rather than already-passing behaviour.
+- **One assertion was corrected during the build rather than the code**:
+  A8 originally claimed "Gold Eagle" and "American Silver Eagle Dollar"
+  disagree. They share `EAGLE` — the test was wrong, not the gate. It now
+  asserts the real behaviour and names it as the accepted limit, with A8b
+  pinning `GOLD`/`SILVER` as tokens that must never be stripped.
+- **Not verified: any real device, any real OneDrive session.**
+- **Still unanswered, and worth Ray checking directly**: what
+  `C-2026--$1-01` actually is, and whether the real 2026 Trump `$1`
+  (regular P + July 4th Privy, 250,000) exists in DB_Coins at all. If it
+  does not, every 2026-P `$1` entered lands on whatever row *is* at `-01`.
+  Neither is checkable from a coding session.
+
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
 to a **generic reference image for its series**, rather than the bare

@@ -3807,6 +3807,18 @@
                 <span class="icon">🔀</span>
                 <span class="msg" id="dbAmbiguousMsg"></span>
               </div>
+              <!-- The catalog resolved to exactly one row, but the Description
+                   typed on this form shares no identity word with that row's
+                   own DB_Coins Description — so the row is deliberately NOT
+                   presented as a confirmed match. Its own banner rather than
+                   reusing dbNoMatchBanner: "no catalog entry exists" and "a
+                   catalog entry exists but probably is not this coin" need a
+                   human to do different things about them. See
+                   isDescriptionConsistentWithMatch(). -->
+              <div class="banner pending-banner hidden" id="dbDescriptionConflictBanner">
+                <span class="icon">🛑</span>
+                <span class="msg" id="dbDescriptionConflictMsg"></span>
+              </div>
 
               <div style="display:flex; align-items:center; justify-content:space-between;">
                 <label style="margin:0;">Grade</label>
@@ -9251,7 +9263,23 @@
   function buildCoinDraft(collectionId, form, match) {
     const researchLines = [];
     if (!match || !match.coinId) {
-      researchLines.push("No DB_Coins match at capture — CoinID pending, needs a catalog entry.");
+      if (match && match.descriptionConflict) {
+        // A genuinely different situation from "no catalog row exists", and
+        // reconciliation needs to be able to tell them apart: here a row DID
+        // match on Year/Mint/Denomination/Variety and was deliberately not
+        // linked, because the Description captured on the coin shares no
+        // identity word with that row's own catalog Description. Either the
+        // catalog is missing this coin, or the wording differs and the link
+        // is fine — a human decides, which is the whole point of not
+        // guessing at capture.
+        const conflicting = match.conflictingRow || {};
+        researchLines.push("CoinID withheld at capture — the one row matching this " +
+          "Year/Mint/Denomination is " + (conflicting.description || "a different coin") +
+          (conflicting.coinId ? " (" + conflicting.coinId + ")" : "") +
+          ", which doesn't correspond to the Description captured. Confirm the link or add a catalog entry.");
+      } else {
+        researchLines.push("No DB_Coins match at capture — CoinID pending, needs a catalog entry.");
+      }
       // List every authoritative ID actually captured, even though none of
       // them resolved — any ONE of these is what lets Copilot create the
       // right catalog row, so all of them belong in the note, not just
@@ -16970,7 +16998,27 @@
     // like "Commemorative" alone matching Bald Eagle Recovery) stays
     // soft-only — a miss there falls through unchanged rather than risking
     // a false zero that would wrongly route a real coin to the Docket.
-    if (candidates.length > 1 && shape.category) {
+    //
+    // NOT GUARDED BY `length > 1` (2026-09-10) — the identical structural gap
+    // FIX A closed for Finish, found while investigating Ray's "Trump" $1
+    // report and confirmed by measurement: a CONFIRMED hard category fed a
+    // lone candidate it disagrees with used to return that candidate anyway,
+    // because the tier never ran at all below two candidates. So the whole
+    // point of BULLION_CATEGORY_HARD_CATEGORIES — a real hard-zero-narrow on
+    // confirmed wording — silently did not apply in exactly the case where a
+    // wrong single match does the most damage. The body below already handles
+    // both cases correctly as written (a hit keeps the row; a miss zeroes a
+    // hard category and falls through for a soft one), so unlike FIX A this
+    // needed no branch split, only the guard removed.
+    //
+    // Still gated on `shape.category` being set, which ONLY Add Coin's own
+    // Bullion-tier pick ever does — Browse Edit, the Docket and Re-check
+    // never populate it, so this remains inert for them. Blank Category is
+    // deliberately NOT treated as a value ("this is not a bullion coin"):
+    // most real rows legitimately have none, DB_Coins has no Category column
+    // at all, and defining that blank is an open question flagged for Ray,
+    // explicitly out of scope here.
+    if (shape.category) {
       const hints = BULLION_CATEGORY_MATCH_HINTS[shape.category];
       if (hints) {
         const byCategory = candidates.filter(c => {
@@ -23270,9 +23318,23 @@
       addCoinResolvedPick = null; // identity changed since the pick — stale, discard
     }
     if (addCoinResolvedPick) {
-      return { candidates: [addCoinResolvedPick.row], resolvedPick: true, shape, key };
+      // A DELIBERATE pick is exempt from the Description gate, and that is a
+      // real decision rather than an oversight. The 2+ picker is the one
+      // place this app already forces a human to look (the firm rule: 2+
+      // never auto-resolves), the candidate list renders each row's own
+      // Description, and the user chose anyway. Refusing afterwards would
+      // be second-guessing the strongest signal in the system.
+      return { candidates: [addCoinResolvedPick.row], resolvedPick: true, shape, key, descriptionConflict: false };
     }
-    return { candidates: dbCoinsCandidatesFor(shape), resolvedPick: false, shape, key };
+    const candidates = dbCoinsCandidatesFor(shape);
+    // Derived ONCE here so the live banner, the confidence gate and the save
+    // path cannot disagree about it. That is not hypothetical caution: live-run
+    // finding #14 was exactly this class of bug, the banner and the picker
+    // having independently-updated state and being observed to contradict
+    // each other. Only ever true on the silent single-candidate path — the
+    // one that produced Ray's repro.
+    const descriptionConflict = candidates.length === 1 && !isDescriptionConsistentWithMatch(candidates[0]);
+    return { candidates, resolvedPick: false, shape, key, descriptionConflict };
   }
 
   function checkDbCoinsMatch() {
@@ -23284,21 +23346,48 @@
     const matchBanner = document.getElementById("dbMatchBanner");
     const noMatchBanner = document.getElementById("dbNoMatchBanner");
     const ambiguousBanner = document.getElementById("dbAmbiguousBanner");
+    const conflictBanner = document.getElementById("dbDescriptionConflictBanner");
 
     if (!denom || !year) {
       matchBanner.classList.add("hidden");
       noMatchBanner.classList.add("hidden");
       ambiguousBanner.classList.add("hidden");
+      conflictBanner.classList.add("hidden");
       lastDbMatch = null;
       lastDbCandidates = [];
       return;
     }
 
-    const { candidates } = currentAddCoinMatchState();
+    const { candidates, descriptionConflict } = currentAddCoinMatchState();
     lastDbCandidates = candidates;
     lastDbMatch = candidates.length === 1 ? candidates[0] : null;
 
-    if (candidates.length === 1) {
+    if (descriptionConflict) {
+      // Deliberately NOT the green "Matched DB_Coins" banner (Ray's call): a
+      // confident-looking banner beside a row we have privately decided not
+      // to trust is worse than an honest unresolved state, because the
+      // Staging-unmatched review that is meant to catch this would be sitting
+      // behind a banner that looks fine. Name the row so the disagreement is
+      // checkable rather than mysterious — it may well be the right coin with
+      // differently-worded catalog text, and the user is the one who can tell.
+      const found = candidates[0];
+      // applyMatchedDescriptionToForm() is deliberately NOT called here. It
+      // already declines to overwrite a value the user typed, so this is
+      // belt-and-braces rather than load-bearing — but writing the contested
+      // row's own name onto the field would erase the very disagreement being
+      // reported, and make the conflict resolve itself on the next keystroke.
+      document.getElementById("dbDescriptionConflictMsg").innerHTML =
+        "<strong>This may not be the right catalog entry.</strong> The one row matching this " +
+        "Year/Mint/Denomination is <strong>" + escapeHtmlText(found.description) + "</strong>" +
+        (found.coinId ? " (" + escapeHtmlText(found.coinId) + ")" : "") +
+        ", which doesn't look like the Description entered above. Nothing is linked to it — " +
+        "Save to Staging and it'll go in unmatched for a closer look. If it IS the right coin, " +
+        "clear or correct the Description to match the catalog.";
+      conflictBanner.classList.remove("hidden");
+      matchBanner.classList.add("hidden");
+      noMatchBanner.classList.add("hidden");
+      ambiguousBanner.classList.add("hidden");
+    } else if (candidates.length === 1) {
       const found = candidates[0];
       // The catalog has resolved to exactly one row, so its own Description is
       // the most specific truth available for this coin — more specific than
@@ -23320,6 +23409,7 @@
       matchBanner.classList.remove("hidden");
       noMatchBanner.classList.add("hidden");
       ambiguousBanner.classList.add("hidden");
+      conflictBanner.classList.add("hidden");
     } else if (candidates.length > 1) {
       // Deliberately NOT resolved here. Announcing it live (rather than
       // popping the picker on every keystroke while a year is still being
@@ -23331,10 +23421,12 @@
       matchBanner.classList.add("hidden");
       noMatchBanner.classList.add("hidden");
       ambiguousBanner.classList.remove("hidden");
+      conflictBanner.classList.add("hidden");
     } else {
       matchBanner.classList.add("hidden");
       ambiguousBanner.classList.add("hidden");
       noMatchBanner.classList.remove("hidden");
+      conflictBanner.classList.add("hidden");
     }
   }
 
@@ -23374,6 +23466,30 @@
     }
     if (state.candidates.length === 1) {
       panel.classList.add("hidden");
+      if (state.descriptionConflict) {
+        // Resolve as UNMATCHED — the CoinID is deliberately not attached.
+        //
+        // Withholding the direct-write button alone would not have been a
+        // fix, only a delay: Promote is offered on any draft whose CoinID
+        // resolved, so a conflicted coin saved to Staging would still carry
+        // the contested link and could be promoted into All a step later,
+        // reproducing the exact harm from the live repro (a row reading
+        // "Trump" while its CoinID pulls another coin's Mintage, PCGS# and,
+        // through the SpotValue formula chain, its spot value).
+        //
+        // `how: "none"` rather than a new value on purpose: every existing
+        // consumer then does the right thing with no changes at all — CoinID
+        // pending, the draft lands in the Docket's research section, Promote
+        // is correctly unavailable, and Force Add remains as the deliberate
+        // override for when the user knows better. `descriptionConflict`
+        // rides along only so the research note can say what actually
+        // happened instead of claiming no catalog row exists.
+        onResolved({
+          coinId: "", row: null, how: "none", candidateCount: 1,
+          descriptionConflict: true, conflictingRow: state.candidates[0]
+        });
+        return;
+      }
       onResolved({ coinId: state.candidates[0].coinId || "", row: state.candidates[0], how: "single", candidateCount: 1 });
       return;
     }
@@ -23482,6 +23598,123 @@
     const value = document.getElementById("variety").value.trim();
     if (!value) return true;
     return validVarietiesForCurrentCoin().includes(value);
+  }
+
+  // ==================================================================
+  // DESCRIPTION CONSISTENCY GATE (Add Coin only)
+  // ==================================================================
+  // Ray's live repro: Year 2026 / no mint / $1 / Business Strike, with
+  // "Trump" typed into Description, silently auto-matched C-2026--$1-01 —
+  // a different real 2026 dollar — with a green "Matched DB_Coins" banner
+  // and no picker. Two independent causes, both confirmed by driving the
+  // real form headlessly:
+  //
+  //   1. addCoinIdentityShape() blanks a FREE-TYPED Description before the
+  //      matcher ever sees it (only Ref_Denominations' own controlled
+  //      series values are passed through — the standing "Commemorative /
+  //      Description blind spot" rule). Working as designed.
+  //   2. Even a CONTROLLED Description could not have stopped it: the
+  //      Description tier in dbCoinsCandidatesFor() is guarded by
+  //      `candidates.length > 1` and is soft. Verified directly —
+  //      substituting a real controlled series still returned the same
+  //      single candidate. A tier guarded by `length > 1` can never
+  //      validate a LONE candidate. Structurally the same blind spot as
+  //      FIX A (the Finish single-candidate gap, 2026-09-08).
+  //
+  // WHY THIS IS A CONFIDENCE GATE AND NOT A MATCHER TIER. Free-typed
+  // Description must never NARROW — All.Description and DB_Coins.Description
+  // are different sources with no guaranteed correspondence, which is the
+  // whole reason the controlled-value gate exists. But there is a real
+  // asymmetry worth stating plainly, and it is what makes this safe:
+  // **using loosely-corresponding text to REJECT a match is safe where
+  // using it to SELECT one is not.** Rejecting never picks a row; it only
+  // declines to trust one silently. So this lives beside
+  // isVarietyRecognized(), at the same layer, and dbCoinsCandidatesFor()
+  // is left completely untouched by it — Browse Edit, the Docket and
+  // Re-check never set shape.description and are provably unaffected.
+  //
+  // WHY TOKEN OVERLAP AND NOT STRING EQUALITY. Equality would be a fix
+  // worse than the bug. Ref_Denominations is program-level ("Washington
+  // ATB" covers 2010-2021) while DB_Coins already carries the per-design
+  // name ("Grand Canyon Quarter") — applyMatchedDescriptionToForm() exists
+  // precisely BECAUSE they differ. Strict equality would refuse every
+  // State Quarter, ATB and First Spouse. Sharing one identity-bearing word
+  // is the honest test: "Grand Canyon" vs "Grand Canyon Quarter" agrees,
+  // "Trump" vs "American Silver Eagle Dollar" does not. Same substring
+  // posture BULLION_CATEGORY_MATCH_HINTS already applies to this field.
+
+  // Words that appear in coin descriptions without identifying WHICH coin
+  // it is — denomination nouns, the country, and connectives. Stripped
+  // before comparing, because leaving them in is what would let "Trump
+  // Dollar" agree with "American Silver Eagle Dollar" on the strength of
+  // the word "Dollar" alone and miss the exact bug this gate exists for.
+  //
+  // Deliberately TIGHT. Every word added here makes a false REFUSAL more
+  // likely, and the list must never grow to include an identity-bearing
+  // word: EAGLE stays (it is all that survives "Quarter Eagle"), and so do
+  // GOLD/SILVER (they are what separate a Gold Eagle from a Silver Eagle).
+  const DESCRIPTION_GENERIC_TOKENS = new Set([
+    "AMERICAN", "AMERICA", "UNITED", "STATES", "US", "USA",
+    "THE", "OF", "AND", "A", "AN", "TYPE", "VAR", "VARIETY",
+    "DOLLAR", "DOLLARS", "CENT", "CENTS", "PENNY", "PENNIES",
+    "NICKEL", "DIME", "DIMES", "QUARTER", "QUARTERS", "HALF",
+    "COIN", "COINS", "PIECE", "PIECES", "ISSUE", "ISSUES"
+  ]);
+
+  // The identity-bearing words in a description. Pure-numeric tokens are
+  // dropped too: a year adds no signal here (Year is already part of the
+  // matcher's own base key), and counting it would let an incidental date
+  // collision read as agreement.
+  function descriptionIdentityTokens(text) {
+    return String(text || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, " ")
+      .split(" ")
+      .filter(t => t && !/^\d+$/.test(t) && !DESCRIPTION_GENERIC_TOKENS.has(t));
+  }
+
+  // True when the two descriptions share at least one identity-bearing
+  // word, in either containment direction so a shortened form still agrees
+  // ("Canyon" vs "Canyons"). Tokens shorter than 3 characters are compared
+  // only for exact equality — a 2-letter fragment matching inside a longer
+  // word is noise, not agreement.
+  function descriptionsShareIdentity(typedText, rowText) {
+    const typed = descriptionIdentityTokens(typedText);
+    const row = descriptionIdentityTokens(rowText);
+    if (!typed.length || !row.length) return true; // no signal either side — never refuse
+    return typed.some(t => row.some(r =>
+      t === r || (t.length >= 3 && r.indexOf(t) !== -1) || (r.length >= 3 && t.indexOf(r) !== -1)
+    ));
+  }
+
+  // The gate itself: does the Description currently on the form contradict
+  // the single DB_Coins row the matcher landed on?
+  //
+  // Returns TRUE (consistent, no conflict) in every case where there is no
+  // real signal to act on — the same fail-safe posture every soft tier in
+  // dbCoinsCandidatesFor() takes. Specifically exempt:
+  //
+  //   - a blank Description (nothing typed, nothing to contradict);
+  //   - a CONTROLLED Ref_Denominations series value. Those are handled by
+  //     the matcher's own Description tier and are program-level by nature,
+  //     so they legitimately disagree with a per-design catalog name
+  //     ("Washington ATB" vs "Grand Canyon Quarter") — refusing on those
+  //     is exactly the false-positive class this gate must not create;
+  //   - a row with no Description of its own to compare against.
+  //
+  // A user's DELIBERATE pick from the 2+ ambiguous list is also exempt, but
+  // that exemption lives at the call site (currentAddCoinMatchState()) —
+  // see its own comment for why.
+  function isDescriptionConsistentWithMatch(row) {
+    if (!row || !row.description) return true;
+    const typed = document.getElementById("description").value.trim();
+    if (!typed) return true;
+    const denom = document.getElementById("denomination").value;
+    const year = document.getElementById("year").value.trim();
+    const isControlled = lookupDescriptionCandidates(denom, year)
+      .some(c => normField(c.series) === normField(typed));
+    if (isControlled) return true;
+    return descriptionsShareIdentity(typed, row.description);
   }
 
   // ==================================================================
@@ -24104,7 +24337,13 @@
     // one candidate matches. Zero candidates (no catalog row) and 2+ (still
     // ambiguous) both mean there is nothing to link to yet.
     const state = currentAddCoinMatchState();
-    return !!state && (state.resolvedPick || state.candidates.length === 1);
+    if (!state) return false;
+    // The catalog resolved to one row, but the Description on the form
+    // contradicts it — withhold confidence exactly as an unrecognized
+    // Variety does. Same layer, same outcome: no direct write, route to a
+    // closer look instead of a silent single-candidate match.
+    if (state.descriptionConflict) return false;
+    return state.resolvedPick || state.candidates.length === 1;
   }
 
   function updateSaveConfidenceUI() {
@@ -24160,6 +24399,14 @@
       if (!isVarietyRecognized()) {
         msg = "Variety \"" + document.getElementById("variety").value + "\" isn't a recognized option for this coin — " +
           "this needs a closer look before it can be saved directly. Save to Staging instead.";
+      } else if (state.descriptionConflict) {
+        // Kept short deliberately — dbDescriptionConflictBanner up beside the
+        // identity fields already names the row and the disagreement in full,
+        // and repeating all of it down here would just be the same paragraph
+        // twice on one screen.
+        msg = "The one catalog entry matching this coin doesn't look like the Description entered " +
+          "above (see the note beside the identity fields). Save to Staging — it'll go in unmatched " +
+          "for a closer look, and can be linked or Force Added from there.";
       } else if (state.candidates.length > 1 && !state.resolvedPick) {
         msg = state.candidates.length + " catalog entries match this coin, and none is picked yet — " +
           "Save to Database is unavailable until you resolve which one (you'll be asked when you save). " +
@@ -25141,7 +25388,17 @@
       checkDbCoinsMatch(); updateFlipLabels();
     });
 
-    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; descriptionFromDbCoinsRow = false; hideDescriptionAmbiguousPanel(); updateFlipLabels(); });
+    // checkDbCoinsMatch() is new here (2026-09-10) and is required, not
+    // tidying: Description is now a real input to the match EVALUATION via
+    // isDescriptionConsistentWithMatch(), even though it is still not an
+    // input to dbCoinsCandidatesFor() itself when free-typed. Without this
+    // the conflict banner and the Save-to-Database button would keep showing
+    // whatever the last Year/Denom/Mint/Variety/Finish change computed, and
+    // go stale the moment the Description alone changed — which is exactly
+    // the repro that started this (the green "Matched" banner survived
+    // "Trump" being typed under it). Same rule the Finish/Designation/
+    // GradeSource listeners below already follow for their own tiers.
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; descriptionFromDbCoinsRow = false; hideDescriptionAmbiguousPanel(); checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("descriptionAmbiguousSelect").addEventListener("change", (e) => {
       if (!e.target.value) return;
       document.getElementById("description").value = e.target.value;
