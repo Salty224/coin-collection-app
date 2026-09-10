@@ -19,9 +19,9 @@ nothing here can touch the real `CoinCollection (AI).xlsx`, the real
 > only test copies you are willing to lose.** If any file there is the only
 > copy of something, copy it out first. The app cannot tell the difference.
 
-All app-side logic is verified headless — 127 automated assertions
+All app-side logic is verified headless — 131 automated assertions
 (`tests/verify_former_holdings_purge.js`), plus every other suite:
-**1850 total, zero failures, zero page errors**, driven by a mock Graph
+**1854 total, zero failures, zero page errors**, driven by a mock Graph
 client. Several of those assertions are backed by negative controls that
 were run against the real `app.html` and confirmed to fail. This checklist
 exists to confirm the **real Graph API** behaves the way the mock did on
@@ -44,6 +44,20 @@ writes `All.Purged="Y"` directly, the same way a normal full purge's last
 step already does. A **legacy-only** coin (has a photo, just one this app
 can't act on) is completely unaffected and keeps its own unchanged dead
 end. New Part D2 below.
+
+**Third follow-up, same branch, still held: "Open by CollectionID" is
+GONE — replaced with a "Show Purged" toggle on Former Holdings itself.**
+Three search/lookup boxes stacked on one Ledger screen (Find a Coin, Former
+Holdings' own search, and Open by CollectionID) was confusing, and the
+third one existed only so a fully-purged coin — hidden from every list by
+design — stayed reachable at all. It's removed entirely. Former Holdings'
+toolbar now has a **Show Purged** toggle, default OFF (identical behavior
+to before), that reveals fully-purged coins in the list itself when
+switched on — at which point the *existing* Former Holdings search finds
+them like any other row, no separate lookup needed. Part C below is
+rewritten for this; every other Part's references to "Open by
+CollectionID" as the way back to a purged coin are updated to point at the
+toggle instead.
 
 ## Setup
 
@@ -99,15 +113,26 @@ end. New Part D2 below.
 - [ ] **B8** A filter combination matching nothing shows "No former holdings
       match these filters", not a blank area.
 
-## Part C — Open by CollectionID
+## Part C — The "Show Purged" toggle
 
-- [ ] **C1** Type an **Owned** coin's ID and press Open (or Enter) — its
-      detail page opens.
-- [ ] **C2** Type an **exited** coin's ID — it opens too. This surface
-      deliberately does not filter by status.
-- [ ] **C3** Type a nonsense ID (`AY-99999`) — a toast says no record was
-      found and you stay on Ledger.
-- [ ] **C4** Lower case works (`ay-00123`).
+- [ ] **C1** There is no "Open by CollectionID" box anywhere on the Ledger
+      page. Former Holdings' toolbar (next to the Year button) has a **Show
+      Purged** toggle instead.
+- [ ] **C2** It starts **off**. If you already have a fully-purged coin from
+      an earlier part of this checklist (or from Part F below), confirm it
+      is **not** in the Former Holdings list right now.
+- [ ] **C3** Tap **Show Purged** to turn it on. The fully-purged coin
+      **reappears** in the list. An ordinary (non-purged) exited coin stays
+      visible too — the toggle only adds rows, never hides any.
+- [ ] **C4** The revealed purged row shows a plain **"Purged"** label where
+      the Purge button normally is — not an active Purge button.
+- [ ] **C5** With the toggle still on, type into Former Holdings' own search
+      box (the one directly above its filter chips — not the separate
+      "Find a Coin" box further up the page, which is Owned-coins-only and
+      untouched by this) — it finds the purged coin by ID or name, same as
+      any other row.
+- [ ] **C6** Tap **Show Purged** again to turn it back off. The purged coin
+      disappears from the list again.
 
 ## Part D — The Purge dialog, WITHOUT confirming
 
@@ -151,8 +176,9 @@ Use the coin from setup step 6 — exited, with **zero** stored photos and
 - [ ] **D2-5** On the `All` tab: `Purged` is now **`Y`**, `LastModified` is
       stamped, and `Reviewed` is **unchanged** (same as a normal full purge —
       no photo attribute changed, so nothing was re-reviewed).
-- [ ] **D2-6** The coin drops out of Former Holdings, but **Open by
-      CollectionID still finds it**.
+- [ ] **D2-6** The coin drops out of Former Holdings. Turn on **Show
+      Purged** (Part C) — it reappears there, findable by search like any
+      other row.
 - [ ] **D2-7** Confirm the coin from setup step 4 (the legacy-only one, if
       you have it) is **unaffected** — tapping Purge on it still shows the
       old, single-OK "Nothing to purge" message, never the new Yes/Cancel
@@ -205,8 +231,8 @@ have left one down to nothing).
 
 - [ ] **F1** Purge → check EVERY box (every crop and every original) →
       Continue → Delete permanently.
-- [ ] **F2** The toast says the coin **is now fully purged and will only be
-      reachable by CollectionID**.
+- [ ] **F2** The toast says the coin **is now fully purged and hidden from
+      Former Holdings**, and names the Show Purged toggle as the way back.
 - [ ] **F3** `All.Purged` is now **`Y`** for that row, and `LastModified` is
       stamped.
 - [ ] **F4** `Reviewed` is **unchanged** — deleting photos changes no
@@ -216,8 +242,9 @@ have left one down to nothing).
 - [ ] **F6** **The coin has dropped out of Former Holdings.**
 - [ ] **F7** It is also absent from Catalog and from Ledger's "Find a Coin"
       (it already was, being exit-status — confirm it hasn't reappeared).
-- [ ] **F8** **Open by CollectionID still finds it** and opens its detail
-      page. This is the only way back to it, and it must work.
+- [ ] **F8** Turn on **Show Purged** (Part C) — the coin reappears in Former
+      Holdings and opens normally from there. This is the only way back to
+      it now, and it must work.
 - [ ] **F9** Receipts still untouched.
 
 ## Part G — Prev/next no longer leaks
@@ -227,8 +254,11 @@ have left one down to nothing).
       Gifted/Returned/Spent coin.
 - [ ] **G2** Tap a row inside Former Holdings — the arrows there walk the
       Former Holdings list, not the whole catalog.
-- [ ] **G3** A coin opened via Open-by-CollectionID that is exited or purged
-      gets **no arrows** (it isn't part of any list).
+- [ ] **G3** A purged coin opened by turning on Show Purged and tapping its
+      row still steps through the Former Holdings list like any other row
+      (Show Purged only changes which rows are IN that list, not how
+      stepping works). A coin reached some other way, with no list context
+      at all (e.g. a "Belongs to" chip), gets **no arrows**.
 
 ## Part H — Failure behaviour (optional, and worth doing)
 

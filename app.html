@@ -4205,23 +4205,15 @@
           placeholder="Search Owned coins by ID, year, or name…" aria-label="Search Owned coins">
         <div id="ledgerSearchResults"></div>
 
-        <!-- Open a specific record by CollectionID, whatever its Status —
-             including a fully-purged one, which by design appears in no
-             list anywhere. Reads raw activeCoins(), deliberately: this is
-             the one surface that must never filter. -->
-        <div class="section-label">Open by CollectionID</div>
-        <div style="display:flex; gap:8px; margin-bottom:10px;">
-          <input type="text" id="ledgerOpenByIdInput" style="flex:1; min-width:0; box-sizing:border-box; padding:10px 12px;"
-            placeholder="AY-00123" autocomplete="off" aria-label="Open a record by CollectionID">
-          <button type="button" class="staging-btn" id="ledgerOpenByIdBtn">Open</button>
-        </div>
-        <p class="placeholder-note" style="margin-top:-4px;">Finds any record by its ID — Owned, exited, or purged.</p>
-
         <!-- FORMER HOLDINGS — a real, sortable/filterable sub-catalog of
              every record that has LEFT the collection, not a flat log. Was
              "Exit History". Scope is the inverse of ownedCoins(): any row
              whose Status is one of EXIT_STATUSES, minus anything fully
-             purged. -->
+             purged UNLESS the "Show Purged" toggle below is on — see
+             formerHoldings(). A fully-purged coin used to be reachable only
+             via a separate "Open by CollectionID" box; that box is gone
+             (redundant next to this search + this toggle) and this toggle
+             is now the one way back in. -->
         <div class="section-label">Former Holdings</div>
         <input type="search" id="formerSearchInput" class="ledger-search" style="margin-bottom:8px;"
           placeholder="Search…" aria-label="Search Former Holdings">
@@ -4237,6 +4229,8 @@
         <div class="filter-row" id="formerGradingServiceFilters" style="margin-top:6px;"></div>
         <div class="browse-toolbar" style="margin-top:8px;">
           <button type="button" class="filter-chip" id="formerYearFilterBtn">Year</button>
+          <button type="button" class="filter-chip" id="formerShowPurgedBtn"
+            title="Fully-purged records are hidden by default — turn this on to see (and search/find) them again">Show Purged</button>
           <span class="browse-result-count" id="formerResultCount"></span>
         </div>
         <div id="ledgerExitHistoryList"></div>
@@ -7040,17 +7034,23 @@
     return String((coin && coin.purged) || "").trim().toUpperCase() === "Y";
   }
 
-  // The inverse of ownedCoins(): every record that has LEFT the collection
-  // and has not been fully purged. This is Former Holdings' own base row
-  // set — coins, Set bundles and Rolls alike, since Status lives on the one
-  // All sheet for all three record kinds.
+  // The inverse of ownedCoins(): every record that has LEFT the collection.
+  // This is Former Holdings' own base row set — coins, Set bundles and Rolls
+  // alike, since Status lives on the one All sheet for all three record
+  // kinds.
   //
-  // A fully-purged coin drops out here (and, being exit-status, is already
-  // absent from Catalog/Ledger search, both of which read ownedCoins()).
-  // It stays reachable by direct CollectionID lookup — see
-  // openLedgerCoinById(), which deliberately reads raw activeCoins().
+  // A fully-purged coin drops out here BY DEFAULT (and, being exit-status,
+  // is already absent from Catalog/Ledger search, both of which read
+  // ownedCoins()) — unless formerShowPurged is on, in which case it's
+  // included like any other former-holdings row and becomes findable again
+  // through #formerSearchInput. This replaced a separate, unfiltered "Open
+  // by CollectionID" lookup box that was the only prior way back to a
+  // purged coin — redundant next to this search once this toggle exists,
+  // so it was removed. Direct single-coin lookups elsewhere in the app
+  // (e.g. a "Belongs to" chip, the album filled-slot tap) still read raw
+  // activeCoins() unfiltered, unaffected by this toggle.
   function formerHoldings() {
-    return activeCoins().filter(c => isExitStatus(c.status) && !isFullyPurged(c));
+    return activeCoins().filter(c => isExitStatus(c.status) && (formerShowPurged || !isFullyPurged(c)));
   }
 
   // One populate function for all three Status selects (Add Coin, Edit
@@ -20078,6 +20078,12 @@
   let formerSelectedMetalKeys = new Set();
   let formerSelectedGradingServiceKeys = new Set();
   let formerSearchQuery = "";
+  // Default OFF — a fully-purged coin stays hidden from the list, same as
+  // the pre-toggle behavior. Not a chip in any of the five OR-rows above:
+  // it's a plain visibility toggle (whether purged rows are IN the base set
+  // at all), not another axis to narrow WITHIN that set — same kind of
+  // control the retired Browse "Missing Photos" toggle used to be.
+  let formerShowPurged = false;
 
   // One OR-test over a chip list + its selected-key Set. Empty Set = "All".
   // Extracted because Former Holdings has five of these rows and the
@@ -20127,6 +20133,15 @@
     buildFormerChipRow("formerDenomFilters", BROWSE_FILTER_CHIPS, formerSelectedDenomKeys);
     buildFormerChipRow("formerMetalFilters", BROWSE_METAL_CHIPS, formerSelectedMetalKeys);
     buildFormerChipRow("formerGradingServiceFilters", BROWSE_GRADING_SERVICE_CHIPS, formerSelectedGradingServiceKeys);
+    const showPurgedBtn = document.getElementById("formerShowPurgedBtn");
+    if (showPurgedBtn) {
+      showPurgedBtn.classList.toggle("active", formerShowPurged);
+      showPurgedBtn.addEventListener("click", () => {
+        formerShowPurged = !formerShowPurged;
+        showPurgedBtn.classList.toggle("active", formerShowPurged);
+        renderFormerHoldings();
+      });
+    }
   }
 
   function applyFormerHoldingsFilters() {
@@ -20202,21 +20217,34 @@
       // Purge is offered ONLY here, and only on an exit-status row — the
       // formerHoldings() base set is what guarantees the second half, so
       // there is no way to reach this button from an Owned coin.
-      const purgeBtn = document.createElement("button");
-      purgeBtn.type = "button";
-      purgeBtn.className = "staging-btn";
-      purgeBtn.textContent = "Purge";
-      purgeBtn.title = "Permanently delete this record's photo files";
-      purgeBtn.addEventListener("click", e => {
-        e.stopPropagation(); // the row itself navigates; this must not
-        // The row's own button is handed down to the dialog so it can go
-        // pending once the user actually confirms — showWriteGuard tears
-        // its own buttons down before onClick runs, so the dialog's button
-        // can't carry that state itself. Same pattern as Reject/Force Add/
-        // Dismiss (see runWithButtonPending's own comment).
-        openPurgeDialog(coin, purgeBtn);
-      });
-      right.appendChild(purgeBtn);
+      // A coin only ever shows up already-purged when formerShowPurged is
+      // on (the base set excludes it otherwise) — for that row, a live
+      // Purge button would just reopen the zero-photo "mark purged" dialog
+      // pointlessly (harmless, but confusing), so it's replaced with a
+      // plain status label instead.
+      if (isFullyPurged(coin)) {
+        const purgedLabel = document.createElement("span");
+        purgedLabel.className = "placeholder-note";
+        purgedLabel.style.margin = "0";
+        purgedLabel.textContent = "Purged";
+        right.appendChild(purgedLabel);
+      } else {
+        const purgeBtn = document.createElement("button");
+        purgeBtn.type = "button";
+        purgeBtn.className = "staging-btn";
+        purgeBtn.textContent = "Purge";
+        purgeBtn.title = "Permanently delete this record's photo files";
+        purgeBtn.addEventListener("click", e => {
+          e.stopPropagation(); // the row itself navigates; this must not
+          // The row's own button is handed down to the dialog so it can go
+          // pending once the user actually confirms — showWriteGuard tears
+          // its own buttons down before onClick runs, so the dialog's button
+          // can't carry that state itself. Same pattern as Reject/Force Add/
+          // Dismiss (see runWithButtonPending's own comment).
+          openPurgeDialog(coin, purgeBtn);
+        });
+        right.appendChild(purgeBtn);
+      }
       row.appendChild(right);
       container.appendChild(row);
     });
@@ -20398,7 +20426,7 @@
       bits.push("COULDN'T delete: " + names);
     }
     if (res.flag && res.flag.fullyPurged) {
-      bits.push(coin.id + " is now fully purged and will only be reachable by CollectionID");
+      bits.push(coin.id + " is now fully purged and hidden from Former Holdings — toggle Show Purged on to find it again");
     }
     showToast(bits.length ? bits.join(" · ") + "." : "Nothing was deleted.");
   }
@@ -20446,7 +20474,7 @@
 
   function reportZeroPhotoPurgeResult(coin, res) {
     if (res && res.fullyPurged) {
-      showToast(coin.id + " is now fully purged and will only be reachable by CollectionID.");
+      showToast(coin.id + " is now fully purged and hidden from Former Holdings — toggle Show Purged on to find it again.");
     } else if (res && res.error) {
       showToast("Couldn't mark " + coin.id + " purged: " + res.error);
     } else if (res && res.noAllRow) {
@@ -20459,22 +20487,6 @@
     } else {
       showToast("Nothing was changed.");
     }
-  }
-
-  // Open any record by CollectionID, whatever its Status — including a
-  // fully-purged one, which by design appears in no list anywhere. This is
-  // the one surface that must NOT filter, so it reads raw activeCoins()
-  // rather than ownedCoins()/formerHoldings(), matching the existing
-  // precedent that direct single-coin lookups are never ownership-filtered.
-  function openLedgerCoinById() {
-    const input = document.getElementById("ledgerOpenByIdInput");
-    if (!input) return;
-    const raw = input.value.trim();
-    if (!raw) { showToast("Enter a CollectionID, e.g. AY-00123."); return; }
-    const want = raw.toUpperCase();
-    const coin = activeCoins().find(c => String(c.id).trim().toUpperCase() === want);
-    if (!coin) { showToast("No record found with CollectionID " + raw + "."); return; }
-    openLedgerCoin(coin);
   }
 
   // Shared by both Ledger lists — opens the coin's own Browse detail view
@@ -26815,10 +26827,6 @@
   document.getElementById("formerSearchInput").addEventListener("input", e => {
     formerSearchQuery = e.target.value;
     renderFormerHoldings();
-  });
-  document.getElementById("ledgerOpenByIdBtn").addEventListener("click", openLedgerCoinById);
-  document.getElementById("ledgerOpenByIdInput").addEventListener("keydown", e => {
-    if (e.key === "Enter") { e.preventDefault(); openLedgerCoinById(); }
   });
   renderStats();
   navigate("dashboard");

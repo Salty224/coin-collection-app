@@ -823,34 +823,74 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(Q.goneFromList, "Q10 the coin drops out of Former Holdings");
   ok(Q.byId, "Q11 ... but stays reachable by direct CollectionID lookup, same as any other fully purged coin");
 
-  // ---------- M. Open by CollectionID ---------------------------------
+  // ---------- M. "Open by CollectionID" removed; a "Show Purged" toggle
+  // is the one way back to a fully-purged coin now (Problem 2 follow-up:
+  // three search boxes on one screen was confusing, and this one is
+  // subsumed by the new toggle + the pre-existing #formerSearchInput).
   const M = await page.evaluate(() => {
     __setLiveCoinsForTest(JSON.parse(JSON.stringify(window.__COINS)));
     navigate("stats");
-    const open = v => {
-      document.getElementById("ledgerOpenByIdInput").value = v;
-      document.getElementById("ledgerOpenByIdBtn").click();
-      return {
-        view: document.querySelector(".view.active") && document.querySelector(".view.active").id,
-        title: (document.getElementById("browseDetailName") || {}).textContent || ""
-      };
+    const listIds = () => [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
+      .map(r => (r.querySelector(".wish-desc") || {}).textContent || "");
+    const idsInclude = (ids, id) => ids.some(t => t.indexOf(id) !== -1);
+    const purgeBtnFor = id => {
+      const row = [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
+        .find(r => r.textContent.indexOf(id) !== -1);
+      return row ? [...row.querySelectorAll("button")].find(b => b.textContent === "Purge") : null;
     };
-    const purged = open("AY-90004");
-    navigate("stats");
-    const owned = open("AY-90003");
-    navigate("stats");
-    const lower = open("ay-90001");
-    navigate("stats");
-    const missing = open("AY-99999");
+    const purgedLabelFor = id => {
+      const row = [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
+        .find(r => r.textContent.indexOf(id) !== -1);
+      return row ? [...row.querySelectorAll("span")].some(s => s.textContent === "Purged") : false;
+    };
+    const removedElements = !document.getElementById("ledgerOpenByIdInput") &&
+      !document.getElementById("ledgerOpenByIdBtn");
+
+    const toggleBtn = document.getElementById("formerShowPurgedBtn");
+    const offByDefault = { active: toggleBtn.classList.contains("active"), included: idsInclude(listIds(), "AY-90004") };
+
+    toggleBtn.click(); // turn ON
+    const onIds = listIds();
+    const onState = {
+      active: toggleBtn.classList.contains("active"),
+      purgedIncluded: idsInclude(onIds, "AY-90004"),
+      ordinaryStillThere: idsInclude(onIds, "AY-90001"), // an ordinary exited coin must still show
+      purgedHasLabel: purgedLabelFor("AY-90004"),
+      purgedHasNoPurgeBtn: !purgeBtnFor("AY-90004"),
+      ordinaryStillHasPurgeBtn: !!purgeBtnFor("AY-90001")
+    };
+
+    // Once visible, the pre-existing search box finds it like any other row.
+    document.getElementById("formerSearchInput").value = "Purged Coin";
+    document.getElementById("formerSearchInput").dispatchEvent(new Event("input"));
+    const searchIds = listIds();
+    const searchState = {
+      foundPurged: idsInclude(searchIds, "AY-90004"),
+      excludedOrdinary: !idsInclude(searchIds, "AY-90001")
+    };
+    document.getElementById("formerSearchInput").value = "";
+    document.getElementById("formerSearchInput").dispatchEvent(new Event("input"));
+
+    toggleBtn.click(); // turn back OFF
+    const afterOffIds = listIds();
+    const backOff = { active: toggleBtn.classList.contains("active"), included: idsInclude(afterOffIds, "AY-90004") };
+
     __setLiveCoinsForTest(null);
-    return { purged, owned, lower, missing };
+    return { removedElements, offByDefault, onState, searchState, backOff };
   });
-  ok(M.purged.view === "view-browse" && /Purged Coin/.test(M.purged.title),
-    "M1 a FULLY PURGED coin — in no list anywhere — is still reachable by CollectionID");
-  ok(M.owned.view === "view-browse" && /Lincoln Cent/.test(M.owned.title),
-    "M2 an Owned coin opens too — this surface deliberately does not filter by status");
-  ok(/Morgan Dollar/.test(M.lower.title), "M3 the lookup is case-insensitive");
-  ok(M.missing.view === "view-stats", "M4 an unknown ID stays put rather than opening something wrong");
+  ok(M.removedElements, "M1 the old 'Open by CollectionID' input and button are gone from the DOM entirely");
+  ok(!M.offByDefault.active && !M.offByDefault.included,
+    "M2 the Show Purged toggle defaults OFF, and a fully purged coin is hidden by default — same as before this change");
+  ok(M.onState.active && M.onState.purgedIncluded,
+    "M3 toggling it on reveals the fully-purged coin in the list itself");
+  ok(M.onState.ordinaryStillThere, "M4 ... without hiding an ordinary (non-purged) exited coin");
+  ok(M.onState.purgedHasLabel && M.onState.purgedHasNoPurgeBtn,
+    "M5 the revealed purged row shows a plain 'Purged' label, not a live Purge button that would just reopen the same dialog");
+  ok(M.onState.ordinaryStillHasPurgeBtn, "M6 ... while an ordinary exited coin's real Purge button is unaffected");
+  ok(M.searchState.foundPurged && M.searchState.excludedOrdinary,
+    "M7 once revealed, the pre-existing Former Holdings search finds it like any other row — no separate lookup needed");
+  ok(!M.backOff.active && !M.backOff.included,
+    "M8 toggling back off hides it again");
 
   // ---------- N. browseStepListFallback no longer leaks ---------------
   const N = await page.evaluate(() => {

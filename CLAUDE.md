@@ -9264,6 +9264,87 @@ audited `writePurgedCell()` path, no new write surface.
   with a new Part covering this dialog. **`WRITE_TARGET` stays `"copy"`
   throughout.**
 
+### Purge follow-up 3: one search box too many — "Open by CollectionID" retired for a "Show Purged" toggle (BUILT, same branch, still held)
+Real usability finding from Ray: Ledger had three search/lookup boxes
+stacked on one screen — "Find a Coin" (Owned-only, pre-existing, untouched
+by this), Former Holdings' own `#formerSearchInput` (searches within the
+already-filtered exited list), and "Open by CollectionID" (added alongside
+the original Purge build specifically so a fully-purged coin — which by
+design appears in no list — stayed reachable at all). The third box was
+confusing sitting next to the other two, and existed only to compensate for
+purged coins having nowhere to be found.
+
+- **"Open by CollectionID" is removed entirely** — the input, the button,
+  `openLedgerCoinById()`, and both its event-listener wirings. Nothing else
+  in the app called it (confirmed via source search before removing).
+- **New "Show Purged" toggle** (`#formerShowPurgedBtn`), a plain boolean
+  `.filter-chip` in Former Holdings' own toolbar row next to Year — same
+  shape as the retired Browse "Missing Photos" toggle, not another OR-chip
+  in the five existing multi-select rows (record kind/reason/denom/metal/
+  grading service): it's a visibility switch on the base set itself, not
+  another axis to narrow within it.
+- **`formerHoldings()`'s hard `!isFullyPurged(c)` exclusion is now
+  conditional**: `isExitStatus(c.status) && (formerShowPurged ||
+  !isFullyPurged(c))`. **Default OFF** (`formerShowPurged = false`) —
+  identical behavior to before this change for anyone who never touches the
+  toggle. Toggling it on includes purged coins in the SAME base set
+  `applyFormerHoldingsFilters()`/`renderFormerHoldings()` already render
+  from, so every existing filter chip, the Year filter, and the result
+  count all keep working unchanged against the wider set.
+- **No new search mechanism was needed** — `#formerSearchInput` already
+  filters whatever's currently in the rendered/filtered set
+  (`coinMatchesSearchQuery()`), so a revealed purged coin is found by it
+  exactly like any other row, with zero new code for that half.
+- **A revealed purged row shows a plain "Purged" label instead of a live
+  Purge button**, rather than leaving the button active — tapping Purge on
+  an already-purged coin would just reopen the zero-photo "mark purged"
+  dialog from the section above (harmless — `purgeablePhotosFor()` returns
+  nothing left for it either way — but confusing, and a pointless
+  re-confirmation). `renderFormerHoldings()`'s row-building branches on
+  `isFullyPurged(coin)`: purged → a plain `.placeholder-note` span reading
+  "Purged"; not purged → the existing Purge button, unchanged.
+- **This is what actually closes the loop for the zero-photo "mark purged"
+  dialog above** (Purge follow-up 2): a coin marked purged that way used to
+  simply vanish from every list with no way back in except the (now
+  removed) CollectionID box; it's now reachable again any time by toggling
+  Show Purged on, then searching or scanning for it like any other former
+  holding.
+- **Direct single-coin lookups elsewhere in the app are unaffected** — the
+  "Belongs to" chips, the album filled-slot tap, `openLedgerCoin()` itself,
+  etc. all still resolve a specific coin from raw `activeCoins()` with no
+  ownership/purge filtering, same standing precedent as before; this
+  toggle only ever changes what's included in Former Holdings' own
+  browsable LIST.
+- **`browseStepListFallback()`'s own `ownedCoins()` fix, and every other
+  prior-round mechanism, is completely untouched** — this task's only
+  changes are the CollectionID-box removal, the new toggle, and
+  `formerHoldings()`'s one-line condition.
+
+Verified headless — `tests/verify_former_holdings_purge.js`'s old "M. Open
+by CollectionID" block (M1–M4, which exercised the now-removed mechanism)
+was replaced with a new 8-assertion block (M1–M8) covering: the old
+input/button genuinely gone from the DOM; the toggle defaulting off with
+the purged coin (`AY-90004`) hidden; toggling on revealing it while an
+ordinary exited coin stays visible too; the revealed purged row showing the
+plain label with no Purge button, while the ordinary row's real Purge
+button is unaffected; `#formerSearchInput` finding the revealed purged coin
+and correctly excluding an ordinary one under the same query; and toggling
+back off hiding it again. Full `npm test` re-run clean alongside every
+prior suite (no other test referenced the removed elements — confirmed via
+source search before running). One verified negative control: reverting
+`formerHoldings()`'s condition back to the old unconditional
+`!isFullyPurged(c)` fails exactly M3/M5/M7 (the assertions that actually
+depend on a purged coin becoming visible/searchable) while M2, M4, M6 and
+M8 correctly still pass — those hold regardless of whether the fix exists
+(the toggle still visually flips its own `.active` class either way, an
+ordinary exited coin was never excluded to begin with, and toggling back
+off is a no-op against an already-excluded row) — confirming the suite
+discriminates on the real fix rather than passing vacuously.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as the rest of this feature. `WRITE_TARGET` stays
+  `"copy"` throughout — this task touches display/filter logic only, no
+  new write path.
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
