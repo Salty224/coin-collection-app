@@ -63,7 +63,14 @@ function seed() {
         ["AY-90002", "C-2", "10C", "D",  1916, "Mercury Dime",   "VG-8",  "Seller",  55,  40, "Gifted",     0, "Ann", "", "", "", "",       "Yes", "", ""],
         ["AY-90003", "C-3", "1C",  "S",  1909, "Lincoln Cent",   "AU-50", "NGC",     70,  60, "Owned",     "", "",    "", "", "", "",       "Yes", "", ""],
         ["AY-90004", "C-4", "1C",  "",   1910, "Purged Coin",    "",      "",         5,   4, "Returned",  "", "",   "Y", "", "", "",       "",    "", ""],
-        ["AY-90007", "C-7", "5C",  "",   1938, "Legacy Nickel",  "MS-63", "PCGS",    30,  25, "Sold",      30, "Cy",  "", "AY-90007_obverse.jpg", "", "", "", "", ""]
+        ["AY-90007", "C-7", "5C",  "",   1938, "Legacy Nickel",  "MS-63", "PCGS",    30,  25, "Sold",      30, "Cy",  "", "AY-90007_obverse.jpg", "", "", "", "", ""],
+        // AY-90005: a Sold/Spent bundle with ZERO photos of any kind — no
+        // Photos row, no legacy flat Obverse/Reverse either. This is the
+        // genuine "nothing to purge" case Problem 1's dialog targets, as
+        // opposed to AY-90007's legacy-only "can't purge" case above.
+        // Reviewed is seeded "Yes" so a purge-flag write's own "Reviewed
+        // stays untouched" rule has something real to assert against.
+        ["AY-90005", "",   "Multiple", "", 1957, "1957 Proof Set", "", "", 155, 150, "Spent", "", "", "", "", "", "", "Yes", "", ""]
       ],
       Photos: [
         PHOTO_HEADERS.slice(),
@@ -731,6 +738,90 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(L.disabled && !L.touched, "L1 with the flag off nothing reaches Graph at all");
   ok(L.filesIntact && L.rows === 3, "L2 ... no file and no Photos row is touched");
   ok(/Purge unavailable/.test(L.dialogTitle), "L3 ... and the UI says so rather than appearing to work");
+
+  // ---------- Q. Zero-photo Purge: a real Yes/Cancel, not a dead end ---
+  // AY-90005 has ZERO stored photos of any kind — no Photos row, no legacy
+  // flat column either (confirmed at E6). Before this fix, tapping Purge
+  // there hit the same "Nothing to purge" OK-only dialog as a legacy-only
+  // coin (AY-90007), and the coin could never earn Purged=Y since nothing
+  // in the delete-then-flag path ever runs for it. This is the genuine
+  // "nothing at all" case, distinct from AY-90007's "has photos, just none
+  // this app can act on" case, which must keep its own unchanged dead end.
+  const Q = await page.evaluate(async () => {
+    const mock = window.__setup();
+    navigate("stats");
+    const rowFor = id => [...document.querySelectorAll("#ledgerExitHistoryList .wish-item")]
+      .find(r => r.textContent.indexOf(id) !== -1);
+    const purgeBtnFor = id => [...rowFor(id).querySelectorAll("button")].find(b => b.textContent === "Purge");
+    const findBtn = label => [...document.querySelectorAll("#writeGuardBtns button")].find(b => label.test(b.textContent));
+    // Guarded (never throws even if a label doesn't exist, e.g. under a
+    // reverted/broken build with no matching button) so a negative control
+    // fails these assertions cleanly by name rather than crashing the whole
+    // page.evaluate() and silently losing every assertion after it.
+    const clickIfFound = label => { const b = findBtn(label); if (b) b.click(); return !!b; };
+
+    // Cancel path first — must write nothing.
+    purgeBtnFor("AY-90005").click();
+    const dialog1 = {
+      title: document.getElementById("writeGuardTitle").textContent,
+      body: document.getElementById("writeGuardBody").textContent,
+      buttonLabels: [...document.querySelectorAll("#writeGuardBtns button")].map(b => b.textContent)
+    };
+    const cancelClicked = clickIfFound(/^Cancel$/);
+    if (!cancelClicked) clickIfFound(/^OK$/); // closes the dialog under the old (reverted) OK-only shape
+    await new Promise(r => setTimeout(r, 30));
+    const afterCancel = {
+      purgedCell: window.__cell(mock, "AY-90005", "Purged"),
+      stillListed: formerHoldings().map(c => c.id).indexOf("AY-90005") !== -1
+    };
+
+    // The legacy-only coin (AY-90007, has a photo this app just can't act
+    // on) must be completely unaffected by this change — still its own
+    // unchanged OK-only dead end, never offered the new Yes/Cancel choice.
+    purgeBtnFor("AY-90007").click();
+    const legacyDialog = {
+      title: document.getElementById("writeGuardTitle").textContent,
+      buttonLabels: [...document.querySelectorAll("#writeGuardBtns button")].map(b => b.textContent)
+    };
+    clickIfFound(/^OK$/);
+
+    // Now the real Yes path on AY-90005.
+    purgeBtnFor("AY-90005").click();
+    const yesClicked = clickIfFound(/mark purged/i);
+    if (!yesClicked) clickIfFound(/^OK$/); // closes the dialog under the old (reverted) OK-only shape
+    await new Promise(r => setTimeout(r, 60));
+    const out = {
+      dialog1, afterCancel, legacyDialog, cancelClicked, yesClicked,
+      purgedCell: window.__cell(mock, "AY-90005", "Purged"),
+      lastModified: window.__cell(mock, "AY-90005", "LastModified") !== "",
+      reviewedUntouched: window.__cell(mock, "AY-90005", "Reviewed"),
+      inMemory: activeCoins().find(c => c.id === "AY-90005").purged,
+      goneFromList: formerHoldings().map(c => c.id).indexOf("AY-90005") === -1,
+      byId: !!activeCoins().find(c => c.id === "AY-90005")
+    };
+    window.__teardown();
+    return out;
+  });
+  ok(/^Mark AY-90005 purged\?$/.test(Q.dialog1.title),
+    "Q1 a genuinely zero-photo coin gets a real dialog naming it, not the old 'Nothing to purge' dead end: " + Q.dialog1.title);
+  ok(/no stored photos/i.test(Q.dialog1.body) && /nothing to.*delete/i.test(Q.dialog1.body.replace(/\s+/g, " ")),
+    "Q2 ... explaining there's nothing to delete");
+  ok(Q.dialog1.buttonLabels.length === 2 && Q.dialog1.buttonLabels.indexOf("Cancel") !== -1 &&
+     Q.dialog1.buttonLabels.some(l => /mark purged/i.test(l)),
+    "Q3 ... offering a real Cancel/Yes choice, not a single OK: " + Q.dialog1.buttonLabels.join(","));
+  ok(Q.afterCancel.purgedCell === "" && Q.afterCancel.stillListed,
+    "Q4 Cancel writes nothing — Purged stays blank and the coin stays listed");
+  ok(/Nothing to purge/.test(Q.legacyDialog.title) && Q.legacyDialog.buttonLabels.join(",") === "OK",
+    "Q5 the LEGACY-ONLY coin (has a photo, just not one this app can act on) is completely unaffected — " +
+    "still its own unchanged OK-only dead end, never offered the new Yes/Cancel");
+  ok(Q.purgedCell === "Y",
+    "Q6 confirming Yes writes Purged=Y directly via the same audited writePurgedCell() path — no photo/file involved");
+  ok(Q.lastModified, "Q7 ... LastModified is stamped, same as a normal full purge");
+  ok(Q.reviewedUntouched === "Yes",
+    "Q8 ... Reviewed is genuinely untouched (seeded 'Yes', still 'Yes' — not blanked, not re-stamped)");
+  ok(Q.inMemory === "Y", "Q9 ... the in-memory record is kept in step, same as finalisePurgedFlag() always does");
+  ok(Q.goneFromList, "Q10 the coin drops out of Former Holdings");
+  ok(Q.byId, "Q11 ... but stays reachable by direct CollectionID lookup, same as any other fully purged coin");
 
   // ---------- M. Open by CollectionID ---------------------------------
   const M = await page.evaluate(() => {

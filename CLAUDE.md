@@ -9193,6 +9193,77 @@ more granular improvement, not a behavior change.
   is trusted — see the checklist, updated for this build's dialog changes.
   **`WRITE_TARGET` stays `"copy"` throughout.**
 
+### Purge follow-up 2: a zero-photo coin can now reach Purged too (BUILT, same branch, still held)
+Real gap: a coin with zero stored photos of any kind — no `Photos` rows,
+no legacy flat `All.Obverse`/`Reverse` reference either — hit Purge and got
+the same "Nothing to purge" OK-only dead end as a **legacy-only** coin
+(one that DOES have a photo, just not one this app can act on). Unlike a
+legacy-only coin, a genuinely photo-less coin has no principled reason to
+stay stuck: `finalisePurgedFlag()`'s own rule ("is there anything left to
+purge? no? then mark it Purged") is already true of such a coin from the
+moment the dialog opens — nothing in the normal delete-then-flag path ever
+runs for it, since there is nothing to delete, so without this fix it
+could never earn `Purged=Y` and would sit in Former Holdings permanently.
+
+- **`openPurgeDialog()`'s zero-purgeable branch now splits in two.** A
+  coin with `legacy.length > 0` keeps its exact, unchanged "Nothing to
+  purge" OK-only dialog — that dead end is correct and deliberate (this
+  app never writes the legacy flat columns, so deleting the file would
+  leave them pointing at nothing; fixing it is a workbook-side job). A
+  coin with **zero** photos of any kind — `legacy.length === 0` too — now
+  routes to a new `markPurgedWithNoPhotos()`, a real Yes/Cancel dialog
+  naming the coin and stating plainly that this only sets the `Purged`
+  flag, nothing else changes.
+- **No new write primitive — reuses `finalisePurgedFlag()` directly**,
+  wrapped in the same per-coin `withCoinPurgeLock()` a real purge already
+  uses (so a double-tap coalesces onto one write rather than firing
+  twice), inside a small `markCoinPurgedDirectly()` that never throws
+  (mirrors `purgeCoinPhotos()`'s own try/catch-and-report posture for this
+  exact call, since there's no delete loop here to wrap it for free).
+  `writePurgedCell()` itself, `ALL_WRITABLE_COLUMNS`/`ALL_NEVER_WRITE_COLUMNS`,
+  and every existing purge/detach code path are completely untouched.
+- **Reported honestly, not just "success"**: a clean write toasts the
+  coin is now fully purged (same wording as a normal full purge); a
+  concurrent photo landing between opening the dialog and confirming
+  correctly refuses (`finalisePurgedFlag()`'s own `remaining` check catches
+  it) with a toast saying so rather than silently marking a coin purged
+  out from under a photo that now genuinely exists; a missing All row or a
+  thrown Graph error also reports by name rather than pretending nothing
+  happened.
+- **`LastModified` is stamped, `Reviewed` is NOT** — same divergence,
+  same reasoning, as a normal Purge write: this is still `writePurgedCell()`
+  under the hood, unchanged.
+
+**Verified headless — the existing suite grew from 116 to 127 assertions;
+1850 across 42 suites, zero failures, zero page errors.** New block: the
+zero-photo dialog names the coin and offers a real Cancel/"Yes, mark
+purged" choice (not the old single OK); Cancel writes nothing and the coin
+stays listed; the **legacy-only coin is completely unaffected** — still
+its own unchanged OK-only dead end, never offered the new choice;
+confirming Yes writes `Purged=Y` with `LastModified` stamped and `Reviewed`
+untouched, updates the in-memory record, drops the coin out of Former
+Holdings, and leaves it reachable by CollectionID — all via the existing
+audited `writePurgedCell()` path, no new write surface.
+- **Verified negative control, applied to the real `app.html`, run, and
+  reverted**: reverting the dialog split back to the old single "Nothing to
+  purge" OK-only message fails exactly 7 of the 11 new assertions (the ones
+  load-bearing on the actual fix — the dialog contents/buttons, the write
+  itself, `LastModified`, the in-memory update, and the coin leaving the
+  list); the other 4 correctly still pass, since they're true regardless
+  (Cancel doing nothing, the legacy coin's own dialog being unaffected,
+  `Reviewed` staying untouched when nothing is written at all, and the coin
+  staying reachable by ID either way) — confirming the suite discriminates
+  on the real fix rather than passing vacuously. A first version of this
+  control **crashed the whole suite run** rather than failing cleanly (an
+  unguarded `.click()` on a button label that doesn't exist under the
+  reverted code) — the same "make a negative control fail by name, not by
+  throwing" lesson this project has hit before; fixed by guarding every
+  button lookup in the test before re-running.
+- **Not verified: any real device, any real OneDrive session.** Same
+  standing caveat as the rest of this feature — see the checklist, updated
+  with a new Part covering this dialog. **`WRITE_TARGET` stays `"copy"`
+  throughout.**
+
 ## Quick-capture notes → ParkingLot
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures
 Floating capture button anywhere in the app (typed or phone dictation). Auto-captures

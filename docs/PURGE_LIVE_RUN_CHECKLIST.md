@@ -19,9 +19,9 @@ nothing here can touch the real `CoinCollection (AI).xlsx`, the real
 > only test copies you are willing to lose.** If any file there is the only
 > copy of something, copy it out first. The app cannot tell the difference.
 
-All app-side logic is verified headless — 116 automated assertions
+All app-side logic is verified headless — 127 automated assertions
 (`tests/verify_former_holdings_purge.js`), plus every other suite:
-**1839 total, zero failures, zero page errors**, driven by a mock Graph
+**1850 total, zero failures, zero page errors**, driven by a mock Graph
 client. Several of those assertions are backed by negative controls that
 were run against the real `app.html` and confirmed to fail. This checklist
 exists to confirm the **real Graph API** behaves the way the mock did on
@@ -36,6 +36,14 @@ two files clears just that field on its Photos row and leaves the row in
 place, referencing the surviving file; only checking BOTH of a photo's
 current files removes the row. Continue is disabled with nothing checked.
 Part D below reflects this.**
+
+**Second follow-up, same branch, still held: a coin with ZERO stored
+photos of any kind now offers a real "mark purged" dialog instead of the
+old dead end.** It never deletes a file or touches a Photos row — it just
+writes `All.Purged="Y"` directly, the same way a normal full purge's last
+step already does. A **legacy-only** coin (has a photo, just one this app
+can't act on) is completely unaffected and keeps its own unchanged dead
+end. New Part D2 below.
 
 ## Setup
 
@@ -55,6 +63,9 @@ Part D below reflects this.**
    `Photos` tab. If none exists, set one up via Edit Coin → Status.
 5. Note which files that coin has in `_Testing/CoinPhotos/` before you start.
    You'll be checking exactly these.
+6. Also have (or set up) a **second** exited coin with **zero** photos —
+   no `Photos` rows, and no legacy `Obverse`/`Reverse` value on `All`
+   either. This is for Part D2 below.
 
 ---
 
@@ -123,6 +134,31 @@ Part D below reflects this.**
 - [ ] **D8** If you have a coin whose only photo is recorded in the old flat
       `All.Obverse`/`Reverse` columns with no `Photos` row: tapping Purge on
       it says "Nothing to purge" and explains why. (Skip if you have none.)
+
+## Part D2 — The zero-photo coin: "mark purged" instead of a dead end
+
+Use the coin from setup step 6 — exited, with **zero** stored photos and
+**no** legacy `Obverse`/`Reverse` value either.
+
+- [ ] **D2-1** Tap **Purge**. A real dialog opens, titled "Mark AY-… purged?"
+      — **not** the old flat "Nothing to purge" message.
+- [ ] **D2-2** It states there's nothing to delete, and offers **two real
+      buttons**: Cancel and "Yes, mark purged" — not a single OK.
+- [ ] **D2-3** Press **Cancel**. `All.Purged` for that row is still blank,
+      and the coin is still listed in Former Holdings.
+- [ ] **D2-4** Re-open Purge on the SAME coin, press **Yes, mark purged**.
+      A toast reports the coin is now fully purged.
+- [ ] **D2-5** On the `All` tab: `Purged` is now **`Y`**, `LastModified` is
+      stamped, and `Reviewed` is **unchanged** (same as a normal full purge —
+      no photo attribute changed, so nothing was re-reviewed).
+- [ ] **D2-6** The coin drops out of Former Holdings, but **Open by
+      CollectionID still finds it**.
+- [ ] **D2-7** Confirm the coin from setup step 4 (the legacy-only one, if
+      you have it) is **unaffected** — tapping Purge on it still shows the
+      old, single-OK "Nothing to purge" message, never the new Yes/Cancel
+      choice. This distinction — zero photos vs. "has a photo, just one this
+      app can't act on" — is the whole point of D2 existing separately from
+      D8.
 
 ## Part E — A PARTIAL purge (the reversible-ish one; do this first)
 

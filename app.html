@@ -20251,16 +20251,23 @@
     const legacy = photos.filter(p => p.legacyOnly);
 
     if (!purgeable.length) {
-      showWriteGuard({
-        title: "Nothing to purge",
-        bodyHtml: legacy.length
-          ? "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no photos this app can purge.</p>" +
+      if (legacy.length) {
+        showWriteGuard({
+          title: "Nothing to purge",
+          bodyHtml: "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no photos this app can purge.</p>" +
             "<p>Its " + legacy.length + " photo(s) are recorded only in the old <strong>All</strong> sheet " +
             "columns, which this app never writes — deleting the files would leave those columns pointing " +
-            "at nothing. Fix that at the workbook level first.</p>"
-          : "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no stored photos to purge.</p>",
-        buttons: [{ label: "OK" }]
-      });
+            "at nothing. Fix that at the workbook level first.</p>",
+          buttons: [{ label: "OK" }]
+        });
+        return;
+      }
+      // Genuinely zero stored photos of any kind (not merely zero PURGEABLE
+      // ones — a legacy-only coin is handled above and stays a dead end by
+      // design). The normal delete-then-flag path has nothing to act on
+      // here, so without this a photo-less exited coin could never reach
+      // Purged and would sit in Former Holdings forever.
+      markPurgedWithNoPhotos(coin, originBtn);
       return;
     }
 
@@ -20394,6 +20401,64 @@
       bits.push(coin.id + " is now fully purged and will only be reachable by CollectionID");
     }
     showToast(bits.length ? bits.join(" · ") + "." : "Nothing was deleted.");
+  }
+
+  // The zero-photo case. A coin with no stored photos of any kind has
+  // nothing for the normal delete-then-flag path to act on, so it could
+  // otherwise never reach Purged and would sit in Former Holdings
+  // permanently. finalisePurgedFlag() needs no change to handle this — it
+  // already just checks "is there anything left to purge" and writes the
+  // flag when there isn't, which is exactly true of this coin the moment
+  // the dialog opens. Same per-coin lock as a real purge (withCoinPurgeLock),
+  // so a double-tap coalesces onto one write rather than firing twice.
+  function markPurgedWithNoPhotos(coin, originBtn) {
+    showWriteGuard({
+      title: "Mark " + coin.id + " purged?",
+      bodyHtml:
+        "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no stored photos — there is nothing to " +
+          "delete.</p>" +
+        "<p>Mark it as purged so it's removed from Former Holdings? This only sets the <strong>Purged</strong> " +
+          "flag; nothing else on the record changes.</p>",
+      buttons: [
+        { label: "Cancel" },
+        { label: "Yes, mark purged", primary: true, onClick: () => {
+            runWithButtonPending(originBtn, "Marking…", () => markCoinPurgedDirectly(coin));
+          } }
+      ]
+    });
+  }
+
+  // Never throws — same "loud failure, lose nothing silently" posture
+  // purgeCoinPhotos() already uses around this exact call, adapted here
+  // since there's no delete loop wrapping it for us.
+  async function markCoinPurgedDirectly(coin) {
+    const res = await withCoinPurgeLock(coin.id, async () => {
+      try {
+        return await finalisePurgedFlag(coin.id);
+      } catch (e) {
+        return { fullyPurged: false, error: String(e && e.message || e) };
+      }
+    });
+    reportZeroPhotoPurgeResult(coin, res);
+    renderFormerHoldings();
+    return res;
+  }
+
+  function reportZeroPhotoPurgeResult(coin, res) {
+    if (res && res.fullyPurged) {
+      showToast(coin.id + " is now fully purged and will only be reachable by CollectionID.");
+    } else if (res && res.error) {
+      showToast("Couldn't mark " + coin.id + " purged: " + res.error);
+    } else if (res && res.noAllRow) {
+      showToast("Couldn't find " + coin.id + " on the All sheet — nothing was changed.");
+    } else if (res && res.remaining) {
+      // A photo landed between opening this dialog and confirming (e.g. a
+      // concurrent capture) — correctly refused rather than marking a coin
+      // purged out from under a photo that now actually exists.
+      showToast(coin.id + " now has a photo on file — open Purge again to handle it normally.");
+    } else {
+      showToast("Nothing was changed.");
+    }
   }
 
   // Open any record by CollectionID, whatever its Status — including a
