@@ -19777,6 +19777,18 @@
   // passed: it can only ever have come from the controlled Bullion-tier
   // dropdown, so it carries the same guarantee the Description tier needs
   // and doesn't have.
+  //
+  // **That is still true, and it is not the same thing as ignoring the
+  // Description.** The draft's Description is applied AFTER the matcher, as
+  // a confidence gate on the result (coinDraftWithheldRow()), exactly as it
+  // is on the Add Coin form — the matcher itself is untouched, so nothing
+  // here can select or narrow a candidate on free text. Found live on
+  // d3439a4: without this, a CoinID the capture had deliberately WITHHELD
+  // for a Description conflict could be re-attached in one tap from here,
+  // with no warning, which defeated the whole point of withholding it. The
+  // 2+ ambiguous branch below is deliberately NOT gated — a deliberate pick
+  // from a list that renders each row's own Description IS the
+  // confirmation, same exemption the Add Coin path makes.
   async function recheckCoinDraftMatch(draft) {
     const label = draft.collectionID + " · " +
       (draft.year || "") + (draft.mint ? "-" + draft.mint : "") + " " + (draft.description || draft.denom || "");
@@ -19820,11 +19832,7 @@
         row.gsid ? "GSID " + row.gsid : "",
         row.mintage != null ? "Mintage " + Number(row.mintage).toLocaleString() : ""
       ].filter(Boolean).join(" · ");
-      showWriteGuard({
-        title: "One match found",
-        bodyHtml:
-          "<p style=\"margin:0 0 10px;\">DB_Coins now has a match for <strong>" +
-            escapeHtmlText(label) + "</strong>:</p>" +
+      const cardHtml =
           "<div class=\"case\" style=\"padding:10px; margin-bottom:10px;\">" +
             "<div style=\"font-weight:700;\">" + escapeHtmlText(row.coinId || "(no CoinID)") + "</div>" +
             "<div style=\"color:var(--text-muted);\">" +
@@ -19832,7 +19840,52 @@
                 row.description, row.variety, row.finish].filter(Boolean).join(" · ")) +
             "</div>" +
             (detail ? "<div style=\"color:var(--text-muted);\">" + escapeHtmlText(detail) + "</div>" : "") +
-          "</div>" +
+          "</div>";
+      // The Description gate, applied to the draft rather than the form.
+      // A conflict does NOT hide the row or refuse outright: a human asked
+      // this question, nothing here is ever auto-applied, and the row may
+      // genuinely be right with a Description that merely reads oddly. So
+      // the dialog is REFRAMED — it states the disagreement plainly, makes
+      // Cancel the emphasised choice, and demotes the write to "Link
+      // anyway". The deliberate click is the confirmation, the same rule
+      // the 2+ picker already works by.
+      //
+      // Note on "default": showWriteGuard() has no focus/keyboard-default
+      // concept at all — `primary` is purely the gold styling, and buttons
+      // render in array order. Cancel first + primary is therefore the
+      // strongest default this shell expresses. Autofocusing the primary
+      // button was considered and rejected: `primary` is the DESTRUCTIVE
+      // action in several other guard dialogs (Reject, Force Add, Dismiss),
+      // so making Enter activate it would be actively dangerous there.
+      const withheldRow = coinDraftWithheldRow(draft, candidates);
+      if (withheldRow) {
+        showWriteGuard({
+          title: "One possible match — may not be this coin",
+          bodyHtml:
+            "<p style=\"margin:0 0 10px;\">The only DB_Coins row matching <strong>" +
+              escapeHtmlText(label) + "</strong>'s Year / Mint / Denomination is:</p>" +
+            cardHtml +
+            "<p style=\"margin:0 0 10px;\">Its catalog Description is <strong>" +
+              escapeHtmlText(row.description || "(blank)") + "</strong>, which doesn't look like " +
+              "the Description captured for this coin (<strong>" +
+              escapeHtmlText(draft.description || "(blank)") + "</strong>). That disagreement is " +
+              "why its CoinID was withheld at capture rather than linked.</p>" +
+            "<p style=\"margin:0;\">Link it anyway only if you've confirmed this really is the " +
+              "right catalog entry. Otherwise cancel — correct the Description with Edit, or " +
+              "leave the CoinID pending for research.</p>",
+          buttons: [
+            { label: "Cancel", primary: true },
+            { label: "Link anyway", onClick: () => applyCoinDraftMatch(draft, row) }
+          ]
+        });
+        return;
+      }
+      showWriteGuard({
+        title: "One match found",
+        bodyHtml:
+          "<p style=\"margin:0 0 10px;\">DB_Coins now has a match for <strong>" +
+            escapeHtmlText(label) + "</strong>:</p>" +
+          cardHtml +
           "<p style=\"margin:0;\">Link this staged coin to it?</p>",
         buttons: [
           { label: "Cancel" },
@@ -23705,16 +23758,57 @@
   // A user's DELIBERATE pick from the 2+ ambiguous list is also exempt, but
   // that exemption lives at the call site (currentAddCoinMatchState()) —
   // see its own comment for why.
-  function isDescriptionConsistentWithMatch(row) {
+  //
+  // SPLIT INTO A PURE CORE + A FORM-READING WRAPPER, deliberately. The gate
+  // originally read #description/#denomination/#year straight out of the
+  // DOM, which made it structurally unreachable from anywhere but the live
+  // Add Coin form — and the Docket/Staging-Review Re-check path
+  // (recheckCoinDraftMatch()) works from a STORED DRAFT, which carries its
+  // own description/denom/year. That gap let a withheld CoinID be
+  // re-attached in one tap with no warning at all. Taking the three values
+  // as arguments is what lets both callers share one rule instead of two
+  // copies that can drift. lookupDescriptionCandidates() is already pure,
+  // so the controlled-vocabulary exemption works identically from a draft.
+  function descriptionConsistentWith(typedDescription, denomCode, year, row) {
     if (!row || !row.description) return true;
-    const typed = document.getElementById("description").value.trim();
+    const typed = String(typedDescription || "").trim();
     if (!typed) return true;
-    const denom = document.getElementById("denomination").value;
-    const year = document.getElementById("year").value.trim();
-    const isControlled = lookupDescriptionCandidates(denom, year)
+    const isControlled = lookupDescriptionCandidates(denomCode, year)
       .some(c => normField(c.series) === normField(typed));
     if (isControlled) return true;
     return descriptionsShareIdentity(typed, row.description);
+  }
+
+  // Live-form wrapper. Behaviour is byte-identical to the pre-split
+  // version for every Add Coin caller.
+  function isDescriptionConsistentWithMatch(row) {
+    return descriptionConsistentWith(
+      document.getElementById("description").value,
+      document.getElementById("denomination").value,
+      document.getElementById("year").value.trim(),
+      row);
+  }
+
+  // The same question asked of a STORED COIN DRAFT rather than the live
+  // form: given the candidates a re-check just computed, is the single one
+  // it landed on contradicted by the Description captured on the draft?
+  // Returns the conflicting row (so a caller can name it) or null.
+  //
+  // RECOMPUTED, NEVER STORED — and that is a real decision, not laziness.
+  // A draft records matchedHow:"none" for a withheld link and for a genuine
+  // catalog gap alike, so a structured `descriptionWithheld` flag looks
+  // tempting. It would go stale in both directions: Phase A's draft editor
+  // (beginCoinDraftEdit) lets the Description be changed after capture, so a
+  // flag written once would keep claiming a conflict that has since been
+  // corrected, or miss one that has since been introduced. The draft already
+  // carries every input the rule needs, so recomputing is strictly better
+  // than a second source of truth. researchNote stays as the human-readable
+  // audit line.
+  function coinDraftWithheldRow(draft, candidates) {
+    if (!candidates || candidates.length !== 1) return null;
+    const row = candidates[0];
+    return descriptionConsistentWith(draft.description, draft.denom, draft.year, row)
+      ? null : row;
   }
 
   // ==================================================================

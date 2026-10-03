@@ -381,16 +381,26 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
     };
     const withHardCategory = dbCoinsCandidatesFor(draftShape).length;
     const withoutCategory = dbCoinsCandidatesFor(Object.assign({}, draftShape, { category: "" })).length;
-    // And the draft Re-check shape carries no `description`, by design — so
-    // the Description gate is genuinely unreachable from there.
+    // The draft Re-check shape still carries no `description` — the MATCHER
+    // is untouched, so nothing there can select or narrow on free text.
     const hasDescription = Object.prototype.hasOwnProperty.call(draftShape, "description");
+    // But the gate now reaches the draft AFTER the matcher, as a confidence
+    // check on the result. L3 is INVERTED from its original form on purpose
+    // (see block M): it used to assert the gate was unreachable from here,
+    // which Ray's live test on d3439a4 showed was a hole, not a boundary —
+    // a withheld CoinID could be re-attached in one tap with no warning.
+    const gateReachesDraft = typeof coinDraftWithheldRow === "function" &&
+      !!coinDraftWithheldRow({ description: "Trump", denom: "$1", year: "2026" }, [LONE]);
     __setLiveDbCoinsForTest(null);
-    return { withHardCategory, withoutCategory, hasDescription };
+    return { withHardCategory, withoutCategory, hasDescription, gateReachesDraft };
   });
   ok(L.withHardCategory === 0,
     "L1 ACKNOWLEDGED, NOT ZERO: a coin-draft Re-check carrying a confirmed hard Category now rejects a disagreeing lone candidate too (was 1) — same safe direction, but a real change outside Add Coin");
   ok(L.withoutCategory === 1, "L2 -- a draft with no Category is completely unaffected, which is nearly all of them");
-  ok(L.hasDescription === false, "L3 the Description gate remains genuinely unreachable from the draft Re-check path");
+  ok(L.hasDescription === false,
+    "L3a the MATCHER shape still carries no description — dbCoinsCandidatesFor() cannot select or narrow on free text, unchanged");
+  ok(L.gateReachesDraft === true,
+    "L3b INVERTED from the original L3, following a real design change: the Description gate now DOES reach a stored draft, as a post-matcher confidence check (block M)");
 
   // ============ K. The two recovery paths the banner promises ============
   // A refusal that cannot be undone from the form would just be a dead end.
@@ -428,6 +438,198 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
     "K3 -- and re-typing the conflicting value refuses again (the gate is live, not one-shot)");
   ok(K.corrected.conflict === false && K.corrected.green === true && K.corrected.btn !== "none",
     "K4 correcting the Description to one that agrees also restores it");
+
+  // ============ M. The gate on Re-check (live finding on d3439a4) ============
+  // Ray's live test: staged draft AY-00724 (2026, Description "Trump", CoinID
+  // deliberately WITHHELD for C-2026--$1-01) offered, on one tap of Re-check,
+  // "One match found: DB_Coins now has a match" with a Link CoinID button and
+  // no warning at all. Two separate defects in that:
+  //
+  //   1. The gate never ran. isDescriptionConsistentWithMatch() read the live
+  //      form, so it was structurally unreachable from a stored draft — the
+  //      withheld link was one tap from being re-attached, defeating the Part
+  //      B decision (withhold the CoinID, not just the button).
+  //   2. "now has a match" is false for a withheld row. Nothing appeared; the
+  //      row was always there and was deliberately not trusted.
+  //
+  // Not academic: applyCoinDraftMatch() writes the CoinID onto a real All row
+  // via writeCoinIdCell() when the draft is force-added, and flips it to
+  // PROMOTED. AY-00724 wasn't, so it stopped at the JSON — the same tap on a
+  // force-added draft reaches the sheet.
+  const WITHHELD_DRAFT = {
+    collectionID: "AY-00724", type: "coin-draft", version: 1, status: "Draft",
+    denom: "$1", year: "2026", mint: "", variety: "", description: "Trump",
+    finish: "Business Strike", designation: "", gradeSource: "", category: "",
+    coinId: "", matchedHow: "none", allRowWritten: false, forceAdded: false,
+    researchNote: "CoinID withheld at capture", photos: [], receiptPhoto: ""
+  };
+
+  await page.evaluate(() => {
+    window.__mSetup = async () => {
+      const mock = createMockGraphClient({ sheets: { All: [["CollectionID", "CoinID"]] } });
+      __setGraphClientForTest(mock);
+      __setAddCoinWriteEnabledForTest(true);
+      __resetAllHeaderMapForTest();
+      return mock;
+    };
+    window.__mTeardown = () => {
+      __setLiveDbCoinsForTest(null);
+      __setAddCoinWriteEnabledForTest(null);
+      __setGraphClientForTest(null);
+      __resetAllHeaderMapForTest();
+      document.getElementById("writeGuardOverlay").classList.add("hidden");
+    };
+    // The guard dialog as the user sees it: title, body text, button labels,
+    // and which button carries the gold `primary` styling.
+    window.__guard = () => {
+      const btns = Array.from(document.querySelectorAll("#writeGuardBtns button"));
+      return {
+        open: !document.getElementById("writeGuardOverlay").classList.contains("hidden"),
+        title: document.getElementById("writeGuardTitle").textContent,
+        body: document.getElementById("writeGuardBody").textContent,
+        labels: btns.map(b => b.textContent),
+        primary: (btns.find(b => b.style.fontWeight === "700") || {}).textContent || null
+      };
+    };
+    // Null-safe on purpose. A NEGATIVE CONTROL that removes the reframed
+    // dialog also removes its "Link anyway" button — and a throw here would
+    // abort the whole evaluate and take every later assertion with it, so
+    // the control would hide behind a crashed suite instead of failing by
+    // name. Same lesson this project has already recorded twice.
+    window.__clickGuard = (label) => {
+      const b = Array.from(document.querySelectorAll("#writeGuardBtns button"))
+        .find(x => x.textContent === label);
+      if (!b) return false;
+      b.click();
+      return true;
+    };
+  });
+
+  // --- M1-M5: a withheld draft gets the reframed dialog, and Cancel writes nothing.
+  const M = await page.evaluate(async ({ draft, row }) => {
+    const mock = await __mSetup();
+    __setLiveDbCoinsForTest([row]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    await recheckCoinDraftMatch(draft);
+    const dlg = __guard();
+    __clickGuard("Cancel");
+    await new Promise(r => setTimeout(r, 60));
+    const after = await mock.getJson(coinDraftPath(draft.collectionID));
+    const closed = document.getElementById("writeGuardOverlay").classList.contains("hidden");
+    __mTeardown();
+    return { dlg, closed, coinId: after.coinId, matchedHow: after.matchedHow, status: after.status };
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+
+  ok(M.dlg.open === true && M.dlg.title === "One possible match — may not be this coin",
+    "M1 a withheld draft's Re-check opens the REFRAMED dialog, not 'One match found': " + JSON.stringify(M.dlg.title));
+  ok(M.dlg.body.indexOf("now has a match") === -1,
+    "M2 -- and never claims DB_Coins 'now has a match' for a row that was always there");
+  ok(M.dlg.body.indexOf("Trump") !== -1 && M.dlg.body.indexOf("American Silver Eagle Dollar") !== -1 &&
+     M.dlg.body.indexOf("withheld at capture") !== -1,
+    "M3 the body states the conflict plainly: both Descriptions named, and why the CoinID was withheld");
+  ok(M.dlg.labels.join("|") === "Cancel|Link anyway" && M.dlg.primary === "Cancel",
+    "M4 Cancel is first AND carries the primary styling; the write is demoted to 'Link anyway': " + JSON.stringify(M.dlg));
+  // Tied to the reframed title deliberately. "Cancel writes nothing" is true
+  // of the PRE-FIX dialog too, so on its own this would be an assertion whose
+  // broken case also returns the passing value — the trap this project has
+  // hit several times. Asserting it cancelled the REFRAMED dialog is what
+  // makes it discriminate.
+  ok(M.dlg.title === "One possible match — may not be this coin" &&
+     M.coinId === "" && M.matchedHow === "none" && M.status === "Draft" && M.closed === true,
+    "M5 cancelling the REFRAMED dialog writes absolutely nothing — CoinID still withheld, matchedHow and status untouched");
+
+  // --- M6: "Link anyway" is a real, working override. The gate's job is to stop
+  // a SILENT link, not to forbid an informed one — the row may genuinely be
+  // right with a Description that merely reads oddly, and the deliberate click
+  // is the confirmation (same rule the 2+ picker works by).
+  const M6 = await page.evaluate(async ({ draft, row }) => {
+    const mock = await __mSetup();
+    __setLiveDbCoinsForTest([row]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    await recheckCoinDraftMatch(draft);
+    const clicked = __clickGuard("Link anyway");
+    await new Promise(r => setTimeout(r, 120));
+    const after = await mock.getJson(coinDraftPath(draft.collectionID));
+    __mTeardown();
+    return { clicked, coinId: after.coinId, matchedHow: after.matchedHow };
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+  ok(M6.clicked === true && M6.coinId === "C-2026--$1-01" && M6.matchedHow === "recheck",
+    "M6 'Link anyway' still performs the real link — an informed override, not a dead end: " + JSON.stringify(M6));
+
+  // --- M7-M8: a draft whose Description AGREES is completely unaffected.
+  const M7 = await page.evaluate(async ({ draft, row }) => {
+    const mock = await __mSetup();
+    __setLiveDbCoinsForTest([row]);
+    const agreeing = Object.assign({}, draft, { description: "Silver Eagle" });
+    await mock.uploadJson(coinDraftPath(agreeing.collectionID), agreeing);
+    await recheckCoinDraftMatch(agreeing);
+    const dlg = __guard();
+    __clickGuard("Link CoinID");
+    await new Promise(r => setTimeout(r, 120));
+    const after = await mock.getJson(coinDraftPath(agreeing.collectionID));
+    __mTeardown();
+    return { dlg, coinId: after.coinId };
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+  ok(M7.dlg.title === "One match found" && M7.dlg.labels.join("|") === "Cancel|Link CoinID" &&
+     M7.dlg.primary === "Link CoinID",
+    "M7 an AGREEING draft keeps the original dialog, wording and primary button verbatim: " + JSON.stringify(M7.dlg));
+  ok(M7.coinId === "C-2026--$1-01", "M8 -- and still links on one tap, unchanged");
+
+  // --- M9: the 2+ ambiguous branch is deliberately NOT gated. A deliberate pick
+  // from a list that renders each row's own Description IS the confirmation —
+  // the same exemption the Add Coin path makes (block D).
+  const M9 = await page.evaluate(async ({ draft, row }) => {
+    const mock = await __mSetup();
+    const second = Object.assign({}, row, { coinId: "C-2026--$1-09", variety: "" });
+    __setLiveDbCoinsForTest([row, second]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    await recheckCoinDraftMatch(draft);
+    const out = {
+      picker: !document.getElementById("docketMatchOverlay").classList.contains("hidden"),
+      guard: !document.getElementById("writeGuardOverlay").classList.contains("hidden")
+    };
+    document.getElementById("docketMatchOverlay").classList.add("hidden");
+    __mTeardown();
+    return out;
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+  ok(M9.picker === true && M9.guard === false,
+    "M9 2+ candidates still go straight to the shared picker, ungated — the deliberate pick is the confirmation");
+
+  // --- M10: a genuine zero-candidate draft is unchanged (toast, no dialog).
+  const M10 = await page.evaluate(async ({ draft }) => {
+    const mock = await __mSetup();
+    __setLiveDbCoinsForTest([]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    await recheckCoinDraftMatch(draft);
+    const out = { guard: !document.getElementById("writeGuardOverlay").classList.contains("hidden") };
+    __mTeardown();
+    return out;
+  }, { draft: WITHHELD_DRAFT });
+  ok(M10.guard === false, "M10 a genuine catalog gap still just says so — no dialog, nothing to confirm");
+
+  // --- M11-M12: NEGATIVE CONTROL. Reproduce the pre-fix branch verbatim against
+  // the identical draft + catalog and confirm it WOULD have offered the one-tap
+  // link with no warning — i.e. the exact reported bug — proving M1-M5 exercise
+  // a real fix rather than already-passing behaviour.
+  const MNEG = await page.evaluate(({ draft, row }) => {
+    __setLiveDbCoinsForTest([row]);
+    const candidates = dbCoinsCandidatesFor({
+      denom: draft.denom, year: draft.year, mint: draft.mint, variety: draft.variety,
+      finish: draft.finish, designation: draft.designation,
+      gradeSource: draft.gradeSource, category: draft.category
+    });
+    // The pre-fix branch had no gate at all: lone candidate -> offer the link.
+    const oldWouldOfferLink = candidates.length === 1;
+    const oldTitle = "One match found";
+    // The fix's own signal, same inputs.
+    const nowWithheld = !!coinDraftWithheldRow(draft, candidates);
+    __setLiveDbCoinsForTest(null);
+    return { oldWouldOfferLink, oldTitle, nowWithheld, n: candidates.length };
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+  ok(MNEG.n === 1 && MNEG.oldWouldOfferLink === true && MNEG.oldTitle === "One match found",
+    "M11 NEGATIVE CONTROL: the pre-fix branch WOULD have offered the one-tap link under 'One match found' for this exact draft");
+  ok(MNEG.nowWithheld === true,
+    "M12 -- while the fix's own signal flags the same inputs as withheld, so M1-M5 are not vacuous");
 
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
