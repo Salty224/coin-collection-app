@@ -770,6 +770,20 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   ok(O3.gatedOnHandedOff === true, "O4 -- reached only once a draft is READY with no CoinID, which is why Mark ready comes first");
   ok(O3.noneOnStagingReview === true, "O5 -- and no Force Add button exists on the Staging Review card, as intended");
 
+  // Staging Review's own banner had the same defect one card over: it said
+  // Promote appears "once a draft has a resolved CoinID", omitting that Mark
+  // ready is equally required (readyToPromote = alreadyReady && !!row.coinId).
+  // Guarded here rather than left as unasserted prose, because an unguarded
+  // copy claim drifting from the code it describes is exactly what sent Ray
+  // looking for a Force Add button that was never there.
+  const O6 = await page.evaluate(() =>
+    (document.querySelector("#stagingInterimBanner .msg") || {}).textContent || "");
+  ok(/marked ready/.test(O6) && /resolved CoinID/.test(O6) &&
+     !/Once a draft has a resolved CoinID/.test(O6),
+    "O6 the Staging Review banner names BOTH preconditions for Promote, matching readyToPromote: " + JSON.stringify(O6.replace(/\s+/g, " ").slice(-170)));
+  ok(/readyToPromote = alreadyReady && !!row\.coinId/.test(src),
+    "O7 -- and that is still the real gate in code, so the copy and the condition cannot drift silently");
+
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
     const routes = ["dashboard", "browse", "albums", "wishlist", "stats", "acquisitions", "needsdbcoins", "addcoin"];
