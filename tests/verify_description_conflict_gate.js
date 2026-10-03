@@ -784,6 +784,73 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   ok(/readyToPromote = alreadyReady && !!row\.coinId/.test(src),
     "O7 -- and that is still the real gate in code, so the copy and the condition cannot drift silently");
 
+  // ============ P. coinDraftMatchShape() genuinely carries `category` ============
+  // The one thing the 93c989e refactor had no guard for, and it was measured,
+  // not assumed: dropping `category` from coinDraftMatchShape() passed all 92
+  // assertions in this suite AND verify_docket_sections, verify_docket_row_tags,
+  // verify_addcoin_phase1 and verify_batch3. Block L looks like it covers this
+  // and does not — it builds its own inline shape literal and never routes
+  // through the shared function; block G exercises the Category tier but calls
+  // dbCoinsCandidatesFor() directly. `category` is the only field the shared
+  // shape supplies that nothing else in the app does (Browse Edit and the
+  // Docket queue never populate it), so a silent drop would have handed the
+  // user "One match found — Link CoinID" for a row a CONFIRMED hard Category
+  // had already rejected at capture.
+  //
+  // Discriminating by construction: the draft's own Description AGREES with
+  // the candidate, so the Description gate is deliberately silent here and
+  // cannot be what produces the pass. `category` is the only thing left that
+  // can reject the row. With it, zero candidates -> the "still no match"
+  // toast, no dialog of either kind, no Link button anywhere. Without it, one
+  // candidate -> the ordinary single-match dialog offering Link CoinID.
+  const HARD_CATEGORY_DRAFT = {
+    collectionID: "AY-00725", type: "coin", version: 1,
+    status: "Draft — awaiting review",
+    denom: "$1", year: "2026", mint: "", variety: "",
+    // Agrees with the row below on purpose -- see above.
+    description: "Native American Dollar",
+    finish: "Business Strike", designation: "", gradeSource: "",
+    // A Bullion-tier pick, the only producer of this field in the app.
+    category: "Silver Eagle",
+    coinId: "", matchedHow: "none", allRowWritten: false, forceAdded: false,
+    researchNote: "", photos: [], receiptPhoto: ""
+  };
+  // Shares the draft's whole base key but is NOT a Silver Eagle, so the
+  // confirmed hard hint ("SILVER EAGLE") finds nothing and must zero it out.
+  const NON_EAGLE_2026_DOLLAR = {
+    denom: "$1", year: 2026, mint: "", variety: "", finish: "Business Strike",
+    description: "Native American Dollar", designation: "",
+    coinId: "C-2026--$1-07", pcgs: "", mintage: null, gsid: "", composition: ""
+  };
+
+  const P = await page.evaluate(async ({ draft, row }) => {
+    const mock = await __mSetup();
+    __setLiveDbCoinsForTest([row]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    const toast = document.getElementById("toast");
+    toast.textContent = "";
+    await recheckCoinDraftMatch(draft);
+    const out = {
+      toast: toast.textContent,
+      guardOpen: !document.getElementById("writeGuardOverlay").classList.contains("hidden"),
+      pickerOpen: !document.getElementById("docketMatchOverlay").classList.contains("hidden"),
+      offersLink: Array.from(document.querySelectorAll("#writeGuardBtns button"))
+        .some(b => /Link/.test(b.textContent)),
+      shapeCategory: coinDraftMatchShape(draft).category,
+      // The row IS otherwise a real match -- proof the rejection is the
+      // Category tier's doing and not an unrelated base-key miss.
+      withoutCategory: dbCoinsCandidatesFor(
+        Object.assign({}, coinDraftMatchShape(draft), { category: "" })).length
+    };
+    __mTeardown();
+    return out;
+  }, { draft: HARD_CATEGORY_DRAFT, row: NON_EAGLE_2026_DOLLAR });
+
+  ok(/Still no DB_Coins match/.test(P.toast) && P.guardOpen === false &&
+     P.pickerOpen === false && P.offersLink === false &&
+     P.shapeCategory === "Silver Eagle" && P.withoutCategory === 1,
+    "P1 Re-check routes through coinDraftMatchShape()'s `category`: a confirmed hard Category rejects a disagreeing LONE candidate (which is otherwise a real match), reporting 'still no match' and never offering the row: " + JSON.stringify(P));
+
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
     const routes = ["dashboard", "browse", "albums", "wishlist", "stats", "acquisitions", "needsdbcoins", "addcoin"];
