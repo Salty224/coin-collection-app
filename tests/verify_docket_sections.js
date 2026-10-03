@@ -181,8 +181,18 @@ module.exports = defineSuite("docket-sections", async ({ ok, openApp, PHONE }) =
         finish: "", designation: "", coinId: "C-LATE-ADD", pcgs: "", mintage: null, gsid: "" }
     ]);
     const base = writePaths().stagingBase;
+    // The draft's Description must CORRESPOND to the catalog row above.
+    // This block tests the ordinary single-candidate confirm path ("nothing
+    // is written until confirmed"), not the Description consistency gate —
+    // and the gate now runs on Re-check too (see
+    // verify_description_conflict_gate.js block M), so the old placeholder
+    // "Now Matchable", which shares no identity word with "Lincoln Wheat
+    // Cent", is correctly classified as a WITHHELD link and gets the
+    // reframed "Link anyway" dialog instead. Following the real design
+    // change rather than loosening the button matcher below, which would
+    // make this block stop distinguishing the two dialogs at all.
     await mock.uploadJson(base + "/AY-01030/coin.json",
-      DRAFT({ collectionID: "AY-01030", description: "Now Matchable", coinId: "" }));
+      DRAFT({ collectionID: "AY-01030", description: "Lincoln Wheat", coinId: "" }));
     await renderStagingList();
     await new Promise(r => setTimeout(r, 200));
     document.querySelector('#stagingContainer .staging-recheck').click();

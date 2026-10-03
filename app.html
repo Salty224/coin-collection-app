@@ -18912,9 +18912,21 @@
       // fall back to the live matcher there rather than reporting every
       // mock row as pending.
       const resolved = c.coinId || (c.coinId === undefined ? (findDbCoinsMatch(c) || {}).coinId : "");
+      // "no DB_Coins match yet" is false, and misleading in the worst
+      // direction, for a draft whose CoinID was WITHHELD rather than
+      // missing: a row does exist, it was just distrusted because its
+      // Description disagreed with the one captured. Recomputed per render
+      // (coinDraftWithheldRowFor) rather than read from a stored flag — see
+      // that function's own comment.
+      const withheldFor = resolved ? null : coinDraftWithheldRowFor(c);
       const note = resolved
         ? "CoinID " + escapeHtmlText(resolved) + " — ready to mark for promotion"
-        : "CoinID pending — no DB_Coins match yet";
+        : withheldFor
+          ? "CoinID withheld — the one matching catalog row (" +
+            escapeHtmlText(withheldFor.coinId || "no CoinID") + ", " +
+            escapeHtmlText(withheldFor.description || "no description") +
+            ") doesn't match this coin's Description"
+          : "CoinID pending — no DB_Coins match yet";
       // researchNote lists every captured-but-unresolved ID (Mint Item
       // Number, GSID, PCGS label) — computed at save time (buildCoinDraft())
       // but never actually surfaced anywhere before this; shown here as its
@@ -19018,9 +19030,18 @@
     stagedHandedOff.forEach(d => {
       const yearMint = d.year + (d.mint ? "-" + d.mint : "");
       const label = yearMint + " · " + (d.description || d.denom) + (d.variety ? " · " + d.variety : "");
+      // Same correction as the Staging-section note above: a withheld link
+      // is not a catalog gap, and telling someone to "research the catalog
+      // gap" when the row already exists sends them to fix the wrong thing.
+      const withheldFor = coinDraftWithheldRowFor(d);
       const note = d.forceAdded
         ? "Written to the All sheet with no CoinID — still needs a catalog match"
-        : "No DB_Coins match — research the catalog gap, or add it without a match";
+        : withheldFor
+          ? "CoinID withheld — " + escapeHtmlText(withheldFor.coinId || "the matching row") +
+            " (" + escapeHtmlText(withheldFor.description || "no description") +
+            ") doesn't match this coin's Description. Confirm the link, correct the " +
+            "Description, or add the right catalog entry"
+          : "No DB_Coins match — research the catalog gap, or add it without a match";
       researchRows.push({
         html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div>`,
         kind: "handoff",
@@ -19356,8 +19377,18 @@
         : alreadyReady
           ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
           : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
+      // Third site of the same correction. Mark ready stays available either
+      // way — it is advisory, not a hard gate (a genuinely new variety may
+      // never get a CoinID), which is unchanged by this wording fix.
+      const withheldFor = pendingCoinId ? coinDraftWithheldRowFor(row._draft) : null;
       const pendingNoteHtml = pendingCoinId
-        ? '<div class="wish-notes staging-pending-flag">⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.</div>' +
+        ? '<div class="wish-notes staging-pending-flag">' + (withheldFor
+            ? '⚠️ CoinID withheld — the one catalog row matching this coin\'s ' +
+              'Year/Mint/Denomination (' + escapeHtmlText(withheldFor.coinId || "no CoinID") + ', ' +
+              escapeHtmlText(withheldFor.description || "no description") + ') doesn\'t match the ' +
+              'Description captured. Re-check to review it, or Edit to correct the Description.'
+            : '⚠️ CoinID pending — no DB_Coins match yet. You can still mark it ready; Re-check once the catalog row exists.'
+          ) + '</div>' +
           // researchNote lists every captured-but-unresolved ID (Mint Item
           // Number, GSID, PCGS label) — same content the Docket's Staging
           // row shows, surfaced here too since this is the other real place
@@ -19792,12 +19823,7 @@
   async function recheckCoinDraftMatch(draft) {
     const label = draft.collectionID + " · " +
       (draft.year || "") + (draft.mint ? "-" + draft.mint : "") + " " + (draft.description || draft.denom || "");
-    const candidates = dbCoinsCandidatesFor({
-      denom: draft.denom, year: draft.year, mint: draft.mint,
-      variety: draft.variety, finish: draft.finish,
-      designation: draft.designation, gradeSource: draft.gradeSource,
-      category: draft.category
-    });
+    const candidates = dbCoinsCandidatesFor(coinDraftMatchShape(draft));
 
     if (!candidates.length) {
       showToast("Still no DB_Coins match for " + label + " — leaving its CoinID pending.");
@@ -23809,6 +23835,38 @@
     const row = candidates[0];
     return descriptionConsistentWith(draft.description, draft.denom, draft.year, row)
       ? null : row;
+  }
+
+  // The identity shape a coin draft presents to the matcher. Factored out so
+  // Re-check and the three "no DB_Coins match" note strings ask the matcher
+  // the identical question — two inline copies of this would be free to
+  // drift, and the notes contradicting the dialog is the whole bug class
+  // being fixed here. `description` is deliberately absent: see
+  // recheckCoinDraftMatch()'s own comment.
+  function coinDraftMatchShape(draft) {
+    return {
+      denom: draft.denom, year: draft.year, mint: draft.mint,
+      variety: draft.variety, finish: draft.finish,
+      designation: draft.designation, gradeSource: draft.gradeSource,
+      category: draft.category
+    };
+  }
+
+  // "Is this draft's blank CoinID a genuine catalog GAP, or a link that was
+  // deliberately WITHHELD because the one matching row disagrees with the
+  // Description captured?" Returns the conflicting row, or null for the
+  // ordinary gap. Used by the Docket's and Staging Review's own notes, which
+  // otherwise all read "no DB_Coins match yet" — false, and misleading in the
+  // worst direction, for a draft where a row DOES exist and was distrusted.
+  //
+  // Costs one matcher scan per unresolved draft per render. That is the same
+  // order of work the hub already does per row (findDbCoinsMatch() for mock
+  // rows, coinMissingPhoto() for every coin) against a handful of drafts, so
+  // it is not worth caching — and caching it would reintroduce exactly the
+  // staleness coinDraftWithheldRow() exists to avoid.
+  function coinDraftWithheldRowFor(draft) {
+    if (!draft || !draft.collectionID || draft.coinId) return null;
+    return coinDraftWithheldRow(draft, dbCoinsCandidatesFor(coinDraftMatchShape(draft)));
   }
 
   // ==================================================================

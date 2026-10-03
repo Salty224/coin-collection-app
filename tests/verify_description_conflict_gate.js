@@ -456,8 +456,16 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   // via writeCoinIdCell() when the draft is force-added, and flips it to
   // PROMOTED. AY-00724 wasn't, so it stopped at the JSON — the same tap on a
   // force-added draft reaches the sheet.
+  // type/status use the app's OWN constant values, not plausible-looking
+  // stand-ins: listCoinDrafts() filters on `type === COIN_DRAFT_TYPE` and the
+  // Docket/Staging-Review splits branch on the exact status strings, so a
+  // fixture that merely looks right is silently invisible to both. (A first
+  // version of this block used "coin-draft"/"Draft" and passed anyway,
+  // because recheckCoinDraftMatch() is handed the object directly — the
+  // note-site block N is what caught it.)
   const WITHHELD_DRAFT = {
-    collectionID: "AY-00724", type: "coin-draft", version: 1, status: "Draft",
+    collectionID: "AY-00724", type: "coin", version: 1,
+    status: "Draft — awaiting review",
     denom: "$1", year: "2026", mint: "", variety: "", description: "Trump",
     finish: "Business Strike", designation: "", gradeSource: "", category: "",
     coinId: "", matchedHow: "none", allRowWritten: false, forceAdded: false,
@@ -535,7 +543,8 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   // hit several times. Asserting it cancelled the REFRAMED dialog is what
   // makes it discriminate.
   ok(M.dlg.title === "One possible match — may not be this coin" &&
-     M.coinId === "" && M.matchedHow === "none" && M.status === "Draft" && M.closed === true,
+     M.coinId === "" && M.matchedHow === "none" &&
+     M.status === "Draft — awaiting review" && M.closed === true,
     "M5 cancelling the REFRAMED dialog writes absolutely nothing — CoinID still withheld, matchedHow and status untouched");
 
   // --- M6: "Link anyway" is a real, working override. The gate's job is to stop
@@ -630,6 +639,97 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
     "M11 NEGATIVE CONTROL: the pre-fix branch WOULD have offered the one-tap link under 'One match found' for this exact draft");
   ok(MNEG.nowWithheld === true,
     "M12 -- while the fix's own signal flags the same inputs as withheld, so M1-M5 are not vacuous");
+
+  // ============ N. The three "no DB_Coins match" notes (same pass, own commit) ============
+  // Three strings all told the user "no DB_Coins match yet" for a draft whose
+  // CoinID was WITHHELD rather than missing. A row does exist; it was
+  // distrusted. Telling someone to research a catalog gap that isn't there
+  // sends them to fix the wrong thing — the same class of misdirection as the
+  // "now has a match" dialog wording above, three rungs further out.
+  //   app.html Docket / Staging section      (stagedCoins.forEach)
+  //   app.html Docket / Research section     (stagedHandedOff.forEach)
+  //   app.html Staging Review pending note   (buildStagingRowEl)
+  const N = await page.evaluate(async ({ draft, row }) => {
+    const out = {};
+    // --- Staging Review's own pending note, driven through the real render.
+    let mock = await __mSetup();
+    __setLiveDbCoinsForTest([row]);
+    await mock.uploadJson(coinDraftPath(draft.collectionID), draft);
+    await renderStagingList();
+    await new Promise(r => setTimeout(r, 200));
+    const item = document.querySelector("#stagingContainer .wish-item");
+    out.stagingNote = item ? (item.querySelector(".staging-pending-flag") || {}).textContent || "" : "";
+    out.stagingMarkReady = item ? !item.querySelector(".promote").disabled : null;
+    // --- and with an EMPTY catalog, i.e. a genuine gap: unchanged wording.
+    __setLiveDbCoinsForTest([]);
+    await renderStagingList();
+    await new Promise(r => setTimeout(r, 200));
+    const gapItem = document.querySelector("#stagingContainer .wish-item");
+    out.stagingGapNote = gapItem ? (gapItem.querySelector(".staging-pending-flag") || {}).textContent || "" : "";
+
+    // --- Docket Staging section (draft still in Draft status).
+    __setLiveDbCoinsForTest([row]);
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 250));
+    out.docketStaging = (document.getElementById("docketStagingContainer") || {}).textContent || "";
+
+    // --- Docket Research section (same draft marked READY, still no CoinID).
+    const ready = Object.assign({}, draft, { status: "Ready for reconciliation" });
+    await mock.uploadJson(coinDraftPath(ready.collectionID), ready);
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 250));
+    out.docketResearch = (document.getElementById("docketResearchContainer") || {}).textContent || "";
+
+    // --- Research section for a GENUINE gap: unchanged wording.
+    __setLiveDbCoinsForTest([]);
+    await renderNeedsAttentionHub();
+    await new Promise(r => setTimeout(r, 250));
+    out.docketResearchGap = (document.getElementById("docketResearchContainer") || {}).textContent || "";
+
+    __mTeardown();
+    return out;
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+
+  ok(N.stagingNote.indexOf("withheld") !== -1 &&
+     N.stagingNote.indexOf("American Silver Eagle Dollar") !== -1 &&
+     N.stagingNote.indexOf("no DB_Coins match yet") === -1,
+    "N1 Staging Review's pending note says the CoinID was WITHHELD and names the row, instead of 'no DB_Coins match yet': " + JSON.stringify(N.stagingNote.slice(0, 140)));
+  ok(N.stagingMarkReady === true,
+    "N2 -- and Mark ready stays enabled: this is a wording fix, not a new hard gate");
+  ok(N.stagingGapNote.indexOf("no DB_Coins match yet") !== -1 &&
+     N.stagingGapNote.indexOf("withheld") === -1,
+    "N3 a GENUINE catalog gap keeps the original wording verbatim: " + JSON.stringify(N.stagingGapNote.slice(0, 90)));
+  ok(N.docketStaging.indexOf("withheld") !== -1 &&
+     N.docketStaging.indexOf("no DB_Coins match yet") === -1,
+    "N4 the Docket's Staging-section note says withheld too: " + JSON.stringify(N.docketStaging.slice(0, 160)));
+  ok(N.docketResearch.indexOf("withheld") !== -1 &&
+     N.docketResearch.indexOf("research the catalog gap") === -1,
+    "N5 the Docket's Research-section note stops telling the user to research a gap that isn't there: " + JSON.stringify(N.docketResearch.slice(0, 180)));
+  ok(N.docketResearchGap.indexOf("research the catalog gap") !== -1 &&
+     N.docketResearchGap.indexOf("withheld") === -1,
+    "N6 -- while a genuine gap still reads exactly as before: " + JSON.stringify(N.docketResearchGap.slice(0, 120)));
+
+  // NEGATIVE CONTROL for the note sites: the shared signal they all read must
+  // actually distinguish the two cases, or all six assertions above would be
+  // reporting on wording alone.
+  const NNEG = await page.evaluate(({ draft, row }) => {
+    __setLiveDbCoinsForTest([row]);
+    const conflicting = coinDraftWithheldRowFor(draft);
+    __setLiveDbCoinsForTest([]);
+    const genuineGap = coinDraftWithheldRowFor(draft);
+    __setLiveDbCoinsForTest([row]);
+    const alreadyLinked = coinDraftWithheldRowFor(Object.assign({}, draft, { coinId: "C-X" }));
+    const notADraft = coinDraftWithheldRowFor({ description: "Trump" });
+    __setLiveDbCoinsForTest(null);
+    return {
+      conflicting: conflicting && conflicting.coinId,
+      genuineGap, alreadyLinked, notADraft
+    };
+  }, { draft: WITHHELD_DRAFT, row: OTHER_2026_DOLLAR });
+  ok(NNEG.conflicting === "C-2026--$1-01", "N7 the shared signal returns the conflicting row for a withheld draft");
+  ok(NNEG.genuineGap === null, "N8 -- null for a genuine catalog gap, so the old wording still shows");
+  ok(NNEG.alreadyLinked === null, "N9 -- null for a draft that already has a CoinID (nothing to report)");
+  ok(NNEG.notADraft === null, "N10 -- and null, not a throw, for an object that isn't a real draft");
 
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
