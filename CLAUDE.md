@@ -14339,17 +14339,20 @@ not a bullion coin") — most real rows legitimately have none, DB_Coins has
 no Category column at all, and defining that blank is a flagged open
 question, explicitly out of scope.
 
-**BLAST RADIUS IS ZERO FOR DESCRIPTION, AND ACKNOWLEDGED-NOT-ZERO FOR
-CATEGORY.** `buildBrowseEditIdentityShape()` carries neither `description`
-nor `category` (asserted), and `docketRecheckEntry()` carries neither — both
-completely unaffected. **The one exception, flagged rather than buried:
-`recheckCoinDraftMatch()` (the Docket's coin-draft Re-check) is the only
-non-Add-Coin caller that passes `category`**, so a draft carrying a
-confirmed hard Category now gets "still nothing found" instead of a lone
-disagreeing candidate offered for confirmation. Same safe direction, only
-reachable for a Category that came from the controlled Bullion dropdown, and
-Re-check never auto-applied anyway — but it is a real behaviour change
-outside Add Coin, and it is asserted (block L) so it cannot be forgotten.
+**BLAST RADIUS (as originally built — Re-check is SUPERSEDED, see the
+follow-up section below).** `buildBrowseEditIdentityShape()` carries neither
+`description` nor `category` (asserted), and `docketRecheckEntry()` carries
+neither — both still completely unaffected. The one exception flagged at the
+time: `recheckCoinDraftMatch()` (the coin-draft Re-check) is the only
+non-Add-Coin caller that passes `category`, so a draft carrying a confirmed
+hard Category gets "still nothing found" instead of a lone disagreeing
+candidate offered for confirmation. Same safe direction, only reachable for a
+Category that came from the controlled Bullion dropdown, and Re-check never
+auto-applied anyway. **Ray's live test then showed the Description half of
+this "zero radius" was a hole, not a boundary** — the gate not reaching
+Re-check meant a withheld CoinID could be re-attached in one tap. Fixed in
+the follow-up; block L's L3 is now L3a/L3b and asserts the opposite of what
+it originally did.
 
 **Verified headless — new committed suite
 `tests/verify_description_conflict_gate.js` (62 assertions).** Covers the
@@ -14377,6 +14380,179 @@ exercise real fixes rather than already-passing behaviour.
   (regular P + July 4th Privy, 250,000) exists in DB_Coins at all. If it
   does not, every 2026-P `$1` entered lands on whatever row *is* at `-01`.
   Neither is checkable from a coding session.
+
+**ANSWERED by Ray's live pass (2026-10-03), so the question above is
+closed:** `C-2026--$1-01` is the **American Silver Eagle Dollar** (Business
+Strike, West Point). Both real Trump rows DO exist in the copy —
+`C-2026-P-$1-07` and `C-2026--$1-04` (July 4th Privy, blank mint). A blank
+Variety excludes `-04`, which is exactly why Test 1 produced a lone `-01`.
+So the collision class is real and ordinary, not a missing-catalog-row
+artifact: a blank-mint blank-Variety 2026 `$1` legitimately resolves to the
+Silver Eagle row, and the gate is what stops that being silently accepted.
+
+**Live-test results on `d3439a4` (Ray, 2026-10-03) — all seven passed.**
+The reported repro (lone `C-2026--$1-01`, red banner, CoinID withheld, draft
+in Staging with "CoinID pending", no Promote); a blank-mint Enhanced
+Uncirculated "Trump" refusing on the lone Morgan row, with clearing the
+Description or typing "Morgan" recovering live; `P`/Uncirculated/"FIFA World
+Cup" staying green; the real Trump Privy with Variety "July 4th Privy"
+staying green; `P`/Business Strike/"Trump" producing a picker whose Trump
+row resolves cleanly with no conflict message; Category rejecting a lone
+non-Eagle row and accepting a lone Eagle row; and the banner re-running live
+as the Description is typed.
+
+### Re-check applied the gate too; three note strings corrected (BUILT, HELD on `claude/brave-wozniak-6fobpg`)
+Live finding on `d3439a4`, from the same pass: staged draft `AY-00724`
+(Description "Trump", CoinID deliberately withheld for `C-2026--$1-01`)
+offered, on ONE tap of **Re-check**, *"One match found: DB_Coins now has a
+match"* with a **Link CoinID** button and no warning at all. Three commits,
+deliberately separable.
+
+**Why the gate didn't run — structural, not a missed condition.** The gate is
+three layers and only the bottom one was reusable: the pure comparison
+(`descriptionsShareIdentity()`), the wrapper
+(`isDescriptionConsistentWithMatch()`, which read `#description`/
+`#denomination`/`#year` straight out of the DOM), and the wiring
+(`currentAddCoinMatchState().descriptionConflict`, read by
+`isConfidentMatch()`/`checkDbCoinsMatch()`/`updateSaveConfidenceUI()`/
+`resolveAddCoinCatalogMatch()`). `recheckCoinDraftMatch()` goes straight to
+`dbCoinsCandidatesFor()` and touched neither of the upper two, and the
+wrapper could not be called from a draft at all. **Not academic:**
+`applyCoinDraftMatch()` writes the CoinID onto a real All row via
+`writeCoinIdCell()` when the draft is force-added, and flips it to
+`PROMOTED`. `AY-00724` wasn't, so it stopped at the JSON — the same tap on a
+force-added draft reaches the sheet.
+
+**Commit 1 — the gate reaches a stored draft.**
+- `descriptionConsistentWith(typedDescription, denomCode, year, row)` is the
+  pure core; `isDescriptionConsistentWithMatch(row)` is now a thin
+  form-reading wrapper over it, byte-identical in behaviour for every Add
+  Coin caller (the original 62 assertions re-ran unchanged as the proof).
+  `lookupDescriptionCandidates()` was already pure, so the
+  controlled-vocabulary exemption works identically from a draft.
+- `coinDraftWithheldRow(draft, candidates)` answers the same question of a
+  draft, returning the conflicting row or `null`.
+- **The MATCHER IS STILL UNTOUCHED.** `dbCoinsCandidatesFor()` still receives
+  no `description` from any caller, so nothing there can select or narrow on
+  free text — the gate runs AFTER it, as a confidence check on the result.
+  That distinction is the whole reason the standing "Commemorative /
+  Description blind spot" rule isn't being broken: using loosely-corresponding
+  text to REJECT a match is safe where using it to SELECT one is not.
+- **The conflicting outcome is a REFRAMED dialog, not a refusal** (Ray's
+  call, option b of three). Title "One possible match — may not be this
+  coin"; the body names both Descriptions and says the CoinID was withheld at
+  capture; **Cancel is first and carries the primary styling**; the write is
+  demoted to "Link anyway". Reasoning: a human asked the question, Re-check
+  never auto-applies anything, and the row may genuinely be right with a
+  Description that merely reads oddly — the gate's job is to stop a SILENT
+  link, not to forbid an informed one. The deliberate click is the
+  confirmation, the same rule the 2+ picker already works by. Treating it as
+  zero candidates (option a) would have made such a coin permanently
+  unlinkable from here; blocking outright (option c) would have forced an
+  Edit-and-re-save for a row that may be correct.
+  - **Worth knowing about "default":** `showWriteGuard()` has no focus or
+    keyboard-default concept at all — `primary` is purely the gold styling,
+    and buttons render in array order. Cancel-first-and-primary is therefore
+    the strongest default that shell expresses. Autofocusing the primary
+    button was considered and **rejected**: `primary` is the DESTRUCTIVE
+    action in several other guard dialogs (Reject, Force Add, Dismiss), so
+    making Enter activate it would be actively dangerous there.
+- **The 2+ ambiguous branch is deliberately NOT gated** — the picker renders
+  each candidate's own Description, so choosing from it IS the confirmation.
+  Same exemption the Add Coin path makes.
+- **NO stored "withheld" flag, deliberately.** `matchedHow` is `"none"` for
+  both a withheld link and a genuine gap, so a `descriptionWithheld` field
+  looks tempting. It would go stale in both directions: Phase A's draft
+  editor (`beginCoinDraftEdit`) can change the Description after capture, so
+  a flag written once would keep claiming a conflict that has since been
+  corrected, or miss one newly introduced. The draft already carries every
+  input the rule needs, so recomputing is strictly better than a second
+  source of truth. `researchNote` stays as the human-readable audit line.
+
+**Commit 2 — three note strings said "no DB_Coins match" for a WITHHELD
+link.** A row does exist; it was distrusted. The Research-section note went
+further and told the user to *"research the catalog gap"* — sending them to
+fix something that isn't wrong. Corrected at all three sites (Docket Staging
+section, Docket Research section, Staging Review's pending note), each
+reading one shared signal, `coinDraftWithheldRowFor()`, and naming the
+conflicting row. A genuine gap keeps its original wording verbatim, and
+**Mark ready stays enabled either way** — a wording fix, not a new hard gate.
+- `coinDraftMatchShape(draft)` was factored out of `recheckCoinDraftMatch()`
+  so the notes and the dialog ask the matcher the identical question; two
+  inline copies would be free to drift, and notes contradicting the dialog is
+  the exact bug class being fixed.
+- **Recomputed per render, not cached**: one matcher scan per unresolved
+  draft, the same order of work the hub already does per row
+  (`findDbCoinsMatch()` for mock rows, `coinMissingPhoto()` for every coin)
+  against a handful of drafts. Caching it would reintroduce precisely the
+  staleness the recompute exists to avoid.
+
+**Commit 3 — Force Add's route named correctly (copy only, no new button).**
+Two messages promised an unmatched coin "can be linked or Force Added from
+there" / "or Force Add it unlinked", meaning Staging Review. **It can't be:**
+Force Add renders at exactly ONE call site, the Docket's Research rows,
+reached only once a draft is `READY` with no CoinID (`stagedHandedOff`). Ray
+went looking for a button that was never on that card. Deliberately a copy
+fix: Mark ready is a real decision point ("capture is done") and Force Add
+writes a real All row, so offering it on a Draft-status card would let a
+half-captured coin reach the sheet in one tap from a card that
+simultaneously says the CoinID is pending. The existing route is one extra
+tap and non-destructive both ways (Revert to Draft undoes Mark ready).
+Source-text guards now pin Force Add to that one site, so a future change
+can't quietly move it.
+
+**`docketRecheckEntry()` — a KNOWN, DELIBERATE GAP, left alone (Ray's
+call).** It has the identical structural bypass and does carry a description
+(`entry.desc`, set by `flagCoinIdNeedsRelink()`), so extending the gate there
+would be mechanically easy. Not done, on purpose: that value is
+`All.Description` — a **curated** per-specimen value on an already-owned coin
+— not a free-typed Add Coin entry, and the standing blind-spot rule is
+specifically about those two being different sources. On the real path the
+only producer of these entries is Browse Edit's identity-edit re-link (Add
+Coin's own docket push is mock-path-only). Revisit only with a deliberate
+decision, not as an obvious extension.
+
+**Verified headless — the suite grew 62 → 90 assertions** (`+13` block M,
+`+10` block N, `+5` block O); full `npm test` re-run clean.
+- Block M drives the REAL `recheckCoinDraftMatch()` against a draft shaped
+  exactly like `AY-00724`: the reframed dialog and title, "now has a match"
+  absent, both Descriptions and the withheld reason present in the body,
+  Cancel first and primary, Cancel writing absolutely nothing, "Link anyway"
+  still performing the real link, an AGREEING draft keeping the original
+  dialog verbatim, the 2+ picker still ungated, and a genuine gap still just
+  toasting.
+- Block N drives the real `renderStagingList()`/`renderNeedsAttentionHub()`
+  for all three note sites, in both the withheld and genuine-gap states, plus
+  the shared signal's four cases in isolation.
+- Block O covers both corrected messages and the Force Add source guards.
+- **Negative controls, each applied to the real `app.html`, run, and
+  reverted**: disabling the Re-check gate fails exactly M1–M6 **by name**
+  and reproduces the reported "One match found" symptom; forcing
+  `coinDraftWithheldRowFor()` to always report "genuine gap" fails exactly
+  N1/N4/N5/N7 while every unchanged-wording assertion correctly still passes.
+- **Three test-quality fixes worth recording, all found by running the
+  controls rather than by inspection.** (1) `__clickGuard` originally
+  THREW on a missing button, so the first control aborted the evaluate and
+  took 8 later assertions down with it — a control must fail by name, not by
+  crashing; the same lesson this file has already recorded twice. (2) M5
+  ("Cancel writes nothing") passed under the control, because it is true of
+  the pre-fix dialog too — the classic assertion whose broken case also
+  returns the passing value; it now also asserts it cancelled the REFRAMED
+  dialog, which is what makes it discriminate. (3) The draft fixture
+  originally used plausible-looking `type: "coin-draft"` / `status: "Draft"`
+  instead of the app's real `COIN_DRAFT_TYPE` (`"coin"`) and full status
+  strings. Block M passed anyway, because `recheckCoinDraftMatch()` is handed
+  the object directly — **block N is what caught it**, since
+  `listCoinDrafts()` filters on the real type and the section splits branch on
+  the exact status strings, so the fixture was silently invisible to both.
+- **One existing fixture followed the real design change rather than being
+  weakened**: `verify_docket_sections` block H seeded `description: "Now
+  Matchable"` against a `"Lincoln Wheat Cent"` catalog row, which the gate now
+  correctly treats as withheld — so that block was getting the reframed dialog
+  instead of the ordinary confirm path it exists to test. Its description now
+  corresponds to the row. Loosening its button matcher instead would have made
+  it stop distinguishing the two dialogs at all.
+- **Not verified: any real device, any real OneDrive session.**
 
 ### Series-level reference images (locked in — framework only, real assets still open)
 Any owned coin with no real Obverse/Reverse photo of its own now falls back
