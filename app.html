@@ -24556,16 +24556,30 @@
         // identity fields already names the row and the disagreement in full,
         // and repeating all of it down here would just be the same paragraph
         // twice on one screen.
+        // ROUTE NAMED CORRECTLY. This used to say the coin "can be linked or
+        // Force Added from there", meaning Staging — it can't: Force Add only
+        // renders in the Docket's Research section, which a draft reaches by
+        // being marked ready (renderNeedsAttentionHub()'s stagedHandedOff is
+        // status READY && no CoinID). Ray went looking for a button that was
+        // never on that card. Deliberately a copy fix and not a new button:
+        // Mark ready is a real decision point ("capture is done"), and Force
+        // Add writes a real All row, so offering it on a Draft-status card
+        // would let a half-captured coin reach the sheet in one tap from a
+        // card that simultaneously says the CoinID is pending.
         msg = "The one catalog entry matching this coin doesn't look like the Description entered " +
           "above (see the note beside the identity fields). Save to Staging — it'll go in unmatched " +
-          "for a closer look, and can be linked or Force Added from there.";
+          "for a closer look. From Staging Review you can Re-check it, or Edit the Description; to " +
+          "record it unlinked, Mark ready and then Force Add from the Docket.";
       } else if (state.candidates.length > 1 && !state.resolvedPick) {
         msg = state.candidates.length + " catalog entries match this coin, and none is picked yet — " +
           "Save to Database is unavailable until you resolve which one (you'll be asked when you save). " +
           "Save to Staging in the meantime.";
       } else {
+        // Same route correction as the branch above: Force Add lives in the
+        // Docket, after Mark ready — not on the Staging Review card.
         msg = "No single DB_Coins entry resolved for this coin yet, so there's no catalog row to link it to. " +
-          "Save to Staging — you can Re-check once the catalog entry exists, or Force Add it unlinked.";
+          "Save to Staging — you can Re-check once the catalog entry exists, or Mark ready and " +
+          "then Force Add it unlinked from the Docket.";
       }
       document.getElementById("saveNotConfidentMsg").textContent = msg;
     }

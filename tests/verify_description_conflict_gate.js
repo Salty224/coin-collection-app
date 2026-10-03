@@ -731,6 +731,45 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   ok(NNEG.alreadyLinked === null, "N9 -- null for a draft that already has a CoinID (nothing to report)");
   ok(NNEG.notADraft === null, "N10 -- and null, not a throw, for an object that isn't a real draft");
 
+  // ============ O. Force Add's route, named correctly (own commit) ============
+  // Ray went looking for Force Add on the Staging Review card after this copy
+  // promised it "from there". It isn't on that card and shouldn't be: Force
+  // Add renders only in the Docket's Research section, which a draft reaches
+  // by being marked ready (stagedHandedOff = READY && no CoinID). Mark ready
+  // is a real decision point and Force Add writes a real All row, so a
+  // Draft-status card is the wrong place to offer it. Copy fix, no new button.
+  const O = await page.evaluate(({ row, fill }) => {
+    __setLiveDbCoinsForTest([row]);
+    eval(fill)({ denom: "$1", year: "2026", mint: "", variety: "", finish: "Business Strike", description: "Trump" });
+    const conflictMsg = document.getElementById("saveNotConfidentMsg").textContent;
+    // The genuine-miss branch of the same message, for the second copy site.
+    __setLiveDbCoinsForTest([]);
+    eval(fill)({ denom: "$1", year: "2026", mint: "", variety: "", finish: "Business Strike", description: "Trump" });
+    const gapMsg = document.getElementById("saveNotConfidentMsg").textContent;
+    __setLiveDbCoinsForTest(null);
+    return { conflictMsg, gapMsg };
+  }, { row: OTHER_2026_DOLLAR, fill: FILL });
+
+  ok(/Mark ready/.test(O.conflictMsg) && /Force Add/.test(O.conflictMsg) &&
+     !/Force Added from there/.test(O.conflictMsg),
+    "O1 the conflict message names the real route (Mark ready, then Force Add from the Docket): " + JSON.stringify(O.conflictMsg.slice(-130)));
+  ok(/Mark ready/.test(O.gapMsg) && /from the Docket/.test(O.gapMsg),
+    "O2 -- and so does the genuine-miss message: " + JSON.stringify(O.gapMsg.slice(-110)));
+
+  // Force Add is still rendered in exactly ONE place, and only for a READY
+  // draft with no CoinID. Asserted on the real source so a future change
+  // can't quietly move it onto a Draft-status card without a test noticing.
+  const src = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "app.html"), "utf8");
+  const O3 = {
+    forceAddSites: (src.match(/onForceAdd:/g) || []).length,
+    gatedOnHandedOff: /stagedHandedOff = all\.filter\(d => d\.status === COIN_DRAFT_STATUS\.READY && !d\.coinId\)/.test(src),
+    noneOnStagingReview: !/staging-forceadd/.test(src)
+  };
+  ok(O3.forceAddSites === 1, "O3 Force Add is wired at exactly one call site (the Docket's Research rows): " + O3.forceAddSites);
+  ok(O3.gatedOnHandedOff === true, "O4 -- reached only once a draft is READY with no CoinID, which is why Mark ready comes first");
+  ok(O3.noneOnStagingReview === true, "O5 -- and no Force Add button exists on the Staging Review card, as intended");
+
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
     const routes = ["dashboard", "browse", "albums", "wishlist", "stats", "acquisitions", "needsdbcoins", "addcoin"];
