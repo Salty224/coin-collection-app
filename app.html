@@ -13865,6 +13865,11 @@
     // mini card's TR and BR corners never actually had disc-clearance
     // protection either, only box-width fitting. Found while wiring TL/BL.
     const frame = el.closest(".flip-frame, .flip-frame-mini");
+    // Deliberately .coin-disc only. Add Coin's preview circle is a
+    // .coin-photo-frame, and an ordinary certified grade there ("MS-65
+    // PCGS" at 27px) already reaches 1-3px into it; treating it as a disc
+    // would shrink every such preview to 22px. The preview's clamp guards
+    // the card edge and the other corners, not the photo.
     const disc = frame && frame.querySelector(".coin-disc");
     if (!disc) return true;
     const d = disc.getBoundingClientRect();
@@ -26197,18 +26202,35 @@
     // display, not the coin's own label).
     if (gradeSource && isServiceGradeSource(gradeSource)) gradeParts.push(gradeSource);
 
+    // Every corner goes through the same shared helpers as the saved-coin
+    // card: renderFittedCornerLines() (which applies FLIP_TEXT_ABBREVIATIONS
+    // on the way in, then shrinks/wraps to fit) and clampFlipCorners() as the
+    // safety net. Display only — the form fields, and so what gets saved,
+    // keep exactly what was typed.
+    //
     // Obverse: identification, standard shorthand (coded denomination, not the
-    // spelled-out series name), plus Variety+Designation if present.
-    document.getElementById("flipObverseTL").textContent = yearMint;
-    document.getElementById("flipObverseTR").textContent = denom;
-    document.getElementById("flipObverseBL").textContent = gradeParts.join(" ");
-    renderCornerLines(document.getElementById("flipObverseBR"), [variety, designation]);
+    // spelled-out series name), plus Variety+Designation if present. The
+    // Description is NOT drawn on this card (TR is the denomination alone),
+    // so the saved card's trailing-denomination rule has nothing to act on
+    // here.
+    const fit = (id, lines, wrap) => renderFittedCornerLines(document.getElementById(id), lines, wrap);
+    fit("flipObverseTL", [yearMint], -1);
+    fit("flipObverseTR", [denom], -1);
+    fit("flipObverseBL", [gradeParts.join(" ")], 0);
+    fit("flipObverseBR", [variety, designation], 0);
 
     // Reverse: Error and Purchase Price only, per Ray's own convention (not an
     // official numismatic standard) — matches the price sticker placement he
     // sees at his local coin shop.
-    document.getElementById("flipReverseTL").textContent = errorText;
-    document.getElementById("flipReverseBR").textContent = price ? formatCurrency(price) : "";
+    fit("flipReverseTL", [errorText], 0);
+    fit("flipReverseBR", [price ? formatCurrency(price) : ""], -1);
+
+    // Only a laid-out card can be measured: clampFlipCorners() skips one
+    // that's hidden (Photos collapsed, or the face not shown). showObverse/
+    // ReversePhoto() and opening Photos call this function again, so the
+    // card is fitted as soon as it becomes visible.
+    clampFlipCorners(document.querySelector("#obversePhotoBox .flip-frame"));
+    clampFlipCorners(document.querySelector("#reversePhotoBox .flip-frame"));
   }
 
   function initAddCoin() {
@@ -26228,6 +26250,12 @@
     // Replaces the six listeners the two drill-down subviews needed
     // (two open rows, two Backs, two Dones).
     ADD_COIN_SECTIONS.forEach(([headerId, bodyId]) => wireStaticAccordionToggle(headerId, bodyId));
+    // The preview card can only be fitted while Photos is open (a collapsed
+    // section has no layout to measure), so re-fit it whenever it opens.
+    // Registered after the toggle above, so the body is already visible.
+    document.getElementById("addCoinPhotosHeader").addEventListener("click", () => {
+      if (!document.getElementById("addCoinPhotosBody").classList.contains("hidden")) updateFlipLabels();
+    });
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
     document.getElementById("wishlistOriginClearBtn").addEventListener("click", clearWishlistContext);
@@ -26434,6 +26462,7 @@
     document.getElementById("reversePhotoBox").style.display = "none";
     document.getElementById("showObverseBtn").classList.add("active");
     document.getElementById("showReverseBtn").classList.remove("active");
+    updateFlipLabels(); // fit the corners now that this face can be measured
   }
 
   function showReversePhoto() {
@@ -26441,6 +26470,7 @@
     document.getElementById("reversePhotoBox").style.display = "block";
     document.getElementById("showReverseBtn").classList.add("active");
     document.getElementById("showObverseBtn").classList.remove("active");
+    updateFlipLabels(); // fit the corners now that this face can be measured
   }
 
   function initPhotoToggle() {
