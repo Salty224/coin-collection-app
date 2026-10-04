@@ -51,7 +51,7 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
     errorShown: !document.getElementById("splashErrorBox").classList.contains("hidden")
   }));
   ok(!A.hidden, "A1 the splash has NOT hidden itself on the real (always-false-here) answer — confirms the gate is on success, not mere resolution");
-  ok(!A.errorShown, "A2 nor has it jumped to the error box yet — the 5s ceiling hasn't elapsed, this is still the genuine retry window");
+  ok(!A.errorShown, "A2 nor has it jumped to the error box yet — the overall ceiling hasn't elapsed, this is still the genuine retry window");
 
   // ---------- B. a `false` resolution keeps the splash up and retries — ----------
   // only a genuine `true` hides it. (stubbed fetch, deterministic timing)
@@ -86,7 +86,7 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
   });
   ok(B.hiddenBeforeAnyAnswer === false, "B1 the splash stays visible while the fetch is still pending, unaffected by this fix");
   ok(B.hiddenAfterFalse === false, "B2 BUG A FIX: a `false` resolution does NOT hide the splash — \"resolves\" is no longer the gate, \"succeeds\" is");
-  ok(B.retriedCount >= 2, `B3 a \`false\` answer triggers a retry within the 5s budget rather than sitting idle until the timeout (calls made: ${B.retriedCount})`);
+  ok(B.retriedCount >= 2, `B3 a \`false\` answer triggers a retry within the overall budget rather than sitting idle until the timeout (calls made: ${B.retriedCount})`);
   ok(B.hiddenAfterTrue === true, "B4 a later genuine `true` resolution — from that retry — does hide it");
 
   // ---------- (generation guard) a superseded runSplashConnect() invocation's ----------
@@ -103,25 +103,30 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
     // duration so docketQueueReady() resolves true immediately and can
     // never be the reason "success" doesn't arrive.
     __setDocketWriteEnabledForTest(false);
+    // The overall timeout is now 25s; a 1500ms override keeps this block
+    // fast while testing the same thing (the shipped value is asserted in
+    // verify_startup_connection.js).
+    __setSplashTimingsForTest({ data: 1500 });
     const origFetch = window.ensureLiveNavDataFetch;
     window.ensureLiveNavDataFetch = () => new Promise(() => {}); // OLDER invocation: hangs forever
-    runSplashConnect(); // starts a 5s timer that (if unsuperseded) shows the error box at ~5000ms
+    runSplashConnect(); // starts a timer that (if unsuperseded) shows the error box at ~1500ms
     await new Promise(r => setTimeout(r, 200));
     window.ensureLiveNavDataFetch = () => Promise.resolve(true); // a NEWER invocation, genuinely fast
     runSplashConnect();
     await new Promise(r => setTimeout(r, 500));
     const hiddenAfterNewerSucceeds = document.getElementById("splashScreen").classList.contains("hidden");
-    // Wait past where the OLDER invocation's own 5s timer would fire (it
-    // started ~200ms before the newer call, so ~4800ms from here).
-    await new Promise(r => setTimeout(r, 4900));
+    // Wait past where the OLDER invocation's own timer would fire (it
+    // started ~200ms before the newer call, so ~1300ms from here).
+    await new Promise(r => setTimeout(r, 1400));
     const stillHiddenPastOldTimer = document.getElementById("splashScreen").classList.contains("hidden");
     const errorShownByStaleTimer = !document.getElementById("splashErrorBox").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
     __setDocketWriteEnabledForTest(null);
+    __setSplashTimingsForTest(null);
     return { hiddenAfterNewerSucceeds, stillHiddenPastOldTimer, errorShownByStaleTimer };
   });
   ok(GEN.hiddenAfterNewerSucceeds, "GEN1 a newer runSplashConnect() call still hides the splash normally, even with an older superseded invocation still pending");
-  ok(GEN.stillHiddenPastOldTimer, "GEN2 the splash stays hidden well past when the OLDER (now-stale) invocation's own 5s timeout would have fired");
+  ok(GEN.stillHiddenPastOldTimer, "GEN2 the splash stays hidden well past when the OLDER (now-stale) invocation's own timeout would have fired");
   ok(!GEN.errorShownByStaleTimer, "GEN3 the stale invocation's own leftover timer never shows the error box out from under the newer, already-succeeded one");
 
   // Negative control: the pre-fix body (no generation guard at all) DOES
@@ -157,8 +162,11 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
   ok(NEG_GEN.hiddenAfterNewerSucceeds, "GEN4 negative control sanity: the pre-fix body also hides correctly when the newer call succeeds...");
   ok(NEG_GEN.errorShownByStaleTimer, "GEN5 negative control: ...but the OLDER invocation's own stale timer DOES fire the error box back up — reproducing the exact bug the generation guard fixes");
 
-  // ---------- C. 5s timeout: falls back to the error box, not a hang ----------
+  // ---------- C. overall timeout: falls back to the error box, not a hang ----------
+  // Run against a 1500ms override of SPLASH_DATA_TIMEOUT_MS (shipped value
+  // 25000, asserted in verify_startup_connection.js).
   const C = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ data: 1500 });
     const origFetch = window.ensureLiveNavDataFetch;
     window.ensureLiveNavDataFetch = () => new Promise(() => {}); // never resolves
     const t0 = Date.now();
@@ -168,33 +176,41 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
         const box = document.getElementById("splashErrorBox");
         if (box && !box.classList.contains("hidden")) { clearInterval(iv); resolve(Date.now() - t0); }
       }, 50);
-      setTimeout(() => { clearInterval(iv); resolve(null); }, 6500);
+      setTimeout(() => { clearInterval(iv); resolve(null); }, 4000);
     });
     const splashStillVisible = !document.getElementById("splashScreen").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
+    __setSplashTimingsForTest(null);
     return { shownAt, splashStillVisible };
   });
-  ok(C.shownAt !== null, "C1 the error box appears within a reasonable window of the 5s ceiling when the fetch never resolves — real timeout, not a silent hang");
-  ok(C.shownAt >= 4700 && C.shownAt <= 5700, `C2 the error box appears at ~5000ms, not before and not much after (${C.shownAt}ms)`);
+  ok(C.shownAt !== null, "C1 the error box appears within a reasonable window of the overall ceiling when the fetch never resolves — real timeout, not a silent hang");
+  ok(C.shownAt >= 1400 && C.shownAt <= 2200, `C2 the error box appears at the overall ceiling, not before and not much after (${C.shownAt}ms against a 1500ms override)`);
   ok(C.splashStillVisible, "C3 the splash overlay itself stays up (with the error box now showing inside it), never silently dropping into a half-loaded app");
 
-  // ---------- D. a fetch that resolves AFTER the timeout does not silently ----------
-  // hide the already-shown error box out from under the user.
+  // ---------- D. a fetch that resolves AFTER the timeout clears the splash ----------
+  // DESIGN CHANGE (Ray, 2026-10-04): this used to assert the opposite — that
+  // a late answer left the error box up until Retry. Real data arriving is
+  // now allowed to clear it on its own. Docket half disabled for the same
+  // isolation reason as Block B.
   const D = await page.evaluate(async () => {
+    __setDocketWriteEnabledForTest(false);
+    __setSplashTimingsForTest({ data: 1500 });
     let resolveFetch;
     const origFetch = window.ensureLiveNavDataFetch;
     window.ensureLiveNavDataFetch = () => new Promise(resolve => { resolveFetch = resolve; });
     runSplashConnect();
-    await new Promise(r => setTimeout(r, 5300)); // past the 5s ceiling
+    await new Promise(r => setTimeout(r, 1800)); // past the (overridden) ceiling
     const errorShownAfterTimeout = !document.getElementById("splashErrorBox").classList.contains("hidden");
     resolveFetch(true); // the late answer finally arrives
-    await new Promise(r => setTimeout(r, 400));
-    const errorStillShown = !document.getElementById("splashErrorBox").classList.contains("hidden");
+    await new Promise(r => setTimeout(r, 500)); // past the 320ms fade
+    const splashHidden = document.getElementById("splashScreen").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
-    return { errorShownAfterTimeout, errorStillShown };
+    __setDocketWriteEnabledForTest(null);
+    __setSplashTimingsForTest(null);
+    return { errorShownAfterTimeout, splashHidden };
   });
   ok(D.errorShownAfterTimeout, "D1 sanity: the error box is genuinely showing before the late resolution arrives");
-  ok(D.errorStillShown, "D2 a late-resolving fetch after the timeout already fired does NOT silently hide the error box — the settled guard holds");
+  ok(D.splashHidden, "D2 a fetch resolving after the error box showed now clears the splash on its own, without a Retry tap (design change 2026-10-04)");
 
   // ---------- E. ?splashError=1 still works as a dev-only demo toggle, ----------
   // independent of real data state, and Retry re-triggers it.

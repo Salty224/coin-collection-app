@@ -320,5 +320,132 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
   });
   ok(B12.aborted, "B12 tapping the real Retry button aborts the in-flight request");
 
+  // ================================================================
+  // D. Splash timings, "Still connecting…", late data clears it (commit D).
+  //    Each block stubs ensureLiveNavDataFetch() and disables the Docket half
+  //    (so it resolves ready at once), except D7, which drives the real chain.
+  // ================================================================
+  await page.evaluate(RESET);
+  const D1 = await page.evaluate(() => ({
+    data: SPLASH_DATA_TIMEOUT_MS, slow: SPLASH_SLOW_NOTICE_MS, request: SPLASH_REQUEST_TIMEOUT_MS, grace: SPLASH_DOCKET_GRACE_MS
+  }));
+  ok(D1.data === 25000 && D1.slow === 5000, `D1 SPLASH_DATA_TIMEOUT_MS is 25000 and SPLASH_SLOW_NOTICE_MS is 5000 (got ${D1.data}, ${D1.slow})`);
+  ok(D1.data > 2 * D1.request, `D2 the overall wait exceeds two request timeouts, so one automatic fresh attempt fits (${D1.data} > 2 x ${D1.request})`);
+  ok(D1.grace === 2000, `D3 SPLASH_DOCKET_GRACE_MS is unchanged at 2000 (got ${D1.grace})`);
+
+  // Shared stub driver for D4–D8.
+  const SPLASH_STUB = () => {
+    window.__origEnsure = window.__origEnsure || window.ensureLiveNavDataFetch;
+    __setDocketWriteEnabledForTest(false);
+    window.__ensureCalls = 0;
+    window.__splashState = () => ({
+      status: document.getElementById("splashStatus").textContent,
+      statusShown: document.getElementById("splashStatus").style.display !== "none",
+      error: !document.getElementById("splashErrorBox").classList.contains("hidden"),
+      hidden: document.getElementById("splashScreen").classList.contains("hidden")
+    });
+    window.__restoreSplash = () => {
+      window.ensureLiveNavDataFetch = window.__origEnsure;
+      __setDocketWriteEnabledForTest(null);
+      __setSplashTimingsForTest(null);
+      splashConnectGeneration++;
+    };
+  };
+
+  // D4–D5: "Still connecting…" after the slow-notice delay, not before.
+  await page.evaluate(SPLASH_STUB);
+  const D4 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ slow: 300, data: 5000 });
+    window.ensureLiveNavDataFetch = () => new Promise(() => {});
+    runSplashConnect();
+    await new Promise(r => setTimeout(r, 150));
+    const before = __splashState();
+    await new Promise(r => setTimeout(r, 300));
+    const after = __splashState();
+    __restoreSplash();
+    return { before, after };
+  });
+  ok(D4.before.status === "Connecting to OneDrive…", `D4 before the slow-notice delay the status reads "Connecting to OneDrive…" (got "${D4.before.status}")`);
+  ok(D4.after.status === "Still connecting…" && !D4.after.error, `D5 after it, the status changes to "Still connecting…" and no error is shown (got "${D4.after.status}")`);
+
+  // D6: a quick success never shows "Still connecting…".
+  await page.evaluate(SPLASH_STUB);
+  const D6 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ slow: 300, data: 5000 });
+    window.ensureLiveNavDataFetch = () => Promise.resolve(true);
+    runSplashConnect();
+    await new Promise(r => setTimeout(r, 500));
+    const st = __splashState();
+    __restoreSplash();
+    return st;
+  });
+  ok(D6.hidden && D6.status === "Connecting to OneDrive…", `D6 a fast success hides the splash and never shows "Still connecting…" (status "${D6.status}")`);
+
+  // D7: the late case — data lands AFTER the error box shows; the splash
+  // clears with no Retry tap.
+  await page.evaluate(SPLASH_STUB);
+  const D7 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ slow: 200, data: 600 });
+    let resolveFetch;
+    window.ensureLiveNavDataFetch = () => new Promise(r => { resolveFetch = r; });
+    runSplashConnect();
+    await new Promise(r => setTimeout(r, 750));
+    const atError = __splashState();
+    resolveFetch(true);
+    await new Promise(r => setTimeout(r, 500));
+    const after = __splashState();
+    __restoreSplash();
+    return { atError, after };
+  });
+  ok(D7.atError.error && !D7.atError.hidden, "D7 the error box shows at the overall timeout while the fetch is still out");
+  ok(D7.after.hidden && !D7.after.error, "D8 when that fetch then brings real data, the splash clears and the error box goes away — no Retry tap");
+
+  // D9: after the error shows, no NEW attempts start (Retry is what starts fresh).
+  await page.evaluate(SPLASH_STUB);
+  const D9 = await page.evaluate(async () => {
+    // Each attempt takes 200ms and answers false; retries 10ms apart, so
+    // attempts run 0-200, 210-410, 420-620ms — the third is IN FLIGHT when
+    // the error shows at 500ms. That in-flight attempt failing must not
+    // start another one.
+    __setSplashTimingsForTest({ slow: 100, data: 500, retry: 10 });
+    window.ensureLiveNavDataFetch = () => { window.__ensureCalls++; return new Promise(r => setTimeout(() => r(false), 200)); };
+    runSplashConnect();
+    await new Promise(r => setTimeout(r, 520));
+    const atError = window.__ensureCalls;
+    const error = __splashState().error;
+    await new Promise(r => setTimeout(r, 700));
+    const later = window.__ensureCalls;
+    __restoreSplash();
+    return { atError, later, error };
+  });
+  ok(D9.error && D9.atError >= 3 && D9.later === D9.atError, `D9 attempts repeat until the error shows; an attempt still in flight then failing starts no new one (${D9.atError} attempts by the error, ${D9.later} after)`);
+
+  // D10–D11: end to end through the REAL chain — a core sheet hangs on the
+  // first try; the per-request timeout ends it, the splash's own retry starts
+  // a fresh request, and the splash clears before the overall timeout with
+  // no Retry tap and no error.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const D10 = await page.evaluate(async () => {
+    __setDocketWriteEnabledForTest(false);
+    __setSplashTimingsForTest({ request: 300, data: 1500, slow: 1000, retry: 50 });
+    const coreOk = window.__coreOk();
+    window.__fakeRoutes["*"] = (u, init, n) => (/'All'/.test(u) && n === 0) ? "hang-signal" : coreOk(u, init, n);
+    const t0 = Date.now();
+    runSplashConnect();
+    let hiddenAt = null;
+    for (let i = 0; i < 60 && hiddenAt === null; i++) {
+      await new Promise(r => setTimeout(r, 50));
+      if (document.getElementById("splashScreen").classList.contains("hidden")) hiddenAt = Date.now() - t0;
+    }
+    const error = !document.getElementById("splashErrorBox").classList.contains("hidden");
+    const allCalls = window.__fakeCalls.filter(c => c.key === "All").length;
+    __setDocketWriteEnabledForTest(null);
+    __setSplashTimingsForTest(null);
+    splashConnectGeneration++;
+    return { hiddenAt, error, allCalls };
+  });
+  ok(D10.hiddenAt !== null && D10.hiddenAt < 1500 && !D10.error, `D10 a request that hangs once is retried automatically and the splash clears before the overall timeout, no error (hidden at ${D10.hiddenAt}ms)`);
+  ok(D10.allCalls === 2, `D11 ...via exactly one fresh request (All requested ${D10.allCalls}x)`);
+
   await page.evaluate(RESET);
 }, module);

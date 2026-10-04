@@ -2449,8 +2449,9 @@
 <div id="app">
 
   <!-- Initial splash screen — see initSplash()/runSplashConnect() in the
-       script: stays visible until the real ensureLiveNavDataFetch() resolves
-       or a 5s timeout fires, whichever comes first. -->
+       script: stays visible until real data loads, or the overall
+       SPLASH_DATA_TIMEOUT_MS fires (data that lands after that still clears
+       it). -->
   <div class="splash-screen" id="splashScreen">
     <div class="splash-inner">
       <div class="splash-disc" aria-hidden="true">🪙</div>
@@ -5594,6 +5595,12 @@
     if (typeof splashTimingOverrides[name] === "number") return splashTimingOverrides[name];
     switch (name) {
       case "request": return SPLASH_REQUEST_TIMEOUT_MS;
+      // The rest are declared beside runSplashConnect(), further down. Only
+      // read at call time (never during load), so no TDZ issue.
+      case "data": return SPLASH_DATA_TIMEOUT_MS;
+      case "slow": return SPLASH_SLOW_NOTICE_MS;
+      case "retry": return SPLASH_RETRY_INTERVAL_MS;
+      case "grace": return SPLASH_DOCKET_GRACE_MS;
       default: throw new Error("Unknown splash timing: " + name);
     }
   }
@@ -25864,8 +25871,17 @@
   // runs (init below is synchronous, and navigate("dashboard") — which
   // already kicks off this exact same fetch — runs immediately before
   // initSplash()); the splash just covers it until the fetch genuinely
-  // succeeds, or the 5s timeout below fires first.
-  const SPLASH_DATA_TIMEOUT_MS = 5000; // may be refined after live testing
+  // succeeds, or the overall timeout below fires first.
+  //
+  // Timings (Ray, 2026-10-04 — he would rather wait than see the error):
+  // - SPLASH_DATA_TIMEOUT_MS: overall wait before "Couldn't connect". Must
+  //   stay larger than 2 x SPLASH_REQUEST_TIMEOUT_MS (declared beside the
+  //   startup readers), so one request that times out still leaves room for
+  //   one automatic fresh attempt (12 + 12 < 25).
+  // - SPLASH_SLOW_NOTICE_MS: when the status line changes to "Still
+  //   connecting…", so a slow start reads as slow rather than stuck.
+  const SPLASH_DATA_TIMEOUT_MS = 25000;
+  const SPLASH_SLOW_NOTICE_MS = 5000;
   // A separate, short, dev-only demo delay for ?splashError=1 (below) — kept
   // distinct from SPLASH_DATA_TIMEOUT_MS so the real timeout can be tuned
   // independently of this toggle's own pacing.
@@ -26075,36 +26091,49 @@
     function docketQueueReadyWithGrace() {
       return Promise.race([
         docketQueueReady(),
-        new Promise(resolve => setTimeout(() => resolve(true), SPLASH_DOCKET_GRACE_MS))
+        new Promise(resolve => setTimeout(() => resolve(true), splashTiming("grace")))
       ]);
     }
 
+    // `settled` = the splash has hidden on real data (terminal).
+    // `errorShown` = the overall timeout fired and "Couldn't connect" is up.
+    //
+    // Superseded behaviour, deliberately (Ray, 2026-10-04): the error box used
+    // to be terminal too, so data landing a second after it appeared was
+    // ignored until Retry was tapped. Now an attempt already in flight when
+    // the error shows is still honoured — if it brings real data, the splash
+    // clears on its own. No NEW attempts start after the error, though: the
+    // user is looking at a Retry button, and Retry is what starts fresh.
     let settled = false;
+    let errorShown = false;
     let retryTimer = null;
     function attempt() {
-      if (settled || !stillCurrent()) return;
+      if (settled || errorShown || !stillCurrent()) return;
       Promise.all([ensureLiveNavDataFetch(), docketQueueReadyWithGrace()]).then(([dataReady, docketReady]) => {
         if (settled || !stillCurrent()) return;
         if (dataReady && docketReady) {
           settled = true;
+          clearTimeout(slowTimer);
+          errorBox.classList.add("hidden");
           hideSplash();
-        } else {
-          retryTimer = setTimeout(attempt, SPLASH_RETRY_INTERVAL_MS);
+        } else if (!errorShown) {
+          retryTimer = setTimeout(attempt, splashTiming("retry"));
         }
       });
     }
+    const slowTimer = setTimeout(() => {
+      if (settled || errorShown || !stillCurrent()) return;
+      status.textContent = "Still connecting…";
+    }, splashTiming("slow"));
     attempt();
-    // `settled`/stillCurrent() also guard this against the fetch finally
-    // succeeding right after this fires, or against a NEWER
-    // runSplashConnect() call (Retry) having superseded this one entirely —
-    // the timeout, once reached for the CURRENT invocation, means something
-    // real now (a genuine failure/hang), not "every ordinary boot."
+    // stillCurrent() guards this against a NEWER runSplashConnect() call
+    // (Retry) having superseded this one entirely.
     setTimeout(() => {
       if (settled || !stillCurrent()) return;
-      settled = true;
+      errorShown = true;
       clearTimeout(retryTimer);
       showSplashError();
-    }, SPLASH_DATA_TIMEOUT_MS);
+    }, splashTiming("data"));
   }
 
   // Retry starts genuinely fresh. Before this, Retry just re-ran
