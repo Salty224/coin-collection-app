@@ -4138,6 +4138,7 @@
             <p style="font-size:12px; color:var(--text-muted); margin-top:0;" id="docketResearchWorkbookNote"></p>
             <div id="docketResearchContainer"></div>
             <p class="placeholder-note" id="docketResearchEmptyNote" style="display:none;">Nothing waiting on research right now.</p>
+            <p class="placeholder-note" id="docketResearchUnknownNote" style="display:none;">Couldn't read the Docket queue just now, so items recorded there aren't shown. They'll appear once a later read succeeds — reopen the Docket to try again.</p>
           </div>
         </div>
 
@@ -10179,6 +10180,9 @@
         // A missing file is the normal first-run state, not an error.
         LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
         if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
+        // The hub last rendered "?" for an unreadable queue — refresh it now
+        // that the real count is known (next tick, outside this read).
+        if (docketCountUnknown) setTimeout(() => renderNeedsAttentionHub(), 0);
         docketQueueDiagnostic = { kind: "ok", status: http && http.status, bytes: http && http.bytes };
         return LIVE_DOCKET_QUEUE;
       } catch (e) {
@@ -19086,6 +19090,10 @@
   // instead of 2, "Test Coin One" appearing twice) before this fix, and
   // confirmed fixed after.
   let needsAttentionRenderToken = 0;
+  // True when the last hub render couldn't read the Docket queue (badge "?").
+  // loadDocketQueue() re-renders the hub when a later read succeeds, so the
+  // "?" is replaced as soon as the real count is known.
+  let docketCountUnknown = false;
   async function renderNeedsAttentionHub() {
     const myRenderToken = ++needsAttentionRenderToken;
     const stagingContainerEl = document.getElementById("docketStagingContainer");
@@ -19372,6 +19380,12 @@
     // resolve first.
     if (myRenderToken !== needsAttentionRenderToken) return;
 
+    // The Docket queue read failed (write layer on, nothing loaded): the
+    // research entries recorded in docket.json are unknown, not absent. Say
+    // so rather than showing a count that would read as "nothing there".
+    const docketUnknown = docketWriteEnabled() && LIVE_DOCKET_QUEUE === null;
+    docketCountUnknown = docketUnknown;
+
     stagingContainerEl.innerHTML = "";
     researchContainerEl.innerHTML = "";
     otherContainerEl.innerHTML = "";
@@ -19446,11 +19460,14 @@
     appendDocketRows(otherContainerEl, otherRows);
 
     document.getElementById("docketStagingEmptyNote").style.display = stagingRows.length ? "none" : "block";
-    document.getElementById("docketResearchEmptyNote").style.display = researchRows.length ? "none" : "block";
+    // "Nothing waiting on research" would be a false claim when the queue
+    // couldn't be read — the unknown note replaces it.
+    document.getElementById("docketResearchEmptyNote").style.display = (researchRows.length || docketCountUnknown) ? "none" : "block";
+    document.getElementById("docketResearchUnknownNote").style.display = docketCountUnknown ? "block" : "none";
     document.getElementById("docketOtherEmptyNote").style.display = otherRows.length ? "none" : "block";
 
     document.getElementById("docketStagingCount").textContent = String(stagingRows.length);
-    document.getElementById("docketResearchCount").textContent = String(researchRows.length);
+    document.getElementById("docketResearchCount").textContent = docketUnknown ? "?" : String(researchRows.length);
     document.getElementById("docketOtherCount").textContent = String(otherRows.length);
 
     const badge = document.getElementById("needsAttentionBadge");
@@ -19462,9 +19479,19 @@
     // coin counts as itself.
     // Rendered as the Docket drawer's hanging fob (a plain number, not
     // "(N)", since it's a physical tag on the cabinet, not inline nav text).
+    //
+    // When the Docket queue couldn't be read the total is unknown, so the fob
+    // shows "?" (an explicit unknown state) rather than a number that would
+    // undercount — or "0"/no fob, which would read as "nothing to do".
     const docketCount = stagingRows.length + researchRows.length + otherRows.length;
-    if (badge) badge.textContent = docketCount ? String(docketCount) : "";
-    updateDocketFob(docketCount);
+    if (badge) {
+      badge.textContent = docketUnknown ? "?" : (docketCount ? String(docketCount) : "");
+      badge.setAttribute("aria-label", docketUnknown
+        ? "Docket count unknown — the Docket queue couldn't be read"
+        : "items needing attention");
+      badge.title = docketUnknown ? "Couldn't read the Docket queue — count unknown until it loads" : "";
+    }
+    updateDocketFob(docketUnknown || docketCount);
   }
 
   // ==================================================================
@@ -26243,6 +26270,18 @@
     // the error shows is still honoured — if it brings real data, the splash
     // clears on its own. No NEW attempts start after the error, though: the
     // user is looking at a Retry button, and Retry is what starts fresh.
+    // Docket FAST-FAIL fix (Ray, 2026-10-04): docketQueueReadyWithGrace()
+    // only rescues a Docket read that HANGS. One that fails fast (empty body,
+    // HTTP error) answers false before the grace timer ends, so the splash
+    // used to keep retrying with core data already loaded — and a Docket read
+    // that always fails meant the full wait and the error screen on every
+    // boot. Now, once core data has loaded AND the grace period (measured from
+    // the start of this connect) has passed, a failed Docket read counts as
+    // ready. Nothing is cached from the failure: the read is retried on the
+    // next Docket load, and the badge shows "?" until one succeeds (see
+    // renderNeedsAttentionHub()). Unchanged when the Docket read succeeds, or
+    // while core data hasn't loaded.
+    const connectStartedAt = Date.now();
     let settled = false;
     let errorShown = false;
     let retryTimer = null;
@@ -26250,7 +26289,8 @@
       if (settled || errorShown || !stillCurrent()) return;
       Promise.all([ensureLiveNavDataFetch(), docketQueueReadyWithGrace()]).then(([dataReady, docketReady]) => {
         if (settled || !stillCurrent()) return;
-        if (dataReady && docketReady) {
+        const graceOver = Date.now() - connectStartedAt >= splashTiming("grace");
+        if (dataReady && (docketReady || graceOver)) {
           settled = true;
           clearTimeout(slowTimer);
           errorBox.classList.add("hidden");

@@ -24,7 +24,8 @@ module.exports = defineSuite("docket-sections", async ({ ok, openApp, PHONE }) =
     navigate('needsdbcoins');
     const headers = [...document.querySelectorAll('#view-needsdbcoins .accordion-header')];
     return {
-      order: headers.map(h => h.querySelector('span').textContent.replace(/\s+\d+$/, '').trim()),
+      // The count is digits, or "?" when the Docket queue couldn't be read.
+      order: headers.map(h => h.querySelector('span').textContent.replace(/\s+(\d+|\?)$/, '').trim()),
       collapsed: ['docketStagingBody', 'docketResearchBody', 'docketOtherBody']
         .map(id => document.getElementById(id).classList.contains('hidden')),
       // The old flat containers must be gone, not merely hidden.
@@ -51,7 +52,13 @@ module.exports = defineSuite("docket-sections", async ({ ok, openApp, PHONE }) =
   ok(B.reclosed, "A6 and collapses again on a second click");
 
   // ---------- C. Counts sum to the drawer badge ----------
+  // Runs against a successfully loaded (empty) Docket queue. The sandbox can
+  // never read the real one, and since the fast-fail fix an UNREADABLE queue
+  // deliberately renders its counts as "?" rather than numbers — covered in
+  // verify_startup_connection.js (H block). This block is about counts
+  // summing when the queue IS known.
   const C = await page.evaluate(async () => {
+    __setLiveDocketQueueForTest({ type: "docket-queue", version: 1, entries: [] });
     await renderNeedsAttentionHub();
     await new Promise(r => setTimeout(r, 200));
     const n = id => Number(document.getElementById(id).textContent || "0");
@@ -59,7 +66,9 @@ module.exports = defineSuite("docket-sections", async ({ ok, openApp, PHONE }) =
     const sum = n('docketStagingCount') + n('docketResearchCount') + n('docketOtherCount');
     const rowTotal = ['docketStagingContainer', 'docketResearchContainer', 'docketOtherContainer']
       .reduce((t, id) => t + document.getElementById(id).querySelectorAll('.wish-item').length, 0);
-    return { sum, rowTotal, badge: Number(badge && badge.textContent || "0") };
+    const out = { sum, rowTotal, badge: Number(badge && badge.textContent || "0") };
+    __setLiveDocketQueueForTest(null);
+    return out;
   });
   ok(C.sum === C.badge, "C1 the three header counts sum to the Docket badge (" + C.sum + " vs " + C.badge + ")");
   ok(C.sum === C.rowTotal, "C2 each count equals the number of rows actually rendered in its section");

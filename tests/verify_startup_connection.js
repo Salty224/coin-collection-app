@@ -702,5 +702,121 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
   ok(G13.missingBefore === true && G13.missingAfter === false,
     "G13 a coin whose only photo is on the Photos tab reads as photo-less while Photos is missing (the All-column fallback), and correctly as photographed once the late Photos sheet arrives");
 
+  // ================================================================
+  // H. Docket fast-fail (commit 6): a Docket read that fails FAST counts as
+  //    ready once core data is in and the grace period has passed; the badge
+  //    shows "?" until a later read succeeds.
+  // ================================================================
+  const DOCKET_FAKE = () => {
+    window.__origEnsure = window.__origEnsure || window.ensureLiveNavDataFetch;
+    // Draft listings / workbook link go through the same fake: answer 404
+    // (no folder / no item) so the hub renders without hanging.
+    window.__fakeRoutes.other = () => Promise.resolve(new Response("", { status: 404 }));
+    window.__docketMode = "empty";
+    window.__fakeRoutes.docket = () => {
+      if (window.__docketMode === "empty") return Promise.resolve(new Response("", { status: 200 }));
+      if (window.__docketMode === "http") return Promise.resolve(new Response("nope", { status: 503 }));
+      const doc = { type: "docket-queue", version: 1, entries: [{ entryId: "DQ-1", status: "open", desc: "Test", year: "1909", mint: "S", denom: "1C", dateFlagged: "2026-10-04" }] };
+      return Promise.resolve(new Response(JSON.stringify(doc), { status: 200 }));
+    };
+    window.__runSplash = async (dataReady, totalMs) => {
+      window.ensureLiveNavDataFetch = () => Promise.resolve(dataReady);
+      const t0 = Date.now();
+      runSplashConnect();
+      let hiddenAt = null, errorAt = null;
+      while (Date.now() - t0 < totalMs) {
+        await new Promise(r => setTimeout(r, 25));
+        if (hiddenAt === null && document.getElementById("splashScreen").classList.contains("hidden")) hiddenAt = Date.now() - t0;
+        if (errorAt === null && !document.getElementById("splashErrorBox").classList.contains("hidden")) errorAt = Date.now() - t0;
+        if (hiddenAt !== null) break;
+      }
+      window.ensureLiveNavDataFetch = window.__origEnsure;
+      splashConnectGeneration++;
+      return { hiddenAt, errorAt };
+    };
+  };
+
+  // H1–H3: empty-body Docket read, core data loaded.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H1 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ grace: 400, data: 4000, retry: 50, slow: 3000 });
+    window.__docketMode = "empty";
+    const r = await __runSplash(true, 3000);
+    return { ...r, reads: window.__fakeCalls.filter(c => c.key === "docket").length, cached: __getLiveDocketQueueForTest() };
+  });
+  ok(H1.hiddenAt !== null && H1.hiddenAt >= 380 && H1.hiddenAt < 1200 && H1.errorAt === null,
+    `H1 core data loaded + a fast-failing (empty body) Docket read: the splash clears once the grace period passes, no error (hidden at ${H1.hiddenAt}ms, grace 400ms)`);
+  ok(H1.reads >= 2, `H2 the Docket read was retried rather than given up on at the first failure (${H1.reads} reads)`);
+  ok(H1.cached === null, "H3 nothing is cached from the failed read, so the next Docket load retries");
+
+  // H4: HTTP error, same.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H4 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ grace: 400, data: 4000, retry: 50, slow: 3000 });
+    window.__docketMode = "http";
+    return __runSplash(true, 3000);
+  });
+  ok(H4.hiddenAt !== null && H4.hiddenAt < 1200 && H4.errorAt === null, `H4 the same for an HTTP error from the Docket read (hidden at ${H4.hiddenAt}ms)`);
+
+  // H5: a successful Docket read is unchanged — clears straight away, no grace wait.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H5 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ grace: 2000, data: 4000, retry: 50, slow: 3000 });
+    window.__docketMode = "ok";
+    return __runSplash(true, 3000);
+  });
+  ok(H5.hiddenAt !== null && H5.hiddenAt < 600, `H5 a successful Docket read still clears the splash straight away, without waiting out the grace period (${H5.hiddenAt}ms, grace 2000ms)`);
+
+  // H6: core data NOT loaded — unchanged: no clearing after the grace period.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H6 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ grace: 200, data: 900, retry: 50, slow: 3000 });
+    window.__docketMode = "empty";
+    return __runSplash(false, 1300);
+  });
+  ok(H6.hiddenAt === null && H6.errorAt !== null && H6.errorAt >= 850, `H6 with core data not loaded, a failed Docket read never clears the splash; the error shows at the overall timeout as before (error at ${H6.errorAt}ms)`);
+
+  // H7–H11: the badge after a failed read, then after a later successful one.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H7 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 2000 });
+    const badgeState = () => {
+      const b = document.getElementById("needsAttentionBadge");
+      return {
+        text: b.textContent, visible: !b.classList.contains("hidden"), aria: b.getAttribute("aria-label"),
+        research: document.getElementById("docketResearchCount").textContent,
+        unknownNote: document.getElementById("docketResearchUnknownNote").style.display,
+        emptyNote: document.getElementById("docketResearchEmptyNote").style.display
+      };
+    };
+    window.__docketMode = "empty";
+    await renderNeedsAttentionHub();
+    const failed = badgeState();
+    window.__docketMode = "ok";
+    await loadDocketQueue();                        // a later read succeeds...
+    await new Promise(r => setTimeout(r, 400));     // ...and the hub refreshes itself
+    const after = badgeState();
+    return { failed, after };
+  });
+  ok(H7.failed.text === "?" && H7.failed.visible && /unknown/i.test(H7.failed.aria),
+    `H7 after a failed Docket read the drawer fob shows "?" (an explicit unknown), not "0" or nothing (${JSON.stringify(H7.failed)})`);
+  ok(H7.failed.research === "?", `H8 the Research section count shows "?" too (${H7.failed.research})`);
+  ok(H7.failed.unknownNote === "block" && H7.failed.emptyNote === "none", "H9 the Research section says the queue couldn't be read, instead of \"Nothing waiting on research\"");
+  ok(/^\d+$/.test(H7.after.text) && Number(H7.after.text) >= 1 && H7.after.research === "1",
+    `H10 once a later read succeeds, the fob and Research count show the real numbers on their own (fob ${H7.after.text}, research ${H7.after.research})`);
+  ok(H7.after.unknownNote === "none" && !/unknown/i.test(H7.after.aria), "H11 ...and the unknown note and label are cleared");
+
+  // H12: with the Docket write layer off, nothing is "unknown" — the in-memory queue is the real one.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(DOCKET_FAKE);
+  const H12 = await page.evaluate(async () => {
+    __setDocketWriteEnabledForTest(false);
+    await renderNeedsAttentionHub();
+    const b = document.getElementById("needsAttentionBadge");
+    const out = { text: b.textContent, research: document.getElementById("docketResearchCount").textContent };
+    __setDocketWriteEnabledForTest(null);
+    return out;
+  });
+  ok(H12.text !== "?" && H12.research !== "?", `H12 with the Docket write layer off there's no "?" — that queue is in memory and known (fob "${H12.text}", research "${H12.research}")`);
+
   await page.evaluate(RESET);
 }, module);

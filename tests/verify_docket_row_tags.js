@@ -21,7 +21,8 @@ module.exports = defineSuite("docket-row-tags", async ({ ok, openApp, PHONE }) =
   const A = await page.evaluate(() => {
     navigate('needsdbcoins');
     const headers = [...document.querySelectorAll('#view-needsdbcoins .accordion-header')];
-    return headers.map(h => h.querySelector('span').textContent.replace(/\s+\d+$/, '').trim());
+    // The count is digits, or "?" when the Docket queue couldn't be read.
+    return headers.map(h => h.querySelector('span').textContent.replace(/\s+(\d+|\?)$/, '').trim());
   });
   ok(JSON.stringify(A) === JSON.stringify(["Staging", "Awaiting Copilot Research", "Other / Requires Photos"]),
     "A1 still three sections — the distinction is a per-row tag, not a section rename/split: " + A.join(" | "));
