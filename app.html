@@ -15706,9 +15706,11 @@
     const funFact = catalogFunFactFor(coin);
     if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact <span class="field-origin">catalog reference</span></div><p>${funFact}</p>`;
     // DB_Coins.Notes, read-only. Ray's ask: catalog reference content should
-    // be viewable on the coin's own page, not only inside Edit Coin.
+    // be viewable on the coin's own page, not only inside Edit Coin. Label is
+    // just "Catalog Notes" (Ray): the word "Catalog" already says where it
+    // comes from, so the trailing "catalog reference" tag was redundant.
     const catalogNotes = catalogNotesFor(coin);
-    if (catalogNotes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Catalog Notes <span class="field-origin">catalog reference</span></div><p>${escapeHtmlText(catalogNotes)}</p>`;
+    if (catalogNotes) notesHtml += `<div class="detail-label" style="margin-top:12px;">Catalog Notes</div><p>${escapeHtmlText(catalogNotes)}</p>`;
     // The coin's OWN All.Remarks wins, demo lookup as fallback — same rule
     // the Purchase Details rows below already follow. Before this, a real
     // coin's Remarks were unreachable outside Edit Coin: this line read only
