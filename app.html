@@ -2173,6 +2173,13 @@
      A viewer wants the WHOLE image, so this is `contain` rather than the
      thumbnails' `cover`, at a size worth opening a dialog for. */
   #galleryViewerOverlay .photo-adjust-panel { max-width: min(560px, 94vw); }
+  /* Taller than the screen with three or more photos: let the overlay itself
+     scroll, and centre the panel with auto margins rather than
+     align-items:center — which overflows a too-tall panel off the TOP as well
+     as the bottom, where no scrolling can ever reach it. Auto margins centre
+     a panel that fits and collapse to 0 for one that doesn't. */
+  #galleryViewerOverlay { align-items: flex-start; overflow-y: auto; }
+  #galleryViewerOverlay .photo-adjust-panel { margin: auto 0; }
   .gallery-viewer-grid { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-top: 6px; }
   .gallery-viewer-grid .gv-cell { width: 100%; text-align: center; }
   .gallery-viewer-grid .gc-img {
@@ -6379,9 +6386,22 @@
   // keeps the blast radius of this feature to a short, auditable list of
   // call sites (see CLAUDE.md for the exact list) instead of touching
   // FAKE_COINS/FAKE_DB_SETS references throughout the whole file.
-  function activeCoins() { return LIVE_COINS || FAKE_COINS; }
-  function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
-  function activeDbCoins() { return LIVE_DB_COINS || FAKE_DB_COINS; }
+  //
+  // In a LIVE session the demo arrays are never the fallback (Ray's rule,
+  // 2026-10-04 — see demoDataAllowed() below): before the real sheets land,
+  // or if they never do, these are EMPTY, so every screen shows nothing
+  // rather than demo coins presented as real ones. Every consumer only
+  // find()s / filter()s / forEach()es the result, so an empty list is safe
+  // (audited call by call; nothing indexes [0] or pushes into it). A fresh
+  // [] each call, never a shared one, so nothing can accidentally fill it.
+  //
+  // activeLookupGraders() deliberately KEEPS its fallback: the grader list is
+  // a static copy of a real reference table, not demo data, and an empty one
+  // would switch off the cert-protection guard (isServiceGradeSource()) in
+  // the window before the live table arrives.
+  function activeCoins() { return LIVE_COINS || (demoDataAllowed() ? FAKE_COINS : []); }
+  function activeDbSets() { return LIVE_DB_SETS || (demoDataAllowed() ? FAKE_DB_SETS : []); }
+  function activeDbCoins() { return LIVE_DB_COINS || (demoDataAllowed() ? FAKE_DB_COINS : []); }
   function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
   // ---- Which data world the app is in --------------------------------
   // Ray's rule (2026-10-04): once the app runs on real data, nothing fake or
@@ -6408,6 +6428,17 @@
     if (hasAccount) liveDataModeSeenLive = true;
     return hasAccount ? "live" : "signed-out";
   }
+
+  // The one question every demo-data fallback asks. Demo content is the
+  // point of the offline mockup (and is left as-is while signed out); in a
+  // live session nothing fake shows, whether or not the real data has
+  // arrived yet. Every FAKE_* lookup keyed by CollectionID MUST go through
+  // this: a real coin whose id happens to match a demo key (AY-00001,
+  // -00003, -00006, -00010, -00014, -00022, -00025) otherwise inherits that
+  // demo coin's Fun Fact, notes, seller, gallery and Set facts as if they
+  // were its own — found live on AY-00001, a 1787 Fugio cent showing a
+  // Carson City Morgan's Fun Fact and a demo PCGS slab.
+  function demoDataAllowed() { return liveDataMode() !== "live"; }
 
   // Demo albums only ever in the offline mockup. In a live session, before
   // the real albums have loaded — or if their read timed out or failed —
@@ -10743,6 +10774,37 @@
     }
   };
 
+  // ---- Demo lookups keyed by CollectionID: live-mode gating ----------
+  // FAKE_COIN_DETAILS, FAKE_SET_FACTS and FAKE_SET_CHILDREN are keyed by
+  // CollectionID / originSetId, and real coins reuse the same ids (AY-00001
+  // is a real 1787 Fugio cent). So in a live session none of them is read.
+  //
+  // FAKE_COIN_DETAILS also doubled as the store for Edit Coin / Edit Set's
+  // SESSION-ONLY save (applyEditsToRecord). That is user-entered data, not
+  // demo data, so in a live session it moves to its own empty store rather
+  // than disappearing: a session edit still round-trips visibly, and a real
+  // coin never starts out holding a demo coin's fields.
+  const sessionCoinDetails = {};
+  function coinDetailsStore() { return demoDataAllowed() ? FAKE_COIN_DETAILS : sessionCoinDetails; }
+  function coinDetailsFor(collectionId) { return coinDetailsStore()[collectionId] || {}; }
+  function setFactsFor(coin) { return (demoDataAllowed() && FAKE_SET_FACTS[coin.id]) || {}; }
+  // The demo seed's own originSetId keys. Edit Set's session-only "link a
+  // coin" path also writes into FAKE_SET_CHILDREN, under its own
+  // "OS-LOCAL-<id>" keys (ensureOriginSetId) — those are the user's session
+  // links, not demo data, so they stay readable in a live session; only the
+  // seeded demo keys are shut off.
+  const DEMO_SET_CHILD_KEYS = new Set(Object.keys(FAKE_SET_CHILDREN));
+  function sessionSetChildrenFor(originSetId) {
+    if (!originSetId) return null;
+    if (!demoDataAllowed() && DEMO_SET_CHILD_KEYS.has(originSetId)) return null;
+    return FAKE_SET_CHILDREN[originSetId] || null;
+  }
+  function sessionSetChildIdKnown(childId) {
+    return Object.keys(FAKE_SET_CHILDREN).some(k =>
+      (demoDataAllowed() || !DEMO_SET_CHILD_KEYS.has(k)) &&
+      FAKE_SET_CHILDREN[k].some(ch => ch.id === childId));
+  }
+
   // Staging mirrors the real Excel Staging tab: a separate array from
   // FAKE_COINS (not a status flag within it), same shape plus stagedDate and
   // remarks, so normal Browse/All browsing never gets cluttered with
@@ -10786,6 +10848,11 @@
   // structure — combined obverse/reverse handling). The saved-coin flip views fall
   // back to flagging this rather than showing a blank face.
   const COMBINED_PHOTO_COIN_IDS = ["AY-00007"];
+  // A demo marker keyed by CollectionID like the other FAKE_* lookups — real
+  // AY-00007 is a different coin — so it never applies in a live session.
+  function coinFlaggedCombinedPhoto(coin) {
+    return demoDataAllowed() && COMBINED_PHOTO_COIN_IDS.includes(coin.id);
+  }
 
   // ==================================================================
   // PHOTO GALLERY & CROP PIPELINE (mockup) — a general per-coin / per-Set
@@ -10967,13 +11034,24 @@
   // Mutable per-session store, seeded lazily (deep-cloned) from FAKE_GALLERIES
   // on first access so capture/remove never mutate the demo seed. galleryFor()
   // is the single accessor every display + capture path reads through.
+  //
+  // The seed is DEMO data and never applies in a live session (Ray's rule —
+  // see demoDataAllowed()). Found live on AY-00001: a real 1787 Fugio cent
+  // listed the demo Morgan's "PCGS slab — cert 12345678", slab back and COA
+  // in place of its three real Photos rows. Seeded entries carry `demoSeed`,
+  // so a list seeded before the session turned live (the signed-out moment)
+  // is cleaned in place — the same array, since callers hold references.
   const galleryStore = {};
   function galleryFor(collectionId) {
     if (!galleryStore[collectionId]) {
-      const seed = FAKE_GALLERIES[collectionId];
-      galleryStore[collectionId] = seed ? seed.map(e => Object.assign({}, e)) : [];
+      const seed = demoDataAllowed() ? FAKE_GALLERIES[collectionId] : null;
+      galleryStore[collectionId] = seed ? seed.map(e => Object.assign({}, e, { demoSeed: true })) : [];
     }
-    return galleryStore[collectionId];
+    const list = galleryStore[collectionId];
+    if (!demoDataAllowed()) {
+      for (let i = list.length - 1; i >= 0; i--) if (list[i].demoSeed) list.splice(i, 1);
+    }
+    return list;
   }
   function addGalleryEntry(collectionId, entry) {
     const list = galleryFor(collectionId);
@@ -12901,7 +12979,7 @@
     // which face is showing or which render path called this.
     const combinedBadge = document.getElementById(prefix + "CombinedBadge");
     if (combinedBadge) {
-      combinedBadge.classList.toggle("hidden", !COMBINED_PHOTO_COIN_IDS.includes(coin.id));
+      combinedBadge.classList.toggle("hidden", !coinFlaggedCombinedPhoto(coin));
     }
 
     if (side === "reverse") {
@@ -13027,7 +13105,7 @@
         (srComposition ? ", composition " + srComposition : "") +
         (srDisplayValue ? ", value " + formatCurrency(srDisplayValue) : "") +
         " (" + coin.id + ")" +
-        (COMBINED_PHOTO_COIN_IDS.includes(coin.id) ? " — combined obverse/reverse photo, not yet cropped" : "");
+        (coinFlaggedCombinedPhoto(coin) ? " — combined obverse/reverse photo, not yet cropped" : "");
     }
   }
 
@@ -13312,7 +13390,7 @@
   // is loaded, a coin either has its own specs or shows none.
   function metalContentFor(coin) {
     if (!coin) return {};
-    if (LIVE_COINS) return coin.specs || {};
+    if (LIVE_COINS || !demoDataAllowed()) return coin.specs || {};
     return FAKE_METAL_CONTENT[coin.id] || {};
   }
 
@@ -14905,7 +14983,7 @@
     const live = activeCoins().filter(c =>
       originSetIdKeysMatch(c.originSetId, coin.id) && !isSetRow(c) && c.id !== coin.id);
     if (live.length) return live;
-    return (coin.originSetId && FAKE_SET_CHILDREN[coin.originSetId]) || [];
+    return sessionSetChildrenFor(coin.originSetId) || [];
   }
 
   // Item 7: prev/next at the detail level.
@@ -15104,7 +15182,7 @@
     // Storage, Roll Composition) and the standalone linkage block are gone —
     // all of it now lives inside accordions (accordion redesign, locked in).
     // renderDetailAccordions() is the whole panel.
-    renderDetailAccordions(coin, FAKE_COIN_DETAILS[coin.id] || {});
+    renderDetailAccordions(coin, coinDetailsFor(coin.id));
   }
 
   // A Roll is any owned row with a populated RollID — a normal single
@@ -15176,7 +15254,10 @@
   // coins correctly resolve to null here.
   function resolveCoinSetLink(coin) {
     if (!coin.setId) return null;
-    return FAKE_COINS.find(c => c.id !== coin.id && c.denom === "Multiple" && c.setId === coin.setId) || null;
+    // activeCoins(), not FAKE_COINS — this used to search the demo rows
+    // even in a live session, so a real coin could only ever link to a demo
+    // Set (and a real Set could never be found).
+    return activeCoins().find(c => c.id !== coin.id && c.denom === "Multiple" && c.setId === coin.setId) || null;
   }
 
   // Child → parent-Set linkage, via originSetId — the reverse of the
@@ -15461,6 +15542,12 @@
     // --- 2. Photos — the record's fuller photo set (the flip card already
     // covers obverse/reverse, so those are filtered out). Each thumbnail
     // opens the full-screen viewer. Omitted when there's nothing extra.
+    // The record's REAL Photos rows are merged in first (hydrateStoredPhotos
+    // — the same merge Manage Photos uses). This strip used to read the
+    // session gallery alone, so a coin's stored photos only appeared here
+    // after Edit had been opened for it, and on a coin whose id collided
+    // with a demo key it showed the demo entries instead of the real ones.
+    hydrateStoredPhotos(coin.id);
     const galleryExtras = galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse");
     if (galleryExtras.length) {
       const acc = appendAccordion(container, RECORD_SECTIONS.PHOTOS, "");
@@ -15474,6 +15561,7 @@
         thumb.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${def ? def.label : entry.type}</div>`;
         thumb.addEventListener("click", () => openGalleryViewer(coin.id, coin.name + " — photos"));
         strip.appendChild(thumb);
+        paintStoredThumbWhenReady(entry, thumb);
       });
       acc.body.appendChild(strip);
     }
@@ -15521,7 +15609,7 @@
     // the locked section order has no separate Set Details entry.
     let notesHtml = "";
     if (isSet) {
-      const setFacts = FAKE_SET_FACTS[coin.id] || {};
+      const setFacts = setFactsFor(coin);
       const childCount = setChildrenFor(coin).length;
       const setRows = [];
       if (childCount) setRows.push(["Coins in Set", String(childCount)]);
@@ -15703,7 +15791,7 @@
   // detail page and Edit Set's own facts block render the identical rows.
   function setDetailsFactsRows(coin) {
     if (!isSetRow(coin)) return [];
-    const setFacts = FAKE_SET_FACTS[coin.id] || {};
+    const setFacts = setFactsFor(coin);
     const childCount = setChildrenFor(coin).length;
     const rows = [];
     if (childCount) rows.push(["Coins in Set", String(childCount)]);
@@ -16268,7 +16356,7 @@
     document.getElementById("browseEditView").style.display = "block";
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
 
-    const details = FAKE_COIN_DETAILS[coin.id] || {};
+    const details = coinDetailsFor(coin.id);
     browseEditTouchedFields.clear(); // fresh form — nothing user-modified yet
     resetBrowseEditMintMarkOtherUI(); // a previous coin's mint resolution must not leak in
     loadBrowseEditSnapshot(coin);
@@ -16440,8 +16528,7 @@
   function catalogFunFactFor(coin) {
     const match = findDbCoinsMatch(coin);
     if (match && match.funFact) return match.funFact;
-    const details = FAKE_COIN_DETAILS[coin.id] || {};
-    return details.funFact || "";
+    return coinDetailsFor(coin.id).funFact || "";
   }
 
   // The DB_Coins.Notes counterpart of catalogFunFactFor(). Deliberately has
@@ -16466,7 +16553,7 @@
     document.getElementById("browseEditSetView").style.display = "block";
     setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit set → detail
 
-    const details = FAKE_COIN_DETAILS[coin.id] || {};
+    const details = coinDetailsFor(coin.id);
 
     // --- Overview
     document.getElementById("editSetYearField").value = coin.year != null ? coin.year : "";
@@ -16597,7 +16684,8 @@
       const v = values.row[key];
       if (v !== undefined) coin[key] = v;
     });
-    const details = FAKE_COIN_DETAILS[coin.id] || (FAKE_COIN_DETAILS[coin.id] = {});
+    const store = coinDetailsStore();
+    const details = store[coin.id] || (store[coin.id] = {});
     Object.keys(values.details).forEach(key => {
       const v = values.details[key];
       if (v !== undefined) details[key] = v;
@@ -22077,8 +22165,7 @@
     // The ownership check below is the enforcement; this only saves a scan.
     if (!/^AY-\d{5}(-[A-Za-z]+)?$/.test(targetId)) return null;
     if (!addCoinWriteEnabled()) return null;
-    const owned = activeCoins().some(c => c.id === targetId) ||
-      Object.keys(FAKE_SET_CHILDREN).some(k => FAKE_SET_CHILDREN[k].some(ch => ch.id === targetId));
+    const owned = activeCoins().some(c => c.id === targetId) || sessionSetChildIdKnown(targetId);
     return owned ? targetId : null;
   }
 
@@ -23344,11 +23431,28 @@
     return list.length;
   }
 
+  // A stored (Photos-tab) entry whose image hasn't been fetched yet renders
+  // as an icon tile; this fills that one tile in place once the file
+  // arrives, without re-rendering the page around it (a re-render would
+  // collapse whatever accordion the user had open).
+  function paintStoredThumbWhenReady(entry, tileHost) {
+    if (!entry || !entry.stored || entry.url || !entry.storedFilename) return;
+    ensureCoinPhotoFetch(entry.storedFilename).then(url => {
+      if (!url) return;
+      entry.url = url;
+      const img = tileHost.querySelector(".gc-img");
+      if (!img || !document.contains(img)) return;
+      img.style.backgroundImage = `url('${url}')`;
+      img.textContent = "";
+    });
+  }
+
   let galleryViewerId = null;
   function openGalleryViewer(collectionId, title) {
     galleryViewerId = collectionId;
     document.getElementById("galleryViewerTitle").textContent = title || "Photos";
     const grid = document.getElementById("galleryViewerGrid");
+    hydrateStoredPhotos(collectionId); // the real Photos rows, same as the strip
     const list = galleryFor(collectionId);
     grid.innerHTML = "";
     if (!list.length) {
@@ -23359,16 +23463,35 @@
         const cell = document.createElement("div");
         cell.className = "gv-cell";
         const cap = [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
-        cell.innerHTML = `${galleryThumbInner(entry)}<div class="gv-cap">${cap}</div>`;
+        cell.innerHTML = `${galleryThumbInner(entry)}<div class="gv-cap">${escapeHtmlText(cap)}</div>`;
         grid.appendChild(cell);
+        paintStoredThumbWhenReady(entry, cell);
       });
     }
-    document.getElementById("galleryViewerOverlay").classList.remove("hidden");
+    const overlay = document.getElementById("galleryViewerOverlay");
+    overlay.scrollTop = 0;
+    overlay.classList.remove("hidden");
   }
+  function closeGalleryViewer() {
+    document.getElementById("galleryViewerOverlay").classList.add("hidden");
+    galleryViewerId = null;
+  }
+  // THE VIEWER THAT COULDN'T BE CLOSED. It always had a Close button — but
+  // below the photos, inside an overlay that centres its panel and does not
+  // scroll. Each photo cell is min(52vh, 320px) tall regardless of whether
+  // its image exists, so three photos (AY-00001 has three real Photos rows,
+  // and three demo entries before that) make the panel taller than a phone
+  // screen; centred, it overflows top AND bottom, and the Close button sat
+  // off-screen with nothing able to reach it — the overlay is fixed, so page
+  // scrolling never moved it, and there was no Escape or backdrop handler.
+  // Fixed three ways, all scoped to this one overlay: it scrolls (CSS), a tap
+  // on the dimmed backdrop closes it, and so does Escape.
   function initGalleryViewer() {
-    document.getElementById("galleryViewerCloseBtn").addEventListener("click", () => {
-      document.getElementById("galleryViewerOverlay").classList.add("hidden");
-      galleryViewerId = null;
+    const overlay = document.getElementById("galleryViewerOverlay");
+    document.getElementById("galleryViewerCloseBtn").addEventListener("click", closeGalleryViewer);
+    overlay.addEventListener("click", e => { if (e.target === overlay) closeGalleryViewer(); });
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && !overlay.classList.contains("hidden")) closeGalleryViewer();
     });
   }
 
