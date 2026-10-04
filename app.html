@@ -5570,6 +5570,69 @@
   function __setLiveNavDataProcessingErrorForTest(obj) { liveNavDataProcessingError = obj || null; } // test-only seam
   function __resetLiveNavDataDiagnosticsForTest() { liveNavDataDiagnostics = {}; liveNavDataProcessingError = null; } // test-only seam
 
+  // ---- Startup request timeout -----------------------------------------
+  // Per-request ceiling for the startup reads: each of the nine sheet reads
+  // below and the Docket queue read (loadDocketQueue()). The other splash
+  // timings (SPLASH_DATA_TIMEOUT_MS etc.) live beside runSplashConnect();
+  // this one is declared up here, beside the readers that use it.
+  //
+  // Why it exists: nothing in this file had a timeout, so a Graph request
+  // that never answered stayed "in flight" forever. Both shared fetches
+  // (ensureLiveNavDataFetch(), loadDocketQueue()) hand every caller the SAME
+  // in-flight promise, so one hung request held every later attempt —
+  // the splash's own retries and its Retry button included — until a full
+  // page reload threw it away.
+  const SPLASH_REQUEST_TIMEOUT_MS = 12000;
+
+  // Test-only override of the splash timings, so a suite can exercise a 12s
+  // or 25s path in well under a second. A separate override map rather than
+  // `let` constants, so the shipped values stay genuinely immutable and no
+  // app code can change them — same posture as the write-flag overrides.
+  let splashTimingOverrides = {};
+  function __setSplashTimingsForTest(obj) { splashTimingOverrides = obj || {}; } // test-only seam
+  function splashTiming(name) {
+    if (typeof splashTimingOverrides[name] === "number") return splashTimingOverrides[name];
+    switch (name) {
+      case "request": return SPLASH_REQUEST_TIMEOUT_MS;
+      default: throw new Error("Unknown splash timing: " + name);
+    }
+  }
+
+  function requestTimeoutError(ms) {
+    const e = new Error("Request timed out after " + ms + "ms");
+    e.name = "TimeoutError";
+    e.timeoutMs = ms;
+    return e;
+  }
+
+  // Runs `work(signal)` — token acquisition, the fetch itself AND reading the
+  // body — under one deadline. On expiry the AbortController aborts, which
+  // cancels a real fetch()/body read, and the returned promise rejects with
+  // a TimeoutError either way.
+  //
+  // Racing against the abort as well as passing the signal is deliberate:
+  // the signal alone only helps once fetch() has actually been called, so a
+  // hang while still waiting on the token, or anything else that ignores the
+  // signal, would otherwise still hang. The race makes the deadline hold no
+  // matter where the wait is.
+  //
+  // The caller treats the rejection as an ordinary failure, and failures are
+  // never cached (the existing only-cache-a-real-answer rule), so the next
+  // attempt starts a genuinely fresh request rather than re-awaiting this one.
+  async function withRequestTimeout(work, timeoutMs) {
+    const controller = new AbortController();
+    const aborted = new Promise((_, reject) => {
+      controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
+    });
+    aborted.catch(() => {}); // only ever observed through the race below
+    const timer = setTimeout(() => controller.abort(requestTimeoutError(timeoutMs)), timeoutMs);
+    try {
+      return await Promise.race([work(controller.signal), aborted]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // GETs a worksheet's full used range and returns an array of plain
   // objects keyed by the header row's own text (trimmed) — no assumptions
   // about which columns exist beyond what's actually in row 1. Returns
@@ -5577,34 +5640,46 @@
   // out) so the caller can tell "no answer yet" apart from "sheet is
   // genuinely empty" and avoid caching a false empty result — same
   // { attempted } reasoning fetchReferenceImageBlob() already uses.
+  //
+  // A timeout is an ordinary failure here (null, never cached), so the next
+  // check starts a genuinely fresh request — see withRequestTimeout().
   async function fetchWorkbookSheetRows(sheet) {
     liveNavDataDiagnostics[sheet] = { kind: "pending" };
-    const token = await getLiveNavToken();
-    if (!token) { liveNavDataDiagnostics[sheet] = { kind: "no-token" }; return null; }
-    const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
-      liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
-      ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
     try {
-      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
-      if (!res.ok) {
-        liveNavDataDiagnostics[sheet] = { kind: "http-error", status: res.status };
-        console.warn("Live nav data: sheet read failed", sheet, res.status);
-        return null; // transient/permission error — worth retrying later, don't cache
-      }
-      const data = await res.json();
-      const values = data.values || [];
-      if (values.length < 2) { liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: 0 }; return []; } // header row only (or truly empty) — a real, cacheable answer
-      const headers = values[0].map(h => String(h == null ? "" : h).trim());
-      const rows = values.slice(1).map(r => {
-        const obj = {};
-        headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
-        return obj;
-      });
-      liveNavDataDiagnostics[sheet] = { kind: "ok", rowCount: rows.length };
-      return rows;
+      return await withRequestTimeout(async signal => {
+        // Once the deadline has passed, this request no longer owns its
+        // diagnostic entry — a token or response arriving late must not
+        // overwrite the "timeout" the caller already recorded.
+        const record = entry => { if (!signal.aborted) liveNavDataDiagnostics[sheet] = entry; };
+        const token = await getLiveNavToken();
+        if (!token) { record({ kind: "no-token" }); return null; }
+        const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+          liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
+          ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
+        const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal });
+        if (!res.ok) {
+          record({ kind: "http-error", status: res.status });
+          console.warn("Live nav data: sheet read failed", sheet, res.status);
+          return null; // transient/permission error — worth retrying later, don't cache
+        }
+        const data = await res.json();
+        const values = data.values || [];
+        if (values.length < 2) { record({ kind: "ok", rowCount: 0 }); return []; } // header row only (or truly empty) — a real, cacheable answer
+        const headers = values[0].map(h => String(h == null ? "" : h).trim());
+        const rows = values.slice(1).map(r => {
+          const obj = {};
+          headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
+          return obj;
+        });
+        record({ kind: "ok", rowCount: rows.length });
+        return rows;
+      }, splashTiming("request"));
     } catch (e) {
-      liveNavDataDiagnostics[sheet] = { kind: "exception", message: (e && e.message) || String(e) };
-      console.warn("Live nav data fetch error:", sheet, e.message);
+      const timedOut = e && e.name === "TimeoutError";
+      liveNavDataDiagnostics[sheet] = timedOut
+        ? { kind: "timeout", ms: e.timeoutMs }
+        : { kind: "exception", message: (e && e.message) || String(e) };
+      console.warn("Live nav data fetch error:", sheet, e && e.message);
       return null;
     }
   }
@@ -6510,14 +6585,22 @@
     uploadFile(path, fileOrBlob) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream"); },
     uploadBytes(path, bytes) { return this.putContent(path, bytes, "application/octet-stream"); },
     uploadJson(path, obj) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json"); },
-    async getJson(path) {
-      const token = await getWriteToken();
-      if (!token) throw new Error("Write layer unavailable.");
-      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
-        { headers: { Authorization: "Bearer " + token } });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error("GET json " + path + " failed: " + res.status);
-      return res.json();
+    // opts.timeoutMs (optional) puts the whole read — token, request and
+    // body — under withRequestTimeout(). Only the Docket queue read passes
+    // it; every other caller (draft listings, set/coin draft reads) is
+    // unchanged and still has no timeout.
+    async getJson(path, opts) {
+      const run = async signal => {
+        const token = await getWriteToken();
+        if (!token) throw new Error("Write layer unavailable.");
+        const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
+          { headers: { Authorization: "Bearer " + token }, signal });
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error("GET json " + path + " failed: " + res.status);
+        return res.json();
+      };
+      if (opts && opts.timeoutMs) return withRequestTimeout(run, opts.timeoutMs);
+      return run(undefined);
     },
     async getFileBytes(path) {
       const token = await getWriteToken();
@@ -9919,7 +10002,7 @@
     docketQueueFetchPromise = (async () => {
       docketQueueDiagnostic = { kind: "pending" };
       try {
-        const doc = await graph().getJson(docketQueuePath());
+        const doc = await graph().getJson(docketQueuePath(), { timeoutMs: splashTiming("request") });
         // A missing file is the normal first-run state, not an error.
         LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
         if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
@@ -9939,13 +10022,15 @@
         const message = (e && e.message) || String(e);
         let kind = "exception";
         let status = null;
-        if (/unavailable/i.test(message)) {
+        if (e && e.name === "TimeoutError") {
+          kind = "timeout";
+        } else if (/unavailable/i.test(message)) {
           kind = "no-token";
         } else {
           const m = /failed:\s*(\d+)/.exec(message);
           if (m) { kind = "http-error"; status = Number(m[1]); }
         }
-        docketQueueDiagnostic = { kind, status, message };
+        docketQueueDiagnostic = { kind, status, message, ms: e && e.timeoutMs };
         console.warn("Docket queue read failed:", e);
         return null;
       } finally {
@@ -25782,6 +25867,7 @@
     if (!entry) return "not yet reported (fetch may still be in flight or never started)";
     switch (entry.kind) {
       case "pending": return "pending (still in flight / never returned)";
+      case "timeout": return "timed out" + (typeof entry.ms === "number" ? " after " + (entry.ms / 1000) + "s" : "") + " (request aborted; the next attempt starts fresh)";
       case "no-token": return "no token";
       case "http-error": return "HTTP " + entry.status;
       case "exception": return "error — " + entry.message;
@@ -25808,8 +25894,10 @@
       lines.push("  " + (liveNavDataProcessingError.name ? liveNavDataProcessingError.name + ": " : "") + liveNavDataProcessingError.message);
     } else if (allEntries.length === 0) {
       lines.push("No fetch attempt has reported back yet.");
+    } else if (allEntries.some(e => e.kind === "timeout")) {
+      lines.push("At least one request timed out (no answer within " + (splashTiming("request") / 1000) + "s) and was aborted — see \"timed out\" rows below.");
     } else if (allEntries.some(e => e.kind === "pending")) {
-      lines.push("At least one request is still in flight / never returned a response (no timeout on the underlying fetch) — see \"pending\" rows below.");
+      lines.push("At least one request is still in flight — see \"pending\" rows below.");
     } else if (allEntries.every(e => e.kind === "no-token")) {
       lines.push("No Microsoft Graph token was ever acquired — every request reports \"no token.\"");
     } else if (allEntries.some(e => e.kind === "http-error" || e.kind === "exception")) {
