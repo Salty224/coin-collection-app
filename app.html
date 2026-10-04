@@ -2330,15 +2330,18 @@
 
   /* Detail title row + its prev/next step arrows (item 7). */
   .detail-title-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
-  /* Finish line (see its markup comment): the value alone, no label. Same
-     weight and colour as an Overview value (.detail-value: 600, --text) and
-     the same inherited font family, at the line's existing 13px — no new
-     colours or fonts. */
-  .detail-finish-line { margin: -4px 0 8px; font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
+  /* Finish line (see its markup comment): the value alone, no label, in
+     the page title's own serif (.display — Cormorant Garamond, already
+     self-hosted at 600). 20px/600 under the title's 24px/700, so it reads as
+     subordinate to the title; colour as an Overview value (--text). Its left
+     edge lines up with the title TEXT, not the prev-arrow button:
+     --finish-indent is set by syncDetailFinishIndent() to the arrow's width
+     plus the row gap when the arrow shows, 0 when it doesn't. */
+  .detail-finish-line { margin: -4px 0 8px var(--finish-indent, 0px); font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.3; }
   .detail-finish-line.hidden { display: none; }
   @media (min-width: 600px) {
     .detail-finish-anchor { position: relative; height: 0; }
-    .detail-finish-line { position: absolute; top: 0; left: 0; margin: 0; max-width: calc(50% - 156px); }
+    .detail-finish-line { position: absolute; top: 0; left: 0; margin: 0 0 0 var(--finish-indent, 0px); max-width: calc(50% - 156px - var(--finish-indent, 0px)); }
   }
   .detail-step-btn {
     flex: 0 0 auto;
@@ -2668,7 +2671,7 @@
                when Finish is blank or a default finish
                (DEFAULT_FINISHES_HIDDEN_ON_PAGE). Deliberately NOT on the
                flip card. -->
-          <div class="detail-finish-anchor"><div class="detail-finish-line hidden" id="browseDetailFinish"></div></div>
+          <div class="detail-finish-anchor" id="browseDetailFinishAnchor"><div class="detail-finish-line display hidden" id="browseDetailFinish"></div></div>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
                button layered on it. The Set gallery region that used to sit
@@ -15096,6 +15099,27 @@
     const show = !!finish && !isDefaultFinishForPage(finish);
     el.textContent = show ? finish : "";
     el.classList.toggle("hidden", !show);
+    syncDetailFinishIndent();
+  }
+
+  // Indent the Finish line so it starts where the title TEXT starts. The
+  // title row is [prev arrow][gap][title][next arrow], so the title text is
+  // offset by the arrow plus the gap whenever the arrow is showing, and by
+  // nothing when it's hidden (first coin in the list, or no list at all).
+  // Read from computed style rather than layout so it is right even if this
+  // runs before the view is laid out; nothing is hard-coded here.
+  function syncDetailFinishIndent() {
+    const anchor = document.getElementById("browseDetailFinishAnchor");
+    const prev = document.getElementById("browseDetailPrevBtn");
+    const title = document.getElementById("browseDetailName");
+    if (!anchor || !prev || !title) return;
+    let indent = 0;
+    if (!prev.classList.contains("hidden")) {
+      const ps = getComputedStyle(prev);
+      const gap = parseFloat(getComputedStyle(title.parentElement).columnGap) || 0;
+      indent = (parseFloat(ps.width) || 0) + (parseFloat(ps.marginLeft) || 0) + (parseFloat(ps.marginRight) || 0) + gap;
+    }
+    anchor.style.setProperty("--finish-indent", indent + "px");
   }
 
   function detailTitleText(coin) {
@@ -15125,8 +15149,8 @@
     // literal "Various" year is skipped, since "Various Roll of 20..."
     // reads as nonsense.
     document.getElementById("browseDetailName").textContent = detailTitleText(coin);
-    renderDetailFinishLine(coin);
     updateBrowseStepButtons(coin);
+    renderDetailFinishLine(coin);
 
     // A multi-child Set used to branch here and replace its own flip with a
     // grid of child mini-flips — that's retired (accordion redesign); a Set

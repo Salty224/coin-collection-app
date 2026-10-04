@@ -68,21 +68,52 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
       const title = document.querySelector(".detail-title-row").getBoundingClientRect();
       const r = el.getBoundingClientRect();
       const val = document.querySelector("#detailAccordions .detail-accordion .detail-value");
-      const cs = getComputedStyle(el), vs = getComputedStyle(val);
+      const t = document.getElementById("browseDetailName");
+      const rg = document.createRange(); rg.selectNodeContents(t);
+      const cs = getComputedStyle(el), vs = getComputedStyle(val), ts = getComputedStyle(t);
       return { leftOfCard: r.right <= flip.left, alignedTop: Math.abs(r.top - flip.top) <= 2,
-        flipGapToTitle: Math.round(flip.top - title.bottom), leftAligned: Math.abs(r.left - title.left) <= 2,
+        flipGapToTitle: Math.round(flip.top - title.bottom), leftAligned: Math.abs(r.left - rg.getClientRects()[0].left) <= 1,
         family: cs.fontFamily, weight: cs.fontWeight, size: cs.fontSize,
-        valFamily: vs.fontFamily, valWeight: vs.fontWeight };
+        titleFamily: ts.fontFamily, valWeight: vs.fontWeight };
     });
     if (vpName === "tablet") {
       ok(B.leftOfCard && B.alignedTop, tag("B1 on a wide screen the line sits in the empty area left of the card, level with its top"), B);
       ok(B.flipGapToTitle <= 12, tag("B2 on a wide screen the card does not move down (it stays right under the title)"), B.flipGapToTitle);
     } else {
-      ok(B.leftAligned, tag("B1 on a phone the line sits left-aligned in flow under the title"), B);
+      ok(B.leftAligned, tag("B1 on a phone the line sits in flow under the title, starting where the title text starts"), B);
       ok(B.flipGapToTitle > 12, tag("B2 on a phone the card moves down by the one line"), B.flipGapToTitle);
     }
-    ok(B.family === B.valFamily && B.weight === B.valWeight, tag("B3 the page line's font family and weight match the Overview value's"), B);
-    ok(B.size === "13px", tag("B4 the page line keeps its 13px size"), B.size);
+    ok(B.family === B.titleFamily && /Cormorant Garamond/.test(B.family) && !/Caveat/.test(B.family), tag("B3 the page line's font family is the page title's serif (not the flip card's handwriting)"), B);
+    ok(B.weight === "600" && B.weight === B.valWeight, tag("B3b the page line stays weight 600, the Overview value's weight"), B);
+    ok(B.size === "20px" && parseFloat(B.size) > 13, tag("B4 the page line is 20px, larger than the previous 13px"), B.size);
+
+    // ---------- I. Left edge lines up with the title TEXT, arrow showing or not ----------
+    const I = await page.evaluate(() => {
+      const mk = (id) => window.__mk(id, "Proof", { name: "Mercury Dime", description: "Mercury Dime", year: 1942, denom: "10C" });
+      const a = mk("AY-91800"), b = mk("AY-91801");
+      __setLiveDataModeForTest("live");
+      __setLiveCoinsForTest([a, b]);
+      navigate("browse");
+      const read = (coin) => {
+        setBrowseStepContext([a, b]);
+        showBrowseDetail(coin);
+        const t = document.getElementById("browseDetailName"), el = document.getElementById("browseDetailFinish");
+        const rt = document.createRange(); rt.selectNodeContents(t);
+        const rf = document.createRange(); rf.selectNodeContents(el);
+        const flip = document.getElementById("browseDetailFlipFrame").getBoundingClientRect();
+        const box = el.getBoundingClientRect();
+        return { arrow: !document.getElementById("browseDetailPrevBtn").classList.contains("hidden"),
+          titleX: rt.getClientRects()[0].left, lineX: box.left, lineTextX: rf.getClientRects()[0].left,
+          overlapsCard: !(box.right <= flip.left || box.left >= flip.right || box.bottom <= flip.top || box.top >= flip.bottom) };
+      };
+      return { withArrow: read(b), noArrow: read(a) };
+    });
+    ok(I.withArrow.arrow && !I.noArrow.arrow, tag("I0 fixture: the prev arrow shows for the second coin and not the first"), I);
+    ok(Math.abs(I.withArrow.lineX - I.withArrow.titleX) <= 1 && Math.abs(I.withArrow.lineTextX - I.withArrow.titleX) <= 1,
+      tag("I1 with the prev arrow showing, the line's left edge equals the title text's left edge (within 1px)"), I.withArrow);
+    ok(I.withArrow.lineX >= I.withArrow.titleX - 1, tag("I2 the line no longer starts left of the title text (at the arrow)"), I.withArrow);
+    ok(Math.abs(I.noArrow.lineX - I.noArrow.titleX) <= 1, tag("I3 with no prev arrow, the line still starts at the title text"), I.noArrow);
+    ok(!I.withArrow.overlapsCard && !I.noArrow.overlapsCard, tag("I4 the indented line still never overlaps the flip card"), I);
 
     // ---------- C. Blank and default Finishes show no page line ----------
     const C = await page.evaluate((hidden) => {
