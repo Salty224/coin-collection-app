@@ -77,6 +77,7 @@ const RESET = () => {
   LIVE_DB_SETS = null;
   liveNavDataFetchPromise = null;
   docketQueueFetchPromise = null;
+  __resetLiveNavOptionalForTest();
 };
 
 module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }) => {
@@ -527,6 +528,179 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
     return buildSplashDiagnosticText();
   });
   ok(/request\(s\) failed/i.test(F11) && /Docket queue: empty body \(HTTP 200, 0 bytes\)/.test(F11), `F11 the splash detail headline treats an empty body as a failed request and names it (${F11.split("\n")[0]})`);
+
+  // ================================================================
+  // G. Missing non-essential sheets are refetched on the next call (commit 5).
+  //    A routed fake: window.__sheetMode[sheet] = "ok" | "hang" | "fail" |
+  //    a function returning a Response promise.
+  // ================================================================
+  const LIVE_ROUTER = () => {
+    window.__liveSheets = {
+      All: [["CollectionID", "Year", "Denomination", "Obverse", "Reverse"], ["AY-90001", 1909, "1C", "", ""]],
+      DB_Sets: [["SetID", "Lineage", "Description", "Year"], ["S-1", "Proof Set", "Test Proof Set", 1999], ["S-1909-AL-01", "", "Live Test Album", 1909]],
+      Albums: [["AlbumID", "Year", "MintMark", "Description", "CoinID", "FilledBy"], ["S-1909-AL-01", 1909, "", "Lincoln", "C-1909--1C-01", ""]],
+      Photos: [["PhotoID", "CollectionID", "PhotoType", "Filename"], ["PH-1", "AY-90001", "Obverse", "AY-90001_obverse_cropped.jpg"]]
+    };
+    window.__sheetMode = {};
+    window.__fakeRoutes["*"] = (u, init, n) => {
+      const m = /worksheets\('([^']+)'\)/.exec(u);
+      const sheet = m ? decodeURIComponent(m[1]) : "";
+      const mode = window.__sheetMode[sheet] || "ok";
+      if (typeof mode === "function") return mode(u, init, n);
+      if (mode === "hang") return "hang-signal";
+      if (mode === "fail") return Promise.resolve(new Response("{}", { status: 500 }));
+      return window.__sheet(window.__liveSheets[sheet] || [["Header"]]);
+    };
+    window.__countFor = sheet => window.__fakeCalls.filter(c => c.key === sheet).length;
+    window.__countAll = () => window.__fakeCalls.length;
+  };
+
+  // G1–G6: Albums times out at startup; the next call refetches only Albums,
+  // without waiting, and live albums replace the demo ones. A third call
+  // makes no requests at all.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G1 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    __setLiveAlbumsForTest(null);
+    window.__sheetMode.Albums = "hang";
+    const startup = await __guard(ensureLiveNavDataFetch());
+    const missingAfterStartup = missingLiveNavOptionalSheets();
+    const albumsAfterStartup = activeAlbums() === FAKE_ALBUMS;
+    const countsBefore = { All: __countFor("All"), DB_Sets: __countFor("DB_Sets"), Photos: __countFor("Photos"), Albums: __countFor("Albums") };
+    window.__sheetMode.Albums = "ok";
+    const t0 = Date.now();
+    const second = await ensureLiveNavDataFetch();
+    const secondMs = Date.now() - t0;
+    const refetch = liveNavOptionalFetchPromise;
+    const refetchResult = await __guard(refetch || Promise.resolve("none"));
+    const countsAfter = { All: __countFor("All"), DB_Sets: __countFor("DB_Sets"), Photos: __countFor("Photos"), Albums: __countFor("Albums") };
+    const liveAlbumNames = activeAlbums().map(a => a.name);
+    const missingAfterRefetch = missingLiveNavOptionalSheets();
+    const totalBeforeThird = __countAll();
+    const third = await ensureLiveNavDataFetch();
+    await new Promise(r => setTimeout(r, 50));
+    return {
+      startup, missingAfterStartup, albumsAfterStartup, countsBefore, second, secondMs, refetchResult,
+      countsAfter, liveAlbumNames, missingAfterRefetch, third,
+      thirdRequests: __countAll() - totalBeforeThird, refetchAfterThird: liveNavOptionalFetchPromise
+    };
+  });
+  ok(G1.startup === true && JSON.stringify(G1.missingAfterStartup) === '["Albums"]' && G1.albumsAfterStartup,
+    `G1 Albums timing out at startup still lets startup succeed, Albums is recorded as missing, and the demo albums are what's showing (missing ${JSON.stringify(G1.missingAfterStartup)})`);
+  ok(G1.second === true && G1.secondMs < 100, `G2 the next call answers at once without waiting on the refetch (${G1.secondMs}ms)`);
+  ok(G1.countsAfter.Albums === G1.countsBefore.Albums + 1 && G1.countsAfter.All === G1.countsBefore.All && G1.countsAfter.DB_Sets === G1.countsBefore.DB_Sets && G1.countsAfter.Photos === G1.countsBefore.Photos,
+    `G3 ...and refetches ONLY the missing sheet (before ${JSON.stringify(G1.countsBefore)}, after ${JSON.stringify(G1.countsAfter)})`);
+  ok(G1.refetchResult === true && G1.liveAlbumNames.includes("Live Test Album") && G1.missingAfterRefetch.length === 0,
+    `G4 the refetched Albums merges in: live albums replace the demo ones and nothing is missing any more (${JSON.stringify(G1.liveAlbumNames)})`);
+  ok(G1.third === true && G1.thirdRequests === 0 && G1.refetchAfterThird === null, `G5 once every sheet has loaded, a call makes no requests at all (${G1.thirdRequests} requests)`);
+
+  // G6–G8: a sheet that keeps failing — each call retries just it, and
+  // nothing already loaded is touched.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G6 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Wishlist = "fail";
+    await __guard(ensureLiveNavDataFetch());
+    const albums = LIVE_ALBUMS, photos = LIVE_PHOTOS, coins = LIVE_COINS;
+    const before = __countAll(), wishBefore = __countFor("Wishlist");
+    for (let i = 0; i < 3; i++) { ensureLiveNavDataFetch(); await __guard(liveNavOptionalFetchPromise || Promise.resolve()); }
+    return {
+      missing: missingLiveNavOptionalSheets(),
+      wishRequests: __countFor("Wishlist") - wishBefore, otherRequests: (__countAll() - before) - (__countFor("Wishlist") - wishBefore),
+      untouched: LIVE_ALBUMS === albums && LIVE_PHOTOS === photos && LIVE_COINS === coins && !!albums && !!photos
+    };
+  });
+  ok(JSON.stringify(G6.missing) === '["Wishlist"]' && G6.wishRequests === 3, `G6 a sheet that keeps failing stays missing and is retried once per call (${G6.wishRequests} Wishlist requests over 3 calls)`);
+  ok(G6.otherRequests === 0, `G7 ...with no other sheet requested (${G6.otherRequests} other requests)`);
+  ok(G6.untouched, "G8 already-loaded Albums, Photos and core data are untouched by those failed refetches");
+
+  // G9–G10: a refetch that times out leaves loaded data alone; a forced
+  // refresh where a loaded sheet times out keeps that sheet's data AND
+  // doesn't mark it missing (it isn't refetched).
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G9 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Receipts = "hang";
+    await __guard(ensureLiveNavDataFetch());
+    const photos = LIVE_PHOTOS, albums = LIVE_ALBUMS, receipts = LIVE_RECEIPTS;
+    ensureLiveNavDataFetch();
+    const r = await __guard(liveNavOptionalFetchPromise || Promise.resolve("none"));
+    const afterTimeout = { r, photos: LIVE_PHOTOS === photos, albums: LIVE_ALBUMS === albums, receipts: LIVE_RECEIPTS === receipts, missing: missingLiveNavOptionalSheets() };
+    window.__sheetMode.Receipts = "ok";
+    window.__sheetMode.Albums = "hang";
+    const namesBefore = albums.map(a => a.name).join("|");
+    const forced = await __guard(refreshLiveCoinsAfterWrite());
+    // The albums object may be rebuilt (fresh DB_Sets + the cached Albums
+    // rows); what must hold is that the live albums are still there.
+    return { afterTimeout, forced, albumsKept: !!LIVE_ALBUMS && LIVE_ALBUMS.map(a => a.name).join("|") === namesBefore && activeAlbums() !== FAKE_ALBUMS,
+      missingAfterForced: missingLiveNavOptionalSheets() };
+  });
+  ok(G9.afterTimeout.r === false && G9.afterTimeout.photos && G9.afterTimeout.albums && G9.afterTimeout.receipts && JSON.stringify(G9.afterTimeout.missing) === '["Receipts"]',
+    `G9 a refetch that times out changes nothing already loaded and leaves only that sheet missing (${JSON.stringify(G9.afterTimeout)})`);
+  ok(G9.forced === true && G9.albumsKept && G9.missingAfterForced.length === 0,
+    `G10 a forced refresh where loaded Albums times out keeps the existing albums and doesn't re-mark them missing; the late Receipts arrives with it (missing ${JSON.stringify(G9.missingAfterForced)})`);
+
+  // G11: a stale refetch never overwrites newer data.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G11 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Photos = "hang";
+    await __guard(ensureLiveNavDataFetch());
+    __setSplashTimingsForTest({ request: 60000 });
+    let releaseOld;
+    window.__sheetMode.Photos = () => new Promise(r => { releaseOld = r; });
+    ensureLiveNavDataFetch();                    // starts the background Photos refetch (held open)
+    const oldRefetch = liveNavOptionalFetchPromise;
+    await new Promise(r => setTimeout(r, 30));   // let it actually issue its request
+    window.__liveSheets.Photos = [["PhotoID", "CollectionID", "PhotoType", "Filename"], ["PH-NEW", "AY-90001", "Obverse", "NEW.jpg"]];
+    window.__sheetMode.Photos = "ok";
+    const forced = await __guard(refreshLiveCoinsAfterWrite()); // newer full fetch brings NEW.jpg
+    const newAfterForced = (LIVE_PHOTOS["AY-90001"] || [])[0];
+    if (releaseOld) releaseOld(new Response(JSON.stringify({ values: [["PhotoID", "CollectionID", "PhotoType", "Filename"], ["PH-OLD", "AY-90001", "Obverse", "OLD.jpg"]] }), { status: 200 }));
+    const oldResult = await __guard(oldRefetch);
+    const final = (LIVE_PHOTOS["AY-90001"] || [])[0];
+    return { forced, newFile: newAfterForced && newAfterForced.filename, oldResult, finalFile: final && final.filename };
+  });
+  ok(G11.forced === true && G11.newFile === "NEW.jpg" && G11.oldResult === false && G11.finalFile === "NEW.jpg",
+    `G11 an older refetch landing after a newer fetch is discarded — it can't overwrite newer data (final ${G11.finalFile}, stale result ${G11.oldResult})`);
+
+  // G12: end to end through navigate("albums") — the list shows demo albums,
+  // then swaps to the live album once the refetch lands, with no reload.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G12 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    __setLiveAlbumsForTest(null);
+    window.__sheetMode.Albums = "hang";
+    await __guard(ensureLiveNavDataFetch());
+    window.__sheetMode.Albums = "ok";
+    navigate("albums");
+    const listText = () => document.getElementById("albumsListView").textContent;
+    const before = listText();
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve());
+    const after = listText();
+    navigate("dashboard");
+    return { beforeHasDemo: before.includes(FAKE_ALBUMS[0].name), beforeHasLive: before.includes("Live Test Album"),
+      afterHasLive: after.includes("Live Test Album"), afterHasDemo: after.includes(FAKE_ALBUMS[0].name) };
+  });
+  ok(G12.beforeHasDemo && !G12.beforeHasLive && G12.afterHasLive && !G12.afterHasDemo,
+    `G12 the Albums list re-renders from demo albums to the live album when the late Albums sheet arrives (${JSON.stringify(G12)})`);
+
+  // G13: Photos arriving after the old All-column fallback was in use.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER);
+  const G13 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    LIVE_PHOTOS = null;
+    window.__sheetMode.Photos = "hang";
+    await __guard(ensureLiveNavDataFetch());
+    const coin = () => activeCoins().find(c => c.id === "AY-90001");
+    const missingBefore = coinMissingPhoto(coin());
+    window.__sheetMode.Photos = "ok";
+    ensureLiveNavDataFetch();
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve());
+    return { missingBefore, missingAfter: coinMissingPhoto(coin()) };
+  });
+  ok(G13.missingBefore === true && G13.missingAfter === false,
+    "G13 a coin whose only photo is on the Photos tab reads as photo-less while Photos is missing (the All-column fallback), and correctly as photographed once the late Photos sheet arrives");
 
   await page.evaluate(RESET);
 }, module);

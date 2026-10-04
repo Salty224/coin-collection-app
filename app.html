@@ -6258,6 +6258,88 @@
   // and the next caller would start a duplicate fetch.
   let liveNavFetchGeneration = 0;
 
+  // ---- Non-essential sheets: refetch what's missing -------------------
+  // Photos, Receipts, Albums and Wishlist are additive: the startup fetch
+  // succeeds without them (only the five core sheets gate it). Since every
+  // read got a deadline, a slow one of these really does get left out — and
+  // the "already loaded" guard in ensureLiveNavDataFetch() used to stop at
+  // the core sheets, so a missing one stayed missing (Albums showing demo
+  // albums, Photos falling back to the old All photo columns) until a reload
+  // or a write refresh.
+  //
+  // Now each one's raw rows are kept once they arrive (null = not loaded
+  // this session), and while any is still null the next
+  // ensureLiveNavDataFetch() call refetches ONLY those, in the background.
+  // Once all four have loaded, nothing extra is ever requested.
+  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist"];
+  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null };
+  // Raw DB_Sets/DB_Coins rows from the last successful core load — Albums is
+  // built from raw rows (buildLiveAlbums()), so a late Albums or Wishlist
+  // needs them to rebuild without refetching the core sheets.
+  let liveNavCoreRawRows = null;
+  let liveNavOptionalFetchPromise = null;
+  // Same superseded-fetch guard as liveNavFetchGeneration. Bumped by a full
+  // fetch starting (it re-reads these sheets anyway) and by Retry, so an
+  // older refetch settling later can never overwrite newer data.
+  let liveNavOptionalGeneration = 0;
+  function missingLiveNavOptionalSheets() {
+    return LIVE_NAV_OPTIONAL_SHEETS.filter(sheet => liveNavOptionalRows[sheet] === null);
+  }
+  function __resetLiveNavOptionalForTest() { // test-only seam
+    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null };
+    liveNavCoreRawRows = null;
+    liveNavOptionalFetchPromise = null;
+    liveNavOptionalGeneration++;
+  }
+
+  // Merges whichever non-essential sheets came back with a real answer.
+  // `got` holds only those — a sheet that failed or timed out is simply
+  // absent, so whatever was already loaded for it stays exactly as it was.
+  function applyLiveNavOptionalRows(got) {
+    Object.keys(got).forEach(sheet => { liveNavOptionalRows[sheet] = got[sheet]; });
+    if (got.Photos) LIVE_PHOTOS = buildPhotoIndex(got.Photos);
+    if (got.Receipts) LIVE_RECEIPTS = buildReceiptIndex(got.Receipts);
+    // Albums is rebuilt when either it or the Wishlist (its "want" flags)
+    // newly arrives, from the latest raw rows of both. A Wishlist still
+    // missing degrades exactly like an empty sheet (no want matches).
+    if ((got.Albums || got.Wishlist) && liveNavOptionalRows.Albums && liveNavCoreRawRows) {
+      LIVE_ALBUMS = buildLiveAlbums(liveNavOptionalRows.Albums, liveNavCoreRawRows.DB_Sets,
+        liveNavOptionalRows.Wishlist, liveNavCoreRawRows.DB_Coins);
+      // The "Assign to Album" dropdown on Add Coin is built once at
+      // page-load init from whatever activeAlbums() returned then (demo
+      // data, since no fetch can have resolved yet at that point) — refresh
+      // it now regardless of which view is on screen, so Add Coin offers
+      // real open slots the first time it's actually opened.
+      populateAssignAlbumOptions();
+    }
+  }
+
+  // Background refetch of only the missing non-essential sheets. Never
+  // awaited by ensureLiveNavDataFetch() — the splash and every screen carry
+  // on with what they have, and rerenderViewsAfterLiveNavData() picks up
+  // what lands. Each read keeps the per-request deadline.
+  function refetchMissingLiveNavSheets() {
+    const missing = missingLiveNavOptionalSheets();
+    if (!missing.length) return Promise.resolve(true);
+    if (liveNavOptionalFetchPromise) return liveNavOptionalFetchPromise;
+    const gen = ++liveNavOptionalGeneration;
+    liveNavOptionalFetchPromise = Promise.all(missing.map(sheet => fetchWorkbookSheetRows(sheet))).then(results => {
+      if (gen !== liveNavOptionalGeneration) return false; // superseded — newer data owns these sheets
+      liveNavOptionalFetchPromise = null;
+      const got = {};
+      missing.forEach((sheet, i) => { if (results[i] !== null) got[sheet] = results[i]; });
+      if (!Object.keys(got).length) return false;
+      applyLiveNavOptionalRows(got);
+      rerenderViewsAfterLiveNavData();
+      return true;
+    }).catch(err => {
+      if (gen === liveNavOptionalGeneration) liveNavOptionalFetchPromise = null;
+      console.warn("Live nav data: non-essential sheet refetch error:", err && err.message);
+      return false;
+    });
+    return liveNavOptionalFetchPromise;
+  }
+
   // The single swap point every nav function reads through — this is what
   // keeps the blast radius of this feature to a short, auditable list of
   // call sites (see CLAUDE.md for the exact list) instead of touching
@@ -6335,6 +6417,34 @@
     return specs;
   }
 
+  // Re-renders whichever live-data screen is on display after new sheet
+  // data lands — shared by the full startup fetch and the background refetch
+  // of missing non-essential sheets.
+  function rerenderViewsAfterLiveNavData() {
+    const activeView = document.querySelector(".view.active");
+    if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
+    // Same reasoning as the Browse branch above, extended to Ledger/Stats
+    // (2026-09-02 fix): a fetch that resolves while Stats is already open
+    // (e.g. triggered from Browse first, then the user tabs to Stats
+    // before it lands) must re-render it too, or it stays stuck on
+    // whatever was on screen when the fetch started.
+    else if (activeView && activeView.id === "view-stats") renderStats();
+    // Spotlight sits on the landing view and is now live-data-backed, so
+    // it has to re-render when the fetch lands — otherwise it keeps
+    // whatever it drew before, for a full SPOTLIGHT_DWELL_MS at best.
+    else if (activeView && activeView.id === "view-dashboard") renderSpotlight();
+    // Albums' list screen only — a book already open when the fetch lands
+    // is deliberately left showing whatever it opened with (same "picks
+    // up on next render/reopen" tradeoff this feature's own reference-
+    // image tier already accepts for renderSlotCell()'s string-templated
+    // render); rebuilding currentAlbumPages out from under an open book
+    // risks landing on a different album at that same array index.
+    else if (activeView && activeView.id === "view-albums" &&
+             document.getElementById("albumsListView").style.display !== "none") {
+      renderAlbumsList();
+    }
+  }
+
   // Lazy and dedup'd, safe to call as often as needed (mirrors
   // ensureReferenceImageFetch()). Fetches All + DB_Sets in parallel; once a
   // REAL answer lands for both (not just "no token yet"), re-renders
@@ -6355,7 +6465,14 @@
     // Catalog and Ledger to demo data mid-session. The old arrays stay in
     // place and are replaced wholesale when the new ones land.
     const force = !!(opts && opts.force);
-    if (!force && LIVE_COINS && LIVE_DB_SETS) return Promise.resolve(true); // already loaded this session
+    if (!force && LIVE_COINS && LIVE_DB_SETS) {
+      // Core data is loaded. If a non-essential sheet is still missing, fetch
+      // just that one in the background — unless a full fetch is already in
+      // flight, which re-reads it anyway. Either way the answer is `true`
+      // straight away: nothing (the splash included) waits on this.
+      if (!liveNavDataFetchPromise) refetchMissingLiveNavSheets();
+      return Promise.resolve(true);
+    }
     // An in-flight fetch is still shared even when forcing — it was started
     // at most a moment ago and is already going to return fresh data, so
     // starting a second one would only duplicate the work.
@@ -6377,6 +6494,10 @@
     // captures and why.
     liveNavDataProcessingError = null;
     const gen = ++liveNavFetchGeneration;
+    // This full fetch re-reads the non-essential sheets too, so any separate
+    // refetch of them still in flight is superseded.
+    liveNavOptionalGeneration++;
+    liveNavOptionalFetchPromise = null;
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -6480,49 +6601,22 @@
       });
       LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
       LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
-      // Photos/Receipts are additive: a null (no real answer) leaves the
-      // previous index in place rather than blanking the display, exactly
-      // like the reference-image fetcher's own attempted/not-attempted rule.
-      if (photoRows) LIVE_PHOTOS = buildPhotoIndex(photoRows);
-      if (receiptRows) LIVE_RECEIPTS = buildReceiptIndex(receiptRows);
-      // Albums — additive too, same reasoning: an Albums-sheet hiccup must
-      // not wipe out an already-loaded live album view, and dbSetsRows is
-      // guaranteed present here (the five-core-sheet gate above already
-      // returned false otherwise). wishlistRows is passed through as-is —
-      // buildLiveAlbums()/buildAlbumWantIndex() already treat a null/empty
-      // array identically (no want matches), so a Wishlist-only failure
-      // degrades exactly like an empty sheet, never like a real fetch error.
-      if (albumRows) {
-        LIVE_ALBUMS = buildLiveAlbums(albumRows, dbSetsRows, wishlistRows, dbCoinsRows);
-        // The "Assign to Album" dropdown on Add Coin is built once at
-        // page-load init from whatever activeAlbums() returned then (demo
-        // data, since this fetch can't have resolved yet at that point) —
-        // refresh it now regardless of which view is on screen, so Add
-        // Coin offers real open slots the first time it's actually opened.
-        populateAssignAlbumOptions();
-      }
-      const activeView = document.querySelector(".view.active");
-      if (activeView && activeView.id === "view-browse") applyActiveBrowseTabFilters();
-      // Same reasoning as the Browse branch above, extended to Ledger/Stats
-      // (2026-09-02 fix): a fetch that resolves while Stats is already open
-      // (e.g. triggered from Browse first, then the user tabs to Stats
-      // before it lands) must re-render it too, or it stays stuck on
-      // whatever was on screen when the fetch started.
-      else if (activeView && activeView.id === "view-stats") renderStats();
-      // Spotlight sits on the landing view and is now live-data-backed, so
-      // it has to re-render when the fetch lands — otherwise it keeps
-      // whatever it drew before, for a full SPOTLIGHT_DWELL_MS at best.
-      else if (activeView && activeView.id === "view-dashboard") renderSpotlight();
-      // Albums' list screen only — a book already open when the fetch lands
-      // is deliberately left showing whatever it opened with (same "picks
-      // up on next render/reopen" tradeoff this feature's own reference-
-      // image tier already accepts for renderSlotCell()'s string-templated
-      // render); rebuilding currentAlbumPages out from under an open book
-      // risks landing on a different album at that same array index.
-      else if (activeView && activeView.id === "view-albums" &&
-               document.getElementById("albumsListView").style.display !== "none") {
-        renderAlbumsList();
-      }
+      // Photos/Receipts/Albums/Wishlist are additive: a null (no real
+      // answer) leaves whatever was already loaded in place rather than
+      // blanking the display, exactly like the reference-image fetcher's own
+      // attempted/not-attempted rule — and that sheet stays marked missing,
+      // so the next ensureLiveNavDataFetch() call refetches just it (see
+      // refetchMissingLiveNavSheets()). dbSetsRows is guaranteed present
+      // here (the five-core-sheet gate above already returned false
+      // otherwise), and is kept for a later Albums/Wishlist rebuild.
+      liveNavCoreRawRows = { DB_Sets: dbSetsRows, DB_Coins: dbCoinsRows };
+      const optionalGot = {};
+      if (photoRows !== null) optionalGot.Photos = photoRows;
+      if (receiptRows !== null) optionalGot.Receipts = receiptRows;
+      if (albumRows !== null) optionalGot.Albums = albumRows;
+      if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
+      applyLiveNavOptionalRows(optionalGot);
+      rerenderViewsAfterLiveNavData();
       return true;
     }).catch(err => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
@@ -26195,6 +26289,8 @@
     const aborted = abortStartupRequests();
     liveNavFetchGeneration++;
     liveNavDataFetchPromise = null;
+    liveNavOptionalGeneration++;
+    liveNavOptionalFetchPromise = null;
     docketQueueGeneration++;
     docketQueueFetchPromise = null;
     return aborted;
