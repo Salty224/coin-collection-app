@@ -2330,6 +2330,15 @@
 
   /* Detail title row + its prev/next step arrows (item 7). */
   .detail-title-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  /* Finish label line (see its markup comment). Existing .detail-label for
+     "Finish:", and the same muted 13px text .detail-block p uses for the
+     value — no new colours or fonts. */
+  .detail-finish-line { margin: -4px 0 8px; font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+  .detail-finish-line.hidden { display: none; }
+  @media (min-width: 600px) {
+    .detail-finish-anchor { position: relative; height: 0; }
+    .detail-finish-line { position: absolute; top: 0; left: 0; margin: 0; max-width: calc(50% - 156px); }
+  }
   .detail-step-btn {
     flex: 0 0 auto;
     width: 34px; height: 34px;
@@ -2650,6 +2659,13 @@
             <h2 class="display" style="margin:0; flex:1;" id="browseDetailName"></h2>
             <button type="button" class="detail-step-btn" id="browseDetailNextBtn" aria-label="Next coin" title="Next coin">›</button>
           </div>
+          <!-- Finish (All.Finish), a quiet label line under the title. On a
+               wide screen it sits in the empty area left of the flip card,
+               level with the card's top, via a zero-height anchor so the
+               card itself never moves; on a phone that area is ~50px, so it
+               stays in normal flow under the title instead. Empty and hidden
+               when Finish is blank. Deliberately NOT on the flip card. -->
+          <div class="detail-finish-anchor"><div class="detail-finish-line hidden" id="browseDetailFinish"></div></div>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
                button layered on it. The Set gallery region that used to sit
@@ -15054,6 +15070,18 @@
     if (target) showBrowseDetail(target);
   }
 
+  // The "Finish: <value>" line under the detail page title. All.Finish only
+  // (mapWorkbookRowToCoin's coin.finish) — never DB_Coins.Finish, which
+  // describes the catalog TYPE rather than this specimen. Blank -> nothing
+  // at all: no label, no placeholder.
+  function renderDetailFinishLine(coin) {
+    const el = document.getElementById("browseDetailFinish");
+    if (!el) return;
+    const finish = String((coin && coin.finish) || "").trim();
+    el.innerHTML = finish ? `<span class="detail-label">Finish:</span> ${escapeHtmlText(finish)}` : "";
+    el.classList.toggle("hidden", !finish);
+  }
+
   function detailTitleText(coin) {
     const name = coin.name || "";
     const year = coin.year == null ? "" : String(coin.year).trim();
@@ -15081,6 +15109,7 @@
     // literal "Various" year is skipped, since "Various Roll of 20..."
     // reads as nonsense.
     document.getElementById("browseDetailName").textContent = detailTitleText(coin);
+    renderDetailFinishLine(coin);
     updateBrowseStepButtons(coin);
 
     // A multi-child Set used to branch here and replace its own flip with a
@@ -15466,11 +15495,17 @@
     // Defaults open (see RECORD_SECTIONS comment).
     const overviewRows = [];
     if (coin.year) overviewRows.push(["Year", yearMintText(coin)]);
+    // Finish — All.Finish only, never DB_Coins.Finish. After Variety and
+    // before Grade on a coin; a Set (no Variety/Grade) carries it after its
+    // Description. Omitted when blank, like every row here.
+    const finishText = String(coin.finish || "").trim();
     if (isSet) {
       if (coin.name) overviewRows.push(["Description", coin.name]);
+      if (finishText) overviewRows.push(["Finish", escapeHtmlText(finishText)]);
     } else {
       if (coin.denom) overviewRows.push(["Denomination", coin.denom]);
       if (coin.variety) overviewRows.push(["Variety", coin.variety]);
+      if (finishText) overviewRows.push(["Finish", escapeHtmlText(finishText)]);
       const gradeText = gradeWithSourceText(coin);
       if (gradeText) overviewRows.push(["Grade", gradeText]);
       if (coin.designation) overviewRows.push(["Designation", coin.designation]);
