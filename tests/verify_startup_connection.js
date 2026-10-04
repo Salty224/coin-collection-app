@@ -208,5 +208,117 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
   });
   ok(/timed out/i.test(A18) && /Receipts: timed out after 12s/.test(A18), `A18 the splash's diagnostic detail calls out the timeout (got: ${A18.split("\n").slice(0, 3).join(" | ")})`);
 
+  // ================================================================
+  // B. Retry starts fresh (commit B).
+  // ================================================================
+  // B1–B5: a core sheet hangs (signal-honouring, like a real fetch). Retry
+  // aborts it, drops the shared promise, and a NEW request goes out; the
+  // aborted fetch settling later must not touch the newer one's state.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const B1 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 60000 }); // the deadline is NOT what ends it here — Retry is
+    const coreOk = window.__coreOk();
+    let release;
+    window.__fakeRoutes["*"] = (u, init, n) => {
+      if (/'All'/.test(u) && n === 0) return "hang-signal";
+      if (/'All'/.test(u) && n === 1) return new Promise(r => { release = () => r(coreOk(u, init, n)); });
+      return coreOk(u, init, n);
+    };
+    const oldPromise = ensureLiveNavDataFetch();
+    await new Promise(r => setTimeout(r, 50));
+    const oldSignal = window.__fakeSignals.find(x => x.key === "All").signal;
+    restartStartupFetches();
+    const newPromise = ensureLiveNavDataFetch();
+    const oldResult = await __guard(oldPromise, 2000);
+    await new Promise(r => setTimeout(r, 50));
+    const sharedStillNew = liveNavDataFetchPromise === newPromise;
+    const allDiagWhileNewPending = __getLiveNavDataDiagnosticsForTest().All.kind;
+    if (release) release();
+    const newResult = await __guard(newPromise, 3000);
+    return {
+      oldAborted: oldSignal.aborted,
+      oldAbortWasRetry: !!(oldSignal.reason && oldSignal.reason.retrySuperseded),
+      oldResult, sharedStillNew, allDiagWhileNewPending, newResult,
+      distinct: oldPromise !== newPromise,
+      allCalls: window.__fakeCalls.filter(c => c.key === "All").length,
+      liveCoins: (activeCoins() || []).map(c => c.id)
+    };
+  });
+  ok(B1.oldAborted && B1.oldAbortWasRetry, "B1 Retry aborts the in-flight request (its AbortSignal fires, marked as superseded by Retry)");
+  ok(B1.distinct && B1.allCalls === 2, `B2 Retry starts a NEW fetch with a new request, instead of handing back the old promise (All requested ${B1.allCalls}x)`);
+  ok(B1.oldResult === false && B1.sharedStillNew, "B3 the aborted fetch settling afterwards returns false and does NOT clear the newer fetch's shared in-flight promise");
+  ok(B1.allDiagWhileNewPending === "pending", `B4 nor does it overwrite the newer request's "pending" diagnostic (got ${B1.allDiagWhileNewPending})`);
+  ok(B1.newResult === true && B1.liveCoins.includes("AY-90001"), "B5 the fresh fetch then completes and loads real data");
+
+  // B6–B8: already-loaded data survives a Retry, and survives that fresh
+  // fetch then FAILING too.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const B6 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 300 });
+    const loaded = [{ id: "AY-77777", name: "Already loaded", denom: "1C", year: 1909 }];
+    __setLiveCoinsForTest(loaded);           // LIVE_DB_SETS stays null, so a fetch still runs
+    const queue = { type: "docket-queue", version: 1, entries: [] };
+    __setLiveDocketQueueForTest(queue);
+    window.__fakeRoutes["*"] = () => "hang-signal";
+    ensureLiveNavDataFetch();
+    await new Promise(r => setTimeout(r, 30));
+    restartStartupFetches();
+    const sameAfterRetry = activeCoins() === loaded;
+    const result = await __guard(ensureLiveNavDataFetch(), 3000); // every sheet hangs -> times out -> false
+    return {
+      sameAfterRetry, result,
+      sameAfterFailedFetch: activeCoins() === loaded,
+      docketSame: __getLiveDocketQueueForTest() === queue
+    };
+  });
+  ok(B6.sameAfterRetry, "B6 Retry does not wipe already-loaded data (LIVE_COINS is the same array right after Retry)");
+  ok(B6.result === false && B6.sameAfterFailedFetch, "B7 ...and a fresh fetch that then fails leaves it untouched too");
+  ok(B6.docketSame, "B8 an already-loaded Docket queue survives Retry as well");
+
+  // B9–B11: the Docket read — Retry aborts it and starts a fresh read, and
+  // the aborted read settling later doesn't clear the new read's promise.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const B9 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 60000 });
+    const good = { type: "docket-queue", version: 1, entries: [] };
+    let release;
+    window.__fakeRoutes.docket = (u, init, n) => n === 0 ? "hang-signal"
+      : new Promise(r => { release = () => r(new Response(JSON.stringify(good), { status: 200 })); });
+    const oldP = loadDocketQueue();
+    await new Promise(r => setTimeout(r, 50));
+    const oldSignal = window.__fakeSignals.find(x => x.key === "docket").signal;
+    restartStartupFetches();
+    const newP = loadDocketQueue();
+    const newShared = docketQueueFetchPromise; // loadDocketQueue() is async, so compare the shared promise itself
+    const oldResult = await __guard(oldP, 2000);
+    await new Promise(r => setTimeout(r, 30));
+    const sharedStillNew = newShared !== null && docketQueueFetchPromise === newShared;
+    const diagWhileNewPending = (__getDocketQueueDiagnosticForTest() || {}).kind;
+    if (release) release();
+    const newResult = await __guard(newP, 3000);
+    return { oldAborted: oldSignal.aborted, oldResult, sharedStillNew, diagWhileNewPending,
+      newOk: !!(newResult && newResult.entries), calls: window.__fakeCalls.filter(c => c.key === "docket").length };
+  });
+  ok(B9.oldAborted && B9.calls === 2, `B9 Retry aborts the in-flight Docket read and a fresh read goes out (${B9.calls} requests)`);
+  ok(B9.oldResult === null && B9.sharedStillNew && B9.diagWhileNewPending === "pending", `B10 the aborted Docket read settling later leaves the newer read's promise and "pending" diagnostic alone (${B9.diagWhileNewPending})`);
+  ok(B9.newOk, "B11 the fresh Docket read completes normally");
+
+  // B12: the real Retry button is wired to the abort (not just runSplashConnect).
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const B12 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 60000 });
+    window.__fakeRoutes["*"] = () => "hang-signal";
+    ensureLiveNavDataFetch();
+    await new Promise(r => setTimeout(r, 30));
+    const sig = window.__fakeSignals.find(x => x.key === "All").signal;
+    document.getElementById("splashRetryBtn").click();
+    await new Promise(r => setTimeout(r, 30));
+    const aborted = sig.aborted;
+    splashConnectGeneration++; // stop the loop the click started
+    restartStartupFetches();
+    return { aborted };
+  });
+  ok(B12.aborted, "B12 tapping the real Retry button aborts the in-flight request");
+
   await page.evaluate(RESET);
 }, module);

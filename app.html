@@ -5619,8 +5619,30 @@
   // The caller treats the rejection as an ordinary failure, and failures are
   // never cached (the existing only-cache-a-real-answer rule), so the next
   // attempt starts a genuinely fresh request rather than re-awaiting this one.
+  // Every request currently running under withRequestTimeout(), so the
+  // splash's Retry can abort them all (abortStartupRequests()). Membership is
+  // exactly the startup reads — nothing else uses withRequestTimeout().
+  const startupRequestControllers = new Set();
+
+  function retrySupersededError() {
+    const e = new Error("Aborted: superseded by Retry");
+    e.name = "AbortError";
+    e.retrySuperseded = true; // callers skip their diagnostics for this — a newer attempt owns them now
+    return e;
+  }
+
+  // Aborts every startup read still in flight. Used only by Retry
+  // (restartStartupFetches()); already-loaded data is untouched.
+  function abortStartupRequests() {
+    const controllers = Array.from(startupRequestControllers);
+    startupRequestControllers.clear();
+    controllers.forEach(c => c.abort(retrySupersededError()));
+    return controllers.length;
+  }
+
   async function withRequestTimeout(work, timeoutMs) {
     const controller = new AbortController();
+    startupRequestControllers.add(controller);
     const aborted = new Promise((_, reject) => {
       controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
     });
@@ -5630,6 +5652,7 @@
       return await Promise.race([work(controller.signal), aborted]);
     } finally {
       clearTimeout(timer);
+      startupRequestControllers.delete(controller);
     }
   }
 
@@ -5675,6 +5698,9 @@
         return rows;
       }, splashTiming("request"));
     } catch (e) {
+      // Aborted by Retry: the fresh attempt already set this sheet back to
+      // "pending" and owns its diagnostic now — don't overwrite it.
+      if (e && e.retrySuperseded) return null;
       const timedOut = e && e.name === "TimeoutError";
       liveNavDataDiagnostics[sheet] = timedOut
         ? { kind: "timeout", ms: e.timeoutMs }
@@ -6217,6 +6243,13 @@
   // as every other LIVE_* array here.
   let LIVE_ALBUMS = null;
   let liveNavDataFetchPromise = null;
+  // Bumped whenever a new fetch starts or Retry discards the current one. A
+  // fetch whose generation is no longer current is superseded: when it
+  // settles it touches NOTHING — not the shared promise (which may already
+  // be the newer fetch's), not the LIVE_* caches. Without this, an aborted
+  // fetch settling after Retry would null out the fresh in-flight promise,
+  // and the next caller would start a duplicate fetch.
+  let liveNavFetchGeneration = 0;
 
   // The single swap point every nav function reads through — this is what
   // keeps the blast radius of this feature to a short, auditable list of
@@ -6336,6 +6369,7 @@
     // liveNavDataProcessingError's own declaration below for what it
     // captures and why.
     liveNavDataProcessingError = null;
+    const gen = ++liveNavFetchGeneration;
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -6372,6 +6406,7 @@
       fetchWorkbookSheetRows("Albums"),
       fetchWorkbookSheetRows("Wishlist")
     ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows]) => {
+      if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
       liveNavDataFetchPromise = null;
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) return false;
@@ -6483,6 +6518,7 @@
       }
       return true;
     }).catch(err => {
+      if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
       liveNavDataFetchPromise = null;
       // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
       // call catches its own errors and never rejects, so reaching this
@@ -9982,6 +10018,9 @@
   // _Docket/docket.json rather than sharing the one real request already
   // in flight.
   let docketQueueFetchPromise = null;
+  // Same superseded-fetch guard as liveNavFetchGeneration: Retry bumps it, and
+  // an older read settling afterwards must not clear the newer read's promise.
+  let docketQueueGeneration = 0;
 
   // DIAGNOSTIC-ONLY (temporary), same purpose/rules as liveNavDataDiagnostics
   // above for the separate _Docket/docket.json fetch — a single object
@@ -9999,6 +10038,7 @@
     if (!docketWriteEnabled()) { docketQueueDiagnostic = { kind: "disabled" }; return null; }
     if (LIVE_DOCKET_QUEUE && !force) return LIVE_DOCKET_QUEUE;
     if (docketQueueFetchPromise) return docketQueueFetchPromise;
+    const gen = ++docketQueueGeneration;
     docketQueueFetchPromise = (async () => {
       docketQueueDiagnostic = { kind: "pending" };
       try {
@@ -10019,6 +10059,8 @@
         // token), "GET json <path> failed: <status>" (a real HTTP error),
         // or a raw fetch()/JSON-parse exception message (network/CORS) —
         // parsed here rather than re-deriving a second token check.
+        // Aborted by Retry: the fresh read owns the diagnostic now.
+        if (e && e.retrySuperseded) return null;
         const message = (e && e.message) || String(e);
         let kind = "exception";
         let status = null;
@@ -10034,7 +10076,7 @@
         console.warn("Docket queue read failed:", e);
         return null;
       } finally {
-        docketQueueFetchPromise = null;
+        if (gen === docketQueueGeneration) docketQueueFetchPromise = null;
       }
     })();
     return docketQueueFetchPromise;
@@ -26065,8 +26107,31 @@
     }, SPLASH_DATA_TIMEOUT_MS);
   }
 
+  // Retry starts genuinely fresh. Before this, Retry just re-ran
+  // runSplashConnect(), whose first check got back the SAME in-flight
+  // promise from ensureLiveNavDataFetch()/loadDocketQueue() — so a request
+  // that had hung was simply re-awaited, and only a page reload cleared it.
+  //
+  // Now: abort every startup read still running, mark both shared fetches
+  // superseded and drop their in-flight promises, then reconnect, which
+  // starts new requests. Already-loaded data (LIVE_COINS and the rest,
+  // LIVE_DOCKET_QUEUE) is deliberately NOT cleared — a fetch that fails
+  // after Retry leaves it exactly as it was.
+  function restartStartupFetches() {
+    const aborted = abortStartupRequests();
+    liveNavFetchGeneration++;
+    liveNavDataFetchPromise = null;
+    docketQueueGeneration++;
+    docketQueueFetchPromise = null;
+    return aborted;
+  }
+  function retrySplashConnect() {
+    restartStartupFetches();
+    runSplashConnect();
+  }
+
   function initSplash() {
-    document.getElementById("splashRetryBtn").addEventListener("click", runSplashConnect);
+    document.getElementById("splashRetryBtn").addEventListener("click", retrySplashConnect);
     runSplashConnect();
   }
 
