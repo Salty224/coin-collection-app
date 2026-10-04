@@ -13874,7 +13874,17 @@
     if (!disc) return true;
     const d = disc.getBoundingClientRect();
     if (!d.width) return true; // not laid out (display:none subtree) — nothing meaningful to test
-    const cx = d.left + d.width / 2, cy = d.top + d.height / 2, radius = d.width / 2;
+    // The disc animates to its new size (.coin-disc has a 0.15s width
+    // transition) when the denomination changes, and the corners are fitted
+    // the instant that size is set — so its on-screen rect is still the
+    // PREVIOUS coin's size here. Stepping from a $1 to a cent measured
+    // against a 210px circle instead of 151px (needless shrinking); a cent
+    // to a $1 measured a circle too small (text that then sits on the coin).
+    // Measure against the size it is going to, its inline width from
+    // sizeCoinElement(), around its centre, which the animation doesn't move.
+    const targetSize = parseFloat(disc.style.width);
+    const size = targetSize > 0 ? targetSize : d.width;
+    const cx = d.left + d.width / 2, cy = d.top + d.height / 2, radius = size / 2;
     const boxes = el.querySelectorAll(".corner-line");
     const rects = boxes.length ? [...boxes].map(b => b.getBoundingClientRect()) : [el.getBoundingClientRect()];
     return rects.every(r => {
