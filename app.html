@@ -4035,9 +4035,13 @@
             same as <em>Save to Staging</em> — but when your coin resolves to exactly one
             clean, unambiguous DB_Coins match, it then writes straight into the All sheet in
             that same step, no separate trip to Promote needed. Ambiguous, conflicting, or
-            unmatched coins fall back to a Staging-only save — use Re-check, Promote, or
-            Force Add from Staging Review or the Docket once resolved. Which option you chose
-            is still recorded on the draft either way.</span>
+            unmatched coins fall back to a Staging-only save, and each follow-up action lives
+            in one place: <em>Re-check</em> wherever a CoinID is still pending — Staging Review,
+            and the Docket's Staging and Awaiting Copilot Research sections. <em>Promote</em>
+            once a draft is marked ready <em>and</em> has a CoinID — Staging Review, or the
+            Docket's Staging section. <em>Force Add</em>, which records the coin unlinked, only
+            in the Docket's Awaiting Copilot Research section, after Mark ready. Which option
+            you chose is still recorded on the draft either way.</span>
           </div>
           <div class="case hidden" id="addCoinMatchAmbiguousPanel" style="margin:8px 0 16px; padding:12px;">
             <div class="section-label" style="margin-top:0; padding-top:0; border-top:none;">Multiple DB_Coins rows match this coin — pick the correct one to finish saving</div>
@@ -4047,7 +4051,7 @@
           </div>
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
           <button class="save-btn" id="saveToStagingBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border);">Save to Staging</button>
-          <div class="placeholder-note">Layout preview only — no OneDrive write happens yet; Staging/CollectionID reservation is simulated in-memory for this mockup.</div>
+          <div class="placeholder-note" id="addCoinMockNote">Layout preview only — no OneDrive write happens yet; Staging/CollectionID reservation is simulated in-memory for this mockup.</div>
         </div>
       </section>
 
@@ -24506,6 +24510,15 @@
     // Hidden entirely in the mockup build, where the existing
     // "no OneDrive write happens yet" note already covers it.
     const interim = document.getElementById("addCoinInterimBanner");
+    // The other half of that pairing, which was never actually wired: the
+    // mockup note stayed visible on the real-write path, directly under the
+    // save buttons, flatly contradicting the interim banner a few pixels
+    // above it. Its text is accurate for the mock path (flag off = zero Graph
+    // calls, getNextCollectionIdInMemory()), so it is gated rather than
+    // reworded. Set before the editingCoinDraftId early return below, since
+    // this depends only on the flag and never on form state.
+    const mockNote = document.getElementById("addCoinMockNote");
+    if (mockNote) mockNote.classList.toggle("hidden", addCoinWriteEnabled());
     const hasEnoughToEvaluate = document.getElementById("denomination").value && document.getElementById("year").value.trim();
     const confident = isConfidentMatch();
 

@@ -851,6 +851,79 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
      P.shapeCategory === "Silver Eagle" && P.withoutCategory === 1,
     "P1 Re-check routes through coinDraftMatchShape()'s `category`: a confirmed hard Category rejects a disagreeing LONE candidate (which is otherwise a real match), reporting 'still no match' and never offering the row: " + JSON.stringify(P));
 
+  // ============ Q. Add Coin's two false copy strings ============
+  // Both were live on Pages and visible on screen at the same time, a few
+  // pixels apart, contradicting each other.
+  //
+  // (1) The mockup note under the save buttons ("no OneDrive write happens
+  //     yet; Staging/CollectionID reservation is simulated in-memory") sat
+  //     there unconditionally, directly below an interim banner that
+  //     correctly said the opposite. updateSaveConfidenceUI()'s own comment
+  //     had always described the intended pairing -- "Hidden entirely in the
+  //     mockup build, where the existing 'no OneDrive write happens yet'
+  //     note already covers it" -- but only the banner half was ever wired.
+  //     Checked before changing: the text IS still true with the flag off
+  //     (zero Graph calls, getNextCollectionIdInMemory()), so it is gated to
+  //     that path rather than reworded, mirroring renderStagingList()'s own
+  //     interimBanner/stagingMockNote pair exactly.
+  //
+  // (2) The interim banner said to "use Re-check, Promote, or Force Add from
+  //     Staging Review or the Docket" -- Force Add exists in neither of the
+  //     places that sentence points a reader first. Verified against the
+  //     real call sites before rewording: Force Add renders ONLY in the
+  //     Docket's Awaiting Copilot Research section (one onForceAdd site,
+  //     gated on stagedHandedOff = READY && no CoinID); Promote in Staging
+  //     Review and the Docket's Staging section, both gated on marked-ready
+  //     AND a CoinID; Re-check wherever a CoinID is still pending, in all
+  //     three places.
+  //
+  // Asserted on real COMPUTED STYLE, not classList, for the same reason this
+  // project has recorded before: a missing scoped .hidden rule reads as
+  // hidden to classList while rendering fully visible. (.placeholder-note
+  // .hidden does exist, app.html:1908 -- which is why toggling the class is
+  // enough here.)
+  const Q = await page.evaluate(() => {
+    const note = document.getElementById("addCoinMockNote");
+    const msg = (document.querySelector("#addCoinInterimBanner .msg") || {}).textContent || "";
+    const vis = () => note ? getComputedStyle(note).display !== "none" : null;
+    __setAddCoinWriteEnabledForTest(true);
+    updateSaveConfidenceUI();
+    const onReal = vis();
+    __setAddCoinWriteEnabledForTest(false);
+    updateSaveConfidenceUI();
+    const onMock = vis();
+    __setAddCoinWriteEnabledForTest(null);
+    return { exists: !!note, onReal, onMock, msg: msg.replace(/\s+/g, " ").trim() };
+  });
+
+  ok(Q.exists === true && Q.onReal === false,
+    "Q1 the Add Coin mockup note is genuinely hidden (computed style) once the write layer is on, instead of contradicting the interim banner above it");
+  ok(Q.onMock === true,
+    "Q2 -- and still shows on the mock path, where every word of it is still true");
+
+  ok(!/from Staging Review or the Docket/.test(Q.msg) &&
+     /Force Add[^.]*only[^.]*Docket's Awaiting Copilot Research section/.test(Q.msg),
+    "Q3 the interim banner no longer points Force Add at Staging Review, and names the one section it really lives in: " + JSON.stringify(Q.msg.slice(-260)));
+  ok(/Promote[^.]*marked ready[^.]*CoinID[^.]*Staging Review[^.]*Docket's Staging section/.test(Q.msg),
+    "Q4 -- Promote is attributed to Staging Review and the Docket's Staging section, with the marked-ready-AND-CoinID precondition");
+  ok(/Re-check wherever a CoinID is still pending[^.]*Staging Review[^.]*Docket's Staging and Awaiting Copilot Research sections/.test(Q.msg),
+    "Q5 -- and Re-check to all three places that actually offer it");
+
+  // Pins the real locations the copy now claims, so the two cannot drift
+  // apart again. (O3/O4/O7 already pin Force Add's single site and Staging
+  // Review's own Promote gate; these are the remaining three.)
+  const Qsrc = require("fs").readFileSync(
+    require("path").join(__dirname, "..", "app.html"), "utf8");
+  const Q6 = {
+    promoteSites: (Qsrc.match(/onPromote:/g) || []).length,
+    docketStagingPromoteGate:
+      /const readyToPromote = c\.status === COIN_DRAFT_STATUS\.READY && !!c\.coinId && !!c\.collectionID;/.test(Qsrc),
+    stagingReviewRecheckGate:
+      /const pendingCoinId = !row\._mock && !alreadyReady && !row\.coinId;/.test(Qsrc)
+  };
+  ok(Q6.promoteSites === 1 && Q6.docketStagingPromoteGate === true && Q6.stagingReviewRecheckGate === true,
+    "Q6 the locations the copy names are still the real ones in code: one Docket Promote site gated on READY+CoinID, and Staging Review's Re-check gated on a pending CoinID: " + JSON.stringify(Q6));
+
   // ============ J. Nav / overflow smoke ============
   const J = await page.evaluate(() => {
     const routes = ["dashboard", "browse", "albums", "wishlist", "stats", "acquisitions", "needsdbcoins", "addcoin"];
