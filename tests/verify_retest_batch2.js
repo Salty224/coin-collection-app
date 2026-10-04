@@ -183,7 +183,10 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
   ok(EMAP.funFact === "FF", "E3c ... alongside FunFact, unchanged");
   ok(EMAP.blankNotes === "", "E3d ... and a row with no Notes maps to blank, never undefined");
 
-  ok(E.hasYoursTag && E.hasCatalogTag, "E4 the two kinds are labelled distinctly (\"yours\" vs \"catalog reference\")");
+  // Updated with commit 6 (Ray): the detail page no longer tags the catalog
+  // fields "catalog reference"; only the coin's own Notes keeps its "yours"
+  // tag, which is what still tells the two kinds apart.
+  ok(E.hasYoursTag && !E.hasCatalogTag, "E4 the coin's own Notes keeps its \"yours\" tag; the catalog fields carry no \"catalog reference\" tag");
   ok(E.showsValueProv, "E5 Value source + date show read-only in Overview");
 
   // catalogNotesFor() must NOT fall back to FAKE_COIN_DETAILS.notes — that
@@ -212,9 +215,11 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
       notesEditable: document.getElementById("browseEditNotes").tagName === "TEXTAREA"
     };
   });
-  ok(F.labels.some(l => /^Notes\b/.test(l) && /yours, editable/.test(l)), "F1 Notes is labelled as the user's own editable field: " + JSON.stringify(F.labels));
-  ok(F.labels.some(l => /^Fun Fact\b/.test(l) && /catalog reference, read-only/.test(l)), "F2 Fun Fact is labelled catalog reference, read-only");
-  ok(F.labels.some(l => /^Catalog Notes\b/.test(l) && /catalog reference, read-only/.test(l)), "F3 Catalog Notes is labelled catalog reference, read-only");
+  // Updated with commit 6 (Ray): the tags are shortened to just "editable" /
+  // "read-only" — the part that tells Ray which fields he can change.
+  ok(F.labels.includes("Notes editable"), "F1 Notes is labelled editable: " + JSON.stringify(F.labels));
+  ok(F.labels.includes("Fun Fact read-only"), "F2 Fun Fact is labelled read-only");
+  ok(F.labels.includes("Catalog Notes read-only"), "F3 Catalog Notes is labelled read-only");
   ok(F.funFactReadOnly && F.catalogNotesReadOnly, "F4 both catalog fields are non-input DIVs — structurally read-only, no write path");
   ok(F.notesEditable, "F5 Notes remains a real editable textarea (mapping to All.Remarks is correct and unchanged)");
 

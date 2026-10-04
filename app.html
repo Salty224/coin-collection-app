@@ -1877,8 +1877,9 @@
   .readonly-field:empty::before { content: "—"; opacity: 0.6; }
   .readonly-field.hidden { display: none; }
 
-  /* Origin tag on a field label ("yours, editable" / "catalog reference,
-     read-only"). Deliberately quiet — it qualifies the label, it isn't a
+  /* Origin tag on a field label (Edit Coin: "editable" / "read-only" — they
+     tell Ray which fields he can change; Browse detail: "yours" on Notes).
+     Deliberately quiet — it qualifies the label, it isn't a
      label of its own. Exists because Notes (per-coin, All.Remarks) sits
      directly under Fun Fact and Catalog Notes (both shared DB_Coins catalog
      data), and the three read as the same kind of thing without it. */
@@ -3046,14 +3047,14 @@
                    per-coin form would imply a per-coin value that doesn't
                    exist. Shown for context only; corrections go through
                    DB_Coins. -->
-              <label>Fun Fact <span class="field-origin">catalog reference, read-only</span></label>
+              <label>Fun Fact <span class="field-origin">read-only</span></label>
               <div id="browseEditFunFact" class="readonly-field"></div>
 
               <!-- DB_Coins.Notes, read-only — same standing as Fun Fact above
                    (catalog data about the coin TYPE, shared by every coin with
                    that CoinID). Hidden entirely when the catalog has none, so
                    it never leaves an empty labelled box. -->
-              <label id="browseEditCatalogNotesLabel">Catalog Notes <span class="field-origin">catalog reference, read-only</span></label>
+              <label id="browseEditCatalogNotesLabel">Catalog Notes <span class="field-origin">read-only</span></label>
               <div id="browseEditCatalogNotes" class="readonly-field"></div>
 
               <!-- Notes writes to All.Remarks (the only free-text column on
@@ -3064,7 +3065,7 @@
                    The origin tag matters here: this sits directly under two
                    read-only catalog fields, and the three used to read as the
                    same kind of thing. This one is per-coin and yours. -->
-              <label>Notes <span class="field-origin">yours, editable</span></label>
+              <label>Notes <span class="field-origin">editable</span></label>
               <textarea id="browseEditNotes" placeholder="Anything else worth remembering about this specimen"></textarea>
             </div>
           </div>
@@ -15704,7 +15705,7 @@
     // Denomination="Multiple" against any real DB_Coins row, so it degrades
     // to the same FAKE_COIN_DETAILS fallback a Set already used.
     const funFact = catalogFunFactFor(coin);
-    if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact <span class="field-origin">catalog reference</span></div><p>${funFact}</p>`;
+    if (funFact) notesHtml += `<div class="detail-label" style="margin-top:6px;">Fun Fact</div><p>${funFact}</p>`;
     // DB_Coins.Notes, read-only. Ray's ask: catalog reference content should
     // be viewable on the coin's own page, not only inside Edit Coin. Label is
     // just "Catalog Notes" (Ray): the word "Catalog" already says where it
