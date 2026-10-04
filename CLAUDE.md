@@ -64,6 +64,127 @@ consistency gap has been seen twice and option 3 (a real workbook session)
 stays in reserve for a third sighting; `All.Status` filtering is designed
 but deliberately unbuilt.
 
+## Startup connection, docket.json, and the no-demo-data rule (04 Oct 2026)
+Built on `claude/dreamy-turing-2vyo06` (commits `018c29d`..`9a4d70c`, plus this
+documentation commit), live-tested by Ray on desktop Chrome (normal load, a
+request-blocked load reaching the 25-second error screen, the request count,
+and Retry loading in place), and fast-forwarded to `main` on his go-ahead.
+The regression suite for all of it is `tests/verify_startup_connection.js`.
+
+### Startup connection behavior
+- **Timings** (named constants, retunable in one line): per-request timeout
+  `SPLASH_REQUEST_TIMEOUT_MS` = 12 s on each of the nine sheet reads and the
+  Docket read; overall splash wait `SPLASH_DATA_TIMEOUT_MS` = 25 s before
+  "Couldn't connect"; `SPLASH_SLOW_NOTICE_MS` = 5 s before the status reads
+  "Still connecting…"; Docket grace `SPLASH_DOCKET_GRACE_MS` = 2 s. The 25 s
+  must stay above 2 × 12 s so one request that times out still leaves room for
+  a fresh attempt. Tests shorten these via `__setSplashTimingsForTest()`; the
+  backoff scales with a shortened overall wait so they stay fast.
+- **Root cause of the original "Couldn't connect, Retry doesn't help"**:
+  nothing had a timeout, and `ensureLiveNavDataFetch()` / `loadDocketQueue()`
+  hand every caller the same in-flight promise, so one Graph request that
+  never answered held every later attempt, Retry included, until a reload.
+  `withRequestTimeout()` now puts token + request + body under one
+  AbortController deadline; a timeout is an ordinary failure and failures are
+  never cached, so the next attempt is a fresh request.
+- **Retry** aborts every in-flight startup read (`abortStartupRequests()`),
+  drops both shared in-flight promises, bumps their generation counters
+  (`liveNavFetchGeneration`, `docketQueueGeneration`,
+  `liveNavOptionalGeneration`) and starts fresh. A superseded fetch settling
+  later touches nothing. Already-loaded data is never cleared.
+- **Late data clears the error box**: an attempt still in flight when the
+  error shows is honoured, and the 400 ms check keeps looking for arrived data
+  (without sending anything), so the splash clears on its own.
+- **Backoff**: the 400 ms check only SENDS a fresh set of reads when nothing
+  is in flight, the backoff since the last send has elapsed, and fewer than
+  `SPLASH_MAX_ATTEMPTS` (6) have gone out. `SPLASH_BACKOFF_MS` = 2 / 4 / 8 s
+  (last repeats), measured from each send. A fast-failing network now sends 5
+  attempts / ~50 requests in the 25 s window instead of 62 / ~620 (Ray
+  measured 626 before the fix). Retry starts at once with a new schedule. A
+  429/503 Retry-After is honoured (`noteRetryAfter()`); it is inert if Graph
+  doesn't expose that header to the browser (not verified).
+- **Missing non-essential sheets** (Photos, Receipts, Albums, Wishlist) no
+  longer block startup and no longer stay missing: once core data is loaded,
+  the next `ensureLiveNavDataFetch()` call (the next navigation) refetches
+  ONLY the missing ones in the background (`refetchMissingLiveNavSheets()`),
+  with the same 12 s deadline, and merges them in. Core sheets (All, DB_Sets,
+  DB_Coins, Lookup_MetalContent, Lookup_Graders) are unchanged.
+- **Docket fast-fail**: once core data has loaded and the 2 s grace has
+  passed, a failed Docket read counts as ready and the splash clears. The
+  failure is never cached. The drawer fob and the Research count show **"?"**
+  (unknown), never "0"; the hub re-renders on its own when a later read
+  succeeds (`docketCountUnknown`).
+- `getJson()` reads the body as bytes first and throws a distinct
+  `EmptyBodyError` (status + byte length) for an empty body; the Docket read
+  logs `Docket queue read: HTTP <status>, <n> bytes` and shows it in the
+  splash's diagnostic detail.
+
+### docket.json handling (`{stagingBase}/_Docket/docket.json`)
+- **Valid empty content**: `{"type":"docket-queue","version":1,"entries":[]}`
+  (the app also writes `updatedDate`; on read only `type` and `entries` are
+  checked).
+- **Missing file (404)** = empty queue (first run); the first add creates it.
+- **0-byte file** = a failure: count shows "?", adds are kept in memory only
+  (Browse Edit toasts "couldn't save it to the Docket file"), and the app
+  **never repairs it**. Ray's case (04 Oct 2026, `_Testing` COPY): the file had
+  been emptied by hand in OneDrive. No app code path can write an empty file
+  (the only writer, `saveDocketQueue()`, always sends a stringified queue).
+  Fix by deleting the file or replacing it with the valid empty content above.
+  Possible later improvement (not built): on an empty body, check the item's
+  `size` via Graph metadata — 0 means genuinely empty (treat as an empty
+  queue), >0 means a dropped transfer (keep treating as a failure).
+- **Known risk (backlog)**: a file that parses but has the wrong `type` (e.g.
+  `{}`) is read as an empty queue, and the next add **overwrites** it.
+
+### Standing rule: no demo or filler data in a live session (Ray)
+The app runs on real data (today the `_Testing` folder / COPY workbook). In a
+live session NO demo or filler data is shown unless it stands in for a
+feature that is not built yet. `liveDataMode()` classifies the session:
+`"live"` (MSAL loaded and an account signed in), `"offline"` (MSAL never loaded
+or live data off — the offline mockup, demo data by design), `"signed-out"`
+(MSAL loaded, no account yet; transient before the sign-in redirect; left
+showing the mockup). **Albums comply**: in a live session `activeAlbums()` is
+empty until real albums load, the Albums screen shows "Albums are still
+loading…" / "Couldn't load albums; will try again when you reopen this
+screen", and the Belongs-to chip, the book and Add Coin's "Assign to Album"
+show nothing meanwhile. `FAKE_ALBUMS` and the offline mockup are untouched.
+
+**NEXT branch's scope — the remaining demo data in a live session:**
+- (a) Placeholders for unbuilt features: Wishlist screen (`FAKE_WISHLIST`; no
+  live Wishlist screen read), Grading Help (`FAKE_GRADING_HELP`; guidance not
+  written), pending-coin banner (`FAKE_PENDING_COIN`, null; reconciliation not
+  built), Add Coin Error dropdown (`FAKE_LOOKUP_ERRORS`, 8 of 42; no live
+  Lookup_Errors read).
+- (b) Built features that fall back to demo data: the `activeCoins()` /
+  `activeDbSets()` / `activeDbCoins()` / `activeLookupGraders()` fallbacks
+  before core data loads or when it fails; **`FAKE_COIN_DETAILS`** (Seller,
+  Purchase Date, Receipt, Notes, Fun Fact fill blanks on real coins whose IDs
+  collide — `renderBrowseDetailPanel`/`renderDetailAccordions`,
+  `catalogFunFactFor`, `showBrowseEditViewInner`); **`FAKE_GALLERIES`**
+  (`galleryFor()` seeds demo photo entries by ID); **`FAKE_SET_FACTS`** (Set
+  Details facts by ID); **`resolveCoinSetLink()`** (always searches
+  `FAKE_COINS`); `FAKE_SET_CHILDREN` (second tier of `setChildrenFor()`);
+  `FAKE_METAL_CONTENT` (before live coins load); `FAKE_LOOKUP_GRADERS` read
+  directly by the grader lists (a static copy of the real table).
+  `FAKE_GRADES` and `FAKE_DENOMINATIONS` are static copies of real reference
+  tables, not filler.
+- **Ray's live finding**: real coin AY-00001 shows a demo Fun Fact, demo
+  "yours" Notes and demo gallery entries, while the workbook has blanks there.
+
+### Live-test technique
+Chrome DevTools request blocking is now under **"Request conditions"** and
+needs a valid URL pattern such as `https://graph.microsoft.com/*`. A bare
+`*graph.microsoft.com*` pattern is invalid and blocks nothing.
+
+### Backlog found during this work (not built)
+- An open album book can mix two albums after a live album-list refresh that
+  changes positions (the book holds a list position, not the album itself).
+- Add Coin's "Assign to Album" selection resets when Albums/Wishlist arrive late.
+- The Docket screen does not re-render when Photos arrive late.
+- A full-screen photo viewer opened from a demo gallery entry with no image
+  gets stuck: Escape and scrolling don't close it.
+- Navigation fetches (Catalog, Albums, Ledger) do not back off after a failure.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
