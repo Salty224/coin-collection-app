@@ -185,6 +185,50 @@ needs a valid URL pattern such as `https://graph.microsoft.com/*`. A bare
   gets stuck: Escape and scrolling don't close it.
 - Navigation fetches (Catalog, Albums, Ledger) do not back off after a failure.
 
+## Coin detail, Finish and flip-card text (04 Oct 2026)
+Built on `claude/coin-detail-real-data-finish`, live-tested by Ray on the branch
+build, fast-forwarded to `main` on his go-ahead.
+
+- **No demo data on real coins in a live session.** When `liveDataMode()` is
+  `"live"`, real coins never show `FAKE_*` data (coin details, galleries, Set
+  facts/children, Set links, specs, the combined-photo badge), and
+  `activeCoins()`/`activeDbSets()`/`activeDbCoins()` are empty until real data
+  loads. The offline mockup keeps all demo data. `activeLookupGraders()` keeps
+  its demo copy by design (a copy of a real reference table; the
+  cert-protection guard needs it).
+- **Finish on Browse detail.** A line under the page title showing only the
+  value (no label), in the title's serif font at 20px/600, its left edge
+  aligned to the title TEXT (indented past the prev arrow when it shows;
+  `syncDetailFinishIndent()`). Beside the flip card at 600px and wider, in flow
+  under the title on a phone. Business Strike, Uncirculated and blank show
+  nothing there (`DEFAULT_FINISHES_HIDDEN_ON_PAGE`). The Overview row (after
+  Variety, before Grade) always shows Finish when present, defaults included.
+- **Flip-card text is display-only.** On the flip card only (Browse detail,
+  Spotlight, Catalog mini card, front and back; Add Coin's preview uses the same
+  helpers):
+  - `FLIP_TEXT_ABBREVIATIONS`: Anniversary -> Ann.; U.S./US/United States
+    Marine Corps and U.S./US Marines -> USMC. Whole word, case-insensitive,
+    applied inside `renderFittedCornerLines()`.
+  - `dropTrailingDenomToken()`: a description whose last word equals the
+    card's denomination line drops that word ("... Proof Silver $1" over "$1").
+  - Grade and Designation are joined with one space ("VG-8 BN";
+    `gradeDesignationCornerText()`).
+  - `clampFlipCorners()` is the overflow safety net: after a card renders, any
+    corner past the card edge, overflowing its box, on the coin, or touching
+    another corner is re-fitted at a floor (never under 9px), wrapped, then
+    word-truncated with an ellipsis. Corners that already fit are untouched.
+  - `cornerClearsDisc()` measures against the coin's target size (its inline
+    width), since `.coin-disc` animates when the denomination changes.
+  - Stored data and every non-flip surface (title, Overview, Catalog text,
+    Albums, Edit, search, the flip card's screen-reader summary) keep the full
+    text. Add Coin's preview draws no Description (its top-right is the
+    denomination only) and does not treat its photo circle as a disc to clear.
+- **Photo viewer overlay** scrolls, and closes with Escape or a backdrop tap.
+  This fixes the stuck-viewer backlog item in the section above.
+- **Known, not fixed:** Edit Set fills Seller, Purchase Date and Shipping only
+  from the details lookup, not from the Set's own row, so a real Set's real
+  values don't show there.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
