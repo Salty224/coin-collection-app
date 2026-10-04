@@ -78,6 +78,9 @@ const RESET = () => {
   liveNavDataFetchPromise = null;
   docketQueueFetchPromise = null;
   __resetLiveNavOptionalForTest();
+  __setLiveDataModeForTest(null);
+  __setLiveAlbumsForTest(null);
+  liveAlbumsLoadFailed = false;
 };
 
 module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }) => {
@@ -817,6 +820,157 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
     return out;
   });
   ok(H12.text !== "?" && H12.research !== "?", `H12 with the Docket write layer off there's no "?" — that queue is in memory and known (fob "${H12.text}", research "${H12.research}")`);
+
+  // ================================================================
+  // I. No demo albums in a live session (commit 7). __setLiveDataModeForTest
+  //    stands in for "MSAL loaded + signed in" (real MSAL can't load here).
+  // ================================================================
+  const ALBUM_STATE = () => {
+    window.__albumsView = () => {
+      const list = document.getElementById("albumsListContainer");
+      const note = document.getElementById("albumsStatusNote");
+      return {
+        cards: list.querySelectorAll(".album-card").length,
+        text: list.textContent,
+        state: note ? note.dataset.state : null,
+        demoShown: FAKE_ALBUMS.some(a => list.textContent.includes(a.name)),
+        liveShown: list.textContent.includes("Live Test Album")
+      };
+    };
+  };
+
+  // I1–I2: live, nothing loaded yet, load in flight — "still loading", no demo albums.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER); await page.evaluate(ALBUM_STATE);
+  const I1 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    __setSplashTimingsForTest({ request: 60000 });
+    window.__sheetMode.All = "hang";
+    navigate("albums");
+    await new Promise(r => setTimeout(r, 30));
+    const v = __albumsView();
+    navigate("dashboard");
+    restartStartupFetches();
+    return v;
+  });
+  ok(I1.state === "loading" && /still loading/i.test(I1.text), `I1 live session, albums not loaded yet: the Albums screen says they're still loading (state ${I1.state})`);
+  ok(I1.cards === 0 && !I1.demoShown, `I2 ...and shows no album cards and no demo album anywhere (${I1.cards} cards)`);
+
+  // I3–I8: every other consumer shows nothing while live albums are missing.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(ALBUM_STATE);
+  const I3 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    const demoCoin = FAKE_COINS.find(c => FAKE_ALBUMS.some(a => a.slots.some(s => s.filledBy === c.id)));
+    const link = resolveCoinAlbumLink(demoCoin);
+    populateAssignAlbumOptions();
+    const assignOptions = document.getElementById("assignAlbum").options.length;
+    const assignText = document.getElementById("assignAlbum").textContent;
+    navigate("browse");
+    showBrowseDetail(demoCoin);
+    const detailText = document.getElementById("view-browse").textContent;
+    navigate("albums");
+    const before = { list: document.getElementById("albumsListView").style.display, detail: document.getElementById("albumsDetailView").style.display };
+    let threw = null;
+    try { await showAlbumDetail(0); await openAlbumFromLink(0); } catch (e) { threw = e.message; }
+    const after = { list: document.getElementById("albumsListView").style.display, detail: document.getElementById("albumsDetailView").style.display };
+    navigate("dashboard");
+    return {
+      activeLen: activeAlbums().length, link, assignOptions,
+      assignHasDemo: FAKE_ALBUMS.some(a => assignText.includes(a.name)),
+      detailHasDemo: FAKE_ALBUMS.some(a => detailText.includes(a.name)),
+      demoCoinId: demoCoin && demoCoin.id, before, after, threw
+    };
+  });
+  ok(I3.activeLen === 0, "I3 activeAlbums() is empty in a live session before live albums load — never FAKE_ALBUMS");
+  ok(I3.link === null && !I3.detailHasDemo, `I4 the Browse "Belongs to Album" chip finds nothing and no demo album appears on the coin's detail page (coin ${I3.demoCoinId})`);
+  ok(I3.assignOptions === 1 && !I3.assignHasDemo, `I5 Add Coin's "Assign to Album" dropdown holds only its "not part of an album" placeholder (${I3.assignOptions} option)`);
+  ok(!I3.threw && I3.after.detail !== "block" && I3.after.list === I3.before.list, `I6 the Albums book can't be opened on an empty list — showAlbumDetail()/openAlbumFromLink() leave the list in place, no error (${JSON.stringify(I3.after)}${I3.threw ? ", threw: " + I3.threw : ""})`);
+
+  // I7–I10: Albums times out at startup (couldn't-load), then arrives on reopen.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER); await page.evaluate(ALBUM_STATE);
+  const I7 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Albums = "hang";
+    navigate("albums");
+    const atStart = __albumsView();
+    await __guard(liveNavDataFetchPromise || Promise.resolve());
+    await new Promise(r => setTimeout(r, 30));
+    const afterTimeout = __albumsView();
+    window.__sheetMode.Albums = "ok";
+    navigate("dashboard");
+    navigate("albums");                        // reopen: refetches the missing Albums sheet
+    const onReopen = __albumsView();
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve());
+    const arrived = __albumsView();
+    navigate("dashboard");
+    return { atStart, afterTimeout, onReopen, arrived, status: liveAlbumsStatus() };
+  });
+  ok(I7.atStart.state === "loading" && !I7.atStart.demoShown, `I7 while the startup fetch is in flight: "still loading", no demo albums (${I7.atStart.state})`);
+  ok(I7.afterTimeout.state === "failed" && /couldn't load albums/i.test(I7.afterTimeout.text) && !I7.afterTimeout.demoShown,
+    `I8 when the Albums read times out, the screen switches by itself to "Couldn't load albums; will try again when you reopen this screen" (${I7.afterTimeout.state})`);
+  ok(I7.onReopen.state === "loading", `I9 reopening the screen retries and says it's loading again (${I7.onReopen.state})`);
+  ok(I7.arrived.state === null && I7.arrived.liveShown && I7.arrived.cards === 1 && !I7.arrived.demoShown && I7.status === "ready",
+    `I10 when the albums arrive, the live album fills the screen by itself — no demo albums (${JSON.stringify({ cards: I7.arrived.cards, live: I7.arrived.liveShown })})`);
+
+  // I11: a refetch that fails (HTTP 500) — couldn't-load state.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER); await page.evaluate(ALBUM_STATE);
+  const I11 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Albums = "fail";
+    await __guard(ensureLiveNavDataFetch());
+    navigate("albums");                        // starts the refetch, which also fails
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve());
+    await new Promise(r => setTimeout(r, 30));
+    const v = __albumsView();
+    navigate("dashboard");
+    return v;
+  });
+  ok(I11.state === "failed" && I11.cards === 0 && !I11.demoShown, `I11 when the refetch fails, the screen shows the couldn't-load state and no demo albums (${I11.state})`);
+
+  // I12–I13: the open-book case. Before live albums exist there is no album
+  // to open, so no book can be holding a demo album when live ones land;
+  // after they land, the book opens on the live album.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(LIVE_ROUTER); await page.evaluate(ALBUM_STATE);
+  const I12 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    __setSplashTimingsForTest({ request: 300 });
+    window.__sheetMode.Albums = "hang";
+    await __guard(ensureLiveNavDataFetch());
+    navigate("albums");
+    const indexBefore = currentAlbumIndex;
+    let threw = null;
+    try { await showAlbumDetail(0); } catch (e) { threw = e.message; } // nothing to open
+    const openedWhileMissing = document.getElementById("albumsDetailView").style.display === "block";
+    const indexUnchanged = currentAlbumIndex === indexBefore;
+    window.__sheetMode.Albums = "ok";
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve()); // the refetch navigate() started — still hanging
+    navigate("dashboard"); navigate("albums");
+    await __guard(liveNavOptionalFetchPromise || Promise.resolve());
+    await showAlbumDetail(0);
+    const bookText = document.getElementById("albumsDetailContainer").textContent;
+    navigate("dashboard");
+    return { threw, openedWhileMissing, indexUnchanged, bookHasLive: bookText.includes("Live Test Album"),
+      bookHasDemo: FAKE_ALBUMS.some(a => bookText.includes(a.name)) };
+  });
+  ok(!I12.threw && !I12.openedWhileMissing && I12.indexUnchanged, "I12 while live albums are missing no book can be opened, so no book can be holding a demo album when the live ones arrive");
+  ok(I12.bookHasLive && !I12.bookHasDemo, "I13 once they arrive, the book opens on the live album with nothing from a demo album in it");
+
+  // I14–I16: offline mockup and signed-out are unchanged — demo albums by design.
+  await page.evaluate(RESET); await page.evaluate(ALBUM_STATE);
+  const I14 = await page.evaluate(async () => {
+    const realMode = liveDataMode();                   // no MSAL in this sandbox: the real offline mockup
+    navigate("albums");
+    const offline = __albumsView();
+    __setLiveDataModeForTest("signed-out");
+    navigate("dashboard"); navigate("albums");
+    const signedOut = __albumsView();
+    navigate("dashboard");
+    return { realMode, offline, signedOut, offlineIsFake: (__setLiveDataModeForTest(null), activeAlbums() === FAKE_ALBUMS) };
+  });
+  ok(I14.realMode === "offline" && I14.offlineIsFake, `I14 with no MSAL (this sandbox) the app is in the offline mockup and still uses FAKE_ALBUMS (${I14.realMode})`);
+  ok(I14.offline.cards === 3 && I14.offline.demoShown && I14.offline.state === null, `I15 the offline mockup's Albums screen is unchanged: demo album cards, no status note (${I14.offline.cards} cards)`);
+  ok(I14.signedOut.cards === 3 && I14.signedOut.state === null, "I16 the signed-out state is left exactly as it was (shows the offline mockup's albums)");
 
   await page.evaluate(RESET);
 }, module);

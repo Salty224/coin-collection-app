@@ -6329,12 +6329,18 @@
       liveNavOptionalFetchPromise = null;
       const got = {};
       missing.forEach((sheet, i) => { if (results[i] !== null) got[sheet] = results[i]; });
-      if (!Object.keys(got).length) return false;
-      applyLiveNavOptionalRows(got);
+      if (Object.keys(got).length) applyLiveNavOptionalRows(got);
+      // Nothing came back: the Albums screen (if showing) moves from
+      // "still loading" to "couldn't load". liveAlbumsLoadFailed is already
+      // set — the full fetch that left Albums missing set it.
+      if (!Object.keys(got).length) { refreshAlbumsListIfShowing(); return false; }
       rerenderViewsAfterLiveNavData();
       return true;
     }).catch(err => {
-      if (gen === liveNavOptionalGeneration) liveNavOptionalFetchPromise = null;
+      if (gen === liveNavOptionalGeneration) {
+        liveNavOptionalFetchPromise = null;
+        refreshAlbumsListIfShowing();
+      }
       console.warn("Live nav data: non-essential sheet refetch error:", err && err.message);
       return false;
     });
@@ -6349,7 +6355,66 @@
   function activeDbSets() { return LIVE_DB_SETS || FAKE_DB_SETS; }
   function activeDbCoins() { return LIVE_DB_COINS || FAKE_DB_COINS; }
   function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
-  function activeAlbums() { return LIVE_ALBUMS || FAKE_ALBUMS; }
+  // ---- Which data world the app is in --------------------------------
+  // Ray's rule (2026-10-04): once the app runs on real data, nothing fake or
+  // filler shows unless it stands in for a feature that isn't built yet. So
+  // features that must never show demo data need to know whether this is a
+  // live session at all:
+  //   "live"       — MSAL loaded and an account is signed in: real Graph data.
+  //   "offline"    — MSAL never loaded, or live nav data is off: the offline
+  //                  mockup, where demo data is the point. Unchanged.
+  //   "signed-out" — MSAL loaded but no account yet. Transient: the first
+  //                  Graph call redirects to sign-in. Deliberately left as it
+  //                  was (it shows whatever the offline mockup shows).
+  // An account, once seen, can't go away without a reload, so "live" is
+  // remembered rather than re-reading MSAL's cache on every call.
+  let liveDataModeOverride = null;
+  let liveDataModeSeenLive = false;
+  function __setLiveDataModeForTest(mode) { liveDataModeOverride = mode || null; } // test-only seam
+  function liveDataMode() {
+    if (liveDataModeOverride) return liveDataModeOverride;
+    if (!ENABLE_LIVE_NAV_DATA || !graphMsalInstance) return "offline";
+    if (liveDataModeSeenLive) return "live";
+    let hasAccount = false;
+    try { hasAccount = graphMsalInstance.getAllAccounts().length > 0; } catch (e) { hasAccount = false; }
+    if (hasAccount) liveDataModeSeenLive = true;
+    return hasAccount ? "live" : "signed-out";
+  }
+
+  // Demo albums only ever in the offline mockup. In a live session, before
+  // the real albums have loaded — or if their read timed out or failed —
+  // this is an EMPTY list, never FAKE_ALBUMS: every consumer (the Albums
+  // list and book, the Browse "Belongs to Album" chip, Add Coin's "Assign to
+  // Album" dropdown) then shows nothing rather than demo entries, and the
+  // Albums screen says why (liveAlbumsStatus()).
+  function activeAlbums() {
+    if (LIVE_ALBUMS) return LIVE_ALBUMS;
+    return liveDataMode() === "live" ? [] : FAKE_ALBUMS;
+  }
+
+  // Set when a fetch that should have brought the Albums sheet settled
+  // without it (timeout, failure, or the core sheets failing), cleared once
+  // live albums exist. Drives the Albums screen's "couldn't load" state.
+  let liveAlbumsLoadFailed = false;
+  // "ready" (live albums loaded), "demo" (not a live session — demo albums by
+  // design), "loading" (live, a load or refetch still in flight, or nothing
+  // has settled yet), "failed" (live, the last attempt didn't bring albums).
+  function liveAlbumsStatus() {
+    if (LIVE_ALBUMS) return "ready";
+    if (liveDataMode() !== "live") return "demo";
+    if (liveNavDataFetchPromise || liveNavOptionalFetchPromise) return "loading";
+    return liveAlbumsLoadFailed ? "failed" : "loading";
+  }
+  // Re-renders the Albums LIST if it's the screen on display — so the
+  // loading/couldn't-load state follows a fetch that settles without albums
+  // (a fetch that brings them is already covered by rerenderViewsAfterLiveNavData()).
+  function refreshAlbumsListIfShowing() {
+    const activeView = document.querySelector(".view.active");
+    if (activeView && activeView.id === "view-albums" &&
+        document.getElementById("albumsListView").style.display !== "none") {
+      renderAlbumsList();
+    }
+  }
   function __setLiveDbCoinsForTest(rows) { LIVE_DB_COINS = rows; } // test-only seam
   function __setLiveLookupGradersForTest(rows) { LIVE_LOOKUP_GRADERS = rows; } // test-only seam
   function __setLiveCoinsForTest(rows) { LIVE_COINS = rows; } // test-only seam — stands in for a real fetch landing, for renderStats()/activeCoins() tests
@@ -6538,7 +6603,10 @@
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
       liveNavDataFetchPromise = null;
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
-      if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) return false;
+      if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) {
+        if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
+        return false;
+      }
       // A stray blank sheet row (no CollectionID) is never a real owned
       // coin; a DB_Sets row with no Lineage is out of this feature's scope
       // entirely (Commemorative/one-off/Album reference rows — the exact
@@ -6617,11 +6685,13 @@
       if (albumRows !== null) optionalGot.Albums = albumRows;
       if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
       applyLiveNavOptionalRows(optionalGot);
+      liveAlbumsLoadFailed = !LIVE_ALBUMS;
       rerenderViewsAfterLiveNavData();
       return true;
     }).catch(err => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
       liveNavDataFetchPromise = null;
+      if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
       // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
       // call catches its own errors and never rejects, so reaching this
       // catch means the PROCESSING block above (after every sheet already
@@ -17643,6 +17713,20 @@
   function renderAlbumsList() {
     const listContainer = document.getElementById("albumsListContainer");
     listContainer.innerHTML = "";
+    // Live session with no real albums yet: say so, never fall back to demo
+    // albums (activeAlbums() is empty here anyway).
+    const albumsStatus = liveAlbumsStatus();
+    if (albumsStatus === "loading" || albumsStatus === "failed") {
+      const note = document.createElement("p");
+      note.className = "placeholder-note";
+      note.id = "albumsStatusNote";
+      note.dataset.state = albumsStatus;
+      note.textContent = albumsStatus === "loading"
+        ? "Albums are still loading…"
+        : "Couldn't load albums; will try again when you reopen this screen.";
+      listContainer.appendChild(note);
+      return;
+    }
     // Sorted for DISPLAY only — showAlbumDetail()/openAlbumAtPage() index
     // into activeAlbums() directly (and currentAlbumIndex persists that
     // index for next/prev book navigation), so the original, unsorted
@@ -17928,6 +18012,9 @@
   const ALBUM_OPEN_IMAGE_TIMEOUT_MS = 5000;
 
   function openAlbumAtPage(index, pageIndex) {
+    // Nothing to open (a live session whose albums haven't loaded has an
+    // empty list) — stay where we are rather than opening an empty book.
+    if (!activeAlbums()[index]) return Promise.resolve();
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
     // needs a real, laid-out #albumsDetailContainer to derive available
