@@ -1,16 +1,21 @@
 // Finish on the coin detail page (All.Finish only — never DB_Coins.Finish).
 //
 // Two places, both on Browse detail:
-//  - a quiet "Finish: <value>" label line under the page title, in the empty
-//    area to the left of the flip card (in flow under the title on a phone,
-//    where that area is only ~50px wide);
+//  - the Finish value alone (no "Finish:" label) under the page title, in the
+//    empty area to the left of the flip card (in flow under the title on a
+//    phone, where that area is only ~50px wide). Blank and the default
+//    finishes (Business Strike, Uncirculated) show nothing there;
 //  - a FINISH row in the Overview accordion, after Variety and before Grade.
 // The flip card itself must be untouched, front and back.
 
 const { defineSuite } = require("./harness");
 
-const FINISHES = ["Business Strike", "Proof", "Burnished", "Reverse Proof", "Various", "SMS",
-  "Enhanced Uncirculated", "Uncirculated", "Specimen", "Matte"];
+// Finishes the page line shows (value only). "Enhanced Uncirculated" and
+// "Enhanced Reverse Proof" are real distinct products, not the default.
+const SHOWN = ["Proof", "Reverse Proof", "Enhanced Uncirculated", "Enhanced Reverse Proof", "Burnished",
+  "Specimen", "SMS", "Matte", "Satin Finish", "Various"];
+// Default finishes + blanks: no page line at all (trimmed, case-insensitive).
+const HIDDEN = ["Business Strike", "Uncirculated", "business strike", "  UNCIRCULATED  ", "", "   ", undefined, null];
 
 module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABLET }) => {
   for (const [vpName, vp] of [["phone", PHONE], ["tablet", TABLET]]) {
@@ -44,12 +49,13 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
         const title = document.querySelector(".detail-title-row").getBoundingClientRect();
         const flip = document.getElementById("browseDetailFlipFrame").getBoundingClientRect();
         const r = el.getBoundingClientRect();
-        return { fin, text: el.textContent.replace(/\s+/g, " ").trim(), shown: getComputedStyle(el).display !== "none" && r.height > 0,
+        return { fin, text: el.textContent.replace(/\s+/g, " ").trim(), html: el.innerHTML, shown: getComputedStyle(el).display !== "none" && r.height > 0,
           belowTitle: r.top >= title.bottom - 1, leftOfOrAboveCard: r.right <= flip.left + 1 || r.bottom <= flip.top + 1,
           inView: r.left >= 0 && r.right <= window.innerWidth, overlapsCard: !(r.right <= flip.left || r.left >= flip.right || r.bottom <= flip.top || r.top >= flip.bottom) };
       });
-    }, FINISHES);
-    ok(A.every(a => a.shown && a.text === "Finish: " + a.fin), tag("A1 the page shows 'Finish: <value>' for every Finish value in use"), A.filter(a => !(a.shown && a.text === "Finish: " + a.fin)));
+    }, SHOWN);
+    ok(A.every(a => a.shown && a.text === a.fin), tag("A1 the page line shows the Finish value only for every non-default Finish"), A.filter(a => !(a.shown && a.text === a.fin)));
+    ok(A.every(a => !/Finish:/i.test(a.text) && !/detail-label/.test(a.html)), tag("A5 the page line carries no 'Finish:' label"), A.filter(a => /Finish:/i.test(a.text) || /detail-label/.test(a.html)));
     ok(A.every(a => a.belowTitle), tag("A2 the Finish line sits directly under the page title"));
     ok(A.every(a => a.leftOfOrAboveCard && !a.overlapsCard), tag("A3 the Finish line never overlaps the flip card (left of it, or above it on a phone)"), A.filter(a => a.overlapsCard));
     ok(A.every(a => a.inView), tag("A4 the longest Finish value stays on screen"));
@@ -61,10 +67,12 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
       const flip = document.getElementById("browseDetailFlipFrame").getBoundingClientRect();
       const title = document.querySelector(".detail-title-row").getBoundingClientRect();
       const r = el.getBoundingClientRect();
-      const label = el.querySelector(".detail-label");
+      const val = document.querySelector("#detailAccordions .detail-accordion .detail-value");
+      const cs = getComputedStyle(el), vs = getComputedStyle(val);
       return { leftOfCard: r.right <= flip.left, alignedTop: Math.abs(r.top - flip.top) <= 2,
         flipGapToTitle: Math.round(flip.top - title.bottom), leftAligned: Math.abs(r.left - title.left) <= 2,
-        labelClass: !!label, labelFont: label && getComputedStyle(label).fontSize };
+        family: cs.fontFamily, weight: cs.fontWeight, size: cs.fontSize,
+        valFamily: vs.fontFamily, valWeight: vs.fontWeight };
     });
     if (vpName === "tablet") {
       ok(B.leftOfCard && B.alignedTop, tag("B1 on a wide screen the line sits in the empty area left of the card, level with its top"), B);
@@ -73,12 +81,13 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
       ok(B.leftAligned, tag("B1 on a phone the line sits left-aligned in flow under the title"), B);
       ok(B.flipGapToTitle > 12, tag("B2 on a phone the card moves down by the one line"), B.flipGapToTitle);
     }
-    ok(B.labelClass && B.labelFont === "11px", tag("B3 'Finish:' uses the page's existing .detail-label styling"), B);
+    ok(B.family === B.valFamily && B.weight === B.valWeight, tag("B3 the page line's font family and weight match the Overview value's"), B);
+    ok(B.size === "13px", tag("B4 the page line keeps its 13px size"), B.size);
 
-    // ---------- C. Blank Finish shows nothing ----------
-    const C = await page.evaluate(() => {
+    // ---------- C. Blank and default Finishes show no page line ----------
+    const C = await page.evaluate((hidden) => {
       const out = [];
-      for (const fin of ["", "   ", undefined, null]) {
+      for (const fin of hidden) {
         window.__show(window.__mk("AY-91200", fin));
         const el = document.getElementById("browseDetailFinish");
         const r = el.getBoundingClientRect();
@@ -86,9 +95,18 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
           overviewHasFinish: window.__overviewRows().some(([l]) => /finish/i.test(l || "")) });
       }
       return out;
-    });
-    ok(C.every(c => !c.visible && c.text === ""), tag("C1 a blank Finish shows no page line at all — no label, no placeholder"), C);
-    ok(C.every(c => !c.overviewHasFinish), tag("C2 a blank Finish adds no Overview row"));
+    }, HIDDEN);
+    ok(C.every(c => !c.visible && c.text === ""), tag("C1 Business Strike, Uncirculated, blank, whitespace and missing show no page line — no label, no placeholder"), C.filter(c => c.visible || c.text));
+    const blanks = C.filter(c => !String(c.fin === "undefined" || c.fin === "null" ? "" : c.fin).trim());
+    ok(blanks.length === 4 && blanks.every(c => !c.overviewHasFinish), tag("C2 a blank Finish adds no Overview row"), blanks);
+
+    // ---------- H. The Overview row still shows the default finishes ----------
+    const H = await page.evaluate(() => ["Business Strike", "Uncirculated"].map(fin => {
+      window.__show(window.__mk("AY-91250", fin));
+      const row = window.__overviewRows().find(([l]) => (l || "").trim() === "Finish");
+      return { fin, ov: row ? (row[1] || "").trim() : null };
+    }));
+    ok(H.every(h => h.ov === h.fin), tag("H1 the Overview row still shows Business Strike and Uncirculated"), H);
 
     // ---------- D. Overview row order ----------
     const D = await page.evaluate(() => {
@@ -113,8 +131,8 @@ module.exports = defineSuite("finish-display", async ({ ok, openApp, PHONE, TABL
           ov: window.__overviewRows().find(([l]) => /^Finish$/.test((l || "").trim())) }; };
       return { set: read(set), child: read(child), blankSet: read(blankSet) };
     });
-    ok(E.set.visible && E.set.text === "Finish: Proof" && E.set.ov, tag("E1 a Set with a Finish shows it (page line + Overview)"), E.set);
-    ok(E.child.visible && E.child.text === "Finish: Proof" && E.child.ov, tag("E2 a Set child with a Finish shows it"), E.child);
+    ok(E.set.visible && E.set.text === "Proof" && E.set.ov, tag("E1 a Set with a Finish shows it (page line + Overview)"), E.set);
+    ok(E.child.visible && E.child.text === "Proof" && E.child.ov, tag("E2 a Set child with a Finish shows it"), E.child);
     ok(!E.blankSet.visible && !E.blankSet.ov, tag("E3 a Set with no Finish shows neither"), E.blankSet);
 
     // ---------- F. The flip card is unchanged ----------

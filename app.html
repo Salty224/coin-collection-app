@@ -2330,10 +2330,11 @@
 
   /* Detail title row + its prev/next step arrows (item 7). */
   .detail-title-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
-  /* Finish label line (see its markup comment). Existing .detail-label for
-     "Finish:", and the same muted 13px text .detail-block p uses for the
-     value — no new colours or fonts. */
-  .detail-finish-line { margin: -4px 0 8px; font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+  /* Finish line (see its markup comment): the value alone, no label. Same
+     weight and colour as an Overview value (.detail-value: 600, --text) and
+     the same inherited font family, at the line's existing 13px — no new
+     colours or fonts. */
+  .detail-finish-line { margin: -4px 0 8px; font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
   .detail-finish-line.hidden { display: none; }
   @media (min-width: 600px) {
     .detail-finish-anchor { position: relative; height: 0; }
@@ -2659,12 +2660,14 @@
             <h2 class="display" style="margin:0; flex:1;" id="browseDetailName"></h2>
             <button type="button" class="detail-step-btn" id="browseDetailNextBtn" aria-label="Next coin" title="Next coin">›</button>
           </div>
-          <!-- Finish (All.Finish), a quiet label line under the title. On a
+          <!-- Finish (All.Finish), the value alone under the title. On a
                wide screen it sits in the empty area left of the flip card,
                level with the card's top, via a zero-height anchor so the
                card itself never moves; on a phone that area is ~50px, so it
                stays in normal flow under the title instead. Empty and hidden
-               when Finish is blank. Deliberately NOT on the flip card. -->
+               when Finish is blank or a default finish
+               (DEFAULT_FINISHES_HIDDEN_ON_PAGE). Deliberately NOT on the
+               flip card. -->
           <div class="detail-finish-anchor"><div class="detail-finish-line hidden" id="browseDetailFinish"></div></div>
           <!-- Photo-touchpoint consolidation (locked in): the top image area
                is reserved purely for the flip-card — no gallery strip/pill/
@@ -15070,16 +15073,29 @@
     if (target) showBrowseDetail(target);
   }
 
-  // The "Finish: <value>" line under the detail page title. All.Finish only
-  // (mapWorkbookRowToCoin's coin.finish) — never DB_Coins.Finish, which
-  // describes the catalog TYPE rather than this specimen. Blank -> nothing
-  // at all: no label, no placeholder.
+  // Finishes too ordinary to call out on the page line: the line exists to
+  // flag something special (Proof, Burnished, SMS…), so the default strike
+  // shows nothing — same as a blank Finish. Compared trimmed and
+  // case-insensitively. The Overview row is NOT filtered by this; it still
+  // shows every real Finish value. Extend here, nowhere else.
+  const DEFAULT_FINISHES_HIDDEN_ON_PAGE = ["Business Strike", "Uncirculated"];
+
+  function isDefaultFinishForPage(finish) {
+    const f = String(finish || "").trim().toLowerCase();
+    return DEFAULT_FINISHES_HIDDEN_ON_PAGE.some(d => d.toLowerCase() === f);
+  }
+
+  // The Finish line under the detail page title: the value alone, no
+  // "Finish:" label. All.Finish only (mapWorkbookRowToCoin's coin.finish) —
+  // never DB_Coins.Finish, which describes the catalog TYPE rather than this
+  // specimen. Blank or a default finish -> nothing at all, no placeholder.
   function renderDetailFinishLine(coin) {
     const el = document.getElementById("browseDetailFinish");
     if (!el) return;
     const finish = String((coin && coin.finish) || "").trim();
-    el.innerHTML = finish ? `<span class="detail-label">Finish:</span> ${escapeHtmlText(finish)}` : "";
-    el.classList.toggle("hidden", !finish);
+    const show = !!finish && !isDefaultFinishForPage(finish);
+    el.textContent = show ? finish : "";
+    el.classList.toggle("hidden", !show);
   }
 
   function detailTitleText(coin) {
