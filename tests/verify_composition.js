@@ -533,9 +533,13 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
 
     return { firstSpouse, atb, lincolnMemorial, baseline };
   });
+  // Updated with the trailing-denomination rule (commit 8, Ray): the
+  // description's own trailing "$10" repeats the denomination line, so the
+  // card shows it once. The identity itself must still be complete.
   ok(Q.firstSpouse.lines.length === 3 &&
-     Q.firstSpouse.lines.slice(0, 2).join(" ") === "Martha Washington First Spouse Gold $10" &&
-     Q.firstSpouse.lines[2] === "$10",
+     Q.firstSpouse.lines.slice(0, 2).join(" ") === "Martha Washington First Spouse Gold" &&
+     Q.firstSpouse.lines[2] === "$10" &&
+     Q.firstSpouse.lines.filter(l => l.includes("$10")).length === 1,
     "Q1 First Spouse (no suffix strips at all): full identity preserved across wrapped lines, never truncated to just \"$10\" — " + JSON.stringify(Q.firstSpouse.lines));
   ok(Q.firstSpouse.fits, "Q2 -- and the rendered box actually fits (no overflow) at whatever size it landed on: " + Q.firstSpouse.size);
   ok(Q.atb.lines.length === 3 && Q.atb.lines[0] + " " + Q.atb.lines[1] === "Washington Crossing the Delaware" && Q.atb.lines[2] === "25C",

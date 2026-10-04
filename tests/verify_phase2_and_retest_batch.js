@@ -455,8 +455,12 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
   ok(L.atb.clears && L.atb.lines.length === 3 &&
      L.atb.lines[0] + " " + L.atb.lines[1] === "Washington Crossing the Delaware",
     "L3 a long ATB quarter wraps, keeps its full name, and clears the coin: " + JSON.stringify(L.atb));
+  // Updated with the trailing-denomination rule (commit 8, Ray): the
+  // description's trailing "$10" repeats the denomination line and is shown
+  // once; the full identity is still kept across the wrapped lines.
   ok(L.firstSpouse.clears && L.firstSpouse.lines.length === 3 &&
-     L.firstSpouse.lines.slice(0, 2).join(" ") === "Martha Washington First Spouse Gold $10",
+     L.firstSpouse.lines.slice(0, 2).join(" ") === "Martha Washington First Spouse Gold" &&
+     L.firstSpouse.lines[2] === "$10",
     "L4 THE REPORTED CASE (AY-00463-B): the First Spouse name keeps its full identity AND now clears the coin graphic: " + JSON.stringify(L.firstSpouse));
   ok(Object.keys(L).every(k => L[k].fits),
     "L5 every case satisfies the full fit predicate — fits its own box AND clears the disc");

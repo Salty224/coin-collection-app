@@ -13006,8 +13006,26 @@
     });
   }
 
+  // Flip card only: when the description's LAST word is the same text as
+  // the denomination line drawn beneath it, drop that word so it isn't shown
+  // twice ("... Proof Silver $1" over "$1"). The same idea as seriesLabel()'s
+  // DENOM_NAME_SUFFIXES ("Morgan Dollar" -> "Morgan"), which strips a spelled
+  // denomination word; this covers the coded form. Compared trimmed and
+  // case-insensitively, applied after FLIP_TEXT_ABBREVIATIONS and before the
+  // fit/clamp, and only when a denomination line is actually drawn. Never
+  // reduces the description to nothing: a description that IS only the
+  // denomination is left as it is.
+  function dropTrailingDenomToken(text, denomLine) {
+    const denom = String(denomLine || "").trim().toLowerCase();
+    const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+    if (!denom || words.length < 2) return String(text || "");
+    if (words[words.length - 1].toLowerCase() !== denom) return String(text || "");
+    return words.slice(0, -1).join(" ");
+  }
+
   function renderTypeDenomCorner(el, coin) {
-    renderFittedCornerLines(el, [seriesLabel(coin), coin.denom || ""], 0);
+    const denom = coin.denom || "";
+    renderFittedCornerLines(el, [dropTrailingDenomToken(abbreviateFlipText(seriesLabel(coin)), denom), denom], 0);
   }
 
   // Splits a free-typed All.Error string into its Obverse/Reverse halves
