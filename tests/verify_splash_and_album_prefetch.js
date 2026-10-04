@@ -66,6 +66,9 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
   // isolated to what it actually tests.
   const B = await page.evaluate(async () => {
     __setDocketWriteEnabledForTest(false);
+    // Fresh attempts now back off (2s, 4s, 8s at full scale); a short
+    // override keeps this block's 600ms window meaningful.
+    __setSplashTimingsForTest({ backoff: [100] });
     const origFetch = window.ensureLiveNavDataFetch;
     let callCount = 0;
     const resolvers = [];
@@ -82,6 +85,7 @@ module.exports = defineSuite("splash-and-album-prefetch", async ({ ok, openApp, 
     const hiddenAfterTrue = document.getElementById("splashScreen").classList.contains("hidden");
     window.ensureLiveNavDataFetch = origFetch;
     __setDocketWriteEnabledForTest(null);
+    __setSplashTimingsForTest(null);
     return { hiddenBeforeAnyAnswer, hiddenAfterFalse, retriedCount, hiddenAfterTrue };
   });
   ok(B.hiddenBeforeAnyAnswer === false, "B1 the splash stays visible while the fetch is still pending, unaffected by this fix");

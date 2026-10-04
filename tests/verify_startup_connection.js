@@ -81,6 +81,7 @@ const RESET = () => {
   __setLiveDataModeForTest(null);
   __setLiveAlbumsForTest(null);
   liveAlbumsLoadFailed = false;
+  lastRetryAfterMs = 0;
 };
 
 module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }) => {
@@ -971,6 +972,109 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
   ok(I14.realMode === "offline" && I14.offlineIsFake, `I14 with no MSAL (this sandbox) the app is in the offline mockup and still uses FAKE_ALBUMS (${I14.realMode})`);
   ok(I14.offline.cards === 3 && I14.offline.demoShown && I14.offline.state === null, `I15 the offline mockup's Albums screen is unchanged: demo album cards, no status note (${I14.offline.cards} cards)`);
   ok(I14.signedOut.cards === 3 && I14.signedOut.state === null, "I16 the signed-out state is left exactly as it was (shows the offline mockup's albums)");
+
+  // ================================================================
+  // J. Splash backoff between fresh attempts (commit 8). A fresh attempt =
+  //    one set of reads (nine sheets + the Docket read), so the "All" sheet
+  //    request is counted as "one attempt".
+  // ================================================================
+  const SPLASH_RUN = () => {
+    window.__splashRun = async (totalMs, opts) => {
+      opts = opts || {};
+      const t0 = Date.now();
+      runSplashConnect();
+      if (opts.retryAt) {
+        await new Promise(r => setTimeout(r, opts.retryAt));
+        window.__retryClickedAt = Date.now() - t0;
+        document.getElementById("splashRetryBtn").click();
+      }
+      if (opts.release) {
+        await new Promise(r => setTimeout(r, opts.releaseAt));
+        opts.release();
+      }
+      let hiddenAt = null;
+      while (Date.now() - t0 < totalMs) {
+        await new Promise(r => setTimeout(r, 25));
+        if (hiddenAt === null && document.getElementById("splashScreen").classList.contains("hidden")) { hiddenAt = Date.now() - t0; break; }
+      }
+      const attempts = window.__fakeCalls.filter(c => c.key === "All").map(c => c.at - t0);
+      const errorShown = !document.getElementById("splashErrorBox").classList.contains("hidden");
+      splashConnectGeneration++;
+      return { attempts, total: window.__fakeCalls.length, hiddenAt, errorShown };
+    };
+  };
+  const FAST_FAIL = () => { window.__fakeRoutes["*"] = () => Promise.reject(new TypeError("Failed to fetch")); };
+
+  const J0 = await page.evaluate(() => ({ backoff: SPLASH_BACKOFF_MS, max: SPLASH_MAX_ATTEMPTS }));
+  ok(JSON.stringify(J0.backoff) === "[2000,4000,8000]" && J0.max === 6, `J0 the schedule is 2s, 4s, 8s (repeating) with a cap of 6 fresh attempts (${JSON.stringify(J0)})`);
+
+  // J1–J5: the real 25-second window, every request failing immediately.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN); await page.evaluate(FAST_FAIL);
+  const J1 = await page.evaluate(() => __splashRun(25600));
+  const gaps = J1.attempts.slice(1).map((t, i) => t - J1.attempts[i]);
+  ok(J1.attempts.length >= 1 && J1.attempts[0] < 100, `J1 the first attempt goes out immediately (${J1.attempts[0]}ms)`);
+  ok(J1.attempts.length <= 6 && J1.attempts.length >= 4, `J2 a fast-failing network gets ${J1.attempts.length} fresh attempts in the 25s window, within the cap of 6 (at ${JSON.stringify(J1.attempts)}ms)`);
+  ok(gaps.length >= 3 && gaps[0] >= 1900 && gaps.every((g, i) => i === 0 || g >= gaps[i - 1] - 100),
+    `J3 the delays between attempts grow: ${JSON.stringify(gaps)}ms`);
+  ok(J1.total <= 70, `J4 total Graph requests in the window: ${J1.total} (was ~625 with a fresh set every 400ms)`);
+  ok(J1.errorShown && J1.hiddenAt === null, "J5 the error still shows at the end of the window when nothing ever loads");
+
+  // J6: a hung request still holds one shared request — nothing new while it's in flight.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN);
+  const J6 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ request: 60000, data: 3000, retry: 25, backoff: [50] });
+    window.__fakeRoutes["*"] = (u) => /'All'/.test(u) ? "hang-signal" : Promise.reject(new TypeError("Failed to fetch"));
+    const r = await __splashRun(1500);
+    restartStartupFetches();
+    return r;
+  });
+  ok(J6.attempts.length === 1 && J6.total === 10, `J6 while a read hangs, the checks send nothing new: 1 attempt, ${J6.total} requests in 1.5s (backoff only 50ms)`);
+
+  // J7–J8: Retry starts a fresh attempt at once and resets the schedule.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN); await page.evaluate(FAST_FAIL);
+  const J7 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ data: 5000, retry: 25, backoff: [1000, 2000, 4000] });
+    const r = await __splashRun(1600, { retryAt: 300 });
+    return { ...r, retryAt: window.__retryClickedAt };
+  });
+  ok(J7.attempts.length >= 2 && J7.attempts[1] - J7.retryAt < 100, `J7 tapping Retry sends a fresh attempt at once (attempts at ${JSON.stringify(J7.attempts)}ms, Retry at ${J7.retryAt}ms)`);
+  ok(J7.attempts.length === 3 && Math.abs((J7.attempts[2] - J7.attempts[1]) - 1000) < 200,
+    `J8 ...and restarts the schedule: the next attempt comes ~1s later (the first delay), not 2s (${JSON.stringify(J7.attempts)})`);
+
+  // J9: late data after the error box still clears the splash.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN);
+  const J9 = await page.evaluate(async () => {
+    __setDocketWriteEnabledForTest(false);
+    __setSplashTimingsForTest({ request: 60000, data: 600, retry: 25 });
+    const coreOk = window.__coreOk();
+    let releaseAll;
+    window.__fakeRoutes["*"] = (u, init, n) => /'All'/.test(u)
+      ? new Promise(r => { releaseAll = () => r(coreOk(u, init, n)); })
+      : coreOk(u, init, n);
+    const r = await __splashRun(2000, { release: () => releaseAll && releaseAll(), releaseAt: 900 });
+    __setDocketWriteEnabledForTest(null);
+    return r;
+  });
+  ok(J9.hiddenAt !== null && J9.hiddenAt > 900, `J9 data arriving after the error box showed still clears the splash (hidden at ${J9.hiddenAt}ms, error at 600ms)`);
+
+  // J10–J12: Retry-After on a 429 is honoured, and can't push past the window.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN);
+  const J10 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ data: 5000, retry: 25, backoff: [50] });
+    window.__fakeRoutes["*"] = () => Promise.resolve(new Response("slow down", { status: 429, headers: { "Retry-After": "1" } }));
+    const r = await __splashRun(1500);
+    return { ...r, diag: describeDiagnosticEntry(__getLiveNavDataDiagnosticsForTest().All) };
+  });
+  ok(J10.attempts.length === 2 && J10.attempts[1] - J10.attempts[0] >= 950,
+    `J10 a 429 with Retry-After: 1 holds the next attempt back at least 1s even though the backoff is 50ms (${JSON.stringify(J10.attempts)})`);
+  ok(/Retry-After 1s/.test(J10.diag), `J11 the diagnostic detail shows it (${J10.diag})`);
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN);
+  const J12 = await page.evaluate(async () => {
+    __setSplashTimingsForTest({ data: 1000, retry: 25, backoff: [50] });
+    window.__fakeRoutes["*"] = () => Promise.resolve(new Response("", { status: 503, headers: { "Retry-After": "100" } }));
+    return __splashRun(1600);
+  });
+  ok(J12.attempts.length === 1 && J12.errorShown, `J12 a Retry-After longer than the remaining window means no further attempt; the error shows at the end of the window as usual (${J12.attempts.length} attempt)`);
 
   await page.evaluate(RESET);
 }, module);

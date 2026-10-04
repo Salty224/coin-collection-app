@@ -5594,6 +5594,14 @@
   function __setSplashTimingsForTest(obj) { splashTimingOverrides = obj || {}; } // test-only seam
   function splashTiming(name) {
     if (typeof splashTimingOverrides[name] === "number") return splashTimingOverrides[name];
+    if (name === "backoff") {
+      // An explicit test override wins; otherwise the schedule scales with
+      // the overall wait, so a suite that shortens SPLASH_DATA_TIMEOUT_MS
+      // gets a proportionally shortened backoff and stays fast.
+      if (Array.isArray(splashTimingOverrides.backoff)) return splashTimingOverrides.backoff;
+      const scale = splashTiming("data") / SPLASH_DATA_TIMEOUT_MS;
+      return SPLASH_BACKOFF_MS.map(ms => ms * scale);
+    }
     switch (name) {
       case "request": return SPLASH_REQUEST_TIMEOUT_MS;
       // The rest are declared beside runSplashConnect(), further down. Only
@@ -5602,9 +5610,28 @@
       case "slow": return SPLASH_SLOW_NOTICE_MS;
       case "retry": return SPLASH_RETRY_INTERVAL_MS;
       case "grace": return SPLASH_DOCKET_GRACE_MS;
+      case "attempts": return SPLASH_MAX_ATTEMPTS;
       default: throw new Error("Unknown splash timing: " + name);
     }
   }
+
+  // Retry-After from the most recent throttled (429) or unavailable (503)
+  // Graph read, in ms; the splash takes it (and clears it) when scheduling
+  // its next fresh attempt, so it never sends sooner than Graph asked.
+  // Only readable if Graph exposes the header to the browser (CORS); when it
+  // doesn't, headers.get() returns null and this simply never fires.
+  let lastRetryAfterMs = 0;
+  function noteRetryAfter(res) {
+    if (!res || (res.status !== 429 && res.status !== 503)) return 0;
+    const raw = res.headers && res.headers.get ? res.headers.get("Retry-After") : null;
+    if (!raw) return 0;
+    let ms = 0;
+    if (/^\s*\d+\s*$/.test(raw)) ms = Number(raw) * 1000;
+    else { const at = Date.parse(raw); if (!isNaN(at)) ms = Math.max(0, at - Date.now()); }
+    if (ms > lastRetryAfterMs) lastRetryAfterMs = ms;
+    return ms;
+  }
+  function takeRetryAfterMs() { const ms = lastRetryAfterMs; lastRetryAfterMs = 0; return ms; }
 
   function requestTimeoutError(ms) {
     const e = new Error("Request timed out after " + ms + "ms");
@@ -5689,7 +5716,8 @@
           ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
         const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal });
         if (!res.ok) {
-          record({ kind: "http-error", status: res.status });
+          const retryAfterMs = noteRetryAfter(res);
+          record({ kind: "http-error", status: res.status, retryAfterMs });
           console.warn("Live nav data: sheet read failed", sheet, res.status);
           return null; // transient/permission error — worth retrying later, don't cache
         }
@@ -6816,6 +6844,7 @@
           { headers: { Authorization: "Bearer " + token }, signal });
         if (res.status === 404) { if (onResponse) onResponse({ status: 404, bytes: null }); return null; }
         if (!res.ok) {
+          noteRetryAfter(res);
           if (onResponse) onResponse({ status: res.status, bytes: null });
           throw new Error("GET json " + path + " failed: " + res.status);
         }
@@ -26128,6 +26157,19 @@
   //   connecting…", so a slow start reads as slow rather than stuck.
   const SPLASH_DATA_TIMEOUT_MS = 25000;
   const SPLASH_SLOW_NOTICE_MS = 5000;
+  // Backoff between FRESH attempts (a new set of reads), measured from when
+  // the previous attempt was sent; the last value repeats. Ray's live test
+  // (2026-10-04, Graph blocked in devtools): with a fresh set every 400ms
+  // check, a fast-failing network sent 626 requests in the 25s wait (~25/s),
+  // which would only deepen a throttling outage. Fast-failing, attempts now
+  // go out at about 0, 2, 6, 14 and 22s: 5 attempts, ~50 requests.
+  // Measuring from the SEND (not from the failure) keeps commit D's
+  // guarantee: a first attempt that hangs to the 12s timeout is followed by
+  // a fresh one straight away (12 + 12 < 25).
+  const SPLASH_BACKOFF_MS = [2000, 4000, 8000];
+  // Hard cap on fresh attempts per connect (the schedule above fits 5 into
+  // 25s; the cap only bites if timings are shortened).
+  const SPLASH_MAX_ATTEMPTS = 6;
   // A separate, short, dev-only demo delay for ?splashError=1 (below) — kept
   // distinct from SPLASH_DATA_TIMEOUT_MS so the real timeout can be tuned
   // independently of this toggle's own pacing.
@@ -26179,7 +26221,7 @@
       case "pending": return "pending (still in flight / never returned)";
       case "timeout": return "timed out" + (typeof entry.ms === "number" ? " after " + (entry.ms / 1000) + "s" : "") + " (request aborted; the next attempt starts fresh)";
       case "no-token": return "no token";
-      case "http-error": return "HTTP " + entry.status;
+      case "http-error": return "HTTP " + entry.status + (entry.retryAfterMs ? " (Retry-After " + (entry.retryAfterMs / 1000) + "s)" : "");
       case "empty-body": return "empty body" + httpSuffix(entry) + " — not cached; the next attempt retries";
       case "exception": return "error — " + entry.message + (entry.bytes != null ? httpSuffix(entry) : "");
       case "disabled": return "feature disabled";
@@ -26371,33 +26413,75 @@
     const connectStartedAt = Date.now();
     let settled = false;
     let errorShown = false;
-    let retryTimer = null;
-    function attempt() {
-      if (settled || errorShown || !stillCurrent()) return;
+    // BACKOFF (2026-10-04, Ray's live test: 626 requests in the 25s wait on
+    // a fast-failing network). The check below still runs every
+    // SPLASH_RETRY_INTERVAL_MS, but it only SENDS a fresh set of reads when
+    // no attempt is in flight AND the backoff delay since the last send has
+    // elapsed AND fewer than SPLASH_MAX_ATTEMPTS have gone out. Otherwise it
+    // only looks at whether data has arrived — which costs no requests, and
+    // is what lets late data clear the splash even after the error shows.
+    const backoff = splashTiming("backoff");
+    const maxAttempts = splashTiming("attempts");
+    let attemptsSent = 0;
+    let inFlight = false;
+    let nextAttemptAt = connectStartedAt; // the first attempt is immediate
+    let dataOk = false;
+    let docketOk = false;
+    let tickTimer = null;
+    lastRetryAfterMs = 0;
+    function readyNow() {
+      const coreReady = dataOk || !!(LIVE_COINS && LIVE_DB_SETS);
+      const docketReadyNow = docketOk || !docketWriteEnabled() || LIVE_DOCKET_QUEUE !== null;
+      const graceOver = Date.now() - connectStartedAt >= splashTiming("grace");
+      return coreReady && (docketReadyNow || graceOver);
+    }
+    function finish() {
+      settled = true;
+      clearTimeout(slowTimer);
+      clearTimeout(tickTimer);
+      errorBox.classList.add("hidden");
+      hideSplash();
+    }
+    function sendAttempt() {
+      const n = attemptsSent++;
+      const sentAt = Date.now();
+      inFlight = true;
       Promise.all([ensureLiveNavDataFetch(), docketQueueReadyWithGrace()]).then(([dataReady, docketReady]) => {
         if (settled || !stillCurrent()) return;
-        const graceOver = Date.now() - connectStartedAt >= splashTiming("grace");
-        if (dataReady && (docketReady || graceOver)) {
-          settled = true;
-          clearTimeout(slowTimer);
-          errorBox.classList.add("hidden");
-          hideSplash();
-        } else if (!errorShown) {
-          retryTimer = setTimeout(attempt, splashTiming("retry"));
-        }
+        inFlight = false;
+        dataOk = dataOk || !!dataReady;
+        docketOk = docketOk || !!docketReady;
+        // Next fresh attempt no sooner than the schedule says — and no sooner
+        // than a Retry-After from Graph, if one came back. An attempt that
+        // would land past the overall wait simply never goes out; the error
+        // shows and Retry is the way to start again.
+        let next = sentAt + backoff[Math.min(n, backoff.length - 1)];
+        const retryAfter = takeRetryAfterMs();
+        if (retryAfter) next = Math.max(next, Date.now() + retryAfter);
+        nextAttemptAt = next;
+        if (readyNow()) finish();
       });
+    }
+    function tick() {
+      if (settled || !stillCurrent()) return;
+      if (readyNow()) { finish(); return; }
+      if (!inFlight && !errorShown && attemptsSent < maxAttempts && Date.now() >= nextAttemptAt &&
+          nextAttemptAt - connectStartedAt < splashTiming("data")) {
+        sendAttempt();
+      }
+      tickTimer = setTimeout(tick, splashTiming("retry"));
     }
     const slowTimer = setTimeout(() => {
       if (settled || errorShown || !stillCurrent()) return;
       status.textContent = "Still connecting…";
     }, splashTiming("slow"));
-    attempt();
-    // stillCurrent() guards this against a NEWER runSplashConnect() call
-    // (Retry) having superseded this one entirely.
+    tick();
+    // The ticks keep running after this (they only check for arrived data,
+    // never send), so an attempt still in flight — or data landing any other
+    // way — still clears the splash.
     setTimeout(() => {
       if (settled || !stillCurrent()) return;
       errorShown = true;
-      clearTimeout(retryTimer);
       showSplashError();
     }, splashTiming("data"));
   }
