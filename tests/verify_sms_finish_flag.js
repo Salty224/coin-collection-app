@@ -36,7 +36,7 @@ module.exports = defineSuite("sms-finish-flag", async ({ ok, openApp, PHONE, TAB
   });
   ok(A.noSms === "MS-65", "A1 non-SMS finish leaves the corner unchanged: " + A.noSms);
   ok(A.gradeOnly === "MS-65 (SMS)", "A2 Grade + SMS, no Designation: " + A.gradeOnly);
-  ok(A.withDesignation === "MS-67FB (SMS)", "A3 Grade+Designation + SMS, per the exact examples given: " + A.withDesignation);
+  ok(A.withDesignation === "MS-67 FB (SMS)", "A3 Grade+Designation + SMS, per the exact examples given: " + A.withDesignation);
   ok(A.neitherGradeNorDesignation === "(SMS)", "A4 blank Grade+Designation shows \"(SMS)\" alone, no leading space: " + JSON.stringify(A.neitherGradeNorDesignation));
   ok(A.otherFinish === "MS-65", "A5 a real, non-default Finish (Proof) does NOT get the flag — scoped to the exact literal \"SMS\" value only: " + A.otherFinish);
   ok(A.satinFinish === "MS-65", "A6 ... same for Satin Finish, another real non-default value: " + A.satinFinish);
@@ -88,7 +88,7 @@ module.exports = defineSuite("sms-finish-flag", async ({ ok, openApp, PHONE, TAB
     };
   });
   ok(C.nickel === "MS-65 (SMS)", "C1 Browse detail, Nickel SMS coin, grade only: " + C.nickel);
-  ok(C.cent === "MS-67FB (SMS)", "C2 Browse detail, Cent SMS coin with Designation: " + C.cent);
+  ok(C.cent === "MS-67 FB (SMS)", "C2 Browse detail, Cent SMS coin with Designation: " + C.cent);
   ok(C.quarter === "MS-66 (SMS)", "C3 Browse detail, Quarter SMS coin — confirms the rule isn't cent-specific: " + C.quarter);
   ok(C.half === "MS-64 (SMS)", "C4 Browse detail, Half Dollar SMS coin: " + C.half);
   ok(C.controlDime === "MS-65", "C5 Browse detail control — Finish=Business Strike shows no flag: " + C.controlDime);
@@ -101,7 +101,7 @@ module.exports = defineSuite("sms-finish-flag", async ({ ok, openApp, PHONE, TAB
     const withoutSms = document.getElementById("spotlightBL").textContent;
     return { withSms, withoutSms };
   });
-  ok(D.withSms === "MS-67FB (SMS)", "D1 Spotlight shares applyFlipCorners() with Browse detail — same flag renders there too: " + D.withSms);
+  ok(D.withSms === "MS-67 FB (SMS)", "D1 Spotlight shares applyFlipCorners() with Browse detail — same flag renders there too: " + D.withSms);
   ok(D.withoutSms === "MS-65", "D2 Spotlight control coin shows no flag: " + D.withoutSms);
 
   // ---------- E. Real Catalog-grid render path (renderBrowseGrid()'s OWN separate corner build) ----------
@@ -128,7 +128,7 @@ module.exports = defineSuite("sms-finish-flag", async ({ ok, openApp, PHONE, TAB
     };
   });
   ok(E.nickel === "MS-65 (SMS)", "E1 Catalog grid, Nickel SMS coin: " + E.nickel);
-  ok(E.cent === "MS-67FB (SMS)", "E2 Catalog grid, Cent SMS coin with Designation: " + E.cent);
+  ok(E.cent === "MS-67 FB (SMS)", "E2 Catalog grid, Cent SMS coin with Designation: " + E.cent);
   ok(E.quarter === "MS-66 (SMS)", "E3 Catalog grid, Quarter SMS coin: " + E.quarter);
   ok(E.half === "MS-64 (SMS)", "E4 Catalog grid, Half Dollar SMS coin: " + E.half);
   ok(E.controlDime === "MS-65", "E5 Catalog grid control — no flag for Business Strike: " + E.controlDime);

@@ -13164,9 +13164,18 @@
   // rule. trim() only matters for the blank-Grade-and-Designation case
   // (an SMS coin with neither set) — without it the result would carry a
   // stray leading space (" (SMS)") rather than "(SMS)" alone.
+  //
+  // Grade and Designation are joined with ONE space ("VG-8 BN", Ray) — the
+  // flip card only; stored data and Overview's own Grade/Designation rows
+  // are untouched. Each part is trimmed and its inner runs of whitespace
+  // collapsed, and blank parts are dropped, so a missing Designation leaves
+  // no trailing space, a missing Grade no leading space, and a grade that
+  // already carries spacing or a "(PCGS)"-style suffix never gets a double
+  // space.
   function gradeDesignationCornerText(coin) {
-    const base = (coin.grade || "") + (coin.designation || "");
-    return (base + (coin.finish === "SMS" ? " (SMS)" : "")).trim();
+    const part = (v) => String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+    return [part(coin.grade), part(coin.designation), coin.finish === "SMS" ? "(SMS)" : ""]
+      .filter(Boolean).join(" ");
   }
 
   // Shared by every place a single *saved* coin gets the flip-label treatment
@@ -13241,8 +13250,8 @@
     } else {
       renderTypeDenomCorner(trEl, coin);
     }
-    // Designation concatenates directly onto Grade with NO space (e.g.
-    // "MS-67FB") — a different join style from Add Coin's own live-entry
+    // Designation follows Grade after ONE space (e.g. "MS-67 FB"; see
+    // gradeDesignationCornerText()) — a different join style from Add Coin's own live-entry
     // BR corner (flipObverseBR), which stacks Variety/Designation as two
     // separate lines; that's a different corner with a different pairing
     // rule, used here only as a reference for "check blank before joining,"
@@ -14230,8 +14239,8 @@
       // a 1909 VDB cent was indistinguishable from a plain 1909).
       //
       // TL: Year-Mint over Variety, two stacked lines, matching
-      // applyFlipCorners()'s own TL. BL: Grade and Designation concatenated
-      // with NO space ("MS-65RD"), deliberately the same join style that
+      // applyFlipCorners()'s own TL. BL: Grade and Designation joined
+      // with one space ("MS-65 RD"), deliberately the same join style that
       // card uses — not a new rule, and not Add Coin's own two-line
       // stacking, which is a different corner with a different pairing.
       // Same gradeDesignationCornerText() applyFlipCorners() uses, so a

@@ -44,8 +44,8 @@ module.exports = defineSuite("catalog-grid-corners", async ({ ok, openApp, PHONE
     });
     ok(JSON.stringify(A["AY-90001"].tl.lines) === JSON.stringify(["1909-S", "VDB"]),
       "A1(" + label + ") the VDB cent's TL shows Year-Mint over Variety as two stacked lines: " + JSON.stringify(A["AY-90001"].tl.lines));
-    ok(A["AY-90001"].bl.lines.length === 1 && A["AY-90001"].bl.lines[0] === "MS-65RD",
-      "A2(" + label + ") ... and BL concatenates Grade+Designation with no space, matching the full flip card: " + JSON.stringify(A["AY-90001"].bl.lines));
+    ok(A["AY-90001"].bl.lines.length === 1 && A["AY-90001"].bl.lines[0] === "MS-65 RD",
+      "A2(" + label + ") ... and BL joins Grade+Designation with one space ('MS-65 RD'), matching the full flip card: " + JSON.stringify(A["AY-90001"].bl.lines));
     // The whole point: the two 1909-S cents must no longer look identical.
     ok(A["AY-90001"].tl.text !== A["AY-90002"].tl.text,
       "A3(" + label + ") the VDB cent and its plain sibling are no longer indistinguishable in the grid");

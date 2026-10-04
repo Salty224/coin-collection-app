@@ -8,7 +8,9 @@
 // The short-text golden (tests/fixtures/flip_short_text_golden.json) was
 // captured from the PREVIOUS app.html (commit 6, before this change) by
 // running snapshotShortCoins() below against it, so "identical" here means
-// identical to what shipped before, not to itself.
+// identical to what shipped before, not to itself. One intended edit since:
+// commit 10 (Ray) put a space between Grade and Designation, so AY-93001's
+// bottom-left reads "MS-65 RD" (was "MS-65RD") — nothing else in it changed.
 
 const { defineSuite } = require("./harness");
 const GOLDEN = require("./fixtures/flip_short_text_golden.json");
