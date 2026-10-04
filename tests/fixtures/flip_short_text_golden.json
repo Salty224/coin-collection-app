@@ -1,0 +1,626 @@
+{
+ "phone": {
+  "AY-00001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93002": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "grid": [
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln</div><div class=\"corner-line\">Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  ]
+ },
+ "tablet": {
+  "AY-00001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93002": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "grid": [
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln</div><div class=\"corner-line\">Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  ]
+ },
+ "desktop": {
+  "AY-00001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93001": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "",
+     "fs": "22.14px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "AY-93002": {
+   "obv": [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   "rev": [
+    {
+     "html": "<div class=\"corner-line\">Obv. Die Polish Lines</div>",
+     "fs": "22.14px",
+     "cls": "flip-label tl corner-wide"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">Rev. Die Crack</div>",
+     "fs": "22.14px",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Cost</div><div class=\"corner-line\">$620.00</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  },
+  "grid": [
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-64</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1889-CC</div><div class=\"corner-line\">VAM-1</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Morgan</div><div class=\"corner-line\">$1</div>",
+     "fs": "",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">XF-45</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "<div class=\"corner-line\">90%</div><div class=\"corner-line\">Silver</div>",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ],
+   [
+    {
+     "html": "<div class=\"corner-line\">1999-D</div>",
+     "fs": "",
+     "cls": "flip-label tl"
+    },
+    {
+     "html": "<div class=\"corner-line\">Lincoln</div><div class=\"corner-line\">Memorial</div><div class=\"corner-line\">1C</div>",
+     "fs": "11.48px",
+     "cls": "flip-label tr"
+    },
+    {
+     "html": "<div class=\"corner-line\">MS-65RD</div>",
+     "fs": "",
+     "cls": "flip-label bl"
+    },
+    {
+     "html": "",
+     "fs": "",
+     "cls": "flip-label br"
+    }
+   ]
+  ]
+ }
+}

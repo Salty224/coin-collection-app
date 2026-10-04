@@ -12727,6 +12727,7 @@
   // into "&am" + "p;" and render as literal garbage. One escape, applied to
   // the final text, is both correct and consistent.
   function renderCornerLines(el, lines) {
+    if (!cornerFittingDepth) el.__fitSpec = null;
     const nonEmpty = lines.filter(Boolean);
     el.innerHTML = nonEmpty.map(line => `<div class="corner-line">${escapeHtmlText(line)}</div>`).join("");
   }
@@ -12811,10 +12812,19 @@
   // index rather than by matching text, so two identical line strings can
   // never select the wrong one.
   function renderFittedCornerLines(el, lines, wrapIndex) {
+    cornerFittingDepth++;
+    try { renderFittedCornerLinesInner(el, lines, wrapIndex); }
+    finally { cornerFittingDepth--; }
+  }
+  function renderFittedCornerLinesInner(el, lines, wrapIndex) {
     const kept = [];
-    (lines || []).forEach((text, i) => { if (text) kept.push({ text, i }); });
-    if (!kept.length) { el.style.fontSize = ""; el.innerHTML = ""; return; }
+    // Display-only abbreviations (FLIP_TEXT_ABBREVIATIONS) are applied HERE,
+    // on the way into the corner and nowhere else, so stored data and every
+    // other screen keep the full text.
+    (lines || []).forEach((text, i) => { if (text) kept.push({ text: abbreviateFlipText(String(text)), i }); });
+    if (!kept.length) { el.style.fontSize = ""; el.innerHTML = ""; el.__fitSpec = null; return; }
     const texts = kept.map(k => k.text);
+    el.__fitSpec = { texts: texts.slice(), wrapPos: kept.findIndex(k => k.i === wrapIndex) };
     const renderSingle = () => renderCornerLines(el, texts);
 
     // Pass 1: shrink, but only as far as still-comfortable.
@@ -12843,6 +12853,157 @@
     // fitting is the accepted floor, same posture as every other "shrunk as
     // far as it goes" case in this file.
     shrinkCornerToFit(el, renderSingle);
+  }
+
+  // Display-only abbreviations for text drawn on a saved coin's flip card
+  // (Browse detail, Spotlight and the Catalog mini card, front and back).
+  // Applied by renderFittedCornerLines() only — never to stored data, the
+  // page title, Overview, Catalog/Albums text, Edit, search or the flip
+  // card's own screen-reader summary, all of which keep the full wording.
+  // Matching is whole-word and case-insensitive; only the matched phrase is
+  // replaced, the rest of the text keeps its own capitalisation. To add one,
+  // add an entry; within an entry the longest phrase is tried first.
+  const FLIP_TEXT_ABBREVIATIONS = [
+    { to: "USMC", from: ["United States Marine Corps", "U.S. Marine Corps", "US Marine Corps", "U.S. Marines", "US Marines"] },
+    { to: "Ann.", from: ["Anniversary"] },
+  ];
+  const FLIP_TEXT_ABBREVIATION_RES = FLIP_TEXT_ABBREVIATIONS.map(entry => ({
+    to: entry.to,
+    re: new RegExp("(?<![A-Za-z0-9])(?:" + entry.from.slice().sort((a, b) => b.length - a.length)
+      .map(f => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")(?![A-Za-z0-9])", "gi")
+  }));
+  function abbreviateFlipText(text) {
+    let out = String(text == null ? "" : text);
+    for (const { re, to } of FLIP_TEXT_ABBREVIATION_RES) out = out.replace(re, to);
+    return out;
+  }
+
+  // ---- Flip-card overflow clamp (safety net) ----
+  // The fitting above (shrink, wrap, shrink again) checks that a corner fits
+  // ITS OWN box and clears the coin. It never checked the card's edge or the
+  // other corners, and when nothing fit its last pass left the UNWRAPPED
+  // line at the smallest size — the widest layout of all. Measured on 2025-P
+  // "U.S. Marine Corps 250th Anniversary Proof Silver $1": 12.96px on one
+  // line, 89px past the card's right edge (.flip-label deliberately has no
+  // overflow:hidden, see its CSS comment, so overflow is visible).
+  //
+  // So, after a card's corners are rendered, any corner whose text crosses
+  // the card edge, overflows its own box, sits on the coin, or touches
+  // another corner's text is re-rendered at a floor size — wrapped across
+  // two lines where it has a wrappable line (kept from the fitting), then
+  // truncated at word boundaries with an ellipsis until it is safe.
+  // Truncation rather than a smaller font: below the floor the text is
+  // there but unreadable, and the full text is always on the page itself.
+  // Corners that already fit are never touched, so every coin that rendered
+  // correctly before renders exactly the same.
+  const CORNER_CLAMP_MIN_PX = 9;
+  let cornerFittingDepth = 0;
+
+  function cornerInkRects(el) {
+    const lines = [...el.querySelectorAll(".corner-line")];
+    const out = [];
+    (lines.length ? lines : [el]).forEach(n => {
+      if (!n.textContent.trim()) return;
+      const rg = document.createRange(); rg.selectNodeContents(n);
+      const r = rg.getBoundingClientRect();
+      if (r.width && r.height) out.push(r);
+    });
+    return out;
+  }
+  function rectsIntersect(a, b) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+  function cornerInsideFrame(el, f) {
+    return cornerInkRects(el).every(r => r.left >= f.left - 0.5 && r.right <= f.right + 0.5 &&
+      r.top >= f.top - 0.5 && r.bottom <= f.bottom + 0.5);
+  }
+  function cornerSafe(el, frameRect, others) {
+    if (!cornerFits(el) || !cornerInsideFrame(el, frameRect)) return false;
+    const mine = cornerInkRects(el);
+    return !mine.some(a => others.some(b => rectsIntersect(a, b)));
+  }
+  // One step shorter: drop the last word (or, for a single word, the last
+  // character) and end with an ellipsis. null when nothing is left.
+  function shortenCornerText(text) {
+    const base = String(text).replace(/\u2026$/, "").trimEnd();
+    const cut = base.includes(" ") ? base.slice(0, base.lastIndexOf(" ")) : base.slice(0, -1);
+    const trimmed = cut.replace(/[\s,;:\-\u2013]+$/, "");
+    return trimmed ? trimmed + "\u2026" : null;
+  }
+  function renderTruncatedToBox(el, layout) {
+    const texts = layout.slice();
+    renderCornerLines(el, texts);
+    texts.forEach((_, i) => {
+      for (let guard = 0; guard < 120; guard++) {
+        const node = el.querySelectorAll(".corner-line")[i];
+        if (!node || node.scrollWidth <= node.clientWidth) break;
+        const next = shortenCornerText(texts[i]);
+        if (!next || next === texts[i]) break;
+        texts[i] = next;
+        renderCornerLines(el, texts);
+      }
+    });
+    return texts;
+  }
+  function clampCorner(el, frameRect, others) {
+    const spec = el.__fitSpec ||
+      { texts: [...el.querySelectorAll(".corner-line")].map(n => n.textContent).filter(Boolean), wrapPos: -1 };
+    if (!spec.texts.length) spec.texts = [el.textContent];
+    cornerFittingDepth++;
+    try {
+      el.style.fontSize = "";
+      const natural = parseFloat(getComputedStyle(el).fontSize);
+      const floor = Math.min(natural,
+        Math.max(natural * CORNER_SHRINK_STEPS[CORNER_SHRINK_STEPS.length - 1], CORNER_CLAMP_MIN_PX));
+      el.style.fontSize = floor + "px";
+      const layouts = [];
+      if (spec.wrapPos >= 0) {
+        renderCornerLines(el, spec.texts);
+        const measure = el.querySelectorAll(".corner-line")[spec.wrapPos];
+        const wrapped = measure ? wrapTextToTwoLines(spec.texts[spec.wrapPos], measure) : [];
+        if (wrapped.length === 2) {
+          layouts.push(spec.texts.slice(0, spec.wrapPos).concat(wrapped, spec.texts.slice(spec.wrapPos + 1)));
+        }
+      }
+      layouts.push(spec.texts.slice());
+      for (const layout of layouts) {
+        renderTruncatedToBox(el, layout);
+        if (cornerSafe(el, frameRect, others)) return;
+      }
+      // Still not safe (the coin, or another corner, in the way): keep
+      // shortening the widest line on the preferred layout; a line that
+      // cannot get any shorter is dropped. Always terminates.
+      let texts = renderTruncatedToBox(el, layouts[0]);
+      for (let guard = 0; guard < 400 && texts.length && !cornerSafe(el, frameRect, others); guard++) {
+        let wi = 0, ww = -1;
+        el.querySelectorAll(".corner-line").forEach((n, i) => {
+          const w = n.getBoundingClientRect().width;
+          if (w > ww) { ww = w; wi = i; }
+        });
+        const next = shortenCornerText(texts[wi]);
+        if (next && next !== texts[wi] && next !== "\u2026") texts[wi] = next;
+        else texts.splice(wi, 1);
+        renderCornerLines(el, texts);
+      }
+    } finally {
+      cornerFittingDepth--;
+    }
+  }
+  // Runs after all of a card's corners are rendered. Pass 1 makes each
+  // corner safe on its own (box, card edge, coin); pass 2 resolves any two
+  // corners whose text still touches.
+  function clampFlipCorners(frame) {
+    if (!frame) return;
+    const frameRect = frame.getBoundingClientRect();
+    if (!frameRect.width || !frameRect.height) return; // not laid out
+    const corners = [...frame.querySelectorAll(".flip-label")].filter(el => el.textContent.trim());
+    corners.forEach(el => {
+      if (!cornerSafe(el, frameRect, [])) clampCorner(el, frameRect, []);
+    });
+    corners.forEach(el => {
+      const others = corners.filter(o => o !== el).flatMap(cornerInkRects);
+      if (!cornerSafe(el, frameRect, others)) clampCorner(el, frameRect, others);
+    });
   }
 
   function renderTypeDenomCorner(el, coin) {
@@ -12950,6 +13111,7 @@
         brEl.style.fontSize = ""; brEl.innerHTML = "";
       }
     }
+    clampFlipCorners(tlEl ? tlEl.closest(".flip-frame") : null);
 
     const srEl = document.getElementById(prefix + "SR");
     if (srEl) {
@@ -13110,6 +13272,7 @@
     // a caller may render into a frame that predates the BR span.
     const brEl = document.getElementById(prefix + "BR");
     if (brEl) setCompositionCornerText(brEl, preciousMetalCompositionFor(coin));
+    clampFlipCorners(tlEl.closest(".flip-frame"));
 
     // (combinedBadge is toggled once, above, ahead of the obverse/reverse
     // branch — it's a coin-level fact, not a face-level one.)
@@ -14060,6 +14223,7 @@
       // renderBrowseGrid(), not shared code), which is why it never
       // inherited Composition automatically when that was first built.
       setCompositionCornerText(card.querySelector(".flip-label.br"), preciousMetalCompositionFor(coin));
+      clampFlipCorners(card.querySelector(".flip-frame-mini"));
     });
     document.getElementById("browseEmptyMsg").classList.toggle("hidden", coins.length > 0);
   }
