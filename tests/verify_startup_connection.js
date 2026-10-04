@@ -447,5 +447,86 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
   ok(D10.hiddenAt !== null && D10.hiddenAt < 1500 && !D10.error, `D10 a request that hangs once is retried automatically and the splash clears before the overall timeout, no error (hidden at ${D10.hiddenAt}ms)`);
   ok(D10.allCalls === 2, `D11 ...via exactly one fresh request (All requested ${D10.allCalls}x)`);
 
+  // ================================================================
+  // F. getJson()/loadDocketQueue(): text first, status + byte length
+  //    recorded, empty body = temporary failure (commit F).
+  // ================================================================
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const F1 = await page.evaluate(async () => {
+    window.__fakeRoutes.docket = () => Promise.resolve(new Response("", { status: 200 }));
+    let err = null;
+    try { await graph().getJson("CoinCollection/_Testing/Staging/_Docket/docket.json"); } catch (e) { err = { name: e.name, status: e.status, bytes: e.bytes, message: e.message }; }
+    window.__fakeRoutes.docket = () => Promise.resolve(new Response("  \n ", { status: 200 }));
+    let errWs = null;
+    try { await graph().getJson("CoinCollection/_Testing/Staging/_Docket/docket.json"); } catch (e) { errWs = { name: e.name, bytes: e.bytes }; }
+    return { err, errWs };
+  });
+  ok(F1.err && F1.err.name === "EmptyBodyError" && F1.err.status === 200 && F1.err.bytes === 0,
+    `F1 an "OK" response with an empty body throws a distinct EmptyBodyError carrying status 200 and 0 bytes, not an opaque JSON parse error (got ${JSON.stringify(F1.err)})`);
+  ok(F1.errWs && F1.errWs.name === "EmptyBodyError" && F1.errWs.bytes === 4, `F2 a whitespace-only body counts as empty too (${JSON.stringify(F1.errWs)})`);
+
+  // F3–F7: through loadDocketQueue() — empty once, then a real body.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const F3 = await page.evaluate(async () => {
+    const logged = [];
+    const origInfo = console.info;
+    console.info = (...a) => { logged.push(a.join(" ")); };
+    const goodText = JSON.stringify({ type: "docket-queue", version: 1, entries: [{ entryId: "DQ-é1", status: "open" }] });
+    const goodBytes = new TextEncoder().encode(goodText).length;
+    window.__fakeRoutes.docket = (u, init, n) => n === 0
+      ? Promise.resolve(new Response("", { status: 200 }))
+      : Promise.resolve(new Response(goodText, { status: 200 }));
+    const first = await __guard(loadDocketQueue());
+    const diagAfterEmpty = __getDocketQueueDiagnosticForTest();
+    const cachedAfterEmpty = __getLiveDocketQueueForTest();
+    const renderedEmpty = describeDiagnosticEntry(diagAfterEmpty);
+    const second = await __guard(loadDocketQueue());
+    const diagAfterOk = __getDocketQueueDiagnosticForTest();
+    console.info = origInfo;
+    return {
+      first, diagAfterEmpty, cachedAfterEmpty, renderedEmpty,
+      secondOk: !!(second && second.entries && second.entries.length === 1),
+      diagAfterOk, goodBytes, renderedOk: describeDiagnosticEntry(diagAfterOk),
+      calls: window.__fakeCalls.filter(c => c.key === "docket").length, logged
+    };
+  });
+  ok(F3.first === null && F3.cachedAfterEmpty === null, "F3 an empty Docket body is a temporary failure: loadDocketQueue() returns null and caches nothing");
+  ok(F3.diagAfterEmpty.kind === "empty-body" && F3.diagAfterEmpty.status === 200 && F3.diagAfterEmpty.bytes === 0,
+    `F4 the diagnostic records kind "empty-body" with status 200 and 0 bytes (got ${JSON.stringify(F3.diagAfterEmpty)})`);
+  ok(F3.secondOk && F3.calls === 2, `F5 the next call retries with a fresh request and loads the real queue (${F3.calls} requests)`);
+  ok(F3.diagAfterOk.kind === "ok" && F3.diagAfterOk.status === 200 && F3.diagAfterOk.bytes === F3.goodBytes,
+    `F6 a successful read records its status and exact byte length (got ${JSON.stringify(F3.diagAfterOk)}, expected ${F3.goodBytes} bytes)`);
+  ok(F3.logged.some(l => /Docket queue read: HTTP 200, 0 bytes/.test(l)) && F3.logged.some(l => new RegExp("HTTP 200, " + F3.goodBytes + " bytes").test(l)),
+    `F7 both reads are logged to the console with status and byte length (${JSON.stringify(F3.logged)})`);
+  ok(/empty body \(HTTP 200, 0 bytes\)/.test(F3.renderedEmpty) && /ok \(HTTP 200, \d+ bytes\)/.test(F3.renderedOk),
+    `F8 the splash's diagnostic detail shows them (empty: "${F3.renderedEmpty}"; ok: "${F3.renderedOk}")`);
+
+  // F9: a missing file is still the normal first-run state (empty queue), with HTTP 404 recorded.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const F9 = await page.evaluate(async () => {
+    window.__fakeRoutes.docket = () => Promise.resolve(new Response("not found", { status: 404 }));
+    const q = await __guard(loadDocketQueue());
+    return { ok: !!(q && Array.isArray(q.entries) && q.entries.length === 0), diag: __getDocketQueueDiagnosticForTest() };
+  });
+  ok(F9.ok && F9.diag.kind === "ok" && F9.diag.status === 404, `F9 a 404 is still the first-run empty queue, and is recorded as HTTP 404 (got ${JSON.stringify(F9.diag)})`);
+
+  // F10: malformed (non-empty) JSON is still an ordinary exception, not cached.
+  await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE);
+  const F10 = await page.evaluate(async () => {
+    window.__fakeRoutes.docket = () => Promise.resolve(new Response("{\"type\": \"docket-q", { status: 200 }));
+    const q = await __guard(loadDocketQueue());
+    return { q, diag: __getDocketQueueDiagnosticForTest(), cached: __getLiveDocketQueueForTest() };
+  });
+  ok(F10.q === null && F10.cached === null && F10.diag.kind === "exception" && F10.diag.bytes === 18,
+    `F10 a truncated (non-empty) body is still an ordinary failure, not cached, with its byte length recorded (got ${JSON.stringify(F10.diag)})`);
+
+  // F11: the splash headline counts an empty body as a failed request.
+  const F11 = await page.evaluate(() => {
+    __setLiveNavDataDiagnosticsForTest({ All: { kind: "ok", rowCount: 5 } });
+    __setDocketQueueDiagnosticForTest({ kind: "empty-body", status: 200, bytes: 0 });
+    return buildSplashDiagnosticText();
+  });
+  ok(/request\(s\) failed/i.test(F11) && /Docket queue: empty body \(HTTP 200, 0 bytes\)/.test(F11), `F11 the splash detail headline treats an empty body as a failed request and names it (${F11.split("\n")[0]})`);
+
   await page.evaluate(RESET);
 }, module);

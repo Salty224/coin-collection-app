@@ -6632,15 +6632,40 @@
     // body — under withRequestTimeout(). Only the Docket queue read passes
     // it; every other caller (draft listings, set/coin draft reads) is
     // unchanged and still has no timeout.
+    //
+    // opts.onResponse (optional) is told the HTTP status and, when a body
+    // was read, its exact byte length — the Docket read records both.
+    //
+    // The body is read as bytes/text first, never straight through
+    // res.json(). A live read of _Docket/docket.json once came back "OK" with
+    // an EMPTY body, which res.json() reports only as the opaque "Unexpected
+    // end of JSON input". An empty (or whitespace-only) body now throws a
+    // distinct EmptyBodyError carrying the status and byte length; callers
+    // already treat any throw as a temporary failure (never cached, retried).
     async getJson(path, opts) {
+      const onResponse = opts && typeof opts.onResponse === "function" ? opts.onResponse : null;
       const run = async signal => {
         const token = await getWriteToken();
         if (!token) throw new Error("Write layer unavailable.");
         const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
           { headers: { Authorization: "Bearer " + token }, signal });
-        if (res.status === 404) return null;
-        if (!res.ok) throw new Error("GET json " + path + " failed: " + res.status);
-        return res.json();
+        if (res.status === 404) { if (onResponse) onResponse({ status: 404, bytes: null }); return null; }
+        if (!res.ok) {
+          if (onResponse) onResponse({ status: res.status, bytes: null });
+          throw new Error("GET json " + path + " failed: " + res.status);
+        }
+        const buf = await res.arrayBuffer();
+        const bytes = buf.byteLength;
+        if (onResponse) onResponse({ status: res.status, bytes });
+        const text = new TextDecoder().decode(buf);
+        if (!text.trim()) {
+          const e = new Error("GET json " + path + " returned an empty body (HTTP " + res.status + ", " + bytes + " bytes)");
+          e.name = "EmptyBodyError";
+          e.status = res.status;
+          e.bytes = bytes;
+          throw e;
+        }
+        return JSON.parse(text);
       };
       if (opts && opts.timeoutMs) return withRequestTimeout(run, opts.timeoutMs);
       return run(undefined);
@@ -10048,12 +10073,19 @@
     const gen = ++docketQueueGeneration;
     docketQueueFetchPromise = (async () => {
       docketQueueDiagnostic = { kind: "pending" };
+      // Status + byte length of whatever came back, for the console and the
+      // splash's diagnostic detail (buildSplashDiagnosticText()).
+      let http = null;
+      const onResponse = info => {
+        http = info;
+        console.info("Docket queue read: HTTP " + info.status + (info.bytes != null ? ", " + info.bytes + " bytes" : ""));
+      };
       try {
-        const doc = await graph().getJson(docketQueuePath(), { timeoutMs: splashTiming("request") });
+        const doc = await graph().getJson(docketQueuePath(), { timeoutMs: splashTiming("request"), onResponse });
         // A missing file is the normal first-run state, not an error.
         LIVE_DOCKET_QUEUE = (doc && doc.type === DOCKET_QUEUE_TYPE) ? doc : emptyDocketQueue();
         if (!Array.isArray(LIVE_DOCKET_QUEUE.entries)) LIVE_DOCKET_QUEUE.entries = [];
-        docketQueueDiagnostic = { kind: "ok" };
+        docketQueueDiagnostic = { kind: "ok", status: http && http.status, bytes: http && http.bytes };
         return LIVE_DOCKET_QUEUE;
       } catch (e) {
         // Not signed in / offline / transient Graph failure. Leave the cache
@@ -10073,13 +10105,19 @@
         let status = null;
         if (e && e.name === "TimeoutError") {
           kind = "timeout";
+        } else if (e && e.name === "EmptyBodyError") {
+          kind = "empty-body"; // a temporary failure: not cached, the next attempt retries
+          status = e.status;
         } else if (/unavailable/i.test(message)) {
           kind = "no-token";
         } else {
           const m = /failed:\s*(\d+)/.exec(message);
           if (m) { kind = "http-error"; status = Number(m[1]); }
         }
-        docketQueueDiagnostic = { kind, status, message, ms: e && e.timeoutMs };
+        docketQueueDiagnostic = {
+          kind, status: status != null ? status : (http && http.status), message,
+          ms: e && e.timeoutMs, bytes: http ? http.bytes : null
+        };
         console.warn("Docket queue read failed:", e);
         return null;
       } finally {
@@ -25921,6 +25959,12 @@
   // — see their own declarations above) into a short technical detail
   // string, shown as small secondary text under the splash's existing
   // friendly error message (never replacing it).
+  // " (HTTP 200, 1234 bytes)" — only when a status was recorded (the Docket
+  // read records one; the sheet reads don't), so existing entries render as before.
+  function httpSuffix(entry) {
+    if (!entry || typeof entry.status !== "number") return "";
+    return " (HTTP " + entry.status + (typeof entry.bytes === "number" ? ", " + entry.bytes + " bytes" : "") + ")";
+  }
   function describeDiagnosticEntry(entry) {
     if (!entry) return "not yet reported (fetch may still be in flight or never started)";
     switch (entry.kind) {
@@ -25928,9 +25972,10 @@
       case "timeout": return "timed out" + (typeof entry.ms === "number" ? " after " + (entry.ms / 1000) + "s" : "") + " (request aborted; the next attempt starts fresh)";
       case "no-token": return "no token";
       case "http-error": return "HTTP " + entry.status;
-      case "exception": return "error — " + entry.message;
+      case "empty-body": return "empty body" + httpSuffix(entry) + " — not cached; the next attempt retries";
+      case "exception": return "error — " + entry.message + (entry.bytes != null ? httpSuffix(entry) : "");
       case "disabled": return "feature disabled";
-      case "ok": return "ok" + (typeof entry.rowCount === "number" ? " (" + entry.rowCount + " rows)" : "");
+      case "ok": return "ok" + (typeof entry.rowCount === "number" ? " (" + entry.rowCount + " rows)" : "") + httpSuffix(entry);
       default: return JSON.stringify(entry);
     }
   }
@@ -25958,7 +26003,7 @@
       lines.push("At least one request is still in flight — see \"pending\" rows below.");
     } else if (allEntries.every(e => e.kind === "no-token")) {
       lines.push("No Microsoft Graph token was ever acquired — every request reports \"no token.\"");
-    } else if (allEntries.some(e => e.kind === "http-error" || e.kind === "exception")) {
+    } else if (allEntries.some(e => e.kind === "http-error" || e.kind === "exception" || e.kind === "empty-body")) {
       lines.push("A token was acquired, but one or more Graph request(s) failed:");
     } else {
       lines.push("Every request reports success — timed out with no captured error.");
