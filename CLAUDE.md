@@ -4,6 +4,89 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## The build decides its data target (Oct 2026) — read this first
+**Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
+constant that "only Ray flips".** Built on `claude/build-decides-target`
+(app) and `claude/build-decides-target-deploy-workflow` (workflow), held for
+Ray as two separate merges.
+
+**The rule.** `WRITE_TARGET` is derived at load from an inline build stamp
+(`BUILD_STAMP`, the one placeholder line `const BUILD_STAMP = null;` marked
+for the workflow) by `isLiveBuild()`. It is `"live"` (the real workbook and
+the real `CoinCollection/CoinPhotos`, `CoinReceipts`, `Staging`) ONLY when
+all of these hold; anything else, including any error while checking, is
+`"copy"` (`CoinCollection/_Testing/`):
+- the stamp is a real object (not the placeholder, not a string);
+- its branch is exactly `"main"` (not `main-fix`, a tag, `refs/heads/main`);
+- its commit is 40 lowercase hex characters;
+- the page is served over https from `salty224.github.io` under
+  `/coin-collection-app/` (not localhost, `file://`, a download, another
+  path).
+The stamp is inline (not fetched) so it exists synchronously before the
+write flags, `WRITE_LAYER_ENABLED`, the MSAL instance and `WRITE_PATHS` are
+built, and so it can never disagree with the code it shipped with. **Nothing
+in the code is flipped to go live** — deploying `main` through the workflow
+is what does it.
+
+**Every write flag is on in both targets** (`ENABLE_SET_WRITE_LAYER`,
+`ENABLE_BROWSE_EDIT_WRITE`, `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`,
+`ENABLE_SET_LINK_WRITE`, `ENABLE_PURGE_WRITE` are plain `true`; they used to
+be `(WRITE_TARGET === "copy")`, which switched every writer OFF under
+"live"). Each flag still gates its own feature. The on-screen messages that
+say "WRITE_TARGET is live and this hasn't been re-enabled yet" are now
+unreachable and were deliberately left alone.
+
+**What the user sees.**
+- **TEST bar**: a thin (24px) blue bar fixed at the very top, above the
+  splash, reading `TEST · {branch}` (`TEST · unstamped` with no stamp), shown
+  ONLY when the target is the copy. Nothing at all when live. Its height is
+  published as `--top-strip-h`, which pads the body, moves the sticky
+  `.nav-chrome` down, pads the photo overlays, and is subtracted from
+  `#app`'s `min-height: 100vh` (without that, every screen scrolled by 24px).
+- **Build line**: small gray `Build {N} · {D Mon} · {short commit}` (date in
+  UTC) directly under "Connecting to OneDrive…" on the splash and at the
+  very bottom of the Docket screen, centred, in both modes; `Build
+  unstamped` with no stamp.
+- **Newer-build row**: a stamped, served build fetches `build-info.json`
+  (written by the workflow beside `app.html`) uncached once at startup; if
+  its commit differs from the page's own stamp, an amber row "A newer build
+  is deployed — reload" appears under (or instead of) the TEST bar. Does
+  nothing when unstamped, opened from a file, or when the file is missing or
+  malformed.
+
+**Deploy routine (after the workflow merge).** Pages source is "GitHub
+Actions". There is no push trigger: nothing deploys until Ray runs the
+workflow. Actions → "Deploy to GitHub Pages" → Run workflow → leave "Use
+workflow from" on `main` → type the branch to deploy (default `main`) → Run
+workflow. The workflow checks out that branch, stamps branch, commit,
+`github.run_number` and the UTC date into the placeholder line (the build
+fails if the line isn't found exactly once), writes `build-info.json`, and
+deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
+
+**Rollout order (agreed).** (1) merge the app branch while Pages is still on
+the branch source — that deploy is unstamped, so it runs as TEST exactly as
+before; (2) Ray switches Pages to "GitHub Actions"; (3) merge the workflow
+branch (no push trigger, so nothing deploys); (4) Ray deploys a feature
+branch first (stamped, still TEST) to prove the stamping; (5) Ray deploys
+`main` → LIVE.
+
+**Testing notes.** The raw `app.html` is unstamped, so every suite runs as
+copy, exactly as before. `tests/verify_build_decides_target.js` proves the
+LIVE case by serving a stamped temp copy at the real Pages URL through
+Playwright request interception, with every outside request (Graph,
+Microsoft sign-in, the MSAL CDN) aborted.
+
+**Known effects, accepted.** (a) TEST builds only: at 1024×768 an open album
+needs about 8px of scroll, because the album row budget leaves 16px spare and
+the bar takes 24px; LIVE is unchanged. `verify_album_book_layout.js` F1–F8
+measure with the bar hidden for that reason. (b) Going LIVE turns on every
+writer against the real workbook at once; the deferred bugs (silent file
+overwrite on slab/reference/receipt captures, the receipt re-capture message,
+extra-column blanking on Photos/Receipts row replace) are still unfixed.
+(c) The Staging ID-reader fix was dropped: Ray moved his hand-made Staging
+folders into a separate "Manual Staging" folder, so Staging holds only the
+app's own folders and `_Docket`.
+
 ## Current status (2026-09-05) — read this first
 
 **Add Coin Phase 2 is COMPLETE and merged to main.** The branch
@@ -50,6 +133,9 @@ explicit step (re-enabling each flag) rather than being a side effect of
 the one `WRITE_TARGET` edit. The local-only `dev-flags.local.js` override
 mechanism this paragraph used to describe is gone entirely — there's no
 local/production split left to gate flags behind.
+**SUPERSEDED AGAIN (Oct 2026):** `WRITE_TARGET` is no longer a constant at
+all and every write flag is plain `true` — see "The build decides its data
+target" at the top of this file.
 
 **Held, not merged: `claude/photo-receipt-write-layer`** — the photo/receipt
 write layer (real Photos/Receipts table rows, commit-on-capture for
@@ -3634,6 +3720,8 @@ manual/Copilot reconciliation step — the app only ever READS that status.
   `CoinCollection/_Testing/` (`WRITE_PATHS`), so nothing can touch the real
   workbook/Staging. Flipping to `"live"` is a manual, Ray-only, one-line
   change and STILL only writes Staging folders + photos, never the workbook.
+  **Superseded (Oct 2026):** `WRITE_TARGET` is derived from the build stamp,
+  not flipped by hand — see "The build decides its data target".
 - The real workbook is never duplicated by the app — **Ray creates the test
   copy himself** at `CoinCollection/_Testing/CoinCollection (AI) COPY.xlsx`.
 
@@ -10534,6 +10622,11 @@ of blanking the default case.
   standing caveat as every other real-Graph feature in this file.
 
 ### Real-Graph flags always on; WRITE_TARGET is the actual safety boundary (BUILT and merged to main)
+**SUPERSEDED (Oct 2026) by "The build decides its data target" at the top of
+this file:** `WRITE_TARGET` is now derived from an inline build stamp, and
+every write flag is plain `true` in both targets. Part 1 below (the derived
+`redirectUri`) still stands; Part 2's `(WRITE_TARGET === "copy")` flags and
+"second explicit step to go live" do not.
 Two changes, same session, both driven by the same underlying fact: Ray is
 the only user of this app and that isn't expected to change, so the
 always-off-until-a-local-file-enables-it posture every real-Graph flag
