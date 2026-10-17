@@ -11,9 +11,10 @@
 # the box.
 #
 # The stamp replaces the ONE placeholder line in app.html (see BUILD_STAMP /
-# isLiveBuild() there). If that line is not found exactly once, the build
-# FAILS and nothing is deployed — a branch from before the build marker
-# existed cannot be deployed until main is merged into it.
+# isLiveBuild() there) and is also written to build-info.json beside it.
+# If that line is not found exactly once, the build FAILS and nothing is
+# deployed — a branch from before the build marker existed cannot be
+# deployed until main is merged into it.
 
 name: Deploy to GitHub Pages
 
@@ -78,7 +79,11 @@ jobs:
             .replace(/\u2028/g, "\\u2028")
             .replace(/\u2029/g, "\\u2029");
           fs.writeFileSync("app.html", src.replace(LINE, "  const BUILD_STAMP = " + json + ";"));
-          console.log("Stamped app.html: " + JSON.stringify(stamp));
+          // The same stamp, published next to the app. An open copy of an
+          // older build fetches this on load and offers a reload when the
+          // commit differs ("A newer build is deployed — reload").
+          fs.writeFileSync("build-info.json", JSON.stringify(stamp, null, 2) + "\n");
+          console.log("Stamped app.html and wrote build-info.json: " + JSON.stringify(stamp));
           // --- stamp-build (end) ---
           STAMP
 

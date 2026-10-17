@@ -6,7 +6,9 @@
 //   - its STAMP SCRIPT, extracted verbatim from the YAML and run with node in
 //     a temporary git repo exactly as the workflow runs it, and the stamped
 //     app.html it produces, served at the real Pages URL (outside requests
-//     aborted), behaving as LIVE for main and TEST for anything else.
+//     aborted), behaving as LIVE for main and TEST for anything else;
+//   - the build-info.json it writes beside app.html, and the app's
+//     "A newer build is deployed — reload" row reacting to it.
 
 const fs = require("fs");
 const os = require("os");
@@ -114,6 +116,25 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
     ok(new RegExp("^Build 57 · \\d{1,2} [A-Z][a-z]{2} · " + short + "$").test(L.line), "D11 and shows \"Build 57 · {D Mon} · " + short + "\"");
     await liveP.close();
 
+    // build-info.json: written beside app.html, carrying the same stamp.
+    const infoPath = path.join(main.dir, "build-info.json");
+    let info = null; try { info = JSON.parse(fs.readFileSync(infoPath, "utf8")); } catch (e) { /* stays null */ }
+    ok(!!info && JSON.stringify(info) === JSON.stringify(stamp),
+      "D18 the script writes build-info.json carrying exactly the stamp it put in app.html");
+    const readIfThere = f => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null);
+    const sameP = await openServed(openApp, LIVE_URL, out, readIfThere(infoPath));
+    const S = await readState(sameP);
+    ok(S.target === "live" && S.newer === false, "D19 the deployed app with its own build-info.json shows no \"newer build\" row");
+    await sameP.close();
+    const later = tempRepo(appSrc + "\n"); dirs.push(later.dir);
+    runStamp(script, later.dir, "main", "63");
+    const otherInfo = readIfThere(path.join(later.dir, "build-info.json"));
+    const oldP = await openServed(openApp, LIVE_URL, out, otherInfo);
+    const O = await readState(oldP);
+    ok(later.commit !== main.commit && O.newer === true,
+      "D20 an open older build, once a newer one's build-info.json is deployed, shows the \"newer build\" row");
+    await oldP.close();
+
     const feat = tempRepo(appSrc); dirs.push(feat.dir);
     runStamp(script, feat.dir, "claude/try-something", "58");
     const featP = await openServed(openApp, LIVE_URL, fs.readFileSync(path.join(feat.dir, "app.html"), "utf8"));
@@ -135,8 +156,9 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
     const none = tempRepo(appSrc.replace("  const BUILD_STAMP = null; // @build-stamp", "  const BUILD_STAMP = null;")); dirs.push(none.dir);
     const before = fs.readFileSync(path.join(none.dir, "app.html"), "utf8");
     const rn = runStamp(script, none.dir, "main", "60");
-    ok(rn.status !== 0 && /found 0 time/.test(rn.stderr) && fs.readFileSync(path.join(none.dir, "app.html"), "utf8") === before,
-      "D14 no placeholder line: the build fails and app.html is left untouched");
+    ok(rn.status !== 0 && /found 0 time/.test(rn.stderr) && fs.readFileSync(path.join(none.dir, "app.html"), "utf8") === before &&
+       !fs.existsSync(path.join(none.dir, "build-info.json")),
+      "D14 no placeholder line: the build fails, app.html is left untouched and no build-info.json is written");
     const two = tempRepo(appSrc.replace("  const BUILD_STAMP = null; // @build-stamp",
       "  const BUILD_STAMP = null; // @build-stamp\n  const BUILD_STAMP = null; // @build-stamp")); dirs.push(two.dir);
     const rt = runStamp(script, two.dir, "main", "61");
