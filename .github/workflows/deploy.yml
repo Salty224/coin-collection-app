@@ -1,0 +1,102 @@
+# Deploys the app to GitHub Pages, stamping the build so the app knows
+# which data it may touch.
+#
+#   main          -> the app runs LIVE (the real workbook and folders)
+#   any other     -> the app runs TEST (the _Testing copy) and shows a
+#                    "TEST · {branch}" bar
+#
+# Runs ONLY when Ray presses "Run workflow" on the Actions tab. There is
+# deliberately NO push trigger: merging to main deploys nothing by itself.
+# Always leave "Use workflow from" on main and type the branch to deploy in
+# the box.
+#
+# The stamp replaces the ONE placeholder line in app.html (see BUILD_STAMP /
+# isLiveBuild() there). If that line is not found exactly once, the build
+# FAILS and nothing is deployed — a branch from before the build marker
+# existed cannot be deployed until main is merged into it.
+
+name: Deploy to GitHub Pages
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy (main = LIVE, the real workbook; any other branch = TEST, the _Testing copy)"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a second run waits rather than cancelling the first.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the chosen branch
+        uses: actions/checkout@v4
+        with:
+          # refs/heads/ so only a BRANCH can be deployed (not a tag or a
+          # bare commit).
+          ref: refs/heads/${{ inputs.branch }}
+          path: site
+
+      - name: Stamp the build marker into app.html
+        working-directory: site
+        env:
+          BUILD_BRANCH: ${{ inputs.branch }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          node - <<'STAMP'
+          // --- stamp-build (begin) ---
+          const fs = require("fs");
+          const { execSync } = require("child_process");
+          const fail = (msg) => { console.error("::error::" + msg); process.exit(1); };
+          const branch = String(process.env.BUILD_BRANCH || "").trim();
+          const number = String(process.env.BUILD_NUMBER || "").trim();
+          if (!branch) fail("No branch given.");
+          const commit = execSync("git rev-parse HEAD").toString().trim();
+          if (!/^[0-9a-f]{40}$/.test(commit)) fail("Checked-out commit is not 40 hex characters: " + commit);
+          const stamp = { branch, commit, number, date: new Date().toISOString() };
+          const LINE = /^  const BUILD_STAMP = null; \/\/ @build-stamp$/gm;
+          const src = fs.readFileSync("app.html", "utf8");
+          const hits = src.match(LINE) || [];
+          if (hits.length !== 1) {
+            fail("Build marker placeholder found " + hits.length + " time(s) in app.html (expected exactly 1). Not deploying.");
+          }
+          // JSON is a valid JS object literal; escape what could end the
+          // <script> or break a JS string.
+          const json = JSON.stringify(stamp)
+            .replace(/</g, "\\u003c")
+            .replace(/\u2028/g, "\\u2028")
+            .replace(/\u2029/g, "\\u2029");
+          fs.writeFileSync("app.html", src.replace(LINE, "  const BUILD_STAMP = " + json + ";"));
+          console.log("Stamped app.html: " + JSON.stringify(stamp));
+          // --- stamp-build (end) ---
+          STAMP
+
+      - name: Prepare the Pages upload
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
