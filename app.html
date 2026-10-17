@@ -179,6 +179,10 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .test-banner.hidden { display: none; }
+  /* Small gray "Build {N} · {D Mon} · {short commit}" line — on the splash
+     (under the connecting status) and at the very bottom of the Docket. */
+  .build-line { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 10px; }
+  #docketBuildLine { margin: 28px 0 0; }
   body { padding-top: var(--top-strip-h, 0px); }
   .splash-inner { text-align: center; padding: 20px; max-width: 320px; }
   .splash-disc {
@@ -2502,6 +2506,7 @@
       <div class="splash-disc" aria-hidden="true">🪙</div>
       <h1 class="splash-title">Salty's Cabinet</h1>
       <div class="splash-status" id="splashStatus">Connecting to OneDrive…</div>
+      <div class="build-line" id="splashBuildLine"></div>
       <div class="splash-error hidden" id="splashErrorBox">
         <div class="splash-error-title">⚠️ Couldn't connect</div>
         <p class="splash-error-text">
@@ -4206,6 +4211,7 @@
             <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
           </div>
         </div>
+        <p class="build-line" id="docketBuildLine"></p>
       </section>
 
       <!-- ============ STAGING REVIEW ============ -->
@@ -5016,6 +5022,27 @@
     document.documentElement.style.setProperty("--top-strip-h", (anyShown ? strip.offsetHeight : 0) + "px");
   }
   renderTopStrip();
+
+  // "Build {N} · {D Mon} · {short commit}", both modes. The date is shown in
+  // UTC (it is stamped in UTC) so every device reads the same day; "Build
+  // unstamped" when the build carries no stamp.
+  const BUILD_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function buildLineText(stamp) {
+    if (!stamp || typeof stamp !== "object") return "Build unstamped";
+    const num = String(stamp.number == null ? "" : stamp.number).trim() || "?";
+    const d = new Date(typeof stamp.date === "string" ? stamp.date : NaN);
+    const day = isNaN(d.getTime()) ? "?" : d.getUTCDate() + " " + BUILD_MONTHS[d.getUTCMonth()];
+    const commit = (typeof stamp.commit === "string" && stamp.commit.slice(0, 7)) || "?";
+    return "Build " + num + " · " + day + " · " + commit;
+  }
+  function renderBuildLines() {
+    const text = buildLineText(BUILD_STAMP);
+    ["splashBuildLine", "docketBuildLine"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    });
+  }
+  renderBuildLines();
   const ENABLE_LIVE_NAV_DATA = true; // read-only — never depends on WRITE_TARGET
   const ENABLE_SET_WRITE_LAYER = true;
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).

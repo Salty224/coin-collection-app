@@ -268,4 +268,57 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   ok(BL.target === "live" && !BL.stripShown && BL.bannerHidden, "B9 a LIVE build shows no bar at all");
   ok(BL.var === "0px" && BL.bodyPad === "0px" && BL.navTopCss === "0px", "B10 and the page, nav and padding are exactly as before (0px)");
   await livePage.close();
+
+  // ================================================================
+  // COMMIT 4 — the build line
+  // ================================================================
+  const readLines = pg => pg.evaluate(() => {
+    const splashLine = document.getElementById("splashBuildLine");
+    const docketLine = document.getElementById("docketBuildLine");
+    const view = document.getElementById("view-needsdbcoins");
+    const muted = getComputedStyle(document.documentElement).getPropertyValue("--text-muted").trim();
+    const probe = document.createElement("span"); probe.style.color = muted; document.body.appendChild(probe);
+    const mutedRgb = getComputedStyle(probe).color; probe.remove();
+    const cs = getComputedStyle(docketLine);
+    return {
+      splash: splashLine.textContent, docket: docketLine.textContent,
+      splashUnderStatus: splashLine.previousElementSibling && splashLine.previousElementSibling.id === "splashStatus",
+      docketLast: view.lastElementChild === docketLine,
+      docketCentred: cs.textAlign === "center",
+      small: parseFloat(cs.fontSize) <= 12 && parseFloat(getComputedStyle(splashLine).fontSize) <= 12,
+      gray: cs.color === mutedRgb && getComputedStyle(splashLine).color === mutedRgb
+    };
+  });
+  const LN = await readLines(page);
+  ok(LN.splash === "Build unstamped" && LN.docket === "Build unstamped", "L1 an unstamped build reads \"Build unstamped\" on the splash and the Docket");
+  ok(LN.splashUnderStatus, "L2 on the splash it sits directly under \"Connecting to OneDrive…\"");
+  ok(LN.docketLast && LN.docketCentred, "L3 on the Docket it is the very last thing on the screen, centred");
+  ok(LN.small && LN.gray, "L4 it is small gray text");
+
+  const U4 = await page.evaluate(() => ({
+    main: buildLineText({ branch: "main", commit: "0123456789abcdef0123456789abcdef01234567", number: "57", date: "2026-10-17T12:00:00.000Z" }),
+    string: buildLineText("main"),
+    nul: buildLineText(null),
+    badDate: buildLineText({ branch: "x", commit: "abcdef0123", number: 3, date: "not a date" })
+  }));
+  ok(U4.main === "Build 57 · 17 Oct · 0123456", "L5 a stamped build reads \"Build {N} · {D Mon} · {short commit}\"");
+  ok(U4.string === "Build unstamped" && U4.nul === "Build unstamped", "L6 an unreadable or missing stamp reads \"Build unstamped\"");
+  ok(U4.badDate === "Build 3 · ? · abcdef0", "L7 a stamp with a bad date still shows what it can");
+
+  // UTC, whatever the device's timezone: 23:30 UTC on 31 Oct is already
+  // 1 Nov in Auckland, and must still read "31 Oct".
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setTimezoneOverride", { timezoneId: "Pacific/Auckland" });
+  const TZ = await page.evaluate(() => ({
+    local: new Date("2026-10-31T23:30:00.000Z").getDate(),
+    line: buildLineText({ commit: "0123456789abcdef0123456789abcdef01234567", number: "8", date: "2026-10-31T23:30:00.000Z" })
+  }));
+  ok(TZ.local === 1 && TZ.line === "Build 8 · 31 Oct · 0123456", "L8 the date is shown in UTC, not the device's own timezone");
+
+  const stampedLines = await openServed(openApp, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
+  const SL = await readLines(stampedLines);
+  const slTarget = await stampedLines.evaluate(() => WRITE_TARGET);
+  ok(slTarget === "live" && SL.splash === "Build 57 · 17 Oct · 0123456" && SL.docket === SL.splash,
+    "L9 a LIVE build shows its build line too, on both screens");
+  await stampedLines.close();
 }, module);
