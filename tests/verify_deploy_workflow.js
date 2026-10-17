@@ -1,7 +1,8 @@
 // The deploy workflow (.github/workflows/deploy.yml).
 //
 // The workflow itself can only really run on GitHub. What CAN be proved here:
-//   - its shape: "Run workflow" only (no push trigger), the branch input, the
+//   - its shape: "Run workflow" only (no push trigger), the branch input (no
+//     default, so it must be typed), the blank-branch guard before checkout, the
 //     three permissions, branch-only checkout, upload and deploy;
 //   - its STAMP SCRIPT, extracted verbatim from the YAML and run with node in
 //     a temporary git repo exactly as the workflow runs it, and the stamped
@@ -42,6 +43,22 @@ function tempRepo(appHtml) {
   return { dir, commit };
 }
 
+// The "Require a typed branch name" step's shell script, extracted verbatim.
+function requireBranchScript(yml) {
+  const begin = yml.indexOf("# --- require-branch (begin) ---");
+  const end = yml.indexOf("# --- require-branch (end) ---");
+  if (begin === -1 || end === -1) return null;
+  const lineStart = yml.lastIndexOf("\n", begin) + 1;
+  const indent = begin - lineStart;
+  return yml.slice(lineStart, yml.indexOf("\n", end))
+    .split("\n").map(l => l.slice(Math.min(indent, l.length - l.trimStart().length))).join("\n");
+}
+
+function runRequire(script, branch) {
+  return spawnSync("bash", ["-e", "-c", script], { encoding: "utf8",
+    env: { ...process.env, BUILD_BRANCH: branch } });
+}
+
 function runStamp(script, dir, branch, number) {
   return spawnSync("node", ["-"], { input: script, cwd: dir, encoding: "utf8",
     env: { ...process.env, BUILD_BRANCH: branch, BUILD_NUMBER: number } });
@@ -79,8 +96,8 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
   const onBlock = yml.slice(yml.indexOf("\non:"), yml.indexOf("\npermissions:"));
   ok(/workflow_dispatch:/.test(onBlock) && !/\b(push|pull_request|pull_request_target|schedule|workflow_run|release)\s*:/.test(onBlock),
     "D1 the only trigger is \"Run workflow\" (no push, PR, schedule or other trigger)");
-  ok(/branch:\s*\n\s+description:[^\n]*\n\s+required: true\s*\n\s+default: main\s*\n\s+type: string/.test(onBlock),
-    "D2 it takes a required branch input that defaults to main");
+  ok(/branch:\s*\n\s+description:[^\n]*\n\s+required: true\s*\n\s+type: string/.test(onBlock) && !/^\s*default\s*:/m.test(onBlock),
+    "D2 it takes a required branch input with NO default (the branch must be typed every time)");
   const perms = yml.slice(yml.indexOf("\npermissions:"), yml.indexOf("\nconcurrency:"));
   ok(/contents: read/.test(perms) && /pages: write/.test(perms) && /id-token: write/.test(perms) &&
      (perms.match(/^ {2}[a-z-]+:/gm) || []).length === 3,
@@ -91,6 +108,26 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
   const script = stampScript(yml);
   ok(!!script && script.indexOf("${{") === -1 && /BUILD_BRANCH: \$\{\{ inputs\.branch \}\}/.test(yml),
     "D6 the stamp script takes the branch through an environment variable, never pasted into the script");
+
+  // ---- The blank-branch guard, run for real ------------------------
+  const guard = requireBranchScript(yml);
+  const guardAt = yml.indexOf("name: Require a typed branch name");
+  const checkoutAt = yml.indexOf("name: Check out the chosen branch");
+  ok(!!guard && guardAt !== -1 && checkoutAt !== -1 && guardAt < checkoutAt &&
+     guard.indexOf("${{") === -1 &&
+     /name: Require a typed branch name\s*\n\s+env:\s*\n\s+BUILD_BRANCH: \$\{\{ inputs\.branch \}\}/.test(yml),
+    "D21 a \"Require a typed branch name\" step runs before checkout and takes the branch through an environment variable");
+  const gBlank = runRequire(guard || "exit 0", "");
+  const gSpace = runRequire(guard || "exit 0", "  \t ");
+  ok(gBlank.status !== 0 && gSpace.status !== 0 && /No branch typed/.test(gBlank.stdout + gBlank.stderr),
+    "D22 a blank or whitespace-only branch fails the run with a plain message");
+  const gMain = runRequire(guard || "exit 1", "main");
+  const gFeat = runRequire(guard || "exit 1", "claude/try-something");
+  const hostileName = "x$(echo PWNED)`echo PWNED`;exit 7";
+  const gHostile = runRequire(guard || "exit 1", hostileName);
+  ok(gMain.status === 0 && gFeat.status === 0 && gHostile.status === 0 &&
+     gHostile.stdout.indexOf("Deploying branch: " + hostileName) !== -1 && gHostile.stdout.indexOf("xPWNED") === -1,
+    "D23 a typed branch passes the guard, and a hostile name is printed as text, never run");
 
   // ---- The stamp script, run for real ------------------------------
   const appSrc = fs.readFileSync(path.join(REPO_ROOT, "app.html"), "utf8");

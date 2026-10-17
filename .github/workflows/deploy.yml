@@ -8,7 +8,9 @@
 # Runs ONLY when Ray presses "Run workflow" on the Actions tab. There is
 # deliberately NO push trigger: merging to main deploys nothing by itself.
 # Always leave "Use workflow from" on main and type the branch to deploy in
-# the box.
+# the box. The box has NO default on purpose: deploying LIVE must be a
+# choice typed every time, never a pre-filled value accepted by accident. A
+# blank box fails the run before anything is checked out.
 #
 # The stamp replaces the ONE placeholder line in app.html (see BUILD_STAMP /
 # isLiveBuild() there) and is also written to build-info.json beside it.
@@ -22,9 +24,8 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch to deploy (main = LIVE, the real workbook; any other branch = TEST, the _Testing copy)"
+        description: "Branch to deploy — type it (main = LIVE, the real workbook; any other branch = TEST, the _Testing copy)"
         required: true
-        default: main
         type: string
 
 permissions:
@@ -41,6 +42,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Fails fast, with a plain message, if the branch box was left blank
+      # (GitHub's form may or may not enforce "required"; this does). The
+      # branch arrives through an environment variable, never pasted into
+      # the script.
+      - name: Require a typed branch name
+        env:
+          BUILD_BRANCH: ${{ inputs.branch }}
+        run: |
+          # --- require-branch (begin) ---
+          if [ -z "$(printf '%s' "$BUILD_BRANCH" | tr -d '[:space:]')" ]; then
+            echo "::error::No branch typed. Type the branch to deploy (main = LIVE). Nothing was deployed."
+            exit 1
+          fi
+          echo "Deploying branch: $BUILD_BRANCH"
+          # --- require-branch (end) ---
+
       - name: Check out the chosen branch
         uses: actions/checkout@v4
         with:

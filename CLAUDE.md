@@ -63,8 +63,9 @@ unreachable and were deliberately left alone.
 **Deploy routine (after the workflow merge).** Pages source is "GitHub
 Actions". There is no push trigger: nothing deploys until Ray runs the
 workflow. Actions → "Deploy to GitHub Pages" → Run workflow → leave "Use
-workflow from" on `main` → type the branch to deploy (default `main`) → Run
-workflow. The workflow checks out that branch, stamps branch, commit,
+workflow from" on `main` → type the branch to deploy (no default since
+Oct 2026: the box starts blank and a blank run fails before checkout, so
+LIVE is never a pre-filled value accepted by accident) → Run workflow. The workflow checks out that branch, stamps branch, commit,
 `github.run_number` and the UTC date into the placeholder line (the build
 fails if the line isn't found exactly once), writes `build-info.json`, and
 deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
