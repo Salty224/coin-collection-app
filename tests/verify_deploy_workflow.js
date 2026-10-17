@@ -105,6 +105,9 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
   ok(/ref: refs\/heads\/\$\{\{ inputs\.branch \}\}/.test(yml), "D4 it checks out the chosen BRANCH only (refs/heads/…)");
   ok(/uses: actions\/upload-pages-artifact@v\d+/.test(yml) && /uses: actions\/deploy-pages@v\d+/.test(yml) &&
      /environment:\s*\n\s+name: github-pages/.test(yml), "D5 it uploads with upload-pages-artifact and deploys with deploy-pages to github-pages");
+  const runsOn = yml.match(/^\s+runs-on:\s*(\S+)\s*$/gm) || [];
+  ok(runsOn.length === 2 && runsOn.every(l => /runs-on: ubuntu-24\.04$/.test(l)),
+    "D24 both jobs are pinned to ubuntu-24.04 (not ubuntu-latest, which moves on its own)");
   const script = stampScript(yml);
   ok(!!script && script.indexOf("${{") === -1 && /BUILD_BRANCH: \$\{\{ inputs\.branch \}\}/.test(yml),
     "D6 the stamp script takes the branch through an environment variable, never pasted into the script");

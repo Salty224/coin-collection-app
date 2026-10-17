@@ -38,9 +38,12 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Both jobs are pinned to ubuntu-24.04 rather than ubuntu-latest, which
+# GitHub moves to a new Ubuntu release on its own schedule. Move the pin on
+# purpose, after a TEST deploy of a feature branch on the new image.
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # Fails fast, with a plain message, if the branch box was left blank
       # (GitHub's form may or may not enforce "required"; this does). The
@@ -114,7 +117,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
