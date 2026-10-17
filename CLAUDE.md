@@ -322,6 +322,8 @@ build, fast-forwarded to `main` on his go-ahead.
   from the details lookup, not from the Set's own row, so a real Set's real
   values don't show there.
 
+- **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
