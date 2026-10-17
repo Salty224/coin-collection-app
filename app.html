@@ -2224,6 +2224,50 @@
   }
   .gallery-viewer-grid .gv-cap { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 
+  /* In-app media viewer — one photo or one receipt, full screen, VIEW ONLY.
+     Deliberately not the .photo-adjust-overlay chrome: that is a centred
+     dialog panel, this is the whole screen. z-index 300 sits above every
+     sheet (200) and both crop stages (210), below the splash (500) and the
+     TEST bar (600), whose height it pads for like every other overlay. */
+  .media-viewer {
+    position: fixed; inset: 0; z-index: 300; background: #000;
+    display: flex; flex-direction: column;
+    padding-top: var(--top-strip-h, 0px);
+  }
+  .media-viewer.hidden { display: none; }
+  .media-viewer .mv-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+  .media-viewer .mv-title {
+    flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: #f2ead8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .media-viewer .mv-close {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 20px; line-height: 1; cursor: pointer;
+  }
+  .media-viewer .mv-stage {
+    flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+    padding: 12px; overflow: auto;
+  }
+  .media-viewer .mv-stage img, .media-viewer .mv-stage canvas {
+    max-width: 100%; max-height: 100%; object-fit: contain; display: block;
+  }
+  .media-viewer .mv-message { color: #d9d2c2; font-size: 14px; text-align: center; max-width: 340px; line-height: 1.5; }
+  .media-viewer .mv-message .mv-filename { display: block; margin-top: 6px; font-size: 12px; color: #a99f8b; word-break: break-all; }
+  .media-viewer .mv-footer {
+    padding: 8px 12px 14px; text-align: center; font-size: 12px; color: #a99f8b;
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: center;
+  }
+  .media-viewer .mv-footer:empty { display: none; }
+  .media-viewer .mv-footer a { color: var(--gold); }
+  .media-viewer .mv-open-file {
+    display: inline-block; margin-top: 14px; padding: 9px 16px; border-radius: 8px;
+    border: 1px solid var(--gold); color: var(--gold); text-decoration: none; font-size: 13px;
+  }
+
   /* Year picker — decade grid, then a small grid of years within it, so
      picking a year never means scrolling one giant list. Typing still works. */
   .year-field-row { display: flex; gap: 8px; }
@@ -4822,6 +4866,17 @@
         <button type="button" id="galleryViewerCloseBtn">Close</button>
       </div>
     </div>
+  </div>
+
+  <!-- In-app media viewer: one coin photo or one receipt, full screen.
+       VIEW ONLY — no inputs, no capture, no edit or remove controls. -->
+  <div class="media-viewer hidden" id="mediaViewerOverlay" role="dialog" aria-modal="true" aria-labelledby="mediaViewerTitle">
+    <div class="mv-bar">
+      <div class="mv-title" id="mediaViewerTitle"></div>
+      <button type="button" class="mv-close" id="mediaViewerCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <div class="mv-stage" id="mediaViewerStage"></div>
+    <div class="mv-footer" id="mediaViewerFooter"></div>
   </div>
 
   <!-- Year filter popup (Coins/Rolls/Sets) — reuses the same photo-adjust
@@ -23929,6 +23984,113 @@
   }
 
   // ==================================================================
+  // IN-APP MEDIA VIEWER (view only)
+  // ==================================================================
+  // One photo or one receipt, full screen. The app has no browser history of
+  // its own, so the phone's back button used to leave the app entirely; the
+  // viewer pushes ONE history entry when it opens so back closes it instead.
+  // Every other way of closing (the X, Escape) goes back through that same
+  // entry with history.back(), so entries never pile up. The URL is never
+  // changed (same-URL pushState), so MSAL's redirect handling is unaffected.
+  //
+  // A token guards async content: a file that arrives after the viewer was
+  // closed, or re-opened on something else, is dropped rather than painted
+  // over whatever is showing now.
+  let mediaViewerToken = 0;
+  let mediaViewerHistoryPushed = false;
+  let mediaViewerObjectUrls = [];
+
+  function mediaViewerIsOpen() {
+    const el = document.getElementById("mediaViewerOverlay");
+    return !!el && !el.classList.contains("hidden");
+  }
+
+  function openMediaViewer(title) {
+    const overlay = document.getElementById("mediaViewerOverlay");
+    mediaViewerToken++;
+    document.getElementById("mediaViewerTitle").textContent = title || "";
+    document.getElementById("mediaViewerStage").innerHTML = "";
+    document.getElementById("mediaViewerFooter").innerHTML = "";
+    setMediaViewerMessage("Loading…");
+    const wasOpen = mediaViewerIsOpen();
+    overlay.classList.remove("hidden");
+    if (!wasOpen) {
+      try {
+        history.pushState({ mediaViewer: true }, "");
+        mediaViewerHistoryPushed = true;
+      } catch (e) {
+        mediaViewerHistoryPushed = false; // back simply won't be intercepted
+      }
+    }
+    return mediaViewerToken;
+  }
+
+  function mediaViewerCurrent(token) {
+    return token === mediaViewerToken && mediaViewerIsOpen();
+  }
+
+  function setMediaViewerMessage(text, filename) {
+    const stage = document.getElementById("mediaViewerStage");
+    stage.innerHTML = `<div class="mv-message">${escapeHtmlText(text)}` +
+      (filename ? `<span class="mv-filename">${escapeHtmlText(filename)}</span>` : "") + `</div>`;
+    return stage.firstElementChild;
+  }
+
+  function setMediaViewerNode(node) {
+    const stage = document.getElementById("mediaViewerStage");
+    stage.innerHTML = "";
+    stage.appendChild(node);
+  }
+
+  function setMediaViewerImage(url, alt) {
+    const img = document.createElement("img");
+    img.alt = alt || "";
+    img.src = url;
+    setMediaViewerNode(img);
+    return img;
+  }
+
+  function setMediaViewerFooter(html) {
+    document.getElementById("mediaViewerFooter").innerHTML = html || "";
+  }
+
+  // Blob URLs this viewer made itself (an unwrapped receipt image, an
+  // "Open file" link). Revoked on close; the shared photo cache's URLs are
+  // never put here, since other surfaces keep using them.
+  function trackMediaViewerObjectUrl(url) { mediaViewerObjectUrls.push(url); return url; }
+
+  function hideMediaViewer() {
+    document.getElementById("mediaViewerOverlay").classList.add("hidden");
+    document.getElementById("mediaViewerStage").innerHTML = "";
+    document.getElementById("mediaViewerFooter").innerHTML = "";
+    mediaViewerToken++;
+    mediaViewerObjectUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) { /* ignore */ } });
+    mediaViewerObjectUrls = [];
+  }
+
+  function closeMediaViewer() {
+    if (!mediaViewerIsOpen()) return;
+    if (mediaViewerHistoryPushed && history.state && history.state.mediaViewer) {
+      history.back(); // popstate below does the hiding
+    } else {
+      mediaViewerHistoryPushed = false;
+      hideMediaViewer();
+    }
+  }
+
+  function initMediaViewer() {
+    document.getElementById("mediaViewerCloseBtn").addEventListener("click", closeMediaViewer);
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && mediaViewerIsOpen()) closeMediaViewer();
+    });
+    window.addEventListener("popstate", () => {
+      if (!mediaViewerIsOpen()) return;
+      mediaViewerHistoryPushed = false;
+      hideMediaViewer();
+    });
+  }
+
+  // ==================================================================
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
@@ -28355,6 +28517,7 @@
   initSubGroupPhotoSheet();
   initAddSetChildExtras();
   initGalleryViewer();
+  initMediaViewer();
   initGradingHelp();
   initAddCoin();
   initAddSet();
