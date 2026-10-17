@@ -4922,35 +4922,31 @@
   //   ENABLE_SET_LINK_WRITE    — attach/detach a coin to/from a Set (writes
   //                              ONE cell: OriginSetID on the CHILD's row)
   //
-  // SUPERSEDED — none of these are gated behind a local dev-flags.local.js
-  // override anymore (that whole mechanism, and the file/README/.gitignore
-  // scaffolding around it, is gone — see CLAUDE.md for why). The two
-  // read-only flags are plain `true` unconditionally, same as
-  // ENABLE_REFERENCE_IMAGES above. The four WRITE-capable flags are tied to
-  // WRITE_TARGET instead: `(WRITE_TARGET === "copy")`. WRITE_TARGET is the
-  // one deliberate switch that actually protects the real workbook — with
-  // it at "copy" every write-capable feature is fully on and writing to the
-  // `_Testing` copy; flipping it to "live" turns every one of them back OFF
-  // at that same instant, so going live for real is a required SECOND,
-  // explicit step (re-enabling each flag individually) rather than a side
-  // effect of the one WRITE_TARGET edit.
+  // SUPERSEDED TWICE — first the local dev-flags.local.js override was
+  // retired, then the "(WRITE_TARGET === "copy")" tie that turned every
+  // write flag OFF under "live". Ray's decision (Oct 2026): every write
+  // feature is on in BOTH targets — WRITE_TARGET alone decides WHERE the
+  // writes go (the _Testing copy or the real workbook). There is no longer
+  // a per-feature second step to go live. Each flag still exists, and still
+  // gates its own feature, so one can be switched off on its own if ever
+  // needed.
   const WRITE_TARGET = "copy"; // "copy" | "live" — the real safety boundary; see CLAUDE.md
   const ENABLE_LIVE_NAV_DATA = true; // read-only — never depends on WRITE_TARGET
-  const ENABLE_SET_WRITE_LAYER = (WRITE_TARGET === "copy");
+  const ENABLE_SET_WRITE_LAYER = true;
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
   // Deliberately its OWN flag rather than riding ENABLE_SET_WRITE_LAYER: the
   // two features write completely different things (Add Set writes Staging
   // JSON + photo files and never touches the workbook; Browse Edit writes
   // single cells INTO the workbook), so they must be independently
   // enable-able.
-  const ENABLE_BROWSE_EDIT_WRITE = (WRITE_TARGET === "copy");
+  const ENABLE_BROWSE_EDIT_WRITE = true;
   // The Docket's "no DB_Coins match" research queue, made durable (it was
   // in-memory-only and append-only before). Its OWN flag for the same
   // reason every other one is: it writes a different thing again (a JSON
   // file under the Staging folder — see DOCKET_QUEUE_PATH — plus, when a
   // Re-check is confirmed, one CoinID cell on the All sheet via the same
   // narrow writeCoinIdCell() path Browse Edit already uses).
-  const ENABLE_DOCKET_WRITE = (WRITE_TARGET === "copy");
+  const ENABLE_DOCKET_WRITE = true;
   // Add Coin's own write layer. Its OWN flag for the same reason as every
   // other one — it writes a different thing again: a per-coin Staging draft
   // (coin.json) plus that coin's captured photos, following Add Set's proven
@@ -4963,7 +4959,7 @@
   //     writes).
   //   Phase 3 — nothing further for this flag; photo capture already lands
   //     in Phase 1.
-  const ENABLE_ADDCOIN_WRITE = (WRITE_TARGET === "copy");
+  const ENABLE_ADDCOIN_WRITE = true;
   // Attaching/detaching a coin to/from a Set — writing All.OriginSetID on
   // the CHILD's row. Its OWN flag for the same reason as every other one,
   // and here the reason is unusually concrete: this is the app's first
@@ -4975,7 +4971,7 @@
   // one-flag-per-write-type rule exists to prevent; riding
   // ENABLE_SET_WRITE_LAYER would conflate "writes Staging JSON files" with
   // "writes workbook cells", which are not the same capability at all.
-  const ENABLE_SET_LINK_WRITE = (WRITE_TARGET === "copy");
+  const ENABLE_SET_LINK_WRITE = true;
   // Purging an EXITED coin's photos — the app's first genuinely DESTRUCTIVE
   // write. deleteItem() itself is not new (the promotion move has always
   // used it), but every existing use deletes a source only AFTER a verified
@@ -4984,7 +4980,7 @@
   // must not require also turning off Edit Coin's ordinary field writes, and
   // enabling those must never silently enable permanent deletion. It also
   // writes All.Purged, through its own narrow audited cell write.
-  const ENABLE_PURGE_WRITE = (WRITE_TARGET === "copy");
+  const ENABLE_PURGE_WRITE = true;
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
   const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE || ENABLE_PURGE_WRITE;
@@ -6806,15 +6802,12 @@
   // ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
   // (real first-write infrastructure for this file — see CLAUDE.md
   // "Add Set / CollectionID reservation (write layer)"). Everything is
-  // gated so it can NEVER touch the real production workbook or fire a
-  // broken auth redirect on the deployed site:
-  //   - ENABLE_SET_WRITE_LAYER is `(WRITE_TARGET === "copy")` (declared with
-  //     the other real-Graph flags, up beside the shared MSAL instance —
-  //     see WRITE_TARGET's own comment there for why). When false (i.e.
-  //     WRITE_TARGET is "live" and this flag hasn't been re-enabled yet),
-  //     getWriteToken() returns null and never redirects, so tapping Add
-  //     Set's Save degrades to a toast instead of a page-navigating sign-in
-  //     attempt.
+  // gated:
+  //   - ENABLE_SET_WRITE_LAYER is `true` in both targets (declared with the
+  //     other real-Graph flags, up beside the shared MSAL instance). If it
+  //     were ever switched off, getWriteToken() returns null and never
+  //     redirects, so tapping Add Set's Save degrades to a toast instead of
+  //     a page-navigating sign-in attempt.
   //   - WRITE_TARGET defaults "copy" — all paths resolve under
   //     CoinCollection/_Testing/ so nothing hits the real workbook/Staging.
   //     Flipping to "live" is a manual, Ray-only change (never automatic),

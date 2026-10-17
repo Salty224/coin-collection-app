@@ -49,7 +49,7 @@ module.exports = defineSuite("dynamic-redirect-and-live-flags", async ({ ok, ope
   ok(A.refImages === true, "A2 ENABLE_REFERENCE_IMAGES is plain true (read-only, never depends on WRITE_TARGET)");
   ok(A.liveNav === true, "A3 ENABLE_LIVE_NAV_DATA is plain true, same reasoning");
   ok(A.setWrite === true && A.browseEditWrite === true && A.docketWrite === true && A.addCoinWrite === true,
-    "A4 all four write-capable flags are true, matching WRITE_TARGET === 'copy' in the shipped default");
+    "A4 all four write-capable flags are true — on in both targets since the build-decides-target change");
   ok(A.writeLayerEnabled === true, "A5 WRITE_LAYER_ENABLED follows from the four write flags being on");
   ok(A.devFlagOverrideGone, "A6 devFlagOverride() no longer exists — nothing reads it anymore");
   ok(A.devFlagsWindowUnset, "A7 window.__DEV_FLAGS__ is never set (the <script src=\"dev-flags.local.js\"> tag is gone)");

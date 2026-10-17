@@ -36,7 +36,7 @@ module.exports = defineSuite("addcoin-phase1", async ({ ok, openApp, PHONE, TABL
     ambBanner: !!document.getElementById('dbAmbiguousBanner')
   }));
   ok(A.target === 'copy', "A1 WRITE_TARGET is 'copy' — the real safety boundary, unaffected by the flag-default change");
-  ok(A.flag === (A.target === 'copy'), "A2 ENABLE_ADDCOIN_WRITE tracks WRITE_TARGET === 'copy' -- true in the shipped default");
+  ok(A.flag === (A.target === 'copy'), "A2 ENABLE_ADDCOIN_WRITE is true (on in both targets since the build-decides-target change; WRITE_TARGET is 'copy' here)");
   ok(A.inWriteLayer === true, "A3 WRITE_LAYER_ENABLED is true with WRITE_TARGET at its shipped 'copy' default");
   ok(A.enabledFn === true, "A4 addCoinWriteEnabled() is true by default now");
   ok(A.hasStatus, "A5 COIN_DRAFT_STATUS defined");
