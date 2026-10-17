@@ -321,4 +321,83 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   ok(slTarget === "live" && SL.splash === "Build 57 · 17 Oct · 0123456" && SL.docket === SL.splash,
     "L9 a LIVE build shows its build line too, on both screens");
   await stampedLines.close();
+
+  // ================================================================
+  // COMMIT 6 — "A newer build is deployed — reload"
+  // ================================================================
+  const OTHER_COMMIT = "fedcba9876543210fedcba9876543210fedcba98";
+  // Serves `html` at the real URL with build-info.json answered by `info`
+  // (an object, a raw string body, or a status number), counting requests.
+  const openWithInfo = async (html, info) => {
+    const seen = [];
+    const pg = await openServed(openApp, PHONE, LIVE_URL, html, async (route, u) => {
+      if (u.indexOf("https://salty224.github.io/coin-collection-app/build-info.json") !== 0) return false;
+      seen.push(u);
+      if (typeof info === "number") await route.fulfill({ status: info, body: "" });
+      else await route.fulfill({ status: 200, contentType: "application/json",
+        body: typeof info === "string" ? info : JSON.stringify(info) });
+      return true;
+    });
+    await pg.waitForTimeout(300);
+    const st = await pg.evaluate(() => ({
+      shown: !document.getElementById("newerBuildBar").classList.contains("hidden"),
+      text: document.getElementById("newerBuildReloadBtn").textContent,
+      h: getComputedStyle(document.documentElement).getPropertyValue("--top-strip-h").trim(),
+      pad: getComputedStyle(document.body).paddingTop
+    }));
+    return { pg, seen, st };
+  };
+
+  {
+    const { pg, seen, st } = await openWithInfo(appSrc, { ...stampMain, commit: OTHER_COMMIT });
+    ok(seen.length === 0 && !st.shown, "N1 an unstamped build never asks for build-info.json and shows nothing");
+    await pg.close();
+  }
+  {
+    // A stamped copy opened from a file: no request at all (a file:// fetch
+    // would only log a blocked-request error).
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "build-info-file-"));
+    const f = path.join(d, "app.html");
+    fs.writeFileSync(f, stampSource(appSrc, stampMain));
+    const pg = await openApp(PHONE);
+    const reqs = [];
+    pg.on("request", r => { if (/build-info\.json/.test(r.url())) reqs.push(r.url()); });
+    await pg.goto("file://" + f, { waitUntil: "load" });
+    await pg.waitForTimeout(600);
+    const shown = await pg.evaluate(() => !document.getElementById("newerBuildBar").classList.contains("hidden"));
+    ok(reqs.length === 0 && !shown, "N1b a stamped copy opened from a file makes no request and shows nothing");
+    await pg.close();
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+  {
+    const { pg, seen, st } = await openWithInfo(stampSource(appSrc, stampMain), { ...stampMain, commit: OTHER_COMMIT, number: "58" });
+    ok(st.shown && st.text === "A newer build is deployed — reload", "N2 a LIVE build whose deployed commit differs shows \"A newer build is deployed — reload\"");
+    ok(st.h === "24px" && st.pad === "24px", "N3 and the page moves down to make room for it (no TEST bar on a LIVE build)");
+    ok(seen.length === 1 && /\?t=\d+$/.test(seen[0]), "N4 build-info.json is asked for once, cache-busted");
+    const nav = pg.waitForNavigation({ timeout: 5000 }).then(() => true, () => false);
+    await pg.click("#newerBuildReloadBtn");
+    ok(await nav, "N5 tapping it reloads the page");
+    await pg.close();
+  }
+  {
+    const { pg, st } = await openWithInfo(stampSource(appSrc, { ...stampMain, branch: "claude/x" }), { ...stampMain, commit: OTHER_COMMIT });
+    ok(st.shown && st.h === "48px", "N6 on a TEST build it stacks under the TEST bar and the page moves down by both");
+    await pg.close();
+  }
+  {
+    const { pg, st } = await openWithInfo(stampSource(appSrc, stampMain), stampMain);
+    ok(!st.shown && st.h === "0px", "N7 the same commit shows nothing");
+    await pg.close();
+  }
+  {
+    const { pg, st } = await openWithInfo(stampSource(appSrc, stampMain), 404);
+    ok(!st.shown && st.h === "0px", "N8 a missing build-info.json shows nothing (and no page error)");
+    await pg.close();
+  }
+  {
+    const { pg, st } = await openWithInfo(stampSource(appSrc, stampMain), "{not json");
+    const { pg: pg2, st: st2 } = await openWithInfo(stampSource(appSrc, stampMain), { branch: "main", commit: "short" });
+    ok(!st.shown && !st2.shown, "N9 an unreadable or malformed build-info.json shows nothing");
+    await pg.close(); await pg2.close();
+  }
 }, module);

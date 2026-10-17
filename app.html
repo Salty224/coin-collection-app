@@ -179,6 +179,12 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .test-banner.hidden { display: none; }
+  .newer-build-bar { height: 24px; background: #8a5a00; text-align: center; }
+  .newer-build-bar.hidden { display: none; }
+  .newer-build-bar button {
+    all: unset; cursor: pointer; display: block; width: 100%; height: 24px; line-height: 24px;
+    color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+  }
   /* Small gray "Build {N} · {D Mon} · {short commit}" line — on the splash
      (under the connecting status) and at the very bottom of the Docket. */
   .build-line { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 10px; }
@@ -2493,6 +2499,9 @@
 <body>
   <div class="top-strip" id="topStrip">
     <div class="test-banner hidden" id="testBanner" role="status"></div>
+    <div class="newer-build-bar hidden" id="newerBuildBar" role="status">
+      <button type="button" id="newerBuildReloadBtn">A newer build is deployed — reload</button>
+    </div>
   </div>
 
 <div id="app">
@@ -5043,6 +5052,42 @@
     });
   }
   renderBuildLines();
+
+  // "A newer build is deployed — reload". The deploy workflow also writes
+  // build-info.json beside app.html, holding the same stamp. A page that was
+  // served from a cache (or left open across a deploy) can be an older build
+  // than the one now deployed; this fetches build-info.json uncached once at
+  // startup and, if its commit differs from this page's own stamp, shows a
+  // second row in the top strip that reloads the page.
+  // Does NOTHING — no request, no error, no row — when this build is
+  // unstamped or opened from a file, and nothing but return false when
+  // build-info.json is missing, unreadable or malformed.
+  const COMMIT_RE = /^[0-9a-f]{40}$/;
+  async function checkForNewerBuild(stamp, fetchFn) {
+    try {
+      if (!stamp || typeof stamp !== "object" || typeof stamp.commit !== "string" || !COMMIT_RE.test(stamp.commit)) return false;
+      // Only a served page has a build-info.json beside it; a file:// copy
+      // would just log a blocked-request error.
+      if (!/^https?:$/.test(window.location.protocol)) return false;
+      const res = await (fetchFn || window.fetch)("build-info.json?t=" + Date.now(), { cache: "no-store" });
+      if (!res || !res.ok) return false;
+      const info = await res.json();
+      if (!info || typeof info.commit !== "string" || !COMMIT_RE.test(info.commit)) return false;
+      if (info.commit === stamp.commit) return false;
+      const bar = document.getElementById("newerBuildBar");
+      if (!bar) return false;
+      bar.classList.remove("hidden");
+      renderTopStrip();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  (function wireNewerBuildBar() {
+    const btn = document.getElementById("newerBuildReloadBtn");
+    if (btn) btn.addEventListener("click", () => window.location.reload());
+  })();
+  checkForNewerBuild(BUILD_STAMP);
   const ENABLE_LIVE_NAV_DATA = true; // read-only — never depends on WRITE_TARGET
   const ENABLE_SET_WRITE_LAYER = true;
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
