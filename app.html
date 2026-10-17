@@ -2133,6 +2133,8 @@
     background: #000 center/cover no-repeat; display: flex; align-items: center; justify-content: center;
     font-size: 24px; color: var(--text-muted); overflow: hidden;
   }
+  /* Coin-page thumbnails are real buttons (keyboard + screen reader); strip the UA button chrome. */
+  button.gc-thumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
   .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
@@ -16033,19 +16035,35 @@
     // session gallery alone, so a coin's stored photos only appeared here
     // after Edit had been opened for it, and on a coin whose id collided
     // with a demo key it showed the demo entries instead of the real ones.
+    //
+    // COINS (in-app viewer): every photo shows, obverse and reverse included,
+    // the section opens by default whenever there is one, and each thumbnail
+    // opens THAT photo full screen in the view-only media viewer. SETS are
+    // deliberately unchanged — extras only, collapsed, opening the gallery
+    // panel — per Ray's "coins only" scope.
     hydrateStoredPhotos(coin.id);
-    const galleryExtras = galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse");
+    const galleryExtras = isSet
+      ? galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse")
+      : coinPhotoThumbOrder(galleryFor(coin.id));
     if (galleryExtras.length) {
-      const acc = appendAccordion(container, RECORD_SECTIONS.PHOTOS, "");
+      const acc = appendAccordion(container, RECORD_SECTIONS.PHOTOS, "", { open: !isSet });
       const strip = document.createElement("div");
+      strip.id = "detailPhotoStrip";
       strip.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; padding-top:10px;";
       galleryExtras.forEach(entry => {
         const def = galleryTypeDef(entry.type);
-        const thumb = document.createElement("div");
+        const thumb = document.createElement(isSet ? "div" : "button");
         thumb.className = "gc-thumb";
         thumb.style.cursor = "pointer";
+        if (!isSet) {
+          thumb.type = "button";
+          thumb.dataset.photoType = entry.type;
+          thumb.setAttribute("aria-label", "View " + (def ? def.label : entry.type) + " full screen");
+        }
         thumb.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${def ? def.label : entry.type}</div>`;
-        thumb.addEventListener("click", () => openGalleryViewer(coin.id, coin.name + " — photos"));
+        thumb.addEventListener("click", isSet
+          ? () => openGalleryViewer(coin.id, coin.name + " — photos")
+          : () => openCoinPhotoInViewer(coin, entry));
         strip.appendChild(thumb);
         paintStoredThumbWhenReady(entry, thumb);
       });
@@ -24076,6 +24094,36 @@
       mediaViewerHistoryPushed = false;
       hideMediaViewer();
     }
+  }
+
+  // Coin page thumbnails: the two faces first, then the slab pair, then
+  // everything else in the order the record holds it.
+  const COIN_PHOTO_THUMB_LEAD = ["obverse", "reverse", "slab_obverse", "slab_reverse"];
+  function coinPhotoThumbOrder(list) {
+    const rank = e => { const i = COIN_PHOTO_THUMB_LEAD.indexOf(e.type); return i < 0 ? COIN_PHOTO_THUMB_LEAD.length : i; };
+    return list.map((e, i) => ({ e, i }))
+      .sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i)
+      .map(x => x.e);
+  }
+
+  // One photo, full screen. Read through the existing CoinPhotos path
+  // (ensureCoinPhotoFetch) — never a new Graph call shape, never a write.
+  function openCoinPhotoInViewer(coin, entry) {
+    const def = galleryTypeDef(entry.type);
+    const label = [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
+    const token = openMediaViewer(detailTitleText(coin));
+    setMediaViewerFooter(`<span>${escapeHtmlText(label)}</span>`);
+    if (entry.url) { setMediaViewerImage(entry.url, label); return token; }
+    if (entry.stored && entry.storedFilename) {
+      ensureCoinPhotoFetch(entry.storedFilename).then(url => {
+        if (!mediaViewerCurrent(token)) return;
+        if (url) { entry.url = url; setMediaViewerImage(url, label); }
+        else setMediaViewerMessage("This photo couldn't be loaded right now.", entry.storedFilename);
+      });
+      return token;
+    }
+    setMediaViewerMessage("No image on file for this photo.");
+    return token;
   }
 
   function initMediaViewer() {
