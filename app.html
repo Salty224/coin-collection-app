@@ -2137,6 +2137,19 @@
   .detail-receipt-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; text-align: right; word-break: break-all; }
   button.gc-thumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
   .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+  /* "Crop from an uploaded photo" source tiles. Deliberately NOT .gc-thumb:
+     those are the gallery's own editable thumbnails (caption box, remove,
+     replace), and other code finds them by that class. */
+  button.crop-src-tile {
+    width: 88px; position: relative; text-align: center; cursor: pointer;
+    background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  }
+  .crop-src-tile .gc-img {
+    width: 88px; height: 88px; border-radius: 8px; border: 1px solid var(--case-border);
+    background: #000 center/cover no-repeat; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; color: var(--text-muted); overflow: hidden;
+  }
+  .crop-src-tile .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -22974,6 +22987,85 @@
     });
   }
 
+  // ==================================================================
+  // CROP FROM AN UPLOADED PHOTO (coins only)
+  // ==================================================================
+  // On Ray's phone the app's file picker opens Google Photos only, so a
+  // photo already in OneDrive for this coin (its obverse, reverse, slab or
+  // reference shot) could not be reached again to crop a better obverse or
+  // reverse out of it. This flow starts from the coin's OWN stored photos and
+  // never touches a file input: tap one, pick where the crop goes, crop.
+  //
+  // THE SOURCE IS READ, NEVER WRITTEN. Its bytes come back through
+  // ensureCoinPhotoFetch() (a GET) and are handed to the same crop pipeline
+  // Adjust already uses. Nothing in this block uploads to, renames, detaches
+  // or deletes the source file or its Photos row.
+  const CROP_SOURCE_TYPES = ["obverse", "reverse", "slab_obverse", "slab_reverse", "reference"];
+
+  // "Stored" means actually in OneDrive: a hydrated Photos-tab/legacy entry,
+  // or a capture from this session whose upload has finished. A capture
+  // still uploading (or failed) has no file to read back yet.
+  function cropSourceEntriesFor(collectionId) {
+    return galleryFor(collectionId).filter(e =>
+      CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && e.storedFilename &&
+      !e.uploadPending && !e.uploadError);
+  }
+
+  async function loadCropSourceBlob(src) {
+    if (!src || !src.storedFilename) return null;
+    const url = await ensureCoinPhotoFetch(src.storedFilename);
+    if (!url) return null;
+    return fetch(url).then(r => r.blob());
+  }
+
+  // The section body: one thumbnail per stored source photo. Each tile is a
+  // plain button — there is deliberately no <input type=file> anywhere in
+  // this flow.
+  function manageCropFromUploadBlock(body, targetId, render) {
+    const p = document.createElement("p");
+    p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
+    p.textContent = "Tap a photo already saved for this coin to crop an obverse, reverse or extra image out of it. The photo you tap is never changed.";
+    body.appendChild(p);
+    const sources = cropSourceEntriesFor(targetId);
+    if (!sources.length) {
+      const none = document.createElement("p");
+      none.className = "placeholder-note";
+      none.textContent = "No saved photos for this coin yet.";
+      body.appendChild(none);
+      return;
+    }
+    const grid = document.createElement("div");
+    grid.className = "gc-grid crop-src-grid";
+    sources.forEach(src => {
+      const def = galleryTypeDef(src.type);
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "crop-src-tile";
+      tile.dataset.filename = src.storedFilename;
+      tile.setAttribute("aria-label", "Crop from " + (def ? def.label : src.type) + ", " + src.storedFilename);
+      const img = document.createElement("div");
+      img.className = "gc-img";
+      if (src.url) img.style.backgroundImage = "url(" + JSON.stringify(src.url) + ")";
+      else img.textContent = def ? def.icon : "🖼️";
+      const label = document.createElement("div");
+      label.className = "gc-type";
+      label.textContent = def ? def.label : src.type;
+      tile.appendChild(img);
+      tile.appendChild(label);
+      tile.addEventListener("click", () => startCropFromUpload(targetId, src, render));
+      grid.appendChild(tile);
+    });
+    body.appendChild(grid);
+  }
+
+  function startCropFromUpload(targetId, src, render) {
+    if (!photoCommitTargetId(targetId)) {
+      showToast("Saving photos is turned off for this build, so a crop can't be saved.");
+      return;
+    }
+    showToast("Cropping from " + src.storedFilename + " is not wired up yet.");
+  }
+
   // Removing a photo detaches its Photos ROW and never deletes the file.
   // The _original raw is locked in as "never deleted" by the crop-commit
   // convention, and this write layer deliberately has no delete primitive
@@ -23688,6 +23780,16 @@
     const id = ctx.id;
 
     if (ctx.kind === "coin") {
+      // Only offered where a crop could actually be saved (a real, owned
+      // coin with the photo write layer on) — otherwise it would be a dead
+      // end. Coins only: Sets never reach this branch.
+      if (photoCommitTargetId(id)) {
+        appendManageSection(host, "✂️ Crop from an uploaded photo",
+          manageCount(id, e => cropSourceEntriesFor(id).indexOf(e) !== -1),
+          (body) => manageCropFromUploadBlock(body, id, render),
+          { open: openTitles.has("✂️ Crop from an uploaded photo") });
+      }
+
       appendManageSection(host, "🪙 Coin — obverse &amp; reverse",
         manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
         (body) => managePairBlock(body, null,
