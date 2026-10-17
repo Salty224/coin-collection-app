@@ -23063,7 +23063,53 @@
       showToast("Saving photos is turned off for this build, so a crop can't be saved.");
       return;
     }
-    showToast("Cropping from " + src.storedFilename + " is not wired up yet.");
+    // Destination is chosen BEFORE cropping: obverse/reverse crop square and
+    // then frame into the circle, an extra image crops free-form. That is
+    // exactly the per-type behaviour runCropPipeline() already has, so the
+    // crop tool itself is reused unchanged.
+    const pick = (dest) => () => confirmCropDestination(targetId, src, dest, render);
+    showWriteGuard({
+      title: "Crop this photo into…",
+      bodyHtml: "<p>From <b>" + escapeHtmlText(src.storedFilename) + "</b>. That photo stays exactly as it is.</p>" +
+        "<p>Where should the crop go?</p>",
+      buttons: [
+        { label: "Obverse", primary: true, onClick: pick("obverse") },
+        { label: "Reverse", primary: true, onClick: pick("reverse") },
+        { label: "Extra image", onClick: pick("reference") },
+        { label: "Cancel" }
+      ]
+    });
+  }
+
+  // Replacing what the flip card shows is confirmed first. An extra image is
+  // purely additive, so it isn't.
+  function confirmCropDestination(targetId, src, dest, render) {
+    const current = dest === "reference" ? null : galleryFor(targetId).find(e => e.type === dest);
+    if (!current) { runCropFromUpload(targetId, src, dest, render); return; }
+    const side = dest === "obverse" ? "obverse" : "reverse";
+    const shown = current.storedFilename || current.filename || "";
+    showWriteGuard({
+      title: "Replace the " + side + "?",
+      bodyHtml: "<p>The coin will show your new crop as its " + side + ".</p>" +
+        (shown ? "<p>The current file, <b>" + escapeHtmlText(shown) + "</b>, stays in OneDrive — nothing is deleted or overwritten.</p>" : ""),
+      buttons: [
+        { label: "Cancel" },
+        { label: "Crop and replace", primary: true, onClick: () => runCropFromUpload(targetId, src, dest, render) }
+      ]
+    });
+  }
+
+  async function runCropFromUpload(targetId, src, dest, render) {
+    let blob = null;
+    try { blob = await loadCropSourceBlob(src); } catch (e) { blob = null; }
+    if (!blob) { showToast("Couldn't load " + src.storedFilename + " from OneDrive to crop it."); return; }
+    runCropPipeline(blob, dest, targetId, (newEntry) => {
+      saveCropFromUpload(targetId, dest, src, newEntry, render);
+    }, null, { titleSuffix: " (from " + src.storedFilename + ")" });
+  }
+
+  function saveCropFromUpload(targetId, dest, src, newEntry, render) {
+    showToast("Saving a crop from an uploaded photo is not wired up yet.");
   }
 
   // Removing a photo detaches its Photos ROW and never deletes the file.
