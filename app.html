@@ -22705,6 +22705,13 @@
   // (unlike Add Coin, whose entries are named against a temp key).
   async function commitGalleryPhoto(collectionId, entry) {
     const p = writePaths();
+    // An entry can ask for its filename to be chosen at save time (checked
+    // free in OneDrive) rather than trusting the name it was built with.
+    // Resolved once: a retry after a failed upload keeps the same name.
+    if (entry.resolveFilename && !entry.filenameResolved) {
+      entry.filename = await entry.resolveFilename();
+      entry.filenameResolved = true;
+    }
     if (!entry.filename) throw new Error("Entry has no filename to store under.");
     if (entry.blob) {
       await graph().uploadFile(p.coinPhotos + "/" + entry.filename, entry.blob);
@@ -23108,8 +23115,82 @@
     }, null, { titleSuffix: " (from " + src.storedFilename + ")" });
   }
 
+  // SAVING. Two rules, both about never losing a file:
+  //   * No `_original` copy. The source photo is already in OneDrive, so
+  //     copying it again as {ID}_obverse_original.jpg would only duplicate
+  //     bytes. Consequence (Ray's call): a later Adjust on this crop re-crops
+  //     the cropped image itself — said so in the toast.
+  //   * The filename is checked FREE in OneDrive first (see the naming
+  //     helpers below). First crop: the standard {ID}_obverse_cropped.jpg.
+  //     If that file already exists, _cropped_02, _03… quietly instead.
+  //     Nothing is ever overwritten; a legacy {ID}_obverse.jpg is untouched
+  //     and only the Photos row moves to the new file.
+  // Writing goes through the ordinary gallery commit (uploadFile +
+  // writePhotoRow) — no new write path.
   function saveCropFromUpload(targetId, dest, src, newEntry, render) {
-    showToast("Saving a crop from an uploaded photo is not wired up yet.");
+    if (newEntry.rawUrl) { try { URL.revokeObjectURL(newEntry.rawUrl); } catch (e) {} }
+    newEntry.rawUrl = null;
+    newEntry.rawFilename = null;
+    newEntry.croppedFrom = src.storedFilename;
+    newEntry.resolveFilename = dest === "reference"
+      ? () => nextFreeRepeatableFilename(targetId, "reference", newEntry)
+      : () => freeFlipCropFilename(targetId, dest, newEntry);
+    const done = () => render();
+    const current = dest === "reference" ? null : galleryFor(targetId).find(e => e.type === dest);
+    const p = current
+      ? replaceGalleryEntryAndCommit(targetId, current, newEntry, done)
+      : addGalleryEntryAndCommit(targetId, newEntry, done);
+    return p.then(res => {
+      if (res && dest !== "reference") {
+        showToast("Saved " + newEntry.filename + " to OneDrive. No original copy is kept for a crop from an uploaded photo, so a later Adjust re-crops this cropped image.");
+      }
+      return res;
+    });
+  }
+
+  // ---- Free-filename helpers (read-only: getItemMeta is a GET) ----------
+  // A name counts as taken if this coin's Photos rows or in-memory gallery
+  // already use it, or if a file of that name exists in CoinPhotos — the
+  // last check is what catches a file with no Photos row behind it.
+  function coinPhotoNameKnown(collectionId, name, exceptEntry) {
+    if (storedPhotoRowsFor(collectionId).some(r => r.filename === name || r.originalFilename === name)) return true;
+    return galleryFor(collectionId).some(e => e !== exceptEntry &&
+      (e.filename === name || e.storedFilename === name || e.rawFilename === name));
+  }
+  async function coinPhotoNameIsFree(collectionId, name, exceptEntry) {
+    if (coinPhotoNameKnown(collectionId, name, exceptEntry)) return false;
+    const meta = await graph().getItemMeta(writePaths().coinPhotos + "/" + name);
+    return !meta;
+  }
+  const FREE_NAME_MAX_TRIES = 99;
+
+  // {ID}_obverse_cropped.jpg, else _cropped_02.jpg, _cropped_03.jpg…
+  async function freeFlipCropFilename(collectionId, type, exceptEntry) {
+    const def = galleryTypeDef(type);
+    const base = collectionId + def.suffix + "_cropped";
+    for (let n = 1; n <= FREE_NAME_MAX_TRIES; n++) {
+      const name = base + (n === 1 ? "" : "_" + String(n).padStart(2, "0")) + GALLERY_FILE_EXT;
+      if (await coinPhotoNameIsFree(collectionId, name, exceptEntry)) return name;
+    }
+    throw new Error("No free filename for " + base + GALLERY_FILE_EXT);
+  }
+
+  // Next {ID}_reference_NN (or any repeatable type): one past the highest NN
+  // on this coin's Photos rows and gallery, then stepped up until the name
+  // is genuinely free in OneDrive.
+  async function nextFreeRepeatableFilename(collectionId, type, exceptEntry) {
+    const def = galleryTypeDef(type);
+    const prefix = collectionId + def.suffix + "_";
+    const re = new RegExp("^" + prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d+)\\.", "i");
+    let max = 0;
+    const consider = (name) => { const m = re.exec(name || ""); if (m) max = Math.max(max, parseInt(m[1], 10)); };
+    storedPhotoRowsFor(collectionId).forEach(r => { consider(r.filename); consider(r.originalFilename); });
+    galleryFor(collectionId).forEach(e => { if (e !== exceptEntry) { consider(e.filename); consider(e.storedFilename); } });
+    for (let n = max + 1, tries = 0; tries < FREE_NAME_MAX_TRIES; n++, tries++) {
+      const name = prefix + String(n).padStart(2, "0") + GALLERY_FILE_EXT;
+      if (await coinPhotoNameIsFree(collectionId, name, exceptEntry)) return name;
+    }
+    throw new Error("No free filename for " + prefix + "NN" + GALLERY_FILE_EXT);
   }
 
   // Removing a photo detaches its Photos ROW and never deletes the file.
