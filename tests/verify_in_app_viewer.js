@@ -10,12 +10,15 @@
 // client (and every non-GET fetch) for the whole suite and must stay at zero.
 // Coins only — a Set keeps its old strip, viewer panel and receipt link.
 
-const { defineSuite } = require("./harness");
+const { defineSuite, APP_URL } = require("./harness");
 
 module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLET }) => {
   const page = await openApp(PHONE);
 
   // ---------- Setup: live mode, synthetic coins, mock Graph + write spy --
+  // A function so the suite can re-run it if a reverted negative control
+  // lets the back button leave the page (B9), instead of throwing.
+  const setup = async (page) => {
   await page.evaluate(async () => {
     const base = FAKE_COINS.find(c => c.id === "AY-00003");
     const mk = (id, extra) => Object.assign({}, base, {
@@ -110,6 +113,8 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     window.__PDFROT_HAS_ROTATE = new TextDecoder("latin1").decode(pdfRot).includes("/Rotate 90");
     window.__SEEDING = false;
   });
+  };
+  await setup(page);
 
   const openCoin = (id) => page.evaluate((id) => {
     navigate("browse");
@@ -129,7 +134,15 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     };
   });
   const wait = (ms) => page.waitForTimeout(ms);
-  const urls = await page.evaluate(() => window.__URLS);
+  // Null-safe click: a reverted negative control can remove an element or
+  // leave the viewer covering the page; the suite must then FAIL BY NAME on
+  // the assertions that check it, never throw and skip the rest.
+  const clickSafe = (sel) => page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.click();
+    return !!el;
+  }, sel);
+  let urls = await page.evaluate(() => window.__URLS);
 
   // ---------- A. Thumbnails on the coin page ----------------------------
   await openCoin("AY-00001");
@@ -168,7 +181,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   // ---------- B. A thumbnail opens THAT photo full screen ----------------
   await openCoin("AY-00001");
   const histBefore = await page.evaluate(() => history.length);
-  await page.click('#detailPhotoStrip .gc-thumb[data-photo-type="reverse"]');
+  await clickSafe('#detailPhotoStrip .gc-thumb[data-photo-type="reverse"]');
   await wait(150);
   const B1 = await viewerState();
   ok(B1.open === true && B1.imgSrc === urls.rev, "B1 tapping the reverse thumbnail shows the reverse photo itself, full screen");
@@ -190,7 +203,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     "B5 its only control is Close — no edit, delete, replace, adjust or capture");
 
   // Close button: closes, and gives the history entry back.
-  await page.click("#mediaViewerCloseBtn");
+  await clickSafe("#mediaViewerCloseBtn");
   await wait(250);
   const B6 = await viewerState();
   const histAfterClose = await page.evaluate(() => history.length);
@@ -199,22 +212,35 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
 
   // The phone back button.
   const urlBefore = page.url();
-  await page.click('#detailPhotoStrip .gc-thumb[data-photo-type="obverse"]');
+  await clickSafe('#detailPhotoStrip .gc-thumb[data-photo-type="obverse"]');
   await wait(150);
   ok((await viewerState()).imgSrc === urls.obv, "B7 the obverse thumbnail opens the obverse photo");
   await page.goBack({ waitUntil: "commit", timeout: 3000 }).catch(() => null);
   await wait(250);
-  const B8 = await page.evaluate(() => ({
-    open: !document.getElementById("mediaViewerOverlay").classList.contains("hidden"),
-    onBrowse: document.getElementById("view-browse").classList.contains("active"),
-    detailShown: !!document.getElementById("detailPhotoStrip")
-  }));
+  const B8 = await page.evaluate(() => {
+    const ov = document.getElementById("mediaViewerOverlay");
+    const vb = document.getElementById("view-browse");
+    return {
+      open: ov ? !ov.classList.contains("hidden") : null,
+      onBrowse: !!vb && vb.classList.contains("active"),
+      detailShown: !!document.getElementById("detailPhotoStrip")
+    };
+  }).catch(() => ({ open: null, onBrowse: false, detailShown: false }));
   ok(B8.open === false, "B8 the back button closes the viewer");
-  ok(page.url() === urlBefore && B8.onBrowse && B8.detailShown,
-    "B9 and stays on the same coin page instead of leaving it");
+  const stayed = page.url() === urlBefore && B8.onBrowse && B8.detailShown;
+  ok(stayed, "B9 and stays on the same coin page instead of leaving it");
+  if (!stayed) {
+    // Back left the app (B9 has already failed by name). Reopen it and redo
+    // the setup so every later assertion still runs and reports.
+    await page.goto(APP_URL, { waitUntil: "load" });
+    await page.waitForTimeout(600);
+    await setup(page);
+    urls = await page.evaluate(() => window.__URLS);
+    await openCoin("AY-00001");
+  }
 
   // Escape.
-  await page.click('#detailPhotoStrip .gc-thumb[data-photo-type="reference"]');
+  await clickSafe('#detailPhotoStrip .gc-thumb[data-photo-type="reference"]');
   await wait(150);
   const B10 = await viewerState();
   ok(B10.imgSrc === urls.ref && /Auction lot/.test(B10.footer), "B10 a reference photo opens with its own label");
@@ -227,12 +253,12 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
 
   // An uncached stored photo goes through the existing CoinPhotos read;
   // with no token here it reports, rather than showing a wrong image.
-  await page.click('#detailPhotoStrip .gc-thumb[data-photo-type="slab_obverse"]');
+  await clickSafe('#detailPhotoStrip .gc-thumb[data-photo-type="slab_obverse"]');
   await wait(400);
   const B13 = await viewerState();
   ok(B13.open && B13.imgSrc === null && /couldn't be loaded/.test(B13.stageText),
     "B13 a photo whose file can't be fetched says so instead of showing another image");
-  await page.click("#mediaViewerCloseBtn");
+  await clickSafe("#mediaViewerCloseBtn");
   await wait(200);
 
   // ---------- C. Receipts --------------------------------------------------
@@ -247,7 +273,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
       const el = document.getElementById("detailReceiptLink");
       return !!el && el.tagName === "BUTTON";
     });
-    if (isButton) await page.click("#detailReceiptLink");
+    if (isButton) await clickSafe("#detailReceiptLink");
     await wait(700);
     return isButton;
   };
@@ -266,26 +292,26 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   ok(C1.open && C1.imgSrc && C1.imgSrc.startsWith("blob:") && /^Receipt/.test(C1.title),
     "C2 an image receipt opens inside the app as an image");
   ok(/Open in OneDrive/.test(C1.footer), "C3 a small Open in OneDrive link lives inside the receipt viewer");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await openReceiptFor("flat.pdf");
   const C4 = await pix();
   ok(C4 && C4.w === 40 && C4.h === 20 && isRed(C4.tl) && isBlue(C4.tr),
     "C4 a PDF this app made is unwrapped to its embedded JPEG and shown (got " + JSON.stringify(C4) + ")");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await openReceiptFor("rot.pdf");
   const C5 = await pix();
   const rotHas = await page.evaluate(() => window.__PDFROT_HAS_ROTATE);
   ok(rotHas === true && C5 && C5.w === 20 && C5.h === 40 && isBlue(C5.tl) && isRed(C5.tr),
     "C5 its /Rotate 90 is honoured exactly once — top-left red turns to top-right (got " + JSON.stringify(C5) + ")");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await openReceiptFor("png.pdf");
   const C6 = await pix();
   ok(C6 && C6.w === 40 && C6.h === 20 && isRed(C6.tl) && isBlue(C6.tr),
     "C6 a wrapped PNG receipt is inflated with DecompressionStream and shown (got " + JSON.stringify(C6) + ")");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await openReceiptFor("FindersKeepers_2026-06-27_receipt.pdf");
   const C7 = await viewerState();
@@ -297,12 +323,12 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     "C7 any other PDF says it can't be displayed here, naming the file");
   ok(C7b && C7b.tag === "A" && C7b.download === "FindersKeepers_2026-06-27_receipt.pdf" && /^blob:/.test(C7b.href),
     "C8 with an Open file button that hands over the file's own bytes");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await openReceiptFor("missing.pdf");
   const C9 = await viewerState();
   ok(/wasn't found/.test(C9.stageText), "C9 a receipt recorded but not in OneDrive says so");
-  await page.click("#mediaViewerCloseBtn"); await wait(200);
+  await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
   await page.evaluate(() => __setStoredReceiptsForTest({}));
   await openCoin("AY-90510");
