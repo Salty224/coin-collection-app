@@ -83,7 +83,11 @@ module.exports = defineSuite("live-no-demo-data", async ({ ok, openApp, PHONE })
   ok(!/2019-03-14/.test(A.text), "A4 no demo Purchase Date");
   ok(!/\$12\.50/.test(A.text), "A5 no demo Shipping figure");
   ok(!/AY-00001_receipt/.test(A.text), "A6 no demo Receipt");
-  ok(A.thumbs.length === 1 && A.thumbs[0] === "Reference photo", "A7 the Photos strip shows the real Reference row (flip covers obverse/reverse) and nothing else", A.thumbs);
+  // Updated for claude/in-app-image-viewer (Ray's answer 3): a coin's Photos
+  // strip now shows the obverse and reverse too, faces first — so the real
+  // rows are all three, and still nothing else.
+  ok(JSON.stringify(A.thumbs) === JSON.stringify(["Obverse (front)", "Reverse (back)", "Reference photo"]),
+    "A7 the Photos strip shows exactly the three real Photos rows (faces first) and nothing else", A.thumbs);
   ok(!A.thumbs.some(t => /Slab|COA/.test(t)), "A8 no demo Slab / COA tiles in the strip");
   ok(A.caps.length === 3, "A9 the viewer lists exactly the three real Photos rows", A.caps);
   ok(A.caps.some(c => /PCGS TrueView composite/.test(c)), "A10 the real Reference label shows in the viewer");
