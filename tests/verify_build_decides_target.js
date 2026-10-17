@@ -178,4 +178,94 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
   ok(!fs.existsSync(tmpDir), "T21 the temporary stamped copies were deleted");
+
+  // ================================================================
+  // COMMIT 3 — the TEST banner
+  // ================================================================
+  const B1 = await page.evaluate(() => {
+    const strip = document.getElementById("topStrip");
+    const banner = document.getElementById("testBanner");
+    const r = banner.getBoundingClientRect();
+    const splash = document.getElementById("splashScreen");
+    const wasHidden = splash.classList.contains("hidden"), wasFaded = splash.classList.contains("fade-out");
+    splash.classList.remove("hidden", "fade-out");
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const onTopOfSplash = banner.contains(hit);
+    if (wasHidden) splash.classList.add("hidden");
+    if (wasFaded) splash.classList.add("fade-out");
+    return {
+      text: banner.textContent, visible: getComputedStyle(strip).display !== "none" && !banner.classList.contains("hidden"),
+      top: r.top, height: r.height, position: getComputedStyle(strip).position,
+      zStrip: Number(getComputedStyle(strip).zIndex), zSplash: Number(getComputedStyle(splash).zIndex),
+      onTopOfSplash,
+      var: getComputedStyle(document.documentElement).getPropertyValue("--top-strip-h").trim(),
+      bodyPad: getComputedStyle(document.body).paddingTop
+    };
+  });
+  ok(B1.visible && B1.text === "TEST · unstamped", "B1 an unstamped (copy) build shows the bar reading \"TEST · unstamped\"");
+  ok(B1.position === "fixed" && B1.top === 0 && B1.height >= 22 && B1.height <= 24, "B2 it is a thin (22-24px) bar fixed at the very top");
+  ok(B1.zStrip > B1.zSplash && B1.onTopOfSplash, "B3 it sits above the splash screen");
+  ok(B1.var === B1.height + "px" && B1.bodyPad === B1.height + "px", "B4 the page is padded down by exactly the bar's height");
+
+  // No control underneath it, on phone, tablet and PC, on screens with and
+  // without the sticky nav, including after scrolling.
+  const PC = { width: 1440, height: 900 };
+  const coveredOn = async (viewport) => {
+    const p = await openApp(viewport);
+    const res = await p.evaluate(async () => {
+      const stripBottom = document.getElementById("topStrip").getBoundingClientRect().bottom;
+      const covered = [];
+      // At scroll-top every visible control must sit below the bar. Once
+      // scrolled, content legitimately passes underneath fixed chrome (the
+      // sticky nav as much as the bar), so only the nav's own controls —
+      // which must stay reachable — are checked then.
+      const check = (screen, root) => {
+        (root || document).querySelectorAll("button, input, select, textarea, a, .drawer").forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height || el.offsetParent === null) return;
+          if (r.bottom <= 0 || r.top >= window.innerHeight) return;
+          if (el.closest("#topStrip, #splashScreen, .photo-adjust-overlay.hidden")) return;
+          if (r.top < stripBottom - 0.5) covered.push(screen + ": " + (el.id || el.className || el.tagName) + " @" + Math.round(r.top));
+        });
+      };
+      const settle = () => new Promise(r => setTimeout(r, 120));
+      navigate("dashboard"); window.scrollTo(0, 0); await settle(); check("dashboard");
+      navigate("browse"); window.scrollTo(0, 0); await settle(); check("catalog");
+      window.scrollTo(0, 600); await settle(); check("catalog-scrolled", document.getElementById("navChrome"));
+      const navTop = document.getElementById("navChrome").getBoundingClientRect().top;
+      navigate("needsdbcoins"); window.scrollTo(0, 0); await settle(); check("docket");
+      navigate("addcoin"); window.scrollTo(0, 0); await settle(); check("addcoin");
+      navigate("dashboard");
+      return { covered, navTop, stripBottom,
+        hOverflow: document.documentElement.scrollWidth > window.innerWidth };
+    });
+    await p.close();
+    return res;
+  };
+  for (const [label, vp] of [["phone", PHONE], ["tablet", { width: 1024, height: 768 }], ["PC", PC]]) {
+    const c = await coveredOn(vp);
+    ok(c.covered.length === 0, "B5 no control is under the bar on " + label + (c.covered.length ? " (" + c.covered.slice(0, 4).join("; ") + ")" : ""));
+    ok(Math.abs(c.navTop - c.stripBottom) < 0.5, "B6 the sticky Back/Close Drawer nav sticks just below the bar on " + label + " (" + c.navTop + ")");
+    ok(c.hOverflow === false, "B7 no sideways scroll on " + label);
+  }
+
+  // Branch name on a stamped feature build; nothing at all when LIVE.
+  const branchPage = await openServed(openApp, PHONE, LIVE_URL,
+    stampSource(appSrc, { ...stampMain, branch: "claude/build-decides-target" }));
+  const BB = await branchPage.evaluate(() => document.getElementById("testBanner").textContent);
+  ok(BB === "TEST · claude/build-decides-target", "B8 a stamped feature branch reads \"TEST · {branch}\"");
+  await branchPage.close();
+
+  const livePage = await openServed(openApp, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
+  const BL = await livePage.evaluate(() => ({
+    target: WRITE_TARGET,
+    stripShown: getComputedStyle(document.getElementById("topStrip")).display !== "none",
+    bannerHidden: document.getElementById("testBanner").classList.contains("hidden"),
+    var: getComputedStyle(document.documentElement).getPropertyValue("--top-strip-h").trim(),
+    bodyPad: getComputedStyle(document.body).paddingTop,
+    navTopCss: getComputedStyle(document.getElementById("navChrome")).top
+  }));
+  ok(BL.target === "live" && !BL.stripShown && BL.bannerHidden, "B9 a LIVE build shows no bar at all");
+  ok(BL.var === "0px" && BL.bodyPad === "0px" && BL.navTopCss === "0px", "B10 and the page, nav and padding are exactly as before (0px)");
+  await livePage.close();
 }, module);

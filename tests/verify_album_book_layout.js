@@ -226,6 +226,12 @@ module.exports = defineSuite("album-book-layout", async ({ ok, openApp, PHONE, T
 
   async function measureRowCap(page, viewport) {
     return page.evaluate(async ({ albumRows, dbSetsRows }) => {
+      // Measure the album layout as it renders on a LIVE build, i.e. with no
+      // TEST banner. The raw file runs as TEST (build-decides-target), and
+      // the banner's 24px would otherwise be counted against the album's own
+      // row budget — a TEST-build-only effect, reported separately.
+      document.getElementById("topStrip").classList.remove("shown");
+      document.documentElement.style.setProperty("--top-strip-h", "0px");
       __setLiveAlbumsForTest(buildLiveAlbums(albumRows, dbSetsRows, [], []));
       navigate("albums");
       await showAlbumDetail(0);

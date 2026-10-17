@@ -99,7 +99,9 @@
   #app {
     max-width: 1100px;
     margin: 0 auto;
-    min-height: 100vh;
+    /* Less the top status strip's height (0px when nothing is shown), or
+       body's matching padding-top would make every screen scroll by it. */
+    min-height: calc(100vh - var(--top-strip-h, 0px));
     padding-bottom: 24px;
     position: relative;
   }
@@ -160,6 +162,24 @@
   }
   .splash-screen.fade-out { opacity: 0; pointer-events: none; }
   .splash-screen.hidden { display: none; }
+
+  /* ---------- Top status strip ----------
+     Fixed to the very top, above everything including the splash (500).
+     Holds the TEST banner (shown ONLY when the build's data target is the
+     _Testing copy — nothing at all when live). renderTopStrip() measures it
+     and publishes its height as --top-strip-h, which pushes the page, the
+     sticky nav and the overlays down by exactly that much, so no control is
+     ever underneath it. 0px when nothing is shown. */
+  .top-strip { position: fixed; top: 0; left: 0; right: 0; z-index: 600; display: none; }
+  .top-strip.shown { display: block; }
+  .test-banner {
+    height: 24px; line-height: 24px; padding: 0 12px;
+    background: #1d4f91; color: #fff;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .test-banner.hidden { display: none; }
+  body { padding-top: var(--top-strip-h, 0px); }
   .splash-inner { text-align: center; padding: 20px; max-width: 320px; }
   .splash-disc {
     font-size: 64px; margin-bottom: 18px; display: inline-block;
@@ -780,7 +800,7 @@
     gap: 10px; padding: 10px 16px;
     border-bottom: 1px solid var(--case-border);
     background: linear-gradient(180deg, rgba(201,162,39,0.06), transparent);
-    position: sticky; top: 0; z-index: 40;
+    position: sticky; top: var(--top-strip-h, 0px); z-index: 40;
     backdrop-filter: blur(6px);
   }
   .nav-chrome.hidden { display: none; }
@@ -1970,6 +1990,7 @@
     position: fixed; inset: 0; background: rgba(0,0,0,0.75);
     display: flex; align-items: center; justify-content: center;
     z-index: 200; padding: 20px;
+    padding-top: calc(20px + var(--top-strip-h, 0px));
   }
   .photo-adjust-overlay.hidden { display: none; }
   /* The two CROP overlays can be opened FROM another overlay (the sub-group
@@ -2466,6 +2487,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 </head>
 <body>
+  <div class="top-strip" id="topStrip">
+    <div class="test-banner hidden" id="testBanner" role="status"></div>
+  </div>
 
 <div id="app">
 
@@ -4972,6 +4996,26 @@
   }
   // "copy" | "live". DERIVED, never hand-set — see BUILD_STAMP above.
   const WRITE_TARGET = isLiveBuild(BUILD_STAMP, window.location) ? "live" : "copy";
+
+  // TEST banner — shown ONLY when the target is the _Testing copy, reading
+  // "TEST · {branch}" ("unstamped" when the build carries no stamp). Rendered
+  // right here, before anything else, so it is up even while the splash is.
+  function testBannerText(stamp) {
+    const branch = (stamp && typeof stamp === "object" && typeof stamp.branch === "string" && stamp.branch.trim())
+      ? stamp.branch.trim() : "unstamped";
+    return "TEST · " + branch;
+  }
+  function renderTopStrip() {
+    const strip = document.getElementById("topStrip");
+    const banner = document.getElementById("testBanner");
+    if (!strip || !banner) return;
+    banner.textContent = testBannerText(BUILD_STAMP);
+    banner.classList.toggle("hidden", WRITE_TARGET === "live");
+    const anyShown = Array.prototype.some.call(strip.children, el => !el.classList.contains("hidden"));
+    strip.classList.toggle("shown", anyShown);
+    document.documentElement.style.setProperty("--top-strip-h", (anyShown ? strip.offsetHeight : 0) + "px");
+  }
+  renderTopStrip();
   const ENABLE_LIVE_NAV_DATA = true; // read-only — never depends on WRITE_TARGET
   const ENABLE_SET_WRITE_LAYER = true;
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
