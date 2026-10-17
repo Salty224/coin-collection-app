@@ -2134,6 +2134,7 @@
     font-size: 24px; color: var(--text-muted); overflow: hidden;
   }
   /* Coin-page thumbnails are real buttons (keyboard + screen reader); strip the UA button chrome. */
+  .detail-receipt-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; text-align: right; word-break: break-all; }
   button.gc-thumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
   .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .gc-thumb .gc-caption {
@@ -16183,11 +16184,17 @@
     // — it is the placeholder meaning the paper receipt hasn't been scanned
     // yet, on 18 real rows. looksLikeReceiptFilename() is what stops it
     // becoming a link that can only ever break.
+    //
+    // COINS (in-app viewer): the filename is a button that opens the receipt
+    // full screen inside the app — the OneDrive link failed in the OneDrive
+    // app. "Open in OneDrive" survives only inside that viewer. SETS keep the
+    // filename-upgrading-to-a-link behaviour, per Ray's "coins only" scope.
     const storedReceipt = storedReceiptFor(coin);
     if (storedReceipt) {
       const safeName = escapeHtmlText(storedReceipt.filename);
-      purchaseRows.push(["Receipt",
-        `<span id="detailReceiptLink" data-receipt="${safeName}">${safeName}</span>`]);
+      purchaseRows.push(["Receipt", isSet
+        ? `<span id="detailReceiptLink" data-receipt="${safeName}">${safeName}</span>`
+        : `<button type="button" class="detail-receipt-btn" id="detailReceiptLink" data-receipt="${safeName}">${safeName}</button>`]);
     } else {
       // Nothing that resolves to a real file. A non-filename value is still
       // worth showing — "Binder" means the paper receipt exists and hasn't
@@ -16201,7 +16208,11 @@
       // Live self-upgrade to a real link, same pattern applyDiscContent()
       // uses for a reference image: the row is already on screen, so this
       // only rewrites it if the element is still in the document.
-      if (storedReceipt) {
+      if (storedReceipt && !isSet) {
+        const btn = document.getElementById("detailReceiptLink");
+        if (btn) btn.addEventListener("click", () => openReceiptInViewer(coin, storedReceipt.filename));
+      }
+      if (storedReceipt && isSet) {
         getCachedReceiptWebUrl(storedReceipt.filename).then(url => {
           const el = document.getElementById("detailReceiptLink");
           if (!url || !el || !document.contains(el)) return;
@@ -24123,6 +24134,224 @@
       return token;
     }
     setMediaViewerMessage("No image on file for this photo.");
+    return token;
+  }
+
+  // ---- Receipts in the viewer --------------------------------------
+  // Three tiers, no PDF library:
+  //   1. an image file (jpg/png/…) shows as an image;
+  //   2. a PDF THIS APP MADE (buildSinglePageImagePdf's exact single-image
+  //      layout) is unwrapped back to its embedded image — the JPEG bytes
+  //      are stored verbatim, a PNG as deflated RGB — honouring /Rotate;
+  //   3. any other PDF says it can't be shown here, with an "Open file"
+  //      button that hands the bytes to the phone's own PDF viewer.
+  // Bytes come through graph().getFileBytes() on the CoinReceipts folder —
+  // the same read the promotion move already uses. Read only, never a write.
+  const receiptBytesCache = {};
+  const receiptBytesInFlight = {};
+
+  function ensureReceiptBytes(filename) {
+    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve({ attempted: false });
+    if (Object.prototype.hasOwnProperty.call(receiptBytesCache, filename)) {
+      return Promise.resolve({ attempted: true, bytes: receiptBytesCache[filename] });
+    }
+    if (receiptBytesInFlight[filename]) return receiptBytesInFlight[filename];
+    const p = graph().getFileBytes(writePaths().coinReceipts + "/" + filename)
+      .then(buf => {
+        receiptBytesCache[filename] = buf ? new Uint8Array(buf) : null; // null = confirmed 404
+        return { attempted: true, bytes: receiptBytesCache[filename] };
+      })
+      .catch(e => {
+        console.warn("Receipt fetch failed:", filename, e && e.message);
+        return { attempted: false }; // not cached — a later open retries for real
+      })
+      .finally(() => { delete receiptBytesInFlight[filename]; });
+    receiptBytesInFlight[filename] = p;
+    return p;
+  }
+
+  // Sniffs the bytes first (a file can be misnamed), the extension second.
+  function receiptFileKind(bytes, filename) {
+    const b = bytes || new Uint8Array(0);
+    if (b.length >= 5 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46 && b[4] === 0x2D) return "pdf";
+    if (b.length >= 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return "image/jpeg";
+    if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return "image/png";
+    if (b.length >= 4 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+    if (b.length >= 12 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+    const ext = String(filename || "").toLowerCase().replace(/^.*\./, "");
+    if (ext === "pdf") return "pdf";
+    if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+    if (ext === "png") return "image/png";
+    return "other";
+  }
+
+  // Recognises ONLY the exact layout buildSinglePageImagePdf() writes: one
+  // page, one image XObject, the stream at exactly /Length bytes followed by
+  // its endstream. Anything else (a seller's invoice, a scanned multi-page
+  // PDF) returns null and gets tier 3 — never a guess at someone else's PDF.
+  function unwrapAppMadePdf(bytes) {
+    if (!bytes || bytes.length < 64) return null;
+    const text = new TextDecoder("latin1").decode(bytes); // 1 char per byte, so indices are byte offsets
+    if (!text.startsWith("%PDF-1.4\n")) return null;
+    if (!/<< \/Type \/Pages \/Kids \[3 0 R\] \/Count 1 >>/.test(text)) return null;
+    const page = /<< \/Type \/Page \/Parent 2 0 R \/MediaBox \[0 0 (\d+) (\d+)\] (?:\/Rotate (\d+) )?\/Resources << \/XObject << \/Im0 4 0 R >> >> \/Contents 5 0 R >>/.exec(text);
+    if (!page) return null;
+    const img = /4 0 obj\n<< \/Type \/XObject \/Subtype \/Image \/Width (\d+) \/Height (\d+) \/ColorSpace \/(DeviceRGB|DeviceGray) \/BitsPerComponent 8 \/Filter \/(DCTDecode|FlateDecode) \/Length (\d+) >>\nstream\n/.exec(text);
+    if (!img) return null;
+    const rotate = page[3] ? Number(page[3]) : 0;
+    if ([0, 90, 180, 270].indexOf(rotate) === -1) return null;
+    const width = Number(img[1]), height = Number(img[2]), length = Number(img[5]);
+    const start = img.index + img[0].length;
+    if (!(width > 0 && height > 0 && length > 0) || start + length > bytes.length) return null;
+    if (text.substr(start + length, 10) !== "\nendstream") return null;
+    const stream = bytes.slice(start, start + length);
+    if (img[4] === "DCTDecode") {
+      if (stream[0] !== 0xFF || stream[1] !== 0xD8) return null;
+      return { filter: "DCTDecode", width, height, rotate, colorSpace: img[3], data: stream };
+    }
+    return { filter: "FlateDecode", width, height, rotate, colorSpace: img[3], data: stream };
+  }
+
+  async function inflateBytes(bytes) {
+    const ds = new DecompressionStream("deflate");
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    const buf = await new Response(ds.readable).arrayBuffer();
+    return new Uint8Array(buf);
+  }
+
+  // A copy of the JPEG with its EXIF Orientation set to 1. A PDF viewer
+  // ignores EXIF inside a DCT stream and applies the page's /Rotate; a
+  // browser decoding the same bytes would apply EXIF as well and rotate
+  // twice. Neutralising it makes /Rotate the only rotation, as in a viewer.
+  function jpegWithNeutralOrientation(bytes) {
+    const out = bytes.slice();
+    const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    let i = 2;
+    while (i + 4 <= out.length) {
+      if (out[i] !== 0xFF) { i++; continue; }
+      const marker = out[i + 1];
+      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+      if (marker === 0xD9 || marker === 0xDA) break;
+      const segLen = dv.getUint16(i + 2);
+      if (segLen < 2) break;
+      const s = i + 4;
+      if (marker === 0xE1 && s + 14 <= out.length &&
+          out[s] === 0x45 && out[s+1] === 0x78 && out[s+2] === 0x69 && out[s+3] === 0x66 && out[s+4] === 0 && out[s+5] === 0) {
+        try {
+          const tiff = s + 6;
+          const little = dv.getUint16(tiff) === 0x4949;
+          const ifd0 = tiff + dv.getUint32(tiff + 4, little);
+          const n = dv.getUint16(ifd0, little);
+          for (let e = 0; e < n; e++) {
+            const entry = ifd0 + 2 + e * 12;
+            if (dv.getUint16(entry, little) === 0x0112) { dv.setUint16(entry + 8, 1, little); return out; }
+          }
+        } catch (e) { /* malformed EXIF — leave as is */ }
+      }
+      i += 2 + segLen;
+    }
+    return out;
+  }
+
+  // Draws a decoded source onto a canvas turned clockwise by `rotate`, the
+  // same direction a PDF page's /Rotate turns it.
+  function canvasRotated(source, w, h, rotate) {
+    const c = document.createElement("canvas");
+    const quarter = rotate === 90 || rotate === 270;
+    c.width = quarter ? h : w;
+    c.height = quarter ? w : h;
+    const ctx = c.getContext("2d");
+    if (rotate === 90) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+    else if (rotate === 180) { ctx.translate(w, h); ctx.rotate(Math.PI); }
+    else if (rotate === 270) { ctx.translate(0, w); ctx.rotate(-Math.PI / 2); }
+    ctx.drawImage(source, 0, 0);
+    return c;
+  }
+
+  // The unwrapped image as a canvas (rotation baked in, so it fits the
+  // screen like any image).
+  async function renderUnwrappedReceipt(info) {
+    if (info.filter === "DCTDecode") {
+      const blob = new Blob([jpegWithNeutralOrientation(info.data)], { type: "image/jpeg" });
+      const bmp = await createImageBitmap(blob);
+      const c = canvasRotated(bmp, bmp.width, bmp.height, info.rotate);
+      bmp.close();
+      return c;
+    }
+    const raw = await inflateBytes(info.data);
+    const channels = info.colorSpace === "DeviceGray" ? 1 : 3;
+    if (raw.length < info.width * info.height * channels) throw new Error("Image stream shorter than its size");
+    const flat = document.createElement("canvas");
+    flat.width = info.width; flat.height = info.height;
+    const fctx = flat.getContext("2d");
+    const imgData = fctx.createImageData(info.width, info.height);
+    for (let p = 0, q = 0; p < info.width * info.height; p++, q += channels) {
+      const r = raw[q], g = channels === 3 ? raw[q + 1] : r, b = channels === 3 ? raw[q + 2] : r;
+      imgData.data[p * 4] = r; imgData.data[p * 4 + 1] = g; imgData.data[p * 4 + 2] = b; imgData.data[p * 4 + 3] = 255;
+    }
+    fctx.putImageData(imgData, 0, 0);
+    return info.rotate ? canvasRotated(flat, info.width, info.height, info.rotate) : flat;
+  }
+
+  function showReceiptOpenFileFallback(bytes, filename, kind) {
+    const msg = setMediaViewerMessage(kind === "pdf"
+      ? "This PDF can't be displayed inside the app."
+      : "This file can't be displayed inside the app.", filename);
+    const url = trackMediaViewerObjectUrl(URL.createObjectURL(
+      new Blob([bytes], { type: kind === "pdf" ? "application/pdf" : "application/octet-stream" })));
+    const a = document.createElement("a");
+    a.className = "mv-open-file";
+    a.id = "mediaViewerOpenFile";
+    a.href = url;
+    a.download = filename;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "Open file";
+    msg.appendChild(document.createElement("br"));
+    msg.appendChild(a);
+  }
+
+  function openReceiptInViewer(coin, filename) {
+    const token = openMediaViewer("Receipt — " + detailTitleText(coin));
+    const footer = document.getElementById("mediaViewerFooter");
+    footer.innerHTML = `<span class="mv-receipt-name">${escapeHtmlText(filename)}</span><span id="mediaViewerOneDrive"></span>`;
+    getCachedReceiptWebUrl(filename).then(url => {
+      if (!url || !mediaViewerCurrent(token)) return;
+      const host = document.getElementById("mediaViewerOneDrive");
+      if (host) host.innerHTML = `<a href="${escapeHtmlText(url)}" target="_blank" rel="noopener">Open in OneDrive</a>`;
+    });
+    ensureReceiptBytes(filename).then(async result => {
+      if (!mediaViewerCurrent(token)) return;
+      if (!result.attempted) { setMediaViewerMessage("This receipt couldn't be loaded right now.", filename); return; }
+      const bytes = result.bytes;
+      if (!bytes) { setMediaViewerMessage("This receipt file wasn't found in OneDrive.", filename); return; }
+      const kind = receiptFileKind(bytes, filename);
+      if (kind.indexOf("image/") === 0) {
+        const url = trackMediaViewerObjectUrl(URL.createObjectURL(new Blob([bytes], { type: kind })));
+        setMediaViewerImage(url, "Receipt");
+        return;
+      }
+      if (kind === "pdf") {
+        const info = unwrapAppMadePdf(bytes);
+        if (info) {
+          try {
+            const canvas = await renderUnwrappedReceipt(info);
+            if (!mediaViewerCurrent(token)) return;
+            canvas.id = "mediaViewerReceiptCanvas";
+            canvas.setAttribute("role", "img");
+            canvas.setAttribute("aria-label", "Receipt");
+            setMediaViewerNode(canvas);
+            return;
+          } catch (e) {
+            console.warn("Receipt unwrap failed:", filename, e && e.message);
+            if (!mediaViewerCurrent(token)) return;
+          }
+        }
+      }
+      showReceiptOpenFileFallback(bytes, filename, kind);
+    });
     return token;
   }
 
