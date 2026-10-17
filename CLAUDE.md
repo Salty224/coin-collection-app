@@ -7,8 +7,14 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
 constant that "only Ray flips".** Built on `claude/build-decides-target`
-(app) and `claude/build-decides-target-deploy-workflow` (workflow), held for
-Ray as two separate merges.
+(app) and `claude/build-decides-target-deploy-workflow` (workflow), merged
+to `main` as two fast-forwards on Ray's go-ahead (`aa55f55`, then `1119003`).
+**DONE and LIVE (17 Oct 2026):** Pages source is "GitHub Actions"; Ray ran
+the workflow (runs #1-#3, all success) and `main` is deployed stamped, so the
+live site writes the REAL workbook and `CoinCollection/CoinPhotos`/
+`CoinReceipts`. Ray confirmed a real photo and receipt read/write against the
+live database. Every future change reaches the live site only when Ray runs
+the workflow for `main`.
 
 **The rule.** `WRITE_TARGET` is derived at load from an inline build stamp
 (`BUILD_STAMP`, the one placeholder line `const BUILD_STAMP = null;` marked
@@ -63,7 +69,7 @@ workflow. The workflow checks out that branch, stamps branch, commit,
 fails if the line isn't found exactly once), writes `build-info.json`, and
 deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
 
-**Rollout order (agreed).** (1) merge the app branch while Pages is still on
+**Rollout order (agreed, all five steps completed 17 Oct 2026).** (1) merge the app branch while Pages is still on
 the branch source — that deploy is unstamped, so it runs as TEST exactly as
 before; (2) Ray switches Pages to "GitHub Actions"; (3) merge the workflow
 branch (no push trigger, so nothing deploys); (4) Ray deploys a feature
