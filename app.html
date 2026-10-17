@@ -4930,7 +4930,48 @@
   // a per-feature second step to go live. Each flag still exists, and still
   // gates its own feature, so one can be switched off on its own if ever
   // needed.
-  const WRITE_TARGET = "copy"; // "copy" | "live" — the real safety boundary; see CLAUDE.md
+  // ------------------------------------------------------------------
+  // BUILD MARKER — the build decides its own data target. Nothing to flip.
+  // ------------------------------------------------------------------
+  // The deploy workflow (.github/workflows/deploy.yml) replaces the ONE
+  // placeholder line below — matched as a whole line, and the build fails if
+  // it isn't found exactly once — with the real stamp, for example:
+  //   const BUILD_STAMP = {"branch":"main","commit":"<40 hex>","number":"57","date":"2026-10-17T12:00:00.000Z"};
+  // Anything that did not come through that workflow (the raw file in the
+  // repo, a local copy, today's branch-source Pages deploys, the test
+  // harness) keeps the placeholder, so BUILD_STAMP is null.
+  //
+  // The stamp is INLINE, not fetched, for two reasons: it must exist
+  // synchronously before WRITE_PATHS, the write flags, WRITE_LAYER_ENABLED
+  // and the MSAL instance are built (all just below); and an inline stamp can
+  // never disagree with the code it shipped with, however the page is cached.
+  const BUILD_STAMP = null; // @build-stamp
+  const LIVE_HOST = "salty224.github.io";
+  const LIVE_PATH_PREFIX = "/coin-collection-app/";
+
+  // LIVE only when ALL of these hold — anything else, including any error
+  // while checking, is the _Testing copy:
+  //   - the stamp is a real object (not the placeholder, not a string);
+  //   - its branch is exactly "main" (so "main-fix", a tag or "refs/heads/
+  //     main" are not);
+  //   - its commit is 40 lowercase hex characters;
+  //   - the page is served over https from salty224.github.io under
+  //     /coin-collection-app/ (so localhost, file://, a download, another
+  //     site or another path are not).
+  function isLiveBuild(stamp, loc) {
+    try {
+      if (!stamp || typeof stamp !== "object") return false;
+      if (stamp.branch !== "main") return false;
+      if (typeof stamp.commit !== "string" || !/^[0-9a-f]{40}$/.test(stamp.commit)) return false;
+      if (!loc || loc.protocol !== "https:" || loc.hostname !== LIVE_HOST) return false;
+      if (typeof loc.pathname !== "string" || loc.pathname.indexOf(LIVE_PATH_PREFIX) !== 0) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  // "copy" | "live". DERIVED, never hand-set — see BUILD_STAMP above.
+  const WRITE_TARGET = isLiveBuild(BUILD_STAMP, window.location) ? "live" : "copy";
   const ENABLE_LIVE_NAV_DATA = true; // read-only — never depends on WRITE_TARGET
   const ENABLE_SET_WRITE_LAYER = true;
   // Browse Edit's own real write layer (editing an EXISTING All-sheet row).
@@ -6808,11 +6849,10 @@
   //     were ever switched off, getWriteToken() returns null and never
   //     redirects, so tapping Add Set's Save degrades to a toast instead of
   //     a page-navigating sign-in attempt.
-  //   - WRITE_TARGET defaults "copy" — all paths resolve under
-  //     CoinCollection/_Testing/ so nothing hits the real workbook/Staging.
-  //     Flipping to "live" is a manual, Ray-only change (never automatic),
-  //     and even then the app still only ever writes Staging folders +
-  //     photo files, never the workbook itself (Q1=b / Q3).
+  //   - WRITE_TARGET is DERIVED from the build (see BUILD_STAMP /
+  //     isLiveBuild()): "live" only for main stamped by the deploy workflow
+  //     and served from the real Pages URL; everything else is "copy", so
+  //     all paths resolve under CoinCollection/_Testing/.
   //   - All logic runs against a swappable graphClient; headless tests
   //     inject a MockGraphClient so the reservation/draft/promotion logic
   //     is fully verifiable without touching OneDrive (Q12).
