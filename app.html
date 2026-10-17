@@ -22708,8 +22708,19 @@
     // An entry can ask for its filename to be chosen at save time (checked
     // free in OneDrive) rather than trusting the name it was built with.
     // Resolved once: a retry after a failed upload keeps the same name.
-    if (entry.resolveFilename && !entry.filenameResolved) {
-      entry.filename = await entry.resolveFilename();
+    //
+    // SHARED FIX (all repeatable types — Reference, Other, COA — from every
+    // capture surface, not just Crop from an uploaded photo): a repeatable
+    // photo's number used to be "how many of this type the gallery holds,
+    // plus one". With _reference_01 and _reference_03 on file that picks
+    // _03 and overwrites a real file, and a file with no Photos row behind
+    // it was invisible to the count entirely. Now: one past the highest
+    // number in use, then stepped up until the name is free in OneDrive.
+    const def = galleryTypeDef(entry.type);
+    const resolver = entry.resolveFilename ||
+      ((def && def.repeatable && entry.blob) ? () => nextFreeRepeatableFilename(collectionId, entry.type, entry) : null);
+    if (resolver && !entry.filenameResolved) {
+      entry.filename = await resolver();
       entry.filenameResolved = true;
     }
     if (!entry.filename) throw new Error("Entry has no filename to store under.");
