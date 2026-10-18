@@ -51,14 +51,29 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
       window.__hangOnCall = null;   // that write call never answers
       window.__landOnCall = null;   // that write call lands, then reports a failure
       window.__holdWrites = null;   // a promise every write waits on (to observe "Writing")
+      window.__staleReads = 0;      // this many Ref_SpotPrices reads after a write show the old date/Source
+      window.__preWriteGrid = null; // the sheet as it stood just before the first write
+      window.__spotReads = 0;       // Ref_SpotPrices reads made after the first write
+      __setSpotPricePatienceDelaysForTest([10, 20, 40]);
       let calls = 0;
       const WRITE_METHODS = ["patchWorkbookRanges", "addTableRow", "uploadJson", "uploadFile", "uploadBytes", "putContent", "deleteItem"];
       const spy = new Proxy(mock, { get(target, k) {
         const v = target[k];
+        if (k === "readUsedRangeDetail") return (wb, sheet) => v.call(target, wb, sheet).then(d => {
+          if (sheet !== "Ref_SpotPrices" || !window.__preWriteGrid) return d;
+          window.__spotReads++;
+          if (window.__staleReads <= 0) return d;
+          window.__staleReads--;
+          // A lagging read: new price, but date and Source as they were.
+          const values = d.values.map((row, r) => row.map((cell, c) =>
+            (r >= 1 && r <= 6 && (c === 2 || c === 3)) ? window.__preWriteGrid[r][c] : cell));
+          return Object.assign({}, d, { values });
+        });
         if (!WRITE_METHODS.includes(k) || typeof v !== "function") return typeof v === "function" ? v.bind(target) : v;
         return (...args) => {
           calls++;
           if (k === "patchWorkbookRanges") {
+            if (!window.__preWriteGrid) window.__preWriteGrid = JSON.parse(JSON.stringify(target._grids.Ref_SpotPrices));
             window.__writes.push({ sheet: args[1], addresses: args[2].map(e => e.address), edits: JSON.parse(JSON.stringify(args[2])) });
             if (window.__failOnCall === calls) return Promise.reject(new Error("simulated Graph 503"));
             if (window.__hangOnCall === calls) return new Promise(() => {});
@@ -494,6 +509,117 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   ok(/Prices changed in the workbook since you opened this; reopen to continue/.test(M13.r2 || "") &&
     /Prices changed in the workbook/.test(M13.r3 || "") && M13.wEnd === 0,
     "M14 CHANGED-SINCE STILL REFUSES when the price really changed to something else (same metal, or another metal)");
+
+  // ---------- P. patient read-back, spinner, reload line ----------
+  // The writes and the read-back are separate sessionless Graph calls, so the
+  // first read can lag behind a successful write (seen live on Copper).
+  const P1 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Copper: "0.30" }, { source: "Test" });
+    __review();
+    window.__staleReads = 2; // read-back and first re-read stale, second re-read correct
+    const r = await __confirm();
+    return { ok: r && r.ok, patience: r && r.patienceReads, writes: window.__writes.filter(w => w.sheet).length,
+      addresses: window.__writes.flatMap(w => w.addresses || []), spotReads: window.__spotReads,
+      title: (document.querySelector("#spotPriceUpdatePanel .spot-update-title") || {}).textContent, text: __resultText(),
+      done: !!document.getElementById("spotResultDoneBtn"), sheet: __sheet() };
+  });
+  ok(P1.ok && P1.title === "Prices updated" && P1.done, `P1 A LAGGING READ-BACK ENDS IN "Prices updated" once a re-read sees all three cells (${P1.title}: ${P1.text.slice(0, 80)})`);
+  ok(P1.writes === 1 && JSON.stringify(P1.addresses) === JSON.stringify(["B6", "C6", "D6"]),
+    `P2 EXACTLY ONE SET OF WRITES — the re-reads never write (${P1.writes} write calls: ${JSON.stringify(P1.addresses)})`);
+  ok(P1.patience === 2 && P1.spotReads === 3, `P3 it stopped re-reading as soon as everything matched (patience reads ${P1.patience}, sheet reads ${P1.spotReads})`);
+  ok(P1.sheet[5][1] === 0.3 && P1.sheet[5][3] === "Test", "P4 the mock sheet holds the Copper values");
+
+  const P5 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Copper: "0.30" }, { source: "Test" });
+    __review();
+    window.__staleReads = 99; // never matches
+    const r = await __confirm();
+    const copper = ((r && r.perMetal) || []).find(p => p.metal === "Copper") || {};
+    return { ok: r && r.ok, patience: r && r.patienceReads, writes: window.__writes.filter(w => w.sheet).length,
+      status: copper.status, detail: copper.detail, title: (document.querySelector("#spotPriceUpdatePanel .spot-update-title") || {}).textContent,
+      text: __resultText(), check: !!document.getElementById("spotCheckBtn"), retry: !!document.getElementById("spotRetryBtn") };
+  });
+  ok(!P5.ok && P5.title === "Not updated" && P5.status === "partly written" && /source is "Manual", expected "Test"/.test(P5.detail || ""),
+    `P5 A READ-BACK THAT NEVER MATCHES ends "partly written" with the details (${P5.status}: ${P5.detail})`);
+  ok(P5.patience === 3 && P5.writes === 1, `P6 three re-reads at most, and still only one set of writes (patience ${P5.patience}, writes ${P5.writes})`);
+  ok(P5.check && !P5.retry && /Check what's in the workbook before trying again/.test(P5.text), "P7 the way on is 'Check what's in the workbook' — no direct retry");
+
+  const P8 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32" }, { source: "Test" });
+    __review();
+    window.__failOnCall = 1; window.__staleReads = 99;
+    const single = await __confirm();
+    const singleReads = window.__spotReads;
+    // Two metals: Silver's write lands, Gold's write call fails. Gold must get no patience.
+    __setup(); __open(); __fill({ Silver: "32", Gold: "2700" }, { source: "Test" });
+    __review();
+    window.__failOnCall = 2;
+    const two = await __confirm();
+    const statuses = Object.fromEntries(((two && two.perMetal) || []).map(p => [p.metal, p.status]));
+    return { singlePatience: single && single.patienceReads, singleReads, twoPatience: two && two.patienceReads, twoReads: window.__spotReads,
+      statuses, writes: window.__writes.filter(w => w.sheet).length };
+  });
+  ok(P8.singlePatience === 0 && P8.singleReads === 1, `P8 A FAILED WRITE CALL GETS NO PATIENCE RE-READS (patience ${P8.singlePatience}, sheet reads ${P8.singleReads})`);
+  ok(P8.twoPatience === 0 && P8.twoReads === 1 && P8.statuses.Silver === "written" && P8.statuses.Gold === "not written",
+    `P9 with Silver written and Gold's call failed, Gold is reported as it stands with no re-reads (patience ${P8.twoPatience}, ${JSON.stringify(P8.statuses)})`);
+
+  const P10 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Copper: "0.30" }, { source: "Test" });
+    __review();
+    let release; window.__holdWrites = new Promise(r => { release = r; });
+    __setSpotPricePatienceDelaysForTest([400, 20, 40]);
+    window.__staleReads = 1;
+    document.getElementById("spotReviewConfirmBtn").click();
+    await new Promise(r => setTimeout(r, 50));
+    const look = () => ({
+      stage: __getSpotUpdateStateForTest().stage,
+      disc: !!document.querySelector("#spotPriceUpdatePanel .section-loading .section-loading-disc"),
+      text: (document.getElementById("spotWriteProgress") || {}).textContent || "",
+      buttons: document.querySelectorAll("#spotPriceUpdatePanel button").length });
+    const writing = look();
+    release(); window.__holdWrites = null;
+    await __waitStage(["verifying"]);
+    const verifying = look();
+    const stage = await __waitStage(["result"], 3000);
+    // The Checking stage, via the check button after a never-matching attempt.
+    __setup(); __open(); __fill({ Copper: "0.30" }, { source: "Test" });
+    __review(); window.__staleReads = 99;
+    await __confirm();
+    window.__staleReads = 0;
+    document.getElementById("spotCheckBtn").click();
+    const checking = look();
+    await __waitStage(["result", "checked"]);
+    return { writing, verifying, checking, stage };
+  });
+  const keep = "this can take up to a minute. Please keep this page open.";
+  ok(P10.writing.stage === "writing" && P10.writing.disc && P10.writing.buttons === 0 && P10.writing.text === "Writing to the workbook… " + keep,
+    `P10 WRITING shows the spinning coin, the keep-open wording and no buttons (${JSON.stringify(P10.writing)})`);
+  ok(P10.verifying.stage === "verifying" && P10.verifying.disc && P10.verifying.buttons === 0 && P10.verifying.text.endsWith(keep),
+    `P11 VERIFYING shows the spinning coin and no buttons (${JSON.stringify(P10.verifying)})`);
+  ok(P10.checking.stage === "checking" && P10.checking.disc && P10.checking.buttons === 0 && P10.checking.text.endsWith(keep),
+    `P12 CHECKING shows the spinning coin and no buttons (${JSON.stringify(P10.checking)})`);
+  ok(P10.stage === "result", "P13 the verifying stage then reaches the result");
+
+  const P14 = await page.evaluate(async () => {
+    __setup();
+    let resolveReload; window.refreshLiveCoinsAfterWrite = () => { window.__reloads++; return new Promise(r => { resolveReload = r; }); };
+    __open(); __fill({ Silver: "32" }, { source: "Test" }); __review();
+    await __confirm();
+    const pending = __resultText();
+    resolveReload(true);
+    await new Promise(r => setTimeout(r, 30));
+    const done = __resultText();
+    __setup();
+    window.refreshLiveCoinsAfterWrite = () => Promise.resolve(false);
+    __open(); __fill({ Silver: "33" }, { source: "Test" }); __review();
+    await __confirm();
+    await new Promise(r => setTimeout(r, 30));
+    const failed = __resultText();
+    return { pending, done, failed };
+  });
+  ok(/Reloading coin data so melt values use the new prices/.test(P14.pending), "P14 the reload line shows while the reload runs");
+  ok(/Coin data reloaded\./.test(P14.done) && !/Reloading coin data/.test(P14.done), `P15 THE RELOAD LINE RESOLVES to "Coin data reloaded." (${P14.done.slice(-60)})`);
+  ok(/Couldn't reload coin data just now/.test(P14.failed) && !/Reloading coin data/.test(P14.failed), "P16 a failed reload says so instead of spinning forever");
 
   // ---------- K. flag ----------
   const K = await page.evaluate(() => {

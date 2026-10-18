@@ -21603,8 +21603,12 @@
     return values.slice(1).map(r => { const o = {}; headers.forEach((h, i) => { if (h) o[h] = r[i]; }); return o; });
   }
 
+  // Waits before each patient re-read of the sheet (see commitSpotPriceUpdate).
+  let SPOT_PRICE_PATIENCE_DELAYS_MS = [1000, 2000, 4000];
+  function __setSpotPricePatienceDelaysForTest(arr) { SPOT_PRICE_PATIENCE_DELAYS_MS = arr || [1000, 2000, 4000]; } // test-only seam
+
   // Confirm. Never throws; always says per metal what is in the cells now.
-  async function commitSpotPriceUpdate(validated, snapshot) {
+  async function commitSpotPriceUpdate(validated, snapshot, onStage) {
     if (!spotPriceWriteEnabled()) return { ok: false, message: "Spot-price updates are switched off (ENABLE_SPOT_PRICE_WRITE). Nothing was written." };
     if (!validated || !validated.ok) return { ok: false, message: "Nothing to write." };
     const wb = writePaths().workbook;
@@ -21643,11 +21647,10 @@
     }
 
     // Read back and judge each metal by what its three cells hold now.
-    let after = null, readBackTimedOut = false;
-    try { after = await spotWithTimeout(graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET)); } catch (e) { after = null; readBackTimedOut = isTimeout(e); }
-    const perMetal = plan.edits.map(edit => {
-      if (!after) return { metal: edit.metal, sent: sent[edit.metal], status: "unverified", detail: "couldn't re-read the sheet" };
-      const row = after.values[edit.rowIndex] || [];
+    // Judging is a pure function of one read, so a re-read can re-judge.
+    const judge = (edit, readDetail) => {
+      if (!readDetail) return { metal: edit.metal, sent: sent[edit.metal], status: "unverified", detail: "couldn't re-read the sheet" };
+      const row = readDetail.values[edit.rowIndex] || [];
       const prev = detail.values[edit.rowIndex] || [];
       const got = {
         price: specNum(row[plan.col.PricePerTroyOz]),
@@ -21666,7 +21669,34 @@
       if (!match[1]) mismatches.push("date is " + (Number.isFinite(got.date) ? excelSerialToISODate(got.date) : "blank") + ", expected " + excelSerialToISODate(validated.dateSerial));
       if (!match[2]) mismatches.push("source is \"" + got.source + "\", expected \"" + validated.source + "\"");
       return { metal: edit.metal, sent: sent[edit.metal], status, detail: mismatches.join("; ") };
-    }).concat(alreadyRows);
+    };
+    let after = null, readBackTimedOut = false;
+    try { after = await spotWithTimeout(graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET)); } catch (e) { after = null; readBackTimedOut = isTimeout(e); }
+    const judged = plan.edits.map(edit => judge(edit, after));
+
+    // Patience. The writes and this read are separate, sessionless Graph
+    // calls, so a read straight after a successful $batch can lag behind it
+    // (seen live: the price cell new, its date and Source still old, then all
+    // three correct on a later check). Re-read only — never write again — and
+    // only for metals whose own write call reported success; a metal whose
+    // write failed or never answered is reported as it stands.
+    const waiting = () => plan.edits.map((e, i) => i).filter(i => sent[plan.edits[i].metal] === "sent" && judged[i].status !== "written");
+    let patienceReads = 0;
+    if (!readBackTimedOut && waiting().length) {
+      if (typeof onStage === "function") onStage("verifying");
+      for (const ms of SPOT_PRICE_PATIENCE_DELAYS_MS) {
+        const idx = waiting();
+        if (!idx.length) break;
+        await new Promise(res => setTimeout(res, ms));
+        let again = null;
+        try { again = await spotWithTimeout(graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET)); }
+        catch (e) { if (isTimeout(e)) { readBackTimedOut = true; break; } continue; }
+        patienceReads++;
+        after = again;
+        idx.forEach(i => { judged[i] = judge(plan.edits[i], again); });
+      }
+    }
+    const perMetal = judged.concat(alreadyRows);
 
     let formulasAfter = null;
     try { formulasAfter = await countAllFormulaColumns(); } catch (e) { formulasAfter = { error: (e && e.message) || String(e) }; }
@@ -21677,7 +21707,7 @@
     // coin pages read so the new melt figures show.
     let reload = null;
     if (perMetal.some(p => p.status !== "not written")) reload = refreshLiveCoinsAfterWrite().catch(() => false);
-    return { ok, failure, perMetal, formulasBefore, formulasAfter, reload, mayHaveWritten: true,
+    return { ok, failure, perMetal, formulasBefore, formulasAfter, reload, mayHaveWritten: true, patienceReads,
       timedOut: readBackTimedOut, message: readBackTimedOut ? SPOT_NO_RESPONSE + " when re-reading what was written." : undefined,
       addresses: plan.edits.flatMap(e => e.cells.map(c => c.address)) };
   }
@@ -21867,12 +21897,20 @@
     // In progress: a stage of its own, so any re-render (e.g. the Spot
     // Prices list refreshing in the background) keeps showing the progress
     // text and never brings Confirm/Cancel back mid-write.
-    if (st.stage === "writing" || st.stage === "checking") {
-      panel.innerHTML = `<div class="spot-update-title">${st.stage === "writing" ? "Writing…" : "Checking…"}</div>
-        <p class="spot-review-meta" id="spotWriteProgress"></p>`;
-      document.getElementById("spotWriteProgress").textContent = st.stage === "writing"
+    if (spotStageInProgress(st)) {
+      const title = st.stage === "writing" ? "Writing…" : st.stage === "verifying" ? "Verifying…" : "Checking…";
+      const text = st.stage === "writing"
         ? "Writing to the workbook… this can take up to a minute. Please keep this page open."
-        : "Checking the workbook…";
+        : st.stage === "verifying"
+          ? "Verifying what the workbook now holds… this can take up to a minute. Please keep this page open."
+          : "Checking the workbook… this can take up to a minute. Please keep this page open.";
+      // The app's own spinning-coin loader (same as Staging Review / Docket),
+      // carrying the progress text. No buttons while a stage runs.
+      panel.innerHTML = `<div class="spot-update-title">${title}</div>
+        <div id="spotWriteProgressHost"></div>`;
+      showSectionLoading("spotWriteProgressHost", text);
+      const textEl = panel.querySelector("#spotWriteProgressHost .section-loading-text");
+      if (textEl) textEl.id = "spotWriteProgress";
       return;
     }
 
@@ -21913,7 +21951,9 @@
       label + ": SpotValue " + (o.SpotValue ? o.SpotValue.formulas + " formulas, " + o.SpotValue.errors + " errors" : "column not found") +
       "; Total " + (o.Total ? o.Total.formulas + " formulas, " + o.Total.errors + " errors" : "column not found");
     if (r.perMetal) { lines.push(fc("All formulas before", r.formulasBefore)); lines.push(fc("All formulas after", r.formulasAfter)); }
-    if (r.reload) lines.push("Reloading coin data so melt values use the new prices…");
+    if (r.reload) lines.push(r.reloadState === "done" ? "Coin data reloaded."
+      : r.reloadState === "failed" ? "Couldn't reload coin data just now; melt values update on the next reload."
+      : "Reloading coin data so melt values use the new prices…");
     // After an attempt that may have written something, the only way
     // forward is to look first: no direct retry from here.
     const canCheck = !r.ok && (r.mayHaveWritten || r.timedOut);
@@ -21933,20 +21973,35 @@
     if (check) check.addEventListener("click", () => spotRunCheck(st));
   }
 
+  function spotStageInProgress(st) { return !!st && (st.stage === "writing" || st.stage === "verifying" || st.stage === "checking"); }
+
+  // The "Reloading coin data…" line follows the reload promise so it never
+  // sits on screen forever: pending -> "Coin data reloaded." (or a note).
+  function spotTrackReload(st) {
+    const r = st.result;
+    if (!r || !r.reload) return;
+    r.reloadState = "pending";
+    r.reload.then(ok => { r.reloadState = ok === false ? "failed" : "done"; }, () => { r.reloadState = "failed"; })
+      .then(() => { if (spotUpdateState === st && st.stage === "result") renderSpotPriceUpdateArea(); });
+  }
+
   async function spotRunCommit(st) {
-    if (st.stage === "writing" || st.stage === "checking") return; // one at a time
+    if (spotStageInProgress(st)) return; // one at a time
     st.stage = "writing";
     renderSpotPriceUpdateArea();
-    st.result = await commitSpotPriceUpdate(st.validated, st.snapshot);
+    st.result = await commitSpotPriceUpdate(st.validated, st.snapshot, (stage) => {
+      st.stage = stage;
+      if (spotUpdateState === st) renderSpotPriceUpdateArea();
+    });
     st.stage = "result";
     if (spotUpdateState !== st) return;
+    spotTrackReload(st);
     renderSpotPrices();
     renderSpotPriceUpdateArea();
-    if (st.result.reload) st.result.reload.then(() => { if (spotUpdateState === st) renderSpotPriceUpdateArea(); });
   }
 
   async function spotRunCheck(st) {
-    if (st.stage === "writing" || st.stage === "checking") return;
+    if (spotStageInProgress(st)) return;
     st.stage = "checking";
     renderSpotPriceUpdateArea();
     const c = await checkSpotPriceWorkbook(st.validated, st.snapshot);
@@ -21955,6 +22010,7 @@
       spotPriceRows = spotDetailToRows(c.detail); spotPriceStatus = "ready";
       st.result = { ok: true, alreadyComplete: true, perMetal: c.perMetal, reload: refreshLiveCoinsAfterWrite().catch(() => false) };
       st.stage = "result";
+      spotTrackReload(st);
       renderSpotPrices();
     } else {
       st.check = c;
