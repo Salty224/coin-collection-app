@@ -1863,6 +1863,8 @@
   .detail-linkage { margin-top: 18px; }
   .detail-linkage.hidden { display: none; }
   .linkage-chips { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  /* Plain-text "Issued in … (purchased separately)" note — deliberately not a chip: no link. */
+  .linkage-remark { font-size: 12px; color: var(--text-muted); line-height: 1.35; }
   .linkage-chip {
     display: flex; align-items: center; gap: 10px; padding: 11px 14px;
     border: 1px solid var(--case-border); border-radius: 10px;
@@ -15751,6 +15753,41 @@
   // comes ONLY from OriginSetID (resolveChildParentSet below); the SetID
   // matcher is gone so nothing can reintroduce it.
 
+  // "Issued in <set> (purchased separately)": a coin whose SetID names a set
+  // it is NOT currently in. Plain text, never a link — SetID is the catalog
+  // id of the product the coin was issued in, not membership.
+  //
+  // Skipped for album (AL) and assembled-set (AS) SetIDs: an album coin was
+  // never "issued in" its album (it already has its own Album chip), and an
+  // assembled set is Ray's own grouping, not a product.
+  //
+  // Name: the DB_Sets definition first, then an owned Set row carrying that
+  // SetID. With neither, the SetID itself is shown rather than nothing.
+  const SET_REMARK_SKIPPED_KINDS = ["AL", "AS"];
+  function setIdKind(setId) {
+    const m = /^S-[^-]+-([A-Z]+)-/.exec(String(setId || "").trim());
+    return m ? m[1] : "";
+  }
+  function setNameForSetId(setId) {
+    const id = String(setId || "").trim();
+    if (!id) return "";
+    const def = activeDbSets().find(s => String(s.setId || "").trim() === id && s.name);
+    if (def) return def.name;
+    const owned = activeCoins().find(c => isSetRow(c) && String(c.setId || "").trim() === id && c.name);
+    return owned ? owned.name : "";
+  }
+  function setIssueRemarkFor(coin) {
+    if (!coin || isSetRow(coin)) return "";
+    const setId = String(coin.setId || "").trim();
+    if (!setId) return "";
+    if (SET_REMARK_SKIPPED_KINDS.indexOf(setIdKind(setId)) !== -1) return "";
+    // Already a member of a Set with this same SetID — the chip says it.
+    const parent = resolveChildParentSet(coin);
+    if (parent && String(parent.setId || "").trim() === setId) return "";
+    const name = setNameForSetId(setId);
+    return "Issued in " + (name || setId) + " (purchased separately)";
+  }
+
   // Child → parent-Set linkage, via originSetId — the reverse of the
   // multi-coin display (a child coin, viewed on its own detail, links back UP
   // to the Set bundle it's physically inside). This is now the ONLY source
@@ -15786,8 +15823,9 @@
     const album = resolveCoinAlbumLink(coin);
     // Set membership: OriginSetID only ("currently in this set"). One chip.
     const parentSet = resolveChildParentSet(coin);
+    const remark = setIssueRemarkFor(coin);
     hostEl.innerHTML = "";
-    if (!album && !parentSet) return 0;
+    if (!album && !parentSet && !remark) return 0;
 
     const chips = document.createElement("div");
     chips.className = "linkage-chips";
@@ -15829,6 +15867,12 @@
         window.scrollTo({ top: 0 });
       });
       chips.appendChild(btn);
+    }
+    if (remark) {
+      const note = document.createElement("div");
+      note.className = "linkage-remark";
+      note.textContent = remark;
+      chips.appendChild(note);
     }
     return chips.children.length;
   }
