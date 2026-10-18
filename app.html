@@ -15736,31 +15736,25 @@
   // A Set is just a Denomination="Multiple" All-sheet row (see "Browse:
   // navigation restructure" in CLAUDE.md) — same signal used everywhere else
   // a row needs to be told apart from an individual coin (Sets tab filtering,
-  // resolveCoinSetLink() below). Used by the Edit button's routing so a Set
+  // the "Belongs to" chips). Used by the Edit button's routing so a Set
   // opens Edit Set instead of Edit Coin.
   function isSetRow(coin) {
     return coin.denom === "Multiple";
   }
 
-  // Set linkage: match this coin's OWN setId against a Set-bundle row's OWN
-  // setId (a Denomination="Multiple" row) — NOT against the bundle's
-  // CollectionID (see CLAUDE.md Issue 3). Excludes the coin itself, so a
-  // bundle row viewed directly doesn't link to itself. Returns the bundle
-  // row, or null. Only ~28 of 386 real owned rows have SetID today, so most
-  // coins correctly resolve to null here.
-  function resolveCoinSetLink(coin) {
-    if (!coin.setId) return null;
-    // activeCoins(), not FAKE_COINS — this used to search the demo rows
-    // even in a live session, so a real coin could only ever link to a demo
-    // Set (and a real Set could never be found).
-    return activeCoins().find(c => c.id !== coin.id && c.denom === "Multiple" && c.setId === coin.setId) || null;
-  }
+  // SUPERSEDED (Oct 2026, Ray's rule): "Belongs to" used to ALSO match this
+  // coin's SetID against any Set row carrying the same SetID. SetID is a
+  // catalog/definition id, not membership, so that produced false links
+  // (a standalone AY-00706 linked to AY-00463), a duplicate chip beside the
+  // real OriginSetID chip (AY-00463-B), and twin owned Sets sharing one
+  // SetID linking to each other (AY-00463 <-> AY-00741). Membership now
+  // comes ONLY from OriginSetID (resolveChildParentSet below); the SetID
+  // matcher is gone so nothing can reintroduce it.
 
   // Child → parent-Set linkage, via originSetId — the reverse of the
   // multi-coin display (a child coin, viewed on its own detail, links back UP
-  // to the Set bundle it's physically inside). Deliberately kept SEPARATE from
-  // resolveCoinSetLink() above (Issue-3's setId "belongs to" mechanism) —
-  // different field, different relationship, never merged. Only an individual
+  // to the Set bundle it's physically inside). This is now the ONLY source
+  // of Set membership in "Belongs to" (see the note above). Only an individual
   // child row resolves here: a Set bundle viewed directly (isSetRow) returns
   // null so it never links to itself, and a normal coin with no originSetId
   // returns null.
@@ -15790,10 +15784,10 @@
   // caller can decide whether the surrounding group is worth showing.
   function renderLinkageChipsInto(hostEl, coin) {
     const album = resolveCoinAlbumLink(coin);
-    const set = resolveCoinSetLink(coin);
+    // Set membership: OriginSetID only ("currently in this set"). One chip.
     const parentSet = resolveChildParentSet(coin);
     hostEl.innerHTML = "";
-    if (!album && !set && !parentSet) return 0;
+    if (!album && !parentSet) return 0;
 
     const chips = document.createElement("div");
     chips.className = "linkage-chips";
@@ -15818,24 +15812,6 @@
       btn.addEventListener("click", () => openAlbumFromLink(album.albumIndex));
       chips.appendChild(btn);
     }
-    if (set) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "linkage-chip";
-      btn.innerHTML =
-        `<span class="linkage-icon">📦</span>` +
-        `<span class="linkage-text"><span class="linkage-kind">Set</span>` +
-        `<span class="linkage-name">${set.name}</span></span>` +
-        `<span class="linkage-arrow">›</span>`;
-      // A Set is just a coin-shaped bundle row now, so its "page" is this same
-      // Browse detail view re-rendered for that row.
-      btn.addEventListener("click", () => {
-        browseDetailBackHandler = showBrowseGrid;
-        showBrowseDetail(set);
-        window.scrollTo({ top: 0 });
-      });
-      chips.appendChild(btn);
-    }
     if (parentSet) {
       const btn = document.createElement("button");
       btn.type = "button";
@@ -15846,7 +15822,7 @@
         `<span class="linkage-name">${parentSet.name}</span></span>` +
         `<span class="linkage-arrow">›</span>`;
       // Navigates to the parent Set's own detail view. Back returns to the
-      // grid — same as the setId set chip above.
+      // grid.
       btn.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
         showBrowseDetail(parentSet);
