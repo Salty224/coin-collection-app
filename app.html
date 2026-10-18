@@ -859,6 +859,23 @@
     width: 96px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
+  /* Ledger spot-price update panel */
+  .spot-update-area { margin: 8px 0 14px; }
+  .spot-update-panel { padding: 12px 14px; }
+  .spot-update-title { font-weight: 700; margin-bottom: 6px; }
+  .spot-edit-row { padding: 8px 0; border-bottom: 1px solid var(--case-border); }
+  .spot-edit-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+  .spot-edit-metal { font-weight: 600; }
+  .spot-edit-now { color: var(--text-muted); font-size: 12px; text-align: right; }
+  .spot-edit-input { width: 100%; margin-top: 6px; }
+  .spot-edit-big { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 6px; }
+  .spot-edit-big.hidden { display: none; }
+  .spot-edit-error { color: var(--danger); font-size: 12px; margin-top: 4px; }
+  .spot-edit-error:empty { display: none; }
+  .spot-update-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 12px; }
+  .spot-update-actions .save-btn { flex: 1; margin: 0; }
+  .spot-review-meta { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; }
+  .spot-update-result div { font-size: 13px; padding: 2px 0; }
   /* Ledger spot prices (Ref_SpotPrices, read only) */
   .spot-price-detail { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
   .spot-price-value { font-size: 13px; }
@@ -4388,6 +4405,7 @@
              SPOT_PRICE_STALE_DAYS old. -->
         <div class="section-label">Spot Prices</div>
         <div class="case" style="padding:4px 16px;" id="statsSpotPrices"></div>
+        <div id="spotPriceUpdateArea" class="spot-update-area"></div>
 
         <!-- Find a still-Owned coin to act on (Sell/Remove lives on the
              coin's own Edit page — see CLAUDE.md; this is purely a way to
@@ -5253,9 +5271,13 @@
   // enabling those must never silently enable permanent deletion. It also
   // writes All.Purged, through its own narrow audited cell write.
   const ENABLE_PURGE_WRITE = true;
+  // Updating spot prices in Ref_SpotPrices from the Ledger. Its own flag:
+  // the first write to any sheet but All/Photos/Receipts, and it changes the
+  // input of the All.SpotValue formulas collection-wide.
+  const ENABLE_SPOT_PRICE_WRITE = true;
   // Any write feature being on is what justifies requesting a
   // write-capable scope at all.
-  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE || ENABLE_PURGE_WRITE;
+  const WRITE_LAYER_ENABLED = ENABLE_SET_WRITE_LAYER || ENABLE_BROWSE_EDIT_WRITE || ENABLE_DOCKET_WRITE || ENABLE_ADDCOIN_WRITE || ENABLE_SET_LINK_WRITE || ENABLE_PURGE_WRITE || ENABLE_SPOT_PRICE_WRITE;
   const ANY_GRAPH_FEATURE_ENABLED = ENABLE_REFERENCE_IMAGES || ENABLE_LIVE_NAV_DATA || WRITE_LAYER_ENABLED;
 
   // **ONE PublicClientApplication for the whole app.** This is not a
@@ -7259,6 +7281,32 @@
       const data = await res.json();
       return data.values || [];
     },
+    // GET-only reads that also return each cell's formula and number format
+    // (readWorkbookRange returns values only). Used by the spot-price update
+    // to refuse a write onto a formula cell, to copy the existing LastUpdated
+    // date format, and to count the formulas in All.SpotValue/All.Total.
+    // Neither can write: a GET with $select, nothing else.
+    async readWorkbookRangeDetail(workbookPath, sheet, address) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) +
+        "')?$select=address,values,formulas,numberFormat";
+      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
+      const data = await res.json();
+      return { address: data.address || "", values: data.values || [], formulas: data.formulas || [], numberFormat: data.numberFormat || [] };
+    },
+    async readUsedRangeDetail(workbookPath, sheet) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange?$select=address,values,formulas,numberFormat";
+      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Sheet read " + sheet + " failed: " + res.status);
+      const data = await res.json();
+      return { address: data.address || "", values: data.values || [], formulas: data.formulas || [], numberFormat: data.numberFormat || [] };
+    },
     // One table column by name (header cell + every data cell). Used to
     // resolve a CollectionID to its row without dragging the whole sheet
     // across the wire, and bounded to the table rather than a guessed
@@ -7427,6 +7475,26 @@
     // blocked and the grid was left untouched. `_grids` is exposed so tests
     // can inspect exactly which cells a save did (and did not) write.
     const grids = (seed && seed.sheets) || {};
+    // Optional per-sheet formula and number-format grids, same shape as
+    // `grids`. A formula cell holds its "=..." text here; anything absent
+    // reads back as the plain value, as Graph does for a literal.
+    const formulaGrids = (seed && seed.formulas) || {};
+    const formatGrids = (seed && seed.numberFormats) || {};
+    function detailFor(sheet, a) {
+      const g = grids[sheet] || [], f = formulaGrids[sheet] || [], n = formatGrids[sheet] || [];
+      const values = [], formulas = [], numberFormat = [];
+      for (let r = a.r0; r <= a.r1; r++) {
+        const vr = [], fr = [], nr = [];
+        for (let c = a.c0; c <= a.c1; c++) {
+          const v = g[r] && g[r][c] !== undefined && g[r][c] !== null ? g[r][c] : "";
+          vr.push(v);
+          fr.push(f[r] && f[r][c] !== undefined ? f[r][c] : v);
+          nr.push(n[r] && n[r][c] !== undefined ? n[r][c] : "General");
+        }
+        values.push(vr); formulas.push(fr); numberFormat.push(nr);
+      }
+      return { values, formulas, numberFormat };
+    }
     function colLettersToIndex(letters) {
       let n = 0;
       for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64);
@@ -7445,6 +7513,8 @@
     return {
       _store: store,
       _grids: grids,
+      _formulas: formulaGrids,
+      _numberFormats: formatGrids,
       putContent(path, body, contentType) { store.set(path, { kind: "bytes", value: body }); return Promise.resolve({ name: path.split("/").pop() }); },
       uploadFile(path, f) { store.set(path, { kind: "bytes", value: f }); return Promise.resolve({ name: path.split("/").pop() }); },
       uploadBytes(path, b) { store.set(path, { kind: "bytes", value: b }); return Promise.resolve({ name: path.split("/").pop() }); },
@@ -7492,6 +7562,18 @@
         }
         return Promise.resolve(out);
       },
+      readWorkbookRangeDetail(workbookPath, sheet, address) {
+        const a = parseA1(address);
+        return Promise.resolve(Object.assign({ address: sheet + "!" + address }, detailFor(sheet, a)));
+      },
+      readUsedRangeDetail(workbookPath, sheet) {
+        if (!(sheet in grids)) return Promise.reject(new Error("Sheet read " + sheet + " failed: 404"));
+        const g = grids[sheet];
+        const rows = g.length, cols = Math.max(1, ...g.map(r => (r ? r.length : 0)));
+        if (!rows) return Promise.resolve({ address: sheet + "!A1", values: [[""]], formulas: [[""]], numberFormat: [["General"]] });
+        const a = { r0: 0, c0: 0, r1: rows - 1, c1: cols - 1 };
+        return Promise.resolve(Object.assign({ address: sheet + "!A1:" + columnIndexToLetters(cols) + rows }, detailFor(sheet, a)));
+      },
       readTableColumn(workbookPath, tableName, columnName) {
         // Mock tables are 1:1 with their sheet grid; AllCoins -> "All".
         const sheet = tableName === "AllCoins" ? "All" : tableName;
@@ -7509,6 +7591,14 @@
             if (!g[r]) g[r] = [];
             for (let c = a.c0; c <= a.c1; c++) {
               g[r][c] = e.values[r - a.r0][c - a.c0];
+              // A written literal replaces any formula, as in Excel.
+              const fg = formulaGrids[sheet];
+              if (fg && fg[r]) fg[r][c] = undefined;
+              if (e.numberFormat) {
+                const ng = formatGrids[sheet] || (formatGrids[sheet] = []);
+                if (!ng[r]) ng[r] = [];
+                ng[r][c] = e.numberFormat[r - a.r0][c - a.c0];
+              }
             }
           }
         });
@@ -12513,6 +12603,7 @@
     if (viewId === "stats") {
       ensureLiveNavDataFetch();
       renderStats();
+      spotUpdateState = null; // a fresh Ledger visit never resumes a half-done update
       loadSpotPrices();
     }
 
@@ -21197,11 +21288,12 @@
   let spotPriceRows = null;        // last good read (array, possibly empty)
   let spotPriceStatus = "idle";    // idle | loading | ready | missing | failed
   let spotPriceFetchPromise = null;
+  function __setSpotPriceRowsForTest(rows) { spotPriceRows = rows; spotPriceStatus = rows ? "ready" : "idle"; } // test-only seam
   function __resetSpotPricesForTest() { spotPriceRows = null; spotPriceStatus = "idle"; spotPriceFetchPromise = null; } // test-only seam
 
   function loadSpotPrices() {
     if (liveDataMode() !== "live") { renderSpotPrices(); return Promise.resolve(null); }
-    if (spotPriceFetchPromise) return spotPriceFetchPromise;
+    if (spotPriceFetchPromise) { renderSpotPrices(); return spotPriceFetchPromise; }
     if (!spotPriceRows) spotPriceStatus = "loading";
     renderSpotPrices();
     spotPriceFetchPromise = fetchWorkbookSheetRows("Ref_SpotPrices").then(rows => {
@@ -21257,6 +21349,10 @@
   }
 
   function renderSpotPrices() {
+    renderSpotPricesList();
+    renderSpotPriceUpdateArea();
+  }
+  function renderSpotPricesList() {
     const el = document.getElementById("statsSpotPrices");
     if (!el) return;
     el.innerHTML = "";
@@ -21290,6 +21386,422 @@
         "Updated " + dateText + (r.source ? " · " + r.source : "") + (stale ? " · stale" : "");
       el.appendChild(row);
     });
+  }
+
+  // ==================================================================
+  // LEDGER: MANUAL SPOT-PRICE UPDATE (Ref_SpotPrices)
+  // ==================================================================
+  // Ray types new prices for Silver/Gold/Platinum/Palladium; Copper and
+  // Nickel stay read-only. Nothing is written before Confirm. The write:
+  //   - re-reads Ref_SpotPrices fresh (values + formulas + numberFormat),
+  //   - finds each metal's row by the same six-metal match the display uses
+  //     and each column from the sheet's own header row,
+  //   - refuses on a missing header/row, a formula in a target cell, or any
+  //     shown price that changed in the workbook since the panel opened,
+  //   - writes ONLY the PricePerTroyOz, LastUpdated and Source cells of the
+  //     metals that changed, one exact single-cell address each, through
+  //     patchWorkbookRanges (never patchRecordRow, never a whole row),
+  //   - then re-reads those cells and reports per metal what landed.
+  // No network call to any price provider: the panel's inputs can later be
+  // filled by a fetch step via setSpotPriceInputs(), but nothing does today.
+  const SPOT_PRICE_SHEET = "Ref_SpotPrices";
+  const SPOT_PRICE_EDITABLE_METALS = ["Silver", "Gold", "Platinum", "Palladium"];
+  const SPOT_PRICE_RANGES = { Silver: [10, 200], Gold: [1000, 10000], Platinum: [400, 5000], Palladium: [300, 5000] };
+  const SPOT_PRICE_BIG_CHANGE_PCT = 50;
+  const SPOT_PRICE_HEADERS = ["Metal", "PricePerTroyOz", "LastUpdated", "Source"];
+  const SPOT_PRICE_CHANGED_MESSAGE = "Prices changed in the workbook since you opened this; reopen to continue";
+
+  let spotPriceWriteEnabledOverride = null;
+  function spotPriceWriteEnabled() {
+    return spotPriceWriteEnabledOverride === null ? ENABLE_SPOT_PRICE_WRITE : spotPriceWriteEnabledOverride;
+  }
+  function __setSpotPriceWriteEnabledForTest(v) { spotPriceWriteEnabledOverride = v; } // test-only seam
+
+  // Only when signed in, the live coins are loaded and the sheet was read.
+  function canUpdateSpotPrices() {
+    return spotPriceWriteEnabled() && liveDataMode() === "live" && !!LIVE_COINS &&
+      Array.isArray(spotPriceRows) && spotPriceRowsForDisplay(spotPriceRows).length > 0;
+  }
+
+  // What Ray was shown when the panel opened, per metal. The write compares
+  // the fresh sheet against this, so a price changed underneath aborts.
+  function spotPriceSnapshot(rows) {
+    const snap = {};
+    spotPriceRowsForDisplay(rows).forEach(r => { snap[r.metal] = { price: r.price, dateSerial: r.dateSerial, source: r.source }; });
+    return snap;
+  }
+
+  // Pure. input = { prices: {Metal: raw text}, bigOk: {Metal: bool}, source, date (yyyy-mm-dd) }.
+  // Only the four editable metals are ever looked at, so Copper/Nickel can
+  // never become a change no matter what the input holds.
+  function validateSpotPriceUpdate(input, snapshot, todaySerial) {
+    const errors = {};
+    const changes = [];
+    SPOT_PRICE_EDITABLE_METALS.forEach(metal => {
+      const raw = String(((input && input.prices) || {})[metal] == null ? "" : input.prices[metal]).trim();
+      if (!raw) return; // blank = leave this metal unchanged
+      if (!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(raw)) { errors[metal] = "Enter a number, like 31.42."; return; }
+      const n = Number(raw);
+      if (!(n > 0)) { errors[metal] = "Must be a number greater than 0."; return; }
+      const [lo, hi] = SPOT_PRICE_RANGES[metal];
+      if (n < lo || n > hi) { errors[metal] = metal + " must be between " + formatCurrency(lo) + " and " + formatCurrency(hi) + "."; return; }
+      const old = snapshot && snapshot[metal] ? snapshot[metal].price : null;
+      const pct = (typeof old === "number" && old > 0) ? (n - old) / old * 100 : null;
+      const big = pct !== null && Math.abs(pct) > SPOT_PRICE_BIG_CHANGE_PCT;
+      if (big && !((input.bigOk || {})[metal])) {
+        errors[metal] = "That is a " + Math.abs(pct).toFixed(1) + "% change from " + formatSpotPrice(old) +
+          ". Tick \"Yes, this big change is right\" if it is.";
+      }
+      changes.push({ metal, oldPrice: old, newPrice: n, pct, big });
+    });
+    const dateSerial = excelSerialFromISODate(input && input.date);
+    if (dateSerial == null) errors.date = "Enter a date.";
+    else if (dateSerial > todaySerial) errors.date = "The date can't be in the future.";
+    const source = String((input && input.source) || "").trim();
+    if (!source) errors.source = "Enter a source.";
+    const metalErrors = SPOT_PRICE_EDITABLE_METALS.some(m => errors[m]);
+    const nothing = !metalErrors && changes.length === 0;
+    return { errors, changes, dateSerial, source, nothing, ok: !nothing && Object.keys(errors).length === 0 };
+  }
+
+  function spotRangeOrigin(address) {
+    const bare = String(address || "").split("!").pop().split(":")[0];
+    const m = /^([A-Z]+)(\d+)$/.exec(bare);
+    if (!m) return { row: 1, col: 1 };
+    let col = 0;
+    for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64);
+    return { row: Number(m[2]), col };
+  }
+
+  // Pure. detail = a fresh usedRange read; validated = validateSpotPriceUpdate()
+  // output; snapshot = what was shown. Returns { refusal } or { edits }, where
+  // edits is one entry per CHANGED metal holding exactly three single-cell
+  // writes. A metal left blank gets no entry at all.
+  function planSpotPriceWrite(detail, validated, snapshot) {
+    const values = (detail && detail.values) || [];
+    const formulas = (detail && detail.formulas) || [];
+    const formats = (detail && detail.numberFormat) || [];
+    const origin = spotRangeOrigin(detail && detail.address);
+    const header = (values[0] || []).map(h => String(h == null ? "" : h).trim().toLowerCase());
+    const col = {};
+    for (const h of SPOT_PRICE_HEADERS) {
+      const i = header.indexOf(h.toLowerCase());
+      if (i < 0) return { refusal: "Ref_SpotPrices has no \"" + h + "\" header in its first row; nothing was written." };
+      col[h] = i;
+    }
+    const rowOf = {};
+    for (let r = 1; r < values.length; r++) {
+      const raw = String((values[r] || [])[col.Metal] == null ? "" : values[r][col.Metal]).trim().toLowerCase();
+      const metal = SPOT_PRICE_METAL_ORDER.find(m => m.toLowerCase() === raw);
+      if (metal && rowOf[metal] === undefined) rowOf[metal] = r;
+    }
+    for (const c of validated.changes) {
+      // Copper and Nickel are never written here, however a change arrived.
+      if (!SPOT_PRICE_EDITABLE_METALS.includes(c.metal)) return { refusal: c.metal + " can't be updated here; nothing was written." };
+    }
+    for (const c of validated.changes) {
+      if (rowOf[c.metal] === undefined) return { refusal: "Ref_SpotPrices has no " + c.metal + " row; nothing was written." };
+    }
+    // Changed since opened: every price Ray was shown must still be there.
+    for (const metal of Object.keys(snapshot || {})) {
+      const r = rowOf[metal];
+      const fresh = r === undefined ? undefined : specNum(values[r][col.PricePerTroyOz]);
+      if (fresh !== snapshot[metal].price) return { refusal: SPOT_PRICE_CHANGED_MESSAGE, changedMetal: metal };
+    }
+    const addr = (r, c) => columnIndexToLetters(origin.col + c) + (origin.row + r);
+    const isFormula = (r, c) => { const f = (formulas[r] || [])[c]; return typeof f === "string" && f.trim().startsWith("="); };
+    // LastUpdated keeps the format its cells already have: this row's own,
+    // else another metal row's non-General one, else yyyy-mm-dd.
+    const fmtAt = r => { const f = (formats[r] || [])[col.LastUpdated]; return f && f !== "General" ? f : null; };
+    const fallbackFmt = Object.values(rowOf).map(fmtAt).find(Boolean) || "yyyy-mm-dd";
+    const edits = [];
+    for (const c of validated.changes) {
+      const r = rowOf[c.metal];
+      for (const h of ["PricePerTroyOz", "LastUpdated", "Source"]) {
+        if (isFormula(r, col[h])) return { refusal: c.metal + "'s " + h + " cell (" + addr(r, col[h]) + ") contains a formula; nothing was written." };
+      }
+      edits.push({
+        metal: c.metal,
+        newPrice: c.newPrice,
+        cells: [
+          { address: addr(r, col.PricePerTroyOz), values: [[c.newPrice]] },
+          { address: addr(r, col.LastUpdated), values: [[validated.dateSerial]], numberFormat: [[fmtAt(r) || fallbackFmt]] },
+          { address: addr(r, col.Source), values: [[validated.source]] }
+        ],
+        rowIndex: r
+      });
+    }
+    return { refusal: null, edits, col, origin };
+  }
+
+  // Counts live formulas and error values in All.SpotValue and All.Total,
+  // read through the GET-only detail read. A guard only: this feature never
+  // writes All, so the counts must not move.
+  async function countAllFormulaColumns() {
+    const map = await ensureAllHeaderMap();
+    const ids = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    const lastRow = Math.max(2, ids.length); // header is sheet row 1
+    const out = {};
+    for (const name of ALL_NEVER_WRITE_FORMULA_COLUMNS) {
+      if (!map[name]) { out[name] = null; continue; }
+      const L = columnIndexToLetters(map[name]);
+      const d = await graph().readWorkbookRangeDetail(writePaths().workbook, ALL_SHEET_NAME, L + "2:" + L + lastRow);
+      let formulas = 0, errors = 0;
+      d.formulas.forEach((row, i) => {
+        if (typeof row[0] === "string" && row[0].startsWith("=")) formulas++;
+        const v = (d.values[i] || [])[0];
+        if (typeof v === "string" && /^#[A-Z0-9\/]+[!?]?$/.test(v)) errors++;
+      });
+      out[name] = { formulas, errors };
+    }
+    return out;
+  }
+
+  function spotDetailToRows(detail) {
+    const values = (detail && detail.values) || [];
+    if (values.length < 2) return [];
+    const headers = values[0].map(h => String(h == null ? "" : h).trim());
+    return values.slice(1).map(r => { const o = {}; headers.forEach((h, i) => { if (h) o[h] = r[i]; }); return o; });
+  }
+
+  // Confirm. Never throws; always says per metal what is in the cells now.
+  async function commitSpotPriceUpdate(validated, snapshot) {
+    if (!spotPriceWriteEnabled()) return { ok: false, message: "Spot-price updates are switched off (ENABLE_SPOT_PRICE_WRITE). Nothing was written." };
+    if (!validated || !validated.ok) return { ok: false, message: "Nothing to write." };
+    const wb = writePaths().workbook;
+    let detail;
+    try { detail = await graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET); }
+    catch (e) { return { ok: false, message: "Couldn't re-read Ref_SpotPrices (" + ((e && e.message) || e) + "). Nothing was written." }; }
+    const plan = planSpotPriceWrite(detail, validated, snapshot);
+    if (plan.refusal) return { ok: false, refused: true, message: plan.refusal };
+
+    let formulasBefore = null;
+    try { formulasBefore = await countAllFormulaColumns(); } catch (e) { formulasBefore = { error: (e && e.message) || String(e) }; }
+
+    const sent = {};
+    let failure = null;
+    for (const edit of plan.edits) {
+      if (failure) { sent[edit.metal] = "not attempted"; continue; }
+      try { await graph().patchWorkbookRanges(wb, SPOT_PRICE_SHEET, edit.cells); sent[edit.metal] = "sent"; }
+      catch (e) { failure = { metal: edit.metal, error: (e && e.message) || String(e) }; sent[edit.metal] = "failed"; }
+    }
+
+    // Read back and judge each metal by what its three cells hold now.
+    let after = null;
+    try { after = await graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET); } catch (e) { after = null; }
+    const perMetal = plan.edits.map(edit => {
+      if (!after) return { metal: edit.metal, sent: sent[edit.metal], status: "unverified", detail: "couldn't re-read the sheet" };
+      const row = after.values[edit.rowIndex] || [];
+      const prev = detail.values[edit.rowIndex] || [];
+      const got = {
+        price: specNum(row[plan.col.PricePerTroyOz]),
+        date: Math.floor(Number(row[plan.col.LastUpdated])),
+        source: String(row[plan.col.Source] == null ? "" : row[plan.col.Source]).trim()
+      };
+      const match = [got.price === edit.newPrice, got.date === validated.dateSerial, got.source === validated.source];
+      // A cell that still holds its pre-write value counts as unwritten even
+      // when the new value happens to equal the old one (e.g. same Source).
+      const unchanged = [got.price === specNum(prev[plan.col.PricePerTroyOz]),
+        got.date === Math.floor(Number(prev[plan.col.LastUpdated])),
+        got.source === String(prev[plan.col.Source] == null ? "" : prev[plan.col.Source]).trim()];
+      const status = match.every(Boolean) ? "written" : (unchanged.every(Boolean) ? "not written" : "partly written");
+      const mismatches = [];
+      if (!match[0]) mismatches.push("price is " + (got.price == null ? "blank" : got.price) + ", expected " + edit.newPrice);
+      if (!match[1]) mismatches.push("date is " + (Number.isFinite(got.date) ? excelSerialToISODate(got.date) : "blank") + ", expected " + excelSerialToISODate(validated.dateSerial));
+      if (!match[2]) mismatches.push("source is \"" + got.source + "\", expected \"" + validated.source + "\"");
+      return { metal: edit.metal, sent: sent[edit.metal], status, detail: mismatches.join("; ") };
+    });
+
+    let formulasAfter = null;
+    try { formulasAfter = await countAllFormulaColumns(); } catch (e) { formulasAfter = { error: (e && e.message) || String(e) }; }
+
+    const ok = !failure && perMetal.every(p => p.status === "written");
+    if (after) { spotPriceRows = spotDetailToRows(after); spotPriceStatus = "ready"; }
+    // Excel recalculates All.SpotValue itself; reload what the Ledger and
+    // coin pages read so the new melt figures show.
+    let reload = null;
+    if (perMetal.some(p => p.status !== "not written")) reload = refreshLiveCoinsAfterWrite().catch(() => false);
+    return { ok, failure, perMetal, formulasBefore, formulasAfter, reload, addresses: plan.edits.flatMap(e => e.cells.map(c => c.address)) };
+  }
+
+  // ---------- panel UI ----------
+  let spotUpdateState = null; // { stage: "edit"|"review"|"result", snapshot, input, validated, result }
+  function __getSpotUpdateStateForTest() { return spotUpdateState; } // test-only seam
+  function closeSpotPriceUpdatePanel() { spotUpdateState = null; renderSpotPriceUpdateArea(); }
+
+  // For a later fetch step: fills the price inputs, nothing else.
+  function setSpotPriceInputs(prices) {
+    Object.keys(prices || {}).forEach(metal => {
+      if (!SPOT_PRICE_EDITABLE_METALS.includes(metal)) return;
+      const el = document.getElementById("spotEdit" + metal);
+      if (el) el.value = String(prices[metal]);
+    });
+  }
+
+  function readSpotPriceForm() {
+    const prices = {}, bigOk = {};
+    SPOT_PRICE_EDITABLE_METALS.forEach(m => {
+      const el = document.getElementById("spotEdit" + m);
+      prices[m] = el ? el.value : "";
+      const tick = document.getElementById("spotBig" + m);
+      bigOk[m] = !!(tick && tick.checked);
+    });
+    const src = document.getElementById("spotEditSource");
+    const date = document.getElementById("spotEditDate");
+    return { prices, bigOk, source: src ? src.value : "", date: date ? date.value : "" };
+  }
+
+  function openSpotPriceUpdatePanel() {
+    if (!canUpdateSpotPrices()) return;
+    const snapshot = spotPriceSnapshot(spotPriceRows);
+    const firstSource = SPOT_PRICE_EDITABLE_METALS.map(m => snapshot[m] && snapshot[m].source).find(Boolean) || "";
+    spotUpdateState = { stage: "edit", snapshot, input: { prices: {}, bigOk: {}, source: firstSource, date: excelSerialToISODate(excelSerialToday()) } };
+    renderSpotPriceUpdateArea();
+  }
+
+  function spotPriceNowText(s) {
+    if (!s) return "Not in the sheet";
+    return "Now " + formatSpotPrice(s.price) + " · " + (s.dateSerial == null ? "no date" : excelSerialToISODate(s.dateSerial));
+  }
+
+  function renderSpotPriceUpdateArea() {
+    const area = document.getElementById("spotPriceUpdateArea");
+    if (!area) return;
+    area.innerHTML = "";
+    if (!spotUpdateState) {
+      if (!canUpdateSpotPrices()) return;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "edit-btn";
+      btn.id = "spotPriceUpdateBtn";
+      btn.textContent = "Update prices";
+      btn.addEventListener("click", openSpotPriceUpdatePanel);
+      area.appendChild(btn);
+      return;
+    }
+    const st = spotUpdateState;
+    const panel = document.createElement("div");
+    panel.className = "case spot-update-panel";
+    panel.id = "spotPriceUpdatePanel";
+    area.appendChild(panel);
+    const today = excelSerialToday();
+
+    if (st.stage === "edit") {
+      const v = st.validated || { errors: {} };
+      let html = '<div class="spot-update-title">Update spot prices</div>' +
+        '<p class="placeholder-note" style="margin:0 0 8px;">Leave a price blank to keep it unchanged.</p>';
+      SPOT_PRICE_EDITABLE_METALS.forEach(m => {
+        const s = st.snapshot[m];
+        html += `<div class="spot-edit-row" data-metal="${m}">
+          <div class="spot-edit-head"><span class="spot-edit-metal">${m}</span><span class="spot-edit-now"></span></div>
+          <input type="text" inputmode="decimal" autocomplete="off" class="spot-edit-input" id="spotEdit${m}" aria-label="New ${m} price per troy ounce" placeholder="New price per oz"${s ? "" : " disabled"}>
+          <label class="spot-edit-big hidden" id="spotBigWrap${m}"><input type="checkbox" id="spotBig${m}"> Yes, this big change is right</label>
+          <div class="spot-edit-error" id="spotErr${m}"></div>
+        </div>`;
+      });
+      ["Copper", "Nickel"].forEach(m => {
+        html += `<div class="spot-edit-row spot-edit-readonly" data-metal="${m}">
+          <div class="spot-edit-head"><span class="spot-edit-metal">${m}</span><span class="spot-edit-now"></span></div>
+          <div class="placeholder-note" style="margin:2px 0 0;">Read-only here — update in the workbook.</div>
+        </div>`;
+      });
+      html += `<label for="spotEditSource">Source</label>
+        <input type="text" id="spotEditSource" autocomplete="off">
+        <div class="spot-edit-error" id="spotErrSource"></div>
+        <label for="spotEditDate">Date</label>
+        <input type="date" id="spotEditDate" max="${excelSerialToISODate(today)}">
+        <div class="spot-edit-error" id="spotErrDate"></div>
+        <div class="spot-edit-error" id="spotEditMessage"></div>
+        <div class="spot-update-actions">
+          <button type="button" class="edit-btn" id="spotEditCancelBtn">Cancel</button>
+          <button type="button" class="save-btn" id="spotEditReviewBtn">Review</button>
+        </div>`;
+      panel.innerHTML = html;
+      [...SPOT_PRICE_EDITABLE_METALS, "Copper", "Nickel"].forEach(m => {
+        const row = panel.querySelector(`.spot-edit-row[data-metal="${m}"] .spot-edit-now`);
+        if (row) row.textContent = spotPriceNowText(st.snapshot[m]);
+      });
+      SPOT_PRICE_EDITABLE_METALS.forEach(m => {
+        const input = document.getElementById("spotEdit" + m);
+        input.value = st.input.prices[m] || "";
+        document.getElementById("spotBig" + m).checked = !!st.input.bigOk[m];
+        const err = v.errors[m];
+        document.getElementById("spotErr" + m).textContent = err || "";
+        const showTick = () => {
+          const n = Number(String(input.value).trim());
+          const old = st.snapshot[m] && st.snapshot[m].price;
+          const [lo, hi] = SPOT_PRICE_RANGES[m];
+          const big = String(input.value).trim() !== "" && n >= lo && n <= hi && typeof old === "number" && old > 0 &&
+            Math.abs((n - old) / old * 100) > SPOT_PRICE_BIG_CHANGE_PCT;
+          document.getElementById("spotBigWrap" + m).classList.toggle("hidden", !big);
+        };
+        input.addEventListener("input", showTick);
+        showTick();
+      });
+      document.getElementById("spotEditSource").value = st.input.source || "";
+      document.getElementById("spotEditDate").value = st.input.date || "";
+      document.getElementById("spotErrSource").textContent = v.errors.source || "";
+      document.getElementById("spotErrDate").textContent = v.errors.date || "";
+      document.getElementById("spotEditMessage").textContent = v.nothing ? "Nothing to update — every price is blank." : "";
+      document.getElementById("spotEditCancelBtn").addEventListener("click", closeSpotPriceUpdatePanel);
+      document.getElementById("spotEditReviewBtn").addEventListener("click", () => {
+        st.input = readSpotPriceForm();
+        st.validated = validateSpotPriceUpdate(st.input, st.snapshot, excelSerialToday());
+        if (st.validated.ok) st.stage = "review";
+        renderSpotPriceUpdateArea();
+      });
+      return;
+    }
+
+    if (st.stage === "review") {
+      const v = st.validated;
+      let html = '<div class="spot-update-title">Review — nothing is written until you Confirm</div>';
+      v.changes.forEach(c => {
+        const pct = c.pct === null ? "" : " (" + (c.pct >= 0 ? "+" : "−") + Math.abs(c.pct).toFixed(1) + "%)";
+        html += `<div class="stat-row spot-review-row" data-metal="${c.metal}"><div class="stat-row-label">${c.metal}</div>
+          <div class="spot-price-detail">${formatSpotPrice(c.oldPrice)} → ${formatSpotPrice(c.newPrice)}${pct}</div></div>`;
+      });
+      html += `<p class="spot-review-meta" id="spotReviewMeta"></p>
+        <div class="spot-update-actions">
+          <button type="button" class="edit-btn" id="spotReviewCancelBtn">Cancel</button>
+          <button type="button" class="save-btn" id="spotReviewConfirmBtn">Confirm</button>
+        </div>`;
+      panel.innerHTML = html;
+      document.getElementById("spotReviewMeta").textContent =
+        "Date " + excelSerialToISODate(v.dateSerial) + " · Source " + v.source + " — written on the changed metals only.";
+      document.getElementById("spotReviewCancelBtn").addEventListener("click", () => { st.stage = "edit"; renderSpotPriceUpdateArea(); });
+      const confirm = document.getElementById("spotReviewConfirmBtn");
+      confirm.addEventListener("click", () => runWithButtonPending(confirm, "Writing…", async () => {
+        st.result = await commitSpotPriceUpdate(v, st.snapshot);
+        st.stage = "result";
+        renderSpotPrices();
+        renderSpotPriceUpdateArea();
+        if (st.result.reload) st.result.reload.then(() => { if (spotUpdateState === st) renderSpotPriceUpdateArea(); });
+      }));
+      return;
+    }
+
+    // result
+    const r = st.result || {};
+    const lines = [];
+    if (r.ok) lines.push("Updated " + r.perMetal.map(p => p.metal).join(", ") + " — confirmed in the workbook.");
+    else if (!r.perMetal) lines.push(r.message || "Nothing was written.");
+    else {
+      lines.push("The update did not fully complete.");
+      if (r.failure) lines.push("Write failed on " + r.failure.metal + ": " + r.failure.error);
+    }
+    (r.perMetal || []).forEach(p => lines.push(p.metal + ": " + p.status + (p.detail ? " (" + p.detail + ")" : "")));
+    const fc = (label, o) => !o ? label + ": not checked" : o.error ? label + ": couldn't count (" + o.error + ")" :
+      label + ": SpotValue " + (o.SpotValue ? o.SpotValue.formulas + " formulas, " + o.SpotValue.errors + " errors" : "column not found") +
+      "; Total " + (o.Total ? o.Total.formulas + " formulas, " + o.Total.errors + " errors" : "column not found");
+    if (r.perMetal) { lines.push(fc("All formulas before", r.formulasBefore)); lines.push(fc("All formulas after", r.formulasAfter)); }
+    if (r.reload) lines.push("Reloading coin data so melt values use the new prices…");
+    panel.innerHTML = `<div class="spot-update-title">${r.ok ? "Prices updated" : "Not updated"}</div>
+      <div id="spotUpdateResult" class="spot-update-result"></div>
+      <div class="spot-update-actions"><button type="button" class="edit-btn" id="spotResultCloseBtn">Close</button></div>`;
+    const box = document.getElementById("spotUpdateResult");
+    lines.forEach(t => { const d = document.createElement("div"); d.textContent = t; box.appendChild(d); });
+    document.getElementById("spotResultCloseBtn").addEventListener("click", closeSpotPriceUpdatePanel);
   }
 
   const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];
