@@ -16242,6 +16242,9 @@
       // uses for a reference image: the row is already on screen, so this
       // only rewrites it if the element is still in the document.
       if (storedReceipt && !isSet) {
+        // A receipt PDF the app didn't make will need pdf.js: start fetching
+        // it now, so it's ready when the receipt is tapped.
+        if (receiptMayNeedPdfjs(storedReceipt.filename)) primePdfjs();
         const btn = document.getElementById("detailReceiptLink");
         if (btn) btn.addEventListener("click", () => openReceiptInViewer(coin, storedReceipt.filename));
       }
@@ -24555,6 +24558,87 @@
     return info.rotate ? canvasRotated(flat, info.width, info.height, info.rotate) : flat;
   }
 
+  // ---- pdf.js, on demand (receipt PDFs the app did not make) ----------
+  // A real PDF renderer, vendored beside app.html under vendor/pdfjs/ (pinned
+  // 6.3.289, legacy build — see vendor/pdfjs/VERSION.md). Repo files beside
+  // app.html are fine; an outside CDN is not.
+  //
+  // NEVER loaded at startup. It is fetched the first time it's needed: when
+  // a coin page shows a receipt row that looks like a PDF the app did not
+  // make (early start, so it's usually ready by the time the receipt is
+  // tapped), or when such a receipt is opened. Image receipts and app-made
+  // PDFs never touch it — they keep their existing paths above.
+  //
+  // A failed load is not cached: the next attempt retries, and the viewer
+  // falls back to today's "can't be displayed" message with Open file.
+  const PDFJS_BASE = "vendor/pdfjs/";
+  let pdfjsBaseOverride = null;      // test seam only
+  let pdfjsLibPromise = null;
+  let pdfjsImportAttempts = 0;       // real import() calls made this page load
+
+  function pdfjsUrl(rel) {
+    return new URL((pdfjsBaseOverride || PDFJS_BASE) + rel, document.baseURI).href;
+  }
+
+  // Module scripts and module workers can't load from file:// (Chromium
+  // treats every file as its own origin), so a page opened straight from
+  // disk skips the attempt and shows the fallback rather than an error.
+  function pdfjsCanLoadHere() {
+    return location.protocol === "http:" || location.protocol === "https:";
+  }
+
+  function loadPdfjs() {
+    if (pdfjsLibPromise) return pdfjsLibPromise;
+    if (!pdfjsCanLoadHere()) return Promise.reject(new Error("pdf.js can't load from " + location.protocol));
+    pdfjsImportAttempts++;
+    pdfjsLibPromise = import(pdfjsUrl("pdf.min.mjs")).then(lib => {
+      if (!lib || typeof lib.getDocument !== "function" || !lib.GlobalWorkerOptions) {
+        throw new Error("pdf.js loaded without its API");
+      }
+      lib.GlobalWorkerOptions.workerSrc = pdfjsUrl("pdf.worker.min.mjs");
+      return lib;
+    }).catch(e => {
+      pdfjsLibPromise = null; // never cache a failure
+      throw e;
+    });
+    return pdfjsLibPromise;
+  }
+
+  function __setPdfjsBaseForTest(base) { pdfjsBaseOverride = base || null; pdfjsLibPromise = null; } // test-only seam
+  function __pdfjsImportAttemptsForTest() { return pdfjsImportAttempts; } // test-only seam
+
+  // Early start. Failure is silent here; opening the receipt retries.
+  function primePdfjs() {
+    if (!pdfjsCanLoadHere()) return;
+    loadPdfjs().catch(e => console.warn("pdf.js preload failed:", e && e.message));
+  }
+
+  // The app names every receipt it builds itself {CollectionID}_receipt.pdf,
+  // so a PDF with any other name came from somewhere else (a seller's
+  // invoice printed from a website). A picked PDF filed under that name
+  // simply doesn't get the early start — opening it still loads pdf.js.
+  function receiptFilenameLooksAppMade(filename) {
+    return /^AY-\d{5}(-[A-Za-z]+)?_receipt\.pdf$/i.test(String(filename || ""));
+  }
+  function receiptMayNeedPdfjs(filename) {
+    return /\.pdf$/i.test(String(filename || "")) && !receiptFilenameLooksAppMade(filename);
+  }
+
+  // Renders a PDF the app did not make. Commit 2 of this feature wires the
+  // loader in; the multi-page viewer lands with it in renderPdfIntoViewer().
+  async function renderReceiptPdf(token, bytes, filename) {
+    let lib;
+    try {
+      lib = await loadPdfjs();
+    } catch (e) {
+      console.warn("pdf.js unavailable:", e && e.message);
+      if (mediaViewerCurrent(token)) showReceiptOpenFileFallback(bytes, filename, "pdf");
+      return;
+    }
+    if (!mediaViewerCurrent(token)) return;
+    showReceiptOpenFileFallback(bytes, filename, "pdf");
+  }
+
   function showReceiptOpenFileFallback(bytes, filename, kind) {
     const msg = setMediaViewerMessage(kind === "pdf"
       ? "This PDF can't be displayed inside the app."
@@ -24609,6 +24693,9 @@
             if (!mediaViewerCurrent(token)) return;
           }
         }
+        // Not one the app made (or its unwrap failed): pdf.js.
+        renderReceiptPdf(token, bytes, filename);
+        return;
       }
       showReceiptOpenFileFallback(bytes, filename, kind);
     });
