@@ -58,10 +58,17 @@ module.exports = defineSuite("ledger-spot-prices", async ({ ok, openApp, PHONE }
     ["Palladium", 1012.25, "", "Kitco"],
     ["Copper", 0.2841, today, "Manual"],
     ["Nickel", 0.4902, today - 30, "Manual"],
-    ["", "", "", ""]
+    // Mirrors the real sheet: one blank row, then three instruction rows.
+    ["", "", "", ""],
+    ["Instructions:", "", "", ""],
+    ["Update PricePerTroyOz values with current spot prices.", "", "", ""],
+    ["These values are used to calculate spot value of coins in your collection.", "", "", ""]
   ]);
   const r = m => A.rows.find(x => x.metal === m) || {};
   ok(A.rows.map(x => x.metal).join(",") === "Gold,Silver,Platinum,Palladium,Copper,Nickel", `A1 all six prices shown in fixed order, blank row skipped (got ${A.rows.map(x => x.metal).join(",")})`);
+  ok(A.rows.length === 6, `A1b EXACTLY SIX ROWS RENDER — instruction notes and blank rows are not metals (got ${A.rows.length}: ${A.rows.map(x => x.metal).join(" | ")})`);
+  ok(!A.rows.some(x => /Instructions|Update PricePerTroyOz|These values/.test(x.metal)) && !A.rows.some(x => x.value === "— / oz"),
+    "A1c no row shows the instruction text or a \"— / oz\" price");
   ok(r("Silver").stale === "false" && !/stale/.test(r("Silver").meta), "A2 a price updated 2 days ago is fresh");
   ok(r("Gold").stale === "true" && /· stale$/.test(r("Gold").meta), `A3 STALE DATE SHOWN AS STALE: 10 days old is marked stale ("${r("Gold").meta}")`);
   ok(r("Platinum").stale === "false", "A4 exactly 7 days old is not stale (more than 7 is)");
@@ -77,6 +84,17 @@ module.exports = defineSuite("ledger-spot-prices", async ({ ok, openApp, PHONE }
   const isoToday = await page.evaluate(t => excelSerialToISODate(t), today);
   const B = await page.evaluate((v) => window.__run({ status: 200, values: v }), [H, ["Silver", 30, isoToday, "Kitco"]]);
   ok(B.rows.length === 1 && B.rows[0].stale === "false", "B1 an ISO-text LastUpdated is read as a date");
+
+  // ---------- B2. case/whitespace tolerated; a missing metal has no row ----------
+  const B2 = await page.evaluate((v) => window.__run({ status: 200, values: v }), [
+    H, ["  gold ", 2650, today, "Kitco"], ["SILVER", 31, today, "Kitco"], ["Silver", 99, today, "dup"], ["Instructions:", "", "", ""]
+  ]);
+  ok(B2.rows.map(x => x.metal).join(",") === "Gold,Silver" && B2.rows[1].value === "$31.00 / oz",
+    `B2 metal names matched trimmed and case-insensitively; missing metals have no row; first duplicate wins (got ${B2.rows.map(x => x.metal + " " + x.value).join(", ")})`);
+  const B3 = await page.evaluate((v) => window.__run({ status: 200, values: v }), [
+    H, ["", "", "", ""], ["Instructions:", "", "", ""], ["Update PricePerTroyOz values with current spot prices.", "", "", ""]
+  ]);
+  ok(B3.rows.length === 0 && B3.note === "No spot prices on file in Ref_SpotPrices.", `B3 only notes, none of the six metals: the empty message (${B3.note})`);
 
   // ---------- C. missing, empty, failed ----------
   const C1 = await page.evaluate(() => window.__run({ status: 404 }));

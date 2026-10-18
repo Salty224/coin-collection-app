@@ -21193,15 +21193,25 @@
     if (serial == null) return true;
     return (todaySerial - serial) > SPOT_PRICE_STALE_DAYS;
   }
+  // Only the six known metals are data. The real sheet also carries a blank
+  // row and three instruction-text rows ("Instructions:", ...) below them;
+  // anything whose Metal (trimmed, case-insensitive) isn't one of the six is
+  // silently ignored. Fixed order; a metal missing from the sheet simply has
+  // no row; if a metal appears twice, the first row wins.
   function spotPriceRowsForDisplay(rows) {
-    const out = (rows || []).map(r => ({
-      metal: String(colVal(r, "Metal") || "").trim(),
-      price: specNum(colVal(r, "PricePerTroyOz")),
-      dateSerial: spotPriceDateSerial(colVal(r, "LastUpdated")),
-      source: String(colVal(r, "Source") || "").trim()
-    })).filter(r => r.metal);
-    const rank = m => { const i = SPOT_PRICE_METAL_ORDER.indexOf(m); return i < 0 ? 99 : i; };
-    return out.sort((a, b) => rank(a.metal) - rank(b.metal));
+    const byMetal = {};
+    (rows || []).forEach(r => {
+      const raw = String(colVal(r, "Metal") || "").trim().toLowerCase();
+      const metal = SPOT_PRICE_METAL_ORDER.find(m => m.toLowerCase() === raw);
+      if (!metal || byMetal[metal]) return;
+      byMetal[metal] = {
+        metal,
+        price: specNum(colVal(r, "PricePerTroyOz")),
+        dateSerial: spotPriceDateSerial(colVal(r, "LastUpdated")),
+        source: String(colVal(r, "Source") || "").trim()
+      };
+    });
+    return SPOT_PRICE_METAL_ORDER.filter(m => byMetal[m]).map(m => byMetal[m]);
   }
   function formatSpotPrice(p) {
     if (p == null) return "—";
