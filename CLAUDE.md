@@ -255,7 +255,7 @@ show nothing meanwhile. `FAKE_ALBUMS` and the offline mockup are untouched.
   collide — `renderBrowseDetailPanel`/`renderDetailAccordions`,
   `catalogFunFactFor`, `showBrowseEditViewInner`); **`FAKE_GALLERIES`**
   (`galleryFor()` seeds demo photo entries by ID); **`FAKE_SET_FACTS`** (Set
-  Details facts by ID); **`resolveCoinSetLink()`** (always searches
+  Details facts by ID); **`resolveCoinSetLink()` *(removed Oct 2026)*** (always searches
   `FAKE_COINS`); `FAKE_SET_CHILDREN` (second tier of `setChildrenFor()`);
   `FAKE_METAL_CONTENT` (before live coins load); `FAKE_LOOKUP_GRADERS` read
   directly by the grader lists (a static copy of the real table).
@@ -358,6 +358,71 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
 
 - **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
 
+## Crop from an uploaded photo (Oct 2026, merged to main)
+Built on `claude/crop-from-uploaded-photos` (`e636e64`..`15359ea`), merged to
+`main` on Ray's go-ahead. Suite: `tests/verify_crop_from_upload.js` (46).
+- **Why:** on Ray's phone the file picker opens Google Photos only, so a photo
+  already in OneDrive (e.g. a seller's combined shot) could not be reached
+  again to crop a better obverse/reverse out of it.
+- **Where:** a "Crop from an uploaded photo" section in Manage Photos / Edit
+  Coin's embedded photos. **Coins only**, and only where a save is possible
+  (owned coin, photo write layer on). Its tiles are the coin's own STORED
+  photos as plain buttons — **no `<input type=file>`**. The source is read via
+  `ensureCoinPhotoFetch()` and never written, renamed or detached.
+- **Flow:** tap a tile → pick the destination FIRST (Obverse / Reverse / Extra
+  image; Cancel writes nothing) → the unchanged `runCropPipeline()` (square +
+  circle for obverse/reverse, free crop for an extra) → save through the
+  ordinary `commitGalleryPhoto()`. Replacing an existing obverse/reverse asks
+  first. Functions: `cropSourceEntriesFor`, `manageCropFromUploadBlock`,
+  `startCropFromUpload`, `confirmCropDestination`, `runCropFromUpload`,
+  `saveCropFromUpload`.
+- **Naming, never overwriting:** obverse/reverse → `{ID}_obverse_cropped.jpg`,
+  or `_cropped_02`, `_03`… if that name is taken (`freeFlipCropFilename`).
+  Extra → next free `{ID}_reference_NN` (`nextFreeRepeatableFilename`). Every
+  candidate is checked with `getItemMeta()` (a GET) before upload; a legacy
+  `{ID}_obverse.jpg` is never touched. **No `_original` copy** — the source is
+  already in OneDrive; the toast says a later Adjust re-crops the crop.
+  `commitGalleryPhoto()` gained an optional per-entry `resolveFilename` hook,
+  resolved ONCE so a retry keeps the same name.
+- **Pre-existing bug fixed alongside (`d6fe771`), affects the normal Camera /
+  Library buttons too:** the next `_reference_NN` / `_other_NN` / `_coa_NN`
+  used to be "gallery count + 1", so `_01` + `_03` on file picked `_03` and
+  OVERWROTE it, and a file with no Photos row was never counted. Now: one past
+  the highest number in use, stepping up until `getItemMeta` says it's free.
+  Every repeatable type, coins and Sets.
+- **Left alone on purpose:** the ordinary Replace / Adjust buttons still write
+  the convention name and can overwrite their own previous `_cropped` file.
+
+## Belongs to: Set membership from OriginSetID only (Oct 2026, merged to main)
+Built on `claude/belongs-to-origin-set-only` (`04ae654`..`79fdc97`), merged to
+`main`. Suite: `tests/verify_belongs_to_origin_set.js` (22).
+**Supersedes every mention of `resolveCoinSetLink()` *(removed Oct 2026)* / the SetID "belongs to"
+chip elsewhere in this file — that function is REMOVED.** Those mentions are
+tagged *(removed Oct 2026)* and are history only.
+- **Rule (Ray's):** `SetID` is the catalog id of the product a coin was issued
+  in, NOT membership. Membership comes only from the child's `OriginSetID`
+  (= the parent Set's CollectionID). Matching SetID produced three live bugs:
+  AY-00463-B showed its Set twice; standalone AY-00706 linked to AY-00463; and
+  twin owned Sets sharing a SetID (AY-00463/AY-00741, AY-00611/AY-00711)
+  linked to each other.
+- **Now:** at most ONE Set chip, from OriginSetID (`resolveChildParentSet`).
+  A Set row never gets a Set chip from SetID.
+- **Plain-text remark, not a link** (`setIssueRemarkFor`, `.linkage-remark`):
+  a coin (not a Set) whose SetID names a set it isn't in shows "Issued in
+  <set> (purchased separately)". Skipped when the SetID kind (`setIdKind`,
+  read from the `S-YYYY-XX-##` prefix) is **AL** (album) or **AS** (assembled
+  set), and when the OriginSetID parent carries that same SetID. Name comes
+  from DB_Sets, then an owned Set row, else the SetID itself
+  (`setNameForSetId`). A coin can have the chip AND the remark (in one Set,
+  issued in another).
+- Same renderer (`renderLinkageChipsInto`) on Browse detail, Edit Coin and
+  Edit Set.
+- **Unchanged:** the Sets completeness checklist still finds ownership by
+  SetID (`ownedSetForSetId`) — out of scope.
+- **Known, not fixed (out of scope):** a sold child still lists under its
+  parent's Contents; Stats counts a Set plus its children; the checklist opens
+  only the first of twin Sets sharing a SetID.
+
 ## Maintenance
 Update this file only when something changes that a future session would actually
 need to know to avoid re-doing work or making a wrong assumption — a new
@@ -366,6 +431,34 @@ change to how a feature is supposed to work. Don't update it for routine task
 completions (a bug fix, a component built to existing spec, a screen finished per
 existing spec) — just do the work. If unsure whether something rises to that bar,
 ask before updating rather than updating by default.
+
+## "end session" means: update this file first (standing rule)
+When Ray says "end session", capture everything a future session needs IN
+THIS FILE before stopping: every feature built or changed (with branch,
+hashes, merge status and suite), every superseded statement marked as such,
+open questions, and the exact pending next steps. Commit it to the current
+branch and push. Don't just reply in chat.
+
+## Session handoff (updated at each "end session")
+**As of 18 Oct 2026:** `main` = `79fdc97` (crop-from-upload and belongs-to
+merged). `claude/in-app-pdf-viewer-options` = PDF viewer + this docs update,
+pushed, NOT merged; last suite 2652 passed / 0 failed / 0 page errors / 58
+suites. Ray's next three steps, none started:
+1. Fast-forward `claude/in-app-pdf-viewer-options` into `main` (confirm main
+   is `79fdc97` first), push, report hash / origin match / suite totals. No
+   workflow run, no branch deletion.
+2. New branch `claude/wishlist-in-work-placeholder` from the new main: replace
+   the Wishlist screen's demo content with an honest "In work" message (title
+   "Wishlist" + one short line), no fake coins, no controls; keep the nav
+   entry, HIDE (don't delete) the code. First investigate how `FAKE_WISHLIST`
+   reaches the screen and whether it shows in LIVE / TEST / unstamped; if
+   everywhere, placeholder everywhere and explain. Report any other LIVE
+   screen still showing demo data. Tests: "In work" assertion, no demo names,
+   a negative control restoring the demo list that fails by name. Hold.
+3. New branch `claude/ledger-metal-view-spot-prices`: QUESTIONS ONLY, no code
+   — Ray's items (a)–(h): Ledger value-by-metal, spot prices, a refresh
+   button, writing Ref_SpotPrices, free price APIs, other Ledger metrics,
+   scope.
 
 ## End-of-task reporting (standing rule)
 When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
@@ -2166,7 +2259,7 @@ moved inside it, an all-collapsed page would show nothing but the flip card.
   and Set. **Purchase Details is NOT renamed** and stays scoped purely to the
   transaction (Cost, Shipping, Seller, Purchase Date, Receipt).
 - **All three linkage chips moved into Overview together** — Album
-  (`resolveCoinAlbumLink`), Set-by-`setId` (`resolveCoinSetLink`), and
+  (`resolveCoinAlbumLink`), Set-by-`setId` (`resolveCoinSetLink` *(removed Oct 2026)*), and
   parent-Set-by-`originSetId` (`resolveChildParentSet`). `renderDetailLinkage()`
   became `renderLinkageChipsInto(hostEl, coin)` (retargetable, returns a chip
   count) so detail and both Edit forms render the identical chips.
@@ -2531,7 +2624,7 @@ deep-dive, locked in and built):
   Set the coin is part of. Album via `resolveCoinAlbumLink()` (scans
   `Albums.FilledBy` for this CollectionID → opens that album at its cover via
   `openAlbumFromLink()`, not a jump to the coin's exact slot page). Set via
-  `resolveCoinSetLink()` (matches the coin's own `setId` against a
+  `resolveCoinSetLink()` *(removed Oct 2026)* (matches the coin's own `setId` against a
   Denomination="Multiple" bundle row's OWN `setId` — **not** its
   CollectionID — excluding self, so a bundle viewed directly never links to
   itself → opens that bundle's own detail view through the same
@@ -2650,7 +2743,7 @@ today's single-flip display with zero visual change.
 - **Child linkage — `originSetId`, a NEW field kept fully separate from
   Issue-3's `setId`.** These are two different relationships and must never
   cross-wire: `setId` (S-XXYY-TT-##) is Issue-3's "an individual owned coin
-  *belongs to* this Set" chip linkage (`resolveCoinSetLink()`, matched against
+  *belongs to* this Set" chip linkage (`resolveCoinSetLink()` *(removed Oct 2026)*, matched against
   a bundle's own `setId`); `originSetId` (demo `OS-YYYY-XXX-##`) is "these
   child coins are physically *inside* this Set bundle." A parent bundle and
   all its children share one `originSetId`. **The `-Set`/`-A`/`-B` CollectionID
@@ -2693,7 +2786,7 @@ today's single-flip display with zero visual change.
   the child's `originSetId` against the parent bundle row in `FAKE_COINS`),
   tapping it opens the parent Set's detail. This is the reverse of the
   multi-coin display and is deliberately kept SEPARATE from
-  `resolveCoinSetLink()` (Issue-3's `setId` chip) — different field, different
+  `resolveCoinSetLink()` *(removed Oct 2026)* (Issue-3's `setId` chip) — different field, different
   relationship, never merged. A Set bundle viewed directly (`isSetRow`)
   resolves `null` here so it never self-links; a normal coin with no
   `originSetId` also resolves `null`. Child detail views also render the
@@ -2740,7 +2833,7 @@ empty rather than missing.
   see the expanded "Browse detail view" section above for the full mechanism
   (`renderBrowseDetailPanel()` restructured into always-visible key facts +
   a "Belongs to" Album/Set linkage section + inline `appendAccordion()`
-  groups; `resolveCoinAlbumLink()`/`resolveCoinSetLink()`; sparse
+  groups; `resolveCoinAlbumLink()`/`resolveCoinSetLink()` *(removed Oct 2026)*; sparse
   `setId`/`shippingCost`/`receipt` demo data). Verified in a real browser:
   Album linkage resolves via `Albums.FilledBy` (Lincoln Wheat Cent →
   Lincoln Cents album, opening at the cover), Set linkage resolves via `setId`
@@ -10933,7 +11026,7 @@ design.
   matched any parentless coin against any childless Set had a future
   caller ever reached it without the surrounding guards already in place.
 - **Read-only, as scoped** — neither function writes anything; no change
-  to `ALL_NEVER_WRITE_COLUMNS` or any write path. `resolveCoinSetLink()`
+  to `ALL_NEVER_WRITE_COLUMNS` or any write path. `resolveCoinSetLink()` *(removed Oct 2026)*
   (the separate Issue-3 `setId` "belongs to" chip, a different field/
   relationship) has the same `FAKE_COINS`-only gap but was left untouched —
   out of scope for this fix, not asked for, flagged for a future pass if
@@ -14282,7 +14375,7 @@ collection" is treated as a list/grid.
   the album filled-slot tap, `applyDocketResolution`, etc. — all still
   read `activeCoins()` raw, so a coin that's left the collection is still
   individually viewable, e.g. tapped into directly from Exit History);
-  `setChildrenFor()`/`resolveChildParentSet()`/`resolveCoinSetLink()` (a
+  `setChildrenFor()`/`resolveChildParentSet()`/`resolveCoinSetLink()` *(removed Oct 2026)* (a
   Set's own child-linkage resolution — not named in the task, and genuinely
   different in kind from a general browsing list); and the Docket's own
   "Other / Requires Photos" missing-photo audit (also not named in the
