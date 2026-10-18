@@ -848,6 +848,8 @@
   .stat-value.negative { color: var(--danger); }
   .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
+  .metal-row-figures { flex: 1; text-align: right; }
+  .stat-blank-note { color: var(--text-muted, #9a8f7a); font-size: 0.9em; }
   .stat-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--case-border); }
   .stat-row:last-child { border-bottom: none; }
   .stat-row-label { width: 66px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
@@ -4367,6 +4369,13 @@
         <div class="section-label">By Denomination</div>
         <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
 
+        <!-- Value by metal: Recorded = All.Value only, Melt = All.SpotValue
+             only — never one standing in for the other. Live data only. -->
+        <div class="section-label">By Metal</div>
+        <div class="case" style="padding:4px 16px;" id="statsMetalBreakdown"></div>
+        <div class="section-label">Fine Ounces Held</div>
+        <div class="case" style="padding:4px 16px;" id="statsFineOunces"></div>
+
         <p class="placeholder-note">Cost and value figures reflect the live workbook once loaded; otherwise this shows placeholder demo data.</p>
 
         <!-- Find a still-Owned coin to act on (Sell/Remove lives on the
@@ -6098,6 +6107,14 @@
       // is no EstValue column — dropped from the candidate list; it was a
       // guess that turned out wrong.
       value: Number(colVal(row, "Value", "SpotValue")) || 0,
+      // Ledger's value-by-metal view keeps the two apart (Ray, Oct 2026):
+      // recordedValue is All.Value ONLY and meltValue is All.SpotValue ONLY,
+      // each null when its cell is blank. A blank Value is "no recorded
+      // value", never melt. `value` above (with its SpotValue fallback) is
+      // deliberately left as-is — the coin page and the existing totals
+      // still read it.
+      recordedValue: specNum(colVal(row, "Value")),
+      meltValue: specNum(colVal(row, "SpotValue")),
       // Value floor (Value-display cleanup task) — NOT confirmed against the
       // real workbook the way every other field in this mapper is (that
       // audit hasn't been re-run for this specific column); DB_Sets is
@@ -6775,6 +6792,8 @@
         silverOz: specNum(colVal(row, "SilverOz")),
         platinumOz: specNum(colVal(row, "PlatinumOz")),
         palladiumOz: specNum(colVal(row, "PalladiumOz")),
+        copperOz: specNum(colVal(row, "CopperOz")),
+        nickelOz: specNum(colVal(row, "NickelOz")),
         diameterMm: specNum(colVal(row, "Diameter")),
         thicknessMm: specNum(colVal(row, "Thickness")),
         edge: String(colVal(row, "Edge") || ""),
@@ -21223,8 +21242,86 @@
       breakdown.appendChild(row);
     });
 
+    renderLedgerMetalViews(coins);
     renderLedgerCoinSearch();
     renderFormerHoldings();
+  }
+
+  // Ledger: value by metal + fine ounces held (Ray, Oct 2026). Same coin set
+  // as the denomination view above (owned, non-medal, a denomination that
+  // view lists). Each coin's WHOLE value goes in its main metal bucket
+  // (metalCategoryFor(); "Other" for none) — a mixed-metal coin is not split.
+  // Recorded = recordedValue (All.Value only); Melt = meltValue (All.SpotValue
+  // only). A blank is counted as blank, never borrowed from the other column.
+  // Live data only: demo rows carry neither column, so nothing is shown
+  // rather than filler.
+  const FINE_OZ_METALS = [
+    ["Gold", "goldOz"], ["Silver", "silverOz"], ["Platinum", "platinumOz"],
+    ["Palladium", "palladiumOz"], ["Copper", "copperOz"], ["Nickel", "nickelOz"]
+  ];
+  function ledgerMetalBuckets(coins) {
+    const buckets = {};
+    coins.forEach(c => {
+      const key = metalCategoryFor(c) || "Other";
+      const b = buckets[key] || (buckets[key] = { metal: key, count: 0, recorded: 0, recordedBlank: 0, melt: 0, meltBlank: 0 });
+      b.count++;
+      if (c.recordedValue == null) b.recordedBlank++; else b.recorded += c.recordedValue;
+      if (c.meltValue == null) b.meltBlank++; else b.melt += c.meltValue;
+    });
+    const order = METAL_CATEGORIES.filter(m => buckets[m]);
+    Object.keys(buckets).forEach(m => { if (!order.includes(m)) order.push(m); });
+    return order.map(m => buckets[m]);
+  }
+  function ledgerFineOunces(coins) {
+    return FINE_OZ_METALS.map(([metal, key]) => ({
+      metal,
+      oz: coins.reduce((sum, c) => {
+        const v = (c.specs || {})[key];
+        return sum + (typeof v === "number" && isFinite(v) ? v : 0);
+      }, 0)
+    }));
+  }
+  function renderLedgerMetalViews(statsCoins) {
+    const metalEl = document.getElementById("statsMetalBreakdown");
+    const ozEl = document.getElementById("statsFineOunces");
+    if (!metalEl || !ozEl) return;
+    metalEl.innerHTML = "";
+    ozEl.innerHTML = "";
+    if (!LIVE_COINS) {
+      const msg = '<p class="placeholder-note">Shows once the live workbook has loaded.</p>';
+      metalEl.innerHTML = msg;
+      ozEl.innerHTML = msg;
+      return;
+    }
+    const coins = statsCoins.filter(c => STATS_DENOM_ORDER.includes(c.denom));
+    const blankNote = n => n ? ` <span class="stat-blank-note">(${n} blank)</span>` : "";
+    ledgerMetalBuckets(coins).forEach(b => {
+      const row = document.createElement("div");
+      row.className = "stat-row metal-row";
+      row.dataset.metal = b.metal;
+      row.innerHTML = `
+        <div class="stat-row-label">${escapeHtmlText(b.metal)}</div>
+        <div class="stat-row-value metal-row-figures">
+          <span class="metal-count">${b.count} ${b.count === 1 ? "coin" : "coins"}</span> ·
+          <span class="metal-recorded">Recorded ${b.recordedBlank === b.count ? "—" : formatCurrency(b.recorded)}</span>${blankNote(b.recordedBlank)} ·
+          <span class="metal-melt">Melt ${b.meltBlank === b.count ? "—" : formatCurrency(b.melt)}</span>${blankNote(b.meltBlank)}
+        </div>
+      `;
+      metalEl.appendChild(row);
+    });
+    if (!metalEl.children.length) metalEl.innerHTML = '<p class="placeholder-note">No owned coins to show.</p>';
+    const held = ledgerFineOunces(coins).filter(r => r.oz > 0);
+    held.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "stat-row fine-oz-row";
+      row.dataset.metal = r.metal;
+      row.innerHTML = `
+        <div class="stat-row-label">${r.metal}</div>
+        <div class="stat-row-value">${r.oz.toFixed(4)} oz</div>
+      `;
+      ozEl.appendChild(row);
+    });
+    if (!held.length) ozEl.innerHTML = '<p class="placeholder-note">No metal content on file for owned coins.</p>';
   }
 
   // "Find a still-Owned coin to act on" (Sell/Remove lives on the coin's
