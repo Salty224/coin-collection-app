@@ -1,5 +1,9 @@
 // Ledger: manual "Update prices" panel for Ref_SpotPrices (Ray, Oct 2026).
 //
+// Copper and Nickel are editable like the other four (ranges 0.10-3.00 and
+// 0.10-5.00); Source starts blank and is required whenever a price changed;
+// a plain StackerScan link sits above the inputs.
+//
 // Everything runs against the mock workbook with a write spy wrapped round
 // it. The mock sheet mirrors the real one: header, six metals, one blank
 // row, three instruction rows. Assertions cover the exact cell addresses
@@ -75,14 +79,16 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
     window.__fill = (prices, opts) => {
       Object.keys(prices || {}).forEach(m => { const el = document.getElementById("spotEdit" + m); if (el) { el.value = prices[m]; el.dispatchEvent(new Event("input")); } });
       Object.keys((opts && opts.big) || {}).forEach(m => { const t = document.getElementById("spotBig" + m); if (t) t.checked = true; });
-      if (opts && "source" in opts) document.getElementById("spotEditSource").value = opts.source;
+      // Source starts blank; this helper types "Kitco" unless the test sets
+      // Source itself, so flows that aren't about Source can still proceed.
+      document.getElementById("spotEditSource").value = (opts && "source" in opts) ? opts.source : "Kitco";
       if (opts && "date" in opts) document.getElementById("spotEditDate").value = opts.date;
     };
     // Returns a copy of the stage at this moment (the live state object is mutated later).
     window.__review = () => { document.getElementById("spotEditReviewBtn").click(); return { stage: __getSpotUpdateStateForTest().stage }; };
     window.__errors = () => {
       const out = {};
-      ["Silver", "Gold", "Platinum", "Palladium", "Source", "Date"].forEach(k => { const e = document.getElementById("spotErr" + k); if (e && e.textContent) out[k] = e.textContent; });
+      ["Silver", "Gold", "Platinum", "Palladium", "Copper", "Nickel", "Source", "Date"].forEach(k => { const e = document.getElementById("spotErr" + k); if (e && e.textContent) out[k] = e.textContent; });
       const m = document.getElementById("spotEditMessage"); if (m && m.textContent) out.message = m.textContent;
       return out;
     };
@@ -118,10 +124,11 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
     __setup(); __open();
     const inp = m => document.getElementById("spotEdit" + m);
     return {
-      editable: ["Silver", "Gold", "Platinum", "Palladium"].map(m => inp(m) && inp(m).type === "text" && inp(m).inputMode === "decimal" && inp(m).value === ""),
+      editable: ["Silver", "Gold", "Platinum", "Palladium", "Copper", "Nickel"].map(m => inp(m) && inp(m).type === "text" && inp(m).inputMode === "decimal" && inp(m).value === ""),
       copperInput: !!inp("Copper"), nickelInput: !!inp("Nickel"),
       readonlyShown: [...document.querySelectorAll(".spot-edit-readonly")].map(r => r.dataset.metal).join(","),
       goldNow: document.querySelector('.spot-edit-row[data-metal="Gold"] .spot-edit-now').textContent,
+      copperNow: document.querySelector('.spot-edit-row[data-metal="Copper"] .spot-edit-now').textContent,
       source: document.getElementById("spotEditSource").value,
       date: document.getElementById("spotEditDate").value,
       max: document.getElementById("spotEditDate").max,
@@ -130,10 +137,10 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
       writes: window.__writes.length
     };
   });
-  ok(B.editable.every(Boolean), "B1 Silver/Gold/Platinum/Palladium each have a blank text input with a decimal keypad");
-  ok(!B.copperInput && !B.nickelInput && B.readonlyShown === "Copper,Nickel", "B2 Copper and Nickel are shown read-only with no input");
-  ok(/Now \$2,650\.50 · \d{4}-\d{2}-\d{2}/.test(B.goldNow), `B3 each metal shows its current price and last-updated date (${B.goldNow})`);
-  ok(B.source === "Kitco", "B4 Source prefilled from the sheet");
+  ok(B.editable.every(Boolean), "B1 all six metals, Copper and Nickel included, have a blank text input with a decimal keypad");
+  ok(B.copperInput && B.nickelInput && B.readonlyShown === "", "B2 Copper and Nickel are editable — no read-only rows remain");
+  ok(/Now \$2,650\.50 · \d{4}-\d{2}-\d{2}/.test(B.goldNow) && /^Now \$0\.2841 · /.test(B.copperNow), `B3 each metal shows its current price (Copper to four decimals) and last-updated date (${B.goldNow} / ${B.copperNow})`);
+  ok(B.source === "", `B4 SOURCE STARTS EMPTY when the panel opens (got "${B.source}")`);
   ok(B.date === B.today && B.max === B.today, "B5 Date defaults to today and cannot be picked past today");
   ok(!B.overflow, "B6 no horizontal overflow at phone width");
   ok(B.writes === 0, "B7 opening the panel writes nothing");
@@ -162,7 +169,9 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   const C8 = await check({ Silver: "32" }, { date: future });
   ok(C8.stage === "edit" && /future/.test(C8.errors.Date || ""), "C8 a future date is rejected");
   const C9 = await check({ Silver: "32" }, { source: "  " });
-  ok(C9.stage === "edit" && /source/i.test(C9.errors.Source || ""), "C9 a blank Source is rejected");
+  ok(C9.stage === "edit" && C9.errors.Source === "Enter where these prices came from", `C9 BLANK SOURCE BLOCKS THE REVIEW when a price is entered (${C9.errors.Source || "no error"})`);
+  const C10 = await check({}, { source: "" });
+  ok(C10.stage === "edit" && !C10.errors.Source && /Nothing to update/.test(C10.errors.message || ""), "C10 with no price entered, a blank Source isn't flagged — it's just nothing to update");
 
   // ---------- D. big change needs the tick ----------
   const D = await page.evaluate(() => {
@@ -203,7 +212,7 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
 
   // ---------- F. one metal: exact addresses ----------
   const F = await page.evaluate(async () => {
-    __setup(); __open(); __fill({ Silver: "32.10" });
+    __setup(); __open(); __fill({ Silver: "32.10" }, { source: "APMEX" });
     __review();
     const result = await __confirm();
     return { result, writes: window.__writes, sheet: __sheet(), base: window.__baseGrid(), fmt: window.__mock._numberFormats.Ref_SpotPrices[2][2], text: __resultText(), reloads: window.__reloads,
@@ -211,7 +220,7 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   });
   ok(F.writes.length === 1 && F.writes[0].sheet === "Ref_SpotPrices", "F1 one metal: one write call, to Ref_SpotPrices only");
   ok(JSON.stringify(F.writes[0].addresses) === JSON.stringify(["B3", "C3", "D3"]), `F2 EXACT ADDRESSES for one metal: B3, C3, D3 (got ${JSON.stringify(F.writes[0].addresses)})`);
-  ok(F.sheet[2][1] === 32.1 && F.sheet[2][2] === F.base[2][2] + 2 && F.sheet[2][3] === "Kitco", "F3 Silver's price, today's date (as a serial number) and Source written");
+  ok(F.sheet[2][1] === 32.1 && F.sheet[2][2] === F.base[2][2] + 2 && F.sheet[2][3] === "APMEX", "F3 Silver's price, today's date (as a serial number) and the typed Source written");
   ok(typeof F.sheet[2][2] === "number" && F.fmt === "m/d/yyyy", `F4 LastUpdated is a real Excel date with the sheet's own format (${F.fmt})`);
   const untouched = [1, 3, 4, 5, 6, 7, 8, 9, 10].every(i => JSON.stringify(F.sheet[i]) === JSON.stringify(F.base[i])) && JSON.stringify(F.sheet[0]) === JSON.stringify(F.base[0]);
   ok(untouched, "F5 every other row — Gold, Platinum, Palladium, Copper, Nickel, the blank row, the three note rows and the header — is untouched");
@@ -234,18 +243,48 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   ok(!all.some(a => /^[A-Z]+(6|7|8|9|10|11)$/.test(a)), "G3 no address in the Copper/Nickel rows, the blank row or the note rows");
   ok([5, 6, 7, 8, 9, 10].every(i => JSON.stringify(G.sheet[i]) === JSON.stringify(G.base[i])), "G4 Copper, Nickel, blank and note rows untouched after a four-metal write");
   ok(!all.some(a => /^[A-Z]+1$/.test(a)) && !all.some(a => /^A/.test(a)), "G5 never the header row and never the Metal column");
-
-  // ---------- H. Copper / Nickel can't be edited ----------
-  const H = await page.evaluate(() => {
-    __setup(); __open();
-    setSpotPriceInputs({ Copper: "0.30", Nickel: "0.5" });
-    const v = validateSpotPriceUpdate({ prices: { Copper: "0.30", Nickel: "0.5" }, bigOk: {}, source: "x", date: excelSerialToISODate(window.__T) }, {}, window.__T);
-    const forged = planSpotPriceWrite({ address: "Ref_SpotPrices!A1:D11", values: window.__baseGrid(), formulas: [], numberFormat: [] },
-      { changes: [{ metal: "Copper", newPrice: 0.3 }], dateSerial: window.__T, source: "x" }, spotPriceSnapshot(spotDetailToRows({ values: window.__baseGrid() })));
-    return { copperInput: !!document.getElementById("spotEditCopper"), changes: v.changes.length, nothing: v.nothing, forged: forged.refusal || null, forgedEdits: (forged.edits || []).length };
+  const G6 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32", Gold: "2700", Platinum: "990", Palladium: "1000", Copper: "0.30", Nickel: "0.50" });
+    __review();
+    const result = await __confirm();
+    return { ok: result.ok, writes: window.__writes, sheet: __sheet(), base: window.__baseGrid() };
   });
-  ok(!H.copperInput && H.changes === 0 && H.nothing, "H1 Copper/Nickel values never become a change");
-  ok(H.forged && /Copper can't be updated here/.test(H.forged) && H.forgedEdits === 0, `H2 COPPER ROW NEVER WRITTEN: even a forged Copper change is refused (${H.forged})`);
+  const six = G6.writes.flatMap(w => w.addresses);
+  ok(JSON.stringify(six) === JSON.stringify(["B3", "C3", "D3", "B2", "C2", "D2", "B4", "C4", "D4", "B5", "C5", "D5", "B6", "C6", "D6", "B7", "C7", "D7"]) && G6.ok,
+    `G6 EXACT ADDRESSES for all six metals, Copper (row 6) and Nickel (row 7) included (got ${JSON.stringify(six)})`);
+  ok([7, 8, 9, 10].every(i => JSON.stringify(G6.sheet[i]) === JSON.stringify(G6.base[i])), "G7 blank and note rows untouched after a six-metal write");
+
+  // ---------- H. Copper / Nickel edits ----------
+  const Hc = (prices, opts) => check(prices, opts);
+  const H1 = await Hc({ Copper: "0.30", Nickel: "0.52" });
+  ok(H1.stage === "review" && !H1.errors.Copper && !H1.errors.Nickel, "H1 Copper 0.30 and Nickel 0.52 are accepted (in range)");
+  const H1b = await Hc({ Nickel: "4.50" }, { big: { Nickel: true } });
+  ok(H1b.stage === "review", "H1b Nickel 4.50 is in range (accepted once the big-change tick is set)");
+  const H2 = await Hc({ Copper: "3.50" });
+  ok(H2.stage === "edit" && /Copper must be between \$0\.10 and \$3\.00/.test(H2.errors.Copper || ""), `H2 OUT-OF-RANGE COPPER REJECTED: 3.50 (${H2.errors.Copper || "no error"})`);
+  const H3 = await Hc({ Copper: "0.05" });
+  ok(H3.stage === "edit" && /between \$0\.10 and \$3\.00/.test(H3.errors.Copper || ""), "H3 Copper 0.05 rejected (below range)");
+  const H4 = await Hc({ Nickel: "5.50" });
+  ok(H4.stage === "edit" && /Nickel must be between \$0\.10 and \$5\.00/.test(H4.errors.Nickel || ""), "H4 Nickel 5.50 rejected (above range)");
+  const H5 = await page.evaluate(() => {
+    __setup(); __open(); __fill({ Copper: "0.60" });
+    const tick = !document.getElementById("spotBigWrapCopper").classList.contains("hidden");
+    const st = __review();
+    return { tick, stage: st.stage, err: __errors().Copper || "" };
+  });
+  ok(H5.tick && H5.stage === "edit" && /change from \$0\.2841/.test(H5.err), "H5 a >50% Copper change needs the extra tick too");
+  const H6 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32", Copper: "0.30" });
+    __review();
+    const rows = [...document.querySelectorAll(".spot-review-row")].map(r => r.textContent.replace(/\s+/g, " ").trim());
+    const result = await __confirm();
+    return { rows, result, writes: window.__writes, sheet: __sheet() };
+  });
+  ok(H6.rows[1] === "Copper $0.2841 → $0.3000 (+5.6%)", `H6 Copper shown in the review to four decimals (${H6.rows[1]})`);
+  const h6 = H6.writes.flatMap(w => w.addresses);
+  ok(JSON.stringify(h6) === JSON.stringify(["B3", "C3", "D3", "B6", "C6", "D6"]) && H6.result.ok, `H7 Copper row written only when changed, at its three cells (${JSON.stringify(h6)})`);
+  ok(H6.sheet[5][1] === 0.3 && H6.sheet[5][3] === "Kitco" && H6.sheet[6][1] === 0.4902 && H6.sheet[6][3] === "Manual", "H8 Copper's new price and the typed Source are in its row; Nickel's row keeps its own values");
+  ok(!h6.some(a => /7$/.test(a)), "H9 COPPER/NICKEL ROW NOT WRITTEN WHEN LEFT BLANK: Nickel (row 7) untouched");
 
   // ---------- I. refusals: changed since opened, formula, missing header, missing row ----------
   const refuse = (mutateAfterOpen, mutateSeed) => page.evaluate(async ({ a, b }) => {
@@ -284,6 +323,37 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   ok(/Write failed on Gold: simulated Graph 503/.test(J.text) && J.result.perMetal.find(p => p.metal === "Platinum").sent === "not attempted",
     "J3 names the failing metal and the error; later metals were not attempted");
   ok(J.sheet[2][1] === 32 && J.sheet[1][1] === 2650.5 && J.sheet[3][1] === 980, "J4 the sheet holds exactly what the report says");
+
+  // ---------- L. StackerScan link ----------
+  await page.route("**/*stackerscan*/**", r => r.abort());
+  const popups = [];
+  page.context().on("page", p => { popups.push(p.url()); p.close().catch(() => {}); });
+  const L = await page.evaluate(async () => {
+    __setup(); __open();
+    const a = document.getElementById("spotPriceSourceLink");
+    const note = document.getElementById("spotPriceSourceNote");
+    const inputs = document.querySelectorAll("#spotPriceUpdatePanel .spot-edit-input");
+    const linkAboveInputs = !!(a && inputs[0] && (a.compareDocumentPosition(inputs[0]) & Node.DOCUMENT_POSITION_FOLLOWING));
+    let fetches = 0;
+    const realFetch = window.fetch;
+    window.fetch = (...args) => { fetches++; return realFetch(...args); };
+    const writesBefore = window.__writes.length;
+    a.click();
+    await new Promise(r => setTimeout(r, 300));
+    window.fetch = realFetch;
+    return {
+      text: a && a.textContent, href: a && a.getAttribute("href"), target: a && a.getAttribute("target"), rel: a && a.getAttribute("rel"),
+      note: note && note.textContent, linkAboveInputs, constant: STACKERSCAN_SPOT_PRICES_URL,
+      fetches, writes: window.__writes.length - writesBefore,
+      inputsBlank: [...inputs].every(i => i.value === ""), stage: __getSpotUpdateStateForTest() && __getSpotUpdateStateForTest().stage
+    };
+  });
+  ok(L.text === "Open StackerScan spot prices" && L.linkAboveInputs, "L1 the link is labelled and sits above the price inputs");
+  ok(L.href === "https://www.stackerscan.com/metal-prices" && L.constant === L.href, "L2 exact address, from the one named constant");
+  ok(L.target === "_blank" && L.rel === "noopener noreferrer", `L3 opens in a new tab with rel="noopener noreferrer" (${L.target} / ${L.rel})`);
+  ok(L.note === "This site lists gold, silver, platinum and palladium only.", "L4 the note under the link");
+  ok(L.fetches === 0 && L.writes === 0, `L5 clicking the link makes no app request and no write (fetches ${L.fetches}, writes ${L.writes})`);
+  ok(L.inputsBlank && L.stage === "edit", "L6 nothing is pre-filled from the link; the panel stays as it was");
 
   // ---------- K. flag ----------
   const K = await page.evaluate(() => {

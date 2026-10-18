@@ -863,6 +863,7 @@
   .spot-update-area { margin: 8px 0 14px; }
   .spot-update-panel { padding: 12px 14px; }
   .spot-update-title { font-weight: 700; margin-bottom: 6px; }
+  .spot-source-link { display: inline-block; font-size: 14px; color: var(--gold); }
   .spot-edit-row { padding: 8px 0; border-bottom: 1px solid var(--case-border); }
   .spot-edit-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
   .spot-edit-metal { font-weight: 600; }
@@ -21391,8 +21392,8 @@
   // ==================================================================
   // LEDGER: MANUAL SPOT-PRICE UPDATE (Ref_SpotPrices)
   // ==================================================================
-  // Ray types new prices for Silver/Gold/Platinum/Palladium; Copper and
-  // Nickel stay read-only. Nothing is written before Confirm. The write:
+  // Ray types new prices for any of the six metals (blank = unchanged).
+  // Nothing is written before Confirm. The write:
   //   - re-reads Ref_SpotPrices fresh (values + formulas + numberFormat),
   //   - finds each metal's row by the same six-metal match the display uses
   //     and each column from the sheet's own header row,
@@ -21405,8 +21406,13 @@
   // No network call to any price provider: the panel's inputs can later be
   // filled by a fetch step via setSpotPriceInputs(), but nothing does today.
   const SPOT_PRICE_SHEET = "Ref_SpotPrices";
-  const SPOT_PRICE_EDITABLE_METALS = ["Silver", "Gold", "Platinum", "Palladium"];
-  const SPOT_PRICE_RANGES = { Silver: [10, 200], Gold: [1000, 10000], Platinum: [400, 5000], Palladium: [300, 5000] };
+  const SPOT_PRICE_EDITABLE_METALS = ["Silver", "Gold", "Platinum", "Palladium", "Copper", "Nickel"];
+  // Dollars per troy ounce, as the sheet stores them.
+  const SPOT_PRICE_RANGES = { Silver: [10, 200], Gold: [1000, 10000], Platinum: [400, 5000], Palladium: [300, 5000],
+    Copper: [0.10, 3.00], Nickel: [0.10, 5.00] };
+  // A plain outbound link shown in the panel — opened in a new tab, never
+  // fetched, nothing passed to it, nothing filled from it.
+  const STACKERSCAN_SPOT_PRICES_URL = "https://www.stackerscan.com/metal-prices";
   const SPOT_PRICE_BIG_CHANGE_PCT = 50;
   const SPOT_PRICE_HEADERS = ["Metal", "PricePerTroyOz", "LastUpdated", "Source"];
   const SPOT_PRICE_CHANGED_MESSAGE = "Prices changed in the workbook since you opened this; reopen to continue";
@@ -21432,8 +21438,7 @@
   }
 
   // Pure. input = { prices: {Metal: raw text}, bigOk: {Metal: bool}, source, date (yyyy-mm-dd) }.
-  // Only the four editable metals are ever looked at, so Copper/Nickel can
-  // never become a change no matter what the input holds.
+  // Only the six known metals are ever looked at.
   function validateSpotPriceUpdate(input, snapshot, todaySerial) {
     const errors = {};
     const changes = [];
@@ -21458,7 +21463,8 @@
     if (dateSerial == null) errors.date = "Enter a date.";
     else if (dateSerial > todaySerial) errors.date = "The date can't be in the future.";
     const source = String((input && input.source) || "").trim();
-    if (!source) errors.source = "Enter a source.";
+    // Required only when something is actually being written.
+    if (!source && changes.length) errors.source = "Enter where these prices came from";
     const metalErrors = SPOT_PRICE_EDITABLE_METALS.some(m => errors[m]);
     const nothing = !metalErrors && changes.length === 0;
     return { errors, changes, dateSerial, source, nothing, ok: !nothing && Object.keys(errors).length === 0 };
@@ -21496,7 +21502,7 @@
       if (metal && rowOf[metal] === undefined) rowOf[metal] = r;
     }
     for (const c of validated.changes) {
-      // Copper and Nickel are never written here, however a change arrived.
+      // Only the six known metals, however a change arrived.
       if (!SPOT_PRICE_EDITABLE_METALS.includes(c.metal)) return { refusal: c.metal + " can't be updated here; nothing was written." };
     }
     for (const c of validated.changes) {
@@ -21654,8 +21660,8 @@
   function openSpotPriceUpdatePanel() {
     if (!canUpdateSpotPrices()) return;
     const snapshot = spotPriceSnapshot(spotPriceRows);
-    const firstSource = SPOT_PRICE_EDITABLE_METALS.map(m => snapshot[m] && snapshot[m].source).find(Boolean) || "";
-    spotUpdateState = { stage: "edit", snapshot, input: { prices: {}, bigOk: {}, source: firstSource, date: excelSerialToISODate(excelSerialToday()) } };
+    // Source starts blank every time: typed fresh, never prefilled or remembered.
+    spotUpdateState = { stage: "edit", snapshot, input: { prices: {}, bigOk: {}, source: "", date: excelSerialToISODate(excelSerialToday()) } };
     renderSpotPriceUpdateArea();
   }
 
@@ -21689,6 +21695,8 @@
     if (st.stage === "edit") {
       const v = st.validated || { errors: {} };
       let html = '<div class="spot-update-title">Update spot prices</div>' +
+        `<a class="spot-source-link" id="spotPriceSourceLink" href="${STACKERSCAN_SPOT_PRICES_URL}" target="_blank" rel="noopener noreferrer">Open StackerScan spot prices</a>` +
+        '<p class="placeholder-note" style="margin:2px 0 8px;" id="spotPriceSourceNote">This site lists gold, silver, platinum and palladium only.</p>' +
         '<p class="placeholder-note" style="margin:0 0 8px;">Leave a price blank to keep it unchanged.</p>';
       SPOT_PRICE_EDITABLE_METALS.forEach(m => {
         const s = st.snapshot[m];
@@ -21699,14 +21707,8 @@
           <div class="spot-edit-error" id="spotErr${m}"></div>
         </div>`;
       });
-      ["Copper", "Nickel"].forEach(m => {
-        html += `<div class="spot-edit-row spot-edit-readonly" data-metal="${m}">
-          <div class="spot-edit-head"><span class="spot-edit-metal">${m}</span><span class="spot-edit-now"></span></div>
-          <div class="placeholder-note" style="margin:2px 0 0;">Read-only here — update in the workbook.</div>
-        </div>`;
-      });
       html += `<label for="spotEditSource">Source</label>
-        <input type="text" id="spotEditSource" autocomplete="off">
+        <input type="text" id="spotEditSource" autocomplete="off" placeholder="Where these prices came from">
         <div class="spot-edit-error" id="spotErrSource"></div>
         <label for="spotEditDate">Date</label>
         <input type="date" id="spotEditDate" max="${excelSerialToISODate(today)}">
@@ -21717,7 +21719,7 @@
           <button type="button" class="save-btn" id="spotEditReviewBtn">Review</button>
         </div>`;
       panel.innerHTML = html;
-      [...SPOT_PRICE_EDITABLE_METALS, "Copper", "Nickel"].forEach(m => {
+      SPOT_PRICE_EDITABLE_METALS.forEach(m => {
         const row = panel.querySelector(`.spot-edit-row[data-metal="${m}"] .spot-edit-now`);
         if (row) row.textContent = spotPriceNowText(st.snapshot[m]);
       });
