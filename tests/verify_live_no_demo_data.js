@@ -138,8 +138,16 @@ module.exports = defineSuite("live-no-demo-data", async ({ ok, openApp, PHONE })
   // ---------- D. Linkage, ownership and the other id-keyed demo markers ----------
   const D = await page.evaluate(() => {
     window.__goLive();
-    const noSet = resolveCoinSetLink(window.__coin("AY-90100"));
-    const realSet = resolveCoinSetLink(window.__coin("AY-90110"));
+    // SetID no longer creates a link (OriginSetID only); a SetID naming a set
+    // the coin isn't in becomes a plain-text remark instead.
+    const linkage = (id) => {
+      const host = document.createElement("div");
+      renderLinkageChipsInto(host, window.__coin(id));
+      return { setChips: [...host.querySelectorAll(".linkage-chip")].filter(b => /Set/.test(b.textContent)).length,
+               remark: (host.querySelector(".linkage-remark") || {}).textContent || "" };
+    };
+    const noSet = linkage("AY-90100");
+    const realSet = linkage("AY-90110");
     showBrowseDetail(window.__coin("AY-90100"));
     const chipText = document.getElementById("detailAccordions").textContent;
     const ownDemoChild = photoCommitTargetId("AY-00022-A");
@@ -152,11 +160,12 @@ module.exports = defineSuite("live-no-demo-data", async ({ ok, openApp, PHONE })
     linkCoinToSet(parent, "AY-90310");
     const sessionKids = setChildrenFor(parent).map(c => c.id);
     __setSetLinkWriteEnabledForTest(null);
-    return { noSet: noSet && noSet.id, realSet: realSet && realSet.id, chipText, ownDemoChild, ownReal, badgeHidden, sessionKids };
+    return { noSet, realSet, chipText, ownDemoChild, ownReal, badgeHidden, sessionKids };
   });
-  ok(D.noSet === null, "D1 resolveCoinSetLink() no longer finds demo AY-00018 for a real coin with its setId", D.noSet);
+  ok(D.noSet.setChips === 0, "D1 a real coin's SetID creates no Set link (no demo AY-00018, no anything)", D.noSet);
   ok(!/2021 Silver Proof Set/.test(D.chipText), "D2 the Belongs-to chip names no demo Set");
-  ok(D.realSet === "AY-90120", "D3 resolveCoinSetLink() finds the real live Set sharing the setId", D.realSet);
+  ok(D.realSet.setChips === 0 && D.realSet.remark === "Issued in 2010 Proof Set (purchased separately)",
+    "D3 a SetID shared with a real owned Set the coin isn't in gives a plain remark, not a link", D.realSet);
   ok(D.ownDemoChild === null, "D4 a demo Set child id is not treated as an owned record in live mode", D.ownDemoChild);
   ok(D.ownReal === "AY-00001", "D5 a real coin still commits photos directly");
   ok(D.badgeHidden === true, "D6 real AY-00007 gets no demo 'combined photo' badge");
@@ -202,14 +211,20 @@ module.exports = defineSuite("live-no-demo-data", async ({ ok, openApp, PHONE })
     return {
       text, kids, setText, same: activeCoins() === FAKE_COINS, dbc: activeDbCoins() === FAKE_DB_COINS,
       slab: galleryFor("AY-00001").some(e => e.type === "slab_obverse"),
-      setLink: (resolveCoinSetLink(FAKE_COINS.find(c => c.id === "AY-00012")) || {}).id
+      setLink: (() => {
+        const host = document.createElement("div");
+        renderLinkageChipsInto(host, FAKE_COINS.find(c => c.id === "AY-00012"));
+        return { chips: [...host.querySelectorAll(".linkage-chip")].filter(b => /Set/.test(b.textContent)).length,
+                 remark: (host.querySelector(".linkage-remark") || {}).textContent || "" };
+      })()
     };
   });
   ok(/Carson City/.test(F.text) && /Heritage Auctions/.test(F.text), "F1 the offline mockup still shows the demo Fun Fact and Seller");
   ok(F.slab, "F2 the offline mockup still seeds the demo gallery");
   ok(F.kids === 3 && /\$6\.50/.test(F.setText), "F3 the offline mockup still shows demo Set children and facts", F.kids);
   ok(F.same && F.dbc, "F4 offline, activeCoins()/activeDbCoins() are still the demo arrays");
-  ok(F.setLink === "AY-00018", "F5 offline, the demo Belongs-to Set link still resolves", F.setLink);
+  ok(F.setLink.chips === 0 && /^Issued in .+ \(purchased separately\)$/.test(F.setLink.remark),
+    "F5 offline, demo AY-00012 (SetID only, no OriginSetID) shows the plain remark, not a Set link", F.setLink);
 
   // ---------- G. A gallery seeded before going live is cleaned in place ----------
   const G = await page.evaluate(() => {
