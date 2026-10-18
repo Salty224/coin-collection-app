@@ -2281,6 +2281,27 @@
   }
   .media-viewer .mv-footer:empty { display: none; }
   .media-viewer .mv-footer a { color: var(--gold); }
+  /* Multi-page PDF receipt (pdf.js). The stage stops centring and the pages
+     scroll inside their own column. */
+  .media-viewer .mv-stage.pdf-mode { padding: 0; align-items: stretch; justify-content: stretch; overflow: hidden; }
+  .media-viewer .pdfv { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .media-viewer .pdfv-bar {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.12); color: #d9d2c2; font-size: 13px;
+  }
+  .media-viewer .pdfv-btn {
+    min-width: 38px; height: 36px; padding: 0 8px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 15px; cursor: pointer;
+  }
+  .media-viewer .pdfv-btn:disabled { opacity: 0.35; cursor: default; }
+  .media-viewer .pdfv-zoom { min-width: 44px; text-align: center; }
+  .media-viewer .pdfv-spacer { flex: 1; }
+  .media-viewer .pdfv-counter { min-width: 78px; text-align: center; white-space: nowrap; }
+  .media-viewer .pdfv-scroll { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .media-viewer .pdfv-pages { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px; width: max-content; min-width: 100%; box-sizing: border-box; }
+  .media-viewer .pdfv-page { background: #fff; flex-shrink: 0; }
+  .media-viewer .pdfv-page canvas { display: block; width: 100%; height: 100%; max-width: none; max-height: none; }
   .media-viewer .mv-open-file {
     display: inline-block; margin-top: 14px; padding: 9px 16px; border-radius: 8px;
     border: 1px solid var(--gold); color: var(--gold); text-decoration: none; font-size: 13px;
@@ -24301,6 +24322,8 @@
     const overlay = document.getElementById("mediaViewerOverlay");
     mediaViewerToken++;
     document.getElementById("mediaViewerTitle").textContent = title || "";
+    destroyActivePdfViewer();
+    document.getElementById("mediaViewerStage").classList.remove("pdf-mode");
     document.getElementById("mediaViewerStage").innerHTML = "";
     document.getElementById("mediaViewerFooter").innerHTML = "";
     setMediaViewerMessage("Loading…");
@@ -24352,6 +24375,8 @@
   function trackMediaViewerObjectUrl(url) { mediaViewerObjectUrls.push(url); return url; }
 
   function hideMediaViewer() {
+    destroyActivePdfViewer();
+    document.getElementById("mediaViewerStage").classList.remove("pdf-mode");
     document.getElementById("mediaViewerOverlay").classList.add("hidden");
     document.getElementById("mediaViewerStage").innerHTML = "";
     document.getElementById("mediaViewerFooter").innerHTML = "";
@@ -24624,8 +24649,33 @@
     return /\.pdf$/i.test(String(filename || "")) && !receiptFilenameLooksAppMade(filename);
   }
 
-  // Renders a PDF the app did not make. Commit 2 of this feature wires the
-  // loader in; the multi-page viewer lands with it in renderPdfIntoViewer().
+  // Options for every PDF this app opens. View-only and as inert as pdf.js
+  // allows:
+  //   * no PDF JavaScript: the scripting sandbox (pdf.sandbox.mjs) is not
+  //     vendored and nothing asks for it; XFA forms (which carry scripts) are
+  //     off;
+  //   * pages are drawn to plain canvases with no annotation layer, so links
+  //     inside a PDF are not clickable;
+  //   * isEvalSupported:false — the setting behind CVE-2024-4367. pdf.js 6.x
+  //     no longer has the eval-based font path at all; kept as a belt-and-
+  //     braces guard in case a future upgrade reintroduces it.
+  function pdfRenderOptions() {
+    return {
+      cMapUrl: pdfjsUrl("cmaps/"),
+      cMapPacked: true,
+      standardFontDataUrl: pdfjsUrl("standard_fonts/"),
+      wasmUrl: pdfjsUrl("wasm/"),
+      iccUrl: pdfjsUrl("iccs/"),
+      enableXfa: false,
+      isEvalSupported: false
+    };
+  }
+  let lastPdfOptions = null;
+  function __lastPdfOptionsForTest() { return lastPdfOptions; } // test-only seam
+
+  // Renders a PDF the app did not make into the viewer. Any failure — the
+  // library, a damaged or password-protected file — lands on the same
+  // fallback the viewer has always had.
   async function renderReceiptPdf(token, bytes, filename) {
     let lib;
     try {
@@ -24636,7 +24686,236 @@
       return;
     }
     if (!mediaViewerCurrent(token)) return;
-    showReceiptOpenFileFallback(bytes, filename, "pdf");
+    let doc = null;
+    try {
+      lastPdfOptions = pdfRenderOptions();
+      // A copy: the worker takes ownership of the buffer it's given, and the
+      // session cache keeps the original for the next open.
+      const task = lib.getDocument(Object.assign({ data: bytes.slice() }, lastPdfOptions));
+      doc = await task.promise;
+      if (!mediaViewerCurrent(token)) { doc.destroy(); return; }
+      await renderPdfIntoViewer(token, lib, doc);
+    } catch (e) {
+      console.warn("Receipt PDF render failed:", filename, e && e.message);
+      if (doc) { try { doc.destroy(); } catch (x) { /* ignore */ } }
+      if (activePdfViewer && activePdfViewer.doc === doc) activePdfViewer = null;
+      if (mediaViewerCurrent(token)) showReceiptOpenFileFallback(bytes, filename, "pdf");
+    }
+  }
+
+  // ---- The multi-page viewer -----------------------------------------
+  // One scrolling column, every page fitted to the width, drawn lazily:
+  // pages within about a screen of the visible area are drawn, pages beyond
+  // that are released (canvas freed, page cleaned up), so a long PDF never
+  // holds every page in memory at once. Sharpness is capped: device pixel
+  // ratio at most 2, and no single page canvas over PDF_MAX_CANVAS_PIXELS.
+  const PDF_ZOOM_LEVELS = [1, 1.25, 1.5, 2, 3];
+  const PDF_MAX_DPR = 2;
+  const PDF_MAX_CANVAS_PIXELS = 4000000;
+  let activePdfViewer = null;
+
+  function destroyActivePdfViewer() {
+    const v = activePdfViewer;
+    activePdfViewer = null;
+    if (!v) return;
+    v.destroyed = true;
+    v.pages.forEach(pg => { if (pg.task) { try { pg.task.cancel(); } catch (e) { /* ignore */ } } });
+    try { v.doc.destroy(); } catch (e) { /* ignore */ }
+  }
+
+  async function renderPdfIntoViewer(token, lib, doc) {
+    destroyActivePdfViewer();
+    const count = doc.numPages;
+    const sizes = [];
+    for (let i = 1; i <= count; i++) {
+      const page = await doc.getPage(i);
+      const vp = page.getViewport({ scale: 1 });
+      sizes.push({ w: vp.width, h: vp.height });
+    }
+    if (!mediaViewerCurrent(token)) { doc.destroy(); return; }
+
+    const root = document.createElement("div");
+    root.className = "pdfv";
+    root.id = "mediaViewerPdf";
+    const multi = count > 1;
+    root.innerHTML =
+      `<div class="pdfv-bar">` +
+        `<button type="button" class="pdfv-btn" id="pdfZoomOut" aria-label="Zoom out">−</button>` +
+        `<span class="pdfv-zoom" id="pdfZoomLabel">100%</span>` +
+        `<button type="button" class="pdfv-btn" id="pdfZoomIn" aria-label="Zoom in">+</button>` +
+        (multi
+          ? `<span class="pdfv-spacer"></span>` +
+            `<button type="button" class="pdfv-btn pdfv-step" id="pdfPrevPage" aria-label="Previous page">‹ Prev</button>` +
+            `<span class="pdfv-counter" id="pdfPageCounter" aria-live="polite"></span>` +
+            `<button type="button" class="pdfv-btn pdfv-step" id="pdfNextPage" aria-label="Next page">Next ›</button>`
+          : "") +
+      `</div>` +
+      `<div class="pdfv-scroll" id="pdfScroll"><div class="pdfv-pages" id="pdfPages"></div></div>`;
+    const stage = document.getElementById("mediaViewerStage");
+    stage.classList.add("pdf-mode");
+    setMediaViewerNode(root);
+
+    const scroll = root.querySelector("#pdfScroll");
+    const pagesHost = root.querySelector("#pdfPages");
+    const v = activePdfViewer = {
+      token, lib, doc, count, root, scroll, zoomIndex: 0, current: 1, destroyed: false,
+      pages: sizes.map((sz, i) => {
+        const el = document.createElement("div");
+        el.className = "pdfv-page";
+        el.dataset.page = String(i + 1);
+        pagesHost.appendChild(el);
+        return { num: i + 1, w: sz.w, h: sz.h, el, canvas: null, task: null, drawnAt: 0 };
+      })
+    };
+
+    const zoomOut = root.querySelector("#pdfZoomOut");
+    const zoomIn = root.querySelector("#pdfZoomIn");
+    zoomOut.addEventListener("click", () => setPdfZoom(v, v.zoomIndex - 1));
+    zoomIn.addEventListener("click", () => setPdfZoom(v, v.zoomIndex + 1));
+    if (multi) {
+      root.querySelector("#pdfPrevPage").addEventListener("click", () => stepPdfPage(v, -1));
+      root.querySelector("#pdfNextPage").addEventListener("click", () => stepPdfPage(v, 1));
+    }
+    let queued = false;
+    scroll.addEventListener("scroll", () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; refreshPdfViewer(v); });
+    });
+    layoutPdfPages(v);
+    refreshPdfViewer(v);
+  }
+
+  function pdfFitWidth(v) {
+    return Math.max(120, v.scroll.clientWidth - 16);
+  }
+
+  function layoutPdfPages(v) {
+    const zoom = PDF_ZOOM_LEVELS[v.zoomIndex];
+    const width = Math.floor(pdfFitWidth(v) * zoom);
+    v.pages.forEach(pg => {
+      pg.cssW = width;
+      pg.cssH = Math.round(width * pg.h / pg.w);
+      pg.el.style.width = pg.cssW + "px";
+      pg.el.style.height = pg.cssH + "px";
+    });
+    const label = v.root.querySelector("#pdfZoomLabel");
+    if (label) label.textContent = Math.round(zoom * 100) + "%";
+    v.root.querySelector("#pdfZoomOut").disabled = v.zoomIndex <= 0;
+    v.root.querySelector("#pdfZoomIn").disabled = v.zoomIndex >= PDF_ZOOM_LEVELS.length - 1;
+  }
+
+  function setPdfZoom(v, index) {
+    if (v.destroyed) return;
+    const next = Math.max(0, Math.min(PDF_ZOOM_LEVELS.length - 1, index));
+    if (next === v.zoomIndex) return;
+    const keep = v.current;
+    v.zoomIndex = next;
+    v.pages.forEach(pg => releasePdfPage(pg));
+    layoutPdfPages(v);
+    scrollToPdfPage(v, keep);
+    refreshPdfViewer(v);
+  }
+
+  function scrollToPdfPage(v, num) {
+    const pg = v.pages[num - 1];
+    if (!pg) return;
+    v.scroll.scrollTop = Math.max(0, pg.el.offsetTop - v.pages[0].el.offsetTop);
+  }
+
+  function stepPdfPage(v, delta) {
+    if (v.destroyed) return;
+    const target = Math.max(1, Math.min(v.count, v.current + delta));
+    if (target === v.current) return;
+    scrollToPdfPage(v, target);
+    refreshPdfViewer(v);
+  }
+
+  // Works out the current page from the scroll position, updates the
+  // counter and step buttons, then draws what's near the view and releases
+  // what isn't.
+  function refreshPdfViewer(v) {
+    if (v.destroyed) return;
+    const top = v.scroll.scrollTop;
+    const viewH = v.scroll.clientHeight;
+    const origin = v.pages[0].el.offsetTop;
+    // The page under a line 40% down the visible area is "current"; at the
+    // very bottom of the scroll range it is the last page.
+    let current = 1;
+    const probe = top + viewH * 0.4;
+    v.pages.forEach(pg => { if (pg.el.offsetTop - origin <= probe) current = pg.num; });
+    if (top + viewH >= v.scroll.scrollHeight - 2) current = v.count;
+    v.current = current;
+    if (v.count > 1) {
+      v.root.querySelector("#pdfPageCounter").textContent = "Page " + current + " of " + v.count;
+      v.root.querySelector("#pdfPrevPage").disabled = current <= 1;
+      v.root.querySelector("#pdfNextPage").disabled = current >= v.count;
+    }
+    const lo = top - viewH, hi = top + 2 * viewH;
+    v.pages.forEach(pg => {
+      const y0 = pg.el.offsetTop - origin, y1 = y0 + pg.cssH;
+      if (y1 >= lo && y0 <= hi) drawPdfPage(v, pg);
+      else releasePdfPage(pg);
+    });
+  }
+
+  function pdfRenderScale(pg) {
+    const dpr = Math.min(PDF_MAX_DPR, window.devicePixelRatio || 1);
+    let scale = (pg.cssW / pg.w) * dpr;
+    const px = (pg.w * scale) * (pg.h * scale);
+    if (px > PDF_MAX_CANVAS_PIXELS) scale *= Math.sqrt(PDF_MAX_CANVAS_PIXELS / px);
+    return scale;
+  }
+
+  async function drawPdfPage(v, pg) {
+    if (pg.canvas || pg.task) return;
+    const scale = pdfRenderScale(pg);
+    const marker = {};
+    pg.task = marker; // claims the slot before the first await
+    let page;
+    try {
+      page = await v.doc.getPage(pg.num);
+    } catch (e) { if (pg.task === marker) pg.task = null; return; }
+    if (v.destroyed || pg.task !== marker) return;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.floor(viewport.width));
+    canvas.height = Math.max(1, Math.floor(viewport.height));
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", "Receipt page " + pg.num);
+    const task = page.render({ canvas, viewport });
+    pg.task = task;
+    try {
+      await task.promise;
+    } catch (e) {
+      if (pg.task === task) pg.task = null;
+      return; // cancelled (released or zoomed) or failed: leave it blank
+    }
+    if (v.destroyed || pg.task !== task) return;
+    pg.task = null;
+    pg.canvas = canvas;
+    pg.drawnAt = scale;
+    pg.el.appendChild(canvas);
+  }
+
+  function releasePdfPage(pg) {
+    if (pg.task && pg.task.cancel) { try { pg.task.cancel(); } catch (e) { /* ignore */ } }
+    pg.task = null;
+    if (pg.canvas) {
+      pg.canvas.width = 0; pg.canvas.height = 0; // let the browser free it now
+      pg.canvas.remove();
+      pg.canvas = null;
+    }
+  }
+
+  function __pdfViewerStateForTest() { // test-only seam
+    const v = activePdfViewer;
+    if (!v) return null;
+    return {
+      count: v.count, current: v.current, zoom: PDF_ZOOM_LEVELS[v.zoomIndex],
+      drawn: v.pages.filter(p => p.canvas).map(p => p.num),
+      scales: v.pages.map(p => p.drawnAt)
+    };
   }
 
   function showReceiptOpenFileFallback(bytes, filename, kind) {
