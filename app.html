@@ -18738,6 +18738,7 @@
     // Nothing to open (a live session whose albums haven't loaded has an
     // empty list) — stay where we are rather than opening an empty book.
     if (!activeAlbums()[index]) return Promise.resolve();
+    cancelAlbumTurn(); // a turn in the previous book must not finish into this one
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
     // needs a real, laid-out #albumsDetailContainer to derive available
@@ -18940,7 +18941,8 @@
           // pattern for the live element case, adapted to this string-
           // templated render's only real option (re-render the container).
           ensureCoinPhotoFetch(storedName).then(url => {
-            if (url && albumBookIsShowingSlot(s => s.filledBy === slot.filledBy)) renderAlbumBook();
+            // Not mid-turn: the turn's own finish re-renders with this cached.
+            if (url && !albumTurnInProgress && albumBookIsShowingSlot(s => s.filledBy === slot.filledBy)) renderAlbumBook();
           });
         }
       }
@@ -18956,7 +18958,7 @@
       const missSeriesKey = referenceSeriesKey(referenceCoin);
       if (missSeriesKey) {
         ensureReferenceImageFetch(missSeriesKey, side).then(url => {
-          if (url && albumBookIsShowingSlot(s => s.coinId === slot.coinId)) renderAlbumBook();
+          if (url && !albumTurnInProgress && albumBookIsShowingSlot(s => s.coinId === slot.coinId)) renderAlbumBook();
         });
       }
     }
@@ -19171,6 +19173,16 @@
   }
 
   let albumTurnInProgress = false;
+  // Each turn gets a token. The turn finishes exactly once — on its own leaf's
+  // transitionend, or on a fallback timer if that never comes — and anything
+  // that replaces the book's DOM (renderAlbumBook(), opening an album) ends it
+  // first, so a turn that can't complete can never leave the arrows dead.
+  // (Ray's PC report, 97bdf5f: a photo landing mid-turn re-rendered the book
+  // at the old page, the leaf went with it, transitionend never fired, and
+  // albumTurnInProgress stayed true for the life of the page.)
+  let albumTurnToken = 0;
+  const ALBUM_TURN_FALLBACK_MS = 650 + 400; // the CSS transition is 0.65s
+  function cancelAlbumTurn() { albumTurnToken++; albumTurnInProgress = false; }
 
   // Rigid, binder-ring page turn — SPREAD MODE ONLY. Single-page mode is too
   // narrow to show a spine at all, so a "turn" there is just an instant
@@ -19271,11 +19283,16 @@
     // paint with no visible animation.
     void leaf.offsetWidth;
 
-    leaf.addEventListener("transitionend", () => {
+    const myTurn = ++albumTurnToken;
+    const finishTurn = () => {
+      if (myTurn !== albumTurnToken) return; // already finished, or cancelled
       currentPageIndex = newPageIndex;
-      albumTurnInProgress = false;
-      renderAlbumBook();
-    }, { once: true });
+      renderAlbumBook(); // clears albumTurnInProgress (see renderAlbumBook)
+    };
+    leaf.addEventListener("transitionend", e => {
+      if (e.target === leaf && e.propertyName === "transform") finishTurn();
+    });
+    setTimeout(finishTurn, ALBUM_TURN_FALLBACK_MS);
 
     requestAnimationFrame(() => {
       leaf.classList.add(direction === "next" ? "turn-next" : "turn-prev");
@@ -19283,6 +19300,8 @@
   }
 
   function renderAlbumBook() {
+    // This replaces any turning leaf, so no turn can still be in progress.
+    cancelAlbumTurn();
     const album = activeAlbums()[currentAlbumIndex];
     const container = document.getElementById("albumsDetailContainer");
     const spread = isAlbumSpreadWidth();
