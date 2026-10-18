@@ -40,10 +40,17 @@ node tests/verify_addcoin_phase1.js
 
 Both paths exit non-zero on any failed assertion or uncaught page error.
 
-**This does not change what ships.** `app.html` still has no build step and no
-runtime dependencies, and is served as-is by GitHub Pages — see CLAUDE.md's
-self-contained/no-CDN posture. `package.json` exists only for the test
-tooling, and `node_modules/` is gitignored. Nothing in `tests/` is ever served.
+**This does not change what ships.** `app.html` still has no build step and
+no outside dependencies; repo files beside `app.html` are allowed
+(`vendor/pdfjs/`, the receipt PDF renderer, loaded only when a receipt PDF is
+opened). It is served as-is by GitHub Pages — see CLAUDE.md's self-contained
+posture. `package.json` exists only for the test tooling, and `node_modules/`
+is gitignored. Note: the deploy publishes the whole checkout, so `tests/` is
+served too (harmless, nothing private in it).
+
+`tests/verify_pdf_receipt_viewer.js` is the one suite that serves the repo
+over a local http server instead of opening `app.html` from `file://`,
+because Chromium won't run pdf.js's module scripts from `file://`.
 
 ### Writing a suite
 

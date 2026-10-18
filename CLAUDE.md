@@ -322,6 +322,40 @@ build, fast-forwarded to `main` on his go-ahead.
   from the details lookup, not from the Set's own row, so a real Set's real
   values don't show there.
 
+## Receipt PDFs: pdf.js on demand (Oct 2026)
+Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
+- **What:** a receipt PDF the app did not make (a seller's invoice printed
+  from a website, often multi-page) now renders inside the receipt viewer
+  with pdf.js, instead of "This PDF can't be displayed inside the app".
+  Image receipts and app-made PDFs keep their existing paths (app-made PDFs
+  stay on the fast `unwrapAppMadePdf()` path and never load pdf.js).
+- **Library:** vendored, not a CDN: `vendor/pdfjs/`, pdf.js **6.3.289 legacy
+  build**, Apache-2.0, with cmaps, standard fonts, wasm decoders and ICC data
+  (about 5.8 MB in the repo; about 540 KB compressed is downloaded the first
+  time a PDF opens in a session, plus any font/cmap that PDF needs). Pin,
+  hashes and upgrade steps: `vendor/pdfjs/VERSION.md`. The scripting sandbox
+  (`pdf.sandbox`) and the web viewer are deliberately not vendored.
+- **Loading:** `loadPdfjs()` (dynamic `import()`), never at startup. Early
+  start (`primePdfjs()`) when a coin page shows a receipt row that is a PDF
+  not named like an app-made one (`{CollectionID}_receipt.pdf`); a picked PDF
+  filed under that name simply loads on open instead. A failed load is never
+  cached. From `file://` it is skipped (Chromium blocks module scripts
+  there) and the viewer falls back.
+- **Viewer:** one scrolling column, fit to width; pages within about a
+  screen of the view are drawn, further ones released; DPR capped at 2 and
+  each page canvas at 4 MP. + / − zoom (100–300%) plus pinch; "Page N of M"
+  follows the scroll; Prev / Next disable at the ends; a one-page PDF shows
+  neither. Plain canvases, no annotation layer (links not clickable),
+  `enableXfa:false`, `isEvalSupported:false` (pdf.js 6.x has no eval path at
+  all; the flag is a guard for future upgrades). The document is destroyed
+  on close. Any load/render failure → the old "can't be displayed" message
+  with Open file; "Open in OneDrive" stays in the footer.
+- **Tests:** `tests/verify_pdf_receipt_viewer.js` is the only SERVED-mode
+  suite (a local http server over the repo), because the harness's
+  `file://` page can't run pdf.js. Fixtures: `tests/fixtures/receipt-3page.pdf`,
+  `receipt-1page.pdf`. Note that every other suite still runs from
+  `file://`, so there the viewer's external-PDF path shows the fallback.
+
 - **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
 
 ## Maintenance
@@ -375,10 +409,14 @@ real bugs, with no way to know what the lost coverage would have caught in
 the same code.
 
 **This does not weaken the no-build/self-contained posture.** That rule is
-about the SHIPPED artifact: `app.html` must stand alone in a browser with no
-network dependencies. Test tooling is dev-time, never served, and
-`node_modules/` is gitignored. GitHub Pages ignores `tests/` and
-`package.json` entirely.
+about the SHIPPED artifact: no outside dependencies; repo files beside
+app.html are allowed (`vendor/pdfjs/` is the first — see "Receipt PDFs:
+pdf.js on demand"). Test tooling is dev-time and `node_modules/` is
+gitignored. **Correction:** GitHub Pages does NOT ignore `tests/`,
+`docs/`, `package.json` or this file — the deploy workflow uploads the whole
+checkout, so they are publicly served. Harmless, but don't put anything
+private in the repo on the assumption that it isn't. (MSAL still loads from
+the jsdelivr CDN — the one existing outside dependency, see Azure / Entra.)
 
 **Honest scope: the value accrues to coding sessions, not to Ray.** His
 workflow is ZIP → Notepad → `python3 -m http.server`; he is not expected to
