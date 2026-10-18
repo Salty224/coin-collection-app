@@ -1464,6 +1464,24 @@
     font-size: 17px;
     text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   }
+  /* Album "Best of" view: the marker sits opposite the key-date star. Two
+     shapes, readable without hover: ▲ a better owned coin than the album's,
+     ◆ an owned coin for a slot the album leaves empty. */
+  .best-of-badge {
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    font-size: 14px;
+    line-height: 1;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    pointer-events: none;
+  }
+  .best-of-badge-upgrade { color: #4fc3a1; }
+  .best-of-badge-fill { color: #7fb3ff; }
+  .album-best-of-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 10px; }
+  .album-best-of-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); cursor: pointer; }
+  .album-best-of-legend { font-size: 12px; color: var(--text-muted); }
+  .album-best-of-legend.hidden { display: none; }
 
   /* ---------- Littleton folder page skin ----------
      Applied via album.folderStyle === "littleton" (currently every album in
@@ -3489,6 +3507,10 @@
 
         <div id="albumsDetailView" style="display:none;">
           <button class="back-link" id="albumsBackBtn">← Back</button>
+          <div class="album-best-of-bar">
+            <label class="album-best-of-toggle"><input type="checkbox" id="albumBestOfToggle"> Best of</label>
+            <span class="album-best-of-legend hidden" id="albumBestOfLegend">▲ better coin than the album's · ◆ not in the album</span>
+          </div>
           <div id="albumsDetailContainer"></div>
         </div>
       </section>
@@ -6109,6 +6131,11 @@
       year: yearRaw === "" ? "" : (isNaN(yearNum) ? String(yearRaw) : yearNum),
       mint: String(colVal(row, "MintMark")),
       grade: String(colVal(row, "Grade")),
+      // All!GradeNum — a workbook FORMULA (number after the last dash in
+      // Grade, else a Lookup_Grades match; blank when neither). READ ONLY:
+      // never on any write list. Blank or non-numeric = ungraded (null).
+      // Used by the album "Best of" view (bestOfRankKey()).
+      gradeNum: specNum(colVal(row, "GradeNum")),
       gradeSource: String(colVal(row, "GradeSource")),
       serNo: String(colVal(row, "SerNo")),
       certLink: String(colVal(row, "CertLink")),
@@ -18594,6 +18621,7 @@
     renderAlbumsList();
 
     document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
+    document.getElementById("albumBestOfToggle").addEventListener("change", e => setAlbumBestOf(e.target.checked));
 
     populateAssignAlbumOptions();
   }
@@ -18789,14 +18817,15 @@
       if (!page || page.type !== "coins") return;
       const side = page.side === "reverse" ? "reverse" : "obverse";
       (page.slots || []).forEach(slot => {
-        if (!slot.filledBy) return;
+        const shownId = effectiveSlotCoinId(slot);
+        if (!shownId) return;
         // Tier 0: a just-captured session photo is already in memory —
         // nothing to fetch.
-        if (galleryFlipEntry(slot.filledBy, side)) return;
+        if (galleryFlipEntry(shownId, side)) return;
         // Tier 1: this coin's own stored photo (Photos tab, legacy flat
         // column fallback) — ranked ahead of the series reference image,
         // same as renderSlotCell()/applyDiscContent().
-        const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
+        const storedName = storedPhotoFilename({ id: shownId }, side);
         if (storedName) {
           if (!getCachedCoinPhotoUrl(storedName)) promises.push(ensureCoinPhotoFetch(storedName));
           return;
@@ -18826,11 +18855,17 @@
   // not a regression.
   const ALBUM_OPEN_IMAGE_TIMEOUT_MS = 5000;
 
-  function openAlbumAtPage(index, pageIndex) {
+  function openAlbumAtPage(index, pageIndex, opts) {
     // Nothing to open (a live session whose albums haven't loaded has an
     // empty list) — stay where we are rather than opening an empty book.
     if (!activeAlbums()[index]) return Promise.resolve();
     cancelAlbumTurn(); // a turn in the previous book must not finish into this one
+    // Best-of starts off on every open; only the Back path from a coin's
+    // detail page carries it over (opts.bestOf).
+    albumBestOfOn = !!(opts && opts.bestOf);
+    albumBestOfPending = null;
+    albumBestOfCache = null;
+    syncAlbumBestOfToggle();
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
     // needs a real, laid-out #albumsDetailContainer to derive available
@@ -18992,8 +19027,117 @@
     });
   }
 
+  // ---------- Album "Best of" view (VIEW ONLY) ----------
+  // A checkbox on an open album shows, per slot, the best OWNED coin with the
+  // slot's CoinID instead of the coin physically in the album. It writes
+  // nothing and never changes a slot object (pages hold references to them)
+  // or FilledBy: every render-time reader asks effectiveSlotCoinId(slot),
+  // which returns slot.filledBy exactly as before while the box is off.
+  //
+  // Best = highest GradeNum; any GradeNum beats none; on equal GradeNum a
+  // third-party grade (Lookup_Graders Type "Service", compared trimmed and
+  // case-insensitive) beats Owner/Seller/AI-est/blank; on a full tie the
+  // album's own coin stays. Among outside coins that tie, lowest
+  // CollectionID. Within one album each coin is used at most once.
+  let albumBestOfOn = false;
+  let albumBestOfPending = null;   // a toggle made during a page turn, applied when it ends
+  let albumBestOfCache = null;     // { album, source, map } for the open album
+
+  function bestOfIsThirdParty(gradeSource) {
+    const g = String(gradeSource == null ? "" : gradeSource).trim().toLowerCase();
+    if (!g) return false;
+    return activeLookupGraders().some(x => String(x.code || "").trim().toLowerCase() === g && x.type === "Service");
+  }
+  // [has a GradeNum, GradeNum, third-party]; compared left to right.
+  function bestOfRankKey(coin) {
+    const n = coin && typeof coin.gradeNum === "number" && Number.isFinite(coin.gradeNum) ? coin.gradeNum : null;
+    return [n === null ? 0 : 1, n === null ? 0 : n, bestOfIsThirdParty(coin && coin.gradeSource) ? 1 : 0];
+  }
+  function bestOfCompare(a, b) { // > 0 when a ranks above b
+    const ka = bestOfRankKey(a), kb = bestOfRankKey(b);
+    for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    return 0;
+  }
+  function bestOfIdOrder(a, b) { return String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0; }
+
+  // Pure. Returns Map(slot -> { id, kind }) for the slots whose shown coin
+  // differs from the album's: kind "upgrade" (replaces the album's coin) or
+  // "fill" (the album slot is empty). Slots that keep their coin are absent.
+  function computeAlbumBestOf(album, owned, all) {
+    const out = new Map();
+    if (!album || !album.slots) return out;
+    const key = v => String(v == null ? "" : v).trim();
+    const ownedById = new Map((owned || []).map(c => [c.id, c]));
+    const physicalIds = new Set(album.slots.map(s => s.filledBy).filter(Boolean));
+    const byCoinId = new Map();
+    (owned || []).forEach(c => {
+      const k = key(c.coinId);
+      if (k) (byCoinId.get(k) || byCoinId.set(k, []).get(k)).push(c);
+    });
+    const groups = new Map();
+    album.slots.forEach(s => { const k = key(s.coinId); if (k) (groups.get(k) || groups.set(k, []).get(k)).push(s); });
+    groups.forEach((slots, k) => {
+      // The album's own (still owned) coins in these slots are incumbents.
+      const incumbentOf = new Map();
+      slots.forEach(s => { const c = s.filledBy && ownedById.get(s.filledBy); if (c) incumbentOf.set(s, c); });
+      const incumbents = new Set(incumbentOf.values());
+      // Pool: owned coins with this CoinID not shown in another slot of this album.
+      const pool = (byCoinId.get(k) || []).filter(c => !physicalIds.has(c.id) || incumbents.has(c));
+      incumbents.forEach(c => { if (!pool.includes(c)) pool.push(c); }); // mismatched-CoinID incumbent, compared normally
+      pool.sort((a, b) => bestOfCompare(b, a) || ((incumbents.has(b) ? 1 : 0) - (incumbents.has(a) ? 1 : 0)) || bestOfIdOrder(a, b));
+      const shown = pool.slice(0, slots.length);
+      const shownSet = new Set(shown);
+      const free = shown.filter(c => !incumbents.has(c));
+      slots.forEach(s => {
+        const inc = incumbentOf.get(s);
+        if (inc && shownSet.has(inc)) return; // the album's coin stays
+        const next = free.shift();
+        if (!next) return;                     // nothing to show instead: as today
+        out.set(s, { id: next.id, kind: s.filledBy ? "upgrade" : "fill" });
+      });
+    });
+    return out;
+  }
+  function albumBestOfMap() {
+    if (!albumBestOfOn) return null;
+    const album = activeAlbums()[currentAlbumIndex];
+    const source = activeCoins();
+    if (!albumBestOfCache || albumBestOfCache.album !== album || albumBestOfCache.source !== source) {
+      albumBestOfCache = { album, source, map: computeAlbumBestOf(album, ownedCoins(), source) };
+    }
+    return albumBestOfCache.map;
+  }
+  // The one place render-time readers ask which coin a slot shows.
+  function effectiveSlotCoinId(slot) {
+    const map = albumBestOfMap();
+    const a = map && map.get(slot);
+    return a ? a.id : slot.filledBy;
+  }
+  function bestOfMarkerFor(slot) {
+    const map = albumBestOfMap();
+    const a = map && map.get(slot);
+    return a ? a.kind : null;
+  }
+  function setAlbumBestOf(on) {
+    if (albumTurnInProgress) { albumBestOfPending = !!on; return; } // applied when the turn ends
+    albumBestOfPending = null;
+    albumBestOfOn = !!on;
+    syncAlbumBestOfToggle();
+    renderAlbumBook();
+  }
+  function syncAlbumBestOfToggle() {
+    const box = document.getElementById("albumBestOfToggle");
+    if (box) box.checked = albumBestOfPending !== null ? albumBestOfPending : albumBestOfOn;
+    const legend = document.getElementById("albumBestOfLegend");
+    if (legend) legend.classList.toggle("hidden", !albumBestOfOn);
+  }
+
   function renderSlotCell(slot, side, album) {
-    const filled = !!slot.filledBy;
+    // The coin this slot SHOWS: the album's own (FilledBy) unless the Best-of
+    // view picked a better owned one (effectiveSlotCoinId; identical when off).
+    const shownId = effectiveSlotCoinId(slot);
+    const bestOfMarker = bestOfMarkerFor(slot);
+    const filled = !!shownId;
     // Keyed off the SLOT's own description, not the filled coin's — FAKE_COINS
     // rows don't carry a real Description field in this mockup (see
     // "Series-level reference images" caveat in CLAUDE.md), but FAKE_ALBUMS
@@ -19014,7 +19158,7 @@
     // slot's own coin's real captured photo (galleryFlipEntry, keyed by the
     // slot's own filledBy CollectionID) always wins over the generic series
     // reference image. Resolved independently per side, same as elsewhere.
-    const ownEntry = filled ? galleryFlipEntry(slot.filledBy, side) : null;
+    const ownEntry = filled ? galleryFlipEntry(shownId, side) : null;
     // The slot's coin's own STORED photo (Photos tab, legacy flat column as
     // fallback), ranked between a just-captured session photo and the
     // series reference image — the same order applyDiscContent() uses.
@@ -19023,7 +19167,7 @@
     // picks up on the album's next render/reopen.
     let storedUrl = null;
     if (filled && !ownEntry) {
-      const storedName = storedPhotoFilename({ id: slot.filledBy }, side);
+      const storedName = storedPhotoFilename({ id: shownId }, side);
       if (storedName) {
         storedUrl = getCachedCoinPhotoUrl(storedName);
         if (!storedUrl) {
@@ -19034,7 +19178,7 @@
           // templated render's only real option (re-render the container).
           ensureCoinPhotoFetch(storedName).then(url => {
             // Not mid-turn: the turn's own finish re-renders with this cached.
-            if (url && !albumTurnInProgress && albumBookIsShowingSlot(s => s.filledBy === slot.filledBy)) renderAlbumBook();
+            if (url && !albumTurnInProgress && albumBookIsShowingSlot(s => effectiveSlotCoinId(s) === shownId)) renderAlbumBook();
           });
         }
       }
@@ -19112,10 +19256,10 @@
     const mintageLine = mintage ? `<div class="slot-mintage">${formatAlbumMintage(mintage)}</div>` : "";
 
     return `
-      <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}" data-coin-id="${slot.coinId}">
+      <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}${bestOfMarker ? " best-of-" + bestOfMarker : ""}" data-coin-id="${slot.coinId}">
         <div class="slot-disc-wrap">
           <div class="${discClasses.join(" ")}"${discStyleAttr}>${discContent}</div>
-          ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}
+          ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}${bestOfMarker ? `<span class="best-of-badge best-of-badge-${bestOfMarker}" aria-label="${bestOfMarker === "fill" ? "Best of: not in the album" : "Best of: better than the album's coin"}">${bestOfMarker === "fill" ? "◆" : "▲"}</span>` : ""}
         </div>
         <div class="slot-label">${slotDisplayLabel(slot)}</div>
         ${varietyLine}
@@ -19394,6 +19538,8 @@
   function renderAlbumBook() {
     // This replaces any turning leaf, so no turn can still be in progress.
     cancelAlbumTurn();
+    // A Best-of toggle made during the turn takes effect now.
+    if (albumBestOfPending !== null) { albumBestOfOn = albumBestOfPending; albumBestOfPending = null; syncAlbumBestOfToggle(); }
     const album = activeAlbums()[currentAlbumIndex];
     const container = document.getElementById("albumsDetailContainer");
     const spread = isAlbumSpreadWidth();
@@ -19463,11 +19609,13 @@
         // activeCoins(), not FAKE_COINS directly — a live album's filledBy
         // values are real CollectionIDs that only exist in LIVE_COINS; a
         // live slot's coin would otherwise never resolve here at all.
-        const coin = activeCoins().find(c => c.id === slot.filledBy);
+        // The coin the slot SHOWS (Best-of may show a better owned one).
+        const coin = activeCoins().find(c => c.id === effectiveSlotCoinId(slot));
         if (!coin) return;
         const albumIndex = currentAlbumIndex;
         const pageAtClick = currentPageIndex;
-        browseDetailBackHandler = () => { navigate("albums"); openAlbumAtPage(albumIndex, pageAtClick); };
+        const bestOfAtClick = albumBestOfOn; // remembered for this round trip only
+        browseDetailBackHandler = () => { navigate("albums"); openAlbumAtPage(albumIndex, pageAtClick, { bestOf: bestOfAtClick }); };
         navigate("browse");
         // AFTER navigate("browse"), not before: navigate() itself renders
         // the Catalog grid (showBrowseTab("coins") -> renderBrowseGrid()),
@@ -19484,8 +19632,9 @@
         // on the page the user tapped in from.
         setBrowseStepContext(
           album.slots
-            .filter(s => s.filledBy)
-            .map(s => activeCoins().find(c => c.id === s.filledBy))
+            .map(s => effectiveSlotCoinId(s))
+            .filter(Boolean)
+            .map(id => activeCoins().find(c => c.id === id))
             .filter(Boolean)
         );
         showBrowseDetail(coin);
