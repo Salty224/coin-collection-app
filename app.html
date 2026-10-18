@@ -848,6 +848,10 @@
   .stat-value.negative { color: var(--danger); }
   .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
+  .spot-price-detail { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
+  .spot-price-value { font-size: 13px; }
+  .spot-price-meta { font-size: 11px; color: var(--text-muted); }
+  .spot-price-row.stale .spot-price-meta { color: var(--danger, #d9776b); }
   .stat-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--case-border); }
   .stat-row:last-child { border-bottom: none; }
   .stat-row-label { width: 66px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
@@ -4367,6 +4371,12 @@
         <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
 
         <p class="placeholder-note">Cost and value figures reflect the live workbook once loaded; otherwise this shows placeholder demo data.</p>
+
+        <!-- Spot prices from Ref_SpotPrices, read only (no refresh, no
+             writes). A price is marked stale when LastUpdated is more than
+             SPOT_PRICE_STALE_DAYS old. -->
+        <div class="section-label">Spot Prices</div>
+        <div class="case" style="padding:4px 16px;" id="statsSpotPrices"></div>
 
         <!-- Find a still-Owned coin to act on (Sell/Remove lives on the
              coin's own Edit page — see CLAUDE.md; this is purely a way to
@@ -12482,6 +12492,7 @@
     if (viewId === "stats") {
       ensureLiveNavDataFetch();
       renderStats();
+      loadSpotPrices();
     }
 
     previousViewId = viewId;
@@ -21137,6 +21148,102 @@
   // gets a real breakdown row/sort position instead of silently falling
   // through STATS_DENOM_ORDER.indexOf() as -1 (which would sort it before
   // everything, wrongly, in the Rolls "Denomination" sort).
+  // --- Ledger: spot prices (Ref_SpotPrices), READ ONLY -----------------
+  // Read through fetchWorkbookSheetRows(), the same GET-only usedRange read
+  // every live sheet uses — it has no write path. Fetched when Ledger opens,
+  // not at startup, so it can never hold up the splash, and not part of
+  // LIVE_NAV_DATA_SHEETS, so it never shows in the splash diagnostics.
+  // A failure is never cached: the next Ledger visit tries again.
+  const SPOT_PRICE_STALE_DAYS = 7;
+  const SPOT_PRICE_METAL_ORDER = ["Gold", "Silver", "Platinum", "Palladium", "Copper", "Nickel"];
+  let spotPriceRows = null;        // last good read (array, possibly empty)
+  let spotPriceStatus = "idle";    // idle | loading | ready | missing | failed
+  let spotPriceFetchPromise = null;
+  function __resetSpotPricesForTest() { spotPriceRows = null; spotPriceStatus = "idle"; spotPriceFetchPromise = null; } // test-only seam
+
+  function loadSpotPrices() {
+    if (liveDataMode() !== "live") { renderSpotPrices(); return Promise.resolve(null); }
+    if (spotPriceFetchPromise) return spotPriceFetchPromise;
+    if (!spotPriceRows) spotPriceStatus = "loading";
+    renderSpotPrices();
+    spotPriceFetchPromise = fetchWorkbookSheetRows("Ref_SpotPrices").then(rows => {
+      if (rows) { spotPriceRows = rows; spotPriceStatus = "ready"; }
+      else if (!spotPriceRows) {
+        const d = liveNavDataDiagnostics["Ref_SpotPrices"] || {};
+        spotPriceStatus = (d.kind === "http-error" && d.status === 404) ? "missing" : "failed";
+      }
+      return rows;
+    }).catch(() => { if (!spotPriceRows) spotPriceStatus = "failed"; return null; })
+      .finally(() => { spotPriceFetchPromise = null; renderSpotPrices(); });
+    return spotPriceFetchPromise;
+  }
+
+  // LastUpdated as an Excel date serial (how this workbook stores dates) or,
+  // defensively, ISO text. Returns a whole-day serial or null.
+  function spotPriceDateSerial(v) {
+    if (v === "" || v == null) return null;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+    return excelSerialFromISODate(v);
+  }
+  // Stale = LastUpdated more than SPOT_PRICE_STALE_DAYS before today (local
+  // day). No date at all counts as stale — nothing says it's current.
+  function spotPriceIsStale(serial, todaySerial) {
+    if (serial == null) return true;
+    return (todaySerial - serial) > SPOT_PRICE_STALE_DAYS;
+  }
+  function spotPriceRowsForDisplay(rows) {
+    const out = (rows || []).map(r => ({
+      metal: String(colVal(r, "Metal") || "").trim(),
+      price: specNum(colVal(r, "PricePerTroyOz")),
+      dateSerial: spotPriceDateSerial(colVal(r, "LastUpdated")),
+      source: String(colVal(r, "Source") || "").trim()
+    })).filter(r => r.metal);
+    const rank = m => { const i = SPOT_PRICE_METAL_ORDER.indexOf(m); return i < 0 ? 99 : i; };
+    return out.sort((a, b) => rank(a.metal) - rank(b.metal));
+  }
+  function formatSpotPrice(p) {
+    if (p == null) return "—";
+    if (p < 10) return "$" + p.toFixed(4);
+    return formatCurrency(p);
+  }
+
+  function renderSpotPrices() {
+    const el = document.getElementById("statsSpotPrices");
+    if (!el) return;
+    el.innerHTML = "";
+    const note = text => { el.innerHTML = '<p class="placeholder-note" id="spotPriceNote"></p>'; el.firstChild.textContent = text; };
+    if (liveDataMode() !== "live") return note("Spot prices show once signed in to the live workbook.");
+    if (!spotPriceRows) {
+      if (spotPriceStatus === "missing") return note("No Ref_SpotPrices sheet found in the workbook.");
+      if (spotPriceStatus === "failed") return note("Couldn't load spot prices; will try again when you reopen the Ledger.");
+      return note("Spot prices are loading…");
+    }
+    const rows = spotPriceRowsForDisplay(spotPriceRows);
+    if (!rows.length) return note("No spot prices on file in Ref_SpotPrices.");
+    const today = excelSerialToday();
+    rows.forEach(r => {
+      const stale = spotPriceIsStale(r.dateSerial, today);
+      const row = document.createElement("div");
+      row.className = "stat-row spot-price-row" + (stale ? " stale" : "");
+      row.dataset.metal = r.metal;
+      row.dataset.stale = stale ? "true" : "false";
+      const dateText = r.dateSerial == null ? "no date" : excelSerialToISODate(r.dateSerial);
+      row.innerHTML = `
+        <div class="stat-row-label"></div>
+        <div class="spot-price-detail">
+          <div class="spot-price-value"></div>
+          <div class="spot-price-meta"></div>
+        </div>
+      `;
+      row.querySelector(".stat-row-label").textContent = r.metal;
+      row.querySelector(".spot-price-value").textContent = formatSpotPrice(r.price) + " / oz";
+      row.querySelector(".spot-price-meta").textContent =
+        "Updated " + dateText + (r.source ? " · " + r.source : "") + (stale ? " · stale" : "");
+      el.appendChild(row);
+    });
+  }
+
   const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];
   const DENOM_LABELS = { "H1C": "Half Cents", "1C": "Cents", "2C": "Two Cents", "3CS": "Three-Cent Silver", "3CN": "Three-Cent Nickel", "H10C": "Half Dimes", "5C": "Nickels", "10C": "Dimes", "20C": "Twenty Cents", "25C": "Quarters", "50C": "Halves", "$1": "Dollars", "5oz": "Five-Ounce Silver" };
 
