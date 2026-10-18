@@ -1561,6 +1561,7 @@
   .book-page-indicator { font-size: 12px; color: var(--text-muted); }
 
   /* ---------- Wishlist ---------- */
+  #wishlistShareBtn.hidden { display: none; } /* no global .hidden rule in this file */
   .wish-item {
     padding: 14px 16px;
     margin-bottom: 10px;
@@ -19427,9 +19428,25 @@
   // WISHLIST
   // ==================================================================
 
+  // The Wishlist screen has no live read yet, so it used to render
+  // FAKE_WISHLIST (three made-up coins) in EVERY mode — live and TEST
+  // alike. Ray's call (Oct 2026): show a plain "in work" note instead until
+  // a real Wishlist read is built. The demo code below is kept, only hidden;
+  // flip this to false to bring it back.
+  const WISHLIST_IN_WORK = true;
+
   function renderWishlistGrid() {
     const container = document.getElementById("wishlistContainer");
     container.innerHTML = "";
+    document.getElementById("wishlistShareBtn").classList.toggle("hidden", WISHLIST_IN_WORK);
+    if (WISHLIST_IN_WORK) {
+      const note = document.createElement("p");
+      note.className = "placeholder-note";
+      note.id = "wishlistInWorkNote";
+      note.textContent = "Wishlist: in work.";
+      container.appendChild(note);
+      return;
+    }
     FAKE_WISHLIST.forEach(item => {
       const row = document.createElement("div");
       row.className = "case wish-item";
@@ -19451,6 +19468,7 @@
     renderWishlistGrid();
 
     document.getElementById("wishlistShareBtn").addEventListener("click", () => {
+      if (WISHLIST_IN_WORK) return; // hidden while in work; never share demo items
       const lines = FAKE_WISHLIST.map(item => {
         const price = item.price ? " — target " + formatCurrency(item.price) : "";
         return "• " + item.desc + price + (item.notes ? " (" + item.notes + ")" : "");
