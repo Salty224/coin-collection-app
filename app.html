@@ -21508,11 +21508,17 @@
     for (const c of validated.changes) {
       if (rowOf[c.metal] === undefined) return { refusal: "Ref_SpotPrices has no " + c.metal + " row; nothing was written." };
     }
-    // Changed since opened: every price Ray was shown must still be there.
+    // Changed since opened: every price Ray was shown must still be there —
+    // except a metal being updated whose cell already holds the price about
+    // to be written (an earlier attempt that landed). Any other value refuses.
+    const intendedPrice = {};
+    validated.changes.forEach(c => { intendedPrice[c.metal] = c.newPrice; });
     for (const metal of Object.keys(snapshot || {})) {
       const r = rowOf[metal];
       const fresh = r === undefined ? undefined : specNum(values[r][col.PricePerTroyOz]);
-      if (fresh !== snapshot[metal].price) return { refusal: SPOT_PRICE_CHANGED_MESSAGE, changedMetal: metal };
+      if (fresh === snapshot[metal].price) continue;
+      if (metal in intendedPrice && fresh === intendedPrice[metal]) continue;
+      return { refusal: SPOT_PRICE_CHANGED_MESSAGE, changedMetal: metal };
     }
     const addr = (r, c) => columnIndexToLetters(origin.col + c) + (origin.row + r);
     const isFormula = (r, c) => { const f = (formulas[r] || [])[c]; return typeof f === "string" && f.trim().startsWith("="); };
@@ -21521,8 +21527,11 @@
     const fmtAt = r => { const f = (formats[r] || [])[col.LastUpdated]; return f && f !== "General" ? f : null; };
     const fallbackFmt = Object.values(rowOf).map(fmtAt).find(Boolean) || "yyyy-mm-dd";
     const edits = [];
+    const already = [];
     for (const c of validated.changes) {
       const r = rowOf[c.metal];
+      // All three cells already hold what would be written: nothing to send.
+      if (spotRowHolds(values[r], col, c.newPrice, validated.dateSerial, validated.source)) { already.push(c.metal); continue; }
       for (const h of ["PricePerTroyOz", "LastUpdated", "Source"]) {
         if (isFormula(r, col[h])) return { refusal: c.metal + "'s " + h + " cell (" + addr(r, col[h]) + ") contains a formula; nothing was written." };
       }
@@ -21537,21 +21546,45 @@
         rowIndex: r
       });
     }
-    return { refusal: null, edits, col, origin };
+    return { refusal: null, edits, already, col, origin, rowOf };
   }
+
+  function spotCellDate(v) { return (v === "" || v == null || !Number.isFinite(Number(v))) ? null : Math.floor(Number(v)); }
+  function spotCellText(v) { return String(v == null ? "" : v).trim(); }
+  function spotRowHolds(row, col, price, dateSerial, source) {
+    row = row || [];
+    return specNum(row[col.PricePerTroyOz]) === price && spotCellDate(row[col.LastUpdated]) === dateSerial &&
+      spotCellText(row[col.Source]) === source;
+  }
+
+  // Every Graph call this feature makes is held to one deadline. The client
+  // methods take no AbortSignal, so a request that times out may still be
+  // finishing on Graph's side — which is why a timeout ends in "check what's
+  // in the workbook", never in a blind retry.
+  let SPOT_PRICE_REQUEST_TIMEOUT_MS = 60000;
+  function __setSpotPriceTimeoutForTest(ms) { SPOT_PRICE_REQUEST_TIMEOUT_MS = ms || 60000; } // test-only seam
+  function spotWithTimeout(promise) {
+    const ms = SPOT_PRICE_REQUEST_TIMEOUT_MS;
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => { const e = new Error("no response within " + Math.round(ms / 1000) + " s"); e.name = "TimeoutError"; reject(e); }, ms);
+      Promise.resolve(promise).then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+    });
+  }
+  const isTimeout = e => !!(e && e.name === "TimeoutError");
+  const SPOT_NO_RESPONSE = "Not updated: the workbook didn't respond";
 
   // Counts live formulas and error values in All.SpotValue and All.Total,
   // read through the GET-only detail read. A guard only: this feature never
   // writes All, so the counts must not move.
   async function countAllFormulaColumns() {
-    const map = await ensureAllHeaderMap();
-    const ids = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+    const map = await spotWithTimeout(ensureAllHeaderMap());
+    const ids = await spotWithTimeout(graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID"));
     const lastRow = Math.max(2, ids.length); // header is sheet row 1
     const out = {};
     for (const name of ALL_NEVER_WRITE_FORMULA_COLUMNS) {
       if (!map[name]) { out[name] = null; continue; }
       const L = columnIndexToLetters(map[name]);
-      const d = await graph().readWorkbookRangeDetail(writePaths().workbook, ALL_SHEET_NAME, L + "2:" + L + lastRow);
+      const d = await spotWithTimeout(graph().readWorkbookRangeDetail(writePaths().workbook, ALL_SHEET_NAME, L + "2:" + L + lastRow));
       let formulas = 0, errors = 0;
       d.formulas.forEach((row, i) => {
         if (typeof row[0] === "string" && row[0].startsWith("=")) formulas++;
@@ -21576,10 +21609,19 @@
     if (!validated || !validated.ok) return { ok: false, message: "Nothing to write." };
     const wb = writePaths().workbook;
     let detail;
-    try { detail = await graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET); }
-    catch (e) { return { ok: false, message: "Couldn't re-read Ref_SpotPrices (" + ((e && e.message) || e) + "). Nothing was written." }; }
+    try { detail = await spotWithTimeout(graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET)); }
+    catch (e) {
+      if (isTimeout(e)) return { ok: false, timedOut: true, message: SPOT_NO_RESPONSE + " (" + e.message + "). Nothing was written." };
+      return { ok: false, message: "Couldn't re-read Ref_SpotPrices (" + ((e && e.message) || e) + "). Nothing was written." };
+    }
     const plan = planSpotPriceWrite(detail, validated, snapshot);
     if (plan.refusal) return { ok: false, refused: true, message: plan.refusal };
+    const alreadyRows = plan.already.map(m => ({ metal: m, sent: "already in the workbook", status: "written", detail: "" }));
+    if (!plan.edits.length) {
+      // Every intended cell already holds its new value: write nothing.
+      if (detail) { spotPriceRows = spotDetailToRows(detail); spotPriceStatus = "ready"; }
+      return { ok: true, alreadyComplete: true, perMetal: alreadyRows, formulasBefore: null, formulasAfter: null, reload: null, addresses: [] };
+    }
 
     let formulasBefore = null;
     try { formulasBefore = await countAllFormulaColumns(); } catch (e) { formulasBefore = { error: (e && e.message) || String(e) }; }
@@ -21588,13 +21630,21 @@
     let failure = null;
     for (const edit of plan.edits) {
       if (failure) { sent[edit.metal] = "not attempted"; continue; }
-      try { await graph().patchWorkbookRanges(wb, SPOT_PRICE_SHEET, edit.cells); sent[edit.metal] = "sent"; }
-      catch (e) { failure = { metal: edit.metal, error: (e && e.message) || String(e) }; sent[edit.metal] = "failed"; }
+      try { await spotWithTimeout(graph().patchWorkbookRanges(wb, SPOT_PRICE_SHEET, edit.cells)); sent[edit.metal] = "sent"; }
+      catch (e) { failure = { metal: edit.metal, error: (e && e.message) || String(e), timedOut: isTimeout(e) }; sent[edit.metal] = isTimeout(e) ? "no response" : "failed"; }
+    }
+    if (failure && failure.timedOut) {
+      // The workbook stopped answering. Don't wait another minute for a
+      // read-back; the request may still land, so the next step is "check".
+      const perMetal = plan.edits.map(edit => ({ metal: edit.metal, sent: sent[edit.metal], status: "unknown",
+        detail: sent[edit.metal] === "not attempted" ? "not attempted" : "not re-checked" })).concat(alreadyRows);
+      return { ok: false, timedOut: true, mayHaveWritten: true, failure, perMetal, formulasBefore, formulasAfter: null, reload: null,
+        message: SPOT_NO_RESPONSE + " while writing " + failure.metal + ".", addresses: plan.edits.flatMap(e => e.cells.map(c => c.address)) };
     }
 
     // Read back and judge each metal by what its three cells hold now.
-    let after = null;
-    try { after = await graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET); } catch (e) { after = null; }
+    let after = null, readBackTimedOut = false;
+    try { after = await spotWithTimeout(graph().readUsedRangeDetail(wb, SPOT_PRICE_SHEET)); } catch (e) { after = null; readBackTimedOut = isTimeout(e); }
     const perMetal = plan.edits.map(edit => {
       if (!after) return { metal: edit.metal, sent: sent[edit.metal], status: "unverified", detail: "couldn't re-read the sheet" };
       const row = after.values[edit.rowIndex] || [];
@@ -21616,7 +21666,7 @@
       if (!match[1]) mismatches.push("date is " + (Number.isFinite(got.date) ? excelSerialToISODate(got.date) : "blank") + ", expected " + excelSerialToISODate(validated.dateSerial));
       if (!match[2]) mismatches.push("source is \"" + got.source + "\", expected \"" + validated.source + "\"");
       return { metal: edit.metal, sent: sent[edit.metal], status, detail: mismatches.join("; ") };
-    });
+    }).concat(alreadyRows);
 
     let formulasAfter = null;
     try { formulasAfter = await countAllFormulaColumns(); } catch (e) { formulasAfter = { error: (e && e.message) || String(e) }; }
@@ -21627,7 +21677,44 @@
     // coin pages read so the new melt figures show.
     let reload = null;
     if (perMetal.some(p => p.status !== "not written")) reload = refreshLiveCoinsAfterWrite().catch(() => false);
-    return { ok, failure, perMetal, formulasBefore, formulasAfter, reload, addresses: plan.edits.flatMap(e => e.cells.map(c => c.address)) };
+    return { ok, failure, perMetal, formulasBefore, formulasAfter, reload, mayHaveWritten: true,
+      timedOut: readBackTimedOut, message: readBackTimedOut ? SPOT_NO_RESPONSE + " when re-reading what was written." : undefined,
+      addresses: plan.edits.flatMap(e => e.cells.map(c => c.address)) };
+  }
+
+  // "Check what's in the workbook" — re-reads Ref_SpotPrices and says, per
+  // metal being updated, whether its three cells hold the intended values
+  // (written), the values shown when the panel opened (not written), or
+  // anything else (partly written). Reads only.
+  async function checkSpotPriceWorkbook(validated, snapshot) {
+    let detail;
+    try { detail = await spotWithTimeout(graph().readUsedRangeDetail(writePaths().workbook, SPOT_PRICE_SHEET)); }
+    catch (e) { return { error: isTimeout(e) ? SPOT_NO_RESPONSE + " (" + e.message + ")." : "Couldn't re-read Ref_SpotPrices (" + ((e && e.message) || e) + ")." }; }
+    const values = detail.values || [];
+    const header = (values[0] || []).map(h => spotCellText(h).toLowerCase());
+    const col = {};
+    for (const h of SPOT_PRICE_HEADERS) {
+      const i = header.indexOf(h.toLowerCase());
+      if (i < 0) return { error: "Ref_SpotPrices has no \"" + h + "\" header in its first row." };
+      col[h] = i;
+    }
+    const rowOf = {};
+    for (let r = 1; r < values.length; r++) {
+      const raw = spotCellText((values[r] || [])[col.Metal]).toLowerCase();
+      const metal = SPOT_PRICE_METAL_ORDER.find(m => m.toLowerCase() === raw);
+      if (metal && rowOf[metal] === undefined) rowOf[metal] = r;
+    }
+    const perMetal = validated.changes.map(c => {
+      const row = rowOf[c.metal] === undefined ? null : values[rowOf[c.metal]];
+      if (!row) return { metal: c.metal, status: "partly written", detail: "no " + c.metal + " row in the sheet" };
+      const old = (snapshot || {})[c.metal] || {};
+      if (spotRowHolds(row, col, c.newPrice, validated.dateSerial, validated.source)) return { metal: c.metal, status: "written", detail: "" };
+      if (spotRowHolds(row, col, old.price, old.dateSerial == null ? null : old.dateSerial, spotCellText(old.source))) return { metal: c.metal, status: "not written", detail: "" };
+      return { metal: c.metal, status: "partly written",
+        detail: "price " + spotCellText(row[col.PricePerTroyOz]) + ", date " + (spotCellDate(row[col.LastUpdated]) == null ? "blank" : excelSerialToISODate(spotCellDate(row[col.LastUpdated]))) +
+          ", source \"" + spotCellText(row[col.Source]) + "\"" };
+    });
+    return { detail, perMetal, allWritten: perMetal.every(p => p.status === "written") };
   }
 
   // ---------- panel UI ----------
@@ -21773,24 +21860,53 @@
         "Date " + excelSerialToISODate(v.dateSerial) + " · Source " + v.source + " — written on the changed metals only.";
       document.getElementById("spotReviewCancelBtn").addEventListener("click", () => { st.stage = "edit"; renderSpotPriceUpdateArea(); });
       const confirm = document.getElementById("spotReviewConfirmBtn");
-      confirm.addEventListener("click", () => runWithButtonPending(confirm, "Writing…", async () => {
-        st.result = await commitSpotPriceUpdate(v, st.snapshot);
-        st.stage = "result";
-        renderSpotPrices();
-        renderSpotPriceUpdateArea();
-        if (st.result.reload) st.result.reload.then(() => { if (spotUpdateState === st) renderSpotPriceUpdateArea(); });
-      }));
+      confirm.addEventListener("click", () => spotRunCommit(st));
+      return;
+    }
+
+    // In progress: a stage of its own, so any re-render (e.g. the Spot
+    // Prices list refreshing in the background) keeps showing the progress
+    // text and never brings Confirm/Cancel back mid-write.
+    if (st.stage === "writing" || st.stage === "checking") {
+      panel.innerHTML = `<div class="spot-update-title">${st.stage === "writing" ? "Writing…" : "Checking…"}</div>
+        <p class="spot-review-meta" id="spotWriteProgress"></p>`;
+      document.getElementById("spotWriteProgress").textContent = st.stage === "writing"
+        ? "Writing to the workbook… this can take up to a minute. Please keep this page open."
+        : "Checking the workbook…";
+      return;
+    }
+
+    if (st.stage === "checked") {
+      const c = st.check || {};
+      panel.innerHTML = `<div class="spot-update-title">What's in the workbook now</div>
+        <div id="spotUpdateResult" class="spot-update-result"></div>
+        <div class="spot-update-actions">
+          <button type="button" class="edit-btn" id="spotResultCloseBtn">Close</button>
+          ${c.error ? `<button type="button" class="save-btn" id="spotCheckBtn">Check again</button>` : `<button type="button" class="save-btn" id="spotRetryBtn">Try again</button>`}
+        </div>`;
+      const box = document.getElementById("spotUpdateResult");
+      const lines = c.error ? [c.error] : ["Not everything is in place yet. Try again writes only what's missing."]
+        .concat(c.perMetal.map(p => p.metal + ": " + p.status + (p.detail ? " (" + p.detail + ")" : "")));
+      lines.forEach(t => { const d = document.createElement("div"); d.textContent = t; box.appendChild(d); });
+      document.getElementById("spotResultCloseBtn").addEventListener("click", closeSpotPriceUpdatePanel);
+      const again = document.getElementById("spotCheckBtn");
+      if (again) again.addEventListener("click", () => spotRunCheck(st));
+      const retry = document.getElementById("spotRetryBtn");
+      if (retry) retry.addEventListener("click", () => spotRunCommit(st));
       return;
     }
 
     // result
     const r = st.result || {};
     const lines = [];
-    if (r.ok) lines.push("Updated " + r.perMetal.map(p => p.metal).join(", ") + " — confirmed in the workbook.");
-    else if (!r.perMetal) lines.push(r.message || "Nothing was written.");
+    if (r.ok) {
+      lines.push("Updated " + r.perMetal.map(p => p.metal).join(", ") + " — confirmed in the workbook.");
+      if (r.alreadyComplete) lines.push("The earlier attempt had in fact completed; nothing more was written.");
+    } else if (!r.perMetal) lines.push(r.message || "Nothing was written.");
     else {
-      lines.push("The update did not fully complete.");
-      if (r.failure) lines.push("Write failed on " + r.failure.metal + ": " + r.failure.error);
+      lines.push(r.timedOut ? r.message : "The update did not fully complete.");
+      if (r.failure && !r.failure.timedOut) lines.push("Write failed on " + r.failure.metal + ": " + r.failure.error);
+      lines.push("Check what's in the workbook before trying again.");
     }
     (r.perMetal || []).forEach(p => lines.push(p.metal + ": " + p.status + (p.detail ? " (" + p.detail + ")" : "")));
     const fc = (label, o) => !o ? label + ": not checked" : o.error ? label + ": couldn't count (" + o.error + ")" :
@@ -21798,12 +21914,53 @@
       "; Total " + (o.Total ? o.Total.formulas + " formulas, " + o.Total.errors + " errors" : "column not found");
     if (r.perMetal) { lines.push(fc("All formulas before", r.formulasBefore)); lines.push(fc("All formulas after", r.formulasAfter)); }
     if (r.reload) lines.push("Reloading coin data so melt values use the new prices…");
+    // After an attempt that may have written something, the only way
+    // forward is to look first: no direct retry from here.
+    const canCheck = !r.ok && (r.mayHaveWritten || r.timedOut);
     panel.innerHTML = `<div class="spot-update-title">${r.ok ? "Prices updated" : "Not updated"}</div>
       <div id="spotUpdateResult" class="spot-update-result"></div>
-      <div class="spot-update-actions"><button type="button" class="edit-btn" id="spotResultCloseBtn">Close</button></div>`;
+      <div class="spot-update-actions">${r.ok
+        ? `<button type="button" class="save-btn" id="spotResultDoneBtn">Done</button>`
+        : `<button type="button" class="edit-btn" id="spotResultCloseBtn">Close</button>` +
+          (canCheck ? `<button type="button" class="save-btn" id="spotCheckBtn">Check what's in the workbook</button>` : "")}</div>`;
     const box = document.getElementById("spotUpdateResult");
     lines.forEach(t => { const d = document.createElement("div"); d.textContent = t; box.appendChild(d); });
-    document.getElementById("spotResultCloseBtn").addEventListener("click", closeSpotPriceUpdatePanel);
+    const done = document.getElementById("spotResultDoneBtn");
+    if (done) done.addEventListener("click", closeSpotPriceUpdatePanel);
+    const close = document.getElementById("spotResultCloseBtn");
+    if (close) close.addEventListener("click", closeSpotPriceUpdatePanel);
+    const check = document.getElementById("spotCheckBtn");
+    if (check) check.addEventListener("click", () => spotRunCheck(st));
+  }
+
+  async function spotRunCommit(st) {
+    if (st.stage === "writing" || st.stage === "checking") return; // one at a time
+    st.stage = "writing";
+    renderSpotPriceUpdateArea();
+    st.result = await commitSpotPriceUpdate(st.validated, st.snapshot);
+    st.stage = "result";
+    if (spotUpdateState !== st) return;
+    renderSpotPrices();
+    renderSpotPriceUpdateArea();
+    if (st.result.reload) st.result.reload.then(() => { if (spotUpdateState === st) renderSpotPriceUpdateArea(); });
+  }
+
+  async function spotRunCheck(st) {
+    if (st.stage === "writing" || st.stage === "checking") return;
+    st.stage = "checking";
+    renderSpotPriceUpdateArea();
+    const c = await checkSpotPriceWorkbook(st.validated, st.snapshot);
+    if (spotUpdateState !== st) return;
+    if (!c.error && c.allWritten) {
+      spotPriceRows = spotDetailToRows(c.detail); spotPriceStatus = "ready";
+      st.result = { ok: true, alreadyComplete: true, perMetal: c.perMetal, reload: refreshLiveCoinsAfterWrite().catch(() => false) };
+      st.stage = "result";
+      renderSpotPrices();
+    } else {
+      st.check = c;
+      st.stage = "checked";
+    }
+    renderSpotPriceUpdateArea();
   }
 
   const STATS_DENOM_ORDER = ["H1C", "1C", "2C", "3CS", "3CN", "H10C", "5C", "10C", "20C", "25C", "50C", "$1", "5oz"];

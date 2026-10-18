@@ -48,6 +48,9 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
       window.__mock = mock;
       window.__writes = [];
       window.__failOnCall = null;
+      window.__hangOnCall = null;   // that write call never answers
+      window.__landOnCall = null;   // that write call lands, then reports a failure
+      window.__holdWrites = null;   // a promise every write waits on (to observe "Writing")
       let calls = 0;
       const WRITE_METHODS = ["patchWorkbookRanges", "addTableRow", "uploadJson", "uploadFile", "uploadBytes", "putContent", "deleteItem"];
       const spy = new Proxy(mock, { get(target, k) {
@@ -58,6 +61,9 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
           if (k === "patchWorkbookRanges") {
             window.__writes.push({ sheet: args[1], addresses: args[2].map(e => e.address), edits: JSON.parse(JSON.stringify(args[2])) });
             if (window.__failOnCall === calls) return Promise.reject(new Error("simulated Graph 503"));
+            if (window.__hangOnCall === calls) return new Promise(() => {});
+            if (window.__landOnCall === calls) return v.apply(target, args).then(() => { throw new Error("simulated 504 after the write landed"); });
+            if (window.__holdWrites) { const n = calls; return window.__holdWrites.then(() => v.apply(target, args)); }
           } else window.__writes.push({ method: k });
           return v.apply(target, args);
         };
@@ -100,6 +106,15 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
         await new Promise(r => setTimeout(r, 10));
       }
       return null;
+    };
+    window.__waitStage = async (stages, ms) => {
+      for (let i = 0; i < (ms || 3000) / 10; i++) {
+        const st = __getSpotUpdateStateForTest();
+        if (st && stages.includes(st.stage)) return st.stage;
+        await new Promise(r => setTimeout(r, 10));
+      }
+      const st = __getSpotUpdateStateForTest();
+      return st ? "stuck:" + st.stage : "closed";
     };
     window.__resultText = () => { const b = document.getElementById("spotUpdateResult"); return b ? b.textContent : ""; };
     window.__sheet = () => window.__mock._grids.Ref_SpotPrices ? JSON.parse(JSON.stringify(window.__mock._grids.Ref_SpotPrices)) : null;
@@ -354,6 +369,131 @@ module.exports = defineSuite("spot-price-update", async ({ ok, openApp, PHONE })
   ok(L.note === "This site lists gold, silver, platinum and palladium only.", "L4 the note under the link");
   ok(L.fetches === 0 && L.writes === 0, `L5 clicking the link makes no app request and no write (fetches ${L.fetches}, writes ${L.writes})`);
   ok(L.inputsBlank && L.stage === "edit", "L6 nothing is pre-filled from the link; the panel stays as it was");
+
+  // ---------- M. Done, progress, timeout, check, safe retry ----------
+  const M1 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32.10" });
+    __review();
+    let release; window.__holdWrites = new Promise(r => { release = r; });
+    document.getElementById("spotReviewConfirmBtn").click();
+    await new Promise(r => setTimeout(r, 50));
+    const progress = (document.getElementById("spotWriteProgress") || {}).textContent || "";
+    // Re-render mid-write (as a background list refresh does): progress must survive, no buttons back.
+    renderSpotPrices();
+    const progressAfterRerender = (document.getElementById("spotWriteProgress") || {}).textContent || "";
+    const buttonsMidWrite = document.querySelectorAll("#spotPriceUpdatePanel button").length;
+    release(); window.__holdWrites = null;
+    const stage = await __waitStage(["result"]);
+    const done = document.getElementById("spotResultDoneBtn");
+    const hadDone = !!done;
+    if (done) done.click();
+    return { progress, progressAfterRerender, buttonsMidWrite, stage, hadDone,
+      closed: __getSpotUpdateStateForTest() === null && !document.getElementById("spotPriceUpdatePanel"),
+      button: !!document.getElementById("spotPriceUpdateBtn"),
+      silverShown: (document.querySelector('#statsSpotPrices .spot-price-row[data-metal="Silver"] .spot-price-value') || {}).textContent };
+  });
+  ok(M1.progress === "Writing to the workbook… this can take up to a minute. Please keep this page open.",
+    `M1 progress text shown while writing ("${M1.progress}")`);
+  ok(M1.progressAfterRerender === M1.progress && M1.buttonsMidWrite === 0,
+    `M1b a re-render mid-write keeps the progress text and brings no buttons back (${M1.buttonsMidWrite} buttons)`);
+  ok(M1.stage === "result" && M1.hadDone, "M2 the success screen has a Done button");
+  ok(M1.closed && M1.button && M1.silverShown === "$32.10 / oz", `M3 DONE CLOSES THE PANEL and the Spot Prices list already shows the new value (${M1.silverShown})`);
+
+  const M4 = await page.evaluate(async () => {
+    __setup(); __setSpotPriceTimeoutForTest(300);
+    __open(); __fill({ Silver: "32", Gold: "2700" });
+    __review();
+    window.__hangOnCall = 1;
+    document.getElementById("spotReviewConfirmBtn").click();
+    const stage = await __waitStage(["result"], 3000);
+    const writesAtEnd = window.__writes.length;
+    await new Promise(r => setTimeout(r, 600));
+    const out = { stage, text: __resultText(), writesAtEnd, writesLater: window.__writes.length,
+      hasCheck: !!document.getElementById("spotCheckBtn"), hasRetry: !!document.getElementById("spotRetryBtn"),
+      title: (document.querySelector("#spotPriceUpdatePanel .spot-update-title") || {}).textContent };
+    __setSpotPriceTimeoutForTest(null);
+    return out;
+  });
+  ok(M4.stage === "result" && /Not updated: the workbook didn't respond/.test(M4.text) && M4.title === "Not updated",
+    `M4 A HUNG WRITE ENDS IN THE TIMEOUT MESSAGE (${M4.stage}: ${M4.text.slice(0, 80)})`);
+  ok(M4.writesAtEnd === 1 && M4.writesLater === 1, `M5 no further writes after the timeout (Gold never attempted; ${M4.writesLater} write call)`);
+  ok(M4.hasCheck && !M4.hasRetry, "M6 after a timeout the only way on is 'Check what's in the workbook' — no direct retry");
+
+  const M7 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32", Gold: "2700", Platinum: "990" }, { source: "APMEX" });
+    __review();
+    window.__failOnCall = 2; // Silver lands, Gold fails, Platinum not attempted
+    await __confirm();
+    const writesBeforeCheck = window.__writes.length;
+    // Make Gold half-done behind the app's back: new price, old date and source.
+    window.__mock._grids.Ref_SpotPrices[1][1] = 2700;
+    document.getElementById("spotCheckBtn").click();
+    const stage = await __waitStage(["checked"]);
+    const st = __getSpotUpdateStateForTest();
+    return { stage, statuses: Object.fromEntries(((st.check || {}).perMetal || []).map(p => [p.metal, p.status])),
+      text: __resultText(), writesAfterCheck: window.__writes.length - writesBeforeCheck, hasRetry: !!document.getElementById("spotRetryBtn") };
+  });
+  ok(M7.stage === "checked" && M7.statuses.Silver === "written" && M7.statuses.Gold === "partly written" && M7.statuses.Platinum === "not written",
+    `M7 THE CHECK REPORTS EACH METAL after a partial failure (${JSON.stringify(M7.statuses)})`);
+  ok(M7.writesAfterCheck === 0 && M7.hasRetry, "M8 the check writes nothing and only then offers Try again");
+
+  const M9 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32", Gold: "2700" }, { source: "APMEX" });
+    __review();
+    window.__landOnCall = 1; // Silver lands but reports failure, so Gold is never attempted
+    const first = await __confirm();
+    const writesAfterFirst = window.__writes.length;
+    document.getElementById("spotCheckBtn").click();
+    await __waitStage(["checked"]);
+    const checked = Object.fromEntries((((__getSpotUpdateStateForTest().check) || {}).perMetal || []).map(p => [p.metal, p.status]));
+    const retryBtn = document.getElementById("spotRetryBtn");
+    if (retryBtn) retryBtn.click();
+    await new Promise(r => setTimeout(r, 20));
+    await __waitStage(["result"]);
+    const st = __getSpotUpdateStateForTest();
+    const retryAddresses = window.__writes.slice(writesAfterFirst).flatMap(w => w.addresses || []);
+    return { firstOk: first.ok, checked, retryOk: st.result.ok, retryAddresses, sheet: __sheet() };
+  });
+  ok(!M9.firstOk && M9.checked.Silver === "written" && M9.checked.Gold === "not written", `M9 a write that landed but reported failure is found by the check (${JSON.stringify(M9.checked)})`);
+  ok(M9.retryOk && JSON.stringify(M9.retryAddresses) === JSON.stringify(["B2", "C2", "D2"]),
+    `M10 RETRY DOES NOT WRITE AGAIN WHAT ALREADY LANDED: only Gold's cells (got ${JSON.stringify(M9.retryAddresses)})`);
+  ok(M9.sheet[2][1] === 32 && M9.sheet[1][1] === 2700 && M9.sheet[1][3] === "APMEX", "M11 both metals end up written");
+
+  const M12 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32" }, { source: "APMEX" });
+    __review();
+    window.__landOnCall = 1;
+    await __confirm();
+    const writes = window.__writes.length;
+    document.getElementById("spotCheckBtn").click();
+    await __waitStage(["result"]);
+    const st = __getSpotUpdateStateForTest();
+    return { ok: st.result.ok, text: __resultText(), newWrites: window.__writes.length - writes, done: !!document.getElementById("spotResultDoneBtn") };
+  });
+  ok(M12.ok && /earlier attempt had in fact completed/.test(M12.text) && M12.newWrites === 0 && M12.done,
+    `M12 when everything had landed, the check shows success with a note, writes nothing, and offers Done (new writes ${M12.newWrites})`);
+
+  const M13 = await page.evaluate(async () => {
+    __setup(); __open(); __fill({ Silver: "32" }, { source: "APMEX" });
+    __review();
+    const st = __getSpotUpdateStateForTest();
+    // Already in the workbook exactly as intended: commit writes nothing.
+    window.__mock._grids.Ref_SpotPrices[2][1] = 32; window.__mock._grids.Ref_SpotPrices[2][2] = window.__T; window.__mock._grids.Ref_SpotPrices[2][3] = "APMEX";
+    const r1 = await commitSpotPriceUpdate(st.validated, st.snapshot);
+    const w1 = window.__writes.length;
+    // A different Silver price than the one being written: still refused.
+    window.__mock._grids.Ref_SpotPrices[2][1] = 33;
+    const r2 = await commitSpotPriceUpdate(st.validated, st.snapshot);
+    // An untouched metal changed underneath: still refused.
+    window.__mock._grids.Ref_SpotPrices[2][1] = 31.42;
+    window.__mock._grids.Ref_SpotPrices[1][1] = 2700;
+    const r3 = await commitSpotPriceUpdate(st.validated, st.snapshot);
+    return { r1ok: r1.ok, r1already: r1.alreadyComplete, w1, r2: r2.message, r3: r3.message, wEnd: window.__writes.length };
+  });
+  ok(M13.r1ok && M13.r1already && M13.w1 === 0, "M13 the changed-since check doesn't misfire when the cells already hold the intended values — and nothing is rewritten");
+  ok(/Prices changed in the workbook since you opened this; reopen to continue/.test(M13.r2 || "") &&
+    /Prices changed in the workbook/.test(M13.r3 || "") && M13.wEnd === 0,
+    "M14 CHANGED-SINCE STILL REFUSES when the price really changed to something else (same metal, or another metal)");
 
   // ---------- K. flag ----------
   const K = await page.evaluate(() => {
