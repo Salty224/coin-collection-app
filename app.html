@@ -848,10 +848,6 @@
   .stat-value.negative { color: var(--danger); }
   .stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-  .spot-price-detail { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
-  .spot-price-value { font-size: 13px; }
-  .spot-price-meta { font-size: 11px; color: var(--text-muted); }
-  .spot-price-row.stale .spot-price-meta { color: var(--danger, #d9776b); }
   .stat-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--case-border); }
   .stat-row:last-child { border-bottom: none; }
   .stat-row-label { width: 66px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
@@ -861,6 +857,11 @@
     width: 96px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
+  /* Ledger spot prices (Ref_SpotPrices, read only) */
+  .spot-price-detail { flex: 1; text-align: right; font-variant-numeric: tabular-nums; }
+  .spot-price-value { font-size: 13px; }
+  .spot-price-meta { font-size: 11px; color: var(--text-muted); }
+  .spot-price-row.stale .spot-price-meta { color: var(--danger); }
 
   /* ---------- Browse ---------- */
   .coin-grid {
