@@ -119,4 +119,48 @@ module.exports = defineSuite("ledger-value-by-metal", async ({ ok, openApp, PHON
     return { denom, total };
   });
   ok(D.denom === "1 · $66.16" && D.total === "$66.16", `D1 existing By Denomination / Est. value still read coin.value unchanged (${D.denom}, ${D.total})`);
+  // ---------- E. gold bullion denominations join the metal views ----------
+  // By Denomination lists only STATS_DENOM_ORDER, which has no $5/$10/$25/
+  // $50/$100. The metal views now count any owned non-medal coin with metal
+  // content too, so Gold Eagles land under Gold. Sets stay out. By
+  // Denomination and the tiles must be exactly what they were.
+  const E = await page.evaluate(() => {
+    const c = (o) => Object.assign({ status: "Owned", cost: 0, value: 0, faceValue: null, metalCategory: "",
+      composition: "", specs: {}, recordedValue: null, meltValue: null, name: "x", year: 2000, mint: "" }, o);
+    __setLiveDataModeForTest("live");
+    __setLiveCoinsForTest([
+      c({ id: "AY-81001", denom: "$1", metalCategory: "Silver", recordedValue: 30, meltValue: 25, value: 30, specs: { silverOz: 0.7734 } }),
+      // $50 American Gold Eagle, 1 oz
+      c({ id: "AY-81002", denom: "$50", metalCategory: "Gold", recordedValue: 2900, meltValue: 2700, value: 2900, specs: { goldOz: 1 } }),
+      // $5 gold (Half Eagle), 0.2419 oz
+      c({ id: "AY-81003", denom: "$5", metalCategory: "Gold", recordedValue: 600, meltValue: 650, value: 600, specs: { goldOz: 0.2419 } }),
+      // Unlisted denomination with NO metal content: stays out
+      c({ id: "AY-81004", denom: "$3", metalCategory: "", recordedValue: 40, meltValue: null, value: 40 }),
+      // Set bundle carrying metal: stays out
+      c({ id: "AY-81005", denom: "Multiple", metalCategory: "Silver", recordedValue: 100, meltValue: 90, value: 100, specs: { silverOz: 2 } })
+    ]);
+    navigate("stats");
+    const text = el => el.textContent.replace(/\s+/g, " ").trim();
+    const out = {
+      metal: [...document.querySelectorAll("#statsMetalBreakdown .metal-row")].map(r => ({
+        metal: r.dataset.metal, count: text(r.querySelector(".metal-count")),
+        recorded: text(r.querySelector(".metal-recorded")), melt: text(r.querySelector(".metal-melt")) })),
+      oz: [...document.querySelectorAll("#statsFineOunces .fine-oz-row")].map(r => [r.dataset.metal, text(r.querySelector(".stat-row-value"))]),
+      denom: [...document.querySelectorAll("#statsBreakdown .stat-row")].map(r => [text(r.querySelector(".stat-row-label")), text(r.querySelector(".stat-row-value"))]),
+      tiles: ["statTotalItems", "statItemsSub", "statTotalSpent", "statTotalValue", "statNetGain"].map(id => text(document.getElementById(id)))
+    };
+    __setLiveCoinsForTest(null); __setLiveDataModeForTest(null); navigate("dashboard");
+    return out;
+  });
+  const eRow = m => E.metal.find(r => r.metal === m) || {};
+  ok(eRow("Gold").count === "2 coins", `E1 GOLD BULLION IN BY METAL: $50 Gold Eagle and $5 gold coin counted under Gold (count ${eRow("Gold").count || "none"})`);
+  ok(eRow("Gold").recorded === "Recorded $3,500.00" && eRow("Gold").melt === "Melt $3,350.00", `E2 Gold recorded/melt include both bullion coins (${eRow("Gold").recorded} / ${eRow("Gold").melt})`);
+  const eOz = Object.fromEntries(E.oz);
+  ok(eOz.Gold === "1.2419 oz", `E3 GOLD BULLION IN FINE OUNCES: bullion gold ounces counted (Gold ${eOz.Gold || "none"})`);
+  ok(eRow("Silver").count === "1 coin" && eOz.Silver === "0.7734 oz", "E4 Set bundle excluded from By Metal and Fine Ounces (Silver is the $1 alone)");
+  ok(!E.metal.some(r => r.metal === "Other"), "E5 an unlisted denomination with no metal content stays out");
+  ok(JSON.stringify(E.denom) === JSON.stringify([["Dollars", "1 · $30.00"]]),
+    `E6 By Denomination rows unchanged: bullion, Set and $3 rows still not listed (got ${JSON.stringify(E.denom)})`);
+  ok(JSON.stringify(E.tiles) === JSON.stringify(["5", "5 coins, 0 medals", "$0.00", "$3,670.00", "+$3,670.00"]),
+    `E7 Ledger totals unchanged (got ${JSON.stringify(E.tiles)})`);
 }, module);
