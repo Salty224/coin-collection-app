@@ -1478,10 +1478,8 @@
   }
   .best-of-badge-upgrade { color: #4fc3a1; }
   .best-of-badge-fill { color: #7fb3ff; }
-  .album-best-of-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0 0 10px; }
-  .album-best-of-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); cursor: pointer; }
-  .album-best-of-legend { font-size: 12px; color: var(--text-muted); }
-  .album-best-of-legend.hidden { display: none; }
+  .album-best-of-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); cursor: pointer; white-space: nowrap; }
+  .album-best-of-toggle.hidden { display: none; }
 
   /* ---------- Littleton folder page skin ----------
      Applied via album.folderStyle === "littleton" (currently every album in
@@ -2668,6 +2666,10 @@
          Replaces the removed persistent sidebar/bottom nav. -->
     <div class="nav-chrome hidden" id="navChrome">
       <button type="button" id="navBackBtn" aria-label="Back">Back</button>
+      <!-- Album "Best of" toggle: lives in this bar (next to the visible Back)
+           so it takes no vertical space from the book's row budget and is
+           never recreated by renderAlbumBook(). Shown only while a book is open. -->
+      <label class="album-best-of-toggle hidden" id="albumBestOfBar"><input type="checkbox" id="albumBestOfToggle"> Best of</label>
       <button type="button" class="home-btn" id="navHomeBtn" aria-label="Close Drawer">Close Drawer</button>
     </div>
     <main id="views">
@@ -3507,10 +3509,6 @@
 
         <div id="albumsDetailView" style="display:none;">
           <button class="back-link" id="albumsBackBtn">← Back</button>
-          <div class="album-best-of-bar">
-            <label class="album-best-of-toggle"><input type="checkbox" id="albumBestOfToggle"> Best of</label>
-            <span class="album-best-of-legend hidden" id="albumBestOfLegend">▲ better coin than the album's · ◆ not in the album</span>
-          </div>
           <div id="albumsDetailContainer"></div>
         </div>
       </section>
@@ -12519,6 +12517,8 @@
     // navBackHandler afterward via its own show* function.
     document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
     setNavBack(() => navigate(SECTION_BACK_TARGET[viewId] || "dashboard"));
+    // The album Best-of toggle belongs to an open book only (openAlbumAtPage shows it).
+    document.getElementById("albumBestOfBar").classList.add("hidden");
 
     // Landing back on the Dashboard from inside a drawer's own section (via
     // Back or Close Drawer, either one — both funnel through this
@@ -18655,6 +18655,7 @@
 
   function showAlbumsList() {
     document.getElementById("albumsListView").style.display = "block";
+    document.getElementById("albumBestOfBar").classList.add("hidden");
     document.getElementById("albumsDetailView").style.display = "none";
     setNavBack(() => navigate("dashboard")); // albums list is the section root
     // Rendered fresh on every entry (not just once at init) — otherwise a
@@ -18866,6 +18867,7 @@
     albumBestOfPending = null;
     albumBestOfCache = null;
     syncAlbumBestOfToggle();
+    document.getElementById("albumBestOfBar").classList.remove("hidden");
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
     // needs a real, laid-out #albumsDetailContainer to derive available
@@ -19128,8 +19130,6 @@
   function syncAlbumBestOfToggle() {
     const box = document.getElementById("albumBestOfToggle");
     if (box) box.checked = albumBestOfPending !== null ? albumBestOfPending : albumBestOfOn;
-    const legend = document.getElementById("albumBestOfLegend");
-    if (legend) legend.classList.toggle("hidden", !albumBestOfOn);
   }
 
   function renderSlotCell(slot, side, album) {

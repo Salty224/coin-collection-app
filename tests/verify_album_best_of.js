@@ -176,7 +176,7 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
       s5Class: s5.className, s5Badge: (s5.querySelector(".best-of-badge") || {}).textContent,
       s2Badge: !!__slotEl(1917, 1).querySelector(".best-of-badge"),
       s1Star: !!s1.querySelector(".key-date-badge"), s1Label: s1.querySelector(".slot-label").textContent,
-      legend: !document.getElementById("albumBestOfLegend").classList.contains("hidden"),
+      barShown: !document.getElementById("albumBestOfBar").classList.contains("hidden"),
       asked208: window.__photoAsked.some(n => n.startsWith("AY-00208_")),
       asked716: window.__photoAsked.some(n => n.startsWith("AY-00716_"))
     };
@@ -197,7 +197,7 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
   ok(!B.on.s2Badge, "B5 a slot that keeps the album's coin has no marker");
   ok(B.on.s1Star && /1916/.test(B.on.s1Label), "B6 the key-date star and label stay with the slot");
   ok(B.on.asked208 && !B.on.asked716, "B7 the photo shown is the best coin's (AY-00208's file asked for, not AY-00716's)");
-  ok(B.on.legend, "B8 the legend explaining ▲ and ◆ shows while Best-of is on");
+  ok(B.on.barShown, "B8 the Best of checkbox shows in the top bar while a book is open");
   ok(B.coverOff === B.coverOn && /filled/.test(B.coverOn), `B9 THE COVER COUNT STAYS PHYSICAL (${B.coverOff} / ${B.coverOn})`);
 
   const B10 = await page.evaluate(async () => {
@@ -205,9 +205,15 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
     const before = [...document.querySelectorAll("#albumsListContainer .album-card")].map(c => c.textContent).join("|");
     await showAlbumDetail(__mercury()); __toggle(true); showAlbumsList();
     const after = [...document.querySelectorAll("#albumsListContainer .album-card")].map(c => c.textContent).join("|");
-    return { same: before === after };
+    const barOnList = !document.getElementById("albumBestOfBar").classList.contains("hidden");
+    await showAlbumDetail(__mercury());
+    navigate("stats");
+    const barElsewhere = !document.getElementById("albumBestOfBar").classList.contains("hidden");
+    navigate("albums");
+    return { same: before === after, barOnList, barElsewhere };
   });
   ok(B10.same, "B10 the album list card's count stays physical");
+  ok(!B10.barOnList && !B10.barElsewhere, "B11 the checkbox is hidden on the album list and on other screens");
 
   // ---------- C. tap, step list, round trip ----------
   const C = await page.evaluate(async () => {
