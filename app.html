@@ -21229,9 +21229,9 @@
     renderFormerHoldings();
   }
 
-  // Ledger: value by metal + fine ounces held (Ray, Oct 2026). Same coin set
-  // as the denomination view above (owned, non-medal, a denomination that
-  // view lists). Each coin's WHOLE value goes in its main metal bucket
+  // Ledger: value by metal + fine ounces held (Ray, Oct 2026). Coin set:
+  // see ledgerMetalViewIncludes() — the denomination view's coins plus any
+  // other coin with metal content (gold bullion), Sets excluded. Each coin's WHOLE value goes in its main metal bucket
   // (metalCategoryFor(); "Other" for none) — a mixed-metal coin is not split.
   // Recorded = recordedValue (All.Value only); Melt = meltValue (All.SpotValue
   // only). A blank is counted as blank, never borrowed from the other column.
@@ -21241,6 +21241,21 @@
     ["Gold", "goldOz"], ["Silver", "silverOz"], ["Platinum", "platinumOz"],
     ["Palladium", "palladiumOz"], ["Copper", "copperOz"], ["Nickel", "nickelOz"]
   ];
+  // Which owned, non-medal coins the metal views count (Ray, Oct 2026): every
+  // coin the By Denomination view lists, PLUS any other coin that has metal
+  // content — chiefly the gold bullion denominations ($5/$10/$25/$50/$100),
+  // which By Denomination leaves out. Set bundles (Denomination "Multiple")
+  // are excluded either way; By Denomination itself is untouched.
+  function coinHasMetalContent(c) {
+    const specs = c.specs || {};
+    if (FINE_OZ_METALS.some(([, key]) => typeof specs[key] === "number" && specs[key] > 0)) return true;
+    const cat = metalCategoryFor(c);
+    return !!cat && cat !== "Other";
+  }
+  function ledgerMetalViewIncludes(c) {
+    if (isSetRow(c)) return false;
+    return STATS_DENOM_ORDER.includes(c.denom) || coinHasMetalContent(c);
+  }
   function ledgerMetalBuckets(coins) {
     const buckets = {};
     coins.forEach(c => {
@@ -21275,7 +21290,7 @@
       ozEl.innerHTML = msg;
       return;
     }
-    const coins = statsCoins.filter(c => STATS_DENOM_ORDER.includes(c.denom));
+    const coins = statsCoins.filter(ledgerMetalViewIncludes);
     const blankNote = n => n ? ` <span class="stat-blank-note">(${n} blank)</span>` : "";
     ledgerMetalBuckets(coins).forEach(b => {
       const row = document.createElement("div");
