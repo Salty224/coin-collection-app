@@ -124,6 +124,37 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
+## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, HELD on `claude/add-coin-error-dropdown-real-values`)
+Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_list.js` (21).
+- **Bug fixed:** the 8 `FAKE_LOOKUP_ERRORS` values were put into Add Coin's
+  Error dropdown at page load in every session, live included, and a pick
+  could reach `All.Error` on promotion.
+- **Now:** `Lookup_Errors` is a 5th optional live-nav sheet
+  (`LIVE_NAV_OPTIONAL_SHEETS`, same load/retry path as Albums; a failure
+  never blocks startup). `buildLookupErrorList()` reads by the **"Error Type"**
+  header, skips a row whose Category is blank or whose name starts with "═"
+  (the sheet's section dividers), trims, drops blanks and duplicates; no
+  header -> `null` (treated as a failed load). `LIVE_LOOKUP_ERRORS`,
+  `liveLookupErrorsLoadFailed`, `activeLookupErrors()` (real list; the 8 demo
+  values only when `demoDataAllowed()`; else empty), `populateErrorOptions()`
+  (called at start and when the sheet arrives).
+- **What the user sees live:** the real list once loaded; until then only
+  "— none —" and "Other" (free text); after a failed load, a small "Error
+  list not loaded" note (`#errorListNote`, toggled by inline display, not a
+  `.hidden` class). Offline mockup keeps the 8.
+- **Left alone on purpose:** `#errorDesc` (the saved value) is never changed
+  by a refill; a current pick the new list lacks moves to "Other" with its
+  text kept. A saved Error not in the list still restores as "Other". No
+  change to what gets written. Real value count expected ~36, not 42; nothing
+  asserts a count against the real sheet.
+- Same branch: `FAKE_GRADING_HELP` removed (it could never match — see the
+  Grading Help section), and the series-key case note corrected.
+- One existing assertion changed: `verify_startup_connection` J6 counts one
+  startup's requests, 10 -> 11 (one more sheet).
+- **Not verified:** the real sheet's headers/rows (built from Ray's 16 Aug
+  description: "Error Type", Category, 5 "═══" dividers), any real device,
+  real OneDrive, Samsung Internet.
+
 ## Ledger, spot prices, Wishlist, albums: Oct 2026 work (all merged to main, a06b976)
 All of this is on `main` at `a06b976`, merged on Ray's go-ahead. It reaches the
 live site only when Ray runs the deploy workflow for `main`.
@@ -395,7 +426,8 @@ show nothing meanwhile. `FAKE_ALBUMS` and the offline mockup are untouched.
   live Wishlist screen read), Grading Help (`FAKE_GRADING_HELP` *(removed Oct 2026; it could never match)*; guidance not
   written), pending-coin banner (`FAKE_PENDING_COIN`, null; reconciliation not
   built), Add Coin Error dropdown (`FAKE_LOOKUP_ERRORS`, 8 of 42; no live
-  Lookup_Errors read).
+  Lookup_Errors read) *(fixed Oct 2026, held: see "Add Coin Error dropdown:
+  real Lookup_Errors list")*.
 - (b) Built features that fall back to demo data: the `activeCoins()` /
   `activeDbSets()` / `activeDbCoins()` / `activeLookupGraders()` fallbacks
   before core data loads or when it fails; **`FAKE_COIN_DETAILS`** (Seller,
