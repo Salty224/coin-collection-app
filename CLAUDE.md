@@ -4,6 +4,36 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## Standard end-of-work pattern (standing rule, Oct 2026) — read this first
+**1. With every branch, before reporting it done.** The branch's last commit
+adds or updates its section in this file: what it does, the function and
+constant names, what was left alone on purpose, and what is not verified.
+Docs reach `main` in the same merge as the code. Every branch report ends with
+one line: "CLAUDE.md updated in <commit>", or "no CLAUDE.md change needed
+because <reason>".
+
+**2. When Ray says "end session"** (or at a natural stopping point):
+- a. Check that this file matches `main`: every merged branch has a section;
+  nothing describes removed code as current (grep for the names of functions
+  known to be removed, e.g. `resolveCoinSetLink` — mentions must be marked
+  *(removed …)* or describe current behaviour); the baseline line below is
+  current.
+- b. Commit any fix as ONE docs-only commit, push it to `main` (Ray's standing
+  permission for docs only), and confirm `origin/main` matches local.
+- c. Report in a few lines: the new `main` hash, the suite baseline, branches
+  merged but still on origin (never delete them), and anything unfinished.
+- d. Do NOT write or update the primers or session notes; the coordinating
+  Claude does that.
+- e. If a session is about to be compacted or closed and part 2 has not been
+  done, do it first.
+
+**Docs-only commits** (this file only, no code) may go straight to `main` with
+Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
+go-ahead.
+
+**Baseline:** last code change on `main` is `a06b976` (later commits are
+docs-only); `npm test` = 2900 passed, 0 failed, 0 page errors, 64 suites.
+
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
 constant that "only Ray flips".** Built on `claude/build-decides-target`
@@ -551,11 +581,10 @@ existing spec) — just do the work. If unsure whether something rises to that b
 ask before updating rather than updating by default.
 
 ## "end session" means: update this file first (standing rule)
-When Ray says "end session", capture everything a future session needs IN
-THIS FILE before stopping: every feature built or changed (with branch,
-hashes, merge status and suite), every superseded statement marked as such,
-open questions, and the exact pending next steps. Commit it to the current
-branch and push. Don't just reply in chat.
+**SUPERSEDED by "Standard end-of-work pattern" at the top of this file.** In
+particular, the docs fix now goes to `main` as one docs-only commit (not "the
+current branch"), and pending next steps / session notes are NOT written here:
+the coordinating Claude keeps those.
 
 ## End-of-task reporting (standing rule)
 When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
