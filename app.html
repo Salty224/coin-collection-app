@@ -11780,7 +11780,7 @@
     // Generic placeholder clad-era demo album — no real Littleton folder has
     // been chosen yet (Volume 2 selection still pending per Ray). This exists
     // purely to make the Littleton visual treatment demonstrable end-to-end,
-    // same stand-in approach as FAKE_REFERENCE_IMAGES/FAKE_GRADING_HELP. Swap
+    // same stand-in approach as FAKE_REFERENCE_IMAGES. Swap
     // for the real folder (name/date-range/mfgProductId) once chosen.
     {
       name: "Jefferson Nickels — Littleton Folder Vol. 3",
@@ -13102,22 +13102,15 @@
   // same hotlink-only posture as the rest of PCGS integration (see CLAUDE.md
   // "External data sources"). Real content sourcing (what to actually look
   // for at each grade tier, per series) is a separate, deferred task.
-  // Keyed the same way as FAKE_REFERENCE_IMAGES (referenceSeriesKey) so the
-  // two features share one series-identification mechanism.
-  const FAKE_GRADING_HELP = {
-    "Lincoln_Wheat": "Placeholder only — real series-specific grading guidance hasn't been researched/written yet. This entry exists to prove the per-series lookup renders correctly once real content is added.",
-    "Morgan": "Placeholder only — real series-specific grading guidance hasn't been researched/written yet. This entry exists to prove the per-series lookup renders correctly once real content is added."
-  };
-
+  // No series-specific guidance exists yet, so every series shows the
+  // empty message plus the PCGS/NGC links. (A FAKE_GRADING_HELP stand-in
+  // used to sit here; its keys were mixed-case while sanitizeSeriesName()
+  // lowercases, so it could never match — removed Oct 2026.)
   function showGradingHelp(seriesKey, label) {
     document.getElementById("gradingHelpTitle").textContent = "Grading Help" + (label ? " — " + label : "");
-    const tips = FAKE_GRADING_HELP[seriesKey];
     const body = document.getElementById("gradingHelpBody");
     body.innerHTML =
-      (tips
-        ? `<p style="margin:0 0 10px;">${tips}</p>`
-        : `<p class="placeholder-note" style="margin:0 0 10px;">No grading guidance on file yet for this series.</p>`
-      ) +
+      `<p class="placeholder-note" style="margin:0 0 10px;">No grading guidance on file yet for this series.</p>` +
       `<p class="placeholder-note" style="margin:0 0 10px;">
          This app never reproduces ANA grading-guide text or PCGS Photograde
          images (copyright) — only links out to their own reference pages.

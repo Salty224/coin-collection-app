@@ -392,7 +392,7 @@ show nothing meanwhile. `FAKE_ALBUMS` and the offline mockup are untouched.
 
 **NEXT branch's scope — the remaining demo data in a live session:**
 - (a) Placeholders for unbuilt features: Wishlist screen (`FAKE_WISHLIST`; no
-  live Wishlist screen read), Grading Help (`FAKE_GRADING_HELP`; guidance not
+  live Wishlist screen read), Grading Help (`FAKE_GRADING_HELP` *(removed Oct 2026; it could never match)*; guidance not
   written), pending-coin banner (`FAKE_PENDING_COIN`, null; reconciliation not
   built), Add Coin Error dropdown (`FAKE_LOOKUP_ERRORS`, 8 of 42; no live
   Lookup_Errors read).
@@ -4287,11 +4287,10 @@ grading content. Series is identified the same way as the reference-image
 fallback above (`referenceSeriesKey()` — Add Coin reads it live off the
 Description field; Browse Edit reads it off the coin being edited), so both
 features share one series-identification mechanism rather than inventing a
-second one. `FAKE_GRADING_HELP` is a sparse structural stand-in (currently
-`Lincoln_Wheat` and `Morgan`, matching `FAKE_REFERENCE_IMAGES`'s placeholder
-keys) holding clearly-labeled placeholder text, not real grading criteria — a
-series with no entry shows a plain "no grading guidance on file yet" fallback
-instead. **Hard copyright constraint**: this must never reproduce ANA's
+second one. `FAKE_GRADING_HELP` *(removed Oct 2026)* was a sparse stand-in
+keyed `Lincoln_Wheat` / `Morgan`; because `sanitizeSeriesName()` lowercases,
+those keys could never match, so it never showed anywhere. Every series now
+shows the plain "no grading guidance on file yet" message plus the links. **Hard copyright constraint**: this must never reproduce ANA's
 grading-guide text or PCGS's Photograde images — the modal only ever
 summarizes-and-links to their own public reference pages (PCGS PhotoGrade,
 NGC Grading Standards), the same hotlink-only posture as the rest of PCGS
@@ -15140,9 +15139,11 @@ reference-image-second, then the bare placeholder third.
   e.g. `Lincoln_Wheat_obverse.png`. This replaced an earlier draft convention
   that subfoldered by side (`.../obverse/...`, `.../reverse/...`) — that
   layout is dropped, don't build against it. `{SeriesName}` is exactly
-  `sanitizeSeriesName()`'s output (alphanumeric + underscores, case
-  preserved) — matches what the real fetch code constructs, so a file must be
-  named with this exact casing to be found.
+  `sanitizeSeriesName()`'s output: trimmed, **lowercased**, and every run of
+  non-alphanumeric characters turned into one underscore (`Lincoln Wheat
+  Cent` -> `lincoln_wheat_cent`). *(Corrected Oct 2026: this used to say
+  "case preserved"; the code has always lowercased.)* A file must be named
+  with exactly that lowercase key to be found.
 - **Real asset sourcing is a separate, still-open task, not resolved by this
   framework pass.** For modern currently-sold Mint products, attempt an
   official U.S. Mint product render first (federal work, not copyrighted) —

@@ -157,4 +157,15 @@ module.exports = defineSuite("addcoin-error-list", async ({ ok, openApp, PHONE }
   ok(H.desc === "Old Only Value" && H.sel === "__other__" && H.other === "Old Only Value",
     "H1 a refill that drops the current pick moves it to \"Other\" with its text kept; the saved value is unchanged: " + JSON.stringify(H));
 
+
+  // I. Grading Help placeholder text is gone and the dialog still opens.
+  const I = await page.evaluate(() => {
+    showGradingHelp("lincoln_wheat_cent", "Lincoln Wheat Cent");
+    const body = document.getElementById("gradingHelpBody").textContent;
+    document.getElementById("gradingHelpOverlay").classList.add("hidden");
+    return { gone: typeof FAKE_GRADING_HELP === "undefined", body };
+  });
+  ok(I.gone, "I1 FAKE_GRADING_HELP no longer exists");
+  ok(/No grading guidance on file yet/.test(I.body) && /PCGS PhotoGrade/.test(I.body) && !/Placeholder only/.test(I.body),
+    "I2 Grading Help shows the empty message and the PCGS/NGC links, no placeholder text");
 }, module);
