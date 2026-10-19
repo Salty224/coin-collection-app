@@ -187,7 +187,8 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
     document.getElementById("albumPagePrevBtn").click(); // back to the cover (instant)
     const coverOn = (document.querySelector(".cover-sub") || {}).textContent;
     __toggle(false);
-    return { boxOff, coverOff, coverOn, offMarkers, on, sameOff: offAgain === offHtml };
+    const coverOffAgain = (document.querySelector(".cover-sub") || {}).textContent;
+    return { boxOff, coverOff, coverOn, coverOffAgain, offMarkers, on, sameOff: offAgain === offHtml };
   });
   ok(B.boxOff === false, "B1 the checkbox starts off on open");
   ok(B.offMarkers === 0 && B.sameOff, "B2 WITH BEST-OF OFF THE BOOK RENDERS EXACTLY AS BEFORE (no markers; on then off returns identical HTML)");
@@ -195,10 +196,11 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
   ok(/\bbest-of-fill\b/.test(B.on.s5Class) && B.on.s5Badge === "◆" && !/\bwant\b/.test(B.on.s5Class),
     `B4 AN EMPTY SLOT FILLED BY BEST-OF HAS ITS OWN ◆ MARKER and is no longer an empty (Add Coin) slot (${B.on.s5Class})`);
   ok(!B.on.s2Badge, "B5 a slot that keeps the album's coin has no marker");
-  ok(B.on.s1Star && /1916/.test(B.on.s1Label), "B6 the key-date star and label stay with the slot");
+  ok(B.on.s1Star && /1916/.test(B.on.s1Label), "B6 the key-date star and label stay with the slot (star now at the end of the date label)");
   ok(B.on.asked208 && !B.on.asked716, "B7 the photo shown is the best coin's (AY-00208's file asked for, not AY-00716's)");
   ok(B.on.barShown, "B8 the Best of checkbox shows in the top bar while a book is open");
-  ok(B.coverOff === B.coverOn && /filled/.test(B.coverOn), `B9 THE COVER COUNT STAYS PHYSICAL (${B.coverOff} / ${B.coverOn})`);
+  ok(B.coverOff === "8 / 15 filled" && B.coverOn === "13 / 15 filled" && B.coverOffAgain === "8 / 15 filled",
+    `B9 THE COVER COUNT FOLLOWS BEST-OF: physical when off, shown-as-filled (◆ included) when on (${B.coverOff} -> ${B.coverOn} -> ${B.coverOffAgain})`);
 
   const B10 = await page.evaluate(async () => {
     showAlbumsList();
@@ -271,6 +273,154 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
   });
   ok(E2, "E2 FilledBy is unchanged on every slot, and GradeNum is on no write list");
 
+  // ---------- G. designation eligibility (DB_Coins Designation, one-way) ----------
+  // Catalog rows in the app's mapped DB_Coins shape. Plain slot rows have a
+  // blank Designation; a designated row (any value, not just FB) with the same
+  // Year/MintMark/Description/Denomination/Variety/Finish may fill a plain slot.
+  const G = await page.evaluate(() => {
+    const cat = (coinId, year, mint, designation, extra) => Object.assign({ coinId, year, mint, description: "Mercury Dime", denom: "10C",
+      variety: "", finish: "Business Strike", designation }, extra || {});
+    const catalog = [
+      cat("C-1916--10C-02", 1916, "", ""),   cat("C-1916--10C-03", 1916, "", "FB"),
+      cat("C-1945-D-10C-01", 1945, "D", ""), cat("C-1945-D-10C-02", 1945, "D", "FB"),
+      cat("C-1940--10C-01", 1940, "", ""),   cat("C-1940--10C-02", 1940, "", "FB"),
+      cat("C-1941--10C-01", 1941, "", ""),   cat("C-1941--10C-02", 1941, "", "FB", { finish: "Proof" }),
+      cat("C-1942--10C-01", 1942, "", ""),   cat("C-1942--10C-02", 1942, "", "FB", { variety: "42/41" }),
+      cat("C-1943--5C-01", 1943, "", "", { description: "Jefferson Nickel", denom: "5C" }),
+      cat("C-1943--5C-02", 1943, "", "FS", { description: "Jefferson Nickel", denom: "5C" }),
+      cat("C-1930--10C-01", 1930, "", ""),   cat("C-1930--10C-02", 1930, "", "FB"),
+      cat("C-1935--10C-01", 1935, "", "")
+    ];
+    const c = (id, coinId, gradeNum, gradeSource, extra) => Object.assign({ id, coinId, gradeNum, gradeSource, status: "Owned" }, extra || {});
+    const owned = [
+      c("AY-00209", "C-1916--10C-02", 4, "Owner"),  c("AY-00210", "C-1916--10C-03", 64, "PCGS"),
+      c("AY-00528", "C-1945-D-10C-01", 20, "Owner"), c("AY-00240", "C-1945-D-10C-02", 67, "PCGS"), c("AY-00680-C", "C-1945-D-10C-02", 65, "Owner"),
+      c("AY-00400", "C-1940--10C-02", 30, "Owner"),  c("AY-00401", "C-1940--10C-01", 60, "PCGS"),
+      c("AY-00410", "C-1941--10C-01", 10, "Owner"),  c("AY-00411", "C-1941--10C-02", 66, "PCGS"),
+      c("AY-00420", "C-1942--10C-01", 10, "Owner"),  c("AY-00421", "C-1942--10C-02", 66, "PCGS"),
+      c("AY-00430", "C-1943--5C-01", 30, "Owner", { denom: "5C" }), c("AY-00431", "C-1943--5C-02", 63, "PCGS", { denom: "5C" }),
+      c("AY-00500", "C-1930--10C-02", 50, "PCGS"),
+      // All.Designation "FT" on a plain CoinID: matches by CoinID only, never via the per-coin column
+      c("AY-00702", "C-1935--10C-01", 40, "PCGS", { designation: "FT" }),
+      c("AY-00694", "C-1916--10C-02", 2, "Owner", { designation: "FB" })
+    ];
+    const slot = (year, coinId, filledBy) => ({ year, mintMark: "", coinId, filledBy: filledBy || null });
+    const album = { slots: [
+      slot(1916, "C-1916--10C-02", "AY-00209"),   // 0 plain slot: FB coin AY-00210 eligible
+      slot(1945, "C-1945-D-10C-01", "AY-00528"),  // 1 plain slot: AY-00240 (67 PCGS) beats AY-00680-C (65 Owner)
+      slot(1940, "C-1940--10C-02", "AY-00400"),   // 2 DESIGNATED slot: plain AY-00401 (60) must not fill it
+      slot(1941, "C-1941--10C-01", "AY-00410"),   // 3 different Finish: not eligible
+      slot(1942, "C-1942--10C-01", "AY-00420"),   // 4 different Variety: not eligible
+      slot(1943, "C-1943--5C-01", "AY-00430"),    // 5 FS (not FB) is eligible
+      slot(1930, "C-1930--10C-01", null),         // 6 plain slot, empty
+      slot(1930, "C-1930--10C-02", null),         // 7 FB slot, empty: AY-00500 belongs here, used once
+      slot(1935, "C-1935--10C-01", null)          // 8 AY-00702 fills by its own CoinID
+    ] };
+    const map = computeAlbumBestOf(album, owned, owned, catalog);
+    const at = i => { const a = map.get(album.slots[i]); return a ? a.id + ":" + a.kind : "keep"; };
+    const noCat = computeAlbumBestOf(album, owned, owned, []);
+    return { r: album.slots.map((_, i) => at(i)), noCat1916: noCat.get(album.slots[0]) ? "changed" : "keep" };
+  });
+  ok(G.r[0] === "AY-00210:upgrade", `G1 1916 PLAIN SLOT: PCGS MS-64 FB AY-00210 replaces AY-00209 G-4 (${G.r[0]})`);
+  ok(G.r[1] === "AY-00240:upgrade", `G2 1945-D: AY-00240 PCGS MS-67 FB wins; AY-00680-C (owner MS-65 FB) is eligible but loses (${G.r[1]})`);
+  ok(G.r[2] === "keep", `G3 A PLAIN COIN NEVER FILLS A DESIGNATED SLOT (one-way) (${G.r[2]})`);
+  ok(G.r[3] === "keep", `G4 a designated coin with a DIFFERENT FINISH is not eligible (${G.r[3]})`);
+  ok(G.r[4] === "keep", `G5 a designated coin with a DIFFERENT VARIETY is not eligible (${G.r[4]})`);
+  ok(G.r[5] === "AY-00431:upgrade", `G6 ANY non-blank Designation counts, not just FB (FS here) (${G.r[5]})`);
+  ok(G.r[6] === "keep" && G.r[7] === "AY-00500:fill", `G7 a designated coin goes to its own designated slot and is not used twice (${G.r[6]}, ${G.r[7]})`);
+  ok(G.r[8] === "AY-00702:fill", `G8 All.Designation (FT) plays no part: AY-00702 matches by its own CoinID (${G.r[8]})`);
+  ok(G.noCat1916 === "keep", "G9 without catalog rows the rule falls back to same-CoinID only");
+
+  // The 1916 upgrade through the real book, with the catalog loaded the way the app loads it.
+  const G10 = await page.evaluate(async () => {
+    const fx = window.__fx;
+    const coins = fx.coins.concat([
+      { id: "AY-00209", coinId: "C-1916--10C-02", gradeNum: 4, gradeSource: "Owner", status: "Owned", denom: "10C", year: 1916, mint: "", name: "Mercury Dime", value: 1 },
+      { id: "AY-00210", coinId: "C-1916--10C-03", gradeNum: 64, gradeSource: "PCGS", status: "Owned", denom: "10C", year: 1916, mint: "", name: "Mercury Dime", value: 1 }]);
+    const rows = fx.albumRows.concat([{ Status: "Filled", Year: 1916, MintMark: "", Variety: "", Description: "Mercury Dime", AlbumName: "x",
+      AlbumID: "S-1916-AL-01", CoinID: "C-1916--10C-02", FilledBy: "AY-00209" }]);
+    __setLiveCoinsForTest(coins);
+    __setLiveAlbumsForTest(buildLiveAlbums(rows, fx.dbSetsRows, [], fx.dbCoinsRows));
+    const base = { description: "Mercury Dime", denom: "10C", variety: "", finish: "Business Strike", mint: "", year: 1916 };
+    __setLiveDbCoinsForTest([Object.assign({ coinId: "C-1916--10C-02", designation: "" }, base), Object.assign({ coinId: "C-1916--10C-03", designation: "FB" }, base)]);
+    navigate("albums");
+    await showAlbumDetail(__mercury());
+    __toFirstCoins(); __toggle(true);
+    const cells = [...document.querySelectorAll("#albumsDetailContainer .album-page-coins")][0].querySelectorAll(".slot-cell");
+    const el = cells[cells.length - 1];
+    const badge = (el.querySelector(".best-of-badge") || {}).textContent;
+    el.click();
+    const opened = currentBrowseCoin && currentBrowseCoin.id;
+    __setLiveDbCoinsForTest(null);
+    window.__load();
+    return { badge, opened };
+  });
+  ok(G10.badge === "▲" && G10.opened === "AY-00210", `G10 in the book the 1916 slot shows ▲ and opens AY-00210 (${G10.badge}, ${G10.opened})`);
+
+  // ---------- H. key-date star ----------
+  const H = await page.evaluate(async () => {
+    const fx = window.__fx;
+    const kd = [["C-1916-S-10C-01", "Key Date"], ["C-1917--10C-02", "Semi-Key Date"], ["C-1918--10C-03", "KEY"], ["C-1919--10C-04", "Semi-Key"], ["C-1920--10C-05", "Better Date"]]
+      .map(([CoinID, KeyDate]) => ({ CoinID, KeyDate }));
+    __setLiveAlbumsForTest(buildLiveAlbums(fx.albumRows, fx.dbSetsRows, [], kd));
+    navigate("albums");
+    await showAlbumDetail(__mercury());
+    __toFirstCoins();
+    const read = i => {
+      const el = __slotEl(0, i);
+      const star = el.querySelector(".slot-label .key-date-badge");
+      return { star: star && star.textContent, semi: !!(star && star.classList.contains("key-date-semi")),
+        last: !!(star && star === el.querySelector(".slot-label").lastElementChild), inDisc: !!el.querySelector(".slot-disc-wrap .key-date-badge"),
+        ring: el.classList.contains("key-date"), label: el.querySelector(".slot-label").textContent };
+    };
+    const out = { key: read(0), semi: read(1), upper: read(2), semiShort: read(3), other: read(4), none: read(5),
+      kinds: [...buildAlbumKeyDateIndex(kd).values()] };
+    window.__load();
+    return out;
+  });
+  ok(H.key.star === "★" && !H.key.semi && H.key.last && H.key.label === "1916★",
+    `H1 KEY DATE: filled ★ at the end of the date label (${JSON.stringify(H.key)})`);
+  ok(H.semi.star === "☆" && H.semi.semi && H.semi.last, `H2 SEMI-KEY DATE: outline ☆ (${JSON.stringify(H.semi)})`);
+  ok(H.upper.star === "★" && H.semiShort.star === "☆" && H.other.star === "★",
+    `H3 "KEY" is filled, "Semi-Key" is outline, any other non-blank value keeps a filled star (${H.upper.star} ${H.semiShort.star} ${H.other.star}; kinds ${H.kinds.join(",")})`);
+  ok([H.key, H.semi, H.upper, H.semiShort, H.other].every(x => x.ring && !x.inDisc) && !H.none.star && !H.none.ring,
+    "H4 the star is no longer on the disc corner; the gold ring on key-date slots is unchanged; a plain slot has neither");
+
+  // ---------- I. legend ----------
+  const I = await page.evaluate(async () => {
+    const btn = () => document.getElementById("albumBestOfHelpBtn");
+    const pop = () => document.getElementById("albumBestOfHelp");
+    const shown = el => !!el && getComputedStyle(el).display !== "none" && !el.closest(".hidden");
+    showAlbumsList();
+    const onList = shown(btn());
+    await showAlbumDetail(__mercury());
+    const inBook = shown(btn()) && !document.getElementById("albumsDetailContainer").contains(btn());
+    btn().click();
+    const opened = shown(pop());
+    const text = pop().textContent.replace(/\s+/g, " ").trim();
+    document.querySelector(".book-page-indicator").click();      // outside tap
+    const closedByOutside = !shown(pop());
+    btn().click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    const closedByEsc = !shown(pop());
+    // Open it during a page turn: the turn still completes.
+    __toFirstCoins();
+    document.getElementById("albumPageNextBtn").click();
+    await new Promise(r => setTimeout(r, 60));
+    const turning = albumTurnInProgress;
+    btn().click();
+    const stillTurning = albumTurnInProgress;
+    await new Promise(r => setTimeout(r, 1200));
+    const label = (document.querySelector(".book-page-indicator") || {}).textContent;
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    return { onList, inBook, opened, text, closedByOutside, closedByEsc, turning, stillTurning, label, after: albumTurnInProgress };
+  });
+  ok(!I.onList && I.inBook, "I1 the ? button shows only while a book is open, outside the redrawn book area");
+  ok(I.opened && /▲ Owned coin better than the one in the album/.test(I.text) && /◆ Owned coin that is not in the album/.test(I.text) &&
+    /★ Key date/.test(I.text) && /☆ Semi-key date/.test(I.text), `I2 tapping ? opens the legend with all four lines (${I.text})`);
+  ok(I.closedByOutside && I.closedByEsc, "I3 an outside tap or Esc closes it");
+  ok(I.turning && I.stillTurning && /^Page 4–5 /.test(I.label) && !I.after, `I4 opening the legend mid-turn does not disturb the turn (${I.label})`);
+
   // ---------- F. GradeNum mapping ----------
   const F = await page.evaluate(() => [
     mapWorkbookRowToCoin({ CollectionID: "X", GradeNum: 64 }).gradeNum,
@@ -281,4 +431,24 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
   ok(F[0] === 64 && F[1] === null && F[2] === null && F[3] === null, `F1 GradeNum maps as a number; blank, text or missing is ungraded (${JSON.stringify(F)})`);
 
   await page.evaluate(() => { __setLiveAlbumsForTest(null); __setLiveCoinsForTest(null); __setLiveDataModeForTest(null); __setGraphClientForTest(null); navigate("dashboard"); });
+
+  // ---------- J. top bar at 360 px ----------
+  for (const width of [360, 412]) {
+    const p = await openApp({ width, height: 800 });
+    const J = await p.evaluate(async (fx) => {
+      const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
+      __setLiveDataModeForTest("live"); __setLiveCoinsForTest(fx.coins);
+      __setLiveAlbumsForTest(buildLiveAlbums(fx.albumRows, fx.dbSetsRows, [], fx.dbCoinsRows));
+      navigate("albums");
+      await showAlbumDetail(0);
+      const bar = document.getElementById("navChrome");
+      const kids = [...bar.children].filter(e => getComputedStyle(e).display !== "none" && getComputedStyle(e).position !== "absolute");
+      const mids = kids.map(e => { const r = e.getBoundingClientRect(); return (r.top + r.bottom) / 2; });
+      const out = { h: bar.getBoundingClientRect().height, n: kids.length, oneLine: mids.every(m => Math.abs(m - mids[0]) < 4),
+        overflow: document.documentElement.scrollWidth > innerWidth };
+      __setLiveAlbumsForTest(null); __setLiveCoinsForTest(null); __setLiveDataModeForTest(null);
+      return out;
+    }, fixtures());
+    ok(J.h === 60 && J.n === 3 && J.oneLine && !J.overflow, `J1 at ${width} px the top bar stays 60 px high and on one line with the ? button (${JSON.stringify(J)})`);
+  }
 }, module);

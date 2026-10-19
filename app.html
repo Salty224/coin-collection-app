@@ -1456,21 +1456,23 @@
      inside or outside the circle depending on how much spare cell width
      happens to surround it. */
   .slot-disc-wrap { position: relative; display: inline-flex; }
+  /* Key-date star: an accent at the right end of the date label (moved off
+     the disc's corner). ★ Key Date, ☆ Semi-Key Date. */
   .key-date-badge {
-    position: absolute;
-    top: -8px;
-    right: -8px;
+    margin-left: 3px;
     color: var(--gold-bright);
-    font-size: 17px;
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    font-size: 1.05em;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.35);
   }
-  /* Album "Best of" view: the marker sits opposite the key-date star. Two
+  .slot-cell.littleton-slot .key-date-badge { color: #b8860b; text-shadow: none; }
+  /* Album "Best of" view: the marker sits at the disc's top-left. Two
      shapes, readable without hover: ▲ a better owned coin than the album's,
      ◆ an owned coin for a slot the album leaves empty. */
   .best-of-badge {
     position: absolute;
-    top: -8px;
-    left: -8px;
+    top: -3px;
+    left: -3px;
     font-size: 14px;
     line-height: 1;
     text-shadow: 0 1px 3px rgba(0,0,0,0.6);
@@ -1478,8 +1480,28 @@
   }
   .best-of-badge-upgrade { color: #4fc3a1; }
   .best-of-badge-fill { color: #7fb3ff; }
+  .album-best-of-group { display: inline-flex; align-items: center; gap: 6px; }
+  .album-best-of-group.hidden { display: none; }
   .album-best-of-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); cursor: pointer; white-space: nowrap; }
-  .album-best-of-toggle.hidden { display: none; }
+  /* The "?" legend button: small round, not the full-size bar button style. */
+  .nav-chrome #albumBestOfHelpBtn {
+    width: 24px; height: 24px; padding: 0; justify-content: center;
+    border-radius: 50%; font-size: 13px; line-height: 1;
+  }
+  /* Its popover hangs below the bar, so the bar's own height never changes. */
+  .album-best-of-help {
+    position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    width: min(300px, calc(100vw - 32px)); box-sizing: border-box;
+    background: var(--bg-elevated); border: 1px solid var(--case-border-bright); border-radius: 10px;
+    padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 50;
+  }
+  .album-best-of-help.hidden { display: none; }
+  .album-best-of-help > div { display: flex; align-items: baseline; }
+  .album-best-of-help .abh-sym { flex: 0 0 18px; text-align: center; margin-right: 6px; }
+  .album-best-of-help .abh-up { color: #4fc3a1; }
+  .album-best-of-help .abh-fill { color: #7fb3ff; }
+  .album-best-of-help .abh-star { color: var(--gold-bright); }
 
   /* ---------- Littleton folder page skin ----------
      Applied via album.folderStyle === "littleton" (currently every album in
@@ -2669,7 +2691,16 @@
       <!-- Album "Best of" toggle: lives in this bar (next to the visible Back)
            so it takes no vertical space from the book's row budget and is
            never recreated by renderAlbumBook(). Shown only while a book is open. -->
-      <label class="album-best-of-toggle hidden" id="albumBestOfBar"><input type="checkbox" id="albumBestOfToggle"> Best of</label>
+      <span class="album-best-of-group hidden" id="albumBestOfBar">
+        <label class="album-best-of-toggle"><input type="checkbox" id="albumBestOfToggle"> Best of</label>
+        <button type="button" id="albumBestOfHelpBtn" aria-label="What the album markers mean" aria-expanded="false" aria-controls="albumBestOfHelp">?</button>
+      </span>
+      <div class="album-best-of-help hidden" id="albumBestOfHelp" role="dialog" aria-label="Album markers">
+        <div><span class="abh-sym abh-up">▲</span> Owned coin better than the one in the album</div>
+        <div><span class="abh-sym abh-fill">◆</span> Owned coin that is not in the album</div>
+        <div><span class="abh-sym abh-star">★</span> Key date</div>
+        <div><span class="abh-sym abh-star">☆</span> Semi-key date</div>
+      </div>
       <button type="button" class="home-btn" id="navHomeBtn" aria-label="Close Drawer">Close Drawer</button>
     </div>
     <main id="views">
@@ -6385,14 +6416,27 @@
   // from silently missing a real key date. Key vs. Semi-Key is
   // deliberately NOT distinguished here — the existing badge is one boolean
   // with no visual variant for it today (Ray's explicit scope call).
+  // SUPERSEDED (Best-of follow-up, Ray): Key and Semi-Key ARE now told
+  // apart — filled star for Key Date, outline star for Semi-Key Date. Any
+  // non-blank value still counts as a key date (so a new casing variant can't
+  // silently drop one); keyDateKindOf() says which star it gets.
+  function keyDateKindOf(value) {
+    const t = String(value == null ? "" : value).toLowerCase().replace(/[^a-z]/g, "");
+    if (!t) return null;
+    if (t.startsWith("semikey")) return "semi";
+    if (t === "key" || t === "keydate") return "key";
+    return "other"; // any other non-blank value: filled star, as before
+  }
+  // CoinID -> "key" | "semi" | "other" (a Map, so .has() still answers
+  // "is this a key date" for every existing caller).
   function buildAlbumKeyDateIndex(dbCoinsRows) {
-    const set = new Set();
+    const map = new Map();
     (dbCoinsRows || []).forEach(row => {
       const coinId = colVal(row, "CoinID");
-      const keyDate = colVal(row, "KeyDate");
-      if (coinId && String(keyDate).trim()) set.add(String(coinId));
+      const kind = keyDateKindOf(colVal(row, "KeyDate"));
+      if (coinId && kind) map.set(String(coinId), kind);
     });
-    return set;
+    return map;
   }
 
   // Raw Albums-sheet rows -> FAKE_ALBUMS' own slot shape (year/mintMark/
@@ -6422,7 +6466,8 @@
         coinId,
         filledBy,
         want: !filledBy && wantIndex.has(albumId + "::" + coinId),
-        keyDate: keyDateIndex.has(coinId)
+        keyDate: keyDateIndex.has(coinId),
+        keyDateKind: keyDateIndex.get(coinId) || null
       };
       (byAlbumId[albumId] || (byAlbumId[albumId] = [])).push(slot);
     });
@@ -12519,6 +12564,7 @@
     setNavBack(() => navigate(SECTION_BACK_TARGET[viewId] || "dashboard"));
     // The album Best-of toggle belongs to an open book only (openAlbumAtPage shows it).
     document.getElementById("albumBestOfBar").classList.add("hidden");
+    setAlbumBestOfHelp(false);
 
     // Landing back on the Dashboard from inside a drawer's own section (via
     // Back or Close Drawer, either one — both funnel through this
@@ -18622,6 +18668,7 @@
 
     document.getElementById("albumsBackBtn").addEventListener("click", showAlbumsList);
     document.getElementById("albumBestOfToggle").addEventListener("change", e => setAlbumBestOf(e.target.checked));
+    initAlbumBestOfHelp();
 
     populateAssignAlbumOptions();
   }
@@ -18656,6 +18703,7 @@
   function showAlbumsList() {
     document.getElementById("albumsListView").style.display = "block";
     document.getElementById("albumBestOfBar").classList.add("hidden");
+    setAlbumBestOfHelp(false);
     document.getElementById("albumsDetailView").style.display = "none";
     setNavBack(() => navigate("dashboard")); // albums list is the section root
     // Rendered fresh on every entry (not just once at init) — otherwise a
@@ -18868,6 +18916,7 @@
     albumBestOfCache = null;
     syncAlbumBestOfToggle();
     document.getElementById("albumBestOfBar").classList.remove("hidden");
+    setAlbumBestOfHelp(false);
     currentAlbumIndex = index;
     // Show the detail container BEFORE measuring it — computeAlbumChunkSize()
     // needs a real, laid-out #albumsDetailContainer to derive available
@@ -19065,7 +19114,20 @@
   // Pure. Returns Map(slot -> { id, kind }) for the slots whose shown coin
   // differs from the album's: kind "upgrade" (replaces the album's coin) or
   // "fill" (the album slot is empty). Slots that keep their coin are absent.
-  function computeAlbumBestOf(album, owned, all) {
+  //
+  // Eligibility for slot X (catalog = DB_Coins rows, read-only):
+  //  - a coin whose CoinID is X's CoinID; or
+  //  - a designated coin for a PLAIN slot: X's catalog row has a blank
+  //    Designation, the coin's catalog row has any non-blank Designation (FB,
+  //    FS, FBL, RD, BN, RB, ...), and the two rows match on Year, MintMark,
+  //    Description, Denomination, Variety and Finish. One-way: a designated
+  //    slot accepts only its own CoinID. The per-coin All.Designation column is
+  //    deliberately NOT used.
+  function bestOfCatalogKey(row) {
+    const t = v => String(v == null ? "" : v).trim();
+    return [row.year, row.mint, row.description, row.denom, row.variety, row.finish].map(t).join("\u0001");
+  }
+  function computeAlbumBestOf(album, owned, all, catalog) {
     const out = new Map();
     if (!album || !album.slots) return out;
     const key = v => String(v == null ? "" : v).trim();
@@ -19076,19 +19138,44 @@
       const k = key(c.coinId);
       if (k) (byCoinId.get(k) || byCoinId.set(k, []).get(k)).push(c);
     });
+    const catById = new Map();
+    const designatedByKey = new Map(); // catalog attributes -> designated CoinIDs
+    (catalog || []).forEach(r => {
+      const id = key(r.coinId);
+      if (!id || catById.has(id)) return;
+      catById.set(id, r);
+      if (key(r.designation)) {
+        const ck = bestOfCatalogKey(r);
+        (designatedByKey.get(ck) || designatedByKey.set(ck, []).get(ck)).push(id);
+      }
+    });
+    // The designated CoinIDs a plain slot may also take ([] for a designated
+    // slot, or one with no catalog row).
+    const extraCoinIdsFor = (k) => {
+      const row = catById.get(k);
+      if (!row || key(row.designation)) return [];
+      return (designatedByKey.get(bestOfCatalogKey(row)) || []).filter(id => id !== k);
+    };
     const groups = new Map();
     album.slots.forEach(s => { const k = key(s.coinId); if (k) (groups.get(k) || groups.set(k, []).get(k)).push(s); });
-    groups.forEach((slots, k) => {
+    // Groups that take only their own CoinID go first, so a designated coin
+    // stays in its own designated slot when the album has one.
+    const order = [...groups.keys()].sort((a, b) => (extraCoinIdsFor(a).length ? 1 : 0) - (extraCoinIdsFor(b).length ? 1 : 0));
+    const usedElsewhere = new Set();
+    order.forEach(k => {
+      const slots = groups.get(k);
       // The album's own (still owned) coins in these slots are incumbents.
       const incumbentOf = new Map();
       slots.forEach(s => { const c = s.filledBy && ownedById.get(s.filledBy); if (c) incumbentOf.set(s, c); });
       const incumbents = new Set(incumbentOf.values());
-      // Pool: owned coins with this CoinID not shown in another slot of this album.
-      const pool = (byCoinId.get(k) || []).filter(c => !physicalIds.has(c.id) || incumbents.has(c));
+      // Pool: eligible owned coins not shown in another slot of this album.
+      const eligible = [k].concat(extraCoinIdsFor(k)).flatMap(id => byCoinId.get(id) || []);
+      const pool = eligible.filter(c => (!physicalIds.has(c.id) || incumbents.has(c)) && !usedElsewhere.has(c.id));
       incumbents.forEach(c => { if (!pool.includes(c)) pool.push(c); }); // mismatched-CoinID incumbent, compared normally
       pool.sort((a, b) => bestOfCompare(b, a) || ((incumbents.has(b) ? 1 : 0) - (incumbents.has(a) ? 1 : 0)) || bestOfIdOrder(a, b));
       const shown = pool.slice(0, slots.length);
       const shownSet = new Set(shown);
+      shown.forEach(c => usedElsewhere.add(c.id));
       const free = shown.filter(c => !incumbents.has(c));
       slots.forEach(s => {
         const inc = incumbentOf.get(s);
@@ -19104,8 +19191,9 @@
     if (!albumBestOfOn) return null;
     const album = activeAlbums()[currentAlbumIndex];
     const source = activeCoins();
-    if (!albumBestOfCache || albumBestOfCache.album !== album || albumBestOfCache.source !== source) {
-      albumBestOfCache = { album, source, map: computeAlbumBestOf(album, ownedCoins(), source) };
+    const catalog = activeDbCoins();
+    if (!albumBestOfCache || albumBestOfCache.album !== album || albumBestOfCache.source !== source || albumBestOfCache.catalog !== catalog) {
+      albumBestOfCache = { album, source, catalog, map: computeAlbumBestOf(album, ownedCoins(), source, catalog) };
     }
     return albumBestOfCache.map;
   }
@@ -19127,11 +19215,36 @@
     syncAlbumBestOfToggle();
     renderAlbumBook();
   }
+  // The "?" legend popover: tap to open/close; outside tap or Esc closes it.
+  // It lives in the top bar, outside the redrawn book, and never touches
+  // page-turn state.
+  function setAlbumBestOfHelp(open) {
+    const pop = document.getElementById("albumBestOfHelp");
+    const btn = document.getElementById("albumBestOfHelpBtn");
+    if (!pop || !btn) return;
+    pop.classList.toggle("hidden", !open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function initAlbumBestOfHelp() {
+    const pop = document.getElementById("albumBestOfHelp");
+    const btn = document.getElementById("albumBestOfHelpBtn");
+    btn.addEventListener("click", e => { e.stopPropagation(); setAlbumBestOfHelp(pop.classList.contains("hidden")); });
+    document.addEventListener("click", e => {
+      if (!pop.classList.contains("hidden") && !pop.contains(e.target) && e.target !== btn) setAlbumBestOfHelp(false);
+    });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") setAlbumBestOfHelp(false); });
+  }
   function syncAlbumBestOfToggle() {
     const box = document.getElementById("albumBestOfToggle");
     if (box) box.checked = albumBestOfPending !== null ? albumBestOfPending : albumBestOfOn;
   }
 
+  // The key-date star, as an accent at the end of the date label. Filled for
+  // Key Date (and any other non-blank KeyDate value); outline for Semi-Key.
+  function keyDateStarHtml(slot) {
+    const semi = slot.keyDateKind === "semi";
+    return `<span class="key-date-badge${semi ? " key-date-semi" : ""}" title="${semi ? "Semi-key date" : "Key date"}">${semi ? "☆" : "★"}</span>`;
+  }
   function renderSlotCell(slot, side, album) {
     // The coin this slot SHOWS: the album's own (FilledBy) unless the Best-of
     // view picked a better owned one (effectiveSlotCoinId; identical when off).
@@ -19259,9 +19372,9 @@
       <div class="slot-cell ${filled ? "" : "want"}${slot.keyDate ? " key-date" : ""}${isLittleton ? " littleton-slot" : ""}${bestOfMarker ? " best-of-" + bestOfMarker : ""}" data-coin-id="${slot.coinId}">
         <div class="slot-disc-wrap">
           <div class="${discClasses.join(" ")}"${discStyleAttr}>${discContent}</div>
-          ${slot.keyDate ? `<span class="key-date-badge" title="Key date">★</span>` : ""}${bestOfMarker ? `<span class="best-of-badge best-of-badge-${bestOfMarker}" aria-label="${bestOfMarker === "fill" ? "Best of: not in the album" : "Best of: better than the album's coin"}">${bestOfMarker === "fill" ? "◆" : "▲"}</span>` : ""}
+          ${bestOfMarker ? `<span class="best-of-badge best-of-badge-${bestOfMarker}" aria-label="${bestOfMarker === "fill" ? "Best of: not in the album" : "Best of: better than the album's coin"}">${bestOfMarker === "fill" ? "◆" : "▲"}</span>` : ""}
         </div>
-        <div class="slot-label">${slotDisplayLabel(slot)}</div>
+        <div class="slot-label">${slotDisplayLabel(slot)}${slot.keyDate ? keyDateStarHtml(slot) : ""}</div>
         ${varietyLine}
         ${mintageLine}
         ${metaLine}
@@ -19355,7 +19468,8 @@
     const littletonClass = album.folderStyle === "littleton" ? " littleton" : "";
 
     if (page.type === "cover") {
-      const filledCount = album.slots.filter(s => s.filledBy).length;
+      // Physical count; with Best-of on, slots shown as filled (◆ included).
+      const filledCount = album.slots.filter(s => effectiveSlotCoinId(s)).length;
       return `
         <div class="case album-page album-page-cover${littletonClass}">
           <div class="cover-icon">${album.icon}</div>
