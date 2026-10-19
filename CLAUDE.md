@@ -125,7 +125,7 @@ folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
 ## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, HELD on `claude/add-coin-error-dropdown-real-values`)
-Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_list.js` (21).
+Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_list.js` (24).
 - **Bug fixed:** the 8 `FAKE_LOOKUP_ERRORS` values were put into Add Coin's
   Error dropdown at page load in every session, live included, and a pick
   could reach `All.Error` on promotion.
@@ -134,7 +134,9 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_lis
   never blocks startup). `buildLookupErrorList()` reads by the **"Error Type"**
   header, skips a row whose Category is blank or whose name starts with "═"
   (the sheet's section dividers), trims, drops blanks and duplicates; no
-  header -> `null` (treated as a failed load). `LIVE_LOOKUP_ERRORS`,
+  header -> `null` (treated as a failed load). If the sheet has NO Category
+  column at all, only the "═" check applies (Ray's call; otherwise every row
+  would be skipped). `LIVE_LOOKUP_ERRORS`,
   `liveLookupErrorsLoadFailed`, `activeLookupErrors()` (real list; the 8 demo
   values only when `demoDataAllowed()`; else empty), `populateErrorOptions()`
   (called at start and when the sheet arrives).

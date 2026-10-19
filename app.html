@@ -6760,18 +6760,21 @@
   // Type"), never by position. The sheet carries section dividers like
   // "═══ PLANCHET ERRORS ═══" with a blank Category; those are never
   // choices, so a row is skipped when its Category is blank or its name
-  // starts with "═". Names are trimmed; blanks and duplicates are dropped.
+  // starts with "═". If the sheet has no Category column at all, only the
+  // "═" check applies (a blank-Category rule would skip every row). Names
+  // are trimmed; blanks and duplicates are dropped.
   // Returns null when no row carries an "Error Type" header at all — the
   // caller treats that the same as a failed load (none/Other only).
   function buildLookupErrorList(rows) {
     if (!Array.isArray(rows)) return null;
     if (!rows.some(r => r && Object.prototype.hasOwnProperty.call(r, "Error Type"))) return null;
+    const hasCategory = rows.some(r => r && Object.prototype.hasOwnProperty.call(r, "Category"));
     const seen = new Set();
     const out = [];
     rows.forEach(row => {
       const name = String(colVal(row, "Error Type")).trim();
       const category = String(colVal(row, "Category")).trim();
-      if (!name || !category || name.startsWith("\u2550")) return;
+      if (!name || (hasCategory && !category) || name.startsWith("\u2550")) return;
       if (seen.has(name)) return;
       seen.add(name);
       out.push(name);

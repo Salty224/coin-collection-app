@@ -168,4 +168,32 @@ module.exports = defineSuite("addcoin-error-list", async ({ ok, openApp, PHONE }
   ok(I.gone, "I1 FAKE_GRADING_HELP no longer exists");
   ok(/No grading guidance on file yet/.test(I.body) && /PCGS PhotoGrade/.test(I.body) && !/Placeholder only/.test(I.body),
     "I2 Grading Help shows the empty message and the PCGS/NGC links, no placeholder text");
+
+  // J. Category column handling. No Category column at all -> only the "═"
+  //    divider check applies; Category column present -> blank-Category rows
+  //    are still skipped; "Error Type" header still required.
+  const J = await page.evaluate(`(() => {
+    const noCat = buildLookupErrorList([
+      { "Error Type": "═══ PLANCHET ERRORS ═══" },
+      { "Error Type": "Clipped Planchet" },
+      { "Error Type": "  Lamination Peel  " },
+      { "Error Type": "═══ STRIKE ERRORS ═══" },
+      { "Error Type": "Off-Center Strike" },
+      { "Error Type": "Clipped Planchet" },
+      { "Error Type": "" }
+    ]);
+    const withCat = buildLookupErrorList([
+      { "Error Type": "Off-Center Strike", "Category": "Strike" },
+      { "Error Type": "Blank Category Row", "Category": "" },
+      { "Error Type": "Missing Category Cell" },
+      { "Error Type": "Clipped Planchet", "Category": "Planchet" }
+    ]);
+    const noHeader = buildLookupErrorList([{ "Name": "Off-Center Strike" }, { "Name": "Clipped Planchet" }]);
+    return { noCat, withCat, noHeader };
+  })()`);
+  ok(JSON.stringify(J.noCat) === JSON.stringify(["Clipped Planchet", "Lamination Peel", "Off-Center Strike"]),
+    "J1 a sheet with no Category column gives the cleaned list without divider rows: " + JSON.stringify(J.noCat));
+  ok(JSON.stringify(J.withCat) === JSON.stringify(["Off-Center Strike", "Clipped Planchet"]),
+    "J2 a sheet with a Category column still skips blank-Category rows: " + JSON.stringify(J.withCat));
+  ok(J.noHeader === null, "J3 a missing \"Error Type\" header is still a failed load (null), with or without Category");
 }, module);
