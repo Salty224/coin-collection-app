@@ -94,6 +94,117 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
+## Ledger, spot prices, Wishlist, albums: Oct 2026 work (all merged to main, a06b976)
+All of this is on `main` at `a06b976`, merged on Ray's go-ahead. It reaches the
+live site only when Ray runs the deploy workflow for `main`.
+
+### Wishlist "in work" (`tests/verify_wishlist_in_work.js`)
+The Wishlist screen has no live read, so it showed `FAKE_WISHLIST` demo coins
+in every mode. It now shows a plain "Wishlist: in work." note; the Share
+button is hidden; the nav entry stays. Display only.
+
+### Ledger: value by metal (`tests/verify_ledger_value_by_metal.js`)
+- Recorded value = `All.Value` ONLY (`coin.recordedValue`); melt = `All.SpotValue`
+  ONLY (`coin.meltValue`); each null when blank. A blank Value is "no recorded
+  value", never melt. `coin.value` (Value, falling back to SpotValue) is left
+  as it was for the coin page and the older totals.
+- Each coin's whole value goes in its main metal bucket ("Other" for none);
+  fine ounces come from DB_Coins via the CoinID specs join. Owned coins only.
+  Gold bullion denominations are included.
+
+### Ledger: spot prices (`tests/verify_ledger_spot_prices.js`)
+Reads `Ref_SpotPrices` (read path: `loadSpotPrices()` -> `fetchWorkbookSheetRows()`)
+and shows only the six metal rows (Gold, Silver, Platinum, Palladium, Copper,
+Nickel), not the sheet's blank and instruction rows.
+
+### Ledger: "Update prices" panel (`tests/verify_spot_price_update.js`)
+A manual editor for `Ref_SpotPrices`. Gated by `ENABLE_SPOT_PRICE_WRITE`
+(folded into `WRITE_LAYER_ENABLED`), and writes only under the current
+`WRITE_TARGET`.
+- **Writes only three cells per changed metal:** PricePerTroyOz, LastUpdated
+  (a real Excel date with a date number format) and Source, through
+  `patchWorkbookRanges` (one `$batch` per metal), never `patchRecordRow`.
+- All six metals editable, each range-checked (Copper 0.10-3.00, Nickel
+  0.10-5.00). A change over 50% needs a tick. Source starts blank and is required when a
+  price changed. A plain StackerScan link sits above the inputs (no fetching).
+- **Before writing:** re-reads the sheet; refuses if any price changed since
+  the panel opened (a cell already holding the intended value doesn't count);
+  refuses a formula in a target cell or a missing header/row; skips metals
+  already fully written.
+- **After writing:** reads back and judges each metal (written / partly written / not
+  written, against its pre-write values). Counts All.SpotValue / All.Total
+  formulas before and after. Then reloads coin data; the "Reloading coin
+  data..." line resolves to "Coin data reloaded." (or a failure note).
+- **Patient read-back:** reads and writes are separate sessionless Graph calls
+  (no workbook session anywhere in the app), so a read straight after a
+  successful batch can lag (seen live: new price, old date and Source). For a
+  metal whose write call succeeded but whose read-back doesn't match yet, it
+  re-reads up to three more times (about 1, 2 and 4 s; `SPOT_PRICE_PATIENCE_DELAYS_MS`)
+  and NEVER writes again during those re-reads. A metal whose write call failed or
+  timed out gets no re-reads.
+- 60 s deadline per request (`SPOT_PRICE_REQUEST_TIMEOUT_MS`). After an attempt
+  that may have written, the only way on is "Check what's in the workbook"
+  (reads only); "Try again" then writes only what is missing. Success shows a
+  Done button.
+- Writing / Verifying / Checking stages use the app's spinning-coin loader
+  (`showSectionLoading`) with "this can take up to a minute, please keep this
+  page open", and show no buttons.
+- A real Graph **workbook session** (createSession, persistChanges) would remove
+  the read lag. It is still held in reserve (the "option 3" below), not built.
+
+### Albums: page flip can no longer get stuck (`tests/verify_album_book_flip.js`)
+Ray's PC report: in spread mode (>=900 px) a flip snapped back and the
+arrows died, in every album opened afterwards too. Cause: a photo landing during
+the 0.65 s turn redrew the book at the old page, the turning leaf was removed,
+its `transitionend` never fired and `albumTurnInProgress` stayed true. Fix:
+- each turn has a token and finishes once, on the leaf's own `transform`
+  transitionend or a fallback timer (`ALBUM_TURN_FALLBACK_MS`);
+- `renderAlbumBook()` and `openAlbumAtPage()` call `cancelAlbumTurn()` first;
+- photo-arrival redraws skip while a turn is running (the turn's own finish
+  redraws with the photo cached).
+**Anything that redraws the book mid-turn must go through these, not around them.**
+
+### Albums: "Best of" view (`tests/verify_album_best_of.js`)
+A "Best of" checkbox plus a "?" legend button in the sticky top bar (between
+Back and Close Drawer; shown only while a book is open). It sits there, not above the book,
+because anything above the book eats its row budget (the tablet page dropped
+from 5 rows to 4). The bar stays 60 px and one line at 360 px.
+- **VIEW ONLY.** Writes nothing, never changes FilledBy or the slot objects
+  (pages hold references to them). Off on every open from the list; kept only
+  for the round trip to a coin's detail page and back. A toggle during a page
+  turn applies when the turn ends.
+- **One reader:** `effectiveSlotCoinId(slot)` returns `slot.filledBy` when off.
+  Routed through it: slot render (photo, filled/empty, markers), photo
+  prefetch, the photo-arrival redraw check, slot tap, prev/next step list, and
+  the cover's "x / y filled" (which counts shown-as-filled slots when on).
+  Left physical: the album list card count, key-date star and ring, label,
+  variety, mintage, the Belongs to Album chip, the Assign to Album list.
+- **Rules** (`computeAlbumBestOf(album, owned, all, catalog)`, pure):
+  - Owned coins only, exited coins excluded.
+  - Eligible: the slot's own CoinID, or for a PLAIN slot, a designated coin.
+    The slot's DB_Coins row has a blank Designation; the coin's row has any
+    non-blank one (FB, FS, FBL, RD, BN, RB...); both rows match on Year,
+    MintMark, Description, Denomination, Variety and Finish. One-way: a
+    designated slot takes only its own CoinID.
+  - Designation comes from DB_Coins (`activeDbCoins()`), never All.Designation.
+  - Best = highest `GradeNum`; any GradeNum beats none. On equal GradeNum, third-party (Lookup_Graders
+    Type "Service", compared trimmed and case-insensitive, Best-of only)
+    beats Owner/Seller/AI-est/blank.
+  - A full tie keeps the album's coin. Outside coins that tie: lowest
+    CollectionID.
+  - Each coin is used once per album; own-CoinID groups are decided first.
+  - An exited album coin can be replaced. A mismatched-CoinID album coin stays
+    the incumbent and is compared normally.
+- `All.GradeNum` is a workbook formula, mapped READ ONLY as `coin.gradeNum`
+  (blank or text = ungraded) and on no write list.
+- Markers at the disc's top-left: ▲ better owned coin than the album's, ◆ an owned
+  coin for a slot the album leaves empty (tapping it opens that coin, not Add Coin).
+- **Key-date star moved** from the disc corner to the end of the date label
+  (affects Best-of off too): filled ★ for Key Date and any other non-blank
+  KeyDate value, outline ☆ for Semi-Key (`keyDateKindOf()`;
+  `buildAlbumKeyDateIndex` now returns CoinID -> "key" | "semi" | "other").
+  Gold ring unchanged.
+
 ## Current status (2026-09-05) — read this first
 
 **Add Coin Phase 2 is COMPLETE and merged to main.** The branch
