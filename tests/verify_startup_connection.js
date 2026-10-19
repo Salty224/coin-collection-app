@@ -975,7 +975,7 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
 
   // ================================================================
   // J. Splash backoff between fresh attempts (commit 8). A fresh attempt =
-  //    one set of reads (nine sheets + the Docket read), so the "All" sheet
+  //    one set of reads (ten sheets — nine plus Lookup_Errors since Oct 2026 — + the Docket read), so the "All" sheet
   //    request is counted as "one attempt".
   // ================================================================
   const SPLASH_RUN = () => {
@@ -1028,7 +1028,7 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
     restartStartupFetches();
     return r;
   });
-  ok(J6.attempts.length === 1 && J6.total === 10, `J6 while a read hangs, the checks send nothing new: 1 attempt, ${J6.total} requests in 1.5s (backoff only 50ms)`);
+  ok(J6.attempts.length === 1 && J6.total === 11, /* 10 sheets (Lookup_Errors added Oct 2026) + the Docket read */ `J6 while a read hangs, the checks send nothing new: 1 attempt, ${J6.total} requests in 1.5s (backoff only 50ms)`);
 
   // J7–J8: Retry starts a fresh attempt at once and resets the schedule.
   await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN); await page.evaluate(FAST_FAIL);

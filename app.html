@@ -4077,6 +4077,7 @@
               </select>
               <input type="text" id="errorOther" style="display:none; margin-top:8px;" placeholder="Describe the error — e.g. off-center strike, broadstrike">
               <input type="hidden" id="errorDesc">
+              <p id="errorListNote" class="placeholder-note" style="display:none; margin:4px 0 0;">Error list not loaded</p>
               <p class="placeholder-note" style="margin:4px 0 16px;">
                 Optional, for mint errors. Applies to any coin — not tied to what's
                 entered above, and doesn't affect whether this coin can be saved
@@ -6677,6 +6678,11 @@
   // (see buildLiveAlbums()). Same "null until a real fetch lands" posture
   // as every other LIVE_* array here.
   let LIVE_ALBUMS = null;
+  // Add Coin's Error dropdown choices from the real Lookup_Errors sheet
+  // (null = not loaded this session). liveLookupErrorsLoadFailed says a load
+  // was tried and gave nothing usable, so the "not loaded" note shows.
+  let LIVE_LOOKUP_ERRORS = null;
+  let liveLookupErrorsLoadFailed = false;
   let liveNavDataFetchPromise = null;
   // Bumped whenever a new fetch starts or Retry discards the current one. A
   // fetch whose generation is no longer current is superseded: when it
@@ -6699,8 +6705,8 @@
   // this session), and while any is still null the next
   // ensureLiveNavDataFetch() call refetches ONLY those, in the background.
   // Once all four have loaded, nothing extra is ever requested.
-  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist"];
-  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null };
+  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors"];
+  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null };
   // Raw DB_Sets/DB_Coins rows from the last successful core load — Albums is
   // built from raw rows (buildLiveAlbums()), so a late Albums or Wishlist
   // needs them to rebuild without refetching the core sheets.
@@ -6714,7 +6720,7 @@
     return LIVE_NAV_OPTIONAL_SHEETS.filter(sheet => liveNavOptionalRows[sheet] === null);
   }
   function __resetLiveNavOptionalForTest() { // test-only seam
-    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null };
+    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null };
     liveNavCoreRawRows = null;
     liveNavOptionalFetchPromise = null;
     liveNavOptionalGeneration++;
@@ -6740,6 +6746,37 @@
       // real open slots the first time it's actually opened.
       populateAssignAlbumOptions();
     }
+    // Lookup_Errors feeds Add Coin's Error dropdown. Built once from the
+    // raw rows (buildLookupErrorList), then the dropdown is refilled in
+    // place — it was first filled at page load, before any fetch landed.
+    if (got.Lookup_Errors) {
+      LIVE_LOOKUP_ERRORS = buildLookupErrorList(got.Lookup_Errors);
+      liveLookupErrorsLoadFailed = !LIVE_LOOKUP_ERRORS;
+      populateErrorOptions();
+    }
+  }
+
+  // Lookup_Errors -> the Error dropdown's choices. Read by header ("Error
+  // Type"), never by position. The sheet carries section dividers like
+  // "═══ PLANCHET ERRORS ═══" with a blank Category; those are never
+  // choices, so a row is skipped when its Category is blank or its name
+  // starts with "═". Names are trimmed; blanks and duplicates are dropped.
+  // Returns null when no row carries an "Error Type" header at all — the
+  // caller treats that the same as a failed load (none/Other only).
+  function buildLookupErrorList(rows) {
+    if (!Array.isArray(rows)) return null;
+    if (!rows.some(r => r && Object.prototype.hasOwnProperty.call(r, "Error Type"))) return null;
+    const seen = new Set();
+    const out = [];
+    rows.forEach(row => {
+      const name = String(colVal(row, "Error Type")).trim();
+      const category = String(colVal(row, "Category")).trim();
+      if (!name || !category || name.startsWith("\u2550")) return;
+      if (seen.has(name)) return;
+      seen.add(name);
+      out.push(name);
+    });
+    return out;
   }
 
   // Background refetch of only the missing non-essential sheets. Never
@@ -6760,6 +6797,7 @@
       // Nothing came back: the Albums screen (if showing) moves from
       // "still loading" to "couldn't load". liveAlbumsLoadFailed is already
       // set — the full fetch that left Albums missing set it.
+      if (missing.includes("Lookup_Errors") && !got.Lookup_Errors && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       if (!Object.keys(got).length) { refreshAlbumsListIfShowing(); return false; }
       rerenderViewsAfterLiveNavData();
       return true;
@@ -6767,6 +6805,7 @@
       if (gen === liveNavOptionalGeneration) {
         liveNavOptionalFetchPromise = null;
         refreshAlbumsListIfShowing();
+        if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       }
       console.warn("Live nav data: non-essential sheet refetch error:", err && err.message);
       return false;
@@ -6795,6 +6834,43 @@
   function activeDbSets() { return LIVE_DB_SETS || (demoDataAllowed() ? FAKE_DB_SETS : []); }
   function activeDbCoins() { return LIVE_DB_COINS || (demoDataAllowed() ? FAKE_DB_COINS : []); }
   function activeLookupGraders() { return LIVE_LOOKUP_GRADERS || FAKE_LOOKUP_GRADERS; }
+  // Error choices: the real Lookup_Errors list once loaded; the 8 demo
+  // values only in the offline mockup; nothing at all in a live session
+  // before (or without) the real list — the dropdown then offers only
+  // "— none —" and "Other", which is free text.
+  function activeLookupErrors() { return LIVE_LOOKUP_ERRORS || (demoDataAllowed() ? FAKE_LOOKUP_ERRORS : []); }
+
+  // (Re)fills Add Coin's Error dropdown from activeLookupErrors(). Called at
+  // page load and again when Lookup_Errors arrives. Keeps the static
+  // "— none —" and "Other" options; never touches #errorDesc (the value
+  // that gets saved). A current pick the new list no longer offers is moved
+  // to "Other" with its text intact, so nothing typed or picked is lost.
+  function populateErrorOptions() {
+    const sel = document.getElementById("errorSelect");
+    if (!sel) return;
+    const current = sel.value;
+    [...sel.options].forEach(o => { if (o.value !== "" && o.value !== "__other__") o.remove(); });
+    const otherOpt = [...sel.options].find(o => o.value === "__other__");
+    activeLookupErrors().forEach(e => sel.insertBefore(new Option(e, e), otherOpt || null));
+    if (current && current !== "__other__") {
+      if ([...sel.options].some(o => o.value === current)) {
+        sel.value = current;
+      } else {
+        sel.value = "__other__";
+        const other = document.getElementById("errorOther");
+        if (other) { other.style.display = "block"; other.value = document.getElementById("errorDesc").value || current; }
+      }
+    } else {
+      sel.value = current;
+    }
+    const note = document.getElementById("errorListNote");
+    if (note) note.style.display = (!LIVE_LOOKUP_ERRORS && liveLookupErrorsLoadFailed && !demoDataAllowed()) ? "block" : "none";
+  }
+  function __setLiveLookupErrorsForTest(list, failed) { // test-only seam
+    LIVE_LOOKUP_ERRORS = list || null;
+    liveLookupErrorsLoadFailed = !!failed;
+    populateErrorOptions();
+  }
   // ---- Which data world the app is in --------------------------------
   // Ray's rule (2026-10-04): once the app runs on real data, nothing fake or
   // filler shows unless it stands in for a feature that isn't built yet. So
@@ -7051,13 +7127,18 @@
       // without dbSetsRows anyway, which is already all-or-nothing gated
       // with the other four core sheets below.
       fetchWorkbookSheetRows("Albums"),
-      fetchWorkbookSheetRows("Wishlist")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows]) => {
+      fetchWorkbookSheetRows("Wishlist"),
+      // Lookup_Errors — Add Coin's Error dropdown. Optional, like the four
+      // above: a failure never blocks startup, and the dropdown falls back
+      // to none/Other with a note until a later refetch lands it.
+      fetchWorkbookSheetRows("Lookup_Errors")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows]) => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
       liveNavDataFetchPromise = null;
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) {
         if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
+        if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
         return false;
       }
       // A stray blank sheet row (no CollectionID) is never a real owned
@@ -7137,7 +7218,9 @@
       if (receiptRows !== null) optionalGot.Receipts = receiptRows;
       if (albumRows !== null) optionalGot.Albums = albumRows;
       if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
+      if (lookupErrorRows !== null) optionalGot.Lookup_Errors = lookupErrorRows;
       applyLiveNavOptionalRows(optionalGot);
+      if (lookupErrorRows === null && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       liveAlbumsLoadFailed = !LIVE_ALBUMS;
       rerenderViewsAfterLiveNavData();
       return true;
@@ -7145,6 +7228,7 @@
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
       liveNavDataFetchPromise = null;
       if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
+      if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
       // call catches its own errors and never rejects, so reaching this
       // catch means the PROCESSING block above (after every sheet already
@@ -28912,7 +28996,7 @@
     // Error: unfiltered dropdown (applies to any coin) + manual "Other"
     // override, same shape as Variety's override but no context-filtering.
     const errorSelect = document.getElementById("errorSelect");
-    FAKE_LOOKUP_ERRORS.forEach(e => errorSelect.insertBefore(new Option(e, e), errorSelect.lastElementChild));
+    populateErrorOptions();
     errorSelect.addEventListener("change", (e) => {
       const otherInput = document.getElementById("errorOther");
       if (e.target.value === "__other__") {
