@@ -40,8 +40,8 @@ be asked for the copy-paste version.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code change on `main` is `a06b976` (later commits are
-docs-only); `npm test` = 2900 passed, 0 failed, 0 page errors, 64 suites.
+**Baseline:** last code commit on `main` is `b2abb18` (`44b7a3d` is docs
+plus one comment; later commits are docs-only); `npm test` = 3040 passed, 0 failed, 0 page errors, 68 suites.
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
@@ -133,8 +133,8 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, HELD on `claude/add-coin-error-dropdown-real-values`)
-Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_list.js` (24).
+## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`)
+Merged to `main`. Suite: `tests/verify_addcoin_error_list.js` (24).
 - **Bug fixed:** the 8 `FAKE_LOOKUP_ERRORS` values were put into Add Coin's
   Error dropdown at page load in every session, live included, and a pick
   could reach `All.Error` on promotion.
@@ -166,8 +166,8 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_lis
   description: "Error Type", Category, 5 "═══" dividers), any real device,
   real OneDrive, Samsung Internet.
 
-## Catalog: Finish tag on list rows + Finish filter (Oct 2026, HELD on `claude/catalog-finish-filter-and-list-tag`)
-Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_catalog_finish_filter.js` (30).
+## Catalog: Finish tag on list rows + Finish filter (Oct 2026, merged to main, built on `claude/catalog-finish-filter-and-list-tag`, tip `4f6577b`)
+Merged to `main`. Suite: `tests/verify_catalog_finish_filter.js` (30).
 - **List-view tag**: `catalogListFinishTagHtml(coin)` appends a small muted
   `.finish-tag` (" · Proof") to the `.name` line of a Catalog list row. Hidden
   for blank and for `DEFAULT_FINISHES_HIDDEN_ON_PAGE` (Business Strike,
@@ -196,8 +196,8 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_catalog_finish_fi
   the Medal tab's own dead filter path (`applyMedalTabFilters`), Rolls/Sets.
 - **Not verified**: the real mix of All.Finish values, any real device.
 
-## Editing a Staging draft: photos, receipt and research note (Phase B) (Oct 2026, HELD on `claude/staging-edit-photos-phase-b`)
-Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_staging_edit_photos.js` (45).
+## Editing a Staging draft: photos, receipt and research note (Phase B) (Oct 2026, merged to main at `44b7a3d`, built on `claude/staging-edit-photos-phase-b`)
+Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-verified by Ray on his tablet against `_Testing`. Suite: `tests/verify_staging_edit_photos.js` (45).
 - **Live report (AY-00754):** photos picked while editing a Staging draft
   (Staging Review → Edit → `beginCoinDraftEdit`) were cropped and then
   dropped. `saveCoinDraftEdit()` never uploaded anything and kept the stored
@@ -270,8 +270,8 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_staging_edit_phot
   and deleted in a Staging folder), Samsung Internet. Ray runs a TEST round
   against `_Testing`.
 
-## Add Coin: 📁 Files button + photo guard (Oct 2026, HELD on `claude/add-coin-files-picker-button`)
-Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_files_picker.js` (40).
+## Add Coin: 📁 Files button + photo guard (Oct 2026, merged to main at `0a86551`, built on `claude/add-coin-files-picker-button`)
+Merged to `main` (fast-forward to `0a86551`). Suite: `tests/verify_files_picker.js` (40).
 - **Why:** Chrome on Android opens its Photos-style picker for an image-only
   accept, and that picker's cloud sources are Google Photos or None — OneDrive
   can never appear there. An accept that also allows a non-image type makes
@@ -430,68 +430,46 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 **Test baseline after this work (main a06b976):** `npm test` = 2900 passed,
 0 failed, 0 page errors, 64 suites.
 
-## Current status (2026-09-05) — read this first
+## Current status (Oct 2026) — read this first
+- `main` is the source of truth for everything in this file. Every branch
+  section that once read "HELD" has since been merged (each header now says
+  so). The one exception: `claude/in-app-pdf-viewer-options` (Receipt PDFs,
+  pdf.js) is NOT an ancestor of `main`, though `loadPdfjs()` is present in
+  `main`'s `app.html`; how it landed is unverified (likely squashed or
+  cherry-picked). Check before treating that section as current.
+- The live site writes the REAL workbook once Ray deploys `main` through the
+  workflow (see "The build decides its data target"). Nothing reaches the
+  live site until he runs it.
+- Baseline: see the line at the top of this file.
+- Still open, by choice: the `AllCoins` table's ref runs ~987 rows past its
+  data (left as-is); a real Graph workbook session ("option 3") stays in
+  reserve for read-after-write lag; the deferred write bugs listed under
+  "Known effects, accepted" in "The build decides its data target".
+- Backlog: see "Open backlog (Oct 2026)" directly below.
 
-**Add Coin Phase 2 is COMPLETE and merged to main.** The branch
-`claude/add-coin-write-path-fs2rf8` was merged on Ray's explicit go-ahead
-after its final full-suite run (977 assertions, 23 suites, zero failures,
-zero page errors). Every section below that used to read "BUILT, same
-branch, still held" now reads "BUILT and merged to main" — **main is the
-source of truth for all of it**, and the branch name survives in those
-headers only as a historical pointer to where the work originated, not as a
-place future work should land.
+## Open backlog (Oct 2026) — recorded only, not built
+- (a) A newly promoted coin does not appear in the Catalog until the app is
+  restarted. Plan only first, before any build.
+- (b) The "Mark ready" toast still says the app doesn't write the All sheet
+  ("Copilot moves the row across"); out of date since Promote and the direct
+  write landed.
+- (c) The Add Coin gallery has no per-photo Replace button.
+- (d) A new obverse, reverse or receipt picked during a Staging edit shows
+  its remove (✕) button only after the screen is redrawn.
+- (e) The 📁 Files button is only on Add Coin. Manage Photos, Edit Coin,
+  Wishlist and Add Set still lack it, and HEIC picked through Files is
+  unverified on a real phone.
+- (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
+  code; the app does not load `Lookup_Finishes`.
 
-What that merge covers, end to end:
-- **Add Coin Phase 1** — real Staging `coin.json` drafts with photos, the
-  unified CollectionID reservation, the ambiguous-picker fix, and the many
-  live-run bug-fix batches on top of it.
-- **Add Coin Phase 2** — the real direct-write path into the `All` sheet:
-  `createAllSheetRow()` (claim an existing blank row, append only as a
-  fallback), `writeNewRowKeyCells()`, Promote / Force Add / Dismiss, the
-  promotion photo move, and the duplicate-row race fix.
-- **Editing a coin in Staging (Phase A)**, the Docket's three collapsible
-  sections and Research row tags, the Composition matcher tier and
-  flip-card corner, CACBean, ValueSource/ValueDate, the workbook-alignment
-  corrections, the Ledger/Stats live-data fix, and the whole corner-fitting
-  chain (`renderFittedCornerLines()` and the Catalog grid's own TL/BL).
-
-**SUPERSEDED, same-day follow-up: this "nothing is turned on" framing no
-longer describes the shipped state.** At merge time, nothing was on and no
-production redirect URI existed for `app.html`. Both of those have since
-changed — see "Real-Graph flags always on; WRITE_TARGET is the actual
-safety boundary" below for the current, accurate picture. Short version:
-`redirectUri` is now derived from `window.location.origin +
-window.location.pathname` rather than hardcoded to localhost, a production
-redirect URI for `app.html`'s real GitHub Pages URL is already registered
-in Entra, the two read-only flags (`ENABLE_REFERENCE_IMAGES`,
-`ENABLE_LIVE_NAV_DATA`) are plain `true` now, and the four write-capable
-flags (`ENABLE_SET_WRITE_LAYER`, `ENABLE_BROWSE_EDIT_WRITE`,
-`ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`) are `(WRITE_TARGET ===
-"copy")` — true in the shipped default, and **`WRITE_TARGET` is now the
-one real safety boundary**: it still defaults `"copy"`, so every write
-still resolves under `CoinCollection/_Testing/` and the real workbook
-stays untouchable, but flipping it to `"live"` turns every write-capable
-flag back off at that same instant — going live for real needs a second,
-explicit step (re-enabling each flag) rather than being a side effect of
-the one `WRITE_TARGET` edit. The local-only `dev-flags.local.js` override
-mechanism this paragraph used to describe is gone entirely — there's no
-local/production split left to gate flags behind.
-**SUPERSEDED AGAIN (Oct 2026):** `WRITE_TARGET` is no longer a constant at
-all and every write flag is plain `true` — see "The build decides its data
-target" at the top of this file.
-
-**Held, not merged: `claude/photo-receipt-write-layer`** — the photo/receipt
-write layer (real Photos/Receipts table rows, commit-on-capture for
-already-owned records, and the stored-photo/receipt read side). New write
-surface, awaiting Ray's go-ahead and a live `_Testing` run. See its own
-section below.
-
-Known, still-open, unaffected by the merge: the `AllCoins` table's ref runs
-987 rows past its real data (left as-is by Ray's call — see "The AllCoins
-table is 987 rows longer than its data"); the Graph read-after-write
-consistency gap has been seen twice and option 3 (a real workbook session)
-stays in reserve for a third sighting; `All.Status` filtering is designed
-but deliberately unbuilt.
+### History: Current status as of 2026-09-05 (superseded, kept for the record)
+The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
+Phase A Staging edit, Docket sections, Composition tier, CACBean,
+ValueSource/ValueDate, the workbook-alignment corrections, the Ledger/Stats
+live-data fix and the corner-fitting chain all landed on `main` then. The
+`WRITE_TARGET` / flag notes from that time are superseded by "The build
+decides its data target"; `claude/photo-receipt-write-layer` has since
+merged too (see its own section).
 
 ## Startup connection, docket.json, and the no-demo-data rule (04 Oct 2026)
 Built on `claude/dreamy-turing-2vyo06` (commits `018c29d`..`9a4d70c`, plus this
@@ -610,6 +588,8 @@ needs a valid URL pattern such as `https://graph.microsoft.com/*`. A bare
 - An open album book can mix two albums after a live album-list refresh that
   changes positions (the book holds a list position, not the album itself).
 - Add Coin's "Assign to Album" selection resets when Albums/Wishlist arrive late.
+  *(Fixed by `0a74901`, Oct 2026: `populateAssignAlbumOptions` keeps the current
+  choice across a rebuild.)*
 - The Docket screen does not re-render when Photos arrive late.
 - A full-screen photo viewer opened from a demo gallery entry with no image
   gets stuck: Escape and scrolling don't close it.
@@ -1692,7 +1672,7 @@ the same corner mapping:
   restoration doesn't reintroduce it. Verified in a real browser across
   several coins, including one that needed the shortening fallback. Rolls
   (no longer rendered as `.coin-card` at all, see "Rolls tab" below) and Set
-  children's mini-flips (`renderSetChildFlips()`) are unaffected — this only
+  children's mini-flips (`renderSetChildFlips()` *(removed)*) are unaffected — this only
   touches the Coins tab's own grid cards (`renderBrowseGrid()`).
 - **Two-line corner stacking is a general mechanism (`renderCornerLines()`),
   not a one-off for Type/Denom** — any corner combining two related values
@@ -2401,7 +2381,7 @@ duplication."
   in this Set" row's Back gets to WHATEVER is hosting that render** — the
   standalone screen's own wrapper defaults it to `() => openManagePhotos(
   managePhotosCtx)` (identical to the prior behavior); Edit Set's embedded
-  call passes `() => returnToEditSetView()` instead. **`returnToEditSetView()`
+  call passes `() => returnToEditSetView()` *(removed later)* instead. **`returnToEditSetView()`
   is a new helper that restores Edit Set's visibility WITHOUT re-running
   `showBrowseEditSetView()`** — re-running it would re-populate every field
   from the coin record and silently discard anything Ray had typed but not
@@ -9612,11 +9592,11 @@ the CSS fails 5 of them and reproduces the sliver.
   No overflow.
 - **Not verified: any real device.**
 
-### Former Holdings sub-catalog + Purge (BUILT, HELD on `claude/vigilant-cerf-maworr`)
+### Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`)
 The app's first genuinely **DESTRUCTIVE** write. Architectural and
-irreversible, so it is **held for Ray's explicit merge go-ahead** — not
-auto-merged despite a clean suite — and he wants to run the delete path
-himself against `_Testing` first. See
+irreversible, so it was held for Ray's explicit merge go-ahead and his own
+run of the delete path against `_Testing`; **since merged to `main`** (the
+branch tip is an ancestor of `main`). See
 `docs/PURGE_LIVE_RUN_CHECKLIST.md`.
 
 **One premise correction worth carrying forward: `deleteItem()` is NOT new.**
@@ -9746,7 +9726,7 @@ enabling those never silently enables permanent deletion.
   `ownedCoins()`, so exited coins were already invisible to both, purged or
   not. As originally specified, a purged coin would have become completely
   unreachable in the app. So a small **"Open by CollectionID"** input was
-  built into Ledger (`openLedgerCoinById()`), reading **raw
+  built into Ledger (`openLedgerCoinById()` *(removed, Purge follow-up 3)*), reading **raw
   `activeCoins()`** — the one surface that must never filter, matching the
   existing precedent that direct single-coin lookups are never
   ownership-filtered.
@@ -9797,7 +9777,7 @@ inertness.
   catch a future change, not to prove today's code, and should be read that
   way.
 
-### Purge follow-up: independent crop/original selection, all unchecked by default (BUILT, same branch, still held)
+### Purge follow-up: independent crop/original selection, all unchecked by default (BUILT, same branch, merged to main)
 Ray's live testing surfaced a real gap between what was scoped for the
 original build (Q2: Purge deletes both the crop and the `_original` raw
 together) and what would actually be desirable in hand: rather than a
@@ -9909,7 +9889,7 @@ more granular improvement, not a behavior change.
   is trusted — see the checklist, updated for this build's dialog changes.
   **`WRITE_TARGET` stays `"copy"` throughout.**
 
-### Purge follow-up 2: a zero-photo coin can now reach Purged too (BUILT, same branch, still held)
+### Purge follow-up 2: a zero-photo coin can now reach Purged too (BUILT, same branch, merged to main)
 Real gap: a coin with zero stored photos of any kind — no `Photos` rows,
 no legacy flat `All.Obverse`/`Reverse` reference either — hit Purge and got
 the same "Nothing to purge" OK-only dead end as a **legacy-only** coin
@@ -9980,7 +9960,7 @@ audited `writePurgedCell()` path, no new write surface.
   with a new Part covering this dialog. **`WRITE_TARGET` stays `"copy"`
   throughout.**
 
-### Purge follow-up 3: one search box too many — "Open by CollectionID" retired for a "Show Purged" toggle (BUILT, same branch, still held)
+### Purge follow-up 3: one search box too many — "Open by CollectionID" retired for a "Show Purged" toggle (BUILT, same branch, merged to main)
 Real usability finding from Ray: Ledger had three search/lookup boxes
 stacked on one screen — "Find a Coin" (Owned-only, pre-existing, untouched
 by this), Former Holdings' own `#formerSearchInput` (searches within the
@@ -10608,7 +10588,7 @@ corner's box DOWNWARD into the coin disc's band. That is precisely what
 measured earlier at 412px, a two-line TL fits its own box while its bottom
 edge sits past the disc's bounding-box top.
 
-**New `setStackedCornerText(el, lines)`** — one or two stacked lines through
+**New `setStackedCornerText(el, lines)` *(removed later; see the Catalog grid follow-up)*** — one or two stacked lines through
 `shrinkCornerToFit()` + `renderCornerLines()`, the same machinery TR/BR use.
 Blank lines are dropped, so no Variety renders a single line and no
 Grade/Designation renders nothing at all (not an empty box).
@@ -10648,7 +10628,7 @@ either way.
 **ParkingLot Row 6 is NOT closed by this.** That row is about the FULL flip
 card's BL (Grade+Designation), which `applyFlipCorners()` still writes with
 plain `textContent` and no fitting. This gives the CATALOG GRID's BL that
-protection; the full card is untouched. `setStackedCornerText()` is now
+protection; the full card is untouched. `setStackedCornerText()` *(removed later)* is now
 available if Row 6 is ever picked up, but wiring it into `applyFlipCorners()`
 would change the appearance of the main flip card and was not asked for.
 
@@ -11386,11 +11366,11 @@ suite depends on the real fix, not a coincidence of the fixture.
   already pointing at the very Set being edited; linking there is
   deliberately session-only, per `ALL_NEVER_WRITE_COLUMNS`).
 
-### Set attach / detach: the real OriginSetID write layer (BUILT, HELD on `claude/add-coin-write-path-fs2rf8`)
+### Set attach / detach: the real OriginSetID write layer (BUILT and merged to main; built on `claude/add-coin-write-path-fs2rf8`, tip `3767eb4`)
 The app's **first cross-row-target write**: initiated from a Set's Edit
 form, but landing on a DIFFERENT row entirely (the coin's). Architectural
-per the standing rule, so it is **held for Ray's explicit merge go-ahead**
-— not auto-merged despite a clean suite.
+per the standing rule, so it was held for Ray's explicit merge go-ahead;
+**since merged to `main`**.
 
 **What existed before (confirmed directly, not assumed).** Attach was
 session-only (`linkCoinToSet()` mutating `FAKE_SET_CHILDREN`), and **detach
@@ -12802,7 +12782,7 @@ copper cover — instead of the dark disc/case look used elsewhere in the app.
   Folder Vol. 3") is a generic placeholder — no real Littleton folder has been
   chosen yet (Ray's Volume 2 selection is still pending). Swap its name/date-
   range/`mfgProductId` for the real folder once chosen, same stand-in pattern
-  as `FAKE_REFERENCE_IMAGES`/`FAKE_GRADING_HELP`.
+  as `FAKE_REFERENCE_IMAGES`/`FAKE_GRADING_HELP` *(both removed)*.
 - **Cover is visually distinct from the interior pages (locked in)**: darker
   brown background with copper-colored lettering, vs. the cream background
   and navy print on history/coin interior pages — a folder's outer cover is a
@@ -14948,14 +14928,15 @@ alone wouldn't prove the actual new element exists, which the added
   on `claude/code-primer-u8uv1d`, not merged to `main`, until that pass
   comes back clean.
 
-### Description consistency gate + Category lone-candidate fix (BUILT, HELD on `claude/brave-wozniak-6fobpg`)
+### Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`)
 Ray's live repro: Year 2026 / no mint / `$1` / Business Strike with
 **"Trump"** typed into Description silently auto-matched `C-2026--$1-01` —
 a different real 2026 dollar — behind a green "Matched DB_Coins" banner
 with no picker. He ran it twice; the first run he promoted deliberately, so
 a mismatched row sits in `_Testing` (disposable, no cleanup needed). Core
-identity-matching territory, so **held for Ray's explicit merge go-ahead**,
-same standing as Thread A and the Docket build.
+identity-matching territory, so it was held for Ray's explicit merge
+go-ahead, same standing as Thread A and the Docket build; **since merged to
+`main`**.
 
 **Investigated before building, and the investigation changed the fix.**
 Two independent causes, both confirmed by driving the real form headlessly
@@ -15122,7 +15103,7 @@ row resolves cleanly with no conflict message; Category rejecting a lone
 non-Eagle row and accepting a lone Eagle row; and the banner re-running live
 as the Description is typed.
 
-### Re-check applied the gate too; three note strings corrected (BUILT, HELD on `claude/brave-wozniak-6fobpg`)
+### Re-check applied the gate too; three note strings corrected (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`)
 Live finding on `d3439a4`, from the same pass: staged draft `AY-00724`
 (Description "Trump", CoinID deliberately withheld for `C-2026--$1-01`)
 offered, on ONE tap of **Re-check**, *"One match found: DB_Coins now has a
