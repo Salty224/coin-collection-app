@@ -27,6 +27,15 @@ because <reason>".
 - e. If a session is about to be compacted or closed and part 2 has not been
   done, do it first.
 
+**3. Every report to Ray is copy-paste ready (standing rule, Oct 2026).**
+Plans, branch reports, merge reports and answers to questions all go in ONE
+fenced plain-text code block that Ray can paste straight to chat-Claude:
+plain text inside (no markdown tables, no bold), short numbered sections,
+questions as Q1/Q2... each with the recommendation in brackets, and the
+"CLAUDE.md updated in <commit>" / "no CLAUDE.md change needed because ..."
+line inside the block. At most one short sentence outside it. Don't wait to
+be asked for the copy-paste version.
+
 **Docs-only commits** (this file only, no code) may go straight to `main` with
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
@@ -622,7 +631,8 @@ the coordinating Claude keeps those.
 
 ## End-of-task reporting (standing rule)
 When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
-plain-text summary block: what changed, how it was verified, and — critically —
+plain-text summary block (one fenced code block; see rule 3 of "Standard
+end-of-work pattern" at the top of this file): what changed, how it was verified, and — critically —
 any open questions or concerns worth a second look (an ambiguous instruction,
 a tradeoff made without explicit sign-off, a side effect on something else,
 an unresolved item carried over from a prior task) so the two of you can
