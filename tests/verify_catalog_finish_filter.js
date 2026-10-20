@@ -164,7 +164,8 @@ module.exports = defineSuite("catalog-finish-filter", async ({ ok, openApp, PHON
       const tops = new Set(chips.map(c => Math.round(c.getBoundingClientRect().top)));
       const longCard = [...document.querySelectorAll("#browseGrid .coin-card")].find(c => c.querySelector(".card-id").textContent.trim() === "AY-91008");
       const cr = longCard.getBoundingClientRect();
-      const tag = longCard.querySelector(".finish-tag").getBoundingClientRect();
+      const tagEl = longCard.querySelector(".finish-tag");
+      const tag = tagEl ? tagEl.getBoundingClientRect() : { right: Infinity, width: 0 };
       return {
         pageOverflow: document.documentElement.scrollWidth - window.innerWidth,
         rowOverflow: row.scrollWidth - row.clientWidth,

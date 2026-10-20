@@ -166,6 +166,36 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_addcoin_error_lis
   description: "Error Type", Category, 5 "═══" dividers), any real device,
   real OneDrive, Samsung Internet.
 
+## Catalog: Finish tag on list rows + Finish filter (Oct 2026, HELD on `claude/catalog-finish-filter-and-list-tag`)
+Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_catalog_finish_filter.js` (30).
+- **List-view tag**: `catalogListFinishTagHtml(coin)` appends a small muted
+  `.finish-tag` (" · Proof") to the `.name` line of a Catalog list row. Hidden
+  for blank and for `DEFAULT_FINISHES_HIDDEN_ON_PAGE` (Business Strike,
+  Uncirculated), so no stray separator. Full value, escaped, ellipsis via
+  inline-block (no abbreviation exists in the app). **Rendered only when
+  `browseViewMode === "list"`**; the grid/list toggle buttons now call
+  `applyActiveBrowseTabFilters()` so the tag appears/disappears. That keeps
+  grid cards free of Finish text (`verify_finish_display` G1 unchanged).
+  The Medals list shares `renderBrowseGrid()` and gets the tag too.
+- **Finish filter**: `#browseFinishFilters` in `#browseCoinsHeader`,
+  `BROWSE_FINISH_CHIPS` / `browseSelectedFinishKeys` / `browseFinishTest()`,
+  multi-select OR via `chipRowTest()`, ANDed in `applyCoinsTabFilters()`,
+  cleared in `resetBrowseFilters()`. Pills All / Strike / Proof / Rev. Proof /
+  Special, each with a full-name title + aria-label; tighter chip padding on
+  this row only so it fits one line at 360px.
+  `CATALOG_FINISH_GROUPS` (matched trimmed, case-insensitive,
+  `catalogFinishGroupKey()`): Strike = Business Strike, Uncirculated; Proof =
+  Proof, Matte Proof; Rev. Proof = Reverse Proof, Enhanced Reverse Proof;
+  Special = Burnished, Enhanced Uncirculated, Satin Finish, SMS, Specimen,
+  Matte. Blank or anything else (e.g. "Various") shows only under All.
+  **Hardcoded on purpose: the app does not load Lookup_Finishes.**
+- **Search**: `coinMatchesSearchQuery()` now also matches `coin.finish`. That
+  helper is shared, so Ledger's Find a Coin and Former Holdings search match
+  Finish too.
+- **Left alone**: no sort control (default Year then Mint Mark), grid cards,
+  the Medal tab's own dead filter path (`applyMedalTabFilters`), Rolls/Sets.
+- **Not verified**: the real mix of All.Finish values, any real device.
+
 ## Ledger, spot prices, Wishlist, albums: Oct 2026 work (all merged to main, a06b976)
 All of this is on `main` at `a06b976`, merged on Ray's go-ahead. It reaches the
 live site only when Ray runs the deploy workflow for `main`.
