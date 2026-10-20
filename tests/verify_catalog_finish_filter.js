@@ -80,7 +80,17 @@ module.exports = defineSuite("catalog-finish-filter", async ({ ok, openApp, PHON
 
   // ---------- B. Grid view: no tag ----------
   const B = await page.evaluate(() => { __open("grid"); return __rows(); });
-  ok(!B["AY-91001"].tagVisible && !B["AY-91008"].tagVisible, "B1 grid view shows no finish tag");
+  ok(B["AY-91001"].tag === null && B["AY-91008"].tag === null && !/Proof/.test(B["AY-91001"].name),
+    "B1 grid view carries no finish tag at all");
+  const B2 = await page.evaluate(() => {
+    document.getElementById("browseListViewBtn").click();   // the real toggle, no manual re-render
+    const toList = __rows()["AY-91001"].name;
+    document.getElementById("browseGridViewBtn").click();
+    const toGrid = __rows()["AY-91001"].tag;
+    return { toList, toGrid };
+  });
+  ok(B2.toList === "Roosevelt Dime · Proof" && B2.toGrid === null,
+    "B2 the view toggle itself adds the tag in list view and removes it in grid view: " + JSON.stringify(B2));
 
   // ---------- C. Each pill shows exactly its group ----------
   const C = await page.evaluate(() => {

@@ -14673,8 +14673,10 @@
   // The small Finish tag on a Catalog LIST-view row ("Roosevelt Dime · Proof").
   // Same hiding rule as the detail page's Finish line: blank or a default
   // finish (Business Strike, Uncirculated) shows nothing, separator included.
-  // Grid view never shows it (.coin-card-text is hidden there).
+  // Only rendered in list view at all, so grid cards carry no Finish text
+  // (the view toggle re-renders the grid for this reason).
   function catalogListFinishTagHtml(coin) {
+    if (browseViewMode !== "list") return "";
     const finish = String((coin && coin.finish) || "").trim();
     if (!finish || isDefaultFinishForPage(finish)) return "";
     return `<span class="finish-tag" title="${escapeHtmlText(finish)}"> · ${escapeHtmlText(finish)}</span>`;
@@ -15512,12 +15514,14 @@
       document.getElementById("browseGridViewBtn").classList.add("active");
       document.getElementById("browseListViewBtn").classList.remove("active");
       document.getElementById("browseGrid").classList.remove("list-view");
+      applyActiveBrowseTabFilters();
     });
     document.getElementById("browseListViewBtn").addEventListener("click", () => {
       browseViewMode = "list";
       document.getElementById("browseListViewBtn").classList.add("active");
       document.getElementById("browseGridViewBtn").classList.remove("active");
       document.getElementById("browseGrid").classList.add("list-view");
+      applyActiveBrowseTabFilters();
     });
 
     // Global card-side toggle — flips every visible Catalog card at once
