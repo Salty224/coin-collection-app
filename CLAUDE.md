@@ -196,6 +196,80 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_catalog_finish_fi
   the Medal tab's own dead filter path (`applyMedalTabFilters`), Rolls/Sets.
 - **Not verified**: the real mix of All.Finish values, any real device.
 
+## Editing a Staging draft: photos, receipt and research note (Phase B) (Oct 2026, HELD on `claude/staging-edit-photos-phase-b`)
+Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_staging_edit_photos.js` (45).
+- **Live report (AY-00754):** photos picked while editing a Staging draft
+  (Staging Review → Edit → `beginCoinDraftEdit`) were cropped and then
+  dropped. `saveCoinDraftEdit()` never uploaded anything and kept the stored
+  `photos`/`receiptPhoto`; `resetAddCoinAfterSave()` → `resetAddCoinForm()`
+  then deleted the gallery (`galleryStore[ADDCOIN_GALLERY_ID]`) and
+  `receiptFiles`. Not a 📁 Files bug.
+- **Gate (`coinDraftEditRefusal`)**: no Staging edit when the draft is
+  PROMOTED, `allRowWritten` or `filesMovedOnPromotion` (checked on open and
+  again on save).
+- **Opening an edit (`loadStagingEditFiles`)** puts coin.json's photos back
+  into Add Coin's own slots/gallery as entries marked `stagingStored`, with
+  `stagingFiles` (the crop and, for obverse/reverse, its `_original`), fetched
+  from `Staging/{ID}/` via `getFileBytes`. `stagingPhotoGroups` pairs a crop
+  with its original and also reads older bare-string photo lists
+  (`stagingPhotoTypeFromFilename`); a name it doesn't know is never loaded and
+  never touched. Obverse/reverse show the photo, say Replace in their titles
+  (`setFlipSlotReplaceLabels`) and Adjust from the original (`slotFiles`). The
+  stored receipt shows as "{name} (in Staging)". Gallery thumbs say
+  "In Staging".
+- **Save (`saveCoinDraftEdit`) — upload first, then record**:
+  `uploadStagingEditFiles` uploads every new/replaced entry and a new receipt
+  to `Staging/{ID}/`; only if ALL landed does it re-read coin.json, merge
+  (`mergeStagingEditFiles`) and write it ONCE; then
+  `finishStagingEditFiles` deletes files no longer listed. Merged entries use
+  the first save's `{type, filename, caption}` shape, so promotion
+  (`plannedCoinPromotionMoves`, `recordPromotedCoinRecords`) needed no change.
+- **Names**: single types (obverse, reverse, slab front/back) and the receipt
+  (`{ID}_receipt.pdf`) overwrite their own file on Replace, the `_original`
+  pair together. Repeatable types (reference, other, COA) use
+  `nextFreeStagingRepeatableFilename`: one past the highest number in coin.json,
+  the folder (`listChildren`) and this save, checked free with `getItemMeta`;
+  never an existing `_NN`. (`nextFreeRepeatableFilename` was not reused: it
+  checks CoinPhotos and Photos rows, not a Staging folder.)
+- **Failed upload**: nothing is recorded, the photo (Blob) and every typed
+  field stay, the form is not reset or left; "Not saved — tap ↻" on the thumb
+  or slot plus a toast. The retry is the same save; a file that did land
+  keeps its name (`stagingNames`/`stagingUploaded`) and isn't re-sent.
+- **Remove (B2)**: ✕ on a stored thumb, and new `obverseRemoveBtn`,
+  `reverseRemoveBtn`, `receiptRemoveBtn` (shown only while editing a Staging
+  draft), confirm first (`confirmStagingRemove`). The removal is staged;
+  Save writes coin.json without it FIRST, then `graph().deleteItem`. A crop
+  takes its `_original` with it; a photo replaced under a different name has
+  its old file deleted the same way. A failed delete leaves a harmless orphan
+  and a correct coin.json, and the toast says so.
+- **Research note (5b)**: `buildCoinDraft` now stores `pcgsLabelRaw` and the
+  edit form restores it (older drafts read it from the note,
+  `draftPcgsLabelRaw`). `mergeEditResearchNote` keeps the first save's
+  "Some captured files failed to upload" line and, when the CoinID is
+  unchanged, the "CoinID X chosen from N" line and `matchedHow` (an edit used
+  to turn a single match into "picked from 1").
+- **Assign to Album (5c, test first, the problem was real)**: a saved slot
+  missing from the list (albums not loaded, or the list rebuilt mid-edit) was
+  written back blank. `applyCoinDraftToForm` uses
+  `setSelectValuePreservingUnknown`; `populateAssignAlbumOptions` keeps the
+  current choice across a rebuild (this also fixes the backlog item "Add
+  Coin's Assign to Album selection resets when Albums arrive late");
+  `resetAddCoinForm` drops kept (injected) options.
+- **Left alone on purpose**: the fresh-capture path (`uploadCoinDraftPhotos`,
+  `uploadCoinDraftReceipt`), Browse Edit, Manage Photos, receipts elsewhere,
+  promotion. The new UI states in `initGalleryCapture` are opt-in
+  (`opts.uploadStates`, Add Coin only).
+- **One existing assertion changed**: `verify_staging_edit` block C. Its
+  fixture (`allRowWritten` + `filesMovedOnPromotion`) is now refused by the
+  gate, so C4 runs on an allowed Ready draft and new C5 asserts the refusal.
+  B3 and its bare-string fixture are unchanged.
+- **Negative controls** (run against the real app.html, restored by
+  checksum, each failing by name): restore the drop (18 fail), session-only
+  numbering (P15b), delete before coin.json (Q4), coin.json before upload (P16).
+- **Not verified**: any real device, real OneDrive (bytes really fetched from
+  and deleted in a Staging folder), Samsung Internet. Ray runs a TEST round
+  against `_Testing`.
+
 ## Add Coin: 📁 Files button + photo guard (Oct 2026, HELD on `claude/add-coin-files-picker-button`)
 Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_files_picker.js` (40).
 - **Why:** Chrome on Android opens its Photos-style picker for an image-only
@@ -231,8 +305,8 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_files_picker.js` 
   Choose photo" wording needs ~350px against ~264px at a 360px phone and
   wrapped to two lines. Galleries without `opts.files` keep the old labels.
 - **Left alone on purpose:** Manage Photos / Edit Coin (next branch), Add
-  Set, Staging-edit photo saving (Phase B still held — a pick while editing a
-  Staging draft is still not saved).
+  Set, Staging-edit photo saving *(since built: see "Editing a Staging draft:
+  photos, receipt and research note (Phase B)")*.
 - **Not verified:** which picker Android actually opens for this accept on
   Ray's S25, whether OneDrive is listed in its Files menu, whether OneDrive
   files download through Files, and HEIC from a real phone (the suite uses a
@@ -5631,8 +5705,9 @@ so the reasoning here held up; only the tense is wrong.
 - **Phase 2 (since BUILT)** — the real direct-write path into `All`.
 - **Phase 3** — nothing further; photo capture already lands in Phase 1.
   (A later, separately-scoped **Phase A** added editing a coin while it sits
-  in Staging; its own **Phase B** — add/remove a photo mid-edit — is still
-  held. Those letters are a different, later track, not this numbered plan.)
+  in Staging; its own **Phase B** — add/remove a photo mid-edit — is now
+  built, see "Editing a Staging draft: photos, receipt and research note
+  (Phase B)". Those letters are a different, later track, not this numbered plan.)
 
 Phase 1 first defers the one genuinely novel capability while delivering
 durable value, and matches the project's own risk posture: it has written
@@ -8742,9 +8817,12 @@ been captured, unlike an in-progress Set draft, which `resumeSetDraftAtStep1()`
 has always been able to resume. This is the coin-side equivalent.
 
 **Phase A scope, deliberately: FIELDS only.** Photos and the receipt are
-carried forward untouched, so an edit can never lose a captured file. Phase B
-(add/remove a photo during an edit) is held back on Ray's instruction — it
-needs a delete-from-OneDrive capability nothing in this flow has today.
+carried forward untouched, so an edit can never lose a captured file.
+**Superseded by Phase B (Oct 2026), now built** — see "Editing a Staging
+draft: photos, receipt and research note (Phase B)" near the top of this file.
+The reason given here for holding it ("needs a delete-from-OneDrive capability
+nothing in this flow has") was wrong: `graph().deleteItem()` already existed
+(Reject, the promotion move and Purge all use it).
 
 - **`applyCoinDraftToForm(draft)` is the exact inverse of
   `readAddCoinFormForDraft()`** — every field that reads, this writes back,

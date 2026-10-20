@@ -28802,10 +28802,11 @@
   // This is the coin-side equivalent.
   //
   // PHASE A SCOPE, deliberately: identity/grade/purchase/storage FIELDS only.
-  // Photos and the receipt are carried forward untouched — adding or removing
-  // one during an edit is Phase B, held back on purpose because removing a
-  // photo needs a delete-from-OneDrive capability nothing in this flow has
-  // today. A Phase A edit can therefore never lose a captured file.
+  // Photos and the receipt were carried forward untouched. Adding, replacing
+  // or removing one during an edit is Phase B, now built — see "EDITING A
+  // STAGING DRAFT — PHOTOS AND THE RECEIPT" below. (It was held on the
+  // grounds that nothing could delete from OneDrive; graph().deleteItem()
+  // already existed.)
   let editingCoinDraftId = null;
 
   function clearCoinDraftEditContext() {
