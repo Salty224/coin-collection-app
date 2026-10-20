@@ -2259,6 +2259,15 @@
   .photo-upload-state { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .photo-upload-state.failed { color: #e08a6a; font-weight: 600; }
   .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Three buttons (Add Coin, with 📁 Files) must stay on ONE line down to a
+     360px phone. The original "Take photo" / "Choose photo" labels need
+     ~350px there against ~264px available, so this variant uses the shorter
+     Camera / Library / Files wording (the same words the circle buttons'
+     titles use) and splits the row equally. */
+  .gc-add-row.gc-add-row-3 { flex-wrap: nowrap; }
+  .gc-add-row.gc-add-row-3 .gc-add-btn {
+    flex: 1 1 0; min-width: 0; max-width: 150px; padding: 8px 4px; white-space: nowrap; text-align: center;
+  }
   .gc-add-btn {
     padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
     background: transparent; color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
@@ -4158,10 +4167,12 @@
                 <div class="photo-btns">
                   <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                   <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                  <button type="button" id="obverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
                   <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
                 </div>
                 <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="obverseLibraryInput" accept="image/*">
+                <input type="file" id="obverseFilesInput" accept="image/*,application/pdf">
               </div>
               <div class="photo-box" id="reversePhotoBox" style="display:none;">
                 <div class="flip-frame">
@@ -4175,10 +4186,12 @@
                 <div class="photo-btns">
                   <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                   <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                  <button type="button" id="reverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
                   <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
                 </div>
                 <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="reverseLibraryInput" accept="image/*">
+                <input type="file" id="reverseFilesInput" accept="image/*,application/pdf">
               </div>
 
               <!-- General photo gallery (slab/COA/box/other) — supersedes the old
@@ -25550,12 +25563,14 @@
       <div class="section-label" style="margin-top:0;">${title}</div>
       <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
       <div class="gc-grid" data-role="grid"></div>
-      <div class="gc-add-row">
-        <button type="button" class="gc-add-btn" data-role="add-cam">📷 Take photo</button>
-        <button type="button" class="gc-add-btn" data-role="add-lib">🖼️ Choose photo</button>
+      <div class="gc-add-row${opts.files ? " gc-add-row-3" : ""}">
+        <button type="button" class="gc-add-btn" data-role="add-cam"${opts.files ? ` aria-label="Take photo with camera"` : ""}>${opts.files ? "📷 Camera" : "📷 Take photo"}</button>
+        <button type="button" class="gc-add-btn" data-role="add-lib"${opts.files ? ` aria-label="Choose photo from library"` : ""}>${opts.files ? "🖼️ Library" : "🖼️ Choose photo"}</button>
+        ${opts.files ? `<button type="button" class="gc-add-btn" data-role="add-files" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)">📁 Files</button>` : ""}
       </div>
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
+      ${opts.files ? `<input type="file" accept="${FILES_PICKER_ACCEPT}" data-role="files" style="display:none;">` : ""}
     `;
     const grid = section.querySelector('[data-role="grid"]');
     const camInput = section.querySelector('[data-role="cam"]');
@@ -25606,19 +25621,32 @@
     }
     section.querySelector('[data-role="add-cam"]').addEventListener("click", () => startAdd(camInput));
     section.querySelector('[data-role="add-lib"]').addEventListener("click", () => startAdd(libInput));
+    // opts.files (off unless passed — only Add Coin passes it): a third 📁
+    // Files input, same handler as Library. See FILES_PICKER_ACCEPT.
+    const filesInput = opts.files ? section.querySelector('[data-role="files"]') : null;
+    if (filesInput) {
+      section.querySelector('[data-role="add-files"]').addEventListener("click", () => startAdd(filesInput));
+    }
 
-    const handleAdd = (input) => {
+    // opts.guardImages: Library and Files picks must pass isPickableImage()
+    // before the crop screen opens. A refused pick adds nothing.
+    const handleAdd = async (input, guard) => {
       const file = input.files[0];
       if (!file || !pendingType) return;
       const id = getTargetId();
       const type = pendingType;
       pendingType = null;
+      if (guard && !(await isPickableImage(file))) {
+        showToast(NOT_A_PHOTO_MESSAGE);
+        return;
+      }
       runCropPipeline(file, type, id, (entry) => {
         addGalleryEntryAndCommit(id, entry, render);
       });
     };
-    camInput.addEventListener("change", () => handleAdd(camInput));
-    libInput.addEventListener("change", () => handleAdd(libInput));
+    camInput.addEventListener("change", () => handleAdd(camInput, false));
+    libInput.addEventListener("change", () => handleAdd(libInput, !!opts.guardImages));
+    if (filesInput) filesInput.addEventListener("change", () => handleAdd(filesInput, !!opts.guardImages));
 
     // Expose a re-render hook so a flow can refresh the widget when its target
     // changes (e.g. Browse Edit opening a different coin).
@@ -26409,6 +26437,41 @@
   }
 
   // ==================================================================
+  // FILES PICKER + PHOTO GUARD (Add Coin only, Oct 2026)
+  // ==================================================================
+  // Chrome on Android opens its Photos-style picker for an image-only
+  // accept, and that picker's cloud sources are Google Photos or nothing —
+  // OneDrive can never appear there. An accept that also allows a non-image
+  // type makes Chrome open the system Files screen instead, where the
+  // OneDrive app is listed. So the 📁 Files input uses
+  // "image/*,application/pdf" (the same value every receipt Library input
+  // already uses). The PDF half exists only to change which picker Android
+  // opens; a PDF picked by mistake is refused here, never cropped.
+  const FILES_PICKER_ACCEPT = "image/*,application/pdf";
+  const NOT_A_PHOTO_MESSAGE = "That file isn't a photo. Nothing was added.";
+  // Only consulted when a picker hands over a file with NO MIME type at all,
+  // which some document providers do. A typed non-image is refused outright.
+  const PICKABLE_IMAGE_EXT = /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i;
+
+  // True only for a file that is an image AND decodes in this browser. The
+  // decode is the real test: a HEIC Chrome can't read, or a truncated JPEG,
+  // has an image type but would make the crop step throw with nothing on
+  // screen. Never throws.
+  async function isPickableImage(file) {
+    if (!file) return false;
+    const type = String(file.type || "").toLowerCase();
+    if (type && !type.startsWith("image/")) return false;
+    if (!type && !PICKABLE_IMAGE_EXT.test(file.name || "")) return false;
+    try {
+      const bitmap = await createImageBitmap(file);
+      bitmap.close();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ==================================================================
   // PHOTO SLOTS (visual only — local preview, no upload)
   // ==================================================================
 
@@ -26418,7 +26481,14 @@
   // own preview AND registering the background-cropped rectangle as a gallery
   // entry of that type. When absent, the slot keeps its legacy circle-only
   // behavior (Wishlist's obverse/reverse, which aren't owned-coin galleries).
-  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId, galleryType, getGalleryId) {
+  //
+  // opts (optional, off unless passed): filesBtnId/filesInputId wire a third
+  // 📁 Files button through the same handler as Library; guardImages runs
+  // isPickableImage() on Library and Files picks before anything else.
+  // Camera is never guarded — a capture is always a photo. Only Add Coin's
+  // obverse/reverse pass these; every other slot is unchanged.
+  function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId, galleryType, getGalleryId, opts) {
+    opts = opts || {};
     const preview = document.getElementById(previewId);
     const placeholder = document.getElementById(placeholderId);
     const cameraBtn = document.getElementById(cameraBtnId);
@@ -26486,9 +26556,25 @@
     cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
     });
+    // A refused pick stops here: no crop screen, no gallery entry, no write.
+    async function handlePickedFile(file) {
+      if (opts.guardImages && !(await isPickableImage(file))) {
+        showToast(NOT_A_PHOTO_MESSAGE);
+        return;
+      }
+      handleFile(file);
+    }
     libraryInput.addEventListener("change", () => {
-      if (libraryInput.files[0]) handleFile(libraryInput.files[0]);
+      if (libraryInput.files[0]) handlePickedFile(libraryInput.files[0]);
     });
+    if (opts.filesBtnId && opts.filesInputId) {
+      const filesBtn = document.getElementById(opts.filesBtnId);
+      const filesInput = document.getElementById(opts.filesInputId);
+      filesBtn.addEventListener("click", () => { filesInput.value = ""; filesInput.click(); });
+      filesInput.addEventListener("change", () => {
+        if (filesInput.files[0]) handlePickedFile(filesInput.files[0]);
+      });
+    }
 
     if (adjustBtn && frameId) {
       adjustBtn.addEventListener("click", (e) => {
@@ -28884,12 +28970,14 @@
   function initAddCoin() {
     // Obverse/Reverse are the flip sources — routed through the two-stage
     // pipeline (background crop -> circle) and registered as gallery entries.
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID);
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID);
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID,
+      { filesBtnId: "obverseFilesBtn", filesInputId: "obverseFilesInput", guardImages: true });
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID,
+      { filesBtnId: "reverseFilesBtn", filesInputId: "reverseFilesInput", guardImages: true });
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
     // The old fixed "Additional Photo" slot is superseded by the gallery
     // widget (its role is now the gallery's "Other" type).
-    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin");
+    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin", { files: true, guardImages: true });
     refreshVarietyOptions();
     populateStatusSelect(document.getElementById("addCoinStatus"));
     document.getElementById("addCoinStatus").value = "Owned"; // default for a freshly-loaded page, before the first resetAddCoinForm() call
