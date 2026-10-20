@@ -4171,6 +4171,7 @@
                   <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                   <button type="button" id="obverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
                   <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+                  <button type="button" id="obverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
                 </div>
                 <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="obverseLibraryInput" accept="image/*">
@@ -4190,6 +4191,7 @@
                   <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                   <button type="button" id="reverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
                   <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
+                  <button type="button" id="reverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
                 </div>
                 <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="reverseLibraryInput" accept="image/*">
@@ -4247,6 +4249,7 @@
                 <div class="photo-btns">
                   <button type="button" id="receiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                   <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                  <button type="button" id="receiptRemoveBtn" style="display:none;" aria-label="Remove the receipt from the draft" title="Remove">✕</button>
                 </div>
                 <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
@@ -25611,7 +25614,7 @@
         const stateLine = !opts.uploadStates ? "" :
           entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button></div>` :
           entry.stagingStored ? `<div class="photo-upload-state">In Staging</div>` : "";
-        const canRemove = !entry.stagingStored;
+        const canRemove = true;
         thumb.innerHTML = `
           ${canRemove ? `<button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>` : ""}
           ${galleryThumbInner(entry)}
@@ -25620,6 +25623,12 @@
           <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
         `;
         if (canRemove) thumb.querySelector(".gc-remove").addEventListener("click", () => {
+          // A photo already in Staging comes off on Save changes, after a
+          // confirmation (Phase B2); anything else is just dropped, as before.
+          if (entry.stagingStored) {
+            confirmStagingRemove("this " + (def ? def.label.toLowerCase() : "photo"), () => removeStagingEditEntry(entry));
+            return;
+          }
           removeGalleryEntry(id, index);
           render();
         });
@@ -28805,6 +28814,7 @@
     ["obverse", "reverse"].forEach(t => setFlipSlotReplaceLabels(t, false));
     document.querySelectorAll(".staging-slot-state").forEach(n => n.remove());
     showReceiptUploadState("receiptPreview", "", false, null);
+    updateStagingEditRemoveButtons();
     const banner = document.getElementById("editDraftBanner");
     if (banner) banner.classList.add("hidden");
     const staging = document.getElementById("saveToStagingBtn");
@@ -29178,6 +29188,7 @@
       if (section && section._galleryRender) section._galleryRender();
     };
     render();
+    updateStagingEditRemoveButtons();
     await Promise.all(entries.map(async entry => {
       try {
         const got = await fetchStagingFileUrl(folder + "/" + entry.storedFilename);
@@ -29269,6 +29280,7 @@
       }
     }
     const receipt = receiptFiles["receiptPreview"];
+    if (receipt && receipt.blob && editDraftFiles) editDraftFiles.receiptRemoved = false;
     if (receipt && receipt.blob && !receipt.stagingUploaded) {
       const name = collectionId + "_receipt.pdf";
       try {
@@ -29320,13 +29332,25 @@
     if (receipt && receipt.stagingUploaded) receiptPhoto = receipt.stagingName;
     else if (editDraftFiles && editDraftFiles.receiptRemoved) receiptPhoto = "";
     const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto);
-    return { photos, receiptPhoto, dropped, added, keptCount: kept.length };
+    const removedPhotoCount = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.removedCount || 0 : 0;
+    const receiptRemoved = !!(editDraftFiles && editDraftFiles.receiptRemoved && !receiptPhoto);
+    return { photos, receiptPhoto, dropped, added, keptCount: kept.length, removedPhotoCount, receiptRemoved };
   }
 
-  // After coin.json is written. (Files no longer listed are left in Staging
-  // until Phase B2 adds removal.)
+  // After coin.json is written — never before: coin.json must never list a
+  // file that has gone. Deletes every file this edit loaded that coin.json no
+  // longer lists (a removed photo with its _original, or one replaced under
+  // another name). A failed delete leaves a harmless orphan in Staging and a
+  // correct coin.json (Reject still removes the whole folder later).
   async function finishStagingEditFiles(collectionId, files) {
-    return { deleted: [], failed: [] };
+    const folder = coinDraftFolder(collectionId);
+    const out = { deleted: [], failed: [] };
+    for (const name of files.dropped) {
+      try { await graph().deleteItem(folder + "/" + name); out.deleted.push(name); }
+      catch (e) { console.warn("Couldn't delete " + name + " from Staging:", e); out.failed.push(name); }
+    }
+    files.deleteResult = out;
+    return out;
   }
 
   function stagingEditFilesSummary(files) {
@@ -29335,7 +29359,16 @@
     if (addedPhotos) parts.push(addedPhotos + " photo" + (addedPhotos === 1 ? "" : "s") + " saved to Staging");
     const receipt = receiptFiles["receiptPreview"];
     if (receipt && receipt.stagingUploaded) parts.push("receipt saved to Staging");
-    return parts.length ? parts.join(", ") + "." : "Photos and receipt are unchanged.";
+    const del = files.deleteResult || { deleted: [], failed: [] };
+    const removedPhotos = files.removedPhotoCount || 0;
+    if (removedPhotos) parts.push(removedPhotos + " photo" + (removedPhotos === 1 ? "" : "s") + " removed");
+    if (files.receiptRemoved) parts.push("receipt removed");
+    let text = parts.length ? parts.join(", ") + "." : "Photos and receipt are unchanged.";
+    if (del.failed.length) {
+      text += " " + del.failed.length + " old file" + (del.failed.length === 1 ? "" : "s") +
+        " couldn't be deleted from Staging (" + del.failed.join(", ") + ") — harmless, and no longer part of the draft.";
+    }
+    return text;
   }
 
   // "Not saved — tap ↻" on a flip slot whose upload failed. The gallery
@@ -29357,6 +29390,81 @@
     });
     const section = document.getElementById("addCoinGallery");
     if (section && section._galleryRender) section._galleryRender();
+  }
+
+  // Phase B2 — REMOVE. Taking a photo (or the receipt) off a draft is
+  // staged on the form and applied by Save changes: coin.json is written
+  // without it first, then the file is deleted (finishStagingEditFiles()).
+  // Asked first, because ✕ sits beside the Replace buttons and a stray tap
+  // is easy; Cancel changes nothing.
+  function confirmStagingRemove(what, onYes) {
+    showWriteGuard({
+      title: "Remove " + what + "?",
+      bodyHtml: "It comes off this draft when you tap <b>Save changes</b>, and its file is deleted from Staging then. " +
+        "Until you save, nothing changes — leaving without saving keeps it.",
+      buttons: [
+        { label: "Cancel", primary: true },
+        { label: "Remove", onClick: onYes }
+      ]
+    });
+  }
+
+  function removeStagingEditEntry(entry) {
+    const list = galleryFor(ADDCOIN_GALLERY_ID);
+    const at = list.indexOf(entry);
+    if (at === -1) return;
+    list.splice(at, 1);
+    if (entry.stagingStored && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
+    const flip = STAGING_FLIP_SLOT_IDS[entry.type];
+    if (flip) {
+      resetCirclePhotoSlot(flip.preview, flip.placeholder, flip.frame, flip.dot, flip.adjust);
+      delete slotFiles[flip.frame];
+      setFlipSlotReplaceLabels(entry.type, false);
+    }
+    updateStagingEditRemoveButtons();
+    renderStagingEditUploadStates();
+  }
+
+  function removeStagingEditReceipt() {
+    if (editDraftFiles) editDraftFiles.receiptRemoved = true;
+    delete receiptFiles["receiptPreview"];
+    resetReceiptSlot("receiptPreview", "receiptPlaceholder");
+    showReceiptUploadState("receiptPreview", "", false, null);
+    updateStagingEditRemoveButtons();
+  }
+
+  // ✕ on the obverse/reverse slots and the receipt shows only while editing
+  // a Staging draft, and only when there is something there to remove. A
+  // fresh capture never sees it.
+  function updateStagingEditRemoveButtons() {
+    const editing = !!(editingCoinDraftId && editDraftFiles);
+    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
+      const btn = document.getElementById(type + "RemoveBtn");
+      if (!btn) return;
+      const has = editing && galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === type);
+      btn.style.display = has ? "flex" : "none";
+    });
+    const r = document.getElementById("receiptRemoveBtn");
+    if (r) {
+      const hasReceipt = editing && (!!receiptFiles["receiptPreview"] ||
+        (!!editDraftFiles.receiptPhoto && !editDraftFiles.receiptRemoved));
+      r.style.display = hasReceipt ? "" : "none";
+    }
+  }
+
+  function wireStagingEditRemoveButtons() {
+    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
+      const btn = document.getElementById(type + "RemoveBtn");
+      if (!btn) return;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const entry = galleryFor(ADDCOIN_GALLERY_ID).find(x => x.type === type);
+        if (!entry) return;
+        confirmStagingRemove("the " + type + " photo", () => removeStagingEditEntry(entry));
+      });
+    });
+    const r = document.getElementById("receiptRemoveBtn");
+    if (r) r.addEventListener("click", () => confirmStagingRemove("the receipt", removeStagingEditReceipt));
   }
 
   function resetAddCoinAfterSave() {
@@ -29436,6 +29544,7 @@
     // widget (its role is now the gallery's "Other" type).
     initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin",
       { files: true, guardImages: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
+    wireStagingEditRemoveButtons();
     refreshVarietyOptions();
     populateStatusSelect(document.getElementById("addCoinStatus"));
     document.getElementById("addCoinStatus").value = "Owned"; // default for a freshly-loaded page, before the first resetAddCoinForm() call

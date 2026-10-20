@@ -434,7 +434,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         toast: document.getElementById("toast").textContent
       };
       mock.uploadFile = realUpload;
-      document.querySelector("#addCoinGallery .staging-retry-btn").click();
+      const retryBtn = document.querySelector("#addCoinGallery .staging-retry-btn");
+      if (retryBtn) retryBtn.click();
       await __ph.waitFor(() => document.getElementById("view-staging").classList.contains("active"), 4000);
       const saved = await mock.getJson(__draftPath(id));
       out.p6.retry = {
@@ -535,6 +536,186 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "P21 -- and once its files have left Staging (filesMovedOnPromotion): " + JSON.stringify(P.p7b));
   ok(P.p8.receiptPhoto === ID + "_receipt.pdf" && /new receipt/.test(P.p8.content),
     "P22 a receipt picked during an edit replaces the receipt file in Staging: " + JSON.stringify(P.p8));
+
+  // ---------- Q. Phase B2: remove ----------
+  const Q = await page.evaluate(async ({ base, catalog, id }) => {
+    const out = {};
+    const folder = writePaths().stagingBase + "/" + id;
+    const guardOpen = () => !document.getElementById("writeGuardOverlay").classList.contains("hidden");
+    const clickGuard = (label) => {
+      const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === label);
+      if (b) b.click();
+      return !!b;
+    };
+    const openEdit = async (mock, draft, files) => {
+      for (const [name, color] of Object.entries(files || {})) await mock.uploadFile(folder + "/" + name, await __ph.jpeg(color));
+      await mock.uploadJson(__draftPath(id), draft);
+      await beginCoinDraftEdit(id);
+      const body = document.getElementById("addCoinPhotosBody");
+      if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+      await __ph.sleep(50);
+    };
+    // Records the order of coin.json writes and file deletes.
+    const trace = (mock) => {
+      const ops = [];
+      const ru = mock.uploadJson, rd = mock.deleteItem;
+      mock.uploadJson = (path, o) => { ops.push("json"); return ru(path, o); };
+      mock.deleteItem = (path) => { ops.push("delete:" + path.split("/").pop()); return rd(path); };
+      return ops;
+    };
+    const twoPhotos = {
+      photos: [
+        { type: "obverse", filename: id + "_obverse_cropped.jpg", caption: "" },
+        { type: "obverse", filename: id + "_obverse_original.jpg", caption: "original" },
+        { type: "slab_obverse", filename: id + "_slab_obverse.jpg", caption: "" }
+      ]
+    };
+    const twoFiles = { [id + "_obverse_cropped.jpg"]: "#a33", [id + "_obverse_original.jpg"]: "#3a3",
+                       [id + "_slab_obverse.jpg"]: "#33a" };
+
+    // Q1: ✕ on a stored gallery photo asks first; Cancel changes nothing.
+    // Remove + Save writes coin.json without it FIRST, then deletes the file.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
+      const x = () => document.querySelector("#addCoinGallery .gc-thumb .gc-remove") || { click() {} };
+      out.q1hasX = !!document.querySelector("#addCoinGallery .gc-thumb .gc-remove");
+      x().click();
+      out.q1asked = guardOpen();
+      clickGuard("Cancel");
+      out.q1afterCancel = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "slab_obverse").length;
+      x().click();
+      clickGuard("Remove");
+      out.q1beforeSave = !!(await mock.getItemMeta(folder + "/" + id + "_slab_obverse.jpg"));
+      const ops = trace(mock);
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.q1 = {
+        names: saved.photos.map(coinDraftPhotoFilename),
+        gone: !(await mock.getItemMeta(folder + "/" + id + "_slab_obverse.jpg")),
+        ops, toast: document.getElementById("toast").textContent
+      };
+      __teardown();
+    }
+
+    // Q2: ✕ on the obverse slot removes the crop AND its _original.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
+      const btn = document.getElementById("obverseRemoveBtn");
+      out.q2shown = btn.style.display !== "none";
+      btn.click();
+      clickGuard("Remove");
+      out.q2slotEmpty = document.getElementById("obversePreview").style.display === "none";
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.q2 = {
+        names: saved.photos.map(coinDraftPhotoFilename),
+        cropGone: !(await mock.getItemMeta(folder + "/" + id + "_obverse_cropped.jpg")),
+        rawGone: !(await mock.getItemMeta(folder + "/" + id + "_obverse_original.jpg"))
+      };
+      __teardown();
+    }
+
+    // Q3: a failed delete leaves coin.json correct and the file as an orphan.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
+      const qx = document.querySelector("#addCoinGallery .gc-thumb .gc-remove");
+      if (qx) qx.click();
+      clickGuard("Remove");
+      mock.deleteItem = () => Promise.reject(new Error("locked"));
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.q3 = {
+        names: saved.photos.map(coinDraftPhotoFilename),
+        orphan: !!(await mock.getItemMeta(folder + "/" + id + "_slab_obverse.jpg")),
+        toast: document.getElementById("toast").textContent,
+        onStaging: document.getElementById("view-staging").classList.contains("active")
+      };
+      __teardown();
+    }
+
+    // Q4: removing the receipt clears receiptPhoto and deletes the file.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base));
+      const r = document.getElementById("receiptRemoveBtn");
+      out.q4shown = r.style.display !== "none";
+      r.click();
+      clickGuard("Remove");
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.q4 = { receiptPhoto: saved.receiptPhoto, gone: !(await mock.getItemMeta(folder + "/" + id + "_receipt.pdf")) };
+      __teardown();
+    }
+
+    // Q5: replacing a photo stored under another name (an older draft's
+    // hand name) lists the new pair and deletes the old file.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base, {
+        photos: [{ type: "obverse", filename: id + "_obv_old.jpg", caption: "" }]
+      }), { [id + "_obv_old.jpg"]: "#999" });
+      out.q5picked = await __ph.slotPick("obverse", "#0f0");
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.q5 = {
+        names: saved.photos.map(coinDraftPhotoFilename).sort(),
+        oldGone: !(await mock.getItemMeta(folder + "/" + id + "_obv_old.jpg"))
+      };
+      __teardown();
+    }
+
+    // Q6: a fresh Add Coin never shows the remove buttons, even with a photo.
+    {
+      const mock = await __setup();
+      navigate("addcoin");
+      const body = document.getElementById("addCoinPhotosBody");
+      if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+      out.q6picked = await __ph.slotPick("obverse", "#f00");
+      out.q6 = ["obverseRemoveBtn", "reverseRemoveBtn", "receiptRemoveBtn"].map(i => document.getElementById(i).style.display);
+      out.q6gallery = !document.querySelector("#addCoinGallery .photo-upload-state");
+      navigate("addcoin");
+      __teardown();
+    }
+    return out;
+  }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
+
+  ok(Q.q1hasX && Q.q1asked && Q.q1afterCancel === 1,
+    "Q1 ✕ on a stored photo asks first, and Cancel keeps it: " + JSON.stringify([Q.q1hasX, Q.q1asked, Q.q1afterCancel]));
+  ok(Q.q1beforeSave === true,
+    "Q2 -- nothing is deleted before Save changes");
+  ok(JSON.stringify(Q.q1.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) && Q.q1.gone,
+    "Q3 Remove + Save: coin.json no longer lists it and the file is deleted: " + JSON.stringify(Q.q1));
+  const iJson = Q.q1.ops.indexOf("json"), iDel = Q.q1.ops.indexOf("delete:" + ID + "_slab_obverse.jpg");
+  ok(iJson !== -1 && iDel !== -1 && iJson < iDel,
+    "Q4 -- coin.json is written BEFORE the file is deleted: " + JSON.stringify(Q.q1.ops));
+  ok(/1 photo removed/.test(Q.q1.toast), "Q5 -- and the toast says so: " + JSON.stringify(Q.q1.toast));
+  ok(Q.q2shown && Q.q2slotEmpty && JSON.stringify(Q.q2.names) === JSON.stringify([ID + "_slab_obverse.jpg"]) &&
+     Q.q2.cropGone && Q.q2.rawGone,
+    "Q6 removing the obverse removes its crop AND its _original, from coin.json and from Staging: " + JSON.stringify(Q.q2));
+  ok(JSON.stringify(Q.q3.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
+     Q.q3.orphan && Q.q3.onStaging,
+    "Q7 a failed delete leaves coin.json correct and the file as a harmless orphan: " + JSON.stringify(Q.q3));
+  ok(/couldn't be deleted from Staging/.test(Q.q3.toast), "Q8 -- and the toast says the old file couldn't be deleted");
+  ok(Q.q4shown && Q.q4.receiptPhoto === "" && Q.q4.gone,
+    "Q9 removing the receipt clears receiptPhoto and deletes the file: " + JSON.stringify(Q.q4));
+  ok(Q.q5picked && JSON.stringify(Q.q5.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
+     Q.q5.oldGone,
+    "Q10 replacing a photo stored under another name lists the new pair and deletes the old file: " + JSON.stringify(Q.q5));
+  ok(Q.q6picked && Q.q6.every(d => d === "none") && Q.q6gallery,
+    "Q11 a fresh Add Coin shows no remove buttons and no Staging states: " + JSON.stringify(Q.q6));
 
   // @@NEXT@@
 }, module);
