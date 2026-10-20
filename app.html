@@ -2258,6 +2258,8 @@
      point of the loud-failure rule is that a capture is never silently lost. */
   .photo-upload-state { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .photo-upload-state.failed { color: #e08a6a; font-weight: 600; }
+  .staging-retry-btn { background: none; border: 1px solid currentColor; color: inherit; border-radius: 10px;
+                       padding: 0 6px; font-size: 12px; line-height: 16px; cursor: pointer; }
   .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
   /* Three buttons (Add Coin, with 📁 Files) must stay on ONE line down to a
      360px phone. The original "Take photo" / "Choose photo" labels need
@@ -25604,16 +25606,25 @@
         if (def && def.flipSource) return;
         const thumb = document.createElement("div");
         thumb.className = "gc-thumb";
+        // opts.uploadStates (Add Coin only): a Staging-edit photo says where
+        // it stands — already in Staging, or "Not saved — tap ↻".
+        const stateLine = !opts.uploadStates ? "" :
+          entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button></div>` :
+          entry.stagingStored ? `<div class="photo-upload-state">In Staging</div>` : "";
+        const canRemove = !entry.stagingStored;
         thumb.innerHTML = `
-          <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
+          ${canRemove ? `<button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>` : ""}
           ${galleryThumbInner(entry)}
           <div class="gc-type">${def ? def.label : entry.type}</div>
+          ${stateLine}
           <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
         `;
-        thumb.querySelector(".gc-remove").addEventListener("click", () => {
+        if (canRemove) thumb.querySelector(".gc-remove").addEventListener("click", () => {
           removeGalleryEntry(id, index);
           render();
         });
+        const retry = thumb.querySelector(".staging-retry-btn");
+        if (retry && opts.onRetry) retry.addEventListener("click", opts.onRetry);
         thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
         grid.appendChild(thumb);
       });
@@ -28468,11 +28479,34 @@
   // The fields it DOES overlay are exactly the ones readAddCoinFormForDraft()
   // captures, so the two stay in step by construction.
   async function saveCoinDraftEdit(collectionId, form, match) {
-    const existing = await readCoinDraft(collectionId);
+    let existing = await readCoinDraft(collectionId);
     if (!existing) {
       showToast("Couldn't save: " + collectionId + "'s draft is no longer in Staging. Nothing was written.");
       return;
     }
+    const refusal = coinDraftEditRefusal(existing);
+    if (refusal) { showToast(refusal + " Nothing was written."); return; }
+
+    // PHASE B — photos and the receipt. UPLOAD FIRST, THEN RECORD: every new
+    // or replaced file goes to Staging/{ID}/ before coin.json is touched, so
+    // coin.json never lists a file that isn't there. If any upload fails,
+    // nothing is recorded and the form is left exactly as it is (the photo,
+    // its Blob and every typed field stay), with "Not saved — tap ↻" on it.
+    // A file that did upload in a failed round is remembered (and keeps its
+    // name), so the retry doesn't upload it twice or under a second name.
+    const uploadFailures = await uploadStagingEditFiles(collectionId);
+    if (uploadFailures.length) {
+      renderStagingEditUploadStates();
+      showToast("Couldn't save " + uploadFailures.length + " file" + (uploadFailures.length === 1 ? "" : "s") +
+        " to Staging (" + uploadFailures.join(", ") + "). Nothing was recorded — everything is still here. " +
+        "Tap ↻ or Save changes to try again.");
+      return;
+    }
+    // Re-read right before the one write, so a change made elsewhere since
+    // the edit opened (a Re-check linking a CoinID, say) is merged into
+    // rather than overwritten.
+    existing = (await readCoinDraft(collectionId)) || existing;
+    const files = mergeStagingEditFiles(collectionId, existing);
     // Re-derive the research note against the edited values via the same
     // function a fresh capture uses, so an edit that resolves a catalog gap
     // clears the note instead of leaving a stale one behind.
@@ -28494,15 +28528,18 @@
       if (k in existing) updated[k] = existing[k];
       else delete updated[k];
     });
+    updated.photos = files.photos;
+    updated.receiptPhoto = files.receiptPhoto;
     updated.editedDate = new Date().toISOString();
     await writeCoinDraft(updated);
+    await finishStagingEditFiles(collectionId, files);
     await refreshCoinDraftCache();
     clearCoinDraftEditContext();
     resetAddCoinAfterSave();
     navigate("staging");
     showToast("Saved changes to " + collectionId +
       (updated.coinId ? " · CoinID " + updated.coinId : " · CoinID still pending research") +
-      ". Photos and receipt are unchanged.");
+      ". " + stagingEditFilesSummary(files));
   }
 
   // A Staging edit REBUILDS the research note from the form (so an edit that
@@ -28764,6 +28801,10 @@
 
   function clearCoinDraftEditContext() {
     editingCoinDraftId = null;
+    editDraftFiles = null;
+    ["obverse", "reverse"].forEach(t => setFlipSlotReplaceLabels(t, false));
+    document.querySelectorAll(".staging-slot-state").forEach(n => n.remove());
+    showReceiptUploadState("receiptPreview", "", false, null);
     const banner = document.getElementById("editDraftBanner");
     if (banner) banner.classList.add("hidden");
     const staging = document.getElementById("saveToStagingBtn");
@@ -28946,10 +28987,8 @@
     // A promoted draft's row is on the All sheet and Browse Edit owns it from
     // that point — editing it here would write to a Staging file nothing
     // reads any more, silently diverging from the real record.
-    if (draft.status === COIN_DRAFT_STATUS.PROMOTED) {
-      showToast(collectionId + " is already on the All sheet — edit it from its own record, not from Staging.");
-      return false;
-    }
+    const refusal = coinDraftEditRefusal(draft);
+    if (refusal) { showToast(refusal); return false; }
 
     navigate("addcoin");
     editingCoinDraftId = collectionId;
@@ -28957,14 +28996,367 @@
 
     const banner = document.getElementById("editDraftBanner");
     document.getElementById("editDraftMsg").textContent =
-      "Editing " + collectionId + " — its photos and receipt are kept as they are.";
+      "Editing " + collectionId + " — photos and the receipt can be added or replaced here; " +
+      "they're saved to Staging when you tap Save changes.";
     banner.classList.remove("hidden");
     document.getElementById("saveToStagingBtn").textContent = "Save changes";
     // Re-run now that editingCoinDraftId is set — applyCoinDraftToForm() ran
     // before the binding existed, so it took the capture-mode branch.
     updateSaveConfidenceUI();
     setNavBack(() => navigate("staging"));
+    // Last, so the form is already usable while the files come back.
+    await loadStagingEditFiles(draft);
     return true;
+  }
+
+  // ==================================================================
+  // EDITING A STAGING DRAFT — PHOTOS AND THE RECEIPT (Phase B)
+  // ==================================================================
+  // Live report (AY-00754): photos picked while editing a Staging draft were
+  // cropped and then dropped — the edit save never uploaded anything, and
+  // the form reset that followed deleted them from memory.
+  //
+  // The model:
+  //   - Opening an edit loads the files listed in coin.json back into Add
+  //     Coin's own slots and gallery, marked `stagingStored`, with the files
+  //     each one stands for (`stagingFiles`: the crop and, for obverse and
+  //     reverse, its _original).
+  //   - Picking a photo adds or (for a single type) replaces an entry in the
+  //     same gallery, exactly as a fresh capture does.
+  //   - Save uploads every new entry to Staging/{ID}/ and only then records
+  //     the result in coin.json, once (saveCoinDraftEdit()).
+  //
+  // Names follow the first save's convention, against the real id:
+  //   single types (obverse, reverse, slab front/back) — the fixed name, so a
+  //   Replace overwrites its own file, and the _original pair together;
+  //   repeatable types (reference, other, COA) — one number past the highest
+  //   in the folder, checked free with getItemMeta, never an existing _NN.
+  //   The receipt — {ID}_receipt.pdf, as the first save names it.
+  //
+  // Promotion needs nothing new: plannedCoinPromotionMoves() moves exactly
+  // what coin.json lists, and an edited entry has the same shape as a
+  // first-save one.
+  let editDraftFiles = null; // { id, hydratedFiles:Set, receiptPhoto }
+
+  // The gate. A PROMOTED draft belongs to the All sheet; so does a
+  // force-added one (allRowWritten); and once filesMovedOnPromotion is set
+  // its files have left Staging, so anything written there now would never
+  // be moved. Any of the three: no Staging edit.
+  function coinDraftEditRefusal(draft) {
+    const id = draft && draft.collectionID ? draft.collectionID : "This coin";
+    if (!draft) return "";
+    if (draft.status === COIN_DRAFT_STATUS.PROMOTED) {
+      return id + " is already on the All sheet — edit it from its own record, not from Staging.";
+    }
+    if (draft.allRowWritten) {
+      return id + " was already written to the All sheet — edit it from its own record, not from Staging.";
+    }
+    if (draft.filesMovedOnPromotion) {
+      return id + "'s files have already left Staging — edit it from its own record, not from Staging.";
+    }
+    return "";
+  }
+
+  // Which gallery type a stored Staging filename is, for a draft whose
+  // photos list holds bare strings (older drafts) or a name that has to be
+  // paired with its _original. null for anything this build doesn't name.
+  function stagingPhotoTypeFromFilename(collectionId, filename) {
+    const name = String(filename || "");
+    if (name.indexOf(collectionId) !== 0) return null;
+    const stem = name.slice(collectionId.length).replace(/\.[^.]+$/, "");
+    for (const def of GALLERY_TYPES) {
+      if (def.tier === "subgroup" || def.scope === "set") continue;
+      if (def.flipSource) {
+        if (stem === def.suffix + "_cropped") return { type: def.key, raw: false };
+        if (stem === def.suffix + "_original") return { type: def.key, raw: true };
+      } else if (def.repeatable) {
+        if (new RegExp("^" + def.suffix + "_\\d+$").test(stem)) return { type: def.key, raw: false };
+      } else if (stem === def.suffix) {
+        return { type: def.key, raw: false };
+      }
+    }
+    return null;
+  }
+
+  // Groups a draft's photos list into one entry per photo (a crop and its
+  // _original are ONE photo). Entries this build can't name are left out of
+  // the groups and are never touched by an edit.
+  function stagingPhotoGroups(draft) {
+    const id = draft.collectionID;
+    const groups = [];
+    const byCropped = {};
+    const raws = [];
+    (draft.photos || []).forEach(p => {
+      const filename = coinDraftPhotoFilename(p);
+      if (!filename) return;
+      const parsed = stagingPhotoTypeFromFilename(id, filename);
+      const type = (p && typeof p === "object" && p.type) || (parsed && parsed.type);
+      if (!type || !galleryTypeDef(type)) return;
+      const isRaw = (p && typeof p === "object") ? p.caption === "original" : !!(parsed && parsed.raw);
+      if (isRaw) { raws.push({ type, filename }); return; }
+      const g = { type, cropped: filename, raw: "",
+                  caption: (p && typeof p === "object" && p.caption) || "" };
+      groups.push(g);
+      byCropped[filename] = g;
+    });
+    raws.forEach(r => {
+      const g = byCropped[r.filename.replace("_original.", "_cropped.")];
+      if (g) g.raw = r.filename;
+      else groups.push({ type: r.type, cropped: r.filename, raw: "", caption: "" });
+    });
+    return groups;
+  }
+
+  const STAGING_FLIP_SLOT_IDS = {
+    obverse: { preview: "obversePreview", placeholder: "obversePlaceholder", frame: "obverseFrame",
+               dot: "obverseDot", adjust: "obverseAdjustBtn", box: "obversePhotoBox",
+               buttons: ["obverseCameraBtn", "obverseLibraryBtn", "obverseFilesBtn"] },
+    reverse: { preview: "reversePreview", placeholder: "reversePlaceholder", frame: "reverseFrame",
+               dot: "reverseDot", adjust: "reverseAdjustBtn", box: "reversePhotoBox",
+               buttons: ["reverseCameraBtn", "reverseLibraryBtn", "reverseFilesBtn"] }
+  };
+  const FLIP_SLOT_BUTTON_TITLES = { 0: "Camera", 1: "Library", 2: "Files" };
+
+  // Same writes wireMockPhotoSlot's applyCirclePreview() makes for a capture.
+  function showStagingFlipPreview(type, url) {
+    const ids = STAGING_FLIP_SLOT_IDS[type];
+    if (!ids || !url) return;
+    const preview = document.getElementById(ids.preview);
+    preview.src = url;
+    preview.style.display = "block";
+    document.getElementById(ids.placeholder).style.display = "none";
+    document.getElementById(ids.frame).classList.add("has-photo");
+    document.getElementById(ids.dot).classList.add("filled");
+    document.getElementById(ids.adjust).style.display = "flex";
+  }
+
+  // A filled slot says Replace; an empty one keeps its plain titles.
+  function setFlipSlotReplaceLabels(type, replacing) {
+    const ids = STAGING_FLIP_SLOT_IDS[type];
+    if (!ids) return;
+    ids.buttons.forEach((btnId, i) => {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      const base = FLIP_SLOT_BUTTON_TITLES[i];
+      btn.title = replacing ? "Replace — " + base : base;
+    });
+  }
+
+  async function fetchStagingFileUrl(path, mime) {
+    const bytes = await graph().getFileBytes(path);
+    if (bytes == null) return null;
+    const blob = new Blob([bytes], { type: mime || "image/jpeg" });
+    return { blob, url: URL.createObjectURL(blob) };
+  }
+
+  // Puts a draft's stored photos and receipt back on the form. A file that
+  // can't be fetched still gets its entry (an icon tile, never dropped), so
+  // a slow or failed read can never make an edit forget a photo.
+  async function loadStagingEditFiles(draft) {
+    const id = draft.collectionID;
+    const folder = coinDraftFolder(id);
+    const groups = stagingPhotoGroups(draft);
+    editDraftFiles = { id, hydratedFiles: new Set(), receiptPhoto: draft.receiptPhoto || "" };
+    const list = galleryFor(ADDCOIN_GALLERY_ID);
+    const entries = groups.map(g => {
+      const entry = {
+        type: g.type, url: null, rawUrl: null, circleUrl: null, blob: null,
+        caption: g.caption, filename: g.cropped, rawFilename: g.raw || null,
+        stored: true, stagingStored: true, storedFilename: g.cropped,
+        stagingFiles: [g.cropped, g.raw].filter(Boolean)
+      };
+      entry.stagingFiles.forEach(f => editDraftFiles.hydratedFiles.add(f));
+      addGalleryEntry(ADDCOIN_GALLERY_ID, entry);
+      return entry;
+    });
+    if (draft.receiptPhoto) {
+      editDraftFiles.hydratedFiles.add(draft.receiptPhoto);
+      showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", draft.receiptPhoto + " (in Staging)");
+    }
+    const render = () => {
+      const section = document.getElementById("addCoinGallery");
+      if (section && section._galleryRender) section._galleryRender();
+    };
+    render();
+    await Promise.all(entries.map(async entry => {
+      try {
+        const got = await fetchStagingFileUrl(folder + "/" + entry.storedFilename);
+        if (got && editDraftFiles && editDraftFiles.id === id && list.indexOf(entry) !== -1) entry.url = got.url;
+        const flip = STAGING_FLIP_SLOT_IDS[entry.type];
+        if (!flip || !editDraftFiles || editDraftFiles.id !== id || list.indexOf(entry) === -1) return;
+        if (got) showStagingFlipPreview(entry.type, got.url);
+        setFlipSlotReplaceLabels(entry.type, true);
+        // Adjust re-crops from the untouched original when there is one.
+        const raw = entry.rawFilename ? await fetchStagingFileUrl(folder + "/" + entry.rawFilename) : null;
+        const source = raw || got;
+        if (source && list.indexOf(entry) !== -1) slotFiles[flip.frame] = source.blob;
+      } catch (e) {
+        console.warn("Couldn't load " + entry.storedFilename + " from Staging:", e);
+      }
+    }));
+    render();
+  }
+
+  // Names already in use for this draft: what coin.json lists, what the
+  // folder holds, and what this save has already given out.
+  async function stagingTakenNames(collectionId, draft) {
+    const taken = new Set();
+    (draft && draft.photos || []).forEach(p => { const n = coinDraftPhotoFilename(p); if (n) taken.add(n); });
+    try { (await graph().listChildren(coinDraftFolder(collectionId))).forEach(n => taken.add(n)); }
+    catch (e) { /* the getItemMeta check below still guards every name */ }
+    galleryFor(ADDCOIN_GALLERY_ID).forEach(e => {
+      (e.stagingFiles || []).forEach(n => taken.add(n));
+      if (e.stagingNames) { taken.add(e.stagingNames.cropped); if (e.stagingNames.raw) taken.add(e.stagingNames.raw); }
+    });
+    return taken;
+  }
+
+  // One past the highest {ID}_{type}_NN in use, stepped up until the name
+  // is genuinely free in the draft's folder. Never an existing _NN.
+  async function nextFreeStagingRepeatableFilename(collectionId, type, taken) {
+    const def = galleryTypeDef(type);
+    const prefix = collectionId + def.suffix + "_";
+    const re = new RegExp("^" + prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(\\d+)\\.", "i");
+    let max = 0;
+    taken.forEach(name => { const m = re.exec(name || ""); if (m) max = Math.max(max, parseInt(m[1], 10)); });
+    for (let n = max + 1, tries = 0; tries < FREE_NAME_MAX_TRIES; n++, tries++) {
+      const name = prefix + String(n).padStart(2, "0") + GALLERY_FILE_EXT;
+      if (taken.has(name)) continue;
+      const meta = await graph().getItemMeta(coinDraftFolder(collectionId) + "/" + name);
+      if (!meta) return name;
+    }
+    throw new Error("No free filename for " + prefix + "NN" + GALLERY_FILE_EXT);
+  }
+
+  async function stagingEditNamesFor(collectionId, entry, taken) {
+    const def = galleryTypeDef(entry.type);
+    if (!def) throw new Error("Unknown photo type " + entry.type);
+    if (def.repeatable) {
+      return { cropped: await nextFreeStagingRepeatableFilename(collectionId, entry.type, taken), raw: "" };
+    }
+    const n = galleryFilenameFor(collectionId, entry.type, 0, entry.subGroupId);
+    return { cropped: n.cropped, raw: (n.raw && entry.rawUrl) ? n.raw : "" };
+  }
+
+  // Every entry and receipt picked during this edit that isn't in Staging
+  // yet. Returns the names (or types) that failed; empty means all landed.
+  async function uploadStagingEditFiles(collectionId) {
+    const folder = coinDraftFolder(collectionId);
+    const failed = [];
+    const pending = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored && !e.stagingUploaded);
+    let taken = null;
+    for (const entry of pending) {
+      try {
+        if (!entry.stagingNames) {
+          if (!taken) taken = await stagingTakenNames(collectionId, await readCoinDraft(collectionId));
+          entry.stagingNames = await stagingEditNamesFor(collectionId, entry, taken);
+          taken.add(entry.stagingNames.cropped);
+          if (entry.stagingNames.raw) taken.add(entry.stagingNames.raw);
+        }
+        entry.uploadPending = true;
+        await graph().uploadFile(folder + "/" + entry.stagingNames.cropped, entry.blob);
+        if (entry.stagingNames.raw) {
+          const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
+          await graph().uploadFile(folder + "/" + entry.stagingNames.raw, rawBlob);
+        }
+        entry.stagingUploaded = true;
+        entry.uploadError = "";
+      } catch (e) {
+        entry.uploadError = String(e && e.message ? e.message : e);
+        failed.push(entry.stagingNames ? entry.stagingNames.cropped : (galleryTypeDef(entry.type) || {}).label || entry.type);
+      } finally {
+        entry.uploadPending = false;
+      }
+    }
+    const receipt = receiptFiles["receiptPreview"];
+    if (receipt && receipt.blob && !receipt.stagingUploaded) {
+      const name = collectionId + "_receipt.pdf";
+      try {
+        await graph().uploadFile(folder + "/" + name, receipt.blob);
+        receipt.stagingUploaded = true;
+        receipt.stagingName = name;
+        showReceiptUploadState("receiptPreview", "", false, null);
+      } catch (e) {
+        failed.push(name);
+        showReceiptUploadState("receiptPreview", "Not saved — tap ↻", true,
+          () => saveAddCoinForm("staging"));
+      }
+    }
+    return failed;
+  }
+
+  // What coin.json should list after this edit, worked out against the
+  // FRESH draft. Kept: every entry this edit never loaded (a name this build
+  // doesn't know, or one added elsewhere since), and every loaded file whose
+  // entry is still on the form. Added: everything uploaded this save, in
+  // the first save's own {type, filename, caption} shape. `dropped` is every
+  // loaded file no longer listed (replaced under another name, or removed).
+  function mergeStagingEditFiles(collectionId, fresh) {
+    const list = galleryFor(ADDCOIN_GALLERY_ID);
+    const hydrated = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.hydratedFiles : new Set();
+    const keepFiles = new Set();
+    const captionOf = {};
+    list.filter(e => e.stagingStored).forEach(e => {
+      (e.stagingFiles || []).forEach(f => keepFiles.add(f));
+      captionOf[e.storedFilename] = e.caption || "";
+    });
+    const added = [];
+    list.filter(e => e.stagingUploaded && !e.stagingStored).forEach(e => {
+      added.push({ type: e.type, filename: e.stagingNames.cropped, caption: e.caption || "" });
+      if (e.stagingNames.raw) added.push({ type: e.type, filename: e.stagingNames.raw, caption: "original" });
+    });
+    const addedNames = new Set(added.map(a => a.filename));
+    const kept = (fresh.photos || []).filter(p => {
+      const n = coinDraftPhotoFilename(p);
+      if (addedNames.has(n)) return false;          // overwritten in place; listed once, below
+      if (!hydrated.has(n)) return true;            // never loaded by this edit: untouched
+      return keepFiles.has(n);
+    }).map(p => (p && typeof p === "object" && p.caption !== "original" && p.filename in captionOf)
+      ? Object.assign({}, p, { caption: captionOf[p.filename] }) : p);
+    const photos = kept.concat(added);
+    const listed = new Set(photos.map(coinDraftPhotoFilename));
+    const receipt = receiptFiles["receiptPreview"];
+    let receiptPhoto = fresh.receiptPhoto || "";
+    if (receipt && receipt.stagingUploaded) receiptPhoto = receipt.stagingName;
+    else if (editDraftFiles && editDraftFiles.receiptRemoved) receiptPhoto = "";
+    const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto);
+    return { photos, receiptPhoto, dropped, added, keptCount: kept.length };
+  }
+
+  // After coin.json is written. (Files no longer listed are left in Staging
+  // until Phase B2 adds removal.)
+  async function finishStagingEditFiles(collectionId, files) {
+    return { deleted: [], failed: [] };
+  }
+
+  function stagingEditFilesSummary(files) {
+    const parts = [];
+    const addedPhotos = files.added.filter(a => a.caption !== "original").length;
+    if (addedPhotos) parts.push(addedPhotos + " photo" + (addedPhotos === 1 ? "" : "s") + " saved to Staging");
+    const receipt = receiptFiles["receiptPreview"];
+    if (receipt && receipt.stagingUploaded) parts.push("receipt saved to Staging");
+    return parts.length ? parts.join(", ") + "." : "Photos and receipt are unchanged.";
+  }
+
+  // "Not saved — tap ↻" on a flip slot whose upload failed. The gallery
+  // thumbnails draw their own (initGalleryCapture's uploadStates option).
+  function renderStagingEditUploadStates() {
+    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
+      const box = document.getElementById(STAGING_FLIP_SLOT_IDS[type].box);
+      if (!box) return;
+      let note = box.querySelector(".staging-slot-state");
+      const entry = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === type);
+      if (!entry || !entry.uploadError) { if (note) note.remove(); return; }
+      if (!note) {
+        note = document.createElement("div");
+        note.className = "photo-upload-state failed staging-slot-state";
+        box.appendChild(note);
+      }
+      note.innerHTML = `Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button>`;
+      note.querySelector("button").addEventListener("click", () => saveAddCoinForm("staging"));
+    });
+    const section = document.getElementById("addCoinGallery");
+    if (section && section._galleryRender) section._galleryRender();
   }
 
   function resetAddCoinAfterSave() {
@@ -29042,7 +29434,8 @@
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
     // The old fixed "Additional Photo" slot is superseded by the gallery
     // widget (its role is now the gallery's "Other" type).
-    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin", { files: true, guardImages: true });
+    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin",
+      { files: true, guardImages: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
     refreshVarietyOptions();
     populateStatusSelect(document.getElementById("addCoinStatus"));
     document.getElementById("addCoinStatus").value = "Owned"; // default for a freshly-loaded page, before the first resetAddCoinForm() call

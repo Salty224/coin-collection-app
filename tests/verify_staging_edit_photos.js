@@ -42,11 +42,69 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
 
   await page.evaluate(() => {
     window.__setup = async () => {
-      const mock = createMockGraphClient({ sheets: { All: [["CollectionID", "CoinID"]] } });
+      const blank = (n) => new Array(n).fill("");
+      const mock = createMockGraphClient({ sheets: {
+        All: [["CollectionID", "CoinID"]],
+        Photos: [["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"]]
+          .concat([1, 2, 3, 4, 5, 6].map(() => blank(8))),
+        Receipts: [["ReceiptID", "CollectionID", "Filename", "DateAdded"]].concat([1, 2, 3].map(() => blank(4)))
+      } });
       __setGraphClientForTest(mock);
       __setAddCoinWriteEnabledForTest(true);
       __resetAllHeaderMapForTest();
+      __resetSheetHeaderMapsForTest();
+      const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
+      if (typeof closeBgCrop === "function") closeBgCrop();
+      document.getElementById("photoAdjustOverlay").classList.add("hidden");
       return mock;
+    };
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    window.__ph = {
+      sleep,
+      async jpeg(color) {
+        const c = document.createElement("canvas"); c.width = 300; c.height = 300;
+        const x = c.getContext("2d"); x.fillStyle = color || "#2a6"; x.fillRect(0, 0, 300, 300);
+        x.fillStyle = "#da3"; x.beginPath(); x.arc(150, 150, 110, 0, Math.PI * 2); x.fill();
+        return await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+      },
+      async file(color) { return new File([await this.jpeg(color)], "pick.jpg", { type: "image/jpeg" }); },
+      async waitFor(fn, ms) { const end = Date.now() + (ms || 4000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
+      open(id) { const o = document.getElementById(id); return !!o && !o.classList.contains("hidden"); },
+      pick(input, file) {
+        const dt = new DataTransfer(); dt.items.add(file);
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      },
+      // A pick through Stage 1 (and Stage 2 for obverse/reverse) to a
+      // finished entry, the same steps a person takes.
+      async finishCrop(countBefore) {
+        if (!(await this.waitFor(() => this.open("bgCropOverlay")))) return false;
+        document.getElementById("bgCropUseBtn").click();
+        if (await this.waitFor(() => this.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        return await this.waitFor(() => this.newCount() > countBefore);
+      },
+      newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
+      async galleryPick(typeRe, color) {
+        const gal = document.getElementById("addCoinGallery");
+        const before = this.newCount();
+        gal.querySelector('[data-role="add-files"]').click();
+        const item = [...document.querySelectorAll(".gtp-item")].find(b => typeRe.test(b.textContent));
+        if (!item) return false;
+        item.click();
+        this.pick(gal.querySelector('input[data-role="files"]'), await this.file(color));
+        return this.finishCrop(before);
+      },
+      async slotPick(type, color) {
+        const before = this.newCount();
+        this.pick(document.getElementById(type + "FilesInput"), await this.file(color));
+        return this.finishCrop(before);
+      },
+      async bytesOf(mock, path) {
+        const v = await mock.getFileBytes(path);
+        if (v == null) return null;
+        const buf = v instanceof Blob ? await v.arrayBuffer() : v;
+        return Array.from(new Uint8Array(buf)).slice(0, 4000).join(",");
+      }
     };
     window.__teardown = () => {
       __setLiveDbCoinsForTest(null);
@@ -189,6 +247,294 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   });
   ok(AA4.value === "" && AA4.injectedLeft === 0,
     "AA4 a kept (injected) slot from an edit is not offered to the next coin entered: " + JSON.stringify(AA4));
+
+  // ---------- P. Phase B1: existing photos load; add and replace ----------
+  const P = await page.evaluate(async ({ base, catalog, id }) => {
+    const out = {};
+    const folder = writePaths().stagingBase + "/" + id;
+    const openEdit = async (mock, draft, files) => {
+      for (const [name, color] of Object.entries(files || {})) await mock.uploadFile(folder + "/" + name, await __ph.jpeg(color));
+      await mock.uploadJson(__draftPath(id), draft);
+      await beginCoinDraftEdit(id);
+      const body = document.getElementById("addCoinPhotosBody");
+      if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+    };
+
+    // P1: Ray's exact sequence — a draft holding only its receipt; pick a
+    // slab front through the gallery's Files button; Save changes.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF-receipt"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base));
+      const receiptBefore = await __ph.bytesOf(mock, folder + "/" + id + "_receipt.pdf");
+      out.picked = await __ph.galleryPick(/Slab — front/);
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.p1 = {
+        photos: saved.photos, receiptPhoto: saved.receiptPhoto,
+        fileThere: !!(await mock.getItemMeta(folder + "/" + id + "_slab_obverse.jpg")),
+        receiptSame: (await __ph.bytesOf(mock, folder + "/" + id + "_receipt.pdf")) === receiptBefore,
+        onStaging: document.getElementById("view-staging").classList.contains("active")
+      };
+      __teardown();
+    }
+
+    // P2: a draft that already has photos shows them on opening.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, {
+        photos: [
+          { type: "obverse", filename: id + "_obverse_cropped.jpg", caption: "" },
+          { type: "obverse", filename: id + "_obverse_original.jpg", caption: "original" },
+          { type: "slab_obverse", filename: id + "_slab_obverse.jpg", caption: "holder" },
+          { type: "reference", filename: id + "_reference_01.jpg", caption: "auction" }
+        ]
+      }), { [id + "_obverse_cropped.jpg"]: "#a33", [id + "_obverse_original.jpg"]: "#3a3",
+            [id + "_slab_obverse.jpg"]: "#33a", [id + "_reference_01.jpg"]: "#aa3" });
+      await __ph.sleep(100);
+      const list = galleryFor(ADDCOIN_GALLERY_ID);
+      const prev = document.getElementById("obversePreview");
+      const thumbs = [...document.querySelectorAll("#addCoinGallery .gc-thumb")];
+      out.p2 = {
+        entries: list.map(e => [e.type, e.stagingStored, !!e.url, (e.stagingFiles || []).length]),
+        obvShown: prev.style.display === "block" && /^blob:/.test(prev.src),
+        adjustShown: document.getElementById("obverseAdjustBtn").style.display === "flex",
+        replaceTitle: document.getElementById("obverseFilesBtn").title,
+        adjustSource: !!slotFiles["obverseFrame"],
+        thumbStates: thumbs.map(t => (t.querySelector(".photo-upload-state") || {}).textContent || ""),
+        thumbImgs: thumbs.map(t => /blob:/.test(t.querySelector(".gc-img").style.backgroundImage)),
+        captions: thumbs.map(t => t.querySelector(".gc-caption").value),
+        receipt: document.getElementById("receiptPhotoBox") ? document.getElementById("receiptPhotoBox").textContent : document.body.textContent.indexOf(id + "_receipt.pdf (in Staging)") !== -1
+      };
+      // Saving with no photo change keeps coin.json's photos exactly.
+      await __saveEdit();
+      out.p2.photosAfter = (await mock.getJson(__draftPath(id))).photos;
+      __teardown();
+    }
+
+    // P3: an older draft with bare-string photos (the verify_staging_edit
+    // fixture shape) loads as ONE obverse, and an unrelated edit leaves the
+    // list byte-for-byte as it was.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      const bare = [id + "_obverse_cropped.jpg", id + "_obverse_original.jpg", "Some_Hand_Named.jpg"];
+      await openEdit(mock, Object.assign({}, base, { photos: bare }),
+        { [id + "_obverse_cropped.jpg"]: "#a33", [id + "_obverse_original.jpg"]: "#3a3" });
+      const list = galleryFor(ADDCOIN_GALLERY_ID);
+      out.p3 = { entries: list.map(e => [e.type, e.filename, e.rawFilename]) };
+      await __saveEdit();
+      out.p3.after = (await mock.getJson(__draftPath(id))).photos;
+      __teardown();
+    }
+
+    // P4: replacing an obverse overwrites its own pair; promotion then moves
+    // exactly one obverse, with a Photos row.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, {
+        photos: [
+          { type: "obverse", filename: id + "_obverse_cropped.jpg", caption: "" },
+          { type: "obverse", filename: id + "_obverse_original.jpg", caption: "original" }
+        ]
+      }), { [id + "_obverse_cropped.jpg"]: "#a33", [id + "_obverse_original.jpg"]: "#3a3" });
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF-receipt"], { type: "application/pdf" }));
+      await __ph.sleep(100);
+      const cropBefore = await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped.jpg");
+      const rawBefore = await __ph.bytesOf(mock, folder + "/" + id + "_obverse_original.jpg");
+      out.p4picked = await __ph.slotPick("obverse", "#33f");
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      const names = await mock.listChildren(folder);
+      out.p4 = {
+        photos: saved.photos,
+        cropChanged: (await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped.jpg")) !== cropBefore,
+        rawChanged: (await __ph.bytesOf(mock, folder + "/" + id + "_obverse_original.jpg")) !== rawBefore,
+        jpgsInFolder: names.filter(n => /\.jpg$/.test(n)).sort()
+      };
+      saved.status = "Promoted";
+      const moved = await movePromotedCoinFiles(saved);
+      const p = writePaths();
+      const rows = mock._grids.Photos.filter(r => r[1] === id);
+      out.p4.promote = {
+        allOk: moved.allOk,
+        obverseMoves: moved.moves.filter(m => /_obverse_cropped\.jpg$/.test(m.dest)).length,
+        inCoinPhotos: !!(await mock.getItemMeta(p.coinPhotos + "/" + id + "_obverse_cropped.jpg")),
+        rows: rows.map(r => [r[2], r[4], r[7]]),
+        flag: (await mock.getJson(__draftPath(id))).filesMovedOnPromotion
+      };
+      __teardown();
+    }
+
+    // P5: adding a reference when _01 already exists writes _02 and leaves
+    // _01's bytes alone.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, {
+        photos: [{ type: "reference", filename: id + "_reference_01.jpg", caption: "" }]
+      }), { [id + "_reference_01.jpg"]: "#aa3" });
+      const r1Before = await __ph.bytesOf(mock, folder + "/" + id + "_reference_01.jpg");
+      out.p5picked = await __ph.galleryPick(/Reference/);
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.p5 = {
+        names: saved.photos.map(coinDraftPhotoFilename),
+        r1Same: (await __ph.bytesOf(mock, folder + "/" + id + "_reference_01.jpg")) === r1Before
+      };
+      __teardown();
+    }
+
+    // P5b: the case session-only numbering gets wrong. coin.json lists only
+    // _02 (its _01 dropped earlier, the file left in the folder), so the
+    // gallery holds ONE reference and "count in the gallery + 1" names the
+    // new one _02 — over the existing file. It has to be _03, from the folder.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, {
+        photos: [{ type: "reference", filename: id + "_reference_02.jpg", caption: "" }]
+      }), { [id + "_reference_01.jpg"]: "#a00", [id + "_reference_02.jpg"]: "#0a0" });
+      const before = [await __ph.bytesOf(mock, folder + "/" + id + "_reference_01.jpg"),
+                      await __ph.bytesOf(mock, folder + "/" + id + "_reference_02.jpg")];
+      out.p5bpicked = await __ph.galleryPick(/Reference/);
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      out.p5b = {
+        names: saved.photos.map(coinDraftPhotoFilename),
+        untouched: (await __ph.bytesOf(mock, folder + "/" + id + "_reference_01.jpg")) === before[0] &&
+                   (await __ph.bytesOf(mock, folder + "/" + id + "_reference_02.jpg")) === before[1]
+      };
+      __teardown();
+    }
+
+    // P6: a failed upload records nothing, keeps the photo, and the retry
+    // lands it.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base));
+      const jsonBefore = JSON.stringify(await mock.getJson(__draftPath(id)));
+      out.p6picked = await __ph.galleryPick(/Slab — back/);
+      const realUpload = mock.uploadFile;
+      mock.uploadFile = (path, f) => /_slab_reverse/.test(path) ? Promise.reject(new Error("network down")) : realUpload(path, f);
+      document.getElementById("notesField").value = "typed during the failed save";
+      await __saveEdit();
+      const entry = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "slab_reverse");
+      out.p6 = {
+        jsonSame: JSON.stringify(await mock.getJson(__draftPath(id))) === jsonBefore,
+        kept: !!(entry && entry.blob), error: !!(entry && entry.uploadError),
+        stillEditing: document.getElementById("view-addcoin").classList.contains("active") && editingCoinDraftId === id,
+        notes: __val("notesField"),
+        badge: [...document.querySelectorAll("#addCoinGallery .photo-upload-state.failed")].map(n => n.textContent.trim()),
+        retryBtn: !!document.querySelector("#addCoinGallery .staging-retry-btn"),
+        toast: document.getElementById("toast").textContent
+      };
+      mock.uploadFile = realUpload;
+      document.querySelector("#addCoinGallery .staging-retry-btn").click();
+      await __ph.waitFor(() => document.getElementById("view-staging").classList.contains("active"), 4000);
+      const saved = await mock.getJson(__draftPath(id));
+      out.p6.retry = {
+        photos: saved.photos.map(coinDraftPhotoFilename),
+        remarks: saved.remarks,
+        fileThere: !!(await mock.getItemMeta(folder + "/" + id + "_slab_reverse.jpg"))
+      };
+      __teardown();
+    }
+
+    // P7: the gate — no Staging edit once the coin has been written to the
+    // All sheet or its files have left Staging.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadJson(__draftPath(id), Object.assign({}, base, { status: "Ready", allRowWritten: true }));
+      navigate("staging");
+      out.p7a = { opened: await beginCoinDraftEdit(id), toast: document.getElementById("toast").textContent };
+      await mock.uploadJson(__draftPath(id), Object.assign({}, base, { filesMovedOnPromotion: true }));
+      out.p7b = { opened: await beginCoinDraftEdit(id), toast: document.getElementById("toast").textContent };
+      out.p7 = { binding: editingCoinDraftId };
+      __teardown();
+    }
+
+    // P8: a receipt picked during an edit replaces the receipt file.
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF-old"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base));
+      const pdf = new File(["%PDF-1.4 new receipt"], "invoice.pdf", { type: "application/pdf" });
+      __ph.pick(document.getElementById("receiptLibraryInput"), pdf);
+      await __ph.waitFor(() => !!receiptFiles["receiptPreview"]);
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      const v = await mock.getFileBytes(folder + "/" + id + "_receipt.pdf");
+      out.p8 = { receiptPhoto: saved.receiptPhoto, content: v instanceof Blob ? await v.text() : String(v) };
+      __teardown();
+    }
+    return out;
+  }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
+
+  const slabEntry = (P.p1 && P.p1.photos || []).find(e => e && e.filename === ID + "_slab_obverse.jpg");
+  ok(P.picked && P.p1.fileThere && slabEntry && slabEntry.type === "slab_obverse",
+    "P1 Ray's sequence: a slab front picked via Files lands in Staging/" + ID + "/ and coin.json lists it: " +
+      JSON.stringify(P.p1));
+  ok(P.p1.receiptPhoto === ID + "_receipt.pdf" && P.p1.receiptSame && P.p1.photos.length === 1,
+    "P2 -- the receipt is untouched (same name, same bytes) and nothing else was added");
+  ok(P.p1.onStaging, "P3 -- and a successful save returns to Staging Review as before");
+  ok(JSON.stringify(P.p2.entries) === JSON.stringify([["obverse", true, true, 2], ["slab_obverse", true, true, 1], ["reference", true, true, 1]]),
+    "P4 opening an edit loads the draft's photos (the obverse with its _original as one) with their images: " +
+      JSON.stringify(P.p2.entries));
+  ok(P.p2.obvShown && P.p2.adjustShown && P.p2.adjustSource && /Replace/.test(P.p2.replaceTitle),
+    "P5 -- the obverse slot shows the stored photo, offers Adjust (from the original) and says Replace: " +
+      JSON.stringify([P.p2.obvShown, P.p2.adjustShown, P.p2.adjustSource, P.p2.replaceTitle]));
+  ok(P.p2.thumbStates.every(t => t === "In Staging") && P.p2.thumbImgs.every(Boolean) &&
+     JSON.stringify(P.p2.captions) === JSON.stringify(["holder", "auction"]),
+    "P6 -- the gallery shows the slab and reference photos, marked In Staging, with their captions: " +
+      JSON.stringify(P.p2));
+  ok(P.p2.receipt === true || /_receipt\.pdf \(in Staging\)/.test(String(P.p2.receipt)),
+    "P7 -- and the receipt on file is shown");
+  ok(P.p2.photosAfter.length === 4 && P.p2.photosAfter.every(e => typeof e === "object"),
+    "P8 saving an edit that changes no photo keeps coin.json's photos as they were: " + JSON.stringify(P.p2.photosAfter));
+  ok(JSON.stringify(P.p3.entries) === JSON.stringify([["obverse", ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]]),
+    "P9 bare-string photos (older drafts) load as one obverse with its original; an unknown name is not loaded: " +
+      JSON.stringify(P.p3.entries));
+  ok(JSON.stringify(P.p3.after) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg", "Some_Hand_Named.jpg"]),
+    "P10 -- and an unrelated edit leaves that list exactly as it was, unknown name included: " + JSON.stringify(P.p3.after));
+  const obv = (P.p4.photos || []).map(coinDraftName => coinDraftName && coinDraftName.filename);
+  ok(P.p4picked && P.p4.cropChanged && P.p4.rawChanged,
+    "P11 replacing the obverse overwrites its own file AND its _original in Staging: " + JSON.stringify(P.p4));
+  ok(JSON.stringify(obv.sort()) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
+     JSON.stringify(P.p4.jpgsInFolder) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]),
+    "P12 -- coin.json lists one obverse pair, and the folder holds no second copy: " + JSON.stringify([obv, P.p4.jpgsInFolder]));
+  ok(P.p4.promote.allOk && P.p4.promote.obverseMoves === 1 && P.p4.promote.inCoinPhotos,
+    "P13 promotion moves exactly one obverse into CoinPhotos: " + JSON.stringify(P.p4.promote));
+  ok(JSON.stringify(P.p4.promote.rows) === JSON.stringify([["Obverse", ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]]) &&
+     P.p4.promote.flag === true,
+    "P14 -- with one Photos row (the original on it) and filesMovedOnPromotion set: " + JSON.stringify(P.p4.promote));
+  ok(P.p5picked && JSON.stringify(P.p5.names) === JSON.stringify([ID + "_reference_01.jpg", ID + "_reference_02.jpg"]) && P.p5.r1Same,
+    "P15 a reference added when _01 exists is written as _02, and _01's bytes are unchanged: " + JSON.stringify(P.p5));
+  ok(P.p5bpicked && JSON.stringify(P.p5b.names) === JSON.stringify([ID + "_reference_02.jpg", ID + "_reference_03.jpg"]) &&
+     P.p5b.untouched,
+    "P15b with _01 and _02 in the folder but only _02 listed, the new reference is _03 and no existing file is overwritten: " +
+      JSON.stringify(P.p5b));
+  ok(P.p6picked && P.p6.jsonSame,
+    "P16 a failed upload leaves coin.json unchanged: " + JSON.stringify(P.p6));
+  ok(P.p6.kept && P.p6.error && P.p6.stillEditing && P.p6.notes === "typed during the failed save",
+    "P17 -- the photo (with its Blob) and the typed fields stay; the form is not reset or left");
+  ok(P.p6.badge.some(t => /Not saved — tap/.test(t)) && P.p6.retryBtn && /Couldn't save/.test(P.p6.toast),
+    "P18 -- it says \"Not saved — tap ↻\" with a retry button, and a toast says so");
+  ok(P.p6.retry.fileThere && P.p6.retry.photos.indexOf(ID + "_slab_reverse.jpg") !== -1 &&
+     P.p6.retry.remarks === "typed during the failed save",
+    "P19 -- tapping ↻ lands the photo and the edit: " + JSON.stringify(P.p6.retry));
+  ok(P.p7a.opened === false && /already written to the All sheet/.test(P.p7a.toast),
+    "P20 the edit is refused once the coin was written to the All sheet (allRowWritten): " + JSON.stringify(P.p7a));
+  ok(P.p7b.opened === false && /already left Staging/.test(P.p7b.toast) && P.p7.binding === null,
+    "P21 -- and once its files have left Staging (filesMovedOnPromotion): " + JSON.stringify(P.p7b));
+  ok(P.p8.receiptPhoto === ID + "_receipt.pdf" && /new receipt/.test(P.p8.content),
+    "P22 a receipt picked during an edit replaces the receipt file in Staging: " + JSON.stringify(P.p8));
 
   // @@NEXT@@
 }, module);

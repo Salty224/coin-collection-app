@@ -168,27 +168,41 @@ module.exports = defineSuite("staging-edit", async ({ ok, openApp, PHONE, TABLET
       allRowWritten: true, forceAdded: true, forceAddedDate: "2024-06-01",
       savedVia: "direct", filesMovedOnPromotion: true
     }));
-    await beginCoinDraftEdit("AY-00801");
+    // Phase B gate (Oct 2026): a draft already written to the All sheet, or
+    // whose files have left Staging, is no longer editable from Staging at
+    // all. This fixture is exactly that case, so the edit is refused and
+    // nothing is written. (C4 used to assert the edit landed here.)
+    const opened = await beginCoinDraftEdit("AY-00801");
+    const saved = await mock.getJson(base + "/AY-00801/coin.json");
+    // A Ready draft the gate allows: bookkeeping must still survive an edit.
+    await mock.uploadJson(base + "/AY-00803/coin.json", Object.assign({}, draft, {
+      collectionID: "AY-00803", status: COIN_DRAFT_STATUS.READY, readyDate: "2024-06-02",
+      savedVia: "direct"
+    }));
+    await beginCoinDraftEdit("AY-00803");
     document.getElementById("notesField").value = "touched";
     await completeAddCoinSave("staging", { coinId: draft.coinId, how: "single", row: null });
-    const saved = await mock.getJson(base + "/AY-00801/coin.json");
+    const ready = await mock.getJson(base + "/AY-00803/coin.json");
     const out = {
-      status: saved.status, expectedStatus: COIN_DRAFT_STATUS.READY,
+      opened,
+      status: ready.status, expectedStatus: COIN_DRAFT_STATUS.READY, readyDate: ready.readyDate,
       allRowWritten: saved.allRowWritten, forceAdded: saved.forceAdded,
-      forceAddedDate: saved.forceAddedDate, savedVia: saved.savedVia,
-      filesMoved: saved.filesMovedOnPromotion, notes: saved.remarks
+      forceAddedDate: saved.forceAddedDate, savedVia: ready.savedVia,
+      filesMoved: saved.filesMovedOnPromotion, refusedNotes: saved.remarks, notes: ready.remarks
     };
     __teardown();
     return out;
   }, { draft: BASE_DRAFT, catalog: CATALOG });
 
-  ok(C.status === C.expectedStatus,
+  ok(C.status === C.expectedStatus && C.readyDate === "2024-06-02",
     "C1 a Ready draft stays Ready — an edit does not knock it back to Draft (got " + C.status + ")");
   ok(C.allRowWritten === true && C.forceAdded === true && C.forceAddedDate === "2024-06-01",
     "C2 Phase 2 bookkeeping survives: a coin already on the All sheet stays marked as such");
   ok(C.savedVia === "direct" && C.filesMoved === true,
     "C3 -- as do savedVia and the photo-move flag");
-  ok(C.notes === "touched", "C4 -- while the edit itself still lands");
+  ok(C.notes === "touched", "C4 -- while the edit itself still lands (on a draft the gate allows)");
+  ok(C.opened === false && C.refusedNotes === "original note",
+    "C5 a draft already on the All sheet with its files moved is refused for a Staging edit, and nothing is written");
 
   // ---------- D. A promoted draft is refused ----------
   const D = await page.evaluate(async ({ draft, catalog }) => {
