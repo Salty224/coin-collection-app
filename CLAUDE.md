@@ -196,6 +196,48 @@ Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_catalog_finish_fi
   the Medal tab's own dead filter path (`applyMedalTabFilters`), Rolls/Sets.
 - **Not verified**: the real mix of All.Finish values, any real device.
 
+## Add Coin: 📁 Files button + photo guard (Oct 2026, HELD on `claude/add-coin-files-picker-button`)
+Not on `main` until Ray's merge go-ahead. Suite: `tests/verify_files_picker.js` (40).
+- **Why:** Chrome on Android opens its Photos-style picker for an image-only
+  accept, and that picker's cloud sources are Google Photos or None — OneDrive
+  can never appear there. An accept that also allows a non-image type makes
+  Android open the system Files screen instead, where OneDrive is listed.
+- **What:** a third button on Add Coin's Obverse and Reverse slots (📁, title
+  "Files", same icon-only circle as 📷/🖼️) and on the "Add photo" gallery
+  (📁 Files). Hidden inputs `obverseFilesInput`, `reverseFilesInput` and the
+  gallery's `data-role="files"`, all `accept="image/*,application/pdf"`
+  (`FILES_PICKER_ACCEPT`, the same value every receipt Library input already
+  uses), no `capture`. A Files pick runs the SAME handler as Library: same
+  crop pipeline, same JPEG output, same destination (in memory until Save,
+  then Staging). Nothing is written before Save (asserted, H1).
+- **Guard:** `isPickableImage(file)` — a typed file must be `image/*`, an
+  untyped one must have an image extension (`PICKABLE_IMAGE_EXT`; some
+  document providers send no MIME type), and either way it must decode via
+  `createImageBitmap`. Runs on Library AND Files picks on those three slots;
+  Camera is never guarded. A refusal toasts `NOT_A_PHOTO_MESSAGE` ("That file
+  isn't a photo. Nothing was added.") and stops before the crop screen — no
+  entry, no Graph request. Before this, main's handler sent a PDF/HEIC/broken
+  file straight into `openBgCrop()`, which threw an uncaught decode error with
+  nothing on screen.
+- **Opt-in, so nothing else moved:** `wireMockPhotoSlot()` gained a 12th
+  `opts` param (`filesBtnId`, `filesInputId`, `guardImages`);
+  `initGalleryCapture()` gained `opts.files` / `opts.guardImages`. Only
+  `initAddCoin()` passes them. Add Set's galleries, Wishlist, Edit Coin /
+  Manage Photos, every receipt slot (they accept PDFs on purpose) and
+  `stage.html` are byte-for-byte unchanged — the suite pins the accept and
+  capture of all 42 pre-existing file inputs (34 app.html + 8 stage.html).
+- **Labels in the 3-button gallery row:** "📷 Camera / 🖼️ Library / 📁 Files"
+  (`.gc-add-row-3`, nowrap, equal flex, 150px cap). The original "Take photo /
+  Choose photo" wording needs ~350px against ~264px at a 360px phone and
+  wrapped to two lines. Galleries without `opts.files` keep the old labels.
+- **Left alone on purpose:** Manage Photos / Edit Coin (next branch), Add
+  Set, Staging-edit photo saving (Phase B still held — a pick while editing a
+  Staging draft is still not saved).
+- **Not verified:** which picker Android actually opens for this accept on
+  Ray's S25, whether OneDrive is listed in its Files menu, whether OneDrive
+  files download through Files, and HEIC from a real phone (the suite uses a
+  synthetic undecodable HEIC). Ray checks these on a TEST build.
+
 ## Ledger, spot prices, Wishlist, albums: Oct 2026 work (all merged to main, a06b976)
 All of this is on `main` at `a06b976`, merged on Ray's go-ahead. It reaches the
 live site only when Ray runs the deploy workflow for `main`.
