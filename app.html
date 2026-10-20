@@ -1072,6 +1072,12 @@
   .coin-grid.list-view .coin-card .year-mint { font-size: 19px; font-weight: 700; color: var(--text); }
   .coin-grid.list-view .coin-card .name { font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 1px; }
   .coin-grid.list-view .coin-card .card-id { font-size: 11px; color: var(--text-muted); }
+  /* Finish tag after the description. The name still wraps as before; the tag
+     ellipses on its own if it alone is wider than the line, never scrolling. */
+  .coin-grid.list-view .coin-card .finish-tag {
+    display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; vertical-align: bottom; font-size: 11px; opacity: 0.85;
+  }
   .coin-grid.list-view .coin-card .grade-badge { flex-shrink: 0; }
   .coin-grid.list-view .coin-card .value { flex-shrink: 0; }
 
@@ -1103,6 +1109,9 @@
      fit one line even after shortening their labels, and Ray specifically
      wants this row visible without side-scrolling. */
   #browseSetsCategoryFilters { flex-wrap: wrap; overflow-x: visible; }
+  /* Finish pills must fit one line on a 360px phone: slightly tighter chips. */
+  #browseFinishFilters { gap: 6px; }
+  #browseFinishFilters .filter-chip { padding: 6px 11px; }
 
   .filter-chip-divider {
     flex-shrink: 0; width: 1px; align-self: stretch; background: var(--case-border); margin: 0 2px;
@@ -2780,6 +2789,9 @@
                  chip pattern as Metal, ANDing with every other Catalog
                  filter. -->
             <div class="filter-row" id="browseGradingServiceFilters" style="margin-top:6px;"></div>
+            <!-- Finish filter: same multi-select/OR chip pattern, four groups
+                 (see CATALOG_FINISH_GROUPS). -->
+            <div class="filter-row" id="browseFinishFilters" style="margin-top:6px;"></div>
           </div>
 
           <div id="browseSetsHeader" style="display:none;">
@@ -14000,7 +14012,7 @@
   function coinMatchesSearchQuery(coin, query) {
     const q = (query || "").trim().toLowerCase();
     if (!q) return true;
-    return [coin.id, coin.name, coin.year, coin.denom, coin.mint, coin.variety, coin.grade]
+    return [coin.id, coin.name, coin.year, coin.denom, coin.mint, coin.variety, coin.grade, coin.finish]
       .some(v => v != null && String(v).toLowerCase().includes(q));
   }
   function browseSearchTest(coin) { return coinMatchesSearchQuery(coin, browseSearchQuery); }
@@ -14630,6 +14642,43 @@
     { key: "ungraded", label: "Ungraded/Other", test: c => !FAKE_LOOKUP_GRADERS.some(g => g.code === c.gradeSource) }
   ];
   let browseSelectedGradingServiceKeys = new Set();
+
+  // Catalog Finish filter. The app does not load Lookup_Finishes, so the
+  // grouping of All.Finish values is fixed here, matched trimmed and
+  // case-insensitively. A blank Finish, or one in no group (e.g. "Various"),
+  // only shows under All. Short pill labels keep the row on one line on a
+  // phone; the title/aria-label carries the full group name.
+  const CATALOG_FINISH_GROUPS = [
+    { key: "strike",   label: "Strike",     full: "Business Strike or Uncirculated", values: ["Business Strike", "Uncirculated"] },
+    { key: "proof",    label: "Proof",      full: "Proof or Matte Proof", values: ["Proof", "Matte Proof"] },
+    { key: "revproof", label: "Rev. Proof", full: "Reverse Proof or Enhanced Reverse Proof", values: ["Reverse Proof", "Enhanced Reverse Proof"] },
+    { key: "special",  label: "Special",    full: "Special finishes: Burnished, Enhanced Uncirculated, Satin Finish, SMS, Specimen, Matte",
+      values: ["Burnished", "Enhanced Uncirculated", "Satin Finish", "SMS", "Specimen", "Matte"] }
+  ];
+  function catalogFinishGroupKey(finish) {
+    const f = String(finish || "").trim().toLowerCase();
+    if (!f) return null;
+    const g = CATALOG_FINISH_GROUPS.find(g => g.values.some(v => v.toLowerCase() === f));
+    return g ? g.key : null;
+  }
+  const BROWSE_FINISH_CHIPS = [
+    { key: "all", label: "All", full: "All finishes", isAll: true, test: () => true },
+    ...CATALOG_FINISH_GROUPS.map(g => ({ key: g.key, label: g.label, full: g.full, test: c => catalogFinishGroupKey(c.finish) === g.key }))
+  ];
+  let browseSelectedFinishKeys = new Set();
+  function browseFinishTest(coin) {
+    return chipRowTest(BROWSE_FINISH_CHIPS, browseSelectedFinishKeys, coin);
+  }
+
+  // The small Finish tag on a Catalog LIST-view row ("Roosevelt Dime · Proof").
+  // Same hiding rule as the detail page's Finish line: blank or a default
+  // finish (Business Strike, Uncirculated) shows nothing, separator included.
+  // Grid view never shows it (.coin-card-text is hidden there).
+  function catalogListFinishTagHtml(coin) {
+    const finish = String((coin && coin.finish) || "").trim();
+    if (!finish || isDefaultFinishForPage(finish)) return "";
+    return `<span class="finish-tag" title="${escapeHtmlText(finish)}"> · ${escapeHtmlText(finish)}</span>`;
+  }
   function browseGradingServiceTest(coin) {
     if (browseSelectedGradingServiceKeys.size === 0) return true;
     return [...browseSelectedGradingServiceKeys].some(key => {
@@ -14727,7 +14776,7 @@
           <span class="flip-label br"></span>
         </div>
         <div class="coin-card-text">
-          <div class="name">${coin.name}</div>
+          <div class="name">${coin.name}${catalogListFinishTagHtml(coin)}</div>
           <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
         </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
@@ -14987,7 +15036,7 @@
   function applyCoinsTabFilters() {
     const base = coinsTabBaseRows();
     const filtered = base.filter(c =>
-      browseFilterTest(c) && browseMetalTest(c) && browseGradingServiceTest(c) &&
+      browseFilterTest(c) && browseMetalTest(c) && browseGradingServiceTest(c) && browseFinishTest(c) &&
       (!browseCommemorativeOnly || c.category === "Commemorative") &&
       yearRowTest(c) && browseSearchTest(c) && (!browseMissingPhotoOnly || coinMissingPhoto(c))
     );
@@ -15214,6 +15263,9 @@
     browseSelectedGradingServiceKeys.clear();
     updateMetalChipsUI("browseGradingServiceFilters", browseSelectedGradingServiceKeys);
 
+    browseSelectedFinishKeys.clear();
+    updateMetalChipsUI("browseFinishFilters", browseSelectedFinishKeys);
+
     rollsSelectedDenomKeys.clear();
     updateRollsFilterChipsUI();
     rollsSelectedMetalKeys.clear();
@@ -15408,6 +15460,28 @@
         applyCoinsTabFilters();
       });
       gradingServiceRow.appendChild(chip);
+    });
+
+    const finishRow = document.getElementById("browseFinishFilters");
+    BROWSE_FINISH_CHIPS.forEach(f => {
+      const chip = document.createElement("button");
+      chip.className = "filter-chip" + (f.isAll ? " active" : "");
+      chip.textContent = f.label;
+      chip.title = f.full;
+      chip.setAttribute("aria-label", f.full);
+      chip.dataset.key = f.key;
+      chip.addEventListener("click", () => {
+        if (f.isAll) {
+          browseSelectedFinishKeys.clear();
+        } else if (browseSelectedFinishKeys.has(f.key)) {
+          browseSelectedFinishKeys.delete(f.key);
+        } else {
+          browseSelectedFinishKeys.add(f.key);
+        }
+        updateMetalChipsUI("browseFinishFilters", browseSelectedFinishKeys);
+        applyCoinsTabFilters();
+      });
+      finishRow.appendChild(chip);
     });
 
     const setCategoryRow = document.getElementById("browseSetsCategoryFilters");
