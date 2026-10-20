@@ -18862,6 +18862,11 @@
   function populateAssignAlbumOptions() {
     const assignSelect = document.getElementById("assignAlbum");
     if (!assignSelect) return;
+    // The current choice survives the rebuild. Without this, albums arriving
+    // after the form was filled (a live load landing mid-entry, or mid-edit
+    // of a Staging draft) reset it to "not part of an album", and the next
+    // save wrote that blank over the real choice.
+    const keep = assignSelect.value;
     // Keep only the static "not part of an album" placeholder (option 0);
     // every dynamic option is rebuilt fresh so a live landing after init()
     // doesn't leave FAKE_ALBUMS' demo options sitting alongside real ones.
@@ -18874,6 +18879,7 @@
         assignSelect.appendChild(opt);
       });
     });
+    setSelectValuePreservingUnknown(assignSelect, keep);
   }
 
   function showAlbumsList() {
@@ -28718,7 +28724,11 @@
     document.getElementById("vendor").value = "";
     document.getElementById("storageLocation").value = "";
     document.getElementById("container").value = "";
-    document.getElementById("assignAlbum").value = "";
+    const assignAlbumSel = document.getElementById("assignAlbum");
+    // A saved choice kept for a draft being edited (an injected option) is
+    // not offered to the next coin.
+    [...assignAlbumSel.options].forEach(o => { if (o.dataset.injected) o.remove(); });
+    assignAlbumSel.value = "";
 
     updateFlipLabels();
     updateSaveConfidenceUI();
@@ -28891,7 +28901,11 @@
     document.getElementById("vendor").value = draft.vendor || "";
     document.getElementById("storageLocation").value = draft.storageLocation || "";
     document.getElementById("container").value = draft.container || "";
-    document.getElementById("assignAlbum").value = draft.assignAlbum || "";
+    // Preserving: the list holds only open slots of the albums loaded right
+    // now, so a saved choice can be missing from it (albums not loaded yet).
+    // A plain .value= would silently select nothing, and the save would
+    // write that blank over the real choice.
+    setSelectValuePreservingUnknown(document.getElementById("assignAlbum"), draft.assignAlbum || "");
 
     // --- Match state. A draft that already resolved to a CoinID carries that
     // decision forward, so saving an unrelated edit (a typo in Notes) doesn't

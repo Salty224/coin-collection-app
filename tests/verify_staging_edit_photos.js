@@ -137,5 +137,58 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "R7 an edit that resolves the gap still clears the old no-match line (the note is still rebuilt): " +
       JSON.stringify([R.r5.saved.coinId, R.r5.saved.researchNote]));
 
+  // ---------- AA. Assign to Album survives an edit (plan item 5c) ----------
+  // The dropdown holds only OPEN slots of the albums loaded right now. A
+  // draft's saved value can be missing from it (albums not loaded yet in a
+  // live session, or the list rebuilt when they arrive mid-edit). Before any
+  // fix, this block was written to find out whether that loses the value.
+  const AA = await page.evaluate(async ({ base, catalog, id }) => {
+    const firstOpen = (() => {
+      for (const a of FAKE_ALBUMS) for (const s of a.slots) if (!s.filledBy) return a.name + " :: " + s.coinId;
+      return "";
+    })();
+    const run = async (beforeOpen, afterOpen) => {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      if (beforeOpen) beforeOpen();
+      await mock.uploadJson(__draftPath(id), Object.assign({}, base, { assignAlbum: firstOpen }));
+      await beginCoinDraftEdit(id);
+      const shown = __val("assignAlbum");
+      if (afterOpen) afterOpen();
+      const afterRebuild = __val("assignAlbum");
+      document.getElementById("notesField").value = "edited";
+      await __saveEdit();
+      const saved = await mock.getJson(__draftPath(id));
+      __setLiveAlbumsForTest(null);
+      populateAssignAlbumOptions();
+      __teardown();
+      return { shown, afterRebuild, saved: saved.assignAlbum };
+    };
+    return {
+      firstOpen,
+      loaded: await run(null, null),
+      notLoaded: await run(() => { __setLiveAlbumsForTest([]); populateAssignAlbumOptions(); }, null),
+      rebuiltMidEdit: await run(null, () => { __setLiveAlbumsForTest([]); populateAssignAlbumOptions(); })
+    };
+  }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
+
+  ok(!!AA.firstOpen && AA.loaded.shown === AA.firstOpen && AA.loaded.saved === AA.firstOpen,
+    "AA1 with albums loaded, the draft's album slot is shown and kept on save: " + JSON.stringify(AA.loaded));
+  ok(AA.notLoaded.saved === AA.firstOpen,
+    "AA2 with albums NOT loaded when the edit opens, the saved album slot is still kept: " +
+      JSON.stringify(AA.notLoaded));
+  ok(AA.rebuiltMidEdit.saved === AA.firstOpen,
+    "AA3 when the album list is rebuilt mid-edit (albums arriving late), the selection is kept: " +
+      JSON.stringify(AA.rebuiltMidEdit));
+
+  const AA4 = await page.evaluate(async () => {
+    const sel = document.getElementById("assignAlbum");
+    setSelectValuePreservingUnknown(sel, "Gone Album :: C-0000-X-1C-01");
+    navigate("addcoin"); // a fresh entry resets the form
+    return { value: sel.value, injectedLeft: [...sel.options].filter(o => o.dataset.injected).length };
+  });
+  ok(AA4.value === "" && AA4.injectedLeft === 0,
+    "AA4 a kept (injected) slot from an edit is not offered to the next coin entered: " + JSON.stringify(AA4));
+
   // @@NEXT@@
 }, module);
