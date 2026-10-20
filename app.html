@@ -10281,6 +10281,11 @@
       // for a coin where neither was ever entered, same as today.
       itemNumber: form.itemNumber || "",
       gsid: form.gsid || "",
+      // The full PCGS label text as typed (only its CERT half is persisted as
+      // serNo). Stored so a Staging edit can put it back on the form; before
+      // this it lived only inside the research note, and an edit rebuilt the
+      // note from a blank field and dropped the "PCGS label ..." line.
+      pcgsLabelRaw: form.pcgsLabelRaw || "",
       coinId: (match && match.coinId) || "",
       matchedHow: (match && match.how) || "none",
       // --- grade / cert
@@ -28466,6 +28471,15 @@
     // function a fresh capture uses, so an edit that resolves a catalog gap
     // clears the note instead of leaving a stale one behind.
     const rebuilt = buildCoinDraft(collectionId, form, match);
+    // The link is unchanged when the edit kept the draft's own CoinID (the
+    // restored pick). Its provenance stays as recorded: a restored pick
+    // re-resolves as "picked" from 1 candidate, which would otherwise turn
+    // a "single" match into a "picked" one and rewrite "chosen from 3
+    // ambiguous candidates" as "chosen from 1".
+    const sameLink = !!rebuilt.coinId && rebuilt.coinId === (existing.coinId || "");
+    if (sameLink && existing.matchedHow) rebuilt.matchedHow = existing.matchedHow;
+    rebuilt.researchNote = mergeEditResearchNote(existing.researchNote, rebuilt.researchNote,
+      sameLink ? rebuilt.coinId : "");
     const KEEP = ["status", "photos", "receiptPhoto", "createdDate", "savedVia",
                   "allRowWritten", "forceAdded", "filesMovedOnPromotion",
                   "promotedDate", "forceAddedDate", "dismissedReason", "readyDate"];
@@ -28483,6 +28497,40 @@
     showToast("Saved changes to " + collectionId +
       (updated.coinId ? " · CoinID " + updated.coinId : " · CoinID still pending research") +
       ". Photos and receipt are unchanged.");
+  }
+
+  // A Staging edit REBUILDS the research note from the form (so an edit that
+  // closes a catalog gap clears its line), but two kinds of line cannot be
+  // rebuilt from the form and used to vanish silently on every edit:
+  //   - "Some captured files failed to upload at capture: ..." — written
+  //     once, after the first save's uploads, and known to nothing else;
+  //   - "CoinID X chosen from N ambiguous ..." when the link was not
+  //     changed by the edit (sameLinkCoinId), since the restored pick knows
+  //     neither N nor that a human made the choice.
+  // Those are carried over from the stored note; every other line is the
+  // rebuilt one. (The "PCGS label ..." line is fixed at the source instead:
+  // the raw label is now stored on the draft and restored to the form.)
+  const UPLOAD_FAILED_NOTE_PREFIX = "Some captured files failed to upload";
+  function mergeEditResearchNote(existingNote, rebuiltNote, sameLinkCoinId) {
+    const oldLines = String(existingNote || "").split("\n").filter(Boolean);
+    let lines = String(rebuiltNote || "").split("\n").filter(Boolean);
+    if (sameLinkCoinId) {
+      const pickPrefix = "CoinID " + sameLinkCoinId + " chosen from ";
+      lines = lines.filter(l => l.indexOf(pickPrefix) !== 0);
+      lines = oldLines.filter(l => l.indexOf(pickPrefix) === 0).concat(lines);
+    }
+    oldLines.filter(l => l.indexOf(UPLOAD_FAILED_NOTE_PREFIX) === 0).forEach(l => lines.push(l));
+    return lines.filter((l, i) => lines.indexOf(l) === i).join("\n");
+  }
+
+  // The raw PCGS label for a draft. Drafts written before pcgsLabelRaw was
+  // stored still carry it inside their research note, so it is read back
+  // from there rather than lost on their first edit.
+  function draftPcgsLabelRaw(draft) {
+    if (!draft) return "";
+    if (typeof draft.pcgsLabelRaw === "string") return draft.pcgsLabelRaw;
+    const m = /(?:^|; |: )PCGS label (.+?)(?:;|\.$|$)/m.exec(String(draft.researchNote || ""));
+    return m ? m[1].trim() : "";
   }
 
   // The original mockup path, unchanged in behaviour — what runs whenever
@@ -28802,6 +28850,9 @@
     applyCacBeanToCheckboxes("cacGreen", "cacGold", draft.cacBean || "");
     document.getElementById("mintItemNumber").value = draft.itemNumber || "";
     document.getElementById("gsidInput").value = draft.gsid || "";
+    // Not decoded again, just shown — the decode already ran at capture and
+    // its results are the fields restored above.
+    document.getElementById("pcgsLabelInput").value = draftPcgsLabelRaw(draft);
 
     // --- Grade
     const g = gradeFieldsFromValue(draft.grade);
