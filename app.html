@@ -2193,6 +2193,15 @@
     padding: 5px 9px; border-radius: 6px; border: 1px solid var(--case-border);
     background: var(--bg-case); color: var(--text-muted); font-family: inherit; font-size: 14px; cursor: pointer;
   }
+  /* Files mode (Edit Coin only): a fifth or sixth button (📁, plus ⤢ ↻ 🗑️
+     on a filled slot) needs ~203px against ~162px per slot at a 360px
+     phone, which pushed the whole page sideways. The row wraps instead
+     (two lines at 360 and 412, one at 1024), with slightly narrower
+     buttons (7px side padding, 4px gap) so three fit per line in the
+     112px slot at 360; tap height is unchanged. Other screens' pair
+     slots (Add Set, Edit Set, Manage Photos) are untouched. */
+  .sg-photo-pair .sg-photo-slot.sg-files-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
+  .sg-photo-pair .sg-photo-slot.sg-files-mode .sg-photo-actions button { padding: 5px 7px; }
 
   /* ---- Reusable gallery-capture widget (Add Coin / Browse Edit / Add Set /
      Edit Set). An "Add photo" control opens a type picker, then the crop
@@ -2245,6 +2254,9 @@
     font-size: 11px; line-height: 1; cursor: pointer;
   }
   .gc-replace-label { font-size: 9px; color: var(--text-muted); }
+  /* Files mode (Edit Coin): three buttons fill the 88px thumbnail, so the
+     "Replace" word wraps under them instead of running past the edge. */
+  .gc-replace-row.gc-files-mode { flex-wrap: wrap; row-gap: 2px; }
   /* A filled pair slot says what its capture buttons will do. Without this
      a slot holding a stored photo looked identical to an empty one. */
   .sg-photo-replace { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
@@ -17354,7 +17366,7 @@
     fillEditLinkage("browseEditLinkageWrap", "browseEditLinkageChips", coin);
 
     // --- Photos: the one real photo-editing surface for this coin.
-    renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin));
+    renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin), { files: true });
     // The Receipt slot now writes for real, so it has to be bound to THIS
     // coin and cleared of the previous one's state. (Nothing ever reset
     // browseEditReceiptPreview between coins — harmless while Save was a
@@ -24850,6 +24862,14 @@
   // opts: { typeKey, targetId, subGroupId, label, onChange }
   function buildPhotoPairSlot(opts) {
     const { typeKey, targetId, subGroupId, label, onChange } = opts;
+    // opts.files (off unless passed — only Edit Coin passes it, via
+    // renderManagePhotosInto's options.files): a third 📁 Files button whose
+    // accept also allows a PDF, so Chrome on Android opens the Files screen
+    // (where OneDrive is listed) instead of the Google-Photos-only picker.
+    // Same reasoning and same guard as Add Coin's 📁 button. With it on,
+    // Library and Files picks must pass isPickableImage() before the crop
+    // screen opens; Camera is never guarded.
+    const filesMode = !!opts.files;
     const def = galleryTypeDef(typeKey);
     const list = galleryFor(targetId);
     const idx = list.findIndex(e => e.type === typeKey &&
@@ -24881,7 +24901,7 @@
     const loadingStored = !!(entry && entry.stored && !entry.url);
 
     const slot = document.createElement("div");
-    slot.className = "sg-photo-slot";
+    slot.className = "sg-photo-slot" + (filesMode ? " sg-files-mode" : "");
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
       : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
@@ -24892,6 +24912,7 @@
       <div class="sg-photo-actions">
         <button type="button" data-act="camera" aria-label="${verb} photo using the camera" title="${verb} — camera">📷</button>
         <button type="button" data-act="library" aria-label="${verb} photo from the library" title="${verb} — library">🖼️</button>
+        ${filesMode ? `<button type="button" data-act="files" aria-label="${verb} photo from Files (OneDrive, Drive, Downloads)" title="${verb} — Files">📁</button>` : ""}
         ${canReadjust ? `<button type="button" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">⤢</button>` : ""}
         ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}
@@ -24901,14 +24922,21 @@
       ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
+      ${filesMode ? `<input type="file" accept="${FILES_PICKER_ACCEPT}" data-role="files" style="display:none;">` : ""}
     `;
     const cam = slot.querySelector('[data-role="cam"]');
     const lib = slot.querySelector('[data-role="lib"]');
+    const filesInput = filesMode ? slot.querySelector('[data-role="files"]') : null;
     slot.querySelector('[data-act="camera"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
     slot.querySelector('[data-act="library"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
-    const handle = (input) => {
+    if (filesInput) slot.querySelector('[data-act="files"]').addEventListener("click", () => { filesInput.value = ""; filesInput.click(); });
+    const handle = async (input, guard) => {
       const f = input.files[0];
       if (!f) return;
+      if (guard && !(await isPickableImage(f))) {
+        showToast(NOT_A_PHOTO_MESSAGE);
+        return;
+      }
       runCropPipeline(f, typeKey, targetId, (newEntry) => {
         const done = () => { if (onChange) onChange(newEntry, typeKey); };
         // Replacing carries the old photo's PhotoID and Label forward so
@@ -24917,8 +24945,9 @@
         else addGalleryEntryAndCommit(targetId, newEntry, done);
       }, subGroupId);
     };
-    cam.addEventListener("change", () => handle(cam));
-    lib.addEventListener("change", () => handle(lib));
+    cam.addEventListener("change", () => handle(cam, false));
+    lib.addEventListener("change", () => handle(lib, filesMode));
+    if (filesInput) filesInput.addEventListener("change", () => handle(filesInput, true));
     const adjustBtn = slot.querySelector('[data-act="adjust"]');
     if (adjustBtn) adjustBtn.addEventListener("click", async () => {
       const done = () => { if (onChange) onChange(entry, typeKey); };
@@ -25242,7 +25271,8 @@
   // Manage Photos screen or an embedded Edit Coin/Edit Set section) — passed
   // through by renderManagePhotosInto() rather than hardcoded, so the same
   // block works in either place.
-  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId, render) {
+  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId, render, opts) {
+    opts = opts || {};
     if (label) {
       const h = document.createElement("div");
       h.style.cssText = "font-size:12px; font-weight:600; color:var(--text-muted); margin:4px 0 6px;";
@@ -25261,6 +25291,7 @@
       pair.appendChild(buildPhotoPairSlot({
         typeKey, targetId, subGroupId,
         label: i === 0 ? "Front" : "Back",
+        files: !!opts.files,
         onChange: () => render()
       }));
     });
@@ -25269,7 +25300,12 @@
 
   // An open-ended (repeatable) type rendered as a strip of existing photos
   // plus camera/library add buttons. render(): see managePairBlock() above.
-  function manageOpenEndedBlock(body, typeKey, targetId, hint, render) {
+  // opts.files: see buildPhotoPairSlot — a 📁 Files button on the add row and
+  // on each thumbnail's Replace, plus the isPickableImage() guard on Library
+  // and Files picks. Off unless passed (only Edit Coin passes it).
+  function manageOpenEndedBlock(body, typeKey, targetId, hint, render, opts) {
+    opts = opts || {};
+    const filesMode = !!opts.files;
     const def = galleryTypeDef(typeKey);
     if (hint) {
       const p = document.createElement("p");
@@ -25291,13 +25327,15 @@
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
-        <div class="gc-replace-row">
+        <div class="gc-replace-row${filesMode ? " gc-files-mode" : ""}">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
+          ${filesMode ? `<button type="button" class="gc-replace-btn" data-role="rep-files" aria-label="Replace this photo from Files (OneDrive, Drive, Downloads)" title="Replace — Files">📁</button>` : ""}
           <span class="gc-replace-label">Replace</span>
         </div>
         <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
         <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
+        ${filesMode ? `<input type="file" accept="${FILES_PICKER_ACCEPT}" data-role="rep-files-input" style="display:none;">` : ""}
         <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
       `;
       // Per-thumbnail Replace. A repeatable type has no fixed slot to match
@@ -25307,15 +25345,22 @@
       const repLib = thumb.querySelector('[data-role="rep-lib-input"]');
       thumb.querySelector('[data-role="rep-cam"]').addEventListener("click", () => { repCam.value = ""; repCam.click(); });
       thumb.querySelector('[data-role="rep-lib"]').addEventListener("click", () => { repLib.value = ""; repLib.click(); });
-      const handleReplace = (input) => {
+      const repFiles = filesMode ? thumb.querySelector('[data-role="rep-files-input"]') : null;
+      if (repFiles) thumb.querySelector('[data-role="rep-files"]').addEventListener("click", () => { repFiles.value = ""; repFiles.click(); });
+      const handleReplace = async (input, guard) => {
         const f = input.files[0];
         if (!f) return;
+        if (guard && !(await isPickableImage(f))) {
+          showToast(NOT_A_PHOTO_MESSAGE);
+          return;
+        }
         runCropPipeline(f, typeKey, targetId, (newEntry) => {
           replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
         });
       };
-      repCam.addEventListener("change", () => handleReplace(repCam));
-      repLib.addEventListener("change", () => handleReplace(repLib));
+      repCam.addEventListener("change", () => handleReplace(repCam, false));
+      repLib.addEventListener("change", () => handleReplace(repLib, filesMode));
+      if (repFiles) repFiles.addEventListener("change", () => handleReplace(repFiles, true));
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
         confirmRemoveGalleryPhoto(targetId, entry, () => {
           removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
@@ -25330,27 +25375,38 @@
     body.appendChild(grid);
 
     const row = document.createElement("div");
-    row.className = "gc-add-row";
+    row.className = "gc-add-row" + (filesMode ? " gc-add-row-3" : "");
     row.style.marginTop = "10px";
+    // Files mode uses Add Coin's short three-button labels: the long ones
+    // need ~350px and wrap at a 360px phone.
     row.innerHTML = `
-      <button type="button" class="gc-add-btn" data-role="cam-btn">📷 Take photo</button>
-      <button type="button" class="gc-add-btn" data-role="lib-btn">🖼️ Choose photo</button>
+      <button type="button" class="gc-add-btn" data-role="cam-btn"${filesMode ? ` aria-label="Take photo with camera"` : ""}>${filesMode ? "📷 Camera" : "📷 Take photo"}</button>
+      <button type="button" class="gc-add-btn" data-role="lib-btn"${filesMode ? ` aria-label="Choose photo from library"` : ""}>${filesMode ? "🖼️ Library" : "🖼️ Choose photo"}</button>
+      ${filesMode ? `<button type="button" class="gc-add-btn" data-role="files-btn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)">📁 Files</button>` : ""}
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
+      ${filesMode ? `<input type="file" accept="${FILES_PICKER_ACCEPT}" data-role="files" style="display:none;">` : ""}
     `;
     const cam = row.querySelector('[data-role="cam"]');
     const lib = row.querySelector('[data-role="lib"]');
+    const addFiles = filesMode ? row.querySelector('[data-role="files"]') : null;
     row.querySelector('[data-role="cam-btn"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
     row.querySelector('[data-role="lib-btn"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
-    const handle = (input) => {
+    if (addFiles) row.querySelector('[data-role="files-btn"]').addEventListener("click", () => { addFiles.value = ""; addFiles.click(); });
+    const handle = async (input, guard) => {
       const f = input.files[0];
       if (!f) return;
+      if (guard && !(await isPickableImage(f))) {
+        showToast(NOT_A_PHOTO_MESSAGE);
+        return;
+      }
       runCropPipeline(f, typeKey, targetId, (entry) => {
         addGalleryEntryAndCommit(targetId, entry, render);
       });
     };
-    cam.addEventListener("change", () => handle(cam));
-    lib.addEventListener("change", () => handle(lib));
+    cam.addEventListener("change", () => handle(cam, false));
+    lib.addEventListener("change", () => handle(lib, filesMode));
+    if (addFiles) addFiles.addEventListener("change", () => handle(addFiles, true));
     body.appendChild(row);
   }
 
@@ -25387,6 +25443,10 @@
     options = options || {};
     const render = () => renderManagePhotosInto(hostId, ctx, options);
     const returnHere = options.onReturnHere || (() => {});
+    // options.files: the 📁 Files button on this screen's photo pickers.
+    // Coin branch only, and only Edit Coin passes it (Edit Set and the
+    // standalone Manage Photos screen are unchanged for now).
+    const pickOpts = { files: !!options.files };
     // Merge in whatever this record already has on the Photos tab, so every
     // section below shows the CURRENT photo for each slot rather than an
     // empty "＋". Pure in-memory (the index is already fetched); the
@@ -25420,25 +25480,25 @@
         manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
         (body) => managePairBlock(body, null,
           "The flip-card photos. Cropped square, then framed into the circle.",
-          ["obverse", "reverse"], id, null, render),
+          ["obverse", "reverse"], id, null, render, pickOpts),
         { open: openTitles.has("🪙 Coin — obverse & reverse") });
 
       appendManageSection(host, "🔲 Slab photos",
         manageCount(id, e => e.type.indexOf("slab_") === 0),
         (body) => managePairBlock(body, null,
           "The graded holder itself, front and back.",
-          ["slab_obverse", "slab_reverse"], id, null, render),
+          ["slab_obverse", "slab_reverse"], id, null, render, pickOpts),
         { open: openTitles.has("🔲 Slab photos") });
 
       appendManageSection(host, "🔗 Reference photos",
         manageCount(id, e => e.type === "reference"),
         (body) => manageOpenEndedBlock(body, "reference", id,
-          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin.", render),
+          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin.", render, pickOpts),
         { open: openTitles.has("🔗 Reference photos") });
 
       appendManageSection(host, "🖼️ Other photos",
         manageCount(id, e => e.type === "other"),
-        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin.", render),
+        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin.", render, pickOpts),
         { open: openTitles.has("🖼️ Other photos") });
 
       // A child coin's COA belongs to its parent Set — read-only link, no slot.

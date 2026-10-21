@@ -79,12 +79,19 @@ const MAIN_STAGE_INPUTS = [
   ["${id}_cameraInput", "image/*", "environment"],
   ["${id}_libraryInput", "image/*", "-"],
 ];
-// The three inputs this branch adds. The gallery one's accept is a template
-// expression in source; its rendered value is checked in block A.
+// The Files inputs added since main 4f6577b. Add Coin's branch added three
+// (Obverse, Reverse, the Add photo gallery's role:files). The Edit Coin
+// branch added three template inputs, all opt-in and off unless Edit Coin
+// passes files:true: role:files in buildPhotoPairSlot and in
+// manageOpenEndedBlock's add row, and role:rep-files-input on its per-thumb
+// Replace (rendered values: verify_edit_coin_files_picker.js). Template
+// accepts are checked here as source text; block A checks Add Coin's
+// rendered values.
 const NEW_INPUTS = {
   obverseFilesInput: FILES_ACCEPT,
   reverseFilesInput: FILES_ACCEPT,
   "role:files": "${FILES_PICKER_ACCEPT}",
+  "role:rep-files-input": "${FILES_PICKER_ACCEPT}",
 };
 
 function fileInputsIn(file) {
@@ -112,8 +119,8 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     JSON.stringify(appExisting.filter((r, i) => JSON.stringify(r) !== JSON.stringify(MAIN_APP_INPUTS[i]))));
   ok(JSON.stringify(stageInputs) === JSON.stringify(MAIN_STAGE_INPUTS),
     "B2 stage.html's 8 file inputs are unchanged");
-  ok(appInputs.length === 37 && appNew.length === 3,
-    "B3 app.html has exactly the 3 new inputs on top of the 34: " + appInputs.length);
+  ok(appInputs.length === 40 && appNew.length === 6,
+    "B3 app.html has exactly the 6 new inputs (3 Add Coin + 3 Edit Coin) on top of the 34: " + appInputs.length);
   const cams = appInputs.concat(stageInputs).filter(r => /camera|cam\b|cam-input/i.test(r[0]));
   ok(cams.length === 21 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
     "C1 all 21 camera inputs still have accept image/* and capture=environment");
