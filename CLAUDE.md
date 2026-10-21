@@ -267,6 +267,26 @@ on the S25: every image interaction works the same way. Suite:
     the real app.html, restored by checksum): RM1 and RM4 fail on all four
     screens by name, RM2/RM3 follow (the leftover stays in the list).
     Not verified: a real device.
+  - **A never-saved photo is removed locally (Ray's Q1 on `1b54b21`).** If
+    a photo's save failed (upload or row write; no Photos row exists, no
+    retry has landed), the ✕ removes it from the screen with NO write: no
+    upload, no row, no delete. Same "Remove photo?" confirmation; toast
+    "Removed. This photo was never saved, so nothing was written." Test:
+    `galleryEntryNeverSaved(entry)` (uploadError set, not pending, not
+    `stored`, no `storedFilename`), checked in `detachGalleryPhotoNow` AFTER
+    the 1b54b21 wait, so a save that lands still gets the normal detach.
+    Before this, the ✕ hit "No Photos row was found for this one — nothing
+    to remove." and the photo stayed. All four screens, open-ended lists and
+    pair slots; a pair slot shows "+" again. Edge, accepted: a FAILED Replace
+    of a saved photo, removed with ✕, drops only the new capture; the old
+    saved photo comes back (it is still the saved row). Edge, not handled:
+    a row write that partly landed before failing is treated as never saved.
+    Tests UNS1-UNS4 x the four screens (suite 140 -> 156): failed save + ✕
+    (gone, zero Graph calls during the remove, live list = saved rows) for
+    both list kinds, and ↻ still saving a failed photo when ✕ isn't used.
+    Negative control (the never-saved branch removed on the real app.html,
+    restored by checksum): exactly UNS1 and UNS2 fail on all four screens.
+    Not verified: a real device.
   - Tests: `verify_image_chooser.js` 56 -> 116 (X1 rewritten: only Add Coin,
     Add Set and Wishlist keep old buttons; V1-V5 x2 surfaces; SC1, SJ1;
     SR1-SR3 x2 surfaces; SG1; L1-L8-set at 360x800, 412x915, 1024x768 on both
