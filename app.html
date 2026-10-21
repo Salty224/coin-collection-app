@@ -24418,12 +24418,20 @@
       const def = type ? galleryTypeDef(type) : null;
       if (!def) return; // a PhotoType this build has no gallery type for
       const sg = def.tier === "subgroup" ? (row.subGroupId || DEFAULT_SUBGROUP_ID) : undefined;
+      // A row whose PhotoID an entry already carries is already on screen.
+      // This is what a Replace looks like mid-upload: the new entry holds
+      // the old one's PhotoID (so writePhotoRow updates the row in place)
+      // but not yet a storedFilename, while the index still names the OLD
+      // file until the write settles. Without this check the render that
+      // runs at once re-hydrated the old file as a third thumbnail with a
+      // blank label, and nothing removed it until a restart (S25, 92a1152).
       const already = list.find(e =>
-        e.stored
+        (row.photoId && e.storedPhotoId === row.photoId) ||
+        (e.stored
           ? e.storedFilename === row.filename
           : (e.type === type &&
              (def.tier !== "subgroup" || (e.subGroupId || DEFAULT_SUBGROUP_ID) === sg) &&
-             (!def.repeatable || e.storedFilename === row.filename)));
+             (!def.repeatable || e.storedFilename === row.filename))));
       if (already) {
         // Keep an existing hydrated entry's fetched url; only refresh the
         // fields the sheet owns.

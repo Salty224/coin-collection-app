@@ -336,7 +336,11 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       `J-${source} a JPEG through ${source} opens the crop, uploads a JPEG to CoinPhotos and writes one Photos row: ` + JSON.stringify(J));
   }
 
-  // ---------- R. Replace keeps PhotoID and Label ---------------------------
+  // ---------- R. Replace keeps PhotoID and Label, and the LIVE list matches -
+  // S25 finding on 92a1152: after a Replace on a Reference photo the live
+  // Edit Coin list showed the new photo AND the old one again (blank label)
+  // at the end. The saved rows were right; only the rendered list was wrong.
+  // So every R assertion now also counts what is RENDERED, not only rows.
   const R = await page.evaluate(async () => {
     __ic.install();
     __ic.openEditCoin();
@@ -346,12 +350,68 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const picked = __ic.pickVia(thumb && thumb.querySelector('[data-role="replace"]'), "files", await __ic.jpeg());
     const crop = await __ic.finishCrop();
     await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00002") || [])[4] !== "AY-00099_reference_01.jpg", 4000);
+    await new Promise(r => setTimeout(r, 300));
     const refs = __ic.photoRows().filter(r => r[2] === "Reference");
     const row = refs.find(r => r[0] === "PH-00002");
-    return { picked, crop, refs: refs.length, filename: row && row[4], label: row && row[5] };
+    const host = __ic.openSection("browseEditPhotosSections", /Reference/);
+    const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+    return { picked, crop, refs: refs.length, filename: row && row[4], label: row && row[5],
+             thumbs, gallery: galleryFor("AY-00099").filter(e => e.type === "reference").length };
   });
   ok(R.picked && R.crop && R.refs === 1 && R.filename && R.filename !== "AY-00099_reference_01.jpg" && R.label === "PCGS photo",
     "R1 Replace on a stored Reference updates PH-00002 in place, new file, Label kept, no second row: " + JSON.stringify(R));
+  ok(R.thumbs.length === 1 && R.thumbs[0] === "PCGS photo" && R.gallery === 1,
+    "R1b after that Replace Edit Coin renders exactly one Reference thumbnail, labelled PCGS photo — the old one does not come back: " + JSON.stringify(R));
+
+  // Ray's exact sequence, on Edit Coin and on Manage Photos for a coin:
+  // + -> Files adds a second Reference; type a label; Replace -> Library.
+  for (const surface of ["edit", "manage"]) {
+    const RR = await page.evaluate(async (surface) => {
+      __ic.install();
+      const hostId = surface === "edit" ? "browseEditPhotosSections" : "managePhotosSections";
+      if (surface === "edit") __ic.openEditCoin();
+      else openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} });
+      const sec = () => __ic.openSection(hostId, /Reference/);
+      await new Promise(r => setTimeout(r, 150));
+      const up = []; const realUp = __ic.mock.uploadFile.bind(__ic.mock);
+      __ic.mock.uploadFile = (path, f) => { up.push(path.split("/").pop()); return realUp(path, f); };
+      const out = { surface };
+      out.added = __ic.pickVia(sec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.crop1 = await __ic.finishCrop();
+      await __ic.waitFor(() => __ic.photoRows().filter(r => r[2] === "Reference").length === 2, 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const second = [...sec().querySelectorAll(".gc-thumb")][1];
+      const cap = second && second.querySelector(".gc-caption");
+      if (cap) { cap.value = "Test"; cap.dispatchEvent(new Event("input", { bubbles: true })); }
+      const addedRow = __ic.photoRows().find(r => r[2] === "Reference" && r[0] !== "PH-00002") || [];
+      out.addedFile = addedRow[4];
+      out.replaced = __ic.pickVia(second && second.querySelector('[data-role="replace"]'), "library", await __ic.jpeg());
+      out.crop2 = await __ic.finishCrop();
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === addedRow[0]) || [])[4] !== addedRow[4], 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const refs = __ic.photoRows().filter(r => r[2] === "Reference");
+      const newRow = refs.find(r => r[0] === addedRow[0]) || [];
+      out.rows = refs.map(r => [r[0], r[4], r[5]]);
+      out.sameId = newRow[0] === addedRow[0];
+      out.newLabel = newRow[5];
+      out.newFile = newRow[4];
+      out.oldFileOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.addedFile));
+      out.newFileOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.newFile));
+      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.gallery = galleryFor("AY-00099").filter(e => e.type === "reference").map(e => e.filename);
+      out.index = storedPhotoRowsFor("AY-00099").filter(r => r.galleryType === "reference").map(r => r.filename);
+      out.uploads = up;
+      return out;
+    }, surface);
+    ok(RR.added && RR.crop1 && RR.replaced && RR.crop2 && RR.rows.length === 2 && RR.sameId &&
+       RR.newLabel === "Test" && RR.newFile !== RR.addedFile && RR.oldFileOnDisk && RR.newFileOnDisk &&
+       RR.uploads.length === 2 && RR.uploads[0] === RR.addedFile && RR.uploads[1] === RR.newFile,
+      `R3-${surface} add + Files, label, Replace + Library: still two Reference rows, the added row updated in place with the new file and label Test, the old file left on disk, exactly two uploads: ` + JSON.stringify(RR));
+    ok(RR.thumbs.length === 2 && RR.thumbs[0] === "PCGS photo" && RR.thumbs[1] === "Test" &&
+       RR.gallery.length === 2 && RR.gallery[1] === RR.newFile &&
+       RR.index.length === 2 && RR.index.indexOf(RR.addedFile) === -1,
+      `R4-${surface} the live list right after that Replace is PCGS, then the new photo labelled Test — no third thumbnail, no restart: ` + JSON.stringify(RR));
+  }
 
   const R2 = await page.evaluate(async () => {
     __ic.install();
@@ -360,11 +420,19 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const picked = __ic.pickVia(obv().querySelector('[data-act="replace"]'), "library", await __ic.jpeg());
     const crop = await __ic.finishCrop();
     await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00001") || [])[4] !== "AY-00099_obverse_cropped.jpg", 4000);
+    await new Promise(r => setTimeout(r, 300));
     const obvs = __ic.photoRows().filter(r => r[2] === "Obverse");
-    return { picked, crop, obvs: obvs.length, id: obvs[0] && obvs[0][0] };
+    const slots = [...__ic.openSection("browseEditPhotosSections", /obverse/).querySelectorAll(".sg-photo-slot")];
+    const faceUrl = (sl) => { const f = sl && sl.querySelector(".sg-photo-face"); return f ? (f.innerHTML.match(/blob:[^"')]+/) || [""])[0] : ""; };
+    const obvEntries = galleryFor("AY-00099").filter(e => e.type === "obverse");
+    return { picked, crop, obvs: obvs.length, id: obvs[0] && obvs[0][0], slots: slots.length,
+             obvEntries: obvEntries.length, newShown: !!obvEntries[0] && faceUrl(slots[0]) === obvEntries[0].url && !obvEntries[0].stored,
+             revEmpty: !!slots[1] && !!slots[1].querySelector(".sg-photo-add") };
   });
   ok(R2.picked && R2.crop && R2.obvs === 1 && R2.id === "PH-00001",
     "R2 Replace on the stored obverse keeps one Obverse row, PH-00001: " + JSON.stringify(R2));
+  ok(R2.slots === 2 && R2.obvEntries === 1 && R2.newShown && R2.revEmpty,
+    "R2b after that Replace the Front/Back pair still renders two slots: Front shows the new photo (one obverse entry, the old one not re-added), Back still empty: " + JSON.stringify(R2));
 
   // ---------- G. Non-photos refused ------------------------------------------
   const G = await page.evaluate(async () => {
