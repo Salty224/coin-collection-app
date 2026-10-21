@@ -653,6 +653,151 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       `RM5-${RM.screen} pair: ✕ on the Front stored before the screen opened — both slots empty, matching the saved rows: ` + JSON.stringify(RM.afterFront));
   }
 
+  // UNS. A photo that was NEVER SAVED (its upload failed) has no Photos row,
+  // so the ✕ removes it from the screen with no write at all. Same
+  // confirmation. Both list kinds on all four screens: force a failed save,
+  // ✕, confirm — the thumbnail is gone, zero Graph calls during the remove,
+  // the live list matches the saved rows. Then ↻ still saves a failed photo
+  // when ✕ isn't used.
+  for (const screen of ["coin-edit", "coin-manage", "set-edit", "set-manage"]) {
+    const U = await page.evaluate(async (screen) => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const isSet = screen.startsWith("set");
+      if (isSet) __ic.installSet(); else __ic.install();
+      let hostId;
+      if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
+      else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
+      else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
+      await sleep(150);
+      const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
+      const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
+      const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
+      const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /obverse/);
+      // Every upload fails while armed: no file lands, no row is written.
+      const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
+      let failing = false;
+      __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
+      const confirm = () => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === "Remove"); if (b) b.click(); return !!b; };
+      const title = () => (document.getElementById("writeGuardTitle") || {}).textContent || "";
+      const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
+      const openView = () => ({
+        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value),
+        files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
+        savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
+      });
+      const pairView = () => {
+        const slots = [...pairSec().querySelectorAll(".sg-photo-slot")];
+        return {
+          filled: slots.map(sl => !!sl.querySelector(".sg-photo-remove")),
+          plus: slots.map(sl => !!sl.querySelector(".sg-photo-add")),
+          files: pairTypes.map(t => { const e = galleryFor(__ic.id).find(x => x.type === t); return e ? (e.storedFilename || e.filename) : null; }),
+          saved: pairTypes.map((t, i) => { const r = saved([pairPTs[i]])[0]; return r ? r[4] : null; }),
+        };
+      };
+      const failedEntry = (type) => galleryFor(__ic.id).find(e => e.type === type && e.uploadError && !e.uploadPending);
+      const out = { screen, storedLabel: isSet ? "page 1" : "PCGS photo" };
+
+      // 1. Open-ended: failed save, then ✕.
+      failing = true;
+      out.addO = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropO = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(openType), 5000);
+      const entO = failedEntry(openType);
+      out.oFailed = !!entO; out.oRowsBefore = saved([openPT]).length;
+      out.oThumbsBefore = openSec().querySelectorAll(".gc-thumb").length;
+      const thumbsO = [...openSec().querySelectorAll(".gc-thumb")];
+      const rmO = thumbsO.length ? thumbsO[thumbsO.length - 1].querySelector(".gc-remove") : null;
+      __ic.clearToast();
+      const callsO = __ic.graphCalls;
+      if (rmO) rmO.click();
+      out.oTitle = title();
+      out.confirmO = confirm();
+      await __ic.waitFor(() => openSec().querySelectorAll(".gc-thumb").length === out.oThumbsBefore - 1, 3000);
+      await sleep(300);
+      out.oGraph = __ic.graphCalls - callsO;
+      out.oToast = __ic.toast();
+      out.afterO = openView();
+      out.oGone = !galleryFor(__ic.id).includes(entO);
+
+      // 2. Pair (Back): failed save, then ✕.
+      const backSlot = pairSec().querySelectorAll(".sg-photo-slot")[1];
+      out.addP = __ic.pickVia(backSlot && backSlot.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
+      out.cropP = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(pairTypes[1]), 5000);
+      const entP = failedEntry(pairTypes[1]);
+      out.pFailed = !!entP;
+      out.pRetryShown = !!pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector('[data-act="retry"]');
+      const rmP = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector(".sg-photo-remove");
+      __ic.clearToast();
+      const callsP = __ic.graphCalls;
+      if (rmP) rmP.click();
+      out.pTitle = title();
+      out.confirmP = confirm();
+      await __ic.waitFor(() => !galleryFor(__ic.id).includes(entP), 3000);
+      await sleep(300);
+      out.pGraph = __ic.graphCalls - callsP;
+      out.afterP = pairView();
+
+      // 3. Open-ended: failed save, then ↻ with the network back. Starts
+      // from a freshly opened screen so ↻ is tested on its own, not after
+      // whatever steps 1-2 left behind.
+      __ic.mock.uploadFile = realUpload;
+      if (isSet) __ic.installSet(); else __ic.install();
+      if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
+      else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
+      else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
+      await sleep(150);
+      const realUpload2 = __ic.mock.uploadFile.bind(__ic.mock);
+      __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload2(...a); };
+      failing = true;
+      out.oRowsBefore = saved([openPT]).length;
+      out.addR = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropR = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(openType), 5000);
+      const entR = failedEntry(openType);
+      failing = false;
+      const thumbsR = [...openSec().querySelectorAll(".gc-thumb")];
+      const retryO = thumbsR.length ? thumbsR[thumbsR.length - 1].querySelector(".gc-retry") : null;
+      out.rRetryShown = !!retryO;
+      if (retryO) retryO.click();
+      await __ic.waitFor(() => entR && !entR.uploadPending && !entR.uploadError && saved([openPT]).length === out.oRowsBefore + 1, 5000);
+      await sleep(300);
+      out.rSaved = !!entR && !entR.uploadError && !!entR.storedFilename && saved([openPT]).some(r => r[4] === entR.storedFilename);
+      out.afterR = openView();
+
+      // 4. Pair (Back): failed save, then ↻.
+      failing = true;
+      const backSlot2 = pairSec().querySelectorAll(".sg-photo-slot")[1];
+      out.addR2 = __ic.pickVia(backSlot2 && backSlot2.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
+      out.cropR2 = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(pairTypes[1]), 5000);
+      const entR2 = failedEntry(pairTypes[1]);
+      failing = false;
+      const retryP = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector('[data-act="retry"]');
+      out.r2RetryShown = !!retryP;
+      if (retryP) retryP.click();
+      await __ic.waitFor(() => entR2 && !entR2.uploadPending && !entR2.uploadError && saved([pairPTs[1]]).length === 1, 5000);
+      await sleep(300);
+      out.r2Saved = !!entR2 && !entR2.uploadError && saved([pairPTs[1]]).some(r => r[4] === entR2.storedFilename);
+      out.afterR2 = pairView();
+      __ic.mock.uploadFile = realUpload2;
+      return out;
+    }, screen);
+    const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    ok(U.addO && U.cropO && U.oFailed && U.oTitle === "Remove photo?" && U.confirmO && U.oGone && U.oGraph === 0 &&
+       eq(U.afterO.thumbs, [U.storedLabel]) && eq(U.afterO.files, U.afterO.savedFiles) && eq(U.afterO.thumbs, U.afterO.savedLabels) &&
+       /never saved/.test(U.oToast),
+      `UNS1-${U.screen} open-ended: ✕ on a photo whose save failed — same "Remove photo?" confirmation, the thumbnail is gone, zero Graph calls during the remove, and the live list matches the saved rows: ` + JSON.stringify(U));
+    ok(U.addP && U.cropP && U.pFailed && U.pRetryShown && U.pTitle === "Remove photo?" && U.confirmP && U.pGraph === 0 &&
+       eq(U.afterP.filled, [true, false]) && U.afterP.plus[1] === true && eq(U.afterP.files, U.afterP.saved),
+      `UNS2-${U.screen} pair: ✕ on a Back photo whose save failed — same confirmation, zero Graph calls, the Back slot shows "+" again and the slots match the saved rows: ` + JSON.stringify([U.pFailed, U.pRetryShown, U.pTitle, U.pGraph, U.afterP]));
+    ok(U.addR && U.cropR && U.rRetryShown && U.rSaved && eq(U.afterR.files, U.afterR.savedFiles),
+      `UNS3-${U.screen} open-ended: ↻ on a failed save (✕ not used) still saves it — row written, the live list matches the saved rows: ` + JSON.stringify([U.rRetryShown, U.rSaved, U.afterR]));
+    ok(U.addR2 && U.cropR2 && U.r2RetryShown && U.r2Saved && eq(U.afterR2.filled, [true, true]) && eq(U.afterR2.files, U.afterR2.saved),
+      `UNS4-${U.screen} pair: ↻ on a failed Back save (✕ not used) still saves it — row written, both slots filled and matching the saved rows: ` + JSON.stringify([U.r2RetryShown, U.r2Saved, U.afterR2]));
+  }
+
   // Set: guard refusals, zero Graph calls.
   const SG = await page.evaluate(async () => {
     __ic.installSet();

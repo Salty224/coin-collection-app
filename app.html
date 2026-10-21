@@ -24817,7 +24817,20 @@
     }
     return detachGalleryPhotoNow(targetId, entry);
   }
+  // A photo that was NEVER SAVED (its upload or row write failed and no
+  // retry has landed) has no Photos row behind it. There is nothing to
+  // detach, so the ✕ removes it from the screen with no write at all —
+  // no upload, no row, no delete. Checked after any in-flight save settles
+  // (detachGalleryPhoto waits first), so a save that lands still goes
+  // through the normal detach below.
+  function galleryEntryNeverSaved(entry) {
+    return !!(entry && entry.uploadError && !entry.uploadPending &&
+              !entry.stored && !entry.storedFilename);
+  }
   function detachGalleryPhotoNow(targetId, entry) {
+    if (galleryEntryNeverSaved(entry)) {
+      return Promise.resolve({ detached: false, noRecord: true, unsaved: true });
+    }
     const commitId = photoCommitTargetId(targetId);
     if (!commitId || !entry) return Promise.resolve({ detached: false, noRecord: true });
     const def = galleryTypeDef(entry.type);
@@ -24887,6 +24900,11 @@
                 }
                 if (res && !res.detached && !res.noRecord) {
                   showToast("No Photos row was found for this one — nothing to remove.");
+                  return;
+                }
+                if (res && res.unsaved) {
+                  if (onRemoved) onRemoved();
+                  showToast("Removed. This photo was never saved, so nothing was written.");
                   return;
                 }
                 if (onRemoved) onRemoved();
