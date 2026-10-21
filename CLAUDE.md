@@ -224,8 +224,8 @@ on the S25: every image interaction works the same way. Suite:
   - **Old 360px overflow, measured** (Edit Set, OGP pair with a failed
     front): before C2 the front slot was forced to 164px by its 📷 🖼️ ↻ 🗑️
     row and the empty Back slot (81px) ran 6px past its card; after C2 both
-    slots are 112px and inside the card. Manage Photos for a Set: 124px/144px
-    unequal before, 144px/144px after. 412: 138/138 (Edit Set), 170/170
+    slots are 112px and inside the card (the whole-set pair was 124/100
+    before). Manage Photos for a Set: OGP pair 164/124 before, 144/144 after. 412: 138/138 (Edit Set), 170/170
     (Manage). 1024: 444/444, 476/476.
   - **Seen, not changed**: Replace on a repeatable photo (COA, Reference)
     moves it to the end of the live list until a restart, because
