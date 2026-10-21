@@ -242,6 +242,31 @@ on the S25: every image interaction works the same way. Suite:
     move. Suite 116 -> 120; `npm test` 3161/0/0/69. Negative control
     (splice-and-re-add reinstated on the real app.html, restored by
     checksum): exactly R5-edit, R5-manage, SR4-edit, SR4-manage fail.
+  - **Remove waits for an in-flight save (S25 on `7f83aad`; `main`
+    `9028d1e` has it too, confirmed headless on its open-ended lists).**
+    Ray added a COA/Other photo through "+", ✕'d it and confirmed: the row
+    was blanked but the thumbnail stayed until a restart. Cause: the ✕ shows
+    while a just-added photo still says "Saving…". Detaching then raced the
+    add's own write — the detach blanked the row, then the add finished: its
+    DateAdded PATCH landed on the blanked row (leaving a stray date on an
+    otherwise-blank row, never claimable again), `syncStoredPhotoIndexUpsert`
+    put the row back in `LIVE_PHOTOS`, and its re-render hydrated the photo
+    straight back. NOT the b2c7ec2 PhotoID path (that is Replace); same
+    family, the session index disagreeing with the sheet. Fix:
+    `addGalleryEntryAndCommit` / `addGalleryEntryAndCommitExisting` keep
+    `entry.commitPromise`; `detachGalleryPhoto` waits on it while
+    `uploadPending`, then runs the unchanged detach
+    (`detachGalleryPhotoNow`), with a "Finishing the save first, then
+    removing…" toast. A failed save wrote no row, so the detach finds none
+    and says so, as before. A remove still blanks the whole row (every
+    column, DateAdded included) and never deletes the file. Tests RM1-RM5 x
+    Edit Coin, Manage Photos coin, Edit Set, Manage Photos set (suite 120 ->
+    140): open-ended ✕ while saving, after saving, and on a stored photo;
+    pair ✕ while saving and on a stored Front; rendered photos and order
+    equal the saved rows each time. Negative control (the wait removed on
+    the real app.html, restored by checksum): RM1 and RM4 fail on all four
+    screens by name, RM2/RM3 follow (the leftover stays in the list).
+    Not verified: a real device.
   - Tests: `verify_image_chooser.js` 56 -> 116 (X1 rewritten: only Add Coin,
     Add Set and Wishlist keep old buttons; V1-V5 x2 surfaces; SC1, SJ1;
     SR1-SR3 x2 surfaces; SG1; L1-L8-set at 360x800, 412x915, 1024x768 on both

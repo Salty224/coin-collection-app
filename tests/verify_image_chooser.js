@@ -512,6 +512,147 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       `SR4-${surface} Replace on a COA that is NOT last (page 1, first) keeps it first in the live list, matching the saved order — it does not move to the end: ` + JSON.stringify(SR));
   }
 
+  // ---------- RM. Remove: the live list matches the saved rows ------------
+  // S25 on 7f83aad (main has it too): ✕ on a photo still saving let the
+  // add's own write finish AFTER the detach — DateAdded landed on the blanked
+  // row, the row went back into the session index and the photo came back on
+  // screen until a restart. Every screen, open-ended and pair: a just-added
+  // photo removed WHILE SAVING, one removed after it saved, and one stored
+  // before the screen opened. After each remove the rendered photos and their
+  // order must equal the saved rows, the row must be fully blank and the file
+  // left on disk.
+  for (const screen of ["coin-edit", "coin-manage", "set-edit", "set-manage"]) {
+    const RM = await page.evaluate(async (screen) => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const isSet = screen.startsWith("set");
+      if (isSet) __ic.installSet(); else __ic.install();
+      let hostId;
+      if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
+      else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
+      else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
+      await sleep(150);
+      const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
+      const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
+      const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
+      const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /obverse/);
+      // One-shot slow Photos write: applied at once, answered 3s later — the
+      // window in which the S25 showed "Saving…" with the ✕ already there.
+      const realPatch = __ic.mock.patchWorkbookRanges.bind(__ic.mock);
+      let armed = false;
+      __ic.mock.patchWorkbookRanges = async (...a) => {
+        const r = await realPatch(...a);
+        if (armed && a[1] === "Photos") { armed = false; await sleep(3000); }
+        return r;
+      };
+      const confirm = () => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === "Remove"); if (b) b.click(); return !!b; };
+      const allRows = () => __ic.mock._grids.Photos;
+      const rowById = (id) => [...(allRows().find(r => r[0] === id) || [])];
+      const blank = (n) => (allRows()[n - 1] || []).every(v => v === "" || v === undefined || v === null);
+      const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
+      const onDisk = async (f) => !!(f && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + f));
+      const openView = () => ({
+        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value),
+        files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
+        savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
+      });
+      const pairView = () => {
+        const slots = [...pairSec().querySelectorAll(".sg-photo-slot")];
+        return {
+          filled: slots.map(sl => !!sl.querySelector(".sg-photo-remove")),
+          files: pairTypes.map(t => { const e = galleryFor(__ic.id).find(x => x.type === t); return e ? (e.storedFilename || e.filename) : null; }),
+          saved: pairTypes.map((t, i) => { const r = saved([pairPTs[i]])[0]; return r ? r[4] : null; }),
+        };
+      };
+      const out = { screen };
+      // Open-ended. A: added, saved, kept for now. B: added, removed WHILE saving.
+      const before = saved([openPT]).length;
+      out.addA = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropA = await __ic.finishCrop();
+      await __ic.waitFor(() => saved([openPT]).length === before + 1 && !galleryFor(__ic.id).some(e => e.uploadPending), 5000);
+      await sleep(200);
+      const rowA = [...saved([openPT]).find(r => r[0] !== (isSet ? "PH-00011" : "PH-00002"))];
+      armed = true;
+      out.addB = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropB = await __ic.finishCrop();
+      await __ic.waitFor(() => saved([openPT]).length === before + 2, 5000);
+      const rowB = [...saved([openPT]).find(r => r[0] !== rowA[0] && r[0] !== (isSet ? "PH-00011" : "PH-00002"))];
+      const rowBn = allRows().findIndex(r => r[0] === rowB[0]) + 1;
+      // Hold the entry itself: once removed it leaves the gallery, so waiting
+      // on "nothing in the gallery is pending" would end before its own
+      // delayed write resumes — exactly the moment the bug happens.
+      const entB = galleryFor(__ic.id).find(e => e.uploadPending);
+      out.bPending = !!entB;
+      const thumbsB = [...openSec().querySelectorAll(".gc-thumb")];
+      const rmB = thumbsB.length ? thumbsB[thumbsB.length - 1].querySelector(".gc-remove") : null;
+      if (rmB) rmB.click();
+      out.confirmB = confirm();
+      await __ic.waitFor(() => !(entB && entB.uploadPending) && blank(rowBn), 6000);
+      await sleep(400);
+      out.afterB = openView(); out.bBlank = blank(rowBn); out.bOnDisk = await onDisk(rowB[4]);
+      out.bIndex = storedPhotoRowsFor(__ic.id).some(r => r.filename === rowB[4]);
+      // A: removed after it saved.
+      const rowAn = allRows().findIndex(r => r[0] === rowA[0]) + 1;
+      const thumbsA = [...openSec().querySelectorAll(".gc-thumb")];
+      const rmA = thumbsA.length ? thumbsA[thumbsA.length - 1].querySelector(".gc-remove") : null;
+      if (rmA) rmA.click();
+      out.confirmA = confirm();
+      await __ic.waitFor(() => blank(rowAn), 4000);
+      await sleep(300);
+      out.afterA = openView(); out.aBlank = blank(rowAn); out.aOnDisk = await onDisk(rowA[4]);
+      // The photo stored before the screen opened.
+      const storedId = isSet ? "PH-00011" : "PH-00002";
+      const rowSn = allRows().findIndex(r => r[0] === storedId) + 1;
+      const rmS = openSec().querySelector(".gc-thumb .gc-remove");
+      if (rmS) rmS.click();
+      out.confirmS = confirm();
+      await __ic.waitFor(() => blank(rowSn), 4000);
+      await sleep(300);
+      out.afterS = openView(); out.sBlank = blank(rowSn);
+      // Pair. Back: added, removed WHILE saving. Front: stored before opening.
+      const backBefore = saved([pairPTs[1]]).length;
+      armed = true;
+      const backSlot = pairSec().querySelectorAll(".sg-photo-slot")[1];
+      out.addBack = __ic.pickVia(backSlot && backSlot.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
+      out.cropBack = await __ic.finishCrop();
+      await __ic.waitFor(() => saved([pairPTs[1]]).length === backBefore + 1, 5000);
+      const rowBk = [...(saved([pairPTs[1]])[0] || [])];
+      const rowBkn = allRows().findIndex(r => r[0] === rowBk[0]) + 1;
+      const entBk = galleryFor(__ic.id).find(e => e.uploadPending);
+      out.backPending = !!entBk;
+      const rmBk = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector(".sg-photo-remove");
+      if (rmBk) rmBk.click();
+      out.confirmBack = confirm();
+      await __ic.waitFor(() => !(entBk && entBk.uploadPending) && rowBkn > 0 && blank(rowBkn), 6000);
+      await sleep(400);
+      out.afterBack = pairView(); out.backBlank = rowBkn > 0 && blank(rowBkn); out.backOnDisk = await onDisk(rowBk[4]);
+      const frontId = isSet ? "PH-00010" : "PH-00001";
+      const rowFn = allRows().findIndex(r => r[0] === frontId) + 1;
+      const rmF = pairSec().querySelectorAll(".sg-photo-slot")[0].querySelector(".sg-photo-remove");
+      if (rmF) rmF.click();
+      out.confirmFront = confirm();
+      await __ic.waitFor(() => blank(rowFn), 4000);
+      await sleep(300);
+      out.afterFront = pairView(); out.frontBlank = blank(rowFn);
+      out.storedLabel = isSet ? "page 1" : "PCGS photo";
+      return out;
+    }, screen);
+    const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    ok(RM.addB && RM.cropB && RM.bPending && RM.confirmB && RM.bBlank && RM.bOnDisk && !RM.bIndex &&
+       eq(RM.afterB.thumbs, [RM.storedLabel, ""]) && eq(RM.afterB.files, RM.afterB.savedFiles) && eq(RM.afterB.thumbs, RM.afterB.savedLabels),
+      `RM1-${RM.screen} open-ended: ✕ on a just-added photo WHILE it is still saving — its row ends fully blank (no stray DateAdded), its file stays on disk, and the live list right after is exactly the saved rows in order: ` + JSON.stringify(RM));
+    ok(RM.confirmA && RM.aBlank && RM.aOnDisk && eq(RM.afterA.thumbs, [RM.storedLabel]) &&
+       eq(RM.afterA.files, RM.afterA.savedFiles) && eq(RM.afterA.thumbs, RM.afterA.savedLabels),
+      `RM2-${RM.screen} open-ended: ✕ on a just-added photo after it saved — the live list matches the saved rows, file on disk: ` + JSON.stringify(RM.afterA));
+    ok(RM.confirmS && RM.sBlank && eq(RM.afterS.thumbs, []) && eq(RM.afterS.files, []) && eq(RM.afterS.savedFiles, []),
+      `RM3-${RM.screen} open-ended: ✕ on the photo stored before the screen opened — no thumbnail left, no saved row: ` + JSON.stringify(RM.afterS));
+    ok(RM.addBack && RM.cropBack && RM.backPending && RM.confirmBack && RM.backBlank && RM.backOnDisk &&
+       eq(RM.afterBack.filled, [true, false]) && RM.afterBack.files[1] === null && eq(RM.afterBack.files, RM.afterBack.saved),
+      `RM4-${RM.screen} pair: ✕ on a just-added Back photo WHILE it is still saving — row fully blank, file on disk, the Back slot is "+" again and the slots match the saved rows: ` + JSON.stringify(RM.afterBack) + " " + JSON.stringify([RM.backPending, RM.backBlank, RM.backOnDisk]));
+    ok(RM.confirmFront && RM.frontBlank && eq(RM.afterFront.filled, [false, false]) && eq(RM.afterFront.files, [null, null]) && eq(RM.afterFront.saved, [null, null]),
+      `RM5-${RM.screen} pair: ✕ on the Front stored before the screen opened — both slots empty, matching the saved rows: ` + JSON.stringify(RM.afterFront));
+  }
+
   // Set: guard refusals, zero Graph calls.
   const SG = await page.evaluate(async () => {
     __ic.installSet();

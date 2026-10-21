@@ -24342,7 +24342,7 @@
     entry.uploadPending = true;
     entry.uploadError = "";
     if (done) done(entry);
-    return commitGalleryPhoto(commitId, entry).then(res => {
+    return entry.commitPromise = commitGalleryPhoto(commitId, entry).then(res => {
       entry.uploadPending = false;
       entry.uploadError = "";
       entry.storedFilename = entry.filename;
@@ -24581,7 +24581,7 @@
     if (!commitId) { if (done) done(entry); return Promise.resolve(null); }
     entry.uploadPending = true;
     if (done) done(entry);
-    return commitGalleryPhoto(commitId, entry).then(res => {
+    return entry.commitPromise = commitGalleryPhoto(commitId, entry).then(res => {
       entry.uploadPending = false;
       entry.uploadError = "";
       entry.storedFilename = entry.filename;
@@ -24802,7 +24802,22 @@
   // convention, and this write layer deliberately has no delete primitive
   // for workbook records — a blanked row simply returns to the claimable
   // pool, which is the same mechanism from the other side.
+  // A REMOVE WAITS FOR AN IN-FLIGHT SAVE (S25, 7f83aad; main has it too).
+  // The ✕ shows while a just-added photo still says "Saving…". Detaching
+  // then raced the add's own write: the detach blanked the row, then the
+  // add finished — its DateAdded PATCH landed on the blanked row, it put the
+  // row back into the session's Photos index, and its re-render hydrated the
+  // photo straight back. The sheet said removed; the screen kept it until a
+  // restart. Waiting for the save to settle first puts the two writes in
+  // order. A save that FAILED wrote no row, so the detach below finds none.
   function detachGalleryPhoto(targetId, entry) {
+    if (entry && entry.uploadPending && entry.commitPromise) {
+      return entry.commitPromise.then(() => detachGalleryPhotoNow(targetId, entry),
+                                      () => detachGalleryPhotoNow(targetId, entry));
+    }
+    return detachGalleryPhotoNow(targetId, entry);
+  }
+  function detachGalleryPhotoNow(targetId, entry) {
     const commitId = photoCommitTargetId(targetId);
     if (!commitId || !entry) return Promise.resolve({ detached: false, noRecord: true });
     const def = galleryTypeDef(entry.type);
@@ -24864,6 +24879,7 @@
         : [
             { label: "Cancel" },
             { label: "Remove", primary: true, onClick: async () => {
+                if (entry && entry.uploadPending) showToast("Finishing the save first, then removing…");
                 const res = await detachGalleryPhoto(targetId, entry);
                 if (res && res.error) {
                   showToast("Couldn't detach the workbook row — nothing was removed. (" + res.error + ")");
