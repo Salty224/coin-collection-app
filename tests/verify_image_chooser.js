@@ -18,7 +18,10 @@
 //      slots with one Replace and the icon row, no 📷/🖼️/📁 row, no file
 //      input inside any slot; Reference/Other get a "+" tile and a Replace
 //      per thumbnail; the same on Manage Photos for a coin
-//   X  scope (C1 only): Edit Set and Add Set still render their old rows
+//   X  scope after C2: only Add Coin, Add Set and Wishlist keep old buttons
+//   V/SC/SJ/SR/SG/SL  the Set screens (C2): Edit Set and Manage Photos for
+//      a Set — layout, Cancel, a JPEG commit, Replace keeps PhotoID and
+//      Label with no leftover thumbnail, guard refusals, layout L1-L8
 //   C  Cancel / backdrop / Esc add nothing and write nothing
 //   J  a JPEG through Library and through Files commits like before: crop,
 //      one upload, one Photos row
@@ -55,6 +58,7 @@ async function setup(page) {
       },
       install() {
         const self = this;
+        this.id = "AY-00099";
         const mock = createMockGraphClient({ sheets: { Photos: [
           ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"],
           ["PH-00001", "AY-00099", "Obverse", "", "AY-00099_obverse_cropped.jpg", "", 46000, ""],
@@ -140,7 +144,54 @@ async function setup(page) {
       toast() { const t = document.getElementById("toast"); return t.classList.contains("show") ? t.textContent : ""; },
       clearToast() { const t = document.getElementById("toast"); t.classList.remove("show"); t.textContent = ""; },
       async waitFor(fn, ms) { const end = Date.now() + (ms || 3000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
-      photoRows() { return this.mock._grids.Photos.filter(r => r[1] === "AY-00099"); },
+      photoRows() { return this.mock._grids.Photos.filter(r => r[1] === this.id); },
+      // Stage C2: a Set (AY-00090) with a stored OGP front (PH-00010) and a
+      // stored COA page labelled "page 1" (PH-00011), plus a named sub-group.
+      set: { id: "AY-00090", name: "1957 United States Proof Set With An Extremely Long Description", denom: "Multiple", year: 1957, mint: "", category: "Proof Set" },
+      installSet() {
+        const self = this;
+        const mock = createMockGraphClient({ sheets: { Photos: [
+          ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"],
+          ["PH-00010", "AY-00090", "OGP_Obverse", "", "AY-00090_ogp_obverse.jpg", "", 46000, ""],
+          ["PH-00011", "AY-00090", "COA", "", "AY-00090_coa_01.jpg", "page 1", 46000, ""],
+          ["", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""],
+        ] } });
+        this.mock = mock;
+        __setGraphClientForTest(new Proxy(mock, { get(t, k) {
+          const v = t[k]; return typeof v === "function" ? (...a) => { self.graphCalls++; return v.apply(t, a); } : v;
+        } }));
+        __resetSheetHeaderMapsForTest();
+        __setAddCoinWriteEnabledForTest(true);
+        __setLiveCoinsForTest([this.set]);
+        __setStoredPhotosForTest({ "AY-00090": [
+          { photoId: "PH-00010", photoType: "OGP_Obverse", galleryType: "ogp_obverse", subGroupId: "",
+            filename: "AY-00090_ogp_obverse.jpg", originalFilename: "", label: "" },
+          { photoId: "PH-00011", photoType: "COA", galleryType: "coa", subGroupId: "",
+            filename: "AY-00090_coa_01.jpg", originalFilename: "", label: "page 1" },
+        ] });
+        const url = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+        __setCoinPhotoCacheForTest("AY-00090_ogp_obverse.jpg", url());
+        __setCoinPhotoCacheForTest("AY-00090_coa_01.jpg", url());
+        delete galleryStore[this.set.id];
+        // A named sub-group, so the Sub-groups section renders a pair.
+        galleryFor(this.set.id).push({ type: "subgroup_reverse", subGroupId: "SG-P", url: url(),
+          filename: "AY-00090_SG-P_reverse.jpg", caption: "" });
+        closeImageSourceChooser();
+        this.id = this.set.id;
+        this.graphCalls = 0;
+      },
+      openEditSet() {
+        navigate("browse"); showBrowseDetail(this.set); showBrowseEditSetView(this.set);
+        const oh = document.getElementById("editSetPhotosHeader");
+        if (oh.getAttribute("aria-expanded") !== "true") oh.click();
+        this.closeOverlays();
+        return document.getElementById("editSetPhotosSections");
+      },
+      openManageSet() {
+        openManagePhotos({ id: this.set.id, name: "x", meta: this.set.id, kind: "set", backTo: () => {} });
+        this.closeOverlays();
+        return document.getElementById("managePhotosSections");
+      },
       async finishCrop() {
         if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
@@ -268,21 +319,214 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   ok(UM.add >= 4 && UM.replace >= 2 && UM.old === 0 && UM.inputs === 0,
     "U6 standalone Manage Photos for a coin renders the same + / Replace, no old rows or inputs: " + JSON.stringify(UM));
 
-  // ---------- X. Scope: C1 only ---------------------------------------------
+  // ---------- X. Scope after C2 ---------------------------------------------
   const X = await page.evaluate(async () => {
-    __ic.install();
-    const set = { id: "AY-00090", name: "Proof Set", denom: "Multiple", year: 1957, mint: "", category: "Proof Set" };
-    __setLiveCoinsForTest([__ic.coin, set]);
-    navigate("browse"); showBrowseDetail(set); showBrowseEditSetView(set);
-    const es = __ic.openAll("editSetPhotosSections");
-    const editSet = { old: es.querySelectorAll('[data-act="camera"]').length, chooser: es.querySelectorAll(".sg-photo-add, .gc-add-tile, [data-act='replace']").length };
+    __ic.installSet();
+    const es = __ic.openAll(__ic.openEditSet().id);
+    const editSet = { old: es.querySelectorAll('[data-act="camera"], [data-act="library"], .gc-add-row, .gc-replace-row').length,
+                      chooser: es.querySelectorAll(".sg-photo-add, .gc-add-tile, [data-act='replace'], [data-role='replace']").length };
+    const ms = __ic.openAll(__ic.openManageSet().id);
+    const manageSet = { old: ms.querySelectorAll('[data-act="camera"], [data-act="library"], .gc-add-row, .gc-replace-row').length,
+                        chooser: ms.querySelectorAll(".sg-photo-add, .gc-add-tile, [data-act='replace'], [data-role='replace']").length };
+    navigate("addcoin");
+    const ac = document.getElementById("view-addcoin");
+    const addCoin = { old: !!document.getElementById("obverseCameraBtn") + ac.querySelectorAll(".gc-add-row").length,
+                      chooser: ac.querySelectorAll(".sg-photo-add, .gc-add-tile").length };
     navigate("addset");
     if (typeof renderAddSetDocs === "function") renderAddSetDocs();
     const ad = document.getElementById("addSetDocsSlots");
-    return { editSet, addSet: { old: ad.querySelectorAll('[data-act="camera"]').length, chooser: ad.querySelectorAll(".sg-photo-add").length } };
+    const addSet = { old: ad.querySelectorAll('[data-act="camera"]').length, chooser: ad.querySelectorAll(".sg-photo-add").length };
+    const wv = document.getElementById("view-wishlist");
+    const wishlist = { old: ["wishlistObverseCameraBtn", "wishlistReverseCameraBtn", "wishlistAdditionalCameraBtn"].filter(i => document.getElementById(i)).length,
+                       chooser: wv.querySelectorAll(".sg-photo-add, .gc-add-tile").length };
+    return { editSet, manageSet, addCoin, addSet, wishlist };
   });
-  ok(X.editSet.old > 0 && X.editSet.chooser === 0 && X.addSet.old > 0 && X.addSet.chooser === 0,
-    "X1 scope: Edit Set and Add Set keep their 📷/🖼️ slots until C2/C4: " + JSON.stringify(X));
+  ok(X.editSet.old === 0 && X.editSet.chooser > 0 && X.manageSet.old === 0 && X.manageSet.chooser > 0 &&
+     X.addCoin.old > 0 && X.addCoin.chooser === 0 && X.addSet.old > 0 && X.addSet.chooser === 0 &&
+     X.wishlist.old === 3 && X.wishlist.chooser === 0,
+    "X1 scope after C2: Edit Set and Manage Photos for a Set use the chooser; only Add Coin, Add Set and Wishlist keep their old 📷/🖼️ buttons: " + JSON.stringify(X));
+
+  // ---------- V. The Set screens (C2) -----------------------------------------
+  for (const surface of ["edit", "manage"]) {
+    const V = await page.evaluate(async (surface) => {
+      __ic.installSet();
+      const host = surface === "edit" ? __ic.openEditSet() : __ic.openManageSet();
+      __ic.openAll(host.id);
+      await new Promise(r => setTimeout(r, 200));
+      const sec = (re) => { const h = [...host.querySelectorAll(".accordion-header")].find(x => re.test(x.textContent)); return h ? h.nextElementSibling : null; };
+      const slotInfo = (s) => ({
+        filled: !!s.querySelector(".sg-photo-img, .sg-photo-empty"),
+        addBox: !!s.querySelector('button.sg-photo-add[data-act="add"]'),
+        addLabel: (s.querySelector(".sg-photo-add .sg-photo-add-label") || {}).textContent || null,
+        replace: (s.querySelector('[data-act="replace"]') || {}).textContent || null,
+        removeInFace: !!s.querySelector('.sg-photo-face > [data-act="remove"]'),
+        removeText: (s.querySelector('.sg-photo-face > [data-act="remove"]') || {}).textContent || null,
+        icons: [...s.querySelectorAll(".sg-photo-actions button")].map(b => b.dataset.act),
+        trash: [...s.querySelectorAll("button")].filter(b => b.textContent.includes("🗑")).length,
+        recrop: s.querySelectorAll('[data-act="adjust"]').length,
+        old: s.querySelectorAll('[data-act="camera"], [data-act="library"], [data-act="files"]').length,
+        labelAfterImg: (() => { const l = s.querySelector(".sg-photo-label"); const im = s.querySelector(".sg-photo-img, .sg-photo-empty");
+          return !!(l && im && (im.compareDocumentPosition(l) & Node.DOCUMENT_POSITION_FOLLOWING)); })(),
+      });
+      const pair = (re) => { const b = sec(re); return b ? [...b.querySelectorAll(".sg-photo-slot")].map(slotInfo) : []; };
+      const coa = sec(/COA/); const coaThumb = coa && coa.querySelector(".gc-thumb");
+      const coaTile = coa && coa.querySelector('button.gc-add-tile[data-role="add"]');
+      const other = sec(/Other photos/);
+      const receipt = document.getElementById("editSetReceiptCameraInput");
+      return {
+        ogp: pair(/OGP/), whole: pair(/Whole set/), sub: pair(/Sub-groups/),
+        coa: { thumbs: coa ? coa.querySelectorAll(".gc-thumb").length : 0,
+               order: coaThumb && [...coaThumb.children].map(c => c.classList.contains("gc-img") ? "photo"
+                 : c.classList.contains("gc-caption") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
+               caption: coaThumb && coaThumb.querySelector(".gc-caption").value,
+               remove: !!(coaThumb && coaThumb.querySelector(".gc-remove")),
+               tileLast: !!coaTile && coaTile.parentElement.lastElementChild === coaTile,
+               tileLabel: coaTile && coaTile.querySelector(".sg-photo-add-label").textContent },
+        otherTile: !!(other && other.querySelector("button.gc-add-tile")),
+        oldAll: host.querySelectorAll(".gc-add-row, .gc-replace-row, [data-act='camera'], [data-act='library']").length,
+        inputs: host.querySelectorAll('input[type="file"]').length,
+        receipt: receipt ? [receipt.getAttribute("accept"), receipt.getAttribute("capture"),
+          !!document.getElementById("editSetReceiptCameraBtn"), !!document.getElementById("editSetReceiptLibraryBtn"),
+          (document.getElementById("editSetReceiptLibraryInput") || {}).getAttribute && document.getElementById("editSetReceiptLibraryInput").getAttribute("accept")] : null,
+      };
+    }, surface);
+    const [ogpF, ogpB] = V.ogp;
+    ok(V.ogp.length === 2 && ogpF.filled && ogpF.replace === "Replace" && ogpF.labelAfterImg && ogpF.removeInFace &&
+       ogpF.removeText === "✕" && ogpF.icons.length === 0 && ogpF.trash === 0 && ogpF.recrop === 0,
+      `V1-${surface} a filled Set pair slot (OGP front): photo, label, Replace, ✕ in the photo's corner, no icon row, no 🗑️, no Recrop (⤢ never showed on Set photos): ` + JSON.stringify(ogpF));
+    ok(ogpB && ogpB.addBox && ogpB.addLabel === "Back" && !ogpB.replace && ogpB.icons.length === 0 &&
+       V.whole.length === 2 && V.whole.every(x => x.addBox) && V.sub.length === 2 && V.sub[1].filled && V.sub[0].addBox,
+      `V2-${surface} empty Set slots (OGP back, whole set, sub-group) are one + box with the label inside: ` + JSON.stringify([ogpB, V.whole, V.sub]));
+    ok([...V.ogp, ...V.whole, ...V.sub].every(x => x.old === 0) && V.oldAll === 0 && V.inputs === 0,
+      `V3-${surface} no 📷/🖼️/📁 buttons, no add/replace rows and no file input anywhere on the Set photos: ` + JSON.stringify([V.oldAll, V.inputs]));
+    ok(V.coa.thumbs === 1 && JSON.stringify(V.coa.order) === JSON.stringify(["photo", "label", "replace"]) &&
+       V.coa.caption === "page 1" && V.coa.remove && V.coa.tileLast && V.coa.tileLabel === "COA / certificate" && V.otherTile,
+      `V4-${surface} COA: photo, label box, Replace, ✕ in the corner, + tile last; Other has its tile: ` + JSON.stringify(V.coa));
+    if (surface === "edit")
+      ok(JSON.stringify(V.receipt) === JSON.stringify(["image/*", "environment", true, true, "image/*,application/pdf"]),
+        "V5 Edit Set's receipt keeps its own 📷/🖼️ buttons and inputs, untouched: " + JSON.stringify(V.receipt));
+  }
+
+  // Set: Cancel writes nothing; a JPEG through Files commits one row.
+  const SC = await page.evaluate(async () => {
+    __ic.installSet();
+    const host = __ic.openEditSet();
+    __ic.openAll(host.id);
+    await new Promise(r => setTimeout(r, 300));
+    const before = galleryFor("AY-00090").length, calls = __ic.graphCalls, rows = __ic.photoRows().length;
+    const add = () => host.querySelector('.sg-photo-slot [data-act="add"]');
+    const out = {};
+    if (add()) add().click(); out.opened = __ic.chooserOpen();
+    document.getElementById("imageSourceChooserCancel").click(); out.cancel = !__ic.chooserOpen();
+    if (add()) add().click();
+    __ic.chooser().dispatchEvent(new MouseEvent("click", { bubbles: true })); out.backdrop = !__ic.chooserOpen();
+    const lib = __ic.inputFor("library");
+    const dt = new DataTransfer(); dt.items.add(await __ic.jpeg()); lib.files = dt.files;
+    lib.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise(r => setTimeout(r, 300));
+    out.noCrop = !__ic.overlayOpen("bgCropOverlay");
+    out.added = galleryFor("AY-00090").length - before; out.graph = __ic.graphCalls - calls; out.rows = __ic.photoRows().length - rows;
+    // Whole set front through Files.
+    const whole = __ic.openSection(host.id, /Whole set/);
+    const r0 = __ic.photoRows().length;
+    out.picked = __ic.pickVia(whole && whole.querySelector('.sg-photo-slot [data-act="add"]'), "files", await __ic.jpeg());
+    out.crop = await __ic.finishCrop();
+    await __ic.waitFor(() => __ic.photoRows().length > r0, 4000);
+    const row = __ic.photoRows().find(r => r[2] === "SubGroup_Obverse");
+    out.rowsAdded = __ic.photoRows().length - r0; out.file = row && row[4];
+    out.uploaded = !!(row && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + row[4]));
+    return out;
+  });
+  ok(SC.opened && SC.cancel && SC.backdrop && SC.noCrop && SC.added === 0 && SC.graph === 0 && SC.rows === 0,
+    "SC1 Set: + opens the chooser; Cancel and a backdrop tap close it; nothing added, zero Graph calls, no row: " + JSON.stringify(SC));
+  ok(SC.picked && SC.crop && SC.rowsAdded === 1 && SC.uploaded && /^AY-00090_.*\.jpg$/.test(SC.file || ""),
+    "SJ1 Set: a JPEG through Files on the whole-set front crops, uploads and writes one SubGroup_Obverse row: " + JSON.stringify(SC));
+
+  // Set Replace: pair slot keeps its PhotoID; COA keeps PhotoID and Label; the
+  // live list shows no leftover (the b2c7ec2 hydrate fix, on the Set screens).
+  for (const surface of ["edit", "manage"]) {
+    const SR = await page.evaluate(async (surface) => {
+      __ic.installSet();
+      const hostId = surface === "edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
+      const out = { surface };
+      const ogp = () => __ic.openSection(hostId, /OGP/);
+      await new Promise(r => setTimeout(r, 150));
+      out.p = __ic.pickVia(ogp().querySelector('.sg-photo-slot [data-act="replace"]'), "library", await __ic.jpeg());
+      out.pc = await __ic.finishCrop();
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00010") || [])[4] !== "AY-00090_ogp_obverse.jpg", 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const ogps = __ic.photoRows().filter(r => r[2] === "OGP_Obverse");
+      out.ogpRows = ogps.map(r => r[0]);
+      const slots = [...ogp().querySelectorAll(".sg-photo-slot")];
+      out.ogpSlots = slots.length; out.ogpEntries = galleryFor("AY-00090").filter(e => e.type === "ogp_obverse").length;
+      out.backEmpty = !!slots[1] && !!slots[1].querySelector(".sg-photo-add");
+      // COA: + Files adds a second page; label it; Replace -> Library.
+      const sec = () => __ic.openSection(hostId, /COA/);
+      const up = []; const realUp = __ic.mock.uploadFile.bind(__ic.mock);
+      __ic.mock.uploadFile = (path, f) => { up.push(path.split("/").pop()); return realUp(path, f); };
+      out.added = __ic.pickVia(sec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.c1 = await __ic.finishCrop();
+      await __ic.waitFor(() => __ic.photoRows().filter(r => r[2] === "COA").length === 2, 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const second = [...sec().querySelectorAll(".gc-thumb")][1];
+      const cap = second && second.querySelector(".gc-caption");
+      if (cap) { cap.value = "Test"; cap.dispatchEvent(new Event("input", { bubbles: true })); }
+      // Copy the row: the mock updates its row arrays in place.
+      const addedRow = [...(__ic.photoRows().find(r => r[2] === "COA" && r[0] !== "PH-00011") || [])];
+      out.thumbsAfterFirst = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.replaced = __ic.pickVia(second && second.querySelector('[data-role="replace"]'), "library", await __ic.jpeg());
+      out.c2 = await __ic.finishCrop();
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === addedRow[0]) || [])[4] !== addedRow[4], 4000);
+      await new Promise(r => setTimeout(r, 300));
+      out.thumbsAfterSecond = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      // And Replace on the stored page 1 itself.
+      const first = [...sec().querySelectorAll(".gc-thumb")][0];
+      out.replaced1 = __ic.pickVia(first && first.querySelector('[data-role="replace"]'), "files", await __ic.jpeg());
+      out.c3 = await __ic.finishCrop();
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00011") || [])[4] !== "AY-00090_coa_01.jpg", 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const coas = __ic.photoRows().filter(r => r[2] === "COA");
+      out.rows = coas.map(r => [r[0], r[4], r[5]]);
+      out.addedFile = addedRow[4];
+      const newRow = coas.find(r => r[0] === addedRow[0]) || [];
+      const p1 = coas.find(r => r[0] === "PH-00011") || [];
+      out.sameId = !!newRow[0]; out.newLabel = newRow[5]; out.newFile = newRow[4];
+      out.p1File = p1[4]; out.p1Label = p1[5];
+      out.oldOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.addedFile));
+      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.gallery = galleryFor("AY-00090").filter(e => e.type === "coa").length;
+      out.uploads = up.length;
+      return out;
+    }, surface);
+    ok(SR.p && SR.pc && JSON.stringify(SR.ogpRows) === JSON.stringify(["PH-00010"]) && SR.ogpSlots === 2 && SR.ogpEntries === 1 && SR.backEmpty,
+      `SR1-${surface} Replace on the stored OGP front keeps one row, PH-00010; the pair still renders two slots with one front entry and Back empty: ` + JSON.stringify(SR));
+    ok(SR.added && SR.c1 && SR.replaced && SR.c2 && SR.replaced1 && SR.c3 && SR.rows.length === 2 && SR.sameId &&
+       SR.newLabel === "Test" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
+       SR.p1File && SR.p1File !== "AY-00090_coa_01.jpg" && SR.p1Label === "page 1" && SR.uploads === 3,
+      `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID and Label kept, old file left on disk, three uploads: ` + JSON.stringify(SR));
+    ok(JSON.stringify(SR.thumbsAfterSecond) === JSON.stringify(["page 1", "Test"]) &&
+       SR.thumbs.length === 2 && JSON.stringify([...SR.thumbs].sort()) === JSON.stringify(["Test", "page 1"]) && SR.gallery === 2,
+      `SR3-${surface} the live COA list after each Replace holds exactly page 1 and Test — no leftover thumbnail (a replaced photo moves to the end of the list, as on the coin screens): ` + JSON.stringify(SR));
+  }
+
+  // Set: guard refusals, zero Graph calls.
+  const SG = await page.evaluate(async () => {
+    __ic.installSet();
+    const host = __ic.openEditSet();
+    __ic.openAll(host.id);
+    await new Promise(r => setTimeout(r, 600));
+    const ogpRep = () => __ic.openSection(host.id, /OGP/).querySelector('.sg-photo-slot [data-act="replace"]');
+    const coa = () => __ic.openSection(host.id, /COA/);
+    const out = {};
+    out.pdfFiles = await __ic.refused(ogpRep(), "files", __ic.file("pdf"));
+    out.heicFiles = await __ic.refused(ogpRep(), "files", __ic.file("heic"));
+    out.pdfLib = await __ic.refused(coa().querySelector('[data-role="add"]'), "library", __ic.file("pdf"));
+    out.brokenRep = await __ic.refused(coa().querySelector('[data-role="replace"]'), "files", __ic.file("broken"));
+    out.rowsKept = JSON.stringify(__ic.photoRows().map(r => r[4])) === JSON.stringify(["AY-00090_ogp_obverse.jpg", "AY-00090_coa_01.jpg"]);
+    return out;
+  });
+  ok([SG.pdfFiles, SG.heicFiles, SG.pdfLib, SG.brokenRep].every(r => r && r.picked && r.toast === TOAST && !r.crop && r.added === 0 && r.graph === 0) && SG.rowsKept,
+    "SG1 Set: PDF and HEIC through Files on OGP Replace, a PDF through Library on the COA +, a broken JPEG on COA Replace — all refused with the toast, no crop, nothing added, zero Graph calls, rows untouched: " + JSON.stringify(SG));
 
   // ---------- C. Cancel / backdrop / Esc ------------------------------------
   const C = await page.evaluate(async () => {
@@ -564,5 +808,86 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     ok(L.chooser.inside && !L.pageScroll, `L4 ${tag}: the chooser panel fits the screen, no sideways page scroll: ` + JSON.stringify(L.chooser));
     if (vp.width < 700) ok(L.chooser.bottomGap === 0, `L5 ${tag}: on a phone the chooser is a bottom sheet: ` + JSON.stringify(L.chooser));
     if (p !== page) await p.close();
+  }
+
+  // ---------- SL. Set screen layout (C2) --------------------------------------
+  for (const vp of [{ width: 360, height: 800 }, PHONE, TABLET]) {
+    for (const surface of ["edit", "manage"]) {
+      const p = await openApp(vp);
+      await setup(p);
+      const L = await p.evaluate(async (surface) => {
+        __ic.installSet();
+        // The busiest slot: OGP front as a failed session capture (↻ shows).
+        const u = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+        galleryFor("AY-00090").push({ type: "ogp_obverse", url: u(), filename: "AY-00090_ogp_obverse.jpg", caption: "", uploadError: "test" });
+        const host = surface === "edit" ? __ic.openEditSet() : __ic.openManageSet();
+        __ic.openAll(host.id);
+        await new Promise(r => setTimeout(r, 200));
+        const inner = window.innerWidth;
+        const inside = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+        const slots = [...host.querySelectorAll(".sg-photo-slot")].map(s => {
+          const sr = s.getBoundingClientRect();
+          const body = s.closest(".accordion-body").getBoundingClientRect();
+          const iconEls = [...s.querySelectorAll(".sg-photo-actions button")];
+          const icons = iconEls.map(b => b.getBoundingClientRect());
+          const rep = s.querySelector('[data-act="replace"]');
+          const add = s.querySelector('[data-act="add"]');
+          const img = s.querySelector(".sg-photo-img, .sg-photo-empty");
+          const rm = s.querySelector('.sg-photo-face > [data-act="remove"]');
+          const off = (rm && img) ? (() => { const a = rm.getBoundingClientRect(), b = img.getBoundingClientRect();
+            return { dr: Math.round(a.right - b.right), dt: Math.round(a.top - b.top), w: Math.round(a.width), h: Math.round(a.height) }; })() : null;
+          return { w: Math.round(sr.width), n: icons.length, off, inBody: inside(sr, body),
+                   recrop: s.querySelectorAll('[data-act="adjust"]').length,
+                   squeezed: iconEls.filter(b => b.scrollWidth > b.clientWidth + 1).length,
+                   lines: new Set(icons.map(r => Math.round(r.top))).size,
+                   clipped: icons.filter(r => !inside(r, sr)).length + (rep && !inside(rep.getBoundingClientRect(), sr) ? 1 : 0),
+                   repH: rep ? Math.round(rep.getBoundingClientRect().height) : null,
+                   repOneLine: rep ? rep.scrollWidth <= rep.clientWidth + 1 : null,
+                   addH: add ? Math.round(add.getBoundingClientRect().height) : null };
+        });
+        // Pairs: the two slots in each row are the same width.
+        const pairs = [...host.querySelectorAll(".sg-photo-slot")].reduce((m, s) => {
+          const k = s.parentElement; (m.get(k) || m.set(k, []).get(k)).push(Math.round(s.getBoundingClientRect().width)); return m; }, new Map());
+        const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => {
+          const tr = t.getBoundingClientRect(); const b = t.querySelector('[data-role="replace"]');
+          return { inside: b ? inside(b.getBoundingClientRect(), tr) : false, h: b ? Math.round(b.getBoundingClientRect().height) : 0 };
+        });
+        const tiles = [...host.querySelectorAll("button.gc-add-tile")].map(t => t.getBoundingClientRect().right <= inner);
+        // Null-safe so a missing element fails L6/L8-set by name, not by throwing.
+        const cthumb = host.querySelector(".gc-thumb");
+        const q = (el, sel) => el && el.querySelector(sel);
+        const refOff = (q(cthumb, ".gc-remove") && q(cthumb, ".gc-img")) ? (() => { const a = q(cthumb, ".gc-remove").getBoundingClientRect(), b = q(cthumb, ".gc-img").getBoundingClientRect();
+          return { dr: Math.round(a.right - b.right), dt: Math.round(a.top - b.top), w: Math.round(a.width), h: Math.round(a.height) }; })() : null;
+        const cImgEl = q(cthumb, ".gc-img"), cBoxEl = cthumb && q(cthumb.parentElement, ".gc-add-box");
+        const plus = (cImgEl && cBoxEl) ? (() => { const cImg = cImgEl.getBoundingClientRect(), cBox = cBoxEl.getBoundingClientRect();
+          return { w: Math.round(cBox.width), h: Math.round(cBox.height), dTop: Math.round(cBox.top - cImg.top),
+                   imgW: Math.round(cImg.width), imgH: Math.round(cImg.height) }; })() : {};
+        const emptyBoxes = [...host.querySelectorAll(".gc-grid")].filter(g => !g.querySelector(".gc-thumb"))
+          .map(g => g.querySelector(".gc-add-box")).filter(Boolean)
+          .map(b => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+        return { inner, slots, pairs: [...pairs.values()], thumbs, tiles, refOff, plus, emptyBoxes,
+                 pageScroll: document.documentElement.scrollWidth > inner };
+      }, surface);
+      const tag = surface + " " + vp.width + "x" + vp.height;
+      console.log("    set layout " + tag + ": widths " + JSON.stringify(L.pairs));
+      ok(L.slots.length >= 6 && L.slots.some(s => s.n === 1) && L.slots.every(s => s.clipped === 0 && s.squeezed === 0 && s.lines <= 1 && s.inBody) &&
+         L.pairs.every(w => w.length !== 2 || w[0] === w[1]),
+        `L1-set ${tag}: every Set pair-slot button (Replace and ↻) sits inside its slot at full size, each slot inside its card, both slots of a pair the same width: ` + JSON.stringify([L.pairs, L.slots]));
+      ok(L.slots.filter(s => s.repH !== null).length >= 2 && L.slots.filter(s => s.repH !== null).every(s => s.repH >= 32 && s.repOneLine) &&
+         L.slots.filter(s => s.addH !== null).every(s => s.addH >= 100),
+        `L2-set ${tag}: Replace is one line and 32px+; an empty + box is the full slot height: ` + JSON.stringify(L.slots));
+      ok(L.thumbs.length >= 1 && L.thumbs.every(t => t.inside && t.h >= 28) && L.tiles.length >= 2 && L.tiles.every(Boolean),
+        `L3-set ${tag}: each COA thumbnail's Replace stays inside it, + tiles inside the screen: ` + JSON.stringify([L.thumbs, L.tiles]));
+      ok(!L.pageScroll, `L4-set ${tag}: no sideways page scroll`);
+      const filledOffs = L.slots.filter(s => s.off);
+      ok(L.refOff && filledOffs.length >= 2 && filledOffs.every(s => JSON.stringify(s.off) === JSON.stringify(L.refOff)),
+        `L6-set ${tag}: each filled Set pair slot's ✕ sits at the photo's top-right exactly as the COA ✕ does: ` + JSON.stringify([L.refOff, filledOffs.map(s => s.off)]));
+      ok(L.slots.every(s => s.recrop === 0),
+        `L7-set ${tag}: no Recrop on the Set screens (⤢ never showed there): ` + JSON.stringify(L.slots.map(s => s.recrop)));
+      ok(L.plus.w === L.plus.imgW && L.plus.h === L.plus.imgH && L.plus.dTop === 0 &&
+         L.emptyBoxes.length >= 1 && L.emptyBoxes.every(([w, h]) => w === L.plus.imgW && h === L.plus.imgH),
+        `L8-set ${tag}: the + box is the COA thumbnail's size and top-aligned, and keeps that size with no photos: ` + JSON.stringify([L.plus, L.emptyBoxes]));
+      await p.close();
+    }
   }
 }, module);

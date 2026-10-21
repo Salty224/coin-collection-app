@@ -25572,9 +25572,9 @@
     const id = ctx.id;
 
     if (ctx.kind === "coin") {
-      // Unified image chooser (Oct 2026), stage C1: the coin branch (Edit
-      // Coin and Manage Photos for a coin) uses the "+" / Replace chooser.
-      // The Set branch below still uses its per-slot 📷/🖼️ buttons until C2.
+      // Unified image chooser (Oct 2026), stages C1/C2: the coin branch
+      // (Edit Coin and Manage Photos for a coin) and the Set branch below
+      // both use the "+" / Replace chooser.
       const pickOpts = { chooser: true };
       // Only offered where a crop could actually be saved (a real, owned
       // coin with the photo write layer on) — otherwise it would be a dead
@@ -25622,18 +25622,22 @@
     }
 
     // --- Set ---
+    // Stage C2: Edit Set and Manage Photos for a Set use the same "+" /
+    // Replace chooser as the coin screens. Edit Set's receipt pill is not
+    // part of this render and is untouched.
+    const setPickOpts = { chooser: true };
     appendManageSection(host, "📦 Package / OGP",
       manageCount(id, e => e.type.indexOf("ogp_") === 0),
       (body) => managePairBlock(body, null,
         "The packaging itself — box, folder or envelope exterior.",
-        ["ogp_obverse", "ogp_reverse"], id, null, render),
+        ["ogp_obverse", "ogp_reverse"], id, null, render, setPickOpts),
       { open: openTitles.has("📦 Package / OGP") });
 
     appendManageSection(host, "🖼️ Whole set — front &amp; back",
       manageCount(id, e => isSubGroupEntry(e) && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID),
       (body) => managePairBlock(body, null,
         "The complete set as received. Independent of sub-groups.",
-        SUBGROUP_PAIR, id, DEFAULT_SUBGROUP_ID, render),
+        SUBGROUP_PAIR, id, DEFAULT_SUBGROUP_ID, render, setPickOpts),
       { open: openTitles.has("🖼️ Whole set — front & back") });
 
     // One sub-section per sub-group. Read off the draft when there is one;
@@ -25650,7 +25654,7 @@
         (body) => {
           subGroups.forEach(sg => {
             managePairBlock(body, sg.name || "Sub-group",
-              null, SUBGROUP_PAIR, id, sg.id, render);
+              null, SUBGROUP_PAIR, id, sg.id, render, setPickOpts);
           });
         },
         { open: openTitles.has("🧩 Sub-groups") });
@@ -25659,12 +25663,12 @@
     appendManageSection(host, "📜 COA / certificates",
       manageCount(id, e => e.type === "coa"),
       (body) => manageOpenEndedBlock(body, "coa", id,
-        "Add one photo per page or side — label each one (e.g. \"page 1\").", render),
+        "Add one photo per page or side — label each one (e.g. \"page 1\").", render, setPickOpts),
       { open: openTitles.has("📜 COA / certificates") });
 
     appendManageSection(host, "🖼️ Other photos",
       manageCount(id, e => e.type === "other"),
-      (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this Set.", render),
+      (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this Set.", render, setPickOpts),
       { open: openTitles.has("🖼️ Other photos") });
 
     // Coins in this Set — each drills into its own Manage Photos (the

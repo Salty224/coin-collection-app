@@ -133,7 +133,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Unified image chooser — stage C1 (Oct 2026, HELD on `claude/unified-image-chooser`, awaiting Ray's S25 test before C2)
+## Unified image chooser — stages C1 + C2 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 awaiting his S25 test)
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
 (tip `e8d822a`, never merged, kept as history). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
@@ -208,7 +208,38 @@ on the S25: every image interaction works the same way. Suite:
   PhotoID check fails R1b, R4-edit, R4-manage. Not changed: a label typed
   in the box is only held in memory and is written only by the next
   capture/Replace of that photo (pre-existing, flagged).
-- **Planned stages**: C2 Edit Set / Manage Photos for a Set; C3 Add Coin
+- **Stage C2 (built on `6eb34d7`, Ray's go-ahead after his S25 pass): the
+  Set branch of `renderManagePhotosInto`** (Edit Set and Manage Photos for a
+  Set) passes `setPickOpts = { chooser: true }` to OGP, Whole set, each
+  Sub-group pair, COA and Other. Same layout as the coin screens: empty slot
+  = one "+" box with its label inside; filled pair slot = ✕ in the photo's
+  corner (same `confirmRemoveGalleryPhoto` and row-detach), Replace, ↻ only
+  after a failed save; COA/Other thumbs = photo, label box, Replace, ✕; the
+  "+" tile matches the thumbnail and top-aligns. **No Recrop on any Set
+  screen**: ⤢ never showed there (Set types don't `retainRaw`), so none is
+  added. Guard, crop, commit and Replace rules unchanged; the b2c7ec2
+  hydrate PhotoID clause is generic per CollectionID, so it already covers
+  Sets (asserted, SR3). Edit Set's receipt pill is not part of this render
+  and is untouched (V5).
+  - **Old 360px overflow, measured** (Edit Set, OGP pair with a failed
+    front): before C2 the front slot was forced to 164px by its 📷 🖼️ ↻ 🗑️
+    row and the empty Back slot (81px) ran 6px past its card; after C2 both
+    slots are 112px and inside the card. Manage Photos for a Set: 124px/144px
+    unequal before, 144px/144px after. 412: 138/138 (Edit Set), 170/170
+    (Manage). 1024: 444/444, 476/476.
+  - **Seen, not changed**: Replace on a repeatable photo (COA, Reference)
+    moves it to the end of the live list until a restart, because
+    `replaceGalleryEntryAndCommit` splices out and re-appends. The same on
+    the coin screens since C1; the saved rows keep their order.
+  - Tests: `verify_image_chooser.js` 56 -> 116 (X1 rewritten: only Add Coin,
+    Add Set and Wishlist keep old buttons; V1-V5 x2 surfaces; SC1, SJ1;
+    SR1-SR3 x2 surfaces; SG1; L1-L8-set at 360x800, 412x915, 1024x768 on both
+    surfaces). `npm test` 3157/0/0/69 on the branch. Negative controls on the
+    real app.html, restored by checksum: C2 reverted (48 fail by name), the
+    hydrate PhotoID clause removed (SR3 x2 + R1b/R4 x2), Replace not carrying
+    the PhotoID (SR2/SR3 x2 + R1/R1b/R3/R4).
+  - Not verified: any real device for the Set screens.
+- **Planned stages**: C3 Add Coin
   (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
   picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
   with Ray's go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is
@@ -552,9 +583,9 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (c) The Add Coin gallery has no per-photo Replace button.
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
   its remove (✕) button only after the screen is redrawn.
-- (e) Unified image chooser: C1 (coin screens) is held on
-  `claude/unified-image-chooser`; C2-C4 (Set screens, Add Coin, Add Set,
-  Wishlist) follow after Ray's S25 test, C5 receipts only with his go-ahead.
+- (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are held
+  on `claude/unified-image-chooser`; C3-C4 (Add Coin, Add Set, Wishlist)
+  follow after Ray's S25 test of C2, C5 receipts only with his go-ahead.
   HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
