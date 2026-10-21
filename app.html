@@ -24332,8 +24332,11 @@
   // caller's own re-render (or preview update); it runs immediately so the
   // photo appears at once, and again after the write settles so a failure
   // badge can appear.
-  function addGalleryEntryAndCommit(targetId, entry, done) {
-    addGalleryEntry(targetId, entry);
+  function addGalleryEntryAndCommit(targetId, entry, done, opts) {
+    // opts.alreadyPlaced: the caller has already put `entry` in the list
+    // (Replace does, at the replaced photo's own index), so don't add it
+    // again — a repeatable type would otherwise be pushed to the end.
+    if (!(opts && opts.alreadyPlaced)) addGalleryEntry(targetId, entry);
     const commitId = photoCommitTargetId(targetId);
     if (!commitId) { if (done) done(entry); return Promise.resolve(null); }
     entry.uploadPending = true;
@@ -24555,7 +24558,14 @@
     const at = list.indexOf(oldEntry);
     if (!newEntry.caption && oldEntry && oldEntry.caption) newEntry.caption = oldEntry.caption;
     if (oldEntry && oldEntry.storedPhotoId) newEntry.storedPhotoId = oldEntry.storedPhotoId;
-    if (at >= 0) list.splice(at, 1);
+    // Take the replaced photo's own slot, so the live list keeps the same
+    // order as the saved rows (the row itself is updated in place). Removing
+    // it and re-adding pushed a repeatable photo (Reference, Other, COA) to
+    // the end of the list until a restart.
+    if (at >= 0) {
+      list[at] = newEntry;
+      return addGalleryEntryAndCommit(targetId, newEntry, done, { alreadyPlaced: true });
+    }
     return addGalleryEntryAndCommit(targetId, newEntry, done);
   }
 

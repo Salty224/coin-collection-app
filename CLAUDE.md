@@ -227,10 +227,21 @@ on the S25: every image interaction works the same way. Suite:
     slots are 112px and inside the card (the whole-set pair was 124/100
     before). Manage Photos for a Set: OGP pair 164/124 before, 144/144 after. 412: 138/138 (Edit Set), 170/170
     (Manage). 1024: 444/444, 476/476.
-  - **Seen, not changed**: Replace on a repeatable photo (COA, Reference)
-    moves it to the end of the live list until a restart, because
-    `replaceGalleryEntryAndCommit` splices out and re-appends. The same on
-    the coin screens since C1; the saved rows keep their order.
+  - **Replace keeps the photo in place (fixed before merge, Ray's Q2).**
+    Replace on a repeatable photo (Reference, Other, COA) used to move it to
+    the end of the live list until a restart, because
+    `replaceGalleryEntryAndCommit` spliced it out and re-appended it
+    (`addGalleryEntry` pushes repeatable types). Now the new entry takes the
+    old one's index (`list[at] = newEntry`) and is committed through
+    `addGalleryEntryAndCommit(..., { alreadyPlaced: true })`, which skips the
+    add but keeps the same upload, row write, toast and failure handling.
+    Coin and Set screens alike; nothing written changes (the row was always
+    updated in place). Tests: R5-edit/R5-manage (coin, Replace the first
+    Reference) and SR4-edit/SR4-manage (Set, Replace the first COA) assert
+    the photo stays first; SR3 now checks the order instead of recording the
+    move. Suite 116 -> 120; `npm test` 3161/0/0/69. Negative control
+    (splice-and-re-add reinstated on the real app.html, restored by
+    checksum): exactly R5-edit, R5-manage, SR4-edit, SR4-manage fail.
   - Tests: `verify_image_chooser.js` 56 -> 116 (X1 rewritten: only Add Coin,
     Add Set and Wishlist keep old buttons; V1-V5 x2 surfaces; SC1, SJ1;
     SR1-SR3 x2 surfaces; SG1; L1-L8-set at 360x800, 412x915, 1024x768 on both

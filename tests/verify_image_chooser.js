@@ -495,6 +495,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       out.oldOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.addedFile));
       out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
       out.gallery = galleryFor("AY-00090").filter(e => e.type === "coa").length;
+      out.galleryFiles = galleryFor("AY-00090").filter(e => e.type === "coa").map(e => e.filename);
       out.uploads = up.length;
       return out;
     }, surface);
@@ -504,9 +505,11 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
        SR.newLabel === "Test" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
        SR.p1File && SR.p1File !== "AY-00090_coa_01.jpg" && SR.p1Label === "page 1" && SR.uploads === 3,
       `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID and Label kept, old file left on disk, three uploads: ` + JSON.stringify(SR));
-    ok(JSON.stringify(SR.thumbsAfterSecond) === JSON.stringify(["page 1", "Test"]) &&
-       SR.thumbs.length === 2 && JSON.stringify([...SR.thumbs].sort()) === JSON.stringify(["Test", "page 1"]) && SR.gallery === 2,
-      `SR3-${surface} the live COA list after each Replace holds exactly page 1 and Test — no leftover thumbnail (a replaced photo moves to the end of the list, as on the coin screens): ` + JSON.stringify(SR));
+    ok(JSON.stringify(SR.thumbsAfterSecond) === JSON.stringify(["page 1", "Test"]) && SR.gallery === 2,
+      `SR3-${surface} after Replace on the last COA (Test) the live list is page 1, then Test, in that order — no leftover thumbnail: ` + JSON.stringify(SR));
+    ok(JSON.stringify(SR.thumbs) === JSON.stringify(["page 1", "Test"]) &&
+       SR.galleryFiles.length === 2 && SR.galleryFiles[0] === SR.p1File && SR.galleryFiles[1] === SR.newFile,
+      `SR4-${surface} Replace on a COA that is NOT last (page 1, first) keeps it first in the live list, matching the saved order — it does not move to the end: ` + JSON.stringify(SR));
   }
 
   // Set: guard refusals, zero Graph calls.
@@ -644,7 +647,19 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
       out.gallery = galleryFor("AY-00099").filter(e => e.type === "reference").map(e => e.filename);
       out.index = storedPhotoRowsFor("AY-00099").filter(r => r.galleryType === "reference").map(r => r.filename);
-      out.uploads = up;
+      out.uploads = [...up];
+      // Now Replace the photo that is NOT last — PCGS photo, PH-00002, first
+      // in the list. It must stay first (the saved rows keep their order;
+      // the live list must match without a restart).
+      const firstThumb = [...sec().querySelectorAll(".gc-thumb")][0];
+      out.r5picked = __ic.pickVia(firstThumb && firstThumb.querySelector('[data-role="replace"]'), "files", await __ic.jpeg());
+      out.r5crop = await __ic.finishCrop();
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00002") || [])[4] !== "AY-00099_reference_01.jpg", 4000);
+      await new Promise(r => setTimeout(r, 300));
+      const p2 = __ic.photoRows().find(r => r[0] === "PH-00002") || [];
+      out.r5file = p2[4];
+      out.r5thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.r5gallery = galleryFor("AY-00099").filter(e => e.type === "reference").map(e => e.filename);
       return out;
     }, surface);
     ok(RR.added && RR.crop1 && RR.replaced && RR.crop2 && RR.rows.length === 2 && RR.sameId &&
@@ -655,6 +670,10 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
        RR.gallery.length === 2 && RR.gallery[1] === RR.newFile &&
        RR.index.length === 2 && RR.index.indexOf(RR.addedFile) === -1,
       `R4-${surface} the live list right after that Replace is PCGS, then the new photo labelled Test — no third thumbnail, no restart: ` + JSON.stringify(RR));
+    ok(RR.r5picked && RR.r5crop && RR.r5file && RR.r5file !== "AY-00099_reference_01.jpg" &&
+       JSON.stringify(RR.r5thumbs) === JSON.stringify(["PCGS photo", "Test"]) &&
+       RR.r5gallery.length === 2 && RR.r5gallery[0] === RR.r5file && RR.r5gallery[1] === RR.newFile,
+      `R5-${surface} Replace on a Reference that is NOT last (PCGS photo, first) keeps it first in the live list, matching the saved order — it does not move to the end: ` + JSON.stringify(RR));
   }
 
   const R2 = await page.evaluate(async () => {
