@@ -461,6 +461,21 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
+- (g) Value fallback decision, pending with Ray: `coin.value` shows the melt
+  figure (`All.SpotValue`) when `All.Value` is blank (about 12 screens).
+  20 Oct workbook: 347 of 620 owned rows have a blank Value, 320 of them with
+  a melt figure, about $14,560. Recommended option: label melt-derived
+  figures (the other option is to stop falling back). Questions-first.
+- (h) Graded/reholdered coins: capture design (cost basis, grader, cert,
+  slab photos, location). Questions-first.
+- (i) The in-app image viewer's back gesture is unverified on a real
+  phone/tablet.
+- (j) Deferred receipt / Edit Coin bugs: a receipt file is left without a
+  row if the Receipts append fails; the receipt index picks first-row versus
+  last-row inconsistently; Edit Coin still shows a stale "Session-only"
+  note; the receipt viewer can show an old copy after a same-name
+  replacement.
+- (k) Deploy workflow: upgrade its actions to Node 24 versions.
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
@@ -2035,7 +2050,7 @@ them (see below).
   view. Full nav smoke-check (Docket/Catalog/Albums/Sets/Dashboard) confirms
   nothing else regressed.
 
-### Photo Gallery, two-stage crop pipeline & Manage Photos (BUILT, held on branch `claude/photo-gallery-crop`, NOT merged)
+### Photo Gallery, two-stage crop pipeline & Manage Photos (BUILT and merged to main on Ray's real-device sign-off; built on `claude/photo-gallery-crop`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`)
 A general per-record **photo gallery** replacing the old rigid "obverse/
 reverse/additional" fixed slots, a **two-stage crop pipeline** (rectangular
 background crop → derived circle crop), a **sub-group photo tier** for Sets,
@@ -9592,7 +9607,7 @@ the CSS fails 5 of them and reproduces the sliver.
   No overflow.
 - **Not verified: any real device.**
 
-### Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`)
+### Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`, landed via rebase; the code is on `main`)
 The app's first genuinely **DESTRUCTIVE** write. Architectural and
 irreversible, so it was held for Ray's explicit merge go-ahead and his own
 run of the delete path against `_Testing`; **since merged to `main`** (the
@@ -11366,7 +11381,7 @@ suite depends on the real fix, not a coincidence of the fixture.
   already pointing at the very Set being edited; linking there is
   deliberately session-only, per `ALL_NEVER_WRITE_COLUMNS`).
 
-### Set attach / detach: the real OriginSetID write layer (BUILT and merged to main; built on `claude/add-coin-write-path-fs2rf8`, tip `3767eb4`)
+### Set attach / detach: the real OriginSetID write layer (BUILT and merged to main; built on `claude/add-coin-write-path-fs2rf8`, tip `3767eb4`, landed via rebase; the code is on `main`)
 The app's **first cross-row-target write**: initiated from a Set's Edit
 form, but landing on a DIFFERENT row entirely (the coin's). Architectural
 per the standing rule, so it was held for Ray's explicit merge go-ahead;
@@ -11530,7 +11545,7 @@ Sets automatically got a Dashboard tile too, the same way Albums always has.
 Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
 tile — it's reachable only via its own tab inside Browse.
 
-### Cabinet navigation redesign (BUILT, held on branch `claude/cabinet-navigation`, NOT merged — awaiting Ray's live-device review)
+### Cabinet navigation redesign (BUILT and merged to main; built on `claude/cabinet-navigation`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`)
 The entire persistent-nav model above is **retired** in favor of a
 Dashboard-graphic-driven model. This is architectural/cross-cutting work, so
 per the merge policy it's held on its branch until Ray's explicit go-ahead
@@ -14928,7 +14943,7 @@ alone wouldn't prove the actual new element exists, which the added
   on `claude/code-primer-u8uv1d`, not merged to `main`, until that pass
   comes back clean.
 
-### Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`)
+### Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`)
 Ray's live repro: Year 2026 / no mint / `$1` / Business Strike with
 **"Trump"** typed into Description silently auto-matched `C-2026--$1-01` —
 a different real 2026 dollar — behind a green "Matched DB_Coins" banner
@@ -15103,7 +15118,7 @@ row resolves cleanly with no conflict message; Category rejecting a lone
 non-Eagle row and accepting a lone Eagle row; and the banner re-running live
 as the Description is typed.
 
-### Re-check applied the gate too; three note strings corrected (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`)
+### Re-check applied the gate too; three note strings corrected (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`)
 Live finding on `d3439a4`, from the same pass: staged draft `AY-00724`
 (Description "Trump", CoinID deliberately withheld for `C-2026--$1-01`)
 offered, on ONE tap of **Re-check**, *"One match found: DB_Coins now has a
