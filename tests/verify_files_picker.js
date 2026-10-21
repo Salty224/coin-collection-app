@@ -86,6 +86,13 @@ const NEW_INPUTS = {
   reverseFilesInput: FILES_ACCEPT,
   "role:files": "${FILES_PICKER_ACCEPT}",
 };
+// The unified image chooser's three shared inputs (verify_image_chooser.js
+// covers their behaviour). Kept out of the pinned list and checked here.
+const CHOOSER_INPUTS = {
+  imageChooserCameraInput: ["image/*", "environment"],
+  imageChooserLibraryInput: ["image/*", "-"],
+  imageChooserFilesInput: [FILES_ACCEPT, "-"],
+};
 
 function fileInputsIn(file) {
   const src = fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -103,7 +110,8 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   // ---------- B / C. Source inventory -------------------------------------
   const appInputs = fileInputsIn("app.html");
   const stageInputs = fileInputsIn("stage.html");
-  const appExisting = appInputs.filter(r => !(r[0] in NEW_INPUTS));
+  const appExisting = appInputs.filter(r => !(r[0] in NEW_INPUTS) && !(r[0] in CHOOSER_INPUTS));
+  const appChooser = appInputs.filter(r => r[0] in CHOOSER_INPUTS);
   const appNew = appInputs.filter(r => r[0] in NEW_INPUTS);
   ok(MAIN_APP_INPUTS.length + MAIN_STAGE_INPUTS.length === 42,
     "B0 the pinned list covers 42 pre-existing inputs (34 app.html + 8 stage.html)");
@@ -112,11 +120,13 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     JSON.stringify(appExisting.filter((r, i) => JSON.stringify(r) !== JSON.stringify(MAIN_APP_INPUTS[i]))));
   ok(JSON.stringify(stageInputs) === JSON.stringify(MAIN_STAGE_INPUTS),
     "B2 stage.html's 8 file inputs are unchanged");
-  ok(appInputs.length === 37 && appNew.length === 3,
-    "B3 app.html has exactly the 3 new inputs on top of the 34: " + appInputs.length);
+  ok(appInputs.length === 40 && appNew.length === 3 && appChooser.length === 3,
+    "B3 app.html has exactly the 3 Files inputs and the 3 chooser inputs on top of the 34: " + appInputs.length);
+  ok(appChooser.every(r => JSON.stringify([r[1], r[2]]) === JSON.stringify(CHOOSER_INPUTS[r[0]])),
+    "B4 the chooser's inputs: Camera image/*+capture, Library image/*, Files image/*,application/pdf no capture: " + JSON.stringify(appChooser));
   const cams = appInputs.concat(stageInputs).filter(r => /camera|cam\b|cam-input/i.test(r[0]));
-  ok(cams.length === 21 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
-    "C1 all 21 camera inputs still have accept image/* and capture=environment");
+  ok(cams.length === 22 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
+    "C1 all 22 camera inputs (21 + the chooser's) still have accept image/* and capture=environment");
   ok(appNew.every(r => r[2] === "-" && r[1] === NEW_INPUTS[r[0]]),
     "A1 source: the new Files inputs have the expected accept and no capture: " + JSON.stringify(appNew));
 
@@ -224,7 +234,8 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
       addSetGalFiles: document.querySelectorAll('#addSetGallery input[data-role="files"], #addSetChildRefGallery input[data-role="files"]').length,
       addSetGalLabels: [...document.querySelectorAll("#addSetGallery .gc-add-btn")].map(b => b.textContent.trim()),
       filesInputsOutsideAddCoin: [...document.querySelectorAll('input[type="file"]')].filter(i =>
-        /application\/pdf/.test(i.accept) && !/receipt/i.test(i.id) && !i.closest("#view-addcoin")).length,
+        /application\/pdf/.test(i.accept) && !/receipt/i.test(i.id) && !i.closest("#view-addcoin") && !i.closest("#imageSourceChooser")).length,
+      chooserFilesInputs: document.querySelectorAll('#imageSourceChooser input[accept="image/*,application/pdf"]').length,
     };
   });
   ok(A.obv && A.obv.accept === "image/*,application/pdf" && !A.obv.capture, "A2 Obverse Files input: accept exact, no capture");
@@ -236,7 +247,8 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     "A7 Add photo row reads 📷 Camera / 🖼️ Library / 📁 Files: " + JSON.stringify(A.galLabels));
   ok(A.addSetGalFiles === 0 && JSON.stringify(A.addSetGalLabels) === JSON.stringify(["📷 Take photo", "🖼️ Choose photo"]),
     "A8 Add Set's gallery is unchanged (no Files button, original labels): " + JSON.stringify(A.addSetGalLabels));
-  ok(A.filesInputsOutsideAddCoin === 0, "A9 no Files-style input exists outside Add Coin (receipts excepted)");
+  ok(A.filesInputsOutsideAddCoin === 0 && A.chooserFilesInputs === 1,
+    "A9 no Files-style input exists outside Add Coin (receipts and the shared image chooser's one Files input excepted): " + JSON.stringify([A.filesInputsOutsideAddCoin, A.chooserFilesInputs]));
 
   // ---------- D. JPEG through Files == JPEG through Library ---------------
   const D = await page.evaluate(async () => {

@@ -472,14 +472,16 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     const obvSlot = host.querySelector(".sg-photo-slot");
     const obvImg = obvSlot.querySelector(".sg-photo-img");
     const obvEmpty = obvSlot.querySelector(".sg-photo-empty");
-    const cam = obvSlot.querySelector('[data-act="camera"]');
+    // Unified image chooser (Oct 2026): a filled slot has ONE Replace button
+    // that opens the shared chooser, instead of per-slot 📷/🖼️.
+    const repBtn = obvSlot.querySelector('[data-act="replace"]');
     const out = {
       beforeHydrate,
       afterHydrate: galleryFor(id).length,
       obvShowsImage: !!obvImg && obvImg.getAttribute("src") === obvUrl,
       obvShowsPlus: !!obvEmpty && obvEmpty.textContent.trim() === "＋",
-      replaceLabel: !!obvSlot.querySelector(".sg-photo-replace"),
-      camAria: cam.getAttribute("aria-label"),
+      replaceLabel: !!repBtn && repBtn.textContent.trim() === "Replace",
+      camAria: repBtn ? repBtn.getAttribute("aria-label") : "",
       hasRemove: !!obvSlot.querySelector('[data-act="remove"]'),
       hasAdjustLegacy: !!obvSlot.querySelector('[data-act="adjust"]'),
       adjustLegacyTitle: (obvSlot.querySelector('[data-act="adjust"]') || {}).title || "",
@@ -489,9 +491,11 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       refThumb: (() => {
         const t = host.querySelector(".gc-thumb");
         return t ? {
-          hasCam: !!t.querySelector('[data-role="rep-cam"]'),
-          hasLib: !!t.querySelector('[data-role="rep-lib"]'),
-          separateInputs: !!t.querySelector('[data-role="rep-cam-input"]') && !!t.querySelector('[data-role="rep-lib-input"]'),
+          hasReplace: !!t.querySelector('[data-role="replace"]'),
+          // The camera and library stay SEPARATE inputs — now the shared
+          // chooser's, not one pair per thumbnail.
+          separateInputs: !t.querySelector('input[type="file"]') &&
+            !!document.getElementById("imageChooserCameraInput") && !!document.getElementById("imageChooserLibraryInput"),
           caption: t.querySelector(".gc-caption").value
         } : null;
       })()
@@ -530,8 +534,8 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(P.beforeHydrate === 0 && P.afterHydrate === 2, "P1 a record's stored photos hydrate into its gallery");
   ok(P.obvShowsImage === true, "P2 the pair slot shows the CURRENT stored photo");
   ok(P.obvShowsPlus === false, "P3 and no longer draws the empty '＋' face — the reported symptom");
-  ok(P.replaceLabel === true, "P4 a filled slot is explicitly labelled Replace");
-  ok(/Replace/.test(P.camAria || ""), "P5 and its capture buttons say Replace, not Add");
+  ok(P.replaceLabel === true, "P4 a filled slot is explicitly labelled Replace (one Replace button, unified chooser)");
+  ok(/Replace/.test(P.camAria || ""), "P5 and its pick button says Replace, not Add");
   ok(P.hasRemove === true, "P6 Remove is available on a stored photo (it was hidden before)");
   // SUPERSEDED design: Adjust used to be hidden with no resolvable raw.
   // Most photos already on the Photos tab predate the crop pipeline and
@@ -541,8 +545,8 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(/re-crops the stored photo/.test(P.adjustLegacyTitle),
     "P7b and its label says it re-crops the stored photo rather than working from an original");
   ok(/1 photo/.test(P.counts), "P8 the section header counts stored photos");
-  ok(P.refThumb && P.refThumb.hasCam && P.refThumb.hasLib, "P9 a repeatable type gets per-thumbnail Replace");
-  ok(P.refThumb && P.refThumb.separateInputs, "P10 with SEPARATE camera/library inputs (Samsung Internet skips the chooser)");
+  ok(P.refThumb && P.refThumb.hasReplace, "P9 a repeatable type gets a per-thumbnail Replace");
+  ok(P.refThumb && P.refThumb.separateInputs, "P10 picking stays on SEPARATE camera/library inputs (the shared chooser's; Samsung Internet skips the native chooser)");
   ok(P.refThumb && P.refThumb.caption === "PCGS listing", "P11 the stored Label renders as the thumbnail's caption");
   ok(P.afterSecondRender === 2, "P12 re-rendering does not duplicate hydrated entries");
   ok(P.sessionWins === true, "P13 a session capture is never overwritten by hydration");
@@ -948,7 +952,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     let slot = openSlot();
     out.legacy = {
       hasImg: !!slot.querySelector(".sg-photo-img"),
-      hasReplace: !!slot.querySelector(".sg-photo-replace"),
+      hasReplace: !!slot.querySelector('[data-act="replace"]'),
       hasRemove: !!slot.querySelector('[data-act="remove"]'),
       entries: galleryFor(id).length,
       legacyOnlyFlag: !!(galleryFor(id)[0] || {}).legacyOnly
@@ -1011,7 +1015,8 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     renderManagePhotosInto("managePhotosSections", ctx2);
     out.plainAfterRerender = { entries: galleryFor("AY-00099").length,
       slotEmpty: !!document.getElementById("managePhotosSections")
-        .querySelector(".sg-photo-slot .sg-photo-empty") };
+        // Unified image chooser: an empty slot is now the "+" box.
+        .querySelector(".sg-photo-slot .sg-photo-add") };
 
     // --- A FAILING detach must leave the screen alone. Removing locally and
     //     firing the write off unawaited is what let the screen and the sheet

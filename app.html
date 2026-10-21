@@ -2248,6 +2248,63 @@
   /* A filled pair slot says what its capture buttons will do. Without this
      a slot holding a stored photo looked identical to an empty one. */
   .sg-photo-replace { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  /* ---- Unified image chooser (Oct 2026). A bottom sheet on a phone (thumb
+     reach), a centred card on anything wider. z-index 205: above the 200
+     sheets it can be opened from (sub-group sheet, gallery type picker),
+     below the crop overlays at 210 so a crop always paints over it. */
+  .image-chooser-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 205;
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .image-chooser-overlay.hidden { display: none; }
+  .image-chooser-panel {
+    width: 100%; max-width: 420px; box-sizing: border-box;
+    background: var(--bg-case); border: 1px solid var(--case-border-bright, var(--case-border));
+    border-radius: 14px 14px 0 0; padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 700px) {
+    .image-chooser-overlay { align-items: center; }
+    .image-chooser-panel { border-radius: 14px; }
+  }
+  .image-chooser-title { font-size: 13px; color: var(--text-muted); text-align: center; margin: 0 0 10px; }
+  .image-chooser-btn, .image-chooser-cancel {
+    display: block; width: 100%; min-height: 48px; margin: 0 0 8px; box-sizing: border-box;
+    border-radius: 10px; border: 1px solid var(--case-border); background: var(--bg-elevated);
+    color: var(--text); font-family: inherit; font-size: 16px; cursor: pointer; text-align: left; padding: 0 16px;
+  }
+  .image-chooser-cancel { margin: 4px 0 0; text-align: center; background: transparent; color: var(--text-muted); }
+  /* Chooser-mode pair slot: the whole empty box is the "+", with the slot's
+     label inside it; a filled slot shows the photo, its label, ONE Replace
+     text button, then the icon actions (⤢ ↻ 🗑️) on their own row. */
+  .sg-photo-pair .sg-photo-add {
+    width: 100%; height: 120px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: rgba(255,255,255,0.015); color: var(--gold-bright); font-family: inherit; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0;
+  }
+  .sg-photo-add .sg-photo-add-plus { font-size: 26px; line-height: 1; }
+  .sg-photo-add .sg-photo-add-label { font-size: 11px; color: var(--text-muted); }
+  .sg-photo-replace-btn, .gc-replace-text-btn {
+    display: block; width: 100%; box-sizing: border-box; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--gold-bright);
+    font-family: inherit;
+  }
+  .sg-photo-replace-btn { min-height: 34px; font-size: 13px; margin: 0 0 6px; }
+  .gc-replace-text-btn { min-height: 30px; font-size: 12px; margin-top: 4px; }
+  /* ⤢ ↻ 🗑️ at full size need 109px with a 4px gap: one line in the 112px
+     slot a 360px phone gives Edit Coin. The wrap is only a safety net. */
+  .sg-photo-slot.sg-chooser-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
+  .gc-grid.gc-chooser-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  button.gc-add-tile {
+    width: 88px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0;
+    font: inherit; color: inherit;
+  }
+  .gc-add-tile .gc-add-box {
+    width: 88px; height: 88px; border-radius: 8px; border: 1px dashed var(--case-border);
+    background: rgba(255,255,255,0.015); color: var(--gold-bright); box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  }
+  .gc-add-tile .gc-add-box .sg-photo-add-plus { font-size: 24px; line-height: 1; }
+  .gc-add-tile .gc-add-box .sg-photo-add-label { font-size: 10px; color: var(--text-muted); }
   .gc-thumb .gc-retry {
     position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid var(--gold); background: var(--bg-case); color: var(--gold-bright);
@@ -5013,6 +5070,26 @@
       <div class="photo-adjust-btns">
         <button type="button" id="galleryTypePickerCancelBtn">Cancel</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Image source chooser — the ONE picker every unified image slot opens
+       (Unified image chooser, Oct 2026). Three SEPARATE real inputs, never one
+       combined input: Samsung Internet skips the native chooser dialog, so a
+       single input gives no route to the camera. The Files input's accept is
+       FILES_PICKER_ACCEPT — the non-image half is what makes Android open its
+       Files screen (where OneDrive is listed) instead of a Google-Photos-only
+       picker. Library and Files picks are checked by isPickableImage(). -->
+  <div class="image-chooser-overlay hidden" id="imageSourceChooser" role="dialog" aria-modal="true" aria-labelledby="imageSourceChooserTitle">
+    <div class="image-chooser-panel">
+      <div class="image-chooser-title" id="imageSourceChooserTitle">Add a photo</div>
+      <button type="button" class="image-chooser-btn" data-source="camera">📷 Camera</button>
+      <button type="button" class="image-chooser-btn" data-source="library">🖼️ Library</button>
+      <button type="button" class="image-chooser-btn" data-source="files">📁 Files</button>
+      <button type="button" class="image-chooser-cancel" id="imageSourceChooserCancel">Cancel</button>
+      <input type="file" id="imageChooserCameraInput" accept="image/*" capture="environment" style="display:none;">
+      <input type="file" id="imageChooserLibraryInput" accept="image/*" style="display:none;">
+      <input type="file" id="imageChooserFilesInput" accept="image/*,application/pdf" style="display:none;">
     </div>
   </div>
 
@@ -24847,9 +24924,14 @@
   // "Add Coin: the core workflow"). All three of these new slots shipped
   // file-picker-only, which is exactly that bug.
   //
-  // opts: { typeKey, targetId, subGroupId, label, onChange }
+  // opts: { typeKey, targetId, subGroupId, label, onChange, chooser }
+  // opts.chooser (Unified image chooser, Oct 2026; opt-in per call site while
+  // screens are converted in stages): an empty slot is ONE "+" box with the
+  // label inside it, a filled slot shows a single "Replace" button — both
+  // open openImageSourceChooser() instead of per-slot 📷/🖼️ inputs.
   function buildPhotoPairSlot(opts) {
     const { typeKey, targetId, subGroupId, label, onChange } = opts;
+    const chooserMode = !!opts.chooser;
     const def = galleryTypeDef(typeKey);
     const list = galleryFor(targetId);
     const idx = list.findIndex(e => e.type === typeKey &&
@@ -24881,10 +24963,32 @@
     const loadingStored = !!(entry && entry.stored && !entry.url);
 
     const slot = document.createElement("div");
-    slot.className = "sg-photo-slot";
+    slot.className = "sg-photo-slot" + (chooserMode ? " sg-chooser-mode" : "");
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
       : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
+    const iconActions = `
+        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">⤢</button>` : ""}
+        ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
+        ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}`;
+    const stateLines = `
+      ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
+      ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
+      ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}`;
+    if (chooserMode) {
+      slot.innerHTML = filled ? `
+        ${face}
+        <div class="sg-photo-label">${label}</div>
+        <button type="button" class="sg-photo-replace-btn" data-act="replace" aria-label="Replace ${label} photo">Replace</button>
+        <div class="sg-photo-actions">${iconActions}</div>
+        ${stateLines}
+      ` : `
+        <button type="button" class="sg-photo-add" data-act="add" aria-label="Add ${label} photo">
+          <span class="sg-photo-add-plus" aria-hidden="true">＋</span>
+          <span class="sg-photo-add-label">${label}</span>
+        </button>
+      `;
+    } else
     slot.innerHTML = `
       ${face}
       <div class="sg-photo-label">${label}</div>
@@ -24902,12 +25006,7 @@
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
     `;
-    const cam = slot.querySelector('[data-role="cam"]');
-    const lib = slot.querySelector('[data-role="lib"]');
-    slot.querySelector('[data-act="camera"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
-    slot.querySelector('[data-act="library"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
-    const handle = (input) => {
-      const f = input.files[0];
+    const handleFile = (f) => {
       if (!f) return;
       runCropPipeline(f, typeKey, targetId, (newEntry) => {
         const done = () => { if (onChange) onChange(newEntry, typeKey); };
@@ -24917,8 +25016,20 @@
         else addGalleryEntryAndCommit(targetId, newEntry, done);
       }, subGroupId);
     };
-    cam.addEventListener("change", () => handle(cam));
-    lib.addEventListener("change", () => handle(lib));
+    if (chooserMode) {
+      const pick = slot.querySelector('[data-act="replace"], [data-act="add"]');
+      pick.addEventListener("click", () => openImageSourceChooser({
+        title: (filled ? "Replace " : "Add ") + label + " photo",
+        onFile: (f) => handleFile(f)
+      }));
+    } else {
+      const cam = slot.querySelector('[data-role="cam"]');
+      const lib = slot.querySelector('[data-role="lib"]');
+      slot.querySelector('[data-act="camera"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
+      slot.querySelector('[data-act="library"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
+      cam.addEventListener("change", () => handleFile(cam.files[0]));
+      lib.addEventListener("change", () => handleFile(lib.files[0]));
+    }
     const adjustBtn = slot.querySelector('[data-act="adjust"]');
     if (adjustBtn) adjustBtn.addEventListener("click", async () => {
       const done = () => { if (onChange) onChange(entry, typeKey); };
@@ -25242,7 +25353,8 @@
   // Manage Photos screen or an embedded Edit Coin/Edit Set section) — passed
   // through by renderManagePhotosInto() rather than hardcoded, so the same
   // block works in either place.
-  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId, render) {
+  // opts.chooser: see buildPhotoPairSlot().
+  function managePairBlock(body, label, hint, typeKeys, targetId, subGroupId, render, opts) {
     if (label) {
       const h = document.createElement("div");
       h.style.cssText = "font-size:12px; font-weight:600; color:var(--text-muted); margin:4px 0 6px;";
@@ -25261,7 +25373,8 @@
       pair.appendChild(buildPhotoPairSlot({
         typeKey, targetId, subGroupId,
         label: i === 0 ? "Front" : "Back",
-        onChange: () => render()
+        onChange: () => render(),
+        chooser: !!(opts && opts.chooser)
       }));
     });
     body.appendChild(pair);
@@ -25269,8 +25382,14 @@
 
   // An open-ended (repeatable) type rendered as a strip of existing photos
   // plus camera/library add buttons. render(): see managePairBlock() above.
-  function manageOpenEndedBlock(body, typeKey, targetId, hint, render) {
+  // opts.chooser (Unified image chooser, Oct 2026): each thumbnail gets ONE
+  // "Replace" text button and the add row becomes a "+" tile at the end of
+  // the grid; both open openImageSourceChooser(). ✕ and ↻ are unchanged.
+  function manageOpenEndedBlock(body, typeKey, targetId, hint, render, opts) {
     const def = galleryTypeDef(typeKey);
+    const chooserMode = !!(opts && opts.chooser);
+    // "Reference photo" -> "reference photo"; "Other" -> "other photo".
+    const photoNoun = ((def ? def.label : "photo").toLowerCase().replace(/\s*photo$/, "") + " photo").trim();
     if (hint) {
       const p = document.createElement("p");
       p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
@@ -25278,7 +25397,7 @@
       body.appendChild(p);
     }
     const grid = document.createElement("div");
-    grid.className = "gc-grid";
+    grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid" : "");
     galleryFor(targetId).forEach((entry, index) => {
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
@@ -25291,31 +25410,37 @@
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
-        <div class="gc-replace-row">
+        ${chooserMode ? `<button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
           <span class="gc-replace-label">Replace</span>
         </div>
         <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
-        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
+        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">`}
         <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
       `;
       // Per-thumbnail Replace. A repeatable type has no fixed slot to match
       // on, so this carries the photo's own PhotoID (and its Label) forward
       // and updates that row in place rather than losing them.
-      const repCam = thumb.querySelector('[data-role="rep-cam-input"]');
-      const repLib = thumb.querySelector('[data-role="rep-lib-input"]');
-      thumb.querySelector('[data-role="rep-cam"]').addEventListener("click", () => { repCam.value = ""; repCam.click(); });
-      thumb.querySelector('[data-role="rep-lib"]').addEventListener("click", () => { repLib.value = ""; repLib.click(); });
-      const handleReplace = (input) => {
-        const f = input.files[0];
+      const handleReplace = (f) => {
         if (!f) return;
         runCropPipeline(f, typeKey, targetId, (newEntry) => {
           replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
         });
       };
-      repCam.addEventListener("change", () => handleReplace(repCam));
-      repLib.addEventListener("change", () => handleReplace(repLib));
+      if (chooserMode) {
+        thumb.querySelector('[data-role="replace"]').addEventListener("click", () => openImageSourceChooser({
+          title: "Replace " + photoNoun,
+          onFile: handleReplace
+        }));
+      } else {
+        const repCam = thumb.querySelector('[data-role="rep-cam-input"]');
+        const repLib = thumb.querySelector('[data-role="rep-lib-input"]');
+        thumb.querySelector('[data-role="rep-cam"]').addEventListener("click", () => { repCam.value = ""; repCam.click(); });
+        thumb.querySelector('[data-role="rep-lib"]').addEventListener("click", () => { repLib.value = ""; repLib.click(); });
+        repCam.addEventListener("change", () => handleReplace(repCam.files[0]));
+        repLib.addEventListener("change", () => handleReplace(repLib.files[0]));
+      }
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
         confirmRemoveGalleryPhoto(targetId, entry, () => {
           removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
@@ -25328,6 +25453,29 @@
       grid.appendChild(thumb);
     });
     body.appendChild(grid);
+
+    const handleAdd = (f) => {
+      if (!f) return;
+      runCropPipeline(f, typeKey, targetId, (entry) => {
+        addGalleryEntryAndCommit(targetId, entry, render);
+      });
+    };
+    if (chooserMode) {
+      const label = def ? def.label : "photo";
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "gc-add-tile";
+      tile.dataset.role = "add";
+      tile.setAttribute("aria-label", "Add " + photoNoun);
+      tile.innerHTML = `<span class="gc-add-box"><span class="sg-photo-add-plus" aria-hidden="true">＋</span>` +
+        `<span class="sg-photo-add-label">${label}</span></span>`;
+      tile.addEventListener("click", () => openImageSourceChooser({
+        title: "Add " + photoNoun,
+        onFile: handleAdd
+      }));
+      grid.appendChild(tile);
+      return;
+    }
 
     const row = document.createElement("div");
     row.className = "gc-add-row";
@@ -25342,15 +25490,8 @@
     const lib = row.querySelector('[data-role="lib"]');
     row.querySelector('[data-role="cam-btn"]').addEventListener("click", () => { cam.value = ""; cam.click(); });
     row.querySelector('[data-role="lib-btn"]').addEventListener("click", () => { lib.value = ""; lib.click(); });
-    const handle = (input) => {
-      const f = input.files[0];
-      if (!f) return;
-      runCropPipeline(f, typeKey, targetId, (entry) => {
-        addGalleryEntryAndCommit(targetId, entry, render);
-      });
-    };
-    cam.addEventListener("change", () => handle(cam));
-    lib.addEventListener("change", () => handle(lib));
+    cam.addEventListener("change", () => handleAdd(cam.files[0]));
+    lib.addEventListener("change", () => handleAdd(lib.files[0]));
     body.appendChild(row);
   }
 
@@ -25406,6 +25547,10 @@
     const id = ctx.id;
 
     if (ctx.kind === "coin") {
+      // Unified image chooser (Oct 2026), stage C1: the coin branch (Edit
+      // Coin and Manage Photos for a coin) uses the "+" / Replace chooser.
+      // The Set branch below still uses its per-slot 📷/🖼️ buttons until C2.
+      const pickOpts = { chooser: true };
       // Only offered where a crop could actually be saved (a real, owned
       // coin with the photo write layer on) — otherwise it would be a dead
       // end. Coins only: Sets never reach this branch.
@@ -25420,25 +25565,25 @@
         manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
         (body) => managePairBlock(body, null,
           "The flip-card photos. Cropped square, then framed into the circle.",
-          ["obverse", "reverse"], id, null, render),
+          ["obverse", "reverse"], id, null, render, pickOpts),
         { open: openTitles.has("🪙 Coin — obverse & reverse") });
 
       appendManageSection(host, "🔲 Slab photos",
         manageCount(id, e => e.type.indexOf("slab_") === 0),
         (body) => managePairBlock(body, null,
           "The graded holder itself, front and back.",
-          ["slab_obverse", "slab_reverse"], id, null, render),
+          ["slab_obverse", "slab_reverse"], id, null, render, pickOpts),
         { open: openTitles.has("🔲 Slab photos") });
 
       appendManageSection(host, "🔗 Reference photos",
         manageCount(id, e => e.type === "reference"),
         (body) => manageOpenEndedBlock(body, "reference", id,
-          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin.", render),
+          "Images from PCGS, GreatCollections and similar — for comparison, not photos of this coin.", render, pickOpts),
         { open: openTitles.has("🔗 Reference photos") });
 
       appendManageSection(host, "🖼️ Other photos",
         manageCount(id, e => e.type === "other"),
-        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin.", render),
+        (body) => manageOpenEndedBlock(body, "other", id, "Anything else worth keeping with this coin.", render, pickOpts),
         { open: openTitles.has("🖼️ Other photos") });
 
       // A child coin's COA belongs to its parent Set — read-only link, no slot.
@@ -26500,6 +26645,73 @@
     } catch (e) {
       return false;
     }
+  }
+
+  // ==================================================================
+  // UNIFIED IMAGE CHOOSER (Oct 2026) — one sheet every unified image slot
+  // opens: 📷 Camera / 🖼️ Library / 📁 Files. Behind it nothing changes for
+  // the caller: onFile(file, source) receives the picked file, Camera is
+  // never guarded, Library and Files pass isPickableImage() first (a refusal
+  // toasts NOT_A_PHOTO_MESSAGE and calls nothing). Picking a source closes
+  // the sheet BEFORE the OS picker opens, so cancelling the OS picker simply
+  // leaves the screen as it was. Cancel, a backdrop tap or Esc close it with
+  // nothing picked. No Android-back handling in v1 (Ray, Oct 2026).
+  // opts: { onFile(file, source), guard (default true), title }
+  // ==================================================================
+  let imageChooserPending = null;   // the request the open sheet serves
+  let imageChooserWired = false;
+  const IMAGE_CHOOSER_INPUTS = {
+    camera: "imageChooserCameraInput",
+    library: "imageChooserLibraryInput",
+    files: "imageChooserFilesInput"
+  };
+  function wireImageChooserOnce() {
+    if (imageChooserWired) return;
+    const overlay = document.getElementById("imageSourceChooser");
+    if (!overlay) return;
+    imageChooserWired = true;
+    Object.keys(IMAGE_CHOOSER_INPUTS).forEach(source => {
+      const input = document.getElementById(IMAGE_CHOOSER_INPUTS[source]);
+      overlay.querySelector('.image-chooser-btn[data-source="' + source + '"]').addEventListener("click", () => {
+        const req = imageChooserPending;
+        closeImageSourceChooser();
+        if (!req) return;
+        // The request rides on the input until its change event, since the
+        // sheet itself is already closed by then.
+        input._chooserRequest = req;
+        input.value = "";
+        input.click();
+      });
+      input.addEventListener("change", async () => {
+        const req = input._chooserRequest;
+        input._chooserRequest = null;
+        const f = input.files && input.files[0];
+        if (!f || !req) return;
+        if (source !== "camera" && req.guard !== false && !(await isPickableImage(f))) {
+          showToast(NOT_A_PHOTO_MESSAGE);
+          return;
+        }
+        req.onFile(f, source);
+      });
+    });
+    document.getElementById("imageSourceChooserCancel").addEventListener("click", closeImageSourceChooser);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeImageSourceChooser(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !overlay.classList.contains("hidden")) closeImageSourceChooser();
+    });
+  }
+  function openImageSourceChooser(opts) {
+    wireImageChooserOnce();
+    const overlay = document.getElementById("imageSourceChooser");
+    if (!overlay || !opts || typeof opts.onFile !== "function") return;
+    imageChooserPending = opts;
+    document.getElementById("imageSourceChooserTitle").textContent = opts.title || "Add a photo";
+    overlay.classList.remove("hidden");
+  }
+  function closeImageSourceChooser() {
+    imageChooserPending = null;
+    const overlay = document.getElementById("imageSourceChooser");
+    if (overlay) overlay.classList.add("hidden");
   }
 
   // ==================================================================
