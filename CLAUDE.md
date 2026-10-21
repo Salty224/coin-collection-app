@@ -133,6 +133,48 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
+## Edit Coin: 📁 Files button + photo guard (Oct 2026, HELD on `claude/edit-coin-files-picker-button`, awaiting Ray's S25 test)
+Suite: `tests/verify_edit_coin_files_picker.js` (31). Same cause and fix as
+Add Coin's 📁 button (next section but one): an image-only accept on Chrome
+for Android opens the Google-Photos-only picker; `image/*,application/pdf`
+with no capture opens the Files screen, where OneDrive is listed.
+- **Where:** Edit Coin's photo pickers are drawn by
+  `renderManagePhotosInto()`, shared with Edit Set and the standalone Manage
+  Photos screen (and `buildPhotoPairSlot` with Add Set). New opt-in
+  `options.files` → `managePairBlock(..., opts)` / `manageOpenEndedBlock(...,
+  opts)` → `buildPhotoPairSlot({files})`. **Only Edit Coin's call passes
+  it** (`showBrowseEditView`). Edit Set and Manage Photos are planned as a
+  second commit on this branch after Ray has tried Edit Coin.
+- **What:** 📁 on Obverse/Reverse and Slab front/back (`data-act="files"`,
+  input `data-role="files"`); the Reference and Other add rows switch to
+  "📷 Camera / 🖼️ Library / 📁 Files" (`.gc-add-row-3`, input
+  `data-role="files"`); each thumbnail's Replace gets 📁
+  (`data-role="rep-files"`, input `data-role="rep-files-input"`). A Files
+  pick runs the same handler as Library (crop, commit, Replace keeps
+  PhotoID and Label).
+- **Guard:** in files mode, Library AND Files picks must pass
+  `isPickableImage()` before `runCropPipeline`; a refusal toasts
+  `NOT_A_PHOTO_MESSAGE` and adds, uploads and writes nothing (matters here:
+  Edit Coin commits to OneDrive on pick). Camera is never guarded.
+- **Layout (measured):** a filled slot can show 📷 🖼️ 📁 ⤢ ↻ 🗑️. One line
+  needed ~203px against a 112px slot at 360 (138px at 412) and pushed the
+  page sideways. Files mode (`.sg-files-mode`) wraps the row with 7px side
+  padding and a 4px gap (buttons 33px wide, tap height unchanged): two
+  lines at 360 and 412, one at 1024. The Replace row's label wraps under
+  its three buttons (`.gc-replace-row.gc-files-mode`).
+- **Left alone on purpose:** the Edit Coin receipt (its Library input
+  already accepts PDFs, so it should already open Files; Ray tests it on
+  the S25); Edit Set, Manage Photos, Add Set, Wishlist.
+- **Pre-existing, not fixed:** without files mode, a pair slot with ⤢ ↻ 🗑️
+  (an Adjust-able photo whose upload failed) is wider than its slot at
+  360px (it overflows its pair container inside the card). Unchanged on
+  Manage Photos / Edit Set.
+- **verify_files_picker.js:** B1/B3 updated: three new template inputs
+  (`role:files` twice, `role:rep-files-input`), app.html 34 + 6 = 40.
+- **Not verified:** which picker the S25 actually opens, OneDrive in Files,
+  a OneDrive file arriving through Files, HEIC from a real phone, a real
+  upload to `_Testing` from an S25 pick, tap comfort on the 33px buttons.
+
 ## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`)
 Merged to `main`. Suite: `tests/verify_addcoin_error_list.js` (24).
 - **Bug fixed:** the 8 `FAKE_LOOKUP_ERRORS` values were put into Add Coin's
@@ -456,7 +498,8 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (c) The Add Coin gallery has no per-photo Replace button.
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
   its remove (✕) button only after the screen is redrawn.
-- (e) The 📁 Files button is only on Add Coin. Manage Photos, Edit Coin,
+- (e) The 📁 Files button is on Add Coin, and on Edit Coin (held on
+  `claude/edit-coin-files-picker-button`). Manage Photos, Edit Set,
   Wishlist and Add Set still lack it, and HEIC picked through Files is
   unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
