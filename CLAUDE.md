@@ -133,6 +133,67 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
+## Unified image chooser — stage C1 (Oct 2026, HELD on `claude/unified-image-chooser`, awaiting Ray's S25 test before C2)
+Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
+(tip `e8d822a`, never merged, kept as history). Ray's call after testing it
+on the S25: every image interaction works the same way. Suite:
+`tests/verify_image_chooser.js` (37).
+- **The rule.** An empty slot is ONE "+" box with the slot's label inside
+  it. A filled slot shows the photo, its label under it, ONE "Replace" text
+  button, then the icon actions (⤢ ↻ 🗑️) on their own row. "+" and Replace
+  open the same chooser: 📷 Camera / 🖼️ Library / 📁 Files. No more
+  📷 🖼️ 📁 rows and no 3-button add row.
+- **The chooser** (`#imageSourceChooser`, `openImageSourceChooser({ onFile,
+  guard, title })`, `closeImageSourceChooser()`): a bottom sheet on a phone,
+  a centred card at 700px and wider, z-index 205 (above the 200 sheets,
+  below the crop overlays at 210). Three SEPARATE shared inputs
+  (`imageChooserCameraInput` image/* + capture=environment,
+  `imageChooserLibraryInput` image/*, `imageChooserFilesInput`
+  image/*,application/pdf = `FILES_PICKER_ACCEPT`, no capture): never one
+  combined input, because Samsung Internet skips the native chooser. A
+  source tap closes the sheet before the OS picker opens; the request rides
+  on the input (`_chooserRequest`) until its change event, so cancelling the
+  OS picker leaves the screen as it was. Cancel, a backdrop tap and Esc
+  close it. **No Android back-gesture handling in v1** (Ray's call).
+- **Behind it nothing changed**: Camera is never guarded; Library and Files
+  go through `isPickableImage()` (a refusal toasts `NOT_A_PHOTO_MESSAGE`,
+  calls nothing, sends no Graph request); then the same `runCropPipeline` and
+  the same commit (`addGalleryEntryAndCommit` / `replaceGalleryEntryAndCommit`,
+  Replace keeps PhotoID and Label).
+- **Opt-in per call site while screens convert in stages**:
+  `buildPhotoPairSlot({ chooser })`, `managePairBlock(..., opts)` and
+  `manageOpenEndedBlock(..., opts)`. C1 passes `{ chooser: true }` only from
+  the COIN branch of `renderManagePhotosInto` (Edit Coin, and Manage Photos
+  for a coin). The Set branch, Add Set, Add Coin and Wishlist still draw
+  their old 📷/🖼️ slots, asserted (X1).
+- **Layout (measured).** Chooser-mode icon row: ⤢ ↻ 🗑️ at full size with a
+  4px gap need 109px; the slot at 360px on Edit Coin is 112px, so one line
+  (the wrap is only a safety net). The pre-existing overflow is gone on the
+  coin screens: the old 📷 🖼️ ⤢ ↻ 🗑️ row forced each slot to 201px at 360px
+  (112px available on Edit Coin, 144px on Manage Photos), pushing the pair
+  past its card. Chooser buttons are 48px tall. Still present on the Set
+  screens until C2.
+- **Planned stages**: C2 Edit Set / Manage Photos for a Set; C3 Add Coin
+  (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
+  picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
+  with Ray's go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is
+  out of scope; its 8 inputs stay pinned. Add Coin's own 📁 code stays until
+  C3.
+- **Tests changed**: `verify_files_picker` B3 (37 -> 40 inputs), new B4 (the
+  chooser's three inputs), C1 (21 -> 22 camera inputs), A9 (the chooser's
+  one Files input excepted). `verify_photo_receipt_write` P4/P5/P9/P10 and
+  the U-block legacy slot read the single Replace button instead of
+  📷/🖼️; U13's empty-slot selector is now `.sg-photo-add`.
+- **Negative controls** (real app.html, restored by checksum, each failing by
+  name): guard removed (G1-G3, G5), Replace adding instead of replacing
+  (R1), Cancel leaving the request live (C2), chooser at z-index 210 (S3),
+  slab keeping its old row (U5, U6, J, K1), Camera guarded (K1), icon gap
+  back to 6px (L1 at 360), C1 reverted (22 fail).
+- **Not verified**: which picker each input opens on the S25 (Chrome and
+  Samsung Internet), OneDrive listed under Files, `input.click()` from a
+  sheet button counting as a user gesture on Samsung Internet, a real HEIC,
+  a real upload to `_Testing` from a chooser pick, the bottom sheet's feel.
+
 ## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`)
 Merged to `main`. Suite: `tests/verify_addcoin_error_list.js` (24).
 - **Bug fixed:** the 8 `FAKE_LOOKUP_ERRORS` values were put into Add Coin's
@@ -456,9 +517,10 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (c) The Add Coin gallery has no per-photo Replace button.
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
   its remove (✕) button only after the screen is redrawn.
-- (e) The 📁 Files button is only on Add Coin. Manage Photos, Edit Coin,
-  Wishlist and Add Set still lack it, and HEIC picked through Files is
-  unverified on a real phone.
+- (e) Unified image chooser: C1 (coin screens) is held on
+  `claude/unified-image-chooser`; C2-C4 (Set screens, Add Coin, Add Set,
+  Wishlist) follow after Ray's S25 test, C5 receipts only with his go-ahead.
+  HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
 - (g) Value fallback decision, pending with Ray: `coin.value` shows the melt
