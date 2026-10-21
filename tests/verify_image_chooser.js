@@ -203,6 +203,12 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       addLabelInside: (s.querySelector(".sg-photo-add .sg-photo-add-label") || {}).textContent || null,
       replace: (s.querySelector('[data-act="replace"]') || {}).textContent || null,
       icons: [...s.querySelectorAll(".sg-photo-actions button")].map(b => b.dataset.act),
+      trash: s.querySelectorAll("button").length && [...s.querySelectorAll("button")].filter(b => b.textContent.includes("🗑")).length,
+      removeInFace: !!s.querySelector('.sg-photo-face > [data-act="remove"]'),
+      removeText: (s.querySelector('[data-act="remove"]') || {}).textContent || null,
+      recrop: (s.querySelector('button.sg-photo-replace-btn[data-act="adjust"]') || {}).textContent || null,
+      recropRightAfterReplace: (() => { const r = s.querySelector('[data-act="replace"]');
+        return !!(r && r.nextElementSibling && r.nextElementSibling.dataset.act === "adjust"); })(),
       oldBtns: s.querySelectorAll('[data-act="camera"], [data-act="library"], [data-act="files"]').length,
       inputs: s.querySelectorAll('input[type="file"]').length,
       labelAfterImg: (() => { const l = s.querySelector(".sg-photo-label"); const im = s.querySelector(".sg-photo-img, .sg-photo-empty");
@@ -220,6 +226,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
              replace: thumb && (thumb.querySelector('[data-role="replace"]') || {}).textContent,
              remove: !!(thumb && thumb.querySelector(".gc-remove")),
              caption: thumb && thumb.querySelector(".gc-caption").value,
+             order: thumb && [...thumb.children].map(c => c.classList.contains("gc-img") ? "photo"
+               : c.classList.contains("gc-caption") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
+             recrop: thumb ? thumb.querySelectorAll('[data-act="adjust"], [data-role="adjust"]').length + [...thumb.querySelectorAll("button")].filter(b => /recrop|⤢/i.test(b.textContent)).length : null,
              tile: !!tile, tileLast: tile && tile.parentElement.lastElementChild === tile,
              tileLabel: tile && tile.querySelector(".sg-photo-add-label").textContent },
       otherTile: !!other.querySelector("button.gc-add-tile"),
@@ -229,8 +238,15 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   });
   const [obvSlot, revSlot] = U.slots;
   ok(U.slots.length === 2 && obvSlot.filled && obvSlot.replace === "Replace" && obvSlot.labelAfterImg &&
-     JSON.stringify(obvSlot.icons) === JSON.stringify(["adjust", "remove"]),
-    "U1 a filled slot: photo, its label under it, one Replace, then ⤢ 🗑️: " + JSON.stringify(obvSlot));
+     obvSlot.icons.length === 0 && obvSlot.trash === 0,
+    "U1 a filled slot: photo, its label under it, one Replace, no icon row and no 🗑️: " + JSON.stringify(obvSlot));
+  ok(obvSlot.removeInFace && obvSlot.removeText === "✕",
+    "U7 a filled pair slot's delete is a ✕ inside the photo's own box: " + JSON.stringify(obvSlot));
+  ok(obvSlot.recrop === "Recrop" && obvSlot.recropRightAfterReplace,
+    "U8 a filled obverse has a Recrop pill (the old ⤢ action) directly under Replace: " + JSON.stringify(obvSlot));
+  ok(JSON.stringify(U.ref.order) === JSON.stringify(["photo", "label", "replace"]),
+    "U9 Reference thumbnail order is photo, label box, Replace: " + JSON.stringify(U.ref.order));
+  ok(U.ref.recrop === 0, "U10 Reference thumbnails have no recrop action (none added): " + JSON.stringify(U.ref));
   ok(revSlot.addBox && revSlot.addLabelInside === "Back" && !revSlot.replace && revSlot.icons.length === 0,
     "U2 an empty slot is one + box with its label inside and no other buttons: " + JSON.stringify(revSlot));
   ok(U.slots.every(s => s.oldBtns === 0 && s.inputs === 0), "U3 no 📷/🖼️/📁 buttons and no file input inside any pair slot");
@@ -419,12 +435,20 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         const icons = iconEls.map(b => b.getBoundingClientRect());
         const rep = s.querySelector('[data-act="replace"]');
         const add = s.querySelector('[data-act="add"]');
-        return { w: Math.round(sr.width), n: icons.length,
+        const img = s.querySelector(".sg-photo-img, .sg-photo-empty");
+        const rm = s.querySelector('.sg-photo-face > [data-act="remove"]');
+        const rc = s.querySelector('[data-act="adjust"]');
+        const off = (rm && img) ? (() => { const a = rm.getBoundingClientRect(), b = img.getBoundingClientRect();
+          return { dr: Math.round(a.right - b.right), dt: Math.round(a.top - b.top), w: Math.round(a.width), h: Math.round(a.height) }; })() : null;
+        return { w: Math.round(sr.width), n: icons.length, off,
+                 recropH: rc ? Math.round(rc.getBoundingClientRect().height) : null,
+                 recropBelow: (rc && rep) ? rc.getBoundingClientRect().top >= rep.getBoundingClientRect().bottom - 0.5 : null,
                  // A flex row that can't wrap squeezes its buttons instead of
                  // spilling them, so "inside the slot" alone can't see it.
                  squeezed: iconEls.filter(b => b.scrollWidth > b.clientWidth + 1).length,
                  lines: new Set(icons.map(r => Math.round(r.top))).size,
-                 clipped: icons.filter(r => !inside(r, sr)).length + (rep && !inside(rep.getBoundingClientRect(), sr) ? 1 : 0),
+                 clipped: icons.filter(r => !inside(r, sr)).length + (rep && !inside(rep.getBoundingClientRect(), sr) ? 1 : 0)
+                   + (rc && !inside(rc.getBoundingClientRect(), sr) ? 1 : 0),
                  repH: rep ? Math.round(rep.getBoundingClientRect().height) : null,
                  repOneLine: rep ? rep.scrollWidth <= rep.clientWidth + 1 : null,
                  addH: add ? Math.round(add.getBoundingClientRect().height) : null };
@@ -434,16 +458,37 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         return { inside: b ? inside(b.getBoundingClientRect(), tr) : false, h: b ? Math.round(b.getBoundingClientRect().height) : 0 };
       });
       const tiles = [...host.querySelectorAll("button.gc-add-tile")].map(t => t.getBoundingClientRect().right <= inner);
+      // The reference ✕'s offset from its own image is the look a pair-slot ✕ must match.
+      const rthumb = host.querySelector(".gc-thumb");
+      const refOff = (() => { const a = rthumb.querySelector(".gc-remove").getBoundingClientRect(), b = rthumb.querySelector(".gc-img").getBoundingClientRect();
+        return { dr: Math.round(a.right - b.right), dt: Math.round(a.top - b.top), w: Math.round(a.width), h: Math.round(a.height) }; })();
+      // + box vs the thumbnail image in the same grid (Reference has one photo);
+      // and in a grid with no photos at all (Other).
+      const rImg = rthumb.querySelector(".gc-img").getBoundingClientRect();
+      const rBox = rthumb.parentElement.querySelector(".gc-add-box").getBoundingClientRect();
+      const plus = { w: Math.round(rBox.width), h: Math.round(rBox.height), dTop: Math.round(rBox.top - rImg.top),
+                     imgW: Math.round(rImg.width), imgH: Math.round(rImg.height) };
+      const emptyBoxes = [...host.querySelectorAll(".gc-grid")].filter(g => !g.querySelector(".gc-thumb"))
+        .map(g => g.querySelector(".gc-add-box")).filter(Boolean)
+        .map(b => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
       openImageSourceChooser({ onFile() {} });
       const panel = document.querySelector("#imageSourceChooser .image-chooser-panel").getBoundingClientRect();
       const chooser = { inside: panel.left >= 0 && panel.right <= inner, bottomGap: Math.round(window.innerHeight - panel.bottom) };
       closeImageSourceChooser();
-      return { inner, slots, thumbs, tiles, chooser, pageScroll: document.documentElement.scrollWidth > inner };
+      return { inner, slots, thumbs, tiles, refOff, plus, emptyBoxes, chooser, pageScroll: document.documentElement.scrollWidth > inner };
     });
     const tag = vp.width + "x" + vp.height;
     console.log("    layout " + tag + ": " + JSON.stringify(L.slots));
-    ok(L.slots.length >= 4 && L.slots.some(s => s.n === 3) && L.slots.every(s => s.clipped === 0 && s.squeezed === 0 && s.lines <= 1),
-      `L1 ${tag}: every pair-slot button (Replace and the icons) sits inside its slot at full size, icons on one line: ` + JSON.stringify(L.slots));
+    ok(L.slots.length >= 4 && L.slots.some(s => s.n === 1) && L.slots.every(s => s.clipped === 0 && s.squeezed === 0 && s.lines <= 1),
+      `L1 ${tag}: every pair-slot button (Replace, Recrop and ↻) sits inside its slot at full size: ` + JSON.stringify(L.slots));
+    const filledOffs = L.slots.filter(s => s.off);
+    ok(filledOffs.length >= 2 && filledOffs.every(s => JSON.stringify(s.off) === JSON.stringify(L.refOff)),
+      `L6 ${tag}: each filled pair slot's ✕ sits at the photo's top-right exactly as the Reference ✕ does: ` + JSON.stringify([L.refOff, filledOffs.map(s => s.off)]));
+    ok(L.slots.filter(s => s.recropH !== null).length >= 1 && L.slots.filter(s => s.recropH !== null).every(s => s.recropH >= 32 && s.recropBelow),
+      `L7 ${tag}: Recrop is a full pill (32px+) below Replace: ` + JSON.stringify(L.slots));
+    ok(L.plus.w === L.plus.imgW && L.plus.h === L.plus.imgH && L.plus.dTop === 0 &&
+       L.emptyBoxes.length >= 1 && L.emptyBoxes.every(([w, h]) => w === L.plus.imgW && h === L.plus.imgH),
+      `L8 ${tag}: the + box is the thumbnail image's size and top-aligned with it, and keeps that size with no photos: ` + JSON.stringify([L.plus, L.emptyBoxes]));
     ok(L.slots.filter(s => s.repH !== null).every(s => s.repH >= 32 && s.repOneLine) && L.slots.filter(s => s.addH !== null).every(s => s.addH >= 100),
       `L2 ${tag}: Replace is one line and at least 32px tall; an empty + box is the full slot height: ` + JSON.stringify(L.slots));
     ok(L.thumbs.length >= 1 && L.thumbs.every(t => t.inside && t.h >= 28) && L.tiles.length >= 2 && L.tiles.every(Boolean),

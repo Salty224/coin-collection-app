@@ -2290,10 +2290,20 @@
   }
   .sg-photo-replace-btn { min-height: 34px; font-size: 13px; margin: 0 0 6px; }
   .gc-replace-text-btn { min-height: 30px; font-size: 12px; margin-top: 4px; }
-  /* ⤢ ↻ 🗑️ at full size need 109px with a 4px gap: one line in the 112px
-     slot a 360px phone gives Edit Coin. The wrap is only a safety net. */
+  /* Chooser-mode pair slot: delete is a corner ✕ on the photo (same look
+     and offset as a Reference thumb's .gc-remove); Recrop is a pill under
+     Replace; only ↻ is left in the icon row. */
   .sg-photo-slot.sg-chooser-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
-  .gc-grid.gc-chooser-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .sg-chooser-mode .sg-photo-face { position: relative; }
+  .sg-chooser-mode .sg-photo-remove {
+    position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2; padding: 0; font-family: inherit;
+  }
+  /* flex-start, not the default stretch: a stretched add tile is a button,
+     and a button centres its content, which pushed the + box down off the
+     thumbnail's top edge. */
+  .gc-grid.gc-chooser-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; align-items: flex-start; }
   button.gc-add-tile {
     width: 88px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0;
     font: inherit; color: inherit;
@@ -24967,20 +24977,26 @@
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
       : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
-    const iconActions = `
-        ${canReadjust ? `<button type="button" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">⤢</button>` : ""}
-        ${entry && entry.uploadError ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
-        ${entry ? `<button type="button" data-act="remove" aria-label="Remove photo" title="Remove">🗑️</button>` : ""}`;
     const stateLines = `
       ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
       ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
       ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}`;
     if (chooserMode) {
+      // Chooser layout (Ray's S25 feedback on C1): delete is a corner ✕ on
+      // the photo itself (same look/position as a Reference thumb's ✕),
+      // Recrop is a text pill directly under Replace, and only ↻ (retry a
+      // failed upload) stays in the icon row. Same handlers, same data-act.
+      const retryOnly = entry && entry.uploadError
+        ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       slot.innerHTML = filled ? `
-        ${face}
+        <div class="sg-photo-face">
+          ${face}
+          <button type="button" class="sg-photo-remove" data-act="remove" aria-label="Remove photo" title="Remove">✕</button>
+        </div>
         <div class="sg-photo-label">${label}</div>
         <button type="button" class="sg-photo-replace-btn" data-act="replace" aria-label="Replace ${label} photo">Replace</button>
-        <div class="sg-photo-actions">${iconActions}</div>
+        ${canReadjust ? `<button type="button" class="sg-photo-replace-btn sg-photo-recrop-btn" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">Recrop</button>` : ""}
+        ${retryOnly ? `<div class="sg-photo-actions">${retryOnly}</div>` : ""}
         ${stateLines}
       ` : `
         <button type="button" class="sg-photo-add" data-act="add" aria-label="Add ${label} photo">
@@ -25410,14 +25426,15 @@
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
-        ${chooserMode ? `<button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
+        ${chooserMode ? `<input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
           <span class="gc-replace-label">Replace</span>
         </div>
         <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
-        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">`}
-        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
+        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">`}
       `;
       // Per-thumbnail Replace. A repeatable type has no fixed slot to match
       // on, so this carries the photo's own PhotoID (and its Label) forward

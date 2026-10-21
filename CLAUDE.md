@@ -173,6 +173,23 @@ on the S25: every image interaction works the same way. Suite:
   (112px available on Edit Coin, 144px on Manage Photos), pushing the pair
   past its card. Chooser buttons are 48px tall. Still present on the Set
   screens until C2.
+- **C1 follow-up (Ray's S25 feedback on `9ff07b5`), coin screens only.**
+  Pair slots: the 🗑️ is gone; delete is a ✕ in the photo's top-right
+  corner (`.sg-photo-face > .sg-photo-remove`, same 20px circle and -6px
+  offset as a Reference thumb's `.gc-remove`), same `data-act="remove"`
+  handler, so the same `confirmRemoveGalleryPhoto` dialog and the same
+  row-detach (file never deleted). The ⤢ icon is now a "Recrop" pill
+  (`.sg-photo-replace-btn.sg-photo-recrop-btn`, `data-act="adjust"`)
+  directly under Replace; it shows only where ⤢ did (flip sources
+  obverse/reverse with a photo). ↻ (retry a failed upload) is the only
+  icon left in `.sg-photo-actions`, shown only after a failed save.
+  Reference/Other thumbs: photo, then label box, then Replace. The
+  chooser grid is `align-items: flex-start`, so the 88px + box matches
+  and top-aligns with the 88px thumbnail (a stretched button centred its
+  box lower). Reference/Other have no recrop action (none added). Suite
+  37 -> 50 (U7-U10, L6-L8; U1/L1 changed); `npm test` 3091/0/0/69 on the
+  branch. Negative controls: 🗑️ reinstated (U1/U7/L1/L6), + box 96px
+  (L8), grid stretch (L8), label under Replace (U9).
 - **Planned stages**: C2 Edit Set / Manage Photos for a Set; C3 Add Coin
   (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
   picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
