@@ -190,6 +190,24 @@ on the S25: every image interaction works the same way. Suite:
   37 -> 50 (U7-U10, L6-L8; U1/L1 changed); `npm test` 3091/0/0/69 on the
   branch. Negative controls: 🗑️ reinstated (U1/U7/L1/L6), + box 96px
   (L8), grid stretch (L8), label under Replace (U9).
+- **Replace live-list fix (S25 on `92a1152`; the bug was on `main` too).**
+  After a Replace on a Reference/Other/COA photo the live list showed the
+  new photo AND the old one again at the end (blank label) until a restart.
+  The saved result was always right: the row is updated in place (same
+  PhotoID, new `_NN` file, the typed Label carried over), exactly two
+  uploads, the old file left in `_Testing/CoinPhotos` by design (Replace
+  never deletes). Cause: `replaceGalleryEntryAndCommit()` drops the old
+  entry and re-renders at once; the new entry carries the old PhotoID but
+  no `storedFilename` yet, while `LIVE_PHOTOS` still names the old file
+  until the write settles, so `hydrateStoredPhotos()` re-added the old file
+  as a stored entry and nothing ever removed it. Fix: hydration treats a
+  row as already shown when any entry carries its PhotoID. Front/Back were
+  never affected (their hydration matches by type). Same on `main` with the
+  old 🖼️ Replace (reproduced on `9028d1e`). Tests: R1b, R2b, R3/R4 for Edit
+  Coin and Manage Photos (suite 50 -> 56). Negative control: removing the
+  PhotoID check fails R1b, R4-edit, R4-manage. Not changed: a label typed
+  in the box is only held in memory and is written only by the next
+  capture/Replace of that photo (pre-existing, flagged).
 - **Planned stages**: C2 Edit Set / Manage Photos for a Set; C3 Add Coin
   (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
   picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
