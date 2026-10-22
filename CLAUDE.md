@@ -133,7 +133,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Unified image chooser — stages C1 + C2 + C3 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 on `38b0207` (S25 + tablet), C3 awaiting his test)
+## Unified image chooser — stages C1 + C2 + C3 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 on `38b0207` (S25 + tablet), C3 layout passed on `73d9dc6`; smaller circles awaiting his test)
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
 (tip `e8d822a`, never merged, kept as history). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
@@ -393,6 +393,48 @@ on the S25: every image interaction works the same way. Suite:
     ACL3/6/7 new x 3, which can no longer pick a type).
   - Not verified: any real device (the ✕ position on the S25, the chooser
     from the "+" circle on Samsung Internet).
+  - **C3 follow-up: smaller Obverse/Reverse circles** (Ray's S25 look at
+    `73d9dc6`: layout OK, "the circles are too big"; type line on gallery
+    thumbnails kept, his Q2 yes). New draft and Staging-draft edit alike.
+    - `ADDCOIN_FLIP_DISC_PX = 128` (was 210), still scaled by
+      `denomScale()` (a dime 90px, a cent 92, a quarter 101, a $1 128),
+      about Edit Coin's pair-slot photo (120px tall; 112/138/444px wide at
+      360/412/1024). `sizeAddCoinFlipFrames(denom)` replaces the eight
+      `sizeCoinElement(obverseFrame/reverseFrame, …, 210)` calls (album and
+      wishlist deep-links, a DB_Coins match, the denomination change,
+      `resetAddCoinForm`); it sets the circles, publishes the size as
+      `--acf-disc` on each photo box, then calls `updateFlipLabels()` so the
+      corners are fitted against the new size (the denomination handler
+      used to fit them before resizing).
+    - The flip-frame keeps its corner labels: it is short and wide
+      (`.addcoin-flip-slot .flip-frame` 176px tall, was 280; width unchanged,
+      242px at 360, 280 above), so the labels sit BESIDE the coin, at 20px
+      (was 27). Measured with long values: 16.4–20px, none on the circle,
+      none outside the card, at all three sizes. All of it scoped to
+      `.addcoin-flip-slot`; Spotlight/Browse detail are untouched.
+    - `cornerClearsDisc()` now counts Add Coin's circle
+      (`.addcoin-flip-slot .coin-photo-frame`) as the disc to clear. At
+      210px it was deliberately left out (an ordinary "MS-65 PCGS" reached
+      into it); beside a 128px circle there is room, so the labels are
+      kept off the photo like on a saved card.
+    - The ✕ is positioned from `--acf-disc` (centre on the 45° line, 12px
+      inside the rim). The old fixed `calc(50% + 55px)/calc(50% - 75px)`
+      put it OUTSIDE the rim of any coin smaller than ~185px (a dime at the
+      old size was 147px) — never caught because ACL set the denomination
+      without firing its change event, so the circle stayed 210.
+    - "+" glyph 26px (was 30). Replace/Recrop, the ✕ (20px) and the label
+      under the photo are unchanged.
+    - Tests (`verify_image_chooser.js` 284 -> 296): the AL block now fires
+      the denomination change (a dime, the smallest circle); new ACL9 (the
+      circle is 128 × the denomination scale, card ≤180px tall, ≤280 wide)
+      and ACL10 (every label line's ink off the circle and inside the card,
+      14px+), × {new, staging} × 360x800/412x915/1024x768. Measured: circle
+      90px, ✕ centre 33px from the coin's centre (radius 45), card 242x176 /
+      280x176. `npm test` 3335/0/0/69.
+    - Negative controls on the real app.html, restored by checksum: the old
+      fixed ✕ position + 280px card (exactly ACL3 and ACL9 fail, all six
+      runs); the circle not counted as a disc (exactly ACL10 fails, all six).
+    - Not verified: a real device (how the 20px labels read on the S25).
 - **Planned stages**: C4 Add Set and Wishlist; C5 receipts only with Ray's
   go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is out of
   scope; its 8 inputs stay pinned.
