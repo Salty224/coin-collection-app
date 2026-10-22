@@ -214,8 +214,11 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   line, no page scroll). Existing suites followed the new strings, not
   weakened: `verify_crop_from_upload` A1-A3/A3b/A6/B2/C/C9/D/D1/E,
   `verify_live_no_demo_data` A7/A8/A11, `verify_photo_receipt_write` P7b,
-  `verify_staging_edit_photos` (Holder picks), `verify_files_picker`,
-  `verify_image_chooser` (Holder section).
+  `verify_staging_edit_photos` (Holder picks), `verify_files_picker`
+  (Holder pick, D5 "Back (reverse)" crop title), `verify_image_chooser`
+  (Holder and "Front & back" sections), `verify_in_app_viewer` B2 (the
+  viewer footer now says "Back (reverse)"). `npm test` on the branch at
+  `0809ee8`: 3320 passed, 0 failed, 0 page errors, 70 suites.
 - **Negative controls, commit 1** (real app.html, restored by checksum,
   each failing by name): "🔲 Slab photos" back (W1, W6, L3 ×6); old crop
   sources (CS1 ×2, CS2-CS4); no OGP/COA on coins (W1, OC1-OC7, L2-L4 ×6);
