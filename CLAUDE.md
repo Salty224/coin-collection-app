@@ -40,8 +40,10 @@ be asked for the copy-paste version.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code commit on `main` is `b2abb18` (`44b7a3d` is docs
-plus one comment; later commits are docs-only); `npm test` = 3040 passed, 0 failed, 0 page errors, 68 suites.
+**Baseline:** last code commit on `main` is `277e6eb` (unified image chooser
+C1+C2, merged 22 Oct 2026 by fast-forward to `38b0207`; later commits are
+docs-only); `npm test` = 3249 passed, 0 failed, 0 page errors, 69 suites
+(run on `38b0207`, 22 Oct 2026).
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
@@ -133,7 +135,18 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Unified image chooser — stages C1 + C2 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 awaiting his S25 test)
+## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
+**Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
+every fix below passed Ray's tests on the S25 and tablet; tested build
+`38b0207`. **NOT merged: stage C3 (Add Coin, `c386fbf`, `73d9dc6`) and its
+smaller-circles follow-up (`74bf8d3`, `3101bf2`).** They were built but not
+accepted, and stay on `claude/unified-image-chooser` at `3101bf2` as history
+only. Ray's decision (22 Oct 2026) replaces C3: Add Coin and the
+Staging-draft edit use Edit Coin's own photo section in a draft storage mode
+(picks held in memory, written to Staging only on Save), built on
+`claude/addcoin-shared-photos`. Until that lands, `main`'s Add Coin keeps its
+📷 🖼️ 📁 buttons (see "Add Coin: 📁 Files button"), and Add Set and Wishlist
+keep theirs (C4).
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
 (tip `e8d822a`, never merged, kept as history). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
@@ -317,12 +330,12 @@ on the S25: every image interaction works the same way. Suite:
     hydrate PhotoID clause removed (SR3 x2 + R1b/R4 x2), Replace not carrying
     the PhotoID (SR2/SR3 x2 + R1/R1b/R3/R4).
   - Not verified: any real device for the Set screens.
-- **Planned stages**: C3 Add Coin
-  (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
-  picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
-  with Ray's go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is
-  out of scope; its 8 inputs stay pinned. Add Coin's own 📁 code stays until
-  C3.
+- **Planned stages**: Add Coin now follows Ray's 22 Oct decision (Edit
+  Coin's photo section in draft mode, `claude/addcoin-shared-photos`), not
+  the C3 described in the original plan; C4 Add Set and Wishlist; C5
+  receipts only with Ray's go-ahead (needs a PDF-allowed, unguarded call).
+  `stage.html` is out of scope; its 8 inputs stay pinned. Add Coin's own 📁
+  code stays until the Add Coin branch lands.
 - **Tests changed**: `verify_files_picker` B3 (37 -> 40 inputs), new B4 (the
   chooser's three inputs), C1 (21 -> 22 camera inputs), A9 (the chooser's
   one Files input excepted). `verify_photo_receipt_write` P4/P5/P9/P10 and
@@ -661,9 +674,10 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (c) The Add Coin gallery has no per-photo Replace button.
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
   its remove (✕) button only after the screen is redrawn.
-- (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are held
-  on `claude/unified-image-chooser`; C3-C4 (Add Coin, Add Set, Wishlist)
-  follow after Ray's S25 test of C2, C5 receipts only with his go-ahead.
+- (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are on
+  `main` (22 Oct 2026). Add Coin is being moved onto Edit Coin's photo
+  section on `claude/addcoin-shared-photos` (that also closes (c) and (d));
+  C4 (Add Set, Wishlist) after it, C5 receipts only with his go-ahead.
   HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
