@@ -599,14 +599,21 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         const thumbs = [...host.querySelectorAll('[data-role="coa-strip"] .gc-thumb')];
         const first = thumbs[0], img = first && first.querySelector(".gc-img"), r = img && img.getBoundingClientRect();
         const ownCoa = [...host.querySelectorAll(".accordion-header")].some(h => /COA \/ certificates/.test(h.textContent));
+        const strip = host.querySelector('[data-role="coa-strip"]');
+        const align = strip && first ? { gap: Math.round(first.getBoundingClientRect().left - strip.getBoundingClientRect().left),
+          justify: getComputedStyle(strip).justifyContent } : null;
         if (first) first.click();
-        const viewer = document.getElementById("galleryViewerOverlay");
-        out[screen] = { thumbs: thumbs.length, ownCoa,
+        await window.__sp.sleep(200);
+        const mv = document.getElementById("mediaViewerOverlay");
+        out[screen] = { thumbs: thumbs.length, ownCoa, align,
           heading: (host.textContent.match(/COA — from parent Set/) || [""])[0],
           ratio: r ? Math.round(r.width / r.height * 1000) / 1000 : null, shaped: !!(first && first.classList.contains("gc-shaped")),
-          viewerOpen: !viewer.classList.contains("hidden"),
-          viewerTitle: document.getElementById("galleryViewerTitle").textContent,
-          viewerCoa: [...document.querySelectorAll("#galleryViewerGrid .gv-cap")].some(c => /page 1/.test(c.textContent)) };
+          viewerOpen: !mv.classList.contains("hidden"),
+          footer: document.getElementById("mediaViewerFooter").textContent,
+          viewerImg: !!document.querySelector("#mediaViewerStage img"),
+          gallery: !document.getElementById("galleryViewerOverlay").classList.contains("hidden"),
+          button: !!(first && first.tagName === "BUTTON") };
+        if (typeof closeMediaViewer === "function") closeMediaViewer();
         s.teardown();
       }
       return out;
@@ -616,8 +623,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       ok(o.heading && o.thumbs === 1 && !o.ownCoa,
         `CR1-${k} a coin inside a Set shows the Set's COA (no COA section of its own), without the Set's screen opened first: ` + JSON.stringify(o));
       ok(o.shaped && Math.abs(o.ratio - 0.625) / 0.625 <= 0.03, `CR2-${k} the Set's COA page shows at its own shape: ${o.ratio}`);
-      ok(o.viewerOpen && /COA/.test(o.viewerTitle) && o.viewerCoa,
-        `CR3-${k} tapping it opens the Set's COA in the viewer (linked, not copied): ` + JSON.stringify([o.viewerTitle, o.viewerCoa]));
+      ok(o.button && o.viewerOpen && /COA — from parent Set — page 1/.test(o.footer) && o.viewerImg && !o.gallery,
+        `CR3-${k} tapping it opens that page full screen in the in-app viewer, labelled as the parent Set's (Q3): ` + JSON.stringify([o.footer, o.viewerOpen, o.viewerImg, o.gallery]));
+      ok(o.align && o.align.gap <= 1 && o.align.justify === "flex-start",
+        `CR4-${k} the parent COA thumbnails are left-aligned, not centred: ` + JSON.stringify(o.align));
     }
     await p.close();
   }
@@ -653,6 +662,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         labels: thumbs.map(t => (t.querySelector(".gc-type") || {}).textContent),
         readOnly: blk ? blk.querySelectorAll(".gc-remove, [data-role='replace'], [data-act], input").length === 0 : false,
         buttons: thumbs.every(t => t.tagName === "BUTTON"),
+        align: (() => { const st = blk && blk.querySelector('[data-role="coa-strip"]'); if (!st || !thumbs[0]) return null;
+          const ps = document.getElementById("detailPhotoStrip");
+          return { gap: Math.round(thumbs[0].getBoundingClientRect().left - st.getBoundingClientRect().left),
+            justify: getComputedStyle(st).justifyContent }; })(),
         parentOtherShown: shown.some(u => setImgs.has(u))
       };
       if (thumbs[0]) thumbs[0].click();
@@ -689,8 +702,50 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     ok(DK.child.readOnly && DK.child.buttons, "DK2 the parent's COA on the coin page is read-only: no ✕, no Replace, no label box");
     ok(DK.viewer.open && /COA — from parent Set/.test(DK.viewer.footer) && /page 1/.test(DK.viewer.footer) && DK.viewer.img && !DK.viewer.gallery,
       "DK3 tapping it opens that page in the in-app viewer, labelled as the parent Set's: " + JSON.stringify(DK.viewer));
+    ok(DK.child.align && DK.child.align.gap <= 1 && DK.child.align.justify === "flex-start",
+      "DK6 on the coin page the parent COA thumbnails are left-aligned like the Photos strip, not centred: " + JSON.stringify(DK.child.align));
     ok(!DK.noParent.block && !DK.noParent.heading, "DK4 a coin with no parent Set shows no parent COA");
     ok(!DK.noCoa.block && !DK.noCoa.heading, "DK5 a coin whose parent Set has no COA photos shows none");
+    await p.close();
+  }
+
+  // ---------- CT. Crop-from-another-photo source tiles at their own shape --
+  // Ray's Q2 (22 Oct): the Holder/Reference/Other tiles in "Crop from another
+  // photo" follow the photo's own shape, like the gallery thumbs.
+  for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
+    const p = await openApp(vp);
+    await installHelpers(p);
+    await installShapes(p);
+    const CT = await p.evaluate(async () => {
+      const s = window.__sh, out = {};
+      for (const screen of ["coin-edit", "coin-manage"]) {
+        s.install();
+        const host = s.open(screen);
+        s.openAll(host);
+        await window.__sp.sleep(400);
+        const tiles = [...host.querySelectorAll(".crop-src-tile")].map(t => {
+          const img = t.querySelector(".gc-img"), ir = img.getBoundingClientRect(), tr = t.getBoundingClientRect();
+          const lab = t.querySelector(".gc-type").getBoundingClientRect();
+          return { want: s.ratioOfUrl(img.style.backgroundImage), got: Math.round(ir.width / ir.height * 1000) / 1000,
+            w: Math.round(ir.width * 10) / 10, h: Math.round(ir.height * 10) / 10, tileW: Math.round(tr.width * 10) / 10,
+            labW: Math.round(lab.width * 10) / 10, right: tr.right, shaped: t.classList.contains("gc-shaped") };
+        });
+        out[screen] = { tiles, inner: window.innerWidth, pageScroll: document.documentElement.scrollWidth > window.innerWidth };
+        s.teardown();
+      }
+      return out;
+    });
+    const tag = vp.width + "x" + vp.height;
+    for (const screen of ["coin-edit", "coin-manage"]) {
+      const m = CT[screen], t = screen + " " + tag, close = (a, b) => Math.abs(a - b) / b <= 0.03;
+      ok(m.tiles.length === 4 && m.tiles.every(x => x.shaped && x.want),
+        `CT1 ${t}: the 4 crop sources (Holder, 2 Reference, Other) are shaped tiles: ` + JSON.stringify(m.tiles.map(x => [x.shaped, x.want])));
+      ok(m.tiles.length && m.tiles.every(x => close(x.got, x.want === 2 ? 2 : 0.625)),
+        `CT2 ${t}: each source tile keeps its photo's own shape (2:1 and 1:1.6): ` + JSON.stringify(m.tiles.map(x => [x.want, x.got])));
+      ok(m.tiles.length && m.tiles.every(x => (x.want === 2 ? x.w <= 177 : Math.abs(x.h - 88) <= 1) && Math.abs(x.tileW - x.w) <= 1 && Math.abs(x.labW - x.w) <= 1),
+        `CT3 ${t}: 88px tall (width capped for a wide photo), tile and label as wide as the photo: ` + JSON.stringify(m.tiles.map(x => [x.w, x.h, x.tileW, x.labW])));
+      ok(!m.pageScroll && m.tiles.every(x => x.right <= m.inner + 0.5), `CT4 ${t}: no sideways scroll, every tile on screen`);
+    }
     await p.close();
   }
 

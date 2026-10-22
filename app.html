@@ -2225,6 +2225,14 @@
     font-size: 24px; color: var(--text-muted); overflow: hidden;
   }
   .crop-src-tile .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
+  /* A source photo with a picture is drawn at its own shape, same rule as the
+     gallery thumbs (88px tall, width follows the image, capped). The label
+     takes the image's width instead of widening the tile. */
+  button.crop-src-tile.gc-shaped { width: max-content; max-width: 100%; }
+  .crop-src-tile .gc-img.gc-img-shaped {
+    display: block; position: relative; width: auto; height: auto; line-height: 0;
+  }
+  .crop-src-tile.gc-shaped > .gc-type { width: 0; min-width: 100%; box-sizing: border-box; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -2398,6 +2406,9 @@
      + a shared viewer overlay), reusing the .gc-img tile look. */
   .gallery-strip { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 4px 0 12px; }
   .gallery-strip .gc-thumb { cursor: pointer; }
+  /* The parent Set's COA pages line up on the left, like the Photos strip
+     above them, rather than centring. */
+  .gallery-strip[data-role="coa-strip"] { justify-content: flex-start; margin-bottom: 0; }
   .gallery-view-btn {
     display: inline-flex; align-items: center; gap: 6px; margin: 10px auto 0;
     padding: 8px 16px; border-radius: 20px; border: 1px solid var(--case-border);
@@ -24718,13 +24729,18 @@
       const def = galleryTypeDef(src.type);
       const tile = document.createElement("button");
       tile.type = "button";
-      tile.className = "crop-src-tile";
+      // Sources are Holder/Reference/Other — never a flip source — so each
+      // tile follows its photo's own shape (Ray's Q2, 22 Oct).
+      tile.className = "crop-src-tile gc-shaped";
       tile.dataset.filename = src.storedFilename;
       tile.setAttribute("aria-label", "Crop from " + (def ? def.label : src.type) + ", " + src.storedFilename);
       const img = document.createElement("div");
       img.className = "gc-img";
-      if (src.url) img.style.backgroundImage = "url(" + JSON.stringify(src.url) + ")";
-      else img.textContent = def ? def.icon : "🖼️";
+      if (src.url) {
+        img.style.backgroundImage = "url(" + JSON.stringify(src.url) + ")";
+        img.classList.add("gc-img-shaped");
+        img.innerHTML = galleryShapedSizer(src.url);
+      } else img.textContent = def ? def.icon : "🖼️";
       const label = document.createElement("div");
       label.className = "gc-type";
       label.textContent = def ? def.label : src.type;
@@ -24732,6 +24748,7 @@
       tile.appendChild(label);
       tile.addEventListener("click", () => startCropFromUpload(targetId, src, render));
       grid.appendChild(tile);
+      paintStoredThumbWhenReady(src, tile);
     });
     body.appendChild(grid);
   }
@@ -25831,8 +25848,13 @@
       // A child coin's COA belongs to its parent Set — read-only link, no slot.
       const parent = ctx.parentSetId ? { id: ctx.parentSetId, name: ctx.parentSetName } : null;
       if (parent) {
+        // Tapping a page opens it full screen, the same viewer and footer as
+        // the coin's own page (Ray's Q3, 22 Oct).
         const holder = document.createElement("div");
-        renderParentCoaReadThrough(holder, parent.id, parent.name);
+        const viewCoin = activeCoins().find(c => c.id === id) || { id, name: ctx.name || id };
+        renderParentCoaReadThrough(holder, parent.id, parent.name,
+          { onOpen: (entry) => openCoinPhotoInViewer(viewCoin, entry,
+              { label: ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ") }) });
         if (holder.innerHTML.trim()) host.appendChild(holder);
       }
       return;
