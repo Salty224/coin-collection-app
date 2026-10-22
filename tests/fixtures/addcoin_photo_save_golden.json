@@ -1,0 +1,63 @@
+{
+  "_note": "Recorded from main 38b0207's Add Coin (before claude/addcoin-shared-photos). Do not edit by hand; see tests/verify_addcoin_shared_photos.js.",
+  "collectionID": "AY-00501",
+  "photos": [
+    {
+      "type": "obverse",
+      "filename": "AY-00501_obverse_cropped.jpg",
+      "caption": ""
+    },
+    {
+      "type": "obverse",
+      "filename": "AY-00501_obverse_original.jpg",
+      "caption": "original"
+    },
+    {
+      "type": "reverse",
+      "filename": "AY-00501_reverse_cropped.jpg",
+      "caption": ""
+    },
+    {
+      "type": "reverse",
+      "filename": "AY-00501_reverse_original.jpg",
+      "caption": "original"
+    },
+    {
+      "type": "slab_obverse",
+      "filename": "AY-00501_slab_obverse.jpg",
+      "caption": ""
+    },
+    {
+      "type": "slab_reverse",
+      "filename": "AY-00501_slab_reverse.jpg",
+      "caption": ""
+    },
+    {
+      "type": "reference",
+      "filename": "AY-00501_reference_01.jpg",
+      "caption": "TrueView obverse"
+    },
+    {
+      "type": "reference",
+      "filename": "AY-00501_reference_02.jpg",
+      "caption": "TrueView reverse"
+    },
+    {
+      "type": "other",
+      "filename": "AY-00501_other_01.jpg",
+      "caption": "Mint box"
+    }
+  ],
+  "receiptPhoto": "",
+  "uploads": [
+    "AY-00501_obverse_cropped.jpg",
+    "AY-00501_obverse_original.jpg",
+    "AY-00501_other_01.jpg",
+    "AY-00501_reference_01.jpg",
+    "AY-00501_reference_02.jpg",
+    "AY-00501_reverse_cropped.jpg",
+    "AY-00501_reverse_original.jpg",
+    "AY-00501_slab_obverse.jpg",
+    "AY-00501_slab_reverse.jpg"
+  ]
+}
