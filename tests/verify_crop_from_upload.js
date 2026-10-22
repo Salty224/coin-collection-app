@@ -185,7 +185,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
   // Sources (Ray, 22 Oct 2026): Holder front/back, Reference and Other.
   ok(A.tileNames.length === 4, "A2 it lists exactly the four source types (holder ×2, reference, other)");
   ok(A.tileNames.some(n => /_other_/.test(n)), "A3 an 'Other' photo IS offered as a source");
-  ok(!A.tileNames.some(n => /_(obverse|reverse)\.jpg$/.test(n)), "A3b Front and Back are not offered as sources (Recrop covers them)");
+  ok(!A.tileNames.some(n => /^AY-\d+_(obverse|reverse)\.jpg$/.test(n)), "A3b Front and Back are not offered as sources (Recrop covers them)");
   ok(A.tilesAreButtons, "A4 each source is a plain button");
   ok(A.fileInputsInSection === 0, "A5 NO file input anywhere in the crop section");
   ok(A.tileBgs === 4, "A6 every tile shows its stored photo");

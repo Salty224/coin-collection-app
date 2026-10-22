@@ -270,7 +270,7 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   ok(same, "D3 Files produces the same entry as Library (type, filenames, JPEG blob, circle, preview): " +
     JSON.stringify({ lib: D.viaLib, files: D.viaFiles }));
   ok(D.viaFiles.blobType === "image/jpeg" && D.viaFiles.type === "obverse", "D4 the stored crop is a JPEG obverse entry");
-  ok(D.revFiles.stage1 && /Reverse/.test(D.revFiles.title || "") && D.revFiles.type === "reverse",
+  ok(D.revFiles.stage1 && /Back \(reverse\)/.test(D.revFiles.title || "") && D.revFiles.type === "reverse",
     "D5 Reverse's Files button runs the reverse crop: " + JSON.stringify(D.revFiles));
   ok(D.toast === "", "D6 a good JPEG shows no refusal toast");
   ok(D.graph === 0 && D.fetches === 0, "H1 picking and cropping on Add Coin sends no Graph request before Save: " +
