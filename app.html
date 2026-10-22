@@ -2295,6 +2295,31 @@
      Replace; ↻ (failed save only) is centred on the photo. */
   .sg-photo-slot.sg-chooser-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
   .sg-chooser-mode .sg-photo-face { position: relative; }
+  /* Photos drawn at their own shape (Oct 2026, Ray's T1 follow-up): Holder,
+     Reference, Package/OGP, COA, Other and a Set's whole-set/sub-group pairs.
+     Same height as the square tiles were; width follows the image, capped so
+     a very wide image can't overflow a 360px phone. Label, caption and
+     Replace use width:0 + min-width:100% so they take the image's width
+     instead of widening the tile. Front/Back are unchanged, and the "+" box
+     keeps its square size. */
+  .gc-thumb.gc-shaped { width: max-content; max-width: 100%; }
+  .gc-thumb.gc-shaped .gc-img.gc-img-shaped {
+    display: block; position: relative; width: auto; height: auto; line-height: 0;
+  }
+  .gc-img-shaped .gc-img-sizer {
+    display: block; visibility: hidden; width: auto; height: auto;
+    max-width: 174px; max-height: 86px;
+  }
+  .gc-thumb.gc-shaped > :not(.gc-img):not(.gc-remove) { width: 0; min-width: 100%; box-sizing: border-box; }
+  .gc-img-shaped .gc-failed-dim { width: auto; height: auto; inset: 0; }
+  .gc-thumb .gc-img-shaped .gc-retry { top: 50%; left: 50%; }
+  .sg-photo-pair .sg-photo-slot.sg-shaped { min-width: 0; }
+  .sg-photo-pair .sg-photo-slot.sg-shaped .sg-photo-col { width: max-content; max-width: 100%; margin: 0 auto; }
+  .sg-shaped .sg-photo-col > :not(.sg-photo-face) { width: 0; min-width: 100%; box-sizing: border-box; }
+  .sg-shaped .sg-photo-face { width: fit-content; max-width: 100%; margin: 0 auto; }
+  .sg-photo-pair .sg-shaped .sg-photo-img {
+    width: auto; height: auto; max-width: 100%; max-height: 120px; object-fit: fill;
+  }
   .sg-chooser-mode .sg-photo-remove {
     position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%;
     border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
@@ -16591,14 +16616,14 @@
       galleryExtras.forEach(entry => {
         const def = galleryTypeDef(entry.type);
         const thumb = document.createElement(isSet ? "div" : "button");
-        thumb.className = "gc-thumb";
+        thumb.className = "gc-thumb" + (galleryEntryIsShaped(entry) ? " gc-shaped" : "");
         thumb.style.cursor = "pointer";
         if (!isSet) {
           thumb.type = "button";
           thumb.dataset.photoType = entry.type;
           thumb.setAttribute("aria-label", "View " + (def ? def.label : entry.type) + " full screen");
         }
-        thumb.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${def ? def.label : entry.type}</div>`;
+        thumb.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${def ? def.label : entry.type}</div>`;
         thumb.addEventListener("click", isSet
           ? () => openGalleryViewer(coin.id, coin.name + " — photos")
           : () => openCoinPhotoInViewer(coin, entry));
@@ -24954,11 +24979,52 @@
   // Rendered thumbnail tile for one entry. url present -> the captured blob;
   // url null (demo seed) -> a labeled placeholder tile, same "no real photo
   // persisted yet" convention as the rest of the app.
-  function galleryThumbInner(entry) {
+  //
+  // opts.shaped (Oct 2026, Ray's T1 follow-up): a photo that isn't a coin
+  // face (Holder, Reference, Package/OGP, COA, Other — anything that is not
+  // a flip source) is drawn at its OWN shape instead of cropped to a square.
+  // A PCGS TrueView reference is a wide image of both sides and a slab is a
+  // tall rectangle; the square cover-crop cut off both coins' edges. The
+  // tile keeps today's height and its width follows the image: a hidden
+  // <img> inside sizes the tile (the .gc-img background still paints the
+  // photo, so every reader of .gc-img and its background-image is
+  // unchanged). Front/Back are never shaped. A tile with no image yet
+  // (loading, demo seed) stays today's square.
+  // opts.inside: extra markup placed INSIDE the image box (a shaped tile
+  // puts its failed-save dim and ↻ there, so they cover and centre on the
+  // photo whatever its width).
+  function galleryEntryIsShaped(entry) {
+    const def = galleryTypeDef(entry && entry.type);
+    return !!(def && !def.flipSource);
+  }
+  function galleryShapedSizer(url) {
+    return `<img class="gc-img-sizer" src="${url}" alt="" aria-hidden="true">`;
+  }
+  // A photo that can't be drawn (a file the browser can't decode) has no
+  // shape to follow, and a shaped tile would collapse to nothing around it.
+  // Such a tile falls back to today's square instead.
+  document.addEventListener("error", (e) => {
+    const el = e.target;
+    if (!el || !el.classList) return;
+    if (el.classList.contains("gc-img-sizer")) {
+      const box = el.parentElement;
+      el.remove();
+      if (box) box.classList.remove("gc-img-shaped");
+    } else if (el.classList.contains("sg-photo-img")) {
+      const slot = el.closest(".sg-photo-slot.sg-shaped");
+      if (slot) slot.classList.remove("sg-shaped");
+    }
+  }, true);
+  function galleryThumbInner(entry, opts) {
     const def = galleryTypeDef(entry.type);
     const icon = def ? def.icon : "🖼️";
     const imgStyle = entry.url ? ` style="background-image:url('${entry.url}')"` : "";
-    return `<div class="gc-img"${imgStyle}>${entry.url ? "" : icon}</div>`;
+    const shaped = !!(opts && opts.shaped && galleryEntryIsShaped(entry));
+    const inside = (opts && opts.inside) || "";
+    if (shaped && entry.url) {
+      return `<div class="gc-img gc-img-shaped"${imgStyle}>${galleryShapedSizer(entry.url)}${inside}</div>`;
+    }
+    return `<div class="gc-img"${imgStyle}>${entry.url ? "" : icon}${inside}</div>`;
   }
 
   // A shared pending-pick callback for the type picker overlay.
@@ -25068,7 +25134,15 @@
       const failedOverlay = entry && entry.uploadError
         ? `<div class="sg-photo-failed-dim" aria-hidden="true"></div>
           <button type="button" class="sg-photo-retry" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
-      slot.innerHTML = filled ? `
+      // A photo that isn't a coin face (Holder, Package/OGP, a Set's whole-set
+      // or sub-group pair) is drawn at its own shape: same 120px height as
+      // before, width following the image, capped at the slot's width. The
+      // photo, its label and Replace sit in one column exactly as wide as the
+      // image, so the ✕ lands on the image's own corner. Front/Back are
+      // unchanged. See galleryThumbInner() for why.
+      const shapedSlot = !!(entry && entry.url && !def.flipSource);
+      if (shapedSlot) slot.classList.add("sg-shaped");
+      const filledBody = `
         <div class="sg-photo-face">
           ${face}
           ${failedOverlay}
@@ -25077,8 +25151,8 @@
         <div class="sg-photo-label">${label}</div>
         <button type="button" class="sg-photo-replace-btn" data-act="replace" aria-label="Replace ${label} photo">Replace</button>
         ${canReadjust ? `<button type="button" class="sg-photo-replace-btn sg-photo-recrop-btn" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">Recrop</button>` : ""}
-        ${stateLines}
-      ` : `
+        ${stateLines}`;
+      slot.innerHTML = filled ? (shapedSlot ? `<div class="sg-photo-col">${filledBody}</div>` : filledBody) : `
         <button type="button" class="sg-photo-add" data-act="add" aria-label="Add ${label} photo">
           <span class="sg-photo-add-plus" aria-hidden="true">＋</span>
           <span class="sg-photo-add-label">${label}</span>
@@ -25277,6 +25351,12 @@
     if (!hostEl) return 0;
     hostEl.innerHTML = "";
     if (!parentId) return 0;
+    // The parent's COA comes from the Photos tab like any stored photo. Read
+    // it here rather than relying on the Set's own screen having been opened
+    // first this session: without this a child coin showed no COA at all
+    // until someone happened to open its Set (Ray's T1 condition: a coin
+    // inside a Set must still show the Set's COA, linked).
+    hydrateStoredPhotos(parentId);
     const coa = galleryFor(parentId).filter(e => e.type === "coa");
     if (!coa.length) return 0;
     const wrap = document.createElement("div");
@@ -25295,10 +25375,11 @@
     const strip = wrap.querySelector('[data-role="coa-strip"]');
     coa.forEach(entry => {
       const t = document.createElement("div");
-      t.className = "gc-thumb";
-      t.innerHTML = `${galleryThumbInner(entry)}<div class="gc-type">${entry.caption || "COA"}</div>`;
+      t.className = "gc-thumb gc-shaped";
+      t.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${entry.caption || "COA"}</div>`;
       t.addEventListener("click", () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
       strip.appendChild(t);
+      paintStoredThumbWhenReady(entry, t);
     });
     hostEl.appendChild(wrap);
     return coa.length;
@@ -25497,13 +25578,18 @@
     galleryFor(targetId).forEach((entry, index) => {
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
-      thumb.className = "gc-thumb";
+      // Chooser-mode thumbs are drawn at the photo's own shape; see
+      // galleryThumbInner(). The ✕ stays on the image's top-right corner
+      // because the tile is exactly as wide as the image.
+      const shaped = chooserMode && galleryEntryIsShaped(entry);
+      thumb.className = "gc-thumb" + (shaped ? " gc-shaped" : "");
       const loadingStored = !!(entry.stored && !entry.url);
+      const failedOverlay = entry.uploadError ? `<div class="gc-failed-dim" aria-hidden="true"></div>
+        <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
-        ${galleryThumbInner(entry)}
-        ${entry.uploadError ? `<div class="gc-failed-dim" aria-hidden="true"></div>
-        <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
+        ${galleryThumbInner(entry, shaped ? { shaped: true, inside: failedOverlay } : null)}
+        ${shaped ? "" : failedOverlay}
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
@@ -25993,6 +26079,11 @@
       if (!img || !document.contains(img)) return;
       img.style.backgroundImage = `url('${url}')`;
       img.textContent = "";
+      // A shaped tile takes the photo's own shape once it arrives.
+      if (tileHost.classList && tileHost.classList.contains("gc-shaped")) {
+        img.classList.add("gc-img-shaped");
+        img.insertAdjacentHTML("afterbegin", galleryShapedSizer(url));
+      }
     });
   }
 

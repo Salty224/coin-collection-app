@@ -378,6 +378,226 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     }
   }
 
+  // ---------- SH. Non-circle photos at their own shape ---------------------
+  // Ray's T1 follow-up: Holder, Reference, Package/OGP, COA and Other (and a
+  // Set's whole-set pair) are drawn at the image's own shape instead of a
+  // square crop. Wide test image 800x400 (2:1, a TrueView), tall 500x800
+  // (1:1.6, a slab). Front stays as it was.
+  const installShapes = (pg) => pg.evaluate(async () => {
+    const mk = async (w, h, fill) => {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const x = c.getContext("2d"); x.fillStyle = fill; x.fillRect(0, 0, w, h);
+      x.fillStyle = "#da3"; x.beginPath(); x.arc(w / 4, h / 2, Math.min(w, h) / 4, 0, Math.PI * 2); x.fill();
+      const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+      return URL.createObjectURL(b);
+    };
+    const WIDE = 2, TALL = 500 / 800, SQUARE = 1;
+    const urls = { [WIDE]: await mk(800, 400, "#246"), [TALL]: await mk(500, 800, "#642"), [SQUARE]: await mk(600, 600, "#264") };
+    const COIN = "AY-00099", SET = "AY-00090", CHILD = "AY-00090-A";
+    // [photoId, owner, PhotoType, galleryType, filename, label, ratio]
+    const ROWS = [
+      ["PH-1", COIN, "Obverse", "obverse", COIN + "_obverse_cropped.jpg", "", SQUARE],
+      ["PH-2", COIN, "Slab_Obverse", "slab_obverse", COIN + "_slab_obverse.jpg", "", TALL],
+      ["PH-3", COIN, "Reference", "reference", COIN + "_reference_01.jpg", "TrueView", WIDE],
+      ["PH-4", COIN, "Reference", "reference", COIN + "_reference_02.jpg", "Slab shot", TALL],
+      ["PH-5", COIN, "OGP_Obverse", "ogp_obverse", COIN + "_ogp_obverse.jpg", "", WIDE],
+      ["PH-6", COIN, "COA", "coa", COIN + "_coa_01.jpg", "page 1", TALL],
+      ["PH-7", COIN, "Other", "other", COIN + "_other_01.jpg", "Mint box", WIDE],
+      ["PH-10", SET, "OGP_Obverse", "ogp_obverse", SET + "_ogp_obverse.jpg", "", WIDE],
+      ["PH-11", SET, "COA", "coa", SET + "_coa_01.jpg", "page 1", TALL],
+      ["PH-12", SET, "Other", "other", SET + "_other_01.jpg", "Box", WIDE],
+      ["PH-13", SET, "SubGroup_Obverse", "subgroup_obverse", SET + "_obverse.jpg", "", WIDE]
+    ];
+    const HEAD = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"];
+    const coin = { id: COIN, name: "1916-D Mercury Dime", denom: "10C", year: 1916, mint: "D", description: "Mercury Dime" };
+    const set = { id: SET, name: "1957 United States Proof Set", denom: "Multiple", year: 1957, mint: "", category: "Proof Set" };
+    const child = { id: CHILD, name: "1957 Franklin Half", denom: "50C", year: 1957, mint: "", description: "Franklin Half Dollar", originSetId: SET };
+    const urlRatio = {};
+    window.__sh = {
+      COIN, SET, CHILD, coin, set, child, WIDE, TALL,
+      ratioOfUrl(u) { const m = /url\(["']?([^"')]+)/.exec(u || ""); return m ? urlRatio[m[1]] : urlRatio[u]; },
+      install() {
+        const sheet = [HEAD.slice()].concat(ROWS.map(r => [r[0], r[1], r[2], "", r[4], r[5], 46000, ""]));
+        for (let i = 0; i < 6; i++) sheet.push(new Array(HEAD.length).fill(""));
+        __setGraphClientForTest(createMockGraphClient({ sheets: { Photos: sheet } }));
+        __resetSheetHeaderMapsForTest();
+        __setAddCoinWriteEnabledForTest(true);
+        __setLiveCoinsForTest([coin, set, child]);
+        const byOwner = {};
+        ROWS.forEach(r => (byOwner[r[1]] = byOwner[r[1]] || []).push({ photoId: r[0], photoType: r[2], galleryType: r[3],
+          subGroupId: "", filename: r[4], originalFilename: "", label: r[5] }));
+        __setStoredPhotosForTest(byOwner);
+        __resetCoinPhotoCacheForTest();
+        ROWS.forEach(r => { __setCoinPhotoCacheForTest(r[4], urls[r[6]]); urlRatio[urls[r[6]]] = r[6]; });
+        [COIN, SET, CHILD].forEach(id => delete galleryStore[id]);
+        closeImageSourceChooser();
+      },
+      teardown() {
+        [COIN, SET, CHILD].forEach(id => delete galleryStore[id]);
+        __setStoredPhotosForTest(null); __resetCoinPhotoCacheForTest(); __setLiveCoinsForTest(null);
+        __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+        document.getElementById("galleryViewerOverlay").classList.add("hidden");
+      },
+      closeOverlays() {
+        if (typeof closeBgCrop === "function") closeBgCrop();
+        document.getElementById("photoAdjustOverlay").classList.add("hidden");
+      },
+      openAll(host) {
+        [...host.querySelectorAll(".accordion-header")].forEach(h => { if (h.getAttribute("aria-expanded") !== "true") h.click(); });
+        return host;
+      },
+      open(screen) {
+        if (screen === "coin-edit" || screen === "child-edit") {
+          const rec = screen === "coin-edit" ? coin : child;
+          navigate("browse"); showBrowseDetail(rec); showBrowseEditView(rec);
+          const oh = document.getElementById("editCoinPhotosHeader");
+          if (oh.getAttribute("aria-expanded") !== "true") oh.click();
+          this.closeOverlays();
+          return document.getElementById("browseEditPhotosSections");
+        }
+        if (screen === "coin-manage") { openManagePhotos({ id: COIN, name: "x", meta: COIN, kind: "coin", backTo: () => {} }); this.closeOverlays(); return document.getElementById("managePhotosSections"); }
+        if (screen === "set-manage") { openManagePhotos({ id: SET, name: "x", meta: SET, kind: "set", backTo: () => {} }); this.closeOverlays(); return document.getElementById("managePhotosSections"); }
+        if (screen === "set-edit") {
+          navigate("browse"); showBrowseDetail(set); showBrowseEditSetView(set);
+          const oh = document.getElementById("editSetPhotosHeader");
+          if (oh.getAttribute("aria-expanded") !== "true") oh.click();
+          this.closeOverlays();
+          return document.getElementById("editSetPhotosSections");
+        }
+        if (screen === "coin-page") { navigate("browse"); showBrowseDetail(coin); return document.getElementById("detailPhotoStrip"); }
+        return null;
+      },
+      measure(host) {
+        const R = (el) => el ? el.getBoundingClientRect() : null;
+        const r1 = (n) => Math.round(n * 10) / 10;
+        const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => {
+          const img = t.querySelector(".gc-img"), ir = R(img);
+          const ratio = this.ratioOfUrl(img && img.style.backgroundImage);
+          const rm = R(t.querySelector(".gc-remove")), cap = R(t.querySelector(".gc-caption")), rep = R(t.querySelector('[data-role="replace"]'));
+          return { kind: "thumb", shaped: t.classList.contains("gc-shaped"), want: ratio, got: ir && Math.round(ir.width / ir.height * 1000) / 1000,
+            w: ir && r1(ir.width), h: ir && r1(ir.height), right: R(t).right,
+            xdr: rm && r1(rm.right - ir.right), xdt: rm && r1(rm.top - ir.top),
+            capW: cap && r1(cap.width), repW: rep && r1(rep.width) };
+        }).filter(x => x.want);
+        const slots = [...host.querySelectorAll(".sg-photo-slot")].map(s => {
+          const img = s.querySelector(".sg-photo-img"); if (!img) return null;
+          const ir = R(img), sr = R(s);
+          const title = s.closest(".accordion-body").previousElementSibling.textContent;
+          const rm = R(s.querySelector(".sg-photo-remove")), lab = R(s.querySelector(".sg-photo-label")), rep = R(s.querySelector('[data-act="replace"]'));
+          return { kind: "pair", title: title.replace(/\s+/g, " ").trim().slice(0, 14), shaped: s.classList.contains("sg-shaped"),
+            want: urlRatio[img.getAttribute("src")], got: Math.round(ir.width / ir.height * 1000) / 1000, w: r1(ir.width), h: r1(ir.height), slotW: r1(sr.width), right: sr.right,
+            xdr: rm && r1(rm.right - ir.right), xdt: rm && r1(rm.top - ir.top), labW: lab && r1(lab.width), repW: rep && r1(rep.width) };
+        }).filter(Boolean);
+        const plus = [...host.querySelectorAll(".gc-add-box")].map(b => { const r = R(b); return [Math.round(r.width), Math.round(r.height)]; });
+        const pairAdd = [...host.querySelectorAll(".sg-photo-add")].map(b => Math.round(R(b).height));
+        return { thumbs, slots, plus, pairAdd };
+      }
+    };
+  });
+
+  const SH_SCREENS = ["coin-edit", "coin-manage", "set-edit", "set-manage", "coin-page"];
+  for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
+    const p = await openApp(vp);
+    await installHelpers(p);
+    await installShapes(p);
+    const SH = await p.evaluate(async (screens) => {
+      const s = window.__sh, out = {};
+      for (const screen of screens) {
+        s.install();
+        const host = s.open(screen);
+        if (screen !== "coin-page") s.openAll(host);
+        await window.__sp.sleep(400);
+        out[screen] = Object.assign(s.measure(host), { inner: window.innerWidth,
+          pageScroll: document.documentElement.scrollWidth > window.innerWidth });
+        s.teardown();
+      }
+      return out;
+    }, SH_SCREENS);
+    const tag = vp.width + "x" + vp.height;
+    for (const screen of SH_SCREENS) {
+      const m = SH[screen], t = screen + " " + tag;
+      const nonFace = m.thumbs.filter(x => x.want !== 1).concat(m.slots.filter(x => x.want !== 1));
+      const faces = m.thumbs.filter(x => x.want === 1).concat(m.slots.filter(x => x.want === 1));
+      const close = (a, b) => Math.abs(a - b) / b <= 0.03;
+      console.log("    shapes " + t + ": " + JSON.stringify(nonFace.map(x => [x.kind[0], x.want === 2 ? "W" : "T", x.w, x.h])));
+      const wantCount = { "coin-edit": 6, "coin-manage": 6, "set-edit": 4, "set-manage": 4, "coin-page": 6 }[screen];
+      ok(nonFace.length === wantCount && nonFace.every(x => x.shaped),
+        `SH1 ${t}: every Holder/Reference/Package/COA/Other/whole-set photo is drawn at its own shape (${nonFace.length}/${wantCount})`);
+      ok(nonFace.length && nonFace.filter(x => x.want === 2).every(x => close(x.got, 2)),
+        `SH2 ${t}: a wide 2:1 image's thumbnail is 2:1: ` + JSON.stringify(nonFace.filter(x => x.want === 2).map(x => x.got)));
+      ok(nonFace.length && nonFace.filter(x => x.want !== 2).every(x => close(x.got, 0.625)),
+        `SH3 ${t}: a tall 1:1.6 image's thumbnail is 1:1.6: ` + JSON.stringify(nonFace.filter(x => x.want !== 2).map(x => x.got)));
+      ok(nonFace.every(x => x.kind === "thumb"
+          ? (x.want === 2 ? x.w <= 177 : Math.abs(x.h - 88) <= 1)
+          : (x.h <= 120.5 && (x.h >= 119 || x.w >= x.slotW - 1))),
+        `SH4 ${t}: same height as before (88px thumbnail, 120px pair photo) unless the width cap applies: ` +
+        JSON.stringify(nonFace.map(x => [x.w, x.h])));
+      ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
+        `SH5 ${t}: no sideways scroll, every photo stays on the screen and inside its own slot: ` +
+        JSON.stringify(nonFace.filter(x => x.kind === "pair").map(x => [x.w, x.slotW])));
+      if (screen !== "coin-page") {
+        ok(nonFace.every(x => Math.abs(x.xdr - 6) <= 1 && Math.abs(x.xdt + 6) <= 1),
+          `SH6 ${t}: the ✕ sits on each image's own top-right corner: ` + JSON.stringify(nonFace.map(x => [x.xdr, x.xdt])));
+        ok(nonFace.every(x => x.kind === "thumb"
+            ? (Math.abs(x.capW - x.w) <= 1 && Math.abs(x.repW - x.w) <= 1)
+            : (Math.abs(x.labW - x.w) <= 1 && Math.abs(x.repW - x.w) <= 1)),
+          `SH7 ${t}: the label box and Replace are exactly as wide as the photo: ` +
+          JSON.stringify(nonFace.map(x => [x.w, x.capW || x.labW, x.repW])));
+        ok(m.plus.length && m.plus.every(b => b[0] === 88 && b[1] === 88) && m.pairAdd.every(h => h === 120),
+          `SH8 ${t}: the + boxes keep their square size: ` + JSON.stringify([m.plus, m.pairAdd]));
+      }
+      if (screen.indexOf("coin") === 0) {
+        ok(faces.length === 1 && faces.every(x => !x.shaped && (x.kind === "pair"
+            ? (x.w === x.slotW && x.h === 120) : (x.w === 88 && x.h === 88))),
+          `SH9 ${t}: Front is unchanged (not reshaped): ` + JSON.stringify(faces));
+      }
+    }
+    await p.close();
+  }
+
+  // ---------- CR. A coin inside a Set still shows the Set's COA, linked ----
+  // Ray's firm condition on Q1. The Set's COA comes from the Photos tab, and
+  // the coin's screen must show it even when the Set's own screen hasn't
+  // been opened this session.
+  {
+    const p = await openApp(PHONE);
+    await installHelpers(p);
+    await installShapes(p);
+    const CR = await p.evaluate(async () => {
+      const s = window.__sh, out = {};
+      for (const screen of ["child-edit", "child-manage"]) {
+        s.install();
+        let host;
+        if (screen === "child-edit") host = s.open("child-edit");
+        else { openManagePhotos(Object.assign({ id: s.CHILD, name: "x", meta: s.CHILD, kind: "coin", backTo: () => {} },
+          { parentSetId: s.SET, parentSetName: s.set.name })); s.closeOverlays(); host = document.getElementById("managePhotosSections"); }
+        await window.__sp.sleep(400);
+        const thumbs = [...host.querySelectorAll('[data-role="coa-strip"] .gc-thumb')];
+        const first = thumbs[0], img = first && first.querySelector(".gc-img"), r = img && img.getBoundingClientRect();
+        const ownCoa = [...host.querySelectorAll(".accordion-header")].some(h => /COA \/ certificates/.test(h.textContent));
+        if (first) first.click();
+        const viewer = document.getElementById("galleryViewerOverlay");
+        out[screen] = { thumbs: thumbs.length, ownCoa,
+          heading: (host.textContent.match(/COA — from parent Set/) || [""])[0],
+          ratio: r ? Math.round(r.width / r.height * 1000) / 1000 : null, shaped: !!(first && first.classList.contains("gc-shaped")),
+          viewerOpen: !viewer.classList.contains("hidden"),
+          viewerTitle: document.getElementById("galleryViewerTitle").textContent,
+          viewerCoa: [...document.querySelectorAll("#galleryViewerGrid .gv-cap")].some(c => /page 1/.test(c.textContent)) };
+        s.teardown();
+      }
+      return out;
+    });
+    for (const k of ["child-edit", "child-manage"]) {
+      const o = CR[k];
+      ok(o.heading && o.thumbs === 1 && !o.ownCoa,
+        `CR1-${k} a coin inside a Set shows the Set's COA (no COA section of its own), without the Set's screen opened first: ` + JSON.stringify(o));
+      ok(o.shaped && Math.abs(o.ratio - 0.625) / 0.625 <= 0.03, `CR2-${k} the Set's COA page shows at its own shape: ${o.ratio}`);
+      ok(o.viewerOpen && /COA/.test(o.viewerTitle) && o.viewerCoa,
+        `CR3-${k} tapping it opens the Set's COA in the viewer (linked, not copied): ` + JSON.stringify([o.viewerTitle, o.viewerCoa]));
+    }
+    await p.close();
+  }
+
   const S3 = await page.evaluate(async (PICKS) => {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const waitFor = async (fn, ms) => { const end = Date.now() + (ms || 4000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); };

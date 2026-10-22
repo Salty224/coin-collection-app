@@ -226,6 +226,61 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   destination names (CS2-CS4).
 - **Not verified**: any real device; how "Holder (slab or flip)" and the two
   new sections read on the S25; a real OGP/COA upload to `_Testing`.
+- **Follow-up to commit 1 (Ray's T1, 22 Oct): non-circle photos at their own
+  shape.** Holder, Reference, Package/OGP, COA, Other, and a Set's whole-set
+  and sub-group pairs were cover-cropped to a square, cutting the edges off a
+  wide PCGS TrueView and a tall slab. Now drawn at the image's own shape on
+  Edit Coin, Manage Photos (coin and Set), Edit Set, the parent-COA
+  read-through and the coin page's Photos strip. Front/Back unchanged; the
+  "+" boxes unchanged (88px tile, 120px pair box).
+  - Open-ended thumbs (`.gc-thumb.gc-shaped`, chooser mode only): the tile
+    stays 88px tall and its width follows the image, capped at 174px of
+    image (a 2:1 TrueView fills 174x88). `galleryThumbInner(entry, {shaped,
+    inside})` puts a hidden `<img class="gc-img-sizer">` inside `.gc-img` to
+    size it; the photo is still the `.gc-img` background, so every existing
+    reader of `.gc-img`/`backgroundImage` is unchanged. The failed-save dim
+    and ↻ move inside the image box (`opts.inside`) so they cover and centre
+    on it. Caption, Replace and state lines use `width:0; min-width:100%` so
+    they take the image's width; the ✕ stays on the image corner because
+    the tile is exactly as wide as the image.
+  - Pair slots (`.sg-photo-slot.sg-shaped`, chooser mode, non-flip types):
+    the photo, label and Replace sit in `.sg-photo-col`, as wide as the
+    image; image max 120px tall and max the slot's width (a 2:1 Package
+    photo at 360px on Edit Coin is 112x57). The slot needs `min-width:0`,
+    or a flex item grows to the image's natural width (seen: 238px in a
+    112px slot).
+  - `galleryEntryIsShaped(entry)` = not a flip source. An image the browser
+    can't decode falls back to today's square (a capture-phase `error`
+    listener), so a shaped tile never collapses to nothing.
+  - **Stored files are already full images**, confirmed in code: non-flip
+    types never run Stage 2, and Stage 1 bakes the user's crop at its own
+    aspect (long edge capped at 1400px), uploaded as-is by
+    `commitGalleryPhoto` and `uploadCoinDraftPhotos`. Nothing is
+    square-cropped at upload. Front/Back are stored square by design.
+  - **The in-app viewer (`.gallery-viewer-grid .gc-img`, `contain`) already
+    showed the full image** and is unchanged. Also unchanged: the "Crop from
+    another photo" source tiles (still squares), Add Coin's own gallery
+    (moves onto the shared section in commit 3), Add Set and Wishlist.
+- **Parent COA read-through now reads the Photos tab itself** (Ray's Q1
+  condition: a coin inside a Set must still show the Set's COA, linked).
+  `renderParentCoaReadThrough()` read only the in-memory gallery, so a
+  Set's stored COA appeared on its child coin only if the Set's own screen
+  had been opened earlier in the session. It now calls
+  `hydrateStoredPhotos(parentId)` first and paints each thumb when its file
+  arrives. Tapping a page still opens the Set's photos in the viewer.
+- **Tests, follow-up** (`verify_addcoin_shared_photos.js` 70 -> 196):
+  SH1-SH9 at 360x800, 412x915, 1024x768 on Edit Coin, Manage Photos coin,
+  Edit Set, Manage Photos Set and the coin page (shape kept, 2:1 and 1:1.6
+  ratios within 3%, height kept unless capped, no sideways scroll and inside
+  its slot, ✕ on the image corner, label and Replace as wide as the photo,
+  "+" boxes square, Front unchanged); CR1-CR3 on a child coin's Edit Coin
+  and Manage Photos with the Set's screen never opened. Negative controls
+  (real app.html, restored by checksum): square thumbs back (SH1/SH2/SH3
+  x15, CR2 x2); no parent hydration (CR1-CR3 x2); caption/Replace not
+  constrained (SH3 x15).
+- **Not verified, follow-up**: a real TrueView, slab and COA photo on the
+  S25; a very tall image (narrower than 1:2) gives a very narrow tile, and
+  no minimum width was added.
 
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
