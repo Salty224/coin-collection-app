@@ -542,7 +542,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   // will never have one, yet they are exactly the mis-framed ones — so
   // Adjust now falls back to re-cropping the displayed file, and says so.
   ok(P.hasAdjustLegacy === true, "P7 Adjust IS offered for a legacy name with no resolvable raw — AY-00208's case");
-  ok(/re-crops the stored photo/.test(P.adjustLegacyTitle),
+  ok(/Recrop \(from the saved photo\)/.test(P.adjustLegacyTitle),
     "P7b and its label says it re-crops the stored photo rather than working from an original");
   ok(/1 photo/.test(P.counts), "P8 the section header counts stored photos");
   ok(P.refThumb && P.refThumb.hasReplace, "P9 a repeatable type gets a per-thumbnail Replace");

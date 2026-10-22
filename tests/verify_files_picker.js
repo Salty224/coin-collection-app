@@ -294,7 +294,7 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     __fp.freshAddCoin();
     const gal = document.getElementById("addCoinGallery");
     gal.querySelector('[data-role="add-files"]').click();
-    const item = [...document.querySelectorAll(".gtp-item")].find(b => /Slab/.test(b.textContent));
+    const item = [...document.querySelectorAll(".gtp-item")].find(b => /Holder/.test(b.textContent));
     if (item) item.click();
     out.galPdf = await __fp.refused(gal.querySelector('input[data-role="files"]'), __fp.file("pdf"));
     out.typeChosen = !!item;

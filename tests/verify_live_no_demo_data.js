@@ -86,12 +86,12 @@ module.exports = defineSuite("live-no-demo-data", async ({ ok, openApp, PHONE })
   // Updated for claude/in-app-image-viewer (Ray's answer 3): a coin's Photos
   // strip now shows the obverse and reverse too, faces first — so the real
   // rows are all three, and still nothing else.
-  ok(JSON.stringify(A.thumbs) === JSON.stringify(["Obverse (front)", "Reverse (back)", "Reference photo"]),
+  ok(JSON.stringify(A.thumbs) === JSON.stringify(["Front (obverse)", "Back (reverse)", "Reference photo"]),
     "A7 the Photos strip shows exactly the three real Photos rows (faces first) and nothing else", A.thumbs);
-  ok(!A.thumbs.some(t => /Slab|COA/.test(t)), "A8 no demo Slab / COA tiles in the strip");
+  ok(!A.thumbs.some(t => /Slab|Holder|COA/.test(t)), "A8 no demo Holder / COA tiles in the strip");
   ok(A.caps.length === 3, "A9 the viewer lists exactly the three real Photos rows", A.caps);
   ok(A.caps.some(c => /PCGS TrueView composite/.test(c)), "A10 the real Reference label shows in the viewer");
-  ok(!A.caps.some(c => /12345678|Slab|COA/.test(c)), "A11 no demo slab/COA captions in the viewer");
+  ok(!A.caps.some(c => /12345678|Slab|Holder|COA/.test(c)), "A11 no demo slab/COA captions in the viewer");
 
   // ---------- B. Edit Coin on AY-00001 (session-only path, write layer off) ----------
   const B = await page.evaluate(() => {

@@ -854,7 +854,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const J = await page.evaluate(async (source) => {
       __ic.install();
       __ic.openEditCoin();
-      const body = __ic.openSection("browseEditPhotosSections", /Slab/);
+      const body = __ic.openSection("browseEditPhotosSections", /Holder/);
       const slot = body.querySelector(".sg-photo-slot");
       const rowsBefore = __ic.photoRows().length;
       const picked = __ic.pickVia(slot.querySelector('[data-act="add"]'), source, await __ic.jpeg());
@@ -1015,7 +1015,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   const K = await page.evaluate(async () => {
     __ic.install();
     __ic.openEditCoin();
-    const body = __ic.openSection("browseEditPhotosSections", /Slab/);
+    const body = __ic.openSection("browseEditPhotosSections", /Holder/);
     const slot = [...body.querySelectorAll(".sg-photo-slot")][1];
     // A file with no type and no image extension: the guard would refuse it,
     // so the crop opening proves Camera skips the guard entirely.

@@ -14,6 +14,17 @@
 //
 // `pickAll` is the ONLY part that knows which buttons exist. When the screen
 // changes, pickAll changes and the golden does not.
+//
+// Commit 1 of the branch (wording, crop sources, OGP/COA on coin screens):
+//   W   wording on Edit Coin and Manage Photos for a coin, the crop dialogs,
+//       the type labels and Add Set's text (Ray's 22 Oct list, lines 1-17)
+//   CS  crop sources are Holder, Reference and Other; destinations Front,
+//       Back, Reference; a crop from an Other photo lands as the Front
+//   OC  the coin screens gain Package (OGP) and COA: stored rows now show,
+//       a new OGP front and a labelled COA page commit like every other
+//       photo; a coin inside a Set has no COA slot of its own unless it
+//       already has COA photos
+//   L   layout of the coin screens at 360x800, 412x915 and 1024x768
 
 const fs = require("fs");
 const path = require("path");
@@ -36,6 +47,336 @@ const PICKS = [
 
 module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHONE }) => {
   const page = await openApp(PHONE);
+
+  // ---- helpers for the coin screens (commit 1) ----------------------------
+  const installHelpers = (pg) => pg.evaluate(() => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
+    __setDocketWriteEnabledForTest(false);
+    const HEAD = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"];
+    window.__sp = {
+      ID: "AY-00099",
+      coin: { id: "AY-00099", name: "1916-D Mercury Dime", denom: "10C", year: 1916, mint: "D", description: "Mercury Dime" },
+      sleep,
+      // rows: [photoId, PhotoType, galleryType, filename, label]
+      install(rows, extraCoins) {
+        const sheet = [HEAD.slice()].concat(rows.map(r => [r[0], this.ID, r[1], "", r[3], r[4] || "", 46000, ""]));
+        for (let i = 0; i < 6; i++) sheet.push(new Array(HEAD.length).fill(""));
+        const mock = createMockGraphClient({ sheets: { Photos: sheet } });
+        const uploads = [];
+        const realUpload = mock.uploadFile.bind(mock);
+        mock.uploadFile = (path, f) => { uploads.push(path); return realUpload(path, f); };
+        this.mock = mock; this.uploads = uploads;
+        __setGraphClientForTest(mock);
+        __resetSheetHeaderMapsForTest();
+        __setAddCoinWriteEnabledForTest(true);
+        __setLiveCoinsForTest([this.coin].concat(extraCoins || []));
+        __setStoredPhotosForTest({ [this.ID]: rows.map(r => ({ photoId: r[0], photoType: r[1], galleryType: r[2],
+          subGroupId: "", filename: r[3], originalFilename: "", label: r[4] || "" })) });
+        __resetCoinPhotoCacheForTest();
+        rows.forEach(r => __setCoinPhotoCacheForTest(r[3], URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }))));
+        delete galleryStore[this.ID];
+        closeImageSourceChooser();
+      },
+      teardown() {
+        document.getElementById("writeGuardOverlay").classList.add("hidden");
+        document.getElementById("writeGuardBtns").innerHTML = "";
+        delete galleryStore[this.ID];
+        __setStoredPhotosForTest(null); __resetCoinPhotoCacheForTest();
+        __setLiveCoinsForTest(null);
+        __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+      },
+      openEditCoin() {
+        navigate("browse"); showBrowseDetail(this.coin); showBrowseEditView(this.coin);
+        const oh = document.getElementById("editCoinPhotosHeader");
+        if (oh.getAttribute("aria-expanded") !== "true") oh.click();
+        this.closeOverlays();
+        return document.getElementById("browseEditPhotosSections");
+      },
+      openManage(extraCtx) {
+        openManagePhotos(Object.assign({ id: this.ID, name: "x", meta: this.ID, kind: "coin", backTo: () => {} }, extraCtx || {}));
+        this.closeOverlays();
+        return document.getElementById("managePhotosSections");
+      },
+      closeOverlays() {
+        if (typeof closeBgCrop === "function") closeBgCrop();
+        document.getElementById("photoAdjustOverlay").classList.add("hidden");
+      },
+      titles(host) { return [...host.querySelectorAll(".accordion-header > span:first-child")].map(s => s.textContent); },
+      section(host, re) {
+        const h = [...host.querySelectorAll(".accordion-header")].find(x => re.test(x.textContent));
+        if (h && h.getAttribute("aria-expanded") !== "true") h.click();
+        return h ? h.nextElementSibling : null;
+      },
+      openAll(host) {
+        [...host.querySelectorAll(".accordion-header")].forEach(h => { if (h.getAttribute("aria-expanded") !== "true") h.click(); });
+        return host;
+      },
+      guardOpen() { return !document.getElementById("writeGuardOverlay").classList.contains("hidden"); },
+      guardTitle() { return this.guardOpen() ? document.getElementById("writeGuardTitle").textContent : ""; },
+      guardBody() { return this.guardOpen() ? document.getElementById("writeGuardBody").textContent : ""; },
+      guardButtons() { return [...document.querySelectorAll("#writeGuardBtns button")].map(b => b.textContent); },
+      clickGuard(label) {
+        const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent === label);
+        if (!b) return false; b.click(); return true;
+      },
+      async waitFor(fn, ms) { const end = Date.now() + (ms || 3000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
+      overlayOpen(id) { const o = document.getElementById(id); return !!o && !o.classList.contains("hidden"); },
+      async jpeg() {
+        const c = document.createElement("canvas"); c.width = 300; c.height = 300;
+        const x = c.getContext("2d"); x.fillStyle = "#2a6"; x.fillRect(0, 0, 300, 300);
+        x.fillStyle = "#da3"; x.beginPath(); x.arc(150, 150, 110, 0, Math.PI * 2); x.fill();
+        const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+        return new File([b], "coin.jpg", { type: "image/jpeg" });
+      },
+      // "+"/Replace -> chooser -> Library -> crop to the end. Never throws.
+      async pickVia(trigger) {
+        if (!trigger) return false;
+        trigger.click();
+        const ch = document.getElementById("imageSourceChooser");
+        if (!ch || ch.classList.contains("hidden")) return false;
+        const btn = ch.querySelector('.image-chooser-btn[data-source="library"]');
+        if (!btn) return false;
+        btn.click();
+        const input = document.getElementById("imageChooserLibraryInput");
+        const dt = new DataTransfer(); dt.items.add(await this.jpeg());
+        input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return false;
+        document.getElementById("bgCropUseBtn").click();
+        if (await this.waitFor(() => this.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
+        return true;
+      },
+      rows() { return this.mock._grids.Photos.filter(r => r[1] === this.ID).map(r => ({ id: r[0], type: r[2], file: r[4], label: r[5] })); }
+    };
+  });
+  await installHelpers(page);
+
+  const COIN_TITLES = ["✂️ Crop from another photo", "🪙 Front & back", "🔲 Holder (slab or flip)",
+    "🔗 Reference photos", "📦 Package / OGP", "📜 COA / certificates", "🖼️ Other photos"];
+
+  // ---------- W. Wording ---------------------------------------------------
+  const W = await page.evaluate(async () => {
+    const c = window.__sp;
+    c.install([["PH-1", "Obverse", "obverse", "AY-00099_obverse_cropped.jpg"]]);
+    const out = {};
+    for (const [k, host] of [["edit", c.openEditCoin()], ["manage", c.openManage()]]) {
+      c.openAll(host);
+      await c.sleep(60);
+      const hints = [...host.querySelectorAll(".accordion-body p")].map(p => p.textContent);
+      const attrs = [...host.querySelectorAll("[title],[aria-label],[placeholder]")]
+        .map(e => [e.title || "", e.getAttribute("aria-label") || "", e.getAttribute("placeholder") || ""].join(" | ")).join("\n");
+      out[k] = { titles: c.titles(host), hints, text: host.textContent + "\n" + attrs,
+                 adjustTitle: (host.querySelector('[data-act="adjust"]') || {}).title || "" };
+    }
+    out.typeLabels = ["obverse", "reverse", "slab_obverse", "slab_reverse"].map(t => galleryTypeDef(t).label);
+    // Add Coin's type picker (still the old gallery until commit 3).
+    openGalleryTypePicker("coin", () => {});
+    out.picker = [...document.querySelectorAll(".gtp-item")].map(b => b.textContent);
+    document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+    // Add Set (text only, Q6).
+    out.addSetHolder = (document.querySelector("#addSetChildSlabHeader > span") || {}).textContent || "";
+    out.addSetHolderHint = (document.querySelector("#addSetChildSlabBody > p") || {}).textContent || "";
+    out.addSetRef = (document.querySelector("#addSetChildRefGallery p") || {}).textContent || "";
+    c.teardown();
+    return out;
+  });
+  for (const k of ["edit", "manage"]) {
+    const t = W[k];
+    ok(JSON.stringify(t.titles) === JSON.stringify(COIN_TITLES),
+      `W1-${k} the coin photo sections read, in order: ` + COIN_TITLES.join(" / ") + " — got " + JSON.stringify(t.titles));
+    ok(t.hints.includes("The coin itself — the images the app shows for this coin. Cropped square, then framed into the circle."),
+      `W2-${k} Front & back hint (line 2)`);
+    ok(t.hints.includes("The holder itself, front and back: a slab (rectangle) or a flip (square — tick Lock to square)."),
+      `W3-${k} Holder hint (line 4)`);
+    ok(t.hints.includes("Professional images of this coin or its type — PCGS TrueView, auction listings and similar."),
+      `W4-${k} Reference hint (line 7)`);
+    ok(t.hints.includes("Tap a Holder, Reference or Other photo to crop this coin's Front, Back or a Reference image out of it. The photo you tap is never changed."),
+      `W5-${k} crop section hint (line 9)`);
+    // "slab or flip" inside "Holder (slab or flip)" is Ray's own wording for
+    // the holder; what must be gone is "flip card" and the word "Slab" as a
+    // name (case-sensitive), plus the other retired phrases — in visible
+    // text, titles, aria-labels and placeholders alike.
+    ok(!/flip[- ]card|beyond the flip|for comparison, not photos|uploaded photo|Extra image|Adjust crop/i.test(t.text) &&
+       !/\bSlab\b/.test(t.text),
+      `W6-${k} no "flip card", "Slab", "uploaded photo", "Extra image" or "Adjust crop" text left on the screen`);
+    ok(t.adjustTitle === "Recrop (from the original)" || t.adjustTitle === "Recrop (from the saved photo)",
+      `W7-${k} the Recrop button's title (line 14): ` + t.adjustTitle);
+  }
+  ok(JSON.stringify(W.typeLabels) === JSON.stringify(["Front (obverse)", "Back (reverse)", "Holder — front", "Holder — back"]),
+    "W8 type labels (lines 5-6): " + JSON.stringify(W.typeLabels));
+  ok(W.picker.some(x => /Holder — front/.test(x)) && !W.picker.some(x => /Slab/.test(x)),
+    "W9 Add Coin's type picker says Holder, not Slab");
+  ok(W.addSetHolder === "🔲 Holder (slab or flip)" && /slab \(rectangle\) or a flip/.test(W.addSetHolderHint),
+    "W10 Add Set's holder section is renamed (line 17)");
+  ok(W.addSetRef === "Professional images of this coin or its type — PCGS TrueView, auction listings and similar.",
+    "W11 Add Set's reference text matches the coin screens (line 17)");
+
+  // ---------- CS. Crop sources and destinations ----------------------------
+  const CS = await page.evaluate(async () => {
+    const c = window.__sp, ID = c.ID;
+    const rows = [["PH-1", "Obverse", "obverse", ID + "_obverse_cropped.jpg"], ["PH-2", "Reverse", "reverse", ID + "_reverse_cropped.jpg"],
+                  ["PH-3", "Slab_Obverse", "slab_obverse", ID + "_slab_obverse.jpg"], ["PH-4", "Slab_Reverse", "slab_reverse", ID + "_slab_reverse.jpg"],
+                  ["PH-5", "Reference", "reference", ID + "_reference_01.jpg"], ["PH-6", "Other", "other", ID + "_other_01.jpg"]];
+    c.install(rows);
+    // Real stored bytes for the Other photo, so the crop can load it.
+    const src = ID + "_other_01.jpg";
+    const srcBlob = await c.jpeg();
+    await c.mock.uploadFile(writePaths().coinPhotos + "/" + src, srcBlob);
+    __setCoinPhotoCacheForTest(src, URL.createObjectURL(srcBlob));
+    c.uploads.length = 0;
+    const out = {};
+    for (const [k, open] of [["edit", () => c.openEditCoin()], ["manage", () => c.openManage()]]) {
+      const host = open();
+      const body = c.section(host, /Crop from another photo/);
+      out[k] = body ? [...body.querySelectorAll(".crop-src-tile")].map(t => t.dataset.filename) : null;
+    }
+    // A crop from the Other photo into the Front, through Edit Coin.
+    const host = c.openEditCoin();
+    const body = c.section(host, /Crop from another photo/);
+    const tile = body && body.querySelector('.crop-src-tile[data-filename="' + src + '"]');
+    if (tile) tile.click();
+    out.chooser = { title: c.guardTitle(), buttons: c.guardButtons() };
+    c.clickGuard("Front");
+    await c.sleep(40);
+    out.confirm = { title: c.guardTitle(), body: c.guardBody() };
+    c.clickGuard("Crop and replace");
+    if (await c.waitFor(() => c.overlayOpen("bgCropOverlay"))) {
+      document.getElementById("bgCropUseBtn").click();
+      if (await c.waitFor(() => c.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
+    }
+    await c.waitFor(() => c.uploads.length > 0 && !galleryFor(ID).some(e => e.uploadPending), 4000);
+    await c.sleep(60);
+    out.uploads = c.uploads.slice();
+    out.front = c.rows().filter(r => r.type === "Obverse");
+    out.srcRow = c.rows().find(r => r.id === "PH-6") || null;
+    c.teardown();
+    return out;
+  });
+  const wantTiles = ["AY-00099_slab_obverse.jpg", "AY-00099_slab_reverse.jpg", "AY-00099_reference_01.jpg", "AY-00099_other_01.jpg"];
+  for (const k of ["edit", "manage"]) {
+    ok(CS[k] && JSON.stringify(CS[k].slice().sort()) === JSON.stringify(wantTiles.slice().sort()),
+      `CS1-${k} crop sources are exactly Holder front/back, Reference and Other: ` + JSON.stringify(CS[k]));
+  }
+  ok(CS.chooser.title === "Crop this photo into…" &&
+     JSON.stringify(CS.chooser.buttons) === JSON.stringify(["Front", "Back", "Reference", "Cancel"]),
+    "CS2 destinations are Front, Back, Reference: " + JSON.stringify(CS.chooser));
+  ok(CS.confirm.title === "Replace the front?" && /Your new crop becomes this coin's front image\./.test(CS.confirm.body),
+    "CS3 replacing the Front asks first, in the new words (line 12)");
+  ok(CS.uploads.length === 1 && /AY-00099_obverse_cropped_02\.jpg$/.test(CS.uploads[0]) &&
+     CS.front.length === 1 && CS.front[0].id === "PH-1" && CS.front[0].file === "AY-00099_obverse_cropped_02.jpg",
+    "CS4 a crop from an Other photo lands as the Front: one upload, the Front row updated in place: " + JSON.stringify([CS.uploads, CS.front]));
+  ok(CS.srcRow && CS.srcRow.file === "AY-00099_other_01.jpg" && CS.srcRow.type === "Other",
+    "CS5 the Other photo it was cropped from is unchanged");
+
+  // ---------- OC. Package (OGP) and COA on the coin screens ----------------
+  const OC = await page.evaluate(async () => {
+    const c = window.__sp, ID = c.ID;
+    const out = {};
+    // 1. Stored OGP/COA rows for a coin now show (they were hydrated and
+    //    then shown nowhere).
+    c.install([["PH-7", "OGP_Obverse", "ogp_obverse", ID + "_ogp_obverse.jpg"],
+               ["PH-8", "COA", "coa", ID + "_coa_01.jpg", "page 1"]]);
+    for (const [k, open] of [["edit", () => c.openEditCoin()], ["manage", () => c.openManage()]]) {
+      const host = open();
+      const ogp = c.section(host, /Package \/ OGP/);
+      const coa = c.section(host, /COA \/ certificates/);
+      await c.sleep(60);
+      out[k] = {
+        ogpFront: !!(ogp && ogp.querySelector('.sg-photo-slot [data-act="replace"]')),
+        ogpBackEmpty: !!(ogp && ogp.querySelectorAll('.sg-photo-slot [data-act="add"]').length === 1),
+        coaCaption: coa ? [...coa.querySelectorAll(".gc-thumb .gc-caption")].map(i => i.value) : null,
+        coaTile: !!(coa && coa.querySelector("button.gc-add-tile")),
+        ogpCount: ((ogp && ogp.previousElementSibling.textContent) || "").replace(/\s+/g, " ")
+      };
+    }
+    // 2. A new OGP back and a labelled COA page, through the chooser.
+    const host = c.openEditCoin();
+    const ogp = c.section(host, /Package \/ OGP/);
+    out.pickOgp = await c.pickVia(ogp && ogp.querySelector('.sg-photo-slot [data-act="add"]'));
+    await c.waitFor(() => c.rows().some(r => r.type === "OGP_Reverse") && !galleryFor(ID).some(e => e.uploadPending), 4000);
+    const coa = c.section(c.openEditCoin(), /COA \/ certificates/);
+    out.pickCoa = await c.pickVia(coa && coa.querySelector("button.gc-add-tile"));
+    await c.waitFor(() => c.rows().filter(r => r.type === "COA").length === 2 && !galleryFor(ID).some(e => e.uploadPending), 4000);
+    await c.sleep(60);
+    out.rows = c.rows();
+    out.uploads = c.uploads.slice();
+    c.teardown();
+    // 3. A coin inside a Set: no COA slot of its own (the parent's applies)…
+    c.install([]);
+    let h = c.openManage({ parentSetId: "AY-00022", parentSetName: "1986 Statue of Liberty Set" });
+    out.childNoCoa = !c.titles(h).some(t => /COA/.test(t));
+    out.childHasOgp = c.titles(h).some(t => /Package \/ OGP/.test(t));
+    c.teardown();
+    // …unless it already has COA photos, which are never hidden.
+    c.install([["PH-9", "COA", "coa", ID + "_coa_01.jpg", "page 1"]]);
+    h = c.openManage({ parentSetId: "AY-00022", parentSetName: "1986 Statue of Liberty Set" });
+    out.childStoredCoa = c.titles(h).some(t => /COA \/ certificates/.test(t));
+    c.teardown();
+    return out;
+  });
+  for (const k of ["edit", "manage"]) {
+    const o = OC[k];
+    ok(o.ogpFront && o.ogpBackEmpty, `OC1-${k} a stored OGP front shows in Package / OGP, with Replace; the back is an empty +`);
+    ok(JSON.stringify(o.coaCaption) === JSON.stringify(["page 1"]) && o.coaTile,
+      `OC2-${k} a stored COA page shows with its label, and a + tile to add another: ` + JSON.stringify(o.coaCaption));
+  }
+  const ogpRow = OC.rows.find(r => r.type === "OGP_Reverse");
+  const coaRows = OC.rows.filter(r => r.type === "COA");
+  ok(OC.pickOgp && ogpRow && ogpRow.file === "AY-00099_ogp_reverse.jpg",
+    "OC3 a new OGP back on a coin saves as {ID}_ogp_reverse.jpg with an OGP_Reverse row: " + JSON.stringify(OC.rows));
+  ok(OC.pickCoa && coaRows.length === 2 && coaRows.some(r => r.file === "AY-00099_coa_02.jpg"),
+    "OC4 a new COA page on a coin saves as the next _coa_NN with a COA row");
+  ok(OC.uploads.length === 2, "OC5 exactly two uploads for the two picks: " + JSON.stringify(OC.uploads));
+  ok(OC.childNoCoa && OC.childHasOgp, "OC6 a coin inside a Set has Package / OGP but no COA slot of its own");
+  ok(OC.childStoredCoa, "OC7 …unless it already has COA photos, which still show");
+
+  // ---------- L. Layout of the coin screens --------------------------------
+  for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
+    for (const surface of ["edit", "manage"]) {
+      const p = await openApp(vp);
+      await installHelpers(p);
+      const L = await p.evaluate(async (surface) => {
+        const c = window.__sp, ID = c.ID;
+        c.install([["PH-1", "Obverse", "obverse", ID + "_obverse_cropped.jpg"],
+                   ["PH-7", "OGP_Obverse", "ogp_obverse", ID + "_ogp_obverse.jpg"],
+                   ["PH-8", "COA", "coa", ID + "_coa_01.jpg", "page 1"],
+                   ["PH-9", "COA", "coa", ID + "_coa_02.jpg", "page 2"]]);
+        const host = surface === "edit" ? c.openEditCoin() : c.openManage();
+        c.openAll(host);
+        await c.sleep(200);
+        const inner = window.innerWidth;
+        const inside = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+        const pairs = [...host.querySelectorAll(".sg-photo-pair")].map(pr => {
+          const title = pr.closest(".accordion-body").previousElementSibling.textContent.replace(/\s+/g, " ").trim();
+          const body = pr.closest(".accordion-body").getBoundingClientRect();
+          const slots = [...pr.querySelectorAll(".sg-photo-slot")].map(s => s.getBoundingClientRect());
+          return { title, widths: slots.map(r => Math.round(r.width)), inBody: slots.every(r => inside(r, body)) };
+        });
+        const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => {
+          const tr = t.getBoundingClientRect(); const b = t.querySelector('[data-role="replace"]');
+          return !!b && inside(b.getBoundingClientRect(), tr) && tr.right <= inner + 0.5;
+        });
+        const titlesOneLine = [...host.querySelectorAll(".accordion-header")].every(h => h.scrollWidth <= h.clientWidth + 1);
+        const out = { inner, pairs, thumbs, titlesOneLine, pageScroll: document.documentElement.scrollWidth > inner };
+        c.teardown();
+        return out;
+      }, surface);
+      const tag = surface + " " + vp.width + "x" + vp.height;
+      console.log("    coin layout " + tag + ": " + JSON.stringify(L.pairs.map(x => [x.title.slice(0, 12), x.widths])));
+      const front = L.pairs.find(x => /Front & back/.test(x.title));
+      const ogp = L.pairs.find(x => /Package/.test(x.title));
+      const holder = L.pairs.find(x => /Holder/.test(x.title));
+      ok(!L.pageScroll, `L1 ${tag}: no horizontal page scroll`);
+      ok(L.pairs.length === 3 && L.pairs.every(x => x.inBody && x.widths.length === 2 && x.widths[0] === x.widths[1]),
+        `L2 ${tag}: Front & back, Holder and Package pairs each sit inside their card, both slots the same width: ` + JSON.stringify(L.pairs));
+      ok(front && ogp && holder && ogp.widths[0] === front.widths[0] && holder.widths[0] === front.widths[0],
+        `L3 ${tag}: the Package / OGP slots are the same width as Front & back's`);
+      ok(L.thumbs.length === 2 && L.thumbs.every(Boolean), `L4 ${tag}: each COA page's Replace stays inside its thumbnail, inside the screen`);
+      ok(L.titlesOneLine, `L5 ${tag}: every section title, "Holder (slab or flip)" included, fits on one line`);
+      await p.close();
+    }
+  }
 
   const S3 = await page.evaluate(async (PICKS) => {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));

@@ -83,7 +83,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
       },
       cropHeader(host) {
         return [...host.querySelectorAll(".accordion-header")]
-          .find(h => /Crop from an uploaded photo/.test(h.textContent)) || null;
+          .find(h => /Crop from another photo/.test(h.textContent)) || null;
       },
       openCropSection(host) {
         const h = this.cropHeader(host);
@@ -181,12 +181,14 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     c.teardown();
     return out;
   });
-  ok(/Crop from an uploaded photo/.test(A.first), "A1 the crop section is the first Photos section on a coin");
-  ok(A.tileNames.length === 5, "A2 it lists exactly the five source types (obverse, reverse, slab ×2, reference)");
-  ok(!A.tileNames.some(n => /_other_/.test(n)), "A3 an 'Other' photo is not offered as a source");
+  ok(/Crop from another photo/.test(A.first), "A1 the crop section is the first Photos section on a coin");
+  // Sources (Ray, 22 Oct 2026): Holder front/back, Reference and Other.
+  ok(A.tileNames.length === 4, "A2 it lists exactly the four source types (holder ×2, reference, other)");
+  ok(A.tileNames.some(n => /_other_/.test(n)), "A3 an 'Other' photo IS offered as a source");
+  ok(!A.tileNames.some(n => /_(obverse|reverse)\.jpg$/.test(n)), "A3b Front and Back are not offered as sources (Recrop covers them)");
   ok(A.tilesAreButtons, "A4 each source is a plain button");
   ok(A.fileInputsInSection === 0, "A5 NO file input anywhere in the crop section");
-  ok(A.tileBgs === 5, "A6 every tile shows its stored photo");
+  ok(A.tileBgs === 4, "A6 every tile shows its stored photo");
   ok(A.offWhenFlagOff, "A7 the section is hidden when the photo write flag is off");
   ok(A.notOnSets, "A8 Sets do not get the section");
 
@@ -208,8 +210,8 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     return out;
   });
   ok(B.title === "Crop this photo into…", "B1 tapping a source asks where the crop goes before cropping");
-  ok(JSON.stringify(B.buttons) === JSON.stringify(["Obverse", "Reverse", "Extra image", "Cancel"]),
-    "B2 the choices are Obverse, Reverse, Extra image, Cancel");
+  ok(JSON.stringify(B.buttons) === JSON.stringify(["Front", "Back", "Reference", "Cancel"]),
+    "B2 the choices are Front, Back, Reference, Cancel");
   ok(!B.cropOpenBefore && !B.cropOpenAfter, "B3 the crop tool does not open until a destination is picked");
   ok(B.uploads === 0 && B.guardClosed, "B4 Cancel writes nothing");
 
@@ -218,7 +220,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     const c = window.__cfu;
     const slab = c.ID + "_slab_obverse.jpg";
     await c.setup([{ photoId: "PH-00103", type: "Slab_Obverse", galleryType: "slab_obverse", filename: slab }], [slab]);
-    const r = await c.flow(slab, "Obverse");
+    const r = await c.flow(slab, "Front");
     const rows = c.rows();
     const out = Object.assign(r, {
       cropped: c.exists(c.ID + "_obverse_cropped.jpg"),
@@ -240,7 +242,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     "C6 the source photo's Photos row is unchanged");
   ok(C.obvRow && C.obvRow.file === "AY-00004_obverse_cropped.jpg", "C7 a new Obverse row points at the crop");
   ok(C.deletes === 0, "C8 nothing is deleted");
-  ok(/re-crops/.test(C.toast || ""), "C9 the toast says a later Adjust re-crops the cropped image");
+  ok(/later Recrop works from this cropped image/.test(C.toast || ""), "C9 the toast says a later Recrop works from the cropped image");
 
   // ---------- D. Replacing: confirm first, never overwrite -------------
   const D = await page.evaluate(async () => {
@@ -253,14 +255,14 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
       { photoId: "PH-00102", type: "Reverse", galleryType: "reverse", filename: legacyRev },
       { photoId: "PH-00103", type: "Slab_Obverse", galleryType: "slab_obverse", filename: slab }
     ], [crop1, legacyRev, slab]);
-    const obv = await c.flow(slab, "Obverse");
+    const obv = await c.flow(slab, "Front");
     const afterObv = {
       crop1Intact: c.fileIntact(crop1),
       crop2: c.exists(c.ID + "_obverse_cropped_02.jpg"),
       obvRow: c.rows().find(x => x.type === "Obverse") || null,
       obvRows: c.rows().filter(x => x.type === "Obverse").length
     };
-    const rev = await c.flow(slab, "Reverse");
+    const rev = await c.flow(slab, "Back");
     const out = {
       obv, rev, afterObv,
       legacyIntact: c.fileIntact(legacyRev),
@@ -273,7 +275,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     c.teardown();
     return out;
   });
-  ok(D.obv.confirmTitle === "Replace the obverse?", "D1 replacing an existing obverse asks first");
+  ok(D.obv.confirmTitle === "Replace the front?", "D1 replacing an existing front asks first");
   ok(/stays in OneDrive/.test(D.obv.confirmBody), "D2 and says the current file stays in OneDrive");
   ok(D.afterObv.crop1Intact, "D3 the existing {ID}_obverse_cropped.jpg is NOT overwritten");
   ok(D.afterObv.crop2, "D4 the new crop goes to {ID}_obverse_cropped_02.jpg instead");
@@ -296,7 +298,7 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
       { photoId: "PH-00105", type: "Reference", galleryType: "reference", filename: r1 },
       { photoId: "PH-00107", type: "Reference", galleryType: "reference", filename: r3 }
     ], [r1, r3, r4]);
-    const res = await c.flow(r1, "Extra image");
+    const res = await c.flow(r1, "Reference");
     const out = Object.assign(res, {
       r5: c.exists(c.ID + "_reference_05.jpg"),
       intact: [r1, r3, r4].every(n => c.fileIntact(n)),

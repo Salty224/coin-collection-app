@@ -268,7 +268,7 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF-receipt"], { type: "application/pdf" }));
       await openEdit(mock, Object.assign({}, base));
       const receiptBefore = await __ph.bytesOf(mock, folder + "/" + id + "_receipt.pdf");
-      out.picked = await __ph.galleryPick(/Slab — front/);
+      out.picked = await __ph.galleryPick(/Holder — front/);
       await __saveEdit();
       const saved = await mock.getJson(__draftPath(id));
       out.p1 = {
@@ -418,7 +418,7 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __setLiveDbCoinsForTest(catalog);
       await openEdit(mock, Object.assign({}, base));
       const jsonBefore = JSON.stringify(await mock.getJson(__draftPath(id)));
-      out.p6picked = await __ph.galleryPick(/Slab — back/);
+      out.p6picked = await __ph.galleryPick(/Holder — back/);
       const realUpload = mock.uploadFile;
       mock.uploadFile = (path, f) => /_slab_reverse/.test(path) ? Promise.reject(new Error("network down")) : realUpload(path, f);
       document.getElementById("notesField").value = "typed during the failed save";
