@@ -135,6 +135,95 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
+## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commit 1 of 7 built, awaiting Ray's T1 test on the S25)
+Ray's decision (22 Oct 2026), replacing unified-image-chooser C3: Add Coin
+and Edit Coin give the SAME photo experience; only the timing differs.
+Add Coin and the Staging-draft edit will render Edit Coin's own section
+(`renderManagePhotosInto` and its blocks) in a draft storage mode: picks stay
+in memory, nothing is written until Save, and Save writes to Staging exactly
+as today (file names, coin.json, gallery). No "Saving…" and no ↻ in draft
+mode; a failed "Save changes" reads "Not saved — tap Save changes again".
+Answers he gave to the plan (Q1-Q6, all as recommended): retire Add Coin's
+live preview card (flip frame, corner labels, Obverse/Reverse toggle);
+add Package (OGP) and COA to both coin screens; crop sources Holder,
+Reference and Other only; that failed-save wording; branch Option A
+(main fast-forwarded to `38b0207`, this branch cut from it); Add Set's
+matching text renamed now, text only.
+Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
+- **Planned commits**: (1) wording, crop sources, OGP/COA on the coin
+  screens — BUILT, T1 = Ray tests Edit Coin on the S25; (2) draft mode in
+  the shared blocks; (3) Add Coin new draft uses the section; (4) the
+  Staging-draft edit uses it; (5) crop from another photo in draft mode —
+  T2 = Ray tests Add Coin and a Staging edit; (6) remove the dead Add Coin
+  preview/slot code, its own revertible commit; (7) CLAUDE.md.
+- **S3 golden (`tests/fixtures/addcoin_photo_save_golden.json`)**, recorded
+  on `main` `38b0207` before any change: a fixed pick set (front, back,
+  holder front/back, two references labelled "TrueView obverse/reverse", one
+  other labelled "Mint box") through the real Add Coin screen and crop tool,
+  saved as a new draft (AY-00501) on the mock client. Pins coin.json's photo
+  list (type, filename, label, order, both `_original`s) and the nine
+  uploaded names. `pickAll` in the suite is the only screen-specific part:
+  when Add Coin's screen changes, `pickAll` changes and the golden must not.
+  Re-record only on purpose: `RECORD_ADDCOIN_GOLDEN=1 node tests/verify_addcoin_shared_photos.js`.
+- **Commit 1, wording (Edit Coin, Manage Photos for a coin, crop dialogs,
+  type labels, Add Set text)**: sections read "✂️ Crop from another photo",
+  "🪙 Front & back", "🔲 Holder (slab or flip)", "🔗 Reference photos",
+  "📦 Package / OGP", "📜 COA / certificates", "🖼️ Other photos". Front & back
+  hint: "The coin itself — the images the app shows for this coin. Cropped
+  square, then framed into the circle." Holder hint: "…a slab (rectangle) or
+  a flip (square — tick Lock to square)." Reference hint (and Add Set's
+  child reference text): "Professional images of this coin or its type —
+  PCGS TrueView, auction listings and similar." Type labels: "Front
+  (obverse)", "Back (reverse)", "Holder — front", "Holder — back" (shown in
+  crop titles, the type picker, source tiles and the Browse detail strip).
+  Recrop titles "Recrop (from the original)" / "Recrop (from the saved
+  photo)"; toasts "…a later Recrop works from this cropped image",
+  "No original on file — recropping the saved photo itself." Gallery default
+  text "Any other photos — holder, COA or box shots, extra angles…". Add
+  Set child: "🔲 Holder (slab or flip)" with the same holder hint plus the
+  slab cert-number note. **Stored values unchanged**: keys `slab_*`,
+  PhotoType `Slab_Obverse`/`Slab_Reverse`, `Obverse`, `Reverse`.
+  Left alone: "Lock to square", "Adjust Photo" (the circle step),
+  "— none / not slabbed —" (Grading Service), and the Obverse/Reverse toggle
+  on Add Coin (retired in commit 3) and Wishlist (C4).
+- **Commit 1, crop sources**: `CROP_SOURCE_TYPES` = `slab_obverse`,
+  `slab_reverse`, `reference`, `other` (was obverse, reverse, slab ×2,
+  reference). Front/Back dropped (Recrop re-frames them from the original);
+  Other added; Reference kept (often a PCGS TrueView of this very coin).
+  Destination buttons "Front" / "Back" / "Reference" (were Obverse / Reverse
+  / Extra image); "Replace the front?" / "Your new crop becomes this coin's
+  front image." What each writes is unchanged.
+- **Commit 1, OGP and COA on a coin**: the coin branch of
+  `renderManagePhotosInto` gains "📦 Package / OGP" (pair, `ogp_obverse`/
+  `ogp_reverse`) and "📜 COA / certificates" (open list, `coa`) between
+  Reference and Other, same blocks, hints and chooser as the Set screens.
+  Before, a coin's stored OGP/COA rows were hydrated into the gallery and
+  then shown nowhere, although Add Coin's gallery could capture them.
+  **A coin inside a Set (`ctx.parentSetId`) gets no COA section of its own**
+  (the parent's COA read-through still shows), unless it already has COA
+  photos, which are never hidden. Commit, Replace, ✕, ↻ and naming are the
+  shared ones (`{ID}_ogp_reverse.jpg`, next `_coa_NN`).
+- **Tests, commit 1** (W, CS, OC, L blocks; S3 unchanged): wording on both
+  coin screens incl. titles/aria-labels/placeholders; exact sources on both;
+  a crop from an Other photo lands as the Front (row PH-1 updated in place,
+  `_obverse_cropped_02.jpg`, source untouched); stored OGP front and
+  labelled COA page show; a new OGP back and COA page commit with the right
+  rows and two uploads; Set-child COA rule both ways; layout at 360x800,
+  412x915, 1024x768 on both screens (Edit Coin pair slots 112/138/444px,
+  Manage Photos 144/170/476px, Package equal to Front & back, titles one
+  line, no page scroll). Existing suites followed the new strings, not
+  weakened: `verify_crop_from_upload` A1-A3/A3b/A6/B2/C/C9/D/D1/E,
+  `verify_live_no_demo_data` A7/A8/A11, `verify_photo_receipt_write` P7b,
+  `verify_staging_edit_photos` (Holder picks), `verify_files_picker`,
+  `verify_image_chooser` (Holder section).
+- **Negative controls, commit 1** (real app.html, restored by checksum,
+  each failing by name): "🔲 Slab photos" back (W1, W6, L3 ×6); old crop
+  sources (CS1 ×2, CS2-CS4); no OGP/COA on coins (W1, OC1-OC7, L2-L4 ×6);
+  COA always on a Set child (OC6); old Reference hint (W4, W6); old
+  destination names (CS2-CS4).
+- **Not verified**: any real device; how "Holder (slab or flip)" and the two
+  new sections read on the S25; a real OGP/COA upload to `_Testing`.
+
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
 every fix below passed Ray's tests on the S25 and tablet; tested build
@@ -911,6 +1000,7 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
 - **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
 
 ## Crop from an uploaded photo (Oct 2026, merged to main)
+*(On `claude/addcoin-shared-photos`, not yet on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Front/Back/Reference — see "Add Coin uses Edit Coin's photo section".)*
 Built on `claude/crop-from-uploaded-photos` (`e636e64`..`15359ea`), merged to
 `main` on Ray's go-ahead. Suite: `tests/verify_crop_from_upload.js` (46).
 - **Why:** on Ray's phone the file picker opens Google Photos only, so a photo
