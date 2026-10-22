@@ -135,7 +135,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commit 1 of 7 built, awaiting Ray's T1 test on the S25)
+## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commit 1 of 7 built plus T1 follow-ups, items 2-8 passed on the S25)
 Ray's decision (22 Oct 2026), replacing unified-image-chooser C3: Add Coin
 and Edit Coin give the SAME photo experience; only the timing differs.
 Add Coin and the Staging-draft edit will render Edit Coin's own section
@@ -301,6 +301,8 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   constrained (SH3 x15); old Front/Back wording back (W1 x2, W5 x2, W8, W12,
   CS2-CS4, L3 x6); coin pair labelled Front/Back alone (W12); parent COA hidden
   on the Docket (DK1-DK3).
+- `npm test` on the branch at `921ce84`: 3455 passed, 0 failed, 0 page
+  errors, 70 suites (3320 + 135 new, all in `verify_addcoin_shared_photos`).
 - **Not verified, follow-up**: a real TrueView, slab and COA photo on the
   S25; a very tall image (narrower than 1:2) gives a very narrow tile, and
   no minimum width was added.
