@@ -16608,8 +16608,23 @@
     const galleryExtras = isSet
       ? galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse")
       : coinPhotoThumbOrder(galleryFor(coin.id));
+    // A coin inside a Set also shows the Set's COA here, read-only and
+    // labelled as the parent's — same rule and wording as Edit Coin's
+    // "COA — from parent Set" (renderParentCoaReadThrough, which reads the
+    // Set's Photos rows itself). Shown only when the coin has a parent Set
+    // that has COA photos.
+    const coaParent = !isSet ? resolveChildParentSet(coin) : null;
+    const parentCoaHolder = document.createElement("div");
+    parentCoaHolder.id = "detailParentCoa";
+    const parentCoaCount = coaParent
+      ? renderParentCoaReadThrough(parentCoaHolder, coaParent.id, coaParent.name,
+          { onOpen: (entry) => openCoinPhotoInViewer(coin, entry,
+              { label: ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ") }) })
+      : 0;
+    const photosAcc = (galleryExtras.length || parentCoaCount)
+      ? appendAccordion(container, RECORD_SECTIONS.PHOTOS, "", { open: !isSet }) : null;
     if (galleryExtras.length) {
-      const acc = appendAccordion(container, RECORD_SECTIONS.PHOTOS, "", { open: !isSet });
+      const acc = photosAcc;
       const strip = document.createElement("div");
       strip.id = "detailPhotoStrip";
       strip.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; padding-top:10px;";
@@ -16632,6 +16647,7 @@
       });
       acc.body.appendChild(strip);
     }
+    if (parentCoaCount) photosAcc.body.appendChild(parentCoaHolder);
 
     // --- 3a. Specifications (coin only) — catalog-derived facts from the
     // FAKE_METAL_CONTENT lookup. Read-only everywhere, including inside Edit
@@ -25348,7 +25364,10 @@
   // promoted parent Set's row id (from Manage Photos / detail views).
   // Renders nothing at all when there's no parent or the parent has no COA.
   // ==================================================================
-  function renderParentCoaReadThrough(hostEl, parentId, parentName) {
+  // opts.onOpen(entry) (the coin's own page): each page is a button that
+  // opens that one photo in the in-app viewer, instead of the Set's photo
+  // panel. Read-only either way: no ✕, no Replace.
+  function renderParentCoaReadThrough(hostEl, parentId, parentName, opts) {
     if (!hostEl) return 0;
     hostEl.innerHTML = "";
     if (!parentId) return 0;
@@ -25374,11 +25393,18 @@
       <div class="gallery-strip" data-role="coa-strip"></div>
     `;
     const strip = wrap.querySelector('[data-role="coa-strip"]');
+    const onOpen = opts && opts.onOpen;
     coa.forEach(entry => {
-      const t = document.createElement("div");
+      const t = document.createElement(onOpen ? "button" : "div");
       t.className = "gc-thumb gc-shaped";
-      t.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${entry.caption || "COA"}</div>`;
-      t.addEventListener("click", () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
+      if (onOpen) {
+        t.type = "button";
+        t.style.cursor = "pointer";
+        t.setAttribute("aria-label", "View the parent Set's COA" + (entry.caption ? ", " + entry.caption : "") + ", full screen");
+      }
+      t.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${escapeHtmlText(entry.caption || "COA")}</div>`;
+      t.addEventListener("click", onOpen ? () => onOpen(entry)
+        : () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
       strip.appendChild(t);
       paintStoredThumbWhenReady(entry, t);
     });
@@ -26251,9 +26277,11 @@
 
   // One photo, full screen. Read through the existing CoinPhotos path
   // (ensureCoinPhotoFetch) — never a new Graph call shape, never a write.
-  function openCoinPhotoInViewer(coin, entry) {
+  // opts.label: the footer text, when the default "{type} — {caption}" isn't
+  // right (a parent Set's COA shown on its child coin's page).
+  function openCoinPhotoInViewer(coin, entry, opts) {
     const def = galleryTypeDef(entry.type);
-    const label = [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
+    const label = (opts && opts.label) || [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
     const token = openMediaViewer(detailTitleText(coin));
     setMediaViewerFooter(`<span>${escapeHtmlText(label)}</span>`);
     if (entry.url) { setMediaViewerImage(entry.url, label); return token; }

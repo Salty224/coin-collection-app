@@ -622,6 +622,78 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     await p.close();
   }
 
+  // ---------- DK. A child coin's page shows its Set's COA, read-only -------
+  // Ray's T1 follow-up: the coin page's (Docket) Photos strip shows the
+  // parent Set's COA, labelled as the parent's (same wording as Edit), and
+  // tapping one opens it in the in-app viewer. No ✕, no Replace.
+  {
+    const p = await openApp(PHONE);
+    await installHelpers(p);
+    await installShapes(p);
+    const DK = await p.evaluate(async () => {
+      const s = window.__sh, sleep = window.__sp.sleep, out = {};
+      const page = (rec) => { navigate("browse"); showBrowseDetail(rec); return document.getElementById("browseDetailView") || document.body; };
+      const coaBlock = () => document.getElementById("detailParentCoa");
+      // 1. A coin inside a Set, the Set's own screen never opened.
+      s.install();
+      page(s.child);
+      await sleep(400);
+      const blk = coaBlock();
+      const thumbs = blk ? [...blk.querySelectorAll(".gc-thumb")] : [];
+      const setImgs = new Set([s.SET + "_ogp_obverse.jpg", s.SET + "_obverse.jpg", s.SET + "_other_01.jpg"]
+        .map(f => getCachedCoinPhotoUrl(f)).filter(Boolean));
+      const shown = [...document.querySelectorAll("#browseDetailView .gc-img, #browseDetailView img")]
+        .map(e => (/url\(["']?([^"')]+)/.exec(e.style.backgroundImage || "") || [])[1] || e.getAttribute("src") || "");
+      out.child = {
+        inPhotos: !!(blk && blk.closest(".accordion-body")),
+        photosTitle: blk ? (blk.closest(".accordion-body").previousElementSibling.textContent || "").replace(/\s+/g, " ").trim() : "",
+        heading: blk ? (blk.textContent.match(/📜 COA — from parent Set/) || [""])[0] : "",
+        names: blk ? blk.textContent.indexOf(s.set.name) !== -1 : false,
+        thumbs: thumbs.length,
+        labels: thumbs.map(t => (t.querySelector(".gc-type") || {}).textContent),
+        readOnly: blk ? blk.querySelectorAll(".gc-remove, [data-role='replace'], [data-act], input").length === 0 : false,
+        buttons: thumbs.every(t => t.tagName === "BUTTON"),
+        parentOtherShown: shown.some(u => setImgs.has(u))
+      };
+      if (thumbs[0]) thumbs[0].click();
+      await sleep(200);
+      const mv = document.getElementById("mediaViewerOverlay");
+      out.viewer = { open: !mv.classList.contains("hidden"),
+        footer: document.getElementById("mediaViewerFooter").textContent,
+        img: !!document.querySelector("#mediaViewerStage img"),
+        gallery: !document.getElementById("galleryViewerOverlay").classList.contains("hidden") };
+      closeMediaViewer();
+      s.teardown();
+      // 2. A coin with no parent Set.
+      s.install();
+      page(s.coin);
+      await sleep(300);
+      out.noParent = { block: !!coaBlock(), heading: /COA — from parent Set/.test(document.getElementById("browseDetailView").textContent) };
+      s.teardown();
+      // 3. A child whose Set has no COA photos.
+      s.install();
+      const rows = { [s.SET]: [{ photoId: "PH-10", photoType: "OGP_Obverse", galleryType: "ogp_obverse", subGroupId: "",
+        filename: s.SET + "_ogp_obverse.jpg", originalFilename: "", label: "" }] };
+      __setStoredPhotosForTest(rows);
+      delete galleryStore[s.SET];
+      page(s.child);
+      await sleep(300);
+      out.noCoa = { block: !!coaBlock(), heading: /COA — from parent Set/.test(document.getElementById("browseDetailView").textContent) };
+      s.teardown();
+      return out;
+    });
+    console.log("    child Docket: " + JSON.stringify(DK.child) + " parent's Package/OGP or other photos shown on the child: " + DK.child.parentOtherShown);
+    ok(DK.child.inPhotos && /Photos/.test(DK.child.photosTitle) && DK.child.heading && DK.child.names && DK.child.thumbs === 1 &&
+       JSON.stringify(DK.child.labels) === JSON.stringify(["page 1"]),
+      "DK1 a coin inside a Set shows the Set's COA in its page's Photos section, headed \"COA — from parent Set\" with the Set's name: " + JSON.stringify(DK.child));
+    ok(DK.child.readOnly && DK.child.buttons, "DK2 the parent's COA on the coin page is read-only: no ✕, no Replace, no label box");
+    ok(DK.viewer.open && /COA — from parent Set/.test(DK.viewer.footer) && /page 1/.test(DK.viewer.footer) && DK.viewer.img && !DK.viewer.gallery,
+      "DK3 tapping it opens that page in the in-app viewer, labelled as the parent Set's: " + JSON.stringify(DK.viewer));
+    ok(!DK.noParent.block && !DK.noParent.heading, "DK4 a coin with no parent Set shows no parent COA");
+    ok(!DK.noCoa.block && !DK.noCoa.heading, "DK5 a coin whose parent Set has no COA photos shows none");
+    await p.close();
+  }
+
   const S3 = await page.evaluate(async (PICKS) => {
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const waitFor = async (fn, ms) => { const end = Date.now() + (ms || 4000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); };

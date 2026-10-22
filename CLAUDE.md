@@ -276,7 +276,20 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   had been opened earlier in the session. It now calls
   `hydrateStoredPhotos(parentId)` first and paints each thumb when its file
   arrives. Tapping a page still opens the Set's photos in the viewer.
-- **Tests, follow-up** (`verify_addcoin_shared_photos.js` 70 -> 196):
+- **A child coin's page (Docket) shows its Set's COA** (Ray's T1 follow-up).
+  The coin page's Photos section gets the same read-only "📜 COA — from
+  parent Set" block as Edit Coin (`renderParentCoaReadThrough()` with
+  `opts.onOpen`, inside `#detailParentCoa`), shown when the coin has a
+  parent Set (`resolveChildParentSet`, OriginSetID) with COA photos; the
+  Photos section appears for it even when the coin has no photos of its own.
+  Each page is a button that opens that photo in the in-app media viewer,
+  footer "COA — from parent Set — {label}" (`openCoinPhotoInViewer(coin,
+  entry, { label })`). No ✕, no Replace, no label box. **The parent Set's
+  Package/OGP (and its other photos) are shown nowhere on a child coin**:
+  only the COA reads through, on Edit Coin, Manage Photos and now the coin
+  page. Not added (Ray: report only).
+- **Tests, follow-up** (`verify_addcoin_shared_photos.js` 70 -> 205; W12/W13,
+  CS3b/CS3c for the Obverse/Reverse wording; DK1-DK5 for the Docket COA):
   SH1-SH9 at 360x800, 412x915, 1024x768 on Edit Coin, Manage Photos coin,
   Edit Set, Manage Photos Set and the coin page (shape kept, 2:1 and 1:1.6
   ratios within 3%, height kept unless capped, no sideways scroll and inside
@@ -285,7 +298,9 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   and Manage Photos with the Set's screen never opened. Negative controls
   (real app.html, restored by checksum): square thumbs back (SH1/SH2/SH3
   x15, CR2 x2); no parent hydration (CR1-CR3 x2); caption/Replace not
-  constrained (SH3 x15).
+  constrained (SH3 x15); old Front/Back wording back (W1 x2, W5 x2, W8, W12,
+  CS2-CS4, L3 x6); coin pair labelled Front/Back alone (W12); parent COA hidden
+  on the Docket (DK1-DK3).
 - **Not verified, follow-up**: a real TrueView, slab and COA photo on the
   S25; a very tall image (narrower than 1:2) gives a very narrow tile, and
   no minimum width was added.
