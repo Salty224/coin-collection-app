@@ -183,6 +183,8 @@ on the S25: every image interaction works the same way. Suite:
   directly under Replace; it shows only where ⤢ did (flip sources
   obverse/reverse with a photo). ↻ (retry a failed upload) is the only
   icon left in `.sg-photo-actions`, shown only after a failed save.
+  *(Superseded: ↻ is now centred on the photo; see "↻ centred on a failed
+  photo" below.)*
   Reference/Other thumbs: photo, then label box, then Replace. The
   chooser grid is `align-items: flex-start`, so the 88px + box matches
   and top-aligns with the 88px thumbnail (a stretched button centred its
@@ -287,6 +289,26 @@ on the S25: every image interaction works the same way. Suite:
     Negative control (the never-saved branch removed on the real app.html,
     restored by checksum): exactly UNS1 and UNS2 fail on all four screens.
     Not verified: a real device.
+  - **↻ centred on a failed photo (Ray's tablet test of `ce5b6be`).** The
+    open-ended thumb's ↻ was a 20px circle at the photo's top-left, right
+    beside the neighbouring photo's ✕. Now, on a photo whose save failed,
+    a light dim (`.gc-failed-dim` / `.sg-photo-failed-dim`, rgba black 0.4,
+    `pointer-events: none`) covers the image and ↻ sits centred on it as a
+    48px circle (`.gc-retry`, centred on the 88px `.gc-img`; on chooser-mode
+    pair slots `.sg-photo-retry`, centred inside `.sg-photo-face`, no longer
+    in a row under the buttons). Same `data-act="retry"` / `.gc-retry`
+    selectors, same `retryGalleryPhotoCommit` handler. Unchanged: the
+    "Not saved — tap ↻" text, the ✕ in its corner, Replace, the label box,
+    and the legacy (non-chooser) slots on Add Coin / Add Set / Wishlist.
+    All four screens. Tests RC1-RC4 x 4 screens x 360x800/412x915/1024x768
+    (centred within 2px on both axes, 44px+, no overlap with any ✕, the
+    element under the image centre, dim covers the image, text/✕/Replace
+    kept) and RC5 x 4 screens (a real failed save retried by tapping the
+    image centre saves the row). Suite 156 -> 208. L1/L1-set now count ↻
+    wherever it is in the slot, not only in `.sg-photo-actions`. Negative
+    control (↻ put back in the corner on the real app.html, restored by
+    checksum): 49 fail by name (RC1/RC2/RC3 x 12, RC5 x 4, L1 x 3, L1-set
+    x 6). Not verified: a real device.
   - Tests: `verify_image_chooser.js` 56 -> 116 (X1 rewritten: only Add Coin,
     Add Set and Wishlist keep old buttons; V1-V5 x2 surfaces; SC1, SJ1;
     SR1-SR3 x2 surfaces; SG1; L1-L8-set at 360x800, 412x915, 1024x768 on both
