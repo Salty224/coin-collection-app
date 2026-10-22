@@ -133,7 +133,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Unified image chooser — stages C1 + C2 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 awaiting his S25 test)
+## Unified image chooser — stages C1 + C2 + C3 (Oct 2026, HELD on `claude/unified-image-chooser`; C1 passed Ray's S25 test on `6eb34d7`, C2 on `38b0207` (S25 + tablet), C3 awaiting his test)
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
 (tip `e8d822a`, never merged, kept as history). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
@@ -317,12 +317,85 @@ on the S25: every image interaction works the same way. Suite:
     hydrate PhotoID clause removed (SR3 x2 + R1b/R4 x2), Replace not carrying
     the PhotoID (SR2/SR3 x2 + R1/R1b/R3/R4).
   - Not verified: any real device for the Set screens.
-- **Planned stages**: C3 Add Coin
-  (obverse/reverse incl. the Staging-edit slots, and the gallery — its type
-  picker runs BEFORE the chooser); C4 Add Set and Wishlist; C5 receipts only
-  with Ray's go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is
-  out of scope; its 8 inputs stay pinned. Add Coin's own 📁 code stays until
-  C3.
+- **Stage C3 (Ray's go-ahead after his C2 pass on `38b0207`): Add Coin**,
+  a new draft and a Staging-draft edit (Phase B).
+  - **Obverse/Reverse** (`wireMockPhotoSlot(..., opts.chooser)`, camera/
+    library ids passed as null): the flip-frame preview and corner labels
+    are kept; the CIRCLE is the "+" box (`#obversePlaceholder` is now a
+    `button.addcoin-flip-add` with "＋" and "Obverse" inside). Filled: the
+    photo, a 20px ✕ (`#obverseRemoveBtn`, `.addcoin-flip-remove`) on the
+    circle's top-right rim (centre 92px from the coin's centre, inside its
+    105px radius — the four flip-label corners are taken, so not the frame
+    corner), then `#obverseSlotLabel` ("Obverse"), `#obverseReplaceBtn`
+    and the Recrop pill (`#obverseAdjustBtn`, where ⤢ showed). The 📷 🖼️ 📁
+    buttons and the six obverse/reverse file inputs are gone.
+  - **`syncAddCoinFlipSlots()`** is the one place that decides what a slot
+    shows: filled = the draft holds that side (a pick, or a Staging photo
+    still loading) or its circle has a photo. Called after every pick
+    (`opts.onPreview`), Staging load (`showStagingFlipPreview`), remove and
+    reset; `updateStagingEditRemoveButtons()` and
+    `setFlipSlotReplaceLabels()` now route through it.
+    `STAGING_FLIP_SLOT_IDS` lost `buttons`, gained `remove`/`replace`/`label`;
+    `FLIP_SLOT_BUTTON_TITLES` is gone.
+  - **The ✕ now shows on a new draft too** (Ray's layout: "filled photo with
+    ✕ in its corner"); before C3 it showed only in a Staging edit. A photo
+    picked on the form asks `confirmDraftPhotoRemove()` ("comes off this form
+    only…"); a photo already in Staging keeps `confirmStagingRemove()` (comes
+    off on Save changes). Either way it removes from the draft only.
+  - **Gallery** (`initGalleryCapture(..., { chooser: true })`): no add row
+    and no inputs; the grid is `.gc-chooser-grid` and ends with a 88px "+"
+    tile ("Add photo"). The "+" runs the existing type picker FIRST
+    (`startChooserAdd`, skipped for one allowed type), then the chooser
+    titled "Add <type>". Each thumbnail: ✕, photo, type, label box
+    ("Label…"), Replace. Replace → chooser → `replaceGalleryEntryAndCommit`
+    (keeps index, type, caption). The type line is kept because Add Coin's
+    gallery mixes types (C1/C2 sections are one type each). A non-stored
+    thumb's ✕ asks first in chooser mode (it was immediate before).
+  - **In memory until Save, unchanged**: `photoCommitTargetId(ADDCOIN_GALLERY_ID)`
+    is null, so no Saving…, no ↻ and zero Graph requests on a pick; the
+    Staging-edit "Not saved — tap ↻" after a failed SAVE is unchanged.
+    Guard (the chooser's, Library and Files only), crop and what Save writes
+    to Staging are unchanged (asserted ACS1, ACE5).
+  - **Removed as dead code** (nothing called it after C3): `initGalleryCapture`'s
+    `opts.files`/`opts.guardImages` (and the `.gc-add-row-3` CSS),
+    `wireMockPhotoSlot`'s `filesBtnId`/`filesInputId`/`guardImages` and
+    `handlePickedFile`. The receipt slot is untouched (C5); its pick now runs
+    `opts.onPreview` = `updateStagingEditRemoveButtons`.
+  - **Backlog (c)** delivered: per-photo Replace in Add Coin's gallery keeps
+    place, type and label (ACP1, ACE3). **Backlog (d)** fixed, same code: a
+    new obverse/reverse or receipt picked during a Staging edit shows its ✕
+    at once (ACD1, ACD2); the cause was that only the edit's load path
+    refreshed the ✕.
+  - **Layout (measured, all three sizes)**: ✕ 20px, overlaps no flip-label
+    ink with long values in all four corners; empty "+" is 206x206 (the
+    circle inside its 2px border); Replace/Recrop 34px, one line; the "+"
+    tile is 88x88 and top-aligned with the thumbnails on its row (at 360px
+    with two thumbnails it wraps to its own row).
+  - Tests: `verify_image_chooser.js` 208 -> 284 (X1 rewritten: only Add Set
+    and Wishlist keep old buttons; new ACU1-4, ACC1-4, ACR1, ACT1-2, ACX1,
+    ACG1-3, ACP1, ACM1-3, ACS1, ACE1-5, ACD1-3, ACL1-ACL8 x {new, staging} x
+    360x800/412x915/1024x768). `verify_files_picker.js` 41 -> 39: B0
+    (42 -> 38 pinned), B3 (40 -> 33 inputs), C1 (22 -> 20 cameras), A1 (no
+    Add Coin Files inputs left), A2-A4 rewritten to the chooser route, A6/A7
+    removed (they pinned the 📁 button and 3-button row C3 removes), D/E go
+    through the chooser, I1/I2 measure the "+" circle and "+" tile.
+    `verify_staging_edit_photos.js` (45): `galleryPick`/`slotPick` helpers go
+    through the "+"/Replace and the chooser's Files; P5 reads the Replace
+    button; Q11 now expects the filled obverse's ✕ on a fresh draft.
+    `npm test` 3323/0/0/69 (3249 + 76 new − 2 retired).
+  - Negative controls on the real app.html, restored by checksum, each
+    failing by name: gallery Replace adding instead of replacing + ✕ moved
+    to the frame corner (ACP1, ACE3, ACE5; ACL3/ACL4 x 6); no slot sync after
+    a pick (ACC2, ACC4, ACR1, ACD1 — backlog d reproduced; ACL1/3/5 new x 3);
+    guard off + no ✕ confirmation + no receipt refresh (ACG1, ACG2 with the
+    expected decode page errors, ACM1, ACM2, ACD2, ACD3); the "+" tile
+    skipping the type picker (ACT1, then ACT2, ACX1, ACG2, ACP1, ACM3, ACS1,
+    ACL3/6/7 new x 3, which can no longer pick a type).
+  - Not verified: any real device (the ✕ position on the S25, the chooser
+    from the "+" circle on Samsung Internet).
+- **Planned stages**: C4 Add Set and Wishlist; C5 receipts only with Ray's
+  go-ahead (needs a PDF-allowed, unguarded call). `stage.html` is out of
+  scope; its 8 inputs stay pinned.
 - **Tests changed**: `verify_files_picker` B3 (37 -> 40 inputs), new B4 (the
   chooser's three inputs), C1 (21 -> 22 camera inputs), A9 (the chooser's
   one Files input excepted). `verify_photo_receipt_write` P4/P5/P9/P10 and
@@ -476,6 +549,11 @@ Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-v
   against `_Testing`.
 
 ## Add Coin: 📁 Files button + photo guard (Oct 2026, merged to main at `0a86551`, built on `claude/add-coin-files-picker-button`)
+*(Superseded by C3 of the unified image chooser, held on
+`claude/unified-image-chooser`: Add Coin's 📁 buttons, its three Files inputs
+and the `opts.files`/`guardImages`/`filesBtnId` code are gone; the chooser's
+one Files input and its own guard replace them. The reasoning below still
+explains the accept value and the guard.)*
 Merged to `main` (fast-forward to `0a86551`). Suite: `tests/verify_files_picker.js` (40).
 - **Why:** Chrome on Android opens its Photos-style picker for an image-only
   accept, and that picker's cloud sources are Google Photos or None — OneDrive
@@ -658,13 +736,14 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (b) The "Mark ready" toast still says the app doesn't write the All sheet
   ("Copilot moves the row across"); out of date since Promote and the direct
   write landed.
-- (c) The Add Coin gallery has no per-photo Replace button.
-- (d) A new obverse, reverse or receipt picked during a Staging edit shows
-  its remove (✕) button only after the screen is redrawn.
-- (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are held
-  on `claude/unified-image-chooser`; C3-C4 (Add Coin, Add Set, Wishlist)
-  follow after Ray's S25 test of C2, C5 receipts only with his go-ahead.
-  HEIC picked through Files is unverified on a real phone.
+- (c) *(Delivered by C3, held: Add Coin's gallery has per-photo Replace,
+  keeping place, type and label.)*
+- (d) *(Fixed by C3, held: a new obverse, reverse or receipt picked during a
+  Staging edit shows its ✕ at once.)*
+- (e) Unified image chooser: C1 (coin screens), C2 (Set screens) and C3
+  (Add Coin) are held on `claude/unified-image-chooser`; C4 (Add Set,
+  Wishlist) follows after Ray's test of C3, C5 receipts only with his
+  go-ahead. HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
 - (g) Value fallback decision, pending with Ray: `coin.value` shows the melt
