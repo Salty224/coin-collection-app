@@ -152,7 +152,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
   });
   await installHelpers(page);
 
-  const COIN_TITLES = ["✂️ Crop from another photo", "🪙 Front & back", "🔲 Holder (slab or flip)",
+  const COIN_TITLES = ["✂️ Crop from another photo", "🪙 Obverse & reverse", "🔲 Holder (slab or flip)",
     "🔗 Reference photos", "📦 Package / OGP", "📜 COA / certificates", "🖼️ Other photos"];
 
   // ---------- W. Wording ---------------------------------------------------
@@ -168,6 +168,18 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         .map(e => [e.title || "", e.getAttribute("aria-label") || "", e.getAttribute("placeholder") || ""].join(" | ")).join("\n");
       out[k] = { titles: c.titles(host), hints, text: host.textContent + "\n" + attrs,
                  adjustTitle: (host.querySelector('[data-act="adjust"]') || {}).title || "" };
+    }
+    // Slot labels: Obverse/Reverse on the coin's own pair, Front/Back only on the Holder.
+    {
+      const host = c.openAll(c.openEditCoin());
+      await c.sleep(60);
+      const labelsOf = (re) => {
+        const h = [...host.querySelectorAll(".accordion-header")].find(x => re.test(x.textContent));
+        return h ? [...h.nextElementSibling.querySelectorAll(".sg-photo-slot")].map(sl =>
+          (sl.querySelector(".sg-photo-label, .sg-photo-add-label") || {}).textContent || "") : null;
+      };
+      out.faceSlots = labelsOf(/Obverse & reverse/);
+      out.holderSlots = labelsOf(/Holder/);
     }
     out.typeLabels = ["obverse", "reverse", "slab_obverse", "slab_reverse"].map(t => galleryTypeDef(t).label);
     // Add Coin's type picker (still the old gallery until commit 3).
@@ -186,13 +198,13 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     ok(JSON.stringify(t.titles) === JSON.stringify(COIN_TITLES),
       `W1-${k} the coin photo sections read, in order: ` + COIN_TITLES.join(" / ") + " — got " + JSON.stringify(t.titles));
     ok(t.hints.includes("The coin itself — the images the app shows for this coin. Cropped square, then framed into the circle."),
-      `W2-${k} Front & back hint (line 2)`);
+      `W2-${k} Obverse & reverse hint (line 2, unchanged)`);
     ok(t.hints.includes("The holder itself, front and back: a slab (rectangle) or a flip (square — tick Lock to square)."),
       `W3-${k} Holder hint (line 4)`);
     ok(t.hints.includes("Professional images of this coin or its type — PCGS TrueView, auction listings and similar."),
       `W4-${k} Reference hint (line 7)`);
-    ok(t.hints.includes("Tap a Holder, Reference or Other photo to crop this coin's Front, Back or a Reference image out of it. The photo you tap is never changed."),
-      `W5-${k} crop section hint (line 9)`);
+    ok(t.hints.includes("Tap a Holder, Reference or Other photo to crop this coin's Obverse, Reverse or a Reference image out of it. The photo you tap is never changed."),
+      `W5-${k} crop section hint: Obverse, Reverse or a Reference`);
     // "slab or flip" inside "Holder (slab or flip)" is Ray's own wording for
     // the holder; what must be gone is "flip card" and the word "Slab" as a
     // name (case-sensitive), plus the other retired phrases — in visible
@@ -203,8 +215,12 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     ok(t.adjustTitle === "Recrop (from the original)" || t.adjustTitle === "Recrop (from the saved photo)",
       `W7-${k} the Recrop button's title (line 14): ` + t.adjustTitle);
   }
-  ok(JSON.stringify(W.typeLabels) === JSON.stringify(["Front (obverse)", "Back (reverse)", "Holder — front", "Holder — back"]),
-    "W8 type labels (lines 5-6): " + JSON.stringify(W.typeLabels));
+  ok(JSON.stringify(W.typeLabels) === JSON.stringify(["Obverse", "Reverse", "Holder — front", "Holder — back"]),
+    "W8 type labels: Obverse, Reverse, Holder — front, Holder — back: " + JSON.stringify(W.typeLabels));
+  ok(JSON.stringify(W.faceSlots) === JSON.stringify(["Obverse", "Reverse"]),
+    "W12 the coin's own pair slots read Obverse and Reverse: " + JSON.stringify(W.faceSlots));
+  ok(JSON.stringify(W.holderSlots) === JSON.stringify(["Front", "Back"]),
+    "W13 the Holder's slots still read Front and Back: " + JSON.stringify(W.holderSlots));
   ok(W.picker.some(x => /Holder — front/.test(x)) && !W.picker.some(x => /Slab/.test(x)),
     "W9 Add Coin's type picker says Holder, not Slab");
   ok(W.addSetHolder === "🔲 Holder (slab or flip)" && /slab \(rectangle\) or a flip/.test(W.addSetHolderHint),
@@ -237,11 +253,12 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const tile = body && body.querySelector('.crop-src-tile[data-filename="' + src + '"]');
     if (tile) tile.click();
     out.chooser = { title: c.guardTitle(), buttons: c.guardButtons() };
-    c.clickGuard("Front");
+    c.clickGuard("Obverse");
     await c.sleep(40);
     out.confirm = { title: c.guardTitle(), body: c.guardBody() };
     c.clickGuard("Crop and replace");
     if (await c.waitFor(() => c.overlayOpen("bgCropOverlay"))) {
+      out.cropTitle = (document.getElementById("bgCropTitle") || {}).textContent || "";
       document.getElementById("bgCropUseBtn").click();
       if (await c.waitFor(() => c.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
     }
@@ -250,6 +267,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     out.uploads = c.uploads.slice();
     out.front = c.rows().filter(r => r.type === "Obverse");
     out.srcRow = c.rows().find(r => r.id === "PH-6") || null;
+    // The Reverse's replace question, asked the same way (then cancelled).
+    confirmCropDestination(ID, galleryFor(ID).find(e => e.type === "other"), "reverse", () => {});
+    out.confirmRev = { title: c.guardTitle(), body: c.guardBody() };
+    c.clickGuard("Cancel");
     c.teardown();
     return out;
   });
@@ -259,13 +280,16 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       `CS1-${k} crop sources are exactly Holder front/back, Reference and Other: ` + JSON.stringify(CS[k]));
   }
   ok(CS.chooser.title === "Crop this photo into…" &&
-     JSON.stringify(CS.chooser.buttons) === JSON.stringify(["Front", "Back", "Reference", "Cancel"]),
-    "CS2 destinations are Front, Back, Reference: " + JSON.stringify(CS.chooser));
-  ok(CS.confirm.title === "Replace the front?" && /Your new crop becomes this coin's front image\./.test(CS.confirm.body),
-    "CS3 replacing the Front asks first, in the new words (line 12)");
+     JSON.stringify(CS.chooser.buttons) === JSON.stringify(["Obverse", "Reverse", "Reference", "Cancel"]),
+    "CS2 destinations are Obverse, Reverse, Reference: " + JSON.stringify(CS.chooser));
+  ok(CS.confirm.title === "Replace the obverse?" && /Your new crop becomes this coin's obverse image\./.test(CS.confirm.body),
+    "CS3 replacing the Obverse asks first: \"Replace the obverse?\" / \"…this coin's obverse image.\"");
+  ok(CS.confirmRev.title === "Replace the reverse?" && /Your new crop becomes this coin's reverse image\./.test(CS.confirmRev.body),
+    "CS3b replacing the Reverse asks the same way: " + JSON.stringify(CS.confirmRev));
+  ok(/^Crop — Obverse \(from /.test(CS.cropTitle), "CS3c the crop tool's title names the Obverse: " + CS.cropTitle);
   ok(CS.uploads.length === 1 && /AY-00099_obverse_cropped_02\.jpg$/.test(CS.uploads[0]) &&
      CS.front.length === 1 && CS.front[0].id === "PH-1" && CS.front[0].file === "AY-00099_obverse_cropped_02.jpg",
-    "CS4 a crop from an Other photo lands as the Front: one upload, the Front row updated in place: " + JSON.stringify([CS.uploads, CS.front]));
+    "CS4 a crop from an Other photo lands as the Obverse: one upload, the Front row updated in place: " + JSON.stringify([CS.uploads, CS.front]));
   ok(CS.srcRow && CS.srcRow.file === "AY-00099_other_01.jpg" && CS.srcRow.type === "Other",
     "CS5 the Other photo it was cropped from is unchanged");
 
@@ -364,14 +388,14 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       }, surface);
       const tag = surface + " " + vp.width + "x" + vp.height;
       console.log("    coin layout " + tag + ": " + JSON.stringify(L.pairs.map(x => [x.title.slice(0, 12), x.widths])));
-      const front = L.pairs.find(x => /Front & back/.test(x.title));
+      const front = L.pairs.find(x => /Obverse & reverse/.test(x.title));
       const ogp = L.pairs.find(x => /Package/.test(x.title));
       const holder = L.pairs.find(x => /Holder/.test(x.title));
       ok(!L.pageScroll, `L1 ${tag}: no horizontal page scroll`);
       ok(L.pairs.length === 3 && L.pairs.every(x => x.inBody && x.widths.length === 2 && x.widths[0] === x.widths[1]),
-        `L2 ${tag}: Front & back, Holder and Package pairs each sit inside their card, both slots the same width: ` + JSON.stringify(L.pairs));
+        `L2 ${tag}: Obverse & reverse, Holder and Package pairs each sit inside their card, both slots the same width: ` + JSON.stringify(L.pairs));
       ok(front && ogp && holder && ogp.widths[0] === front.widths[0] && holder.widths[0] === front.widths[0],
-        `L3 ${tag}: the Package / OGP slots are the same width as Front & back's`);
+        `L3 ${tag}: the Package / OGP slots are the same width as Obverse & reverse's`);
       ok(L.thumbs.length === 2 && L.thumbs.every(Boolean), `L4 ${tag}: each COA page's Replace stays inside its thumbnail, inside the screen`);
       ok(L.titlesOneLine, `L5 ${tag}: every section title, "Holder (slab or flip)" included, fits on one line`);
       await p.close();

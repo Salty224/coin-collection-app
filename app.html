@@ -11628,8 +11628,8 @@
   // is a separate future database-cleanup pass, not part of this build.
   const GALLERY_TYPES = [
     // --- Coin tier ---
-    { key: "obverse",          label: "Front (obverse)",  icon: "🪙", suffix: "_obverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
-    { key: "reverse",          label: "Back (reverse)",   icon: "🪙", suffix: "_reverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "obverse",          label: "Obverse",          icon: "🪙", suffix: "_obverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
+    { key: "reverse",          label: "Reverse",          icon: "🪙", suffix: "_reverse",       flipSource: true,  retainRaw: true,  aspect: "square", repeatable: false, tier: "coin", scope: "coin" },
     { key: "slab_obverse",     label: "Holder — front",   icon: "🔲", suffix: "_slab_obverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
     { key: "slab_reverse",     label: "Holder — back",    icon: "🔲", suffix: "_slab_reverse",  flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "coin", scope: "coin" },
     { key: "reference",        label: "Reference photo",  icon: "🔗", suffix: "_reference",     flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "coin", scope: "coin" },
@@ -24659,8 +24659,9 @@
   // Back are no longer offered — Recrop already re-frames them from their
   // original, and cropping out of an already-cropped circle image only loses
   // quality. Reference stays a source: it is often a professional image
-  // (PCGS TrueView) of this very coin. Destinations read Front / Back /
-  // Reference; what each writes is unchanged.
+  // (PCGS TrueView) of this very coin. Destinations read Obverse / Reverse /
+  // Reference (Ray, 22 Oct: the coin's display images are Obverse/Reverse;
+  // Front/Back is only for the Holder); what each writes is unchanged.
   const CROP_SOURCE_TYPES = ["slab_obverse", "slab_reverse", "reference", "other"];
 
   // "Stored" means actually in OneDrive: a hydrated Photos-tab/legacy entry,
@@ -24685,7 +24686,7 @@
   function manageCropFromUploadBlock(body, targetId, render) {
     const p = document.createElement("p");
     p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
-    p.textContent = "Tap a Holder, Reference or Other photo to crop this coin's Front, Back or a Reference image out of it. The photo you tap is never changed.";
+    p.textContent = "Tap a Holder, Reference or Other photo to crop this coin's Obverse, Reverse or a Reference image out of it. The photo you tap is never changed.";
     body.appendChild(p);
     const sources = cropSourceEntriesFor(targetId);
     if (!sources.length) {
@@ -24734,8 +24735,8 @@
       bodyHtml: "<p>From <b>" + escapeHtmlText(src.storedFilename) + "</b>. That photo stays exactly as it is.</p>" +
         "<p>Where should the crop go?</p>",
       buttons: [
-        { label: "Front", primary: true, onClick: pick("obverse") },
-        { label: "Back", primary: true, onClick: pick("reverse") },
+        { label: "Obverse", primary: true, onClick: pick("obverse") },
+        { label: "Reverse", primary: true, onClick: pick("reverse") },
         { label: "Reference", onClick: pick("reference") },
         { label: "Cancel" }
       ]
@@ -24747,7 +24748,7 @@
   function confirmCropDestination(targetId, src, dest, render) {
     const current = dest === "reference" ? null : galleryFor(targetId).find(e => e.type === dest);
     if (!current) { runCropFromUpload(targetId, src, dest, render); return; }
-    const side = dest === "obverse" ? "front" : "back";
+    const side = dest === "obverse" ? "obverse" : "reverse";
     const shown = current.storedFilename || current.filename || "";
     showWriteGuard({
       title: "Replace the " + side + "?",
@@ -25546,10 +25547,13 @@
     }
     const pair = document.createElement("div");
     pair.className = "sg-photo-pair";
+    // The coin's own display images are Obverse / Reverse; every other pair
+    // (Holder, Package, whole set, sub-group) is Front / Back (Ray, 22 Oct).
+    const faces = typeKeys.every(k => (galleryTypeDef(k) || {}).flipSource);
     typeKeys.forEach((typeKey, i) => {
       pair.appendChild(buildPhotoPairSlot({
         typeKey, targetId, subGroupId,
-        label: i === 0 ? "Front" : "Back",
+        label: faces ? (i === 0 ? "Obverse" : "Reverse") : (i === 0 ? "Front" : "Back"),
         onChange: () => render(),
         chooser: !!(opts && opts.chooser)
       }));
@@ -25745,16 +25749,17 @@
           { open: openTitles.has("✂️ Crop from another photo") });
       }
 
-      // Wording (Ray, 22 Oct 2026): Front/Back are the app's display images
-      // of the coin itself; "Slab" reads "Holder (slab or flip)" — to Ray a
+      // Wording (Ray, 22 Oct 2026): Obverse/Reverse are the app's display
+      // images of the coin itself, and Front/Back is only for the Holder;
+      // "Slab" reads "Holder (slab or flip)" — to Ray a
       // slab and a flip are both the holder, one rectangular, one square.
       // Stored PhotoType values (Obverse, Slab_Obverse…) are unchanged.
-      appendManageSection(host, "🪙 Front &amp; back",
+      appendManageSection(host, "🪙 Obverse &amp; reverse",
         manageCount(id, e => e.type === "obverse" || e.type === "reverse"),
         (body) => managePairBlock(body, null,
           "The coin itself — the images the app shows for this coin. Cropped square, then framed into the circle.",
           ["obverse", "reverse"], id, null, render, pickOpts),
-        { open: openTitles.has("🪙 Front & back") });
+        { open: openTitles.has("🪙 Obverse & reverse") });
 
       appendManageSection(host, "🔲 Holder (slab or flip)",
         manageCount(id, e => e.type.indexOf("slab_") === 0),

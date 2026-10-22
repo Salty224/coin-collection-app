@@ -185,7 +185,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   await wait(150);
   const B1 = await viewerState();
   ok(B1.open === true && B1.imgSrc === urls.rev, "B1 tapping the reverse thumbnail shows the reverse photo itself, full screen");
-  ok(/Back \(reverse\)/.test(B1.footer) && /Test Coin AY-00001/.test(B1.title), "B2 the viewer names the coin and which photo it is");
+  ok(/\bReverse\b/.test(B1.footer) && /Test Coin AY-00001/.test(B1.title), "B2 the viewer names the coin and which photo it is");
   ok(B1.historyState && B1.historyState.mediaViewer === true, "B3 opening the viewer adds one history entry");
 
   // View only: nothing that edits, deletes or captures.

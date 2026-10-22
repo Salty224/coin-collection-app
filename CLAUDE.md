@@ -167,15 +167,21 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   Re-record only on purpose: `RECORD_ADDCOIN_GOLDEN=1 node tests/verify_addcoin_shared_photos.js`.
 - **Commit 1, wording (Edit Coin, Manage Photos for a coin, crop dialogs,
   type labels, Add Set text)**: sections read "✂️ Crop from another photo",
-  "🪙 Front & back", "🔲 Holder (slab or flip)", "🔗 Reference photos",
-  "📦 Package / OGP", "📜 COA / certificates", "🖼️ Other photos". Front & back
-  hint: "The coin itself — the images the app shows for this coin. Cropped
+  "🪙 Obverse & reverse", "🔲 Holder (slab or flip)", "🔗 Reference photos",
+  "📦 Package / OGP", "📜 COA / certificates", "🖼️ Other photos". Obverse &
+  reverse hint (unchanged): "The coin itself — the images the app shows for this coin. Cropped
   square, then framed into the circle." Holder hint: "…a slab (rectangle) or
   a flip (square — tick Lock to square)." Reference hint (and Add Set's
   child reference text): "Professional images of this coin or its type —
-  PCGS TrueView, auction listings and similar." Type labels: "Front
-  (obverse)", "Back (reverse)", "Holder — front", "Holder — back" (shown in
-  crop titles, the type picker, source tiles and the Browse detail strip).
+  PCGS TrueView, auction listings and similar." Type labels: "Obverse",
+  "Reverse", "Holder — front", "Holder — back" (shown in crop titles, the
+  type picker, source tiles, the coin page's Photos strip and the viewer
+  footer). **Rule (Ray, 22 Oct, T1): the coin's own display images are
+  Obverse / Reverse; Front / Back is only for the Holder** (and for the
+  other non-coin pairs: Package, whole set, sub-group). The coin pair's
+  slots read "Obverse"/"Reverse" (`managePairBlock` picks by `flipSource`).
+  Commit 1 first shipped "🪙 Front & back" and "Front (obverse)"/"Back
+  (reverse)"; corrected after T1.
   Recrop titles "Recrop (from the original)" / "Recrop (from the saved
   photo)"; toasts "…a later Recrop works from this cropped image",
   "No original on file — recropping the saved photo itself." Gallery default
@@ -188,11 +194,13 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   on Add Coin (retired in commit 3) and Wishlist (C4).
 - **Commit 1, crop sources**: `CROP_SOURCE_TYPES` = `slab_obverse`,
   `slab_reverse`, `reference`, `other` (was obverse, reverse, slab ×2,
-  reference). Front/Back dropped (Recrop re-frames them from the original);
+  reference). Obverse/Reverse dropped (Recrop re-frames them from the original);
   Other added; Reference kept (often a PCGS TrueView of this very coin).
-  Destination buttons "Front" / "Back" / "Reference" (were Obverse / Reverse
-  / Extra image); "Replace the front?" / "Your new crop becomes this coin's
-  front image." What each writes is unchanged.
+  Destination buttons "Obverse" / "Reverse" / "Reference" (were Extra image
+  for the last); "Replace the obverse?" / "Your new crop becomes this coin's
+  obverse image." (same for reverse). Hint: "Tap a Holder, Reference or Other
+  photo to crop this coin's Obverse, Reverse or a Reference image out of it.
+  The photo you tap is never changed." What each writes is unchanged.
 - **Commit 1, OGP and COA on a coin**: the coin branch of
   `renderManagePhotosInto` gains "📦 Package / OGP" (pair, `ogp_obverse`/
   `ogp_reverse`) and "📜 COA / certificates" (open list, `coa`) between
@@ -210,14 +218,14 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
   labelled COA page show; a new OGP back and COA page commit with the right
   rows and two uploads; Set-child COA rule both ways; layout at 360x800,
   412x915, 1024x768 on both screens (Edit Coin pair slots 112/138/444px,
-  Manage Photos 144/170/476px, Package equal to Front & back, titles one
+  Manage Photos 144/170/476px, Package equal to Obverse & reverse, titles one
   line, no page scroll). Existing suites followed the new strings, not
   weakened: `verify_crop_from_upload` A1-A3/A3b/A6/B2/C/C9/D/D1/E,
   `verify_live_no_demo_data` A7/A8/A11, `verify_photo_receipt_write` P7b,
   `verify_staging_edit_photos` (Holder picks), `verify_files_picker`
-  (Holder pick, D5 "Back (reverse)" crop title), `verify_image_chooser`
-  (Holder and "Front & back" sections), `verify_in_app_viewer` B2 (the
-  viewer footer now says "Back (reverse)"). `npm test` on the branch at
+  (Holder pick, D5 "Crop — Reverse" title), `verify_image_chooser`
+  (Holder and "Obverse & reverse" sections), `verify_in_app_viewer` B2 (the
+  viewer footer says "Reverse"). `npm test` on the branch at
   `0809ee8`: 3320 passed, 0 failed, 0 page errors, 70 suites.
 - **Negative controls, commit 1** (real app.html, restored by checksum,
   each failing by name): "🔲 Slab photos" back (W1, W6, L3 ×6); old crop
@@ -1058,7 +1066,7 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
 - **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
 
 ## Crop from an uploaded photo (Oct 2026, merged to main)
-*(On `claude/addcoin-shared-photos`, not yet on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Front/Back/Reference — see "Add Coin uses Edit Coin's photo section".)*
+*(On `claude/addcoin-shared-photos`, not yet on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Obverse/Reverse/Reference — see "Add Coin uses Edit Coin's photo section".)*
 Built on `claude/crop-from-uploaded-photos` (`e636e64`..`15359ea`), merged to
 `main` on Ray's go-ahead. Suite: `tests/verify_crop_from_upload.js` (46).
 - **Why:** on Ray's phone the file picker opens Google Photos only, so a photo

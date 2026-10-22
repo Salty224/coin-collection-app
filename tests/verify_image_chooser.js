@@ -247,7 +247,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   const U = await page.evaluate(async () => {
     __ic.install();
     const host = __ic.openEditCoin();
-    const obv = __ic.openSection("browseEditPhotosSections", /Front & back/);
+    const obv = __ic.openSection("browseEditPhotosSections", /Obverse & reverse/);
     const slots = [...obv.querySelectorAll(".sg-photo-slot")].map(s => ({
       filled: !!s.querySelector(".sg-photo-img, .sg-photo-empty"),
       addBox: !!s.querySelector('button.sg-photo-add[data-act="add"]'),
@@ -298,7 +298,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   ok(JSON.stringify(U.ref.order) === JSON.stringify(["photo", "label", "replace"]),
     "U9 Reference thumbnail order is photo, label box, Replace: " + JSON.stringify(U.ref.order));
   ok(U.ref.recrop === 0, "U10 Reference thumbnails have no recrop action (none added): " + JSON.stringify(U.ref));
-  ok(revSlot.addBox && revSlot.addLabelInside === "Back" && !revSlot.replace && revSlot.icons.length === 0,
+  ok(revSlot.addBox && revSlot.addLabelInside === "Reverse" && !revSlot.replace && revSlot.icons.length === 0,
     "U2 an empty slot is one + box with its label inside and no other buttons: " + JSON.stringify(revSlot));
   ok(U.slots.every(s => s.oldBtns === 0 && s.inputs === 0), "U3 no 📷/🖼️/📁 buttons and no file input inside any pair slot");
   ok(U.ref.thumbs === 1 && U.ref.replace === "Replace" && U.ref.remove && U.ref.caption === "PCGS photo" &&
@@ -535,7 +535,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
       const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Front & back/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
       // One-shot slow Photos write: applied at once, answered 3s later — the
       // window in which the S25 showed "Saving…" with the ✕ already there.
       const realPatch = __ic.mock.patchWorkbookRanges.bind(__ic.mock);
@@ -673,7 +673,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
       const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Front & back/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
       // Every upload fails while armed: no file lands, no row is written.
       const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
       let failing = false;
@@ -822,7 +822,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     __ic.install();
     __ic.openEditCoin();
     await new Promise(r => setTimeout(r, 600));
-    const rev = () => [...__ic.openSection("browseEditPhotosSections", /Front & back/).querySelectorAll(".sg-photo-slot")][1];
+    const rev = () => [...__ic.openSection("browseEditPhotosSections", /Obverse & reverse/).querySelectorAll(".sg-photo-slot")][1];
     const before = galleryFor("AY-00099").length, calls = __ic.graphCalls, rows = __ic.photoRows().length;
     // Null-safe so a missing + fails C1 by name rather than throwing.
     const clickAdd = () => { const b = rev() && rev().querySelector('[data-act="add"]'); if (b) b.click(); };
@@ -965,13 +965,13 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   const R2 = await page.evaluate(async () => {
     __ic.install();
     __ic.openEditCoin();
-    const obv = () => __ic.openSection("browseEditPhotosSections", /Front & back/).querySelector(".sg-photo-slot");
+    const obv = () => __ic.openSection("browseEditPhotosSections", /Obverse & reverse/).querySelector(".sg-photo-slot");
     const picked = __ic.pickVia(obv().querySelector('[data-act="replace"]'), "library", await __ic.jpeg());
     const crop = await __ic.finishCrop();
     await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00001") || [])[4] !== "AY-00099_obverse_cropped.jpg", 4000);
     await new Promise(r => setTimeout(r, 300));
     const obvs = __ic.photoRows().filter(r => r[2] === "Obverse");
-    const slots = [...__ic.openSection("browseEditPhotosSections", /Front & back/).querySelectorAll(".sg-photo-slot")];
+    const slots = [...__ic.openSection("browseEditPhotosSections", /Obverse & reverse/).querySelectorAll(".sg-photo-slot")];
     const faceUrl = (sl) => { const f = sl && sl.querySelector(".sg-photo-face"); return f ? (f.innerHTML.match(/blob:[^"')]+/) || [""])[0] : ""; };
     const obvEntries = galleryFor("AY-00099").filter(e => e.type === "obverse");
     return { picked, crop, obvs: obvs.length, id: obvs[0] && obvs[0][0], slots: slots.length,
@@ -987,7 +987,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   const G = await page.evaluate(async () => {
     __ic.install();
     __ic.openEditCoin();
-    __ic.openSection("browseEditPhotosSections", /Front & back/);
+    __ic.openSection("browseEditPhotosSections", /Obverse & reverse/);
     await new Promise(r => setTimeout(r, 600));
     const obvRep = () => document.getElementById("browseEditPhotosSections").querySelector('.sg-photo-slot [data-act="replace"]');
     const out = {};
@@ -1276,7 +1276,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
       const backType = isSet ? "ogp_reverse" : "reverse", backPT = isSet ? "OGP_Reverse" : "Reverse";
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Front & back/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
       const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
       let failing = true;
       __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
