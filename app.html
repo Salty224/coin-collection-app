@@ -2315,6 +2315,30 @@
   }
   .gc-add-tile .gc-add-box .sg-photo-add-plus { font-size: 24px; line-height: 1; }
   .gc-add-tile .gc-add-box .sg-photo-add-label { font-size: 10px; color: var(--text-muted); }
+  /* Add Coin's obverse/reverse (C3): the circle IS the "+" box when empty,
+     with the side's name inside it; a filled circle shows the photo with a
+     ✕ on its top-right rim (a circle has no corner, and the four flip-label
+     corners are taken), then the side's name, Replace and — where ⤢ used to
+     show — a Recrop pill. No 📷 🖼️ 📁 row: the chooser has all three. */
+  .addcoin-flip-slot .coin-photo-frame .addcoin-flip-add {
+    width: 100%; height: 100%; border: 0; background: none; padding: 0; margin: 0;
+    opacity: 1; font-family: inherit; color: var(--gold-bright); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  }
+  .addcoin-flip-add .sg-photo-add-plus { font-size: 30px; line-height: 1; }
+  .addcoin-flip-add .sg-photo-add-label { font-size: 13px; color: var(--text-muted); }
+  .addcoin-flip-slot .addcoin-flip-remove {
+    position: absolute; left: calc(50% + 55px); top: calc(50% - 75px);
+    width: 20px; height: 20px; border-radius: 50%; padding: 0;
+    border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
+    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2; font-family: inherit;
+    align-items: center; justify-content: center;
+  }
+  .addcoin-flip-slot .addcoin-flip-label { font-size: 12px; color: var(--text-muted); margin: 0 0 6px; }
+  .addcoin-flip-slot .addcoin-flip-replace,
+  .addcoin-flip-slot .addcoin-flip-recrop {
+    max-width: 220px; margin-left: auto; margin-right: auto; align-items: center; justify-content: center;
+  }
   /* A photo whose save failed: a light dim over the image so it reads as
      "not saved", and ↻ centred on the image as a 48px tap target (Ray's
      tablet test of ce5b6be: the old 20px corner ↻ sat right next to the
@@ -2345,15 +2369,6 @@
   .staging-retry-btn { background: none; border: 1px solid currentColor; color: inherit; border-radius: 10px;
                        padding: 0 6px; font-size: 12px; line-height: 16px; cursor: pointer; }
   .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  /* Three buttons (Add Coin, with 📁 Files) must stay on ONE line down to a
-     360px phone. The original "Take photo" / "Choose photo" labels need
-     ~350px there against ~264px available, so this variant uses the shorter
-     Camera / Library / Files wording (the same words the circle buttons'
-     titles use) and splits the row equally. */
-  .gc-add-row.gc-add-row-3 { flex-wrap: nowrap; }
-  .gc-add-row.gc-add-row-3 .gc-add-btn {
-    flex: 1 1 0; min-width: 0; max-width: 150px; padding: 8px 4px; white-space: nowrap; text-align: center;
-  }
   .gc-add-btn {
     padding: 8px 14px; border-radius: 8px; border: 1px dashed var(--case-border);
     background: transparent; color: var(--gold-bright); font-family: inherit; font-size: 13px; cursor: pointer;
@@ -4239,47 +4254,35 @@
                   Reverse (back) <span class="photo-toggle-dot" id="reverseDot"></span>
                 </button>
               </div>
-              <div class="photo-box" id="obversePhotoBox">
+              <div class="photo-box addcoin-flip-slot" id="obversePhotoBox">
                 <div class="flip-frame">
                   <span class="flip-label tl" id="flipObverseTL"></span>
                   <span class="flip-label tr" id="flipObverseTR"></span>
                   <div class="coin-photo-frame" id="obverseFrame">
-                    <span class="placeholder-icon" id="obversePlaceholder">📷</span>
+                    <button type="button" class="placeholder-icon addcoin-flip-add" id="obversePlaceholder" aria-label="Add obverse photo"><span class="sg-photo-add-plus" aria-hidden="true">＋</span><span class="sg-photo-add-label">Obverse</span></button>
                     <img id="obversePreview">
                   </div>
+                  <button type="button" class="addcoin-flip-remove" id="obverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
                   <span class="flip-label bl" id="flipObverseBL"></span>
                   <span class="flip-label br" id="flipObverseBR"></span>
                 </div>
-                <div class="photo-btns">
-                  <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                  <button type="button" id="obverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
-                  <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-                  <button type="button" id="obverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
-                </div>
-                <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="obverseLibraryInput" accept="image/*">
-                <input type="file" id="obverseFilesInput" accept="image/*,application/pdf">
+                <div class="addcoin-flip-label" id="obverseSlotLabel" style="display:none;">Obverse</div>
+                <button type="button" class="sg-photo-replace-btn addcoin-flip-replace" id="obverseReplaceBtn" style="display:none;" aria-label="Replace obverse photo">Replace</button>
+                <button type="button" class="sg-photo-replace-btn sg-photo-recrop-btn addcoin-flip-recrop" id="obverseAdjustBtn" style="display:none;" aria-label="Recrop this photo" title="Recrop">Recrop</button>
               </div>
-              <div class="photo-box" id="reversePhotoBox" style="display:none;">
+              <div class="photo-box addcoin-flip-slot" id="reversePhotoBox" style="display:none;">
                 <div class="flip-frame">
                   <span class="flip-label tl" id="flipReverseTL"></span>
                   <div class="coin-photo-frame" id="reverseFrame">
-                    <span class="placeholder-icon" id="reversePlaceholder">📷</span>
+                    <button type="button" class="placeholder-icon addcoin-flip-add" id="reversePlaceholder" aria-label="Add reverse photo"><span class="sg-photo-add-plus" aria-hidden="true">＋</span><span class="sg-photo-add-label">Reverse</span></button>
                     <img id="reversePreview">
                   </div>
+                  <button type="button" class="addcoin-flip-remove" id="reverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
                   <span class="flip-label br" id="flipReverseBR"></span>
                 </div>
-                <div class="photo-btns">
-                  <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                  <button type="button" id="reverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
-                  <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-                  <button type="button" id="reverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
-                </div>
-                <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="reverseLibraryInput" accept="image/*">
-                <input type="file" id="reverseFilesInput" accept="image/*,application/pdf">
+                <div class="addcoin-flip-label" id="reverseSlotLabel" style="display:none;">Reverse</div>
+                <button type="button" class="sg-photo-replace-btn addcoin-flip-replace" id="reverseReplaceBtn" style="display:none;" aria-label="Replace reverse photo">Replace</button>
+                <button type="button" class="sg-photo-replace-btn sg-photo-recrop-btn addcoin-flip-recrop" id="reverseAdjustBtn" style="display:none;" aria-label="Recrop this photo" title="Recrop">Recrop</button>
               </div>
 
               <!-- General photo gallery (slab/COA/box/other) — supersedes the old
@@ -25814,18 +25817,24 @@
     // photo slot in the app: it skips the native chooser, so a single input
     // gives no route to the camera. (This widget shipped with that defect,
     // matching the one just fixed on the pair slots.)
-    section.innerHTML = `
+    // opts.chooser (Add Coin, C3): no camera/library/files row and no file
+    // inputs of its own. A "+" tile at the end of the grid runs the type
+    // picker first, then the unified chooser; each thumbnail has Replace.
+    const chooserMode = !!opts.chooser;
+    section.innerHTML = chooserMode ? `
+      <div class="section-label" style="margin-top:0;">${title}</div>
+      <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
+      <div class="gc-grid gc-chooser-grid" data-role="grid"></div>
+    ` : `
       <div class="section-label" style="margin-top:0;">${title}</div>
       <p style="font-size:12px; color:var(--text-muted); margin-top:0;">${description}</p>
       <div class="gc-grid" data-role="grid"></div>
-      <div class="gc-add-row${opts.files ? " gc-add-row-3" : ""}">
-        <button type="button" class="gc-add-btn" data-role="add-cam"${opts.files ? ` aria-label="Take photo with camera"` : ""}>${opts.files ? "📷 Camera" : "📷 Take photo"}</button>
-        <button type="button" class="gc-add-btn" data-role="add-lib"${opts.files ? ` aria-label="Choose photo from library"` : ""}>${opts.files ? "🖼️ Library" : "🖼️ Choose photo"}</button>
-        ${opts.files ? `<button type="button" class="gc-add-btn" data-role="add-files" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)">📁 Files</button>` : ""}
+      <div class="gc-add-row">
+        <button type="button" class="gc-add-btn" data-role="add-cam">📷 Take photo</button>
+        <button type="button" class="gc-add-btn" data-role="add-lib">🖼️ Choose photo</button>
       </div>
       <input type="file" accept="image/*" capture="environment" data-role="cam" style="display:none;">
       <input type="file" accept="image/*" data-role="lib" style="display:none;">
-      ${opts.files ? `<input type="file" accept="${FILES_PICKER_ACCEPT}" data-role="files" style="display:none;">` : ""}
     `;
     const grid = section.querySelector('[data-role="grid"]');
     const camInput = section.querySelector('[data-role="cam"]');
@@ -25854,28 +25863,84 @@
           entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button></div>` :
           entry.stagingStored ? `<div class="photo-upload-state">In Staging</div>` : "";
         const canRemove = true;
+        const captionValue = (entry.caption || "").replace(/"/g, "&quot;");
         thumb.innerHTML = `
           ${canRemove ? `<button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>` : ""}
           ${galleryThumbInner(entry)}
           <div class="gc-type">${def ? def.label : entry.type}</div>
           ${stateLine}
-          <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+          ${chooserMode ? `<input type="text" class="gc-caption" placeholder="Label…" value="${captionValue}">
+          <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>`
+            : `<input type="text" class="gc-caption" placeholder="Caption…" value="${captionValue}">`}
         `;
         if (canRemove) thumb.querySelector(".gc-remove").addEventListener("click", () => {
           // A photo already in Staging comes off on Save changes, after a
-          // confirmation (Phase B2); anything else is just dropped, as before.
+          // confirmation (Phase B2). In chooser mode one picked on this form
+          // is asked about too (it only leaves the form); otherwise it is
+          // just dropped, as before.
+          const what = "this " + (def ? def.label.toLowerCase() : "photo");
           if (entry.stagingStored) {
-            confirmStagingRemove("this " + (def ? def.label.toLowerCase() : "photo"), () => removeStagingEditEntry(entry));
+            confirmStagingRemove(what, () => removeStagingEditEntry(entry));
+            return;
+          }
+          if (chooserMode) {
+            confirmDraftPhotoRemove(what, () => {
+              removeGalleryEntry(id, galleryFor(id).indexOf(entry));
+              render();
+            });
             return;
           }
           removeGalleryEntry(id, index);
           render();
         });
+        // Replace keeps the photo's place in the list, its type and its
+        // label (replaceGalleryEntryAndCommit); Add Coin holds it in memory
+        // until Save, as with any pick.
+        const replaceBtn = chooserMode ? thumb.querySelector('[data-role="replace"]') : null;
+        if (replaceBtn) replaceBtn.addEventListener("click", () => openImageSourceChooser({
+          title: "Replace " + (def ? def.label.toLowerCase() : "photo"),
+          onFile: (f) => runCropPipeline(f, entry.type, id, (newEntry) => {
+            replaceGalleryEntryAndCommit(id, entry, newEntry, render);
+          })
+        }));
         const retry = thumb.querySelector(".staging-retry-btn");
         if (retry && opts.onRetry) retry.addEventListener("click", opts.onRetry);
         thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
         grid.appendChild(thumb);
       });
+      if (chooserMode) {
+        const tile = document.createElement("button");
+        tile.type = "button";
+        tile.className = "gc-add-tile";
+        tile.dataset.role = "add";
+        tile.setAttribute("aria-label", "Add photo");
+        tile.innerHTML = `<span class="gc-add-box"><span class="sg-photo-add-plus" aria-hidden="true">＋</span>` +
+          `<span class="sg-photo-add-label">Add photo</span></span>`;
+        tile.addEventListener("click", startChooserAdd);
+        grid.appendChild(tile);
+      }
+    }
+
+    // Chooser mode: what kind of photo first (the type picker, skipped when
+    // only one type is allowed), then the chooser for where it comes from.
+    function startChooserAdd() {
+      const go = (typeKey) => {
+        const tdef = galleryTypeDef(typeKey);
+        openImageSourceChooser({
+          title: "Add " + (tdef ? tdef.label.toLowerCase() : "photo"),
+          onFile: (f) => {
+            const id = getTargetId();
+            runCropPipeline(f, typeKey, id, (entry) => addGalleryEntryAndCommit(id, entry, render));
+          }
+        });
+      };
+      if (allowedTypes && allowedTypes.length === 1) { go(allowedTypes[0]); return; }
+      openGalleryTypePicker(scope, go, allowedTypes);
+    }
+    if (chooserMode) {
+      section._galleryRender = render;
+      render();
+      return;
     }
 
     // Each add button remembers WHICH input to open once the type is chosen,
@@ -25891,32 +25956,20 @@
     }
     section.querySelector('[data-role="add-cam"]').addEventListener("click", () => startAdd(camInput));
     section.querySelector('[data-role="add-lib"]').addEventListener("click", () => startAdd(libInput));
-    // opts.files (off unless passed — only Add Coin passes it): a third 📁
-    // Files input, same handler as Library. See FILES_PICKER_ACCEPT.
-    const filesInput = opts.files ? section.querySelector('[data-role="files"]') : null;
-    if (filesInput) {
-      section.querySelector('[data-role="add-files"]').addEventListener("click", () => startAdd(filesInput));
-    }
-
-    // opts.guardImages: Library and Files picks must pass isPickableImage()
-    // before the crop screen opens. A refused pick adds nothing.
-    const handleAdd = async (input, guard) => {
+    // (Add Coin's own 📁 Files button and guard lived here until C3; Add Coin
+    // now uses chooser mode above, where the chooser carries both.)
+    const handleAdd = (input) => {
       const file = input.files[0];
       if (!file || !pendingType) return;
       const id = getTargetId();
       const type = pendingType;
       pendingType = null;
-      if (guard && !(await isPickableImage(file))) {
-        showToast(NOT_A_PHOTO_MESSAGE);
-        return;
-      }
       runCropPipeline(file, type, id, (entry) => {
         addGalleryEntryAndCommit(id, entry, render);
       });
     };
-    camInput.addEventListener("change", () => handleAdd(camInput, false));
-    libInput.addEventListener("change", () => handleAdd(libInput, !!opts.guardImages));
-    if (filesInput) filesInput.addEventListener("change", () => handleAdd(filesInput, !!opts.guardImages));
+    camInput.addEventListener("change", () => handleAdd(camInput));
+    libInput.addEventListener("change", () => handleAdd(libInput));
 
     // Expose a re-render hook so a flow can refresh the widget when its target
     // changes (e.g. Browse Edit opening a different coin).
@@ -26819,11 +26872,11 @@
   // entry of that type. When absent, the slot keeps its legacy circle-only
   // behavior (Wishlist's obverse/reverse, which aren't owned-coin galleries).
   //
-  // opts (optional, off unless passed): filesBtnId/filesInputId wire a third
-  // 📁 Files button through the same handler as Library; guardImages runs
-  // isPickableImage() on Library and Files picks before anything else.
-  // Camera is never guarded — a capture is always a photo. Only Add Coin's
-  // obverse/reverse pass these; every other slot is unchanged.
+  // opts (optional, off unless passed): chooser { noun, replaceBtnId } —
+  // Add Coin's obverse/reverse (C3): no camera/library buttons; the empty
+  // circle and Replace open the unified chooser, which guards Library and
+  // Files itself (Camera never). onPreview runs after a photo lands (and
+  // after a receipt is attached). Every other slot is unchanged.
   function wireMockPhotoSlot(previewId, placeholderId, cameraBtnId, libraryBtnId, cameraInputId, libraryInputId, frameId, dotId, adjustBtnId, galleryType, getGalleryId, opts) {
     opts = opts || {};
     const preview = document.getElementById(previewId);
@@ -26836,8 +26889,11 @@
     const dot = dotId ? document.getElementById(dotId) : null;
     const adjustBtn = adjustBtnId ? document.getElementById(adjustBtnId) : null;
 
-    cameraBtn.addEventListener("click", () => cameraInput.click());
-    libraryBtn.addEventListener("click", () => libraryInput.click());
+    // opts.chooser (Add Coin's obverse/reverse only, C3): no 📷/🖼️/📁 row.
+    // The empty circle ("+") and Replace both open the unified chooser,
+    // which guards Library and Files itself and never guards Camera.
+    if (cameraBtn) cameraBtn.addEventListener("click", () => cameraInput.click());
+    if (libraryBtn) libraryBtn.addEventListener("click", () => libraryInput.click());
 
     // Applies a baked circle blob URL to this slot's own DOM (preview/frame/
     // dot/adjust button) — the same writes the legacy circle path made.
@@ -26849,6 +26905,7 @@
       if (frame) frame.classList.add("has-photo");
       if (dot) dot.classList.add("filled");
       if (adjustBtn) adjustBtn.style.display = "flex";
+      if (opts.onPreview) opts.onPreview();
     }
 
     async function handleFile(file) {
@@ -26869,6 +26926,7 @@
         receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf", sourceWasPdf: true };
         showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
         commitReceiptForSlot(previewId);
+        if (opts.onPreview) opts.onPreview();
       } else {
         // Receipt photo — plain rectangular live preview, no crop adjuster,
         // but still needs EXIF orientation applied explicitly (a raw blob
@@ -26888,30 +26946,26 @@
           console.warn("Receipt PDF wrap failed for " + previewId + ":", e);
           delete receiptFiles[previewId];
         }
+        if (opts.onPreview) opts.onPreview();
       }
     }
-    cameraInput.addEventListener("change", () => {
+    if (opts.chooser) {
+      const open = (replacing) => openImageSourceChooser({
+        title: (replacing ? "Replace " : "Add ") + opts.chooser.noun,
+        onFile: (f) => handleFile(f)
+      });
+      if (placeholder) placeholder.addEventListener("click", () => open(
+        !!(frame && frame.classList.contains("has-photo")) ||
+        (!!getGalleryId && galleryFor(getGalleryId()).some(e => e.type === galleryType))));
+      const replaceBtn = document.getElementById(opts.chooser.replaceBtnId);
+      if (replaceBtn) replaceBtn.addEventListener("click", () => open(true));
+    }
+    if (cameraInput) cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleFile(cameraInput.files[0]);
     });
-    // A refused pick stops here: no crop screen, no gallery entry, no write.
-    async function handlePickedFile(file) {
-      if (opts.guardImages && !(await isPickableImage(file))) {
-        showToast(NOT_A_PHOTO_MESSAGE);
-        return;
-      }
-      handleFile(file);
-    }
-    libraryInput.addEventListener("change", () => {
-      if (libraryInput.files[0]) handlePickedFile(libraryInput.files[0]);
+    if (libraryInput) libraryInput.addEventListener("change", () => {
+      if (libraryInput.files[0]) handleFile(libraryInput.files[0]);
     });
-    if (opts.filesBtnId && opts.filesInputId) {
-      const filesBtn = document.getElementById(opts.filesBtnId);
-      const filesInput = document.getElementById(opts.filesInputId);
-      filesBtn.addEventListener("click", () => { filesInput.value = ""; filesInput.click(); });
-      filesInput.addEventListener("change", () => {
-        if (filesInput.files[0]) handlePickedFile(filesInput.files[0]);
-      });
-    }
 
     if (adjustBtn && frameId) {
       adjustBtn.addEventListener("click", (e) => {
@@ -29060,6 +29114,7 @@
     delete receiptFiles["receiptPreview"];
     const gallerySection = document.getElementById("addCoinGallery");
     if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
+    syncAddCoinFlipSlots();
 
     // --- Value + provenance
     document.getElementById("addCoinValue").value = "";
@@ -29427,12 +29482,34 @@
   const STAGING_FLIP_SLOT_IDS = {
     obverse: { preview: "obversePreview", placeholder: "obversePlaceholder", frame: "obverseFrame",
                dot: "obverseDot", adjust: "obverseAdjustBtn", box: "obversePhotoBox",
-               buttons: ["obverseCameraBtn", "obverseLibraryBtn", "obverseFilesBtn"] },
+               remove: "obverseRemoveBtn", replace: "obverseReplaceBtn", label: "obverseSlotLabel" },
     reverse: { preview: "reversePreview", placeholder: "reversePlaceholder", frame: "reverseFrame",
                dot: "reverseDot", adjust: "reverseAdjustBtn", box: "reversePhotoBox",
-               buttons: ["reverseCameraBtn", "reverseLibraryBtn", "reverseFilesBtn"] }
+               remove: "reverseRemoveBtn", replace: "reverseReplaceBtn", label: "reverseSlotLabel" }
   };
-  const FLIP_SLOT_BUTTON_TITLES = { 0: "Camera", 1: "Library", 2: "Files" };
+
+  // C3: one place decides what an Add Coin obverse/reverse slot shows. A
+  // slot is FILLED when the draft holds a photo of that side (a pick, or a
+  // Staging photo still loading) or its circle shows one: then the ✕ on the
+  // rim, the side's name and Replace show, and the "+" says Replace. Called
+  // after every pick, Staging load, remove and reset — so a photo picked
+  // during a Staging edit gets its ✕ at once (backlog d: it used to wait
+  // for a redraw, because only the edit's load path refreshed the ✕).
+  function syncAddCoinFlipSlots() {
+    const list = galleryFor(ADDCOIN_GALLERY_ID);
+    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
+      const ids = STAGING_FLIP_SLOT_IDS[type];
+      const frame = document.getElementById(ids.frame);
+      if (!frame) return;
+      const filled = frame.classList.contains("has-photo") || list.some(e => e.type === type);
+      const show = (id, how) => { const el = document.getElementById(id); if (el) el.style.display = filled ? how : "none"; };
+      show(ids.remove, "flex");
+      show(ids.replace, "flex");
+      show(ids.label, "block");
+      const add = document.getElementById(ids.placeholder);
+      if (add) add.setAttribute("aria-label", (filled ? "Replace " : "Add ") + type + " photo");
+    });
+  }
 
   // Same writes wireMockPhotoSlot's applyCirclePreview() makes for a capture.
   function showStagingFlipPreview(type, url) {
@@ -29445,18 +29522,13 @@
     document.getElementById(ids.frame).classList.add("has-photo");
     document.getElementById(ids.dot).classList.add("filled");
     document.getElementById(ids.adjust).style.display = "flex";
+    syncAddCoinFlipSlots();
   }
 
-  // A filled slot says Replace; an empty one keeps its plain titles.
+  // A filled slot says Replace (C3: worked out from the slot itself, so the
+  // argument no longer matters; kept so the Phase B call sites read the same).
   function setFlipSlotReplaceLabels(type, replacing) {
-    const ids = STAGING_FLIP_SLOT_IDS[type];
-    if (!ids) return;
-    ids.buttons.forEach((btnId, i) => {
-      const btn = document.getElementById(btnId);
-      if (!btn) return;
-      const base = FLIP_SLOT_BUTTON_TITLES[i];
-      btn.title = replacing ? "Replace — " + base : base;
-    });
+    syncAddCoinFlipSlots();
   }
 
   async function fetchStagingFileUrl(path, mime) {
@@ -29716,6 +29788,19 @@
     });
   }
 
+  // ✕ on a photo picked on this form (not yet in Staging). Asked first, as
+  // on every other ✕ in the app; Remove only takes it off the form.
+  function confirmDraftPhotoRemove(what, onYes) {
+    showWriteGuard({
+      title: "Remove " + what + "?",
+      bodyHtml: "It comes off this form only. Nothing has been saved yet, so nothing else changes.",
+      buttons: [
+        { label: "Cancel", primary: true },
+        { label: "Remove", onClick: onYes }
+      ]
+    });
+  }
+
   function removeStagingEditEntry(entry) {
     const list = galleryFor(ADDCOIN_GALLERY_ID);
     const at = list.indexOf(entry);
@@ -29745,12 +29830,9 @@
   // fresh capture never sees it.
   function updateStagingEditRemoveButtons() {
     const editing = !!(editingCoinDraftId && editDraftFiles);
-    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
-      const btn = document.getElementById(type + "RemoveBtn");
-      if (!btn) return;
-      const has = editing && galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === type);
-      btn.style.display = has ? "flex" : "none";
-    });
+    // Obverse/reverse ✕ (C3): shown whenever the slot holds a photo, on a
+    // new draft as well as a Staging edit — see syncAddCoinFlipSlots().
+    syncAddCoinFlipSlots();
     const r = document.getElementById("receiptRemoveBtn");
     if (r) {
       const hasReceipt = editing && (!!receiptFiles["receiptPreview"] ||
@@ -29767,7 +29849,10 @@
         e.stopPropagation();
         const entry = galleryFor(ADDCOIN_GALLERY_ID).find(x => x.type === type);
         if (!entry) return;
-        confirmStagingRemove("the " + type + " photo", () => removeStagingEditEntry(entry));
+        // A photo already in Staging comes off on Save changes (Phase B2);
+        // one picked on this form just leaves the draft — nothing was saved.
+        if (entry.stagingStored) confirmStagingRemove("the " + type + " photo", () => removeStagingEditEntry(entry));
+        else confirmDraftPhotoRemove("the " + type + " photo", () => removeStagingEditEntry(entry));
       });
     });
     const r = document.getElementById("receiptRemoveBtn");
@@ -29842,15 +29927,20 @@
   function initAddCoin() {
     // Obverse/Reverse are the flip sources — routed through the two-stage
     // pipeline (background crop -> circle) and registered as gallery entries.
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID,
-      { filesBtnId: "obverseFilesBtn", filesInputId: "obverseFilesInput", guardImages: true });
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID,
-      { filesBtnId: "reverseFilesBtn", filesInputId: "reverseFilesInput", guardImages: true });
-    wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
+    // C3 (unified image chooser): no camera/library/files buttons or inputs
+    // of their own — the "+" circle and Replace open the shared chooser.
+    wireMockPhotoSlot("obversePreview", "obversePlaceholder", null, null, null, null, "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID,
+      { chooser: { noun: "obverse photo", replaceBtnId: "obverseReplaceBtn" }, onPreview: syncAddCoinFlipSlots });
+    wireMockPhotoSlot("reversePreview", "reversePlaceholder", null, null, null, null, "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID,
+      { chooser: { noun: "reverse photo", replaceBtnId: "reverseReplaceBtn" }, onPreview: syncAddCoinFlipSlots });
+    // onPreview: a receipt picked during a Staging edit shows its ✕ at once
+    // (backlog d), not only after the screen is redrawn.
+    wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput",
+      undefined, undefined, undefined, undefined, undefined, { onPreview: updateStagingEditRemoveButtons });
     // The old fixed "Additional Photo" slot is superseded by the gallery
     // widget (its role is now the gallery's "Other" type).
     initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin",
-      { files: true, guardImages: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
+      { chooser: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
     wireStagingEditRemoveButtons();
     refreshVarietyOptions();
     populateStatusSelect(document.getElementById("addCoinStatus"));

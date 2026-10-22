@@ -7,6 +7,11 @@
 // OneDrive app is listed. Tests CANNOT show which picker Android opens; they
 // pin the attributes that decide it and the behaviour after a file arrives.
 //
+// C3 (Oct 2026): Add Coin's own 📁 buttons and Files inputs are gone — its
+// obverse/reverse + circles and gallery + tile open the unified chooser,
+// whose Files input carries the same accept. Blocks A/D/E/I now go through
+// the chooser; verify_image_chooser.js covers the C3 layout.
+//
 // What must hold, and which block proves it:
 //   A  the new Files inputs: accept exactly "image/*,application/pdf", no
 //      capture, on Obverse, Reverse and the Add photo gallery only
@@ -46,10 +51,8 @@ const MAIN_APP_INPUTS = [
   ["wishlistReverseLibraryInput", "image/*", "-"],
   ["wishlistAdditionalCameraInput", "image/*", "environment"],
   ["wishlistAdditionalLibraryInput", "image/*", "-"],
-  ["obverseCameraInput", "image/*", "environment"],
-  ["obverseLibraryInput", "image/*", "-"],
-  ["reverseCameraInput", "image/*", "environment"],
-  ["reverseLibraryInput", "image/*", "-"],
+  // (obverse/reverse Camera and Library inputs removed by C3, Oct 2026:
+  // Add Coin's obverse/reverse open the unified chooser instead.)
   ["receiptCameraInput", "image/*", "environment"],
   ["receiptLibraryInput", "image/*,application/pdf", "-"],
   ["batchReceiptCameraInput", "image/*", "environment"],
@@ -79,8 +82,9 @@ const MAIN_STAGE_INPUTS = [
   ["${id}_cameraInput", "image/*", "environment"],
   ["${id}_libraryInput", "image/*", "-"],
 ];
-// The three inputs this branch adds. The gallery one's accept is a template
-// expression in source; its rendered value is checked in block A.
+// The three Files inputs this branch once added (obverse, reverse, the
+// gallery's role:files). C3 (Oct 2026) removed all three: Add Coin's Files
+// route is the unified chooser's one Files input now. A1 asserts none is left.
 const NEW_INPUTS = {
   obverseFilesInput: FILES_ACCEPT,
   reverseFilesInput: FILES_ACCEPT,
@@ -113,22 +117,22 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   const appExisting = appInputs.filter(r => !(r[0] in NEW_INPUTS) && !(r[0] in CHOOSER_INPUTS));
   const appChooser = appInputs.filter(r => r[0] in CHOOSER_INPUTS);
   const appNew = appInputs.filter(r => r[0] in NEW_INPUTS);
-  ok(MAIN_APP_INPUTS.length + MAIN_STAGE_INPUTS.length === 42,
-    "B0 the pinned list covers 42 pre-existing inputs (34 app.html + 8 stage.html)");
+  ok(MAIN_APP_INPUTS.length + MAIN_STAGE_INPUTS.length === 38,
+    "B0 the pinned list covers 38 pre-existing inputs (30 app.html after C3 removed Add Coin's 4 obverse/reverse inputs, + 8 stage.html)");
   ok(JSON.stringify(appExisting) === JSON.stringify(MAIN_APP_INPUTS),
     "B1 every pre-existing app.html file input keeps its exact accept and capture: " +
     JSON.stringify(appExisting.filter((r, i) => JSON.stringify(r) !== JSON.stringify(MAIN_APP_INPUTS[i]))));
   ok(JSON.stringify(stageInputs) === JSON.stringify(MAIN_STAGE_INPUTS),
     "B2 stage.html's 8 file inputs are unchanged");
-  ok(appInputs.length === 40 && appNew.length === 3 && appChooser.length === 3,
-    "B3 app.html has exactly the 3 Files inputs and the 3 chooser inputs on top of the 34: " + appInputs.length);
+  ok(appInputs.length === 33 && appNew.length === 0 && appChooser.length === 3,
+    "B3 app.html has exactly the 3 chooser inputs on top of the 30 (C3 removed Add Coin's own Files inputs): " + appInputs.length);
   ok(appChooser.every(r => JSON.stringify([r[1], r[2]]) === JSON.stringify(CHOOSER_INPUTS[r[0]])),
     "B4 the chooser's inputs: Camera image/*+capture, Library image/*, Files image/*,application/pdf no capture: " + JSON.stringify(appChooser));
   const cams = appInputs.concat(stageInputs).filter(r => /camera|cam\b|cam-input/i.test(r[0]));
-  ok(cams.length === 22 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
-    "C1 all 22 camera inputs (21 + the chooser's) still have accept image/* and capture=environment");
-  ok(appNew.every(r => r[2] === "-" && r[1] === NEW_INPUTS[r[0]]),
-    "A1 source: the new Files inputs have the expected accept and no capture: " + JSON.stringify(appNew));
+  ok(cams.length === 20 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
+    "C1 all 20 camera inputs (19 + the chooser's) still have accept image/* and capture=environment");
+  ok(appNew.length === 0,
+    "A1 source: Add Coin's own Files inputs are gone (C3) — its Files route is the chooser's: " + JSON.stringify(appNew));
 
   const page = await openApp(PHONE);
 
@@ -189,8 +193,20 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
         document.getElementById("photoAdjustOverlay").classList.add("hidden");
         this.clearToast();
       },
+      // C3: Add Coin's sources live in the unified chooser. Opens it from
+      // `trigger` (a + circle, Replace or the gallery + tile), taps `source`
+      // and returns that source's input for pick(). Null if a step is missing.
+      viaChooser(trigger, source) {
+        if (!trigger) return null;
+        trigger.click();
+        const o = document.getElementById("imageSourceChooser");
+        if (!o || o.classList.contains("hidden")) return null;
+        o.querySelector('.image-chooser-btn[data-source="' + source + '"]').click();
+        return document.getElementById({ camera: "imageChooserCameraInput", library: "imageChooserLibraryInput", files: "imageChooserFilesInput" }[source]);
+      },
       // Runs a pick through Stage 1 and Stage 2 to a finished entry.
       async pickAndFinish(input, file) {
+        if (!input) return { stage1: false };
         this.pick(input, file);
         if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return { stage1: false };
         const title = document.getElementById("bgCropTitle").textContent;
@@ -206,6 +222,7 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
       // Picks a refused file and reports what the screen did.
       async refused(input, file) {
         const before = galleryFor(ADDCOIN_GALLERY_ID).length;
+        if (!input) return { toast: "", crop: false, added: 0, graph: this.graphCalls, fetches: this.fetches, noInput: true };
         this.pick(input, file);
         await this.waitFor(() => this.toast() !== "", 3000);
         await sleep(300);
@@ -216,19 +233,20 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     };
   }, { TOAST });
 
-  // ---------- A. The new Files inputs, as rendered ------------------------
+  // ---------- A. Add Coin's Files route, as rendered (C3: the chooser) ------
   const A = await page.evaluate(() => {
     __fp.freshAddCoin();
-    const attrs = (el) => el ? { accept: el.getAttribute("accept"), capture: el.hasAttribute("capture"), shown: el.offsetParent !== null } : null;
     const gal = document.getElementById("addCoinGallery");
-    const btnText = (id) => { const b = document.getElementById(id); return b ? b.textContent.trim() : null; };
+    const view = document.getElementById("view-addcoin");
+    const filesInput = document.getElementById("imageChooserFilesInput");
+    const obvChooser = (() => { document.getElementById("obversePlaceholder").click();
+      const o = document.getElementById("imageSourceChooser"); const open = !o.classList.contains("hidden");
+      const files = (o.querySelector('.image-chooser-btn[data-source="files"]') || {}).textContent; closeImageSourceChooser(); return { open, files }; })();
     return {
-      obv: attrs(document.getElementById("obverseFilesInput")),
-      rev: attrs(document.getElementById("reverseFilesInput")),
-      gal: attrs(gal.querySelector('input[data-role="files"]')),
-      obvBtn: btnText("obverseFilesBtn"), obvBtnTitle: document.getElementById("obverseFilesBtn").title,
-      galBtn: (gal.querySelector('[data-role="add-files"]') || {}).textContent,
-      galLabels: [...gal.querySelectorAll(".gc-add-btn")].map(b => b.textContent.trim()),
+      ownFilesInputs: view.querySelectorAll('input[type="file"][accept="image/*,application/pdf"]:not([id^="receipt"])').length,
+      ownFilesBtns: ["obverseFilesBtn", "reverseFilesBtn"].filter(i => document.getElementById(i)).length + gal.querySelectorAll('[data-role="add-files"]').length,
+      chooserFiles: { accept: filesInput.getAttribute("accept"), capture: filesInput.hasAttribute("capture") },
+      obvChooser,
       constant: FILES_PICKER_ACCEPT,
       // Opt-in: every other gallery and pair slot is untouched.
       addSetGalFiles: document.querySelectorAll('#addSetGallery input[data-role="files"], #addSetChildRefGallery input[data-role="files"]').length,
@@ -238,13 +256,12 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
       chooserFilesInputs: document.querySelectorAll('#imageSourceChooser input[accept="image/*,application/pdf"]').length,
     };
   });
-  ok(A.obv && A.obv.accept === "image/*,application/pdf" && !A.obv.capture, "A2 Obverse Files input: accept exact, no capture");
-  ok(A.rev && A.rev.accept === "image/*,application/pdf" && !A.rev.capture, "A3 Reverse Files input: accept exact, no capture");
-  ok(A.gal && A.gal.accept === "image/*,application/pdf" && !A.gal.capture, "A4 Add photo gallery Files input: accept exact, no capture");
+  ok(A.ownFilesInputs === 0 && A.ownFilesBtns === 0,
+    "A2 Add Coin has no 📁 button or Files input of its own any more (C3): " + JSON.stringify(A));
+  ok(A.chooserFiles.accept === "image/*,application/pdf" && !A.chooserFiles.capture,
+    "A3 the chooser's Files input Add Coin now uses: accept exact, no capture: " + JSON.stringify(A.chooserFiles));
+  ok(A.obvChooser.open && A.obvChooser.files === "📁 Files", "A4 the obverse + opens the chooser, which offers 📁 Files: " + JSON.stringify(A.obvChooser));
   ok(A.constant === "image/*,application/pdf", "A5 FILES_PICKER_ACCEPT is exactly image/*,application/pdf");
-  ok(A.obvBtn === "📁" && A.obvBtnTitle === "Files", "A6 Obverse slot shows the 📁 button titled Files");
-  ok(A.galBtn === "📁 Files" && JSON.stringify(A.galLabels) === JSON.stringify(["📷 Camera", "🖼️ Library", "📁 Files"]),
-    "A7 Add photo row reads 📷 Camera / 🖼️ Library / 📁 Files: " + JSON.stringify(A.galLabels));
   ok(A.addSetGalFiles === 0 && JSON.stringify(A.addSetGalLabels) === JSON.stringify(["📷 Take photo", "🖼️ Choose photo"]),
     "A8 Add Set's gallery is unchanged (no Files button, original labels): " + JSON.stringify(A.addSetGalLabels));
   ok(A.filesInputsOutsideAddCoin === 0 && A.chooserFilesInputs === 1,
@@ -255,12 +272,13 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     __fp.installCounters();
     const blob = await __fp.jpeg();
     __fp.freshAddCoin();
-    const viaLib = await __fp.pickAndFinish(document.getElementById("obverseLibraryInput"), __fp.file("jpeg", blob));
+    const obvPlus = () => document.getElementById("obversePlaceholder");
+    const viaLib = await __fp.pickAndFinish(__fp.viaChooser(obvPlus(), "library"), __fp.file("jpeg", blob));
     __fp.freshAddCoin();
-    const viaFiles = await __fp.pickAndFinish(document.getElementById("obverseFilesInput"), __fp.file("jpeg", blob));
+    const viaFiles = await __fp.pickAndFinish(__fp.viaChooser(obvPlus(), "files"), __fp.file("jpeg", blob));
     __fp.freshAddCoin();
     document.getElementById("showReverseBtn").click();
-    const revFiles = await __fp.pickAndFinish(document.getElementById("reverseFilesInput"), __fp.file("jpeg", blob));
+    const revFiles = await __fp.pickAndFinish(__fp.viaChooser(document.getElementById("reversePlaceholder"), "files"), __fp.file("jpeg", blob));
     return { viaLib, viaFiles, revFiles, toast: __fp.toast(), graph: __fp.graphCalls, fetches: __fp.fetches };
   });
   ok(D.viaLib.stage1 && D.viaLib.stage2, "D1 control: a JPEG through Library opens both crop stages");
@@ -271,7 +289,7 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
     JSON.stringify({ lib: D.viaLib, files: D.viaFiles }));
   ok(D.viaFiles.blobType === "image/jpeg" && D.viaFiles.type === "obverse", "D4 the stored crop is a JPEG obverse entry");
   ok(D.revFiles.stage1 && /Reverse/.test(D.revFiles.title || "") && D.revFiles.type === "reverse",
-    "D5 Reverse's Files button runs the reverse crop: " + JSON.stringify(D.revFiles));
+    "D5 Reverse's Files source (via its + and the chooser) runs the reverse crop: " + JSON.stringify(D.revFiles));
   ok(D.toast === "", "D6 a good JPEG shows no refusal toast");
   ok(D.graph === 0 && D.fetches === 0, "H1 picking and cropping on Add Coin sends no Graph request before Save: " +
     JSON.stringify({ graph: D.graph, fetches: D.fetches }));
@@ -280,23 +298,27 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   const E = await page.evaluate(async () => {
     __fp.installCounters();
     const out = {};
+    const obvPlus = () => document.getElementById("obversePlaceholder");
     __fp.freshAddCoin();
-    out.pdfFiles = await __fp.refused(document.getElementById("obverseFilesInput"), __fp.file("pdf"));
+    out.pdfFiles = await __fp.refused(__fp.viaChooser(obvPlus(), "files"), __fp.file("pdf"));
     __fp.freshAddCoin();
-    out.brokenFiles = await __fp.refused(document.getElementById("obverseFilesInput"), __fp.file("broken"));
+    out.brokenFiles = await __fp.refused(__fp.viaChooser(obvPlus(), "files"), __fp.file("broken"));
     __fp.freshAddCoin();
-    out.heicFiles = await __fp.refused(document.getElementById("obverseFilesInput"), __fp.file("heic"));
+    out.heicFiles = await __fp.refused(__fp.viaChooser(obvPlus(), "files"), __fp.file("heic"));
     __fp.freshAddCoin();
-    out.brokenLib = await __fp.refused(document.getElementById("obverseLibraryInput"), __fp.file("broken"));
+    out.brokenLib = await __fp.refused(__fp.viaChooser(obvPlus(), "library"), __fp.file("broken"));
     __fp.freshAddCoin();
-    out.pdfLib = await __fp.refused(document.getElementById("obverseLibraryInput"), __fp.file("pdf"));
-    // The gallery: pick a type first, as a person does, then the file.
+    out.pdfLib = await __fp.refused(__fp.viaChooser(obvPlus(), "library"), __fp.file("pdf"));
+    // The gallery: the + tile, a type first (as a person does), then the
+    // chooser's Files source, then the file.
     __fp.freshAddCoin();
     const gal = document.getElementById("addCoinGallery");
-    gal.querySelector('[data-role="add-files"]').click();
+    gal.querySelector('button.gc-add-tile[data-role="add"]').click();
     const item = [...document.querySelectorAll(".gtp-item")].find(b => /Slab/.test(b.textContent));
     if (item) item.click();
-    out.galPdf = await __fp.refused(gal.querySelector('input[data-role="files"]'), __fp.file("pdf"));
+    const filesBtn = document.querySelector('#imageSourceChooser:not(.hidden) .image-chooser-btn[data-source="files"]');
+    if (filesBtn) filesBtn.click();
+    out.galPdf = await __fp.refused(filesBtn ? document.getElementById("imageChooserFilesInput") : null, __fp.file("pdf"));
     out.typeChosen = !!item;
     out.decodes = {
       jpeg: await isPickableImage(__fp.file("jpeg", await __fp.jpeg())),
@@ -309,9 +331,9 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   ok(refusedOk(E.pdfFiles), "E1 a PDF through Files: toast, no crop screen, nothing added: " + JSON.stringify(E.pdfFiles));
   ok(refusedOk(E.brokenFiles), "E2 broken JPEG bytes through Files are refused: " + JSON.stringify(E.brokenFiles));
   ok(refusedOk(E.heicFiles), "E3 an undecodable HEIC through Files is refused: " + JSON.stringify(E.heicFiles));
-  ok(refusedOk(E.brokenLib), "E4 the guard covers the existing 🖼️ Library input too (broken JPEG): " + JSON.stringify(E.brokenLib));
-  ok(refusedOk(E.pdfLib), "E5 a PDF forced onto 🖼️ Library is refused: " + JSON.stringify(E.pdfLib));
-  ok(E.typeChosen && refusedOk(E.galPdf), "E6 Add photo gallery: a PDF through Files is refused: " + JSON.stringify(E.galPdf));
+  ok(refusedOk(E.brokenLib), "E4 the guard covers the chooser's 🖼️ Library source too (broken JPEG): " + JSON.stringify(E.brokenLib));
+  ok(refusedOk(E.pdfLib), "E5 a PDF forced onto the 🖼️ Library source is refused: " + JSON.stringify(E.pdfLib));
+  ok(E.typeChosen && refusedOk(E.galPdf), "E6 Add photo gallery (+ tile, type, chooser): a PDF through Files is refused: " + JSON.stringify(E.galPdf));
   ok(E.galPdf.graph === 0 && E.galPdf.fetches === 0, "E7 refused picks made zero Graph requests");
   ok(E.decodes.jpeg === true && !E.decodes.pdf && !E.decodes.broken && !E.decodes.heic && !E.decodes.none,
     "E8 isPickableImage: JPEG yes; PDF, broken, HEIC, null no: " + JSON.stringify(E.decodes));
@@ -357,18 +379,21 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
                  overflow: el.scrollWidth > el.clientWidth, clipped: kids.filter(k => k.scrollWidth > k.clientWidth).length,
                  right: el.getBoundingClientRect().right };
       };
-      const out = { obv: row(document.querySelector("#obversePhotoBox .photo-btns")) };
+      // C3: no button rows left; the + circle and the gallery + tile take
+      // their place. Each must be fully on screen.
+      const onScreen = (el) => { if (!el || el.offsetParent === null) return false; const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; };
+      const out = { obv: onScreen(document.getElementById("obversePlaceholder")) };
       document.getElementById("showReverseBtn").click();
-      out.rev = row(document.querySelector("#reversePhotoBox .photo-btns"));
-      out.gal = row(document.querySelector("#addCoinGallery .gc-add-row"));
+      out.rev = onScreen(document.getElementById("reversePlaceholder"));
+      out.gal = onScreen(document.querySelector("#addCoinGallery button.gc-add-tile"));
+      out.oldRows = document.querySelectorAll("#obversePhotoBox .photo-btns, #reversePhotoBox .photo-btns, #addCoinGallery .gc-add-row").length;
       out.pageScroll = document.documentElement.scrollWidth > window.innerWidth;
       out.inner = window.innerWidth;
       return out;
     });
     const tag = vp.width + "x" + vp.height;
-    const good = (r, n) => r.count === n && r.lines === 1 && !r.overflow && r.clipped === 0 && r.right <= L.inner;
-    ok(good(L.obv, 3) && good(L.rev, 3), `I1 ${tag}: Obverse and Reverse rows (📷 🖼️ 📁) are one line: ` + JSON.stringify([L.obv, L.rev]));
-    ok(good(L.gal, 3), `I2 ${tag}: Add photo row (Camera / Library / Files) is one line, no clipped label: ` + JSON.stringify(L.gal));
+    ok(L.obv && L.rev && L.oldRows === 0, `I1 ${tag}: the Obverse and Reverse + circles are on screen; no 📷 🖼️ 📁 rows (C3): ` + JSON.stringify(L));
+    ok(L.gal, `I2 ${tag}: the gallery's + tile is on screen: ` + JSON.stringify(L));
     ok(!L.pageScroll, `I3 ${tag}: no sideways page scroll`);
     if (p !== page) await p.close();
   }

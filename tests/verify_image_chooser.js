@@ -18,7 +18,7 @@
 //      slots with one Replace and the icon row, no 📷/🖼️/📁 row, no file
 //      input inside any slot; Reference/Other get a "+" tile and a Replace
 //      per thumbnail; the same on Manage Photos for a coin
-//   X  scope after C2: only Add Coin, Add Set and Wishlist keep old buttons
+//   X  scope after C3: only Add Set and Wishlist keep old buttons
 //   V/SC/SJ/SR/SG/SL  the Set screens (C2): Edit Set and Manage Photos for
 //      a Set — layout, Cancel, a JPEG commit, Replace keeps PhotoID and
 //      Label with no leftover thumbnail, guard refusals, layout L1-L8
@@ -30,9 +30,13 @@
 //      through Library, are refused with the toast: no crop, nothing added,
 //      zero Graph requests; the stored photo stays
 //   K  Camera is not guarded: a camera pick opens the crop screen
-//   T  the gallery type picker overlay sits below the chooser (Add Coin's
-//      gallery keeps its own order until C3; this pins the stacking)
+//   T  the gallery type picker overlay sits below the chooser (S3 pins it)
 //   L  layout at 360x800, 412x915 and 1024x768 with a long name
+//   AC* stage C3, Add Coin (new draft and Staging-draft edit): + circle and
+//      Replace open the chooser, the gallery's type picker runs first, guard
+//      refusals, Cancel adds nothing, Replace keeps place/type/label, ✕
+//      removes from the draft only, Save writes the same Staging data,
+//      backlog (d) ✕ at once in a Staging edit, layout ACL1-ACL8
 
 const { defineSuite } = require("./harness");
 
@@ -212,6 +216,128 @@ async function setup(page) {
   }, { LONG_NAME });
 }
 
+// Stage C3 helpers: Add Coin (a new draft, and a Staging-draft edit).
+const AC_ID = "AY-00754";
+async function setupAddCoin(page) {
+  await page.evaluate(({ AC_ID }) => {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    window.__ac = {
+      id: AC_ID, mock: null, graphCalls: 0,
+      list() { return galleryFor(ADDCOIN_GALLERY_ID); },
+      installMock(extra) {
+        const self = this;
+        const blank = (n) => new Array(n).fill("");
+        const mock = createMockGraphClient(Object.assign({ workbookColumns: { "All::CollectionID": ["AY-00500"] }, sheets: {
+          All: [["CollectionID", "CoinID"]],
+          Photos: [["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"]].concat([1, 2, 3].map(() => blank(8))),
+          Receipts: [["ReceiptID", "CollectionID", "Filename", "DateAdded"]].concat([1, 2].map(() => blank(4))),
+        } }, extra || {}));
+        this.mock = mock;
+        __setGraphClientForTest(new Proxy(mock, { get(t, k) {
+          const v = t[k]; return typeof v === "function" ? (...a) => { self.graphCalls++; return v.apply(t, a); } : v;
+        } }));
+        __resetAllHeaderMapForTest(); __resetSheetHeaderMapsForTest();
+        __setAddCoinWriteEnabledForTest(true);
+        this.graphCalls = 0;
+        return mock;
+      },
+      openPhotos() {
+        const body = document.getElementById("addCoinPhotosBody");
+        if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+        __ic.closeOverlays(); closeImageSourceChooser();
+        document.getElementById("galleryTypePickerOverlay").classList.add("hidden");
+      },
+      fresh() {
+        this.installMock();
+        navigate("addcoin");
+        this.openPhotos();
+        this.graphCalls = 0;
+        return document.getElementById("addCoinPhotosBody");
+      },
+      // A Staging draft with a stored obverse (+ its original), a stored
+      // Reference labelled "PCGS photo" and a stored slab front, opened for edit.
+      async staging() {
+        const mock = this.installMock();
+        const id = this.id, folder = coinDraftFolder(id);
+        const bytes = async () => new Uint8Array(await (await __ic.jpeg()).arrayBuffer());
+        for (const f of ["_obverse_cropped.jpg", "_obverse_original.jpg", "_reference_01.jpg", "_slab_obverse.jpg"]) {
+          await mock.uploadFile(folder + "/" + id + f, new Blob([await bytes()], { type: "image/jpeg" }));
+        }
+        await mock.uploadJson(folder + "/coin.json", {
+          type: "coin", version: 1, collectionID: id, status: "Draft", denom: "5C", category: "", year: "1938", mint: "D",
+          variety: "", description: "Buffalo Nickel", finish: "Business Strike", designation: "", errorDesc: "", grade: "",
+          gradeSource: "", serNo: "", cacBean: "", cost: null, shippingCost: null, purchaseDate: "", vendor: "",
+          storageLocation: "", container: "", assignAlbum: "", remarks: "", itemNumber: "", gsid: "",
+          coinId: "", matchedHow: "none", receiptPhoto: "", researchNote: "", allRowWritten: false, forceAdded: false,
+          filesMovedOnPromotion: false, savedVia: "staging", createdDate: "2026-10-20T17:57:36Z",
+          photos: [
+            { type: "obverse", filename: id + "_obverse_cropped.jpg", caption: "" },
+            { type: "obverse", filename: id + "_obverse_original.jpg", caption: "original" },
+            { type: "reference", filename: id + "_reference_01.jpg", caption: "PCGS photo" },
+            { type: "slab_obverse", filename: id + "_slab_obverse.jpg", caption: "" },
+          ] });
+        await beginCoinDraftEdit(id);
+        this.openPhotos();
+        await this.waitFor(() => document.getElementById("obverseFrame").classList.contains("has-photo"), 4000);
+        await sleep(150);
+        this.graphCalls = 0;
+        return document.getElementById("addCoinPhotosBody");
+      },
+      gallery() { return document.getElementById("addCoinGallery"); },
+      tile() { return this.gallery().querySelector('button.gc-add-tile[data-role="add"]'); },
+      thumbs() { return [...this.gallery().querySelectorAll(".gc-thumb")]; },
+      shown(id) { const el = document.getElementById(id); return !!el && el.style.display !== "none" && el.offsetParent !== null; },
+      slot(type) {
+        const s = (id) => document.getElementById(type + id);
+        return { add: s("Placeholder"), remove: s("RemoveBtn"), replace: s("ReplaceBtn"), recrop: s("AdjustBtn"),
+                 label: s("SlotLabel"), frame: s("Frame"), box: s("PhotoBox") };
+      },
+      slotState(type) {
+        const s = this.slot(type);
+        const vis = (el) => !!el && getComputedStyle(el).display !== "none" && el.offsetParent !== null;
+        return { filled: s.frame.classList.contains("has-photo"), addShown: vis(s.add),
+                 addLabel: (s.add.querySelector(".sg-photo-add-label") || {}).textContent || null,
+                 addPlus: !!s.add.querySelector(".sg-photo-add-plus"),
+                 remove: vis(s.remove), replace: vis(s.replace), recrop: vis(s.recrop), label: vis(s.label),
+                 labelText: s.label.textContent, removeText: s.remove.textContent.trim(),
+                 recropText: s.recrop.textContent.trim(), replaceText: s.replace.textContent.trim(),
+                 entries: this.list().filter(e => e.type === type).length };
+      },
+      // Pick a gallery type in the open type picker.
+      chooseType(re) {
+        const item = [...document.querySelectorAll("#galleryTypePickerOverlay .gtp-item")].find(b => re.test(b.textContent));
+        if (item) item.click();
+        return !!item;
+      },
+      // Type picker, then the chooser source, then the file.
+      galleryAdd(re, source, file) {
+        const t = this.tile();
+        if (!t) return false;
+        t.click();
+        if (!this.chooseType(re)) return false;
+        if (!__ic.chooserOpen()) return false;
+        const btn = __ic.chooser().querySelector('.image-chooser-btn[data-source="' + source + '"]');
+        btn.click();
+        const input = __ic.inputFor(source);
+        const dt = new DataTransfer(); dt.items.add(file); input.files = dt.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      },
+      waitFor(fn, ms) { return __ic.waitFor(fn, ms); },
+      clickGuard(label) {
+        const b = [...document.querySelectorAll("#writeGuardOverlay button")].find(x => x.textContent.trim() === label);
+        if (b) b.click();
+        return !!b;
+      },
+      guardTitle() { const o = document.getElementById("writeGuardOverlay"); return o && !o.classList.contains("hidden") ? (document.getElementById("writeGuardTitle") || {}).textContent || o.textContent : ""; },
+      teardown() {
+        __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+        __resetAllHeaderMapForTest(); __setLiveDbCoinsForTest(null);
+      },
+    };
+  }, { AC_ID });
+}
+
 module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLET }) => {
   const page = await openApp(PHONE);
   await setup(page);
@@ -331,7 +457,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     navigate("addcoin");
     const ac = document.getElementById("view-addcoin");
     const addCoin = { old: !!document.getElementById("obverseCameraBtn") + ac.querySelectorAll(".gc-add-row").length,
-                      chooser: ac.querySelectorAll(".sg-photo-add, .gc-add-tile").length };
+                      chooser: ac.querySelectorAll(".addcoin-flip-add, .gc-add-tile").length };
     navigate("addset");
     if (typeof renderAddSetDocs === "function") renderAddSetDocs();
     const ad = document.getElementById("addSetDocsSlots");
@@ -342,9 +468,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     return { editSet, manageSet, addCoin, addSet, wishlist };
   });
   ok(X.editSet.old === 0 && X.editSet.chooser > 0 && X.manageSet.old === 0 && X.manageSet.chooser > 0 &&
-     X.addCoin.old > 0 && X.addCoin.chooser === 0 && X.addSet.old > 0 && X.addSet.chooser === 0 &&
+     X.addCoin.old === 0 && X.addCoin.chooser === 3 && X.addSet.old > 0 && X.addSet.chooser === 0 &&
      X.wishlist.old === 3 && X.wishlist.chooser === 0,
-    "X1 scope after C2: Edit Set and Manage Photos for a Set use the chooser; only Add Coin, Add Set and Wishlist keep their old 📷/🖼️ buttons: " + JSON.stringify(X));
+    "X1 scope after C3: Edit Set, Manage Photos for a Set and Add Coin use the chooser; only Add Set and Wishlist keep their old 📷/🖼️ buttons: " + JSON.stringify(X));
 
   // ---------- V. The Set screens (C2) -----------------------------------------
   for (const surface of ["edit", "manage"]) {
@@ -1316,5 +1442,512 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     }, screen);
     ok(T.addO && T.cropO && T.tapO && T.savedO && T.addP && T.cropP && T.tapP && T.savedP,
       `RC5-${screen}: tapping the centred ↻ on a failed save (open-ended and pair) retries and saves — row written: ` + JSON.stringify(T));
+  }
+  // ======================================================================
+  // STAGE C3 — ADD COIN (a new draft, and a Staging-draft edit)
+  // ======================================================================
+  // Obverse/Reverse: the circle is the "+" box with the side's name inside;
+  // a filled circle has a ✕ on its rim, the side's name under it, Replace,
+  // and a Recrop pill where ⤢ showed. The gallery: thumbnails with photo,
+  // type, label box, Replace and ✕; a "+" tile runs the type picker first,
+  // then the chooser. Photos stay in memory until Save (no Saving…/↻ on a
+  // pick, zero Graph requests); ✕ removes from the draft only; Save writes
+  // the same Staging data as the old buttons did.
+  await setupAddCoin(page);
+
+  // ---------- AU. What Add Coin renders (new draft) ------------------------
+  const AU = await page.evaluate(async () => {
+    const body = __ac.fresh();
+    const obv = __ac.slotState("obverse");
+    document.getElementById("showReverseBtn").click();
+    const rev = __ac.slotState("reverse");
+    document.getElementById("showObverseBtn").click();
+    const view = document.getElementById("view-addcoin");
+    const tile = __ac.tile();
+    return {
+      obv, rev,
+      oldBtns: ["obverseCameraBtn", "obverseLibraryBtn", "obverseFilesBtn", "reverseCameraBtn", "reverseLibraryBtn", "reverseFilesBtn"]
+        .filter(i => document.getElementById(i)).length + body.querySelectorAll(".gc-add-row, .gc-add-btn, .photo-btns").length,
+      flipInputs: document.querySelectorAll('#obversePhotoBox input[type="file"], #reversePhotoBox input[type="file"]').length,
+      galInputs: __ac.gallery().querySelectorAll('input[type="file"]').length,
+      tile: !!tile, tileLast: !!tile && tile.parentElement.lastElementChild === tile,
+      tileLabel: tile && tile.querySelector(".sg-photo-add-label").textContent,
+      chooserGrid: __ac.gallery().querySelector(".gc-grid").classList.contains("gc-chooser-grid"),
+      receiptKept: !!document.getElementById("receiptCameraBtn") && !!document.getElementById("receiptLibraryInput"),
+    };
+  });
+  ok(AU.obv.addShown && AU.obv.addPlus && AU.obv.addLabel === "Obverse" && !AU.obv.remove && !AU.obv.replace && !AU.obv.recrop && !AU.obv.label &&
+     AU.rev.addShown && AU.rev.addLabel === "Reverse" && !AU.rev.remove && !AU.rev.replace,
+    "ACU1 an empty Obverse/Reverse is one + circle with the side's name inside, and no ✕, label, Replace or Recrop: " + JSON.stringify([AU.obv, AU.rev]));
+  ok(AU.oldBtns === 0 && AU.flipInputs === 0 && AU.galInputs === 0,
+    "ACU2 no 📷/🖼️/📁 buttons, no add row and no file input anywhere in Add Coin's photos: " + JSON.stringify(AU));
+  ok(AU.tile && AU.tileLast && AU.tileLabel === "Add photo" && AU.chooserGrid,
+    "ACU3 the gallery ends with a + tile labelled Add photo, in the top-aligned chooser grid: " + JSON.stringify(AU));
+  ok(AU.receiptKept, "ACU4 the receipt slot is untouched (C5 is separate): its 📷/🖼️ buttons and inputs remain");
+
+  // ---------- AC. Chooser from +, pick, crop: in memory only ---------------
+  const AC = await page.evaluate(async () => {
+    __ac.fresh();
+    const out = {};
+    const s = __ac.slot("obverse");
+    s.add.click();
+    out.chooserFromPlus = __ic.chooserOpen();
+    out.titlePlus = document.getElementById("imageSourceChooserTitle").textContent;
+    closeImageSourceChooser();
+    out.picked = __ic.pickVia(s.add, "library", await __ic.jpeg());
+    out.crop = await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+    out.after = __ac.slotState("obverse");
+    const e = __ac.list().find(x => x.type === "obverse");
+    out.entry = e ? { pending: !!e.uploadPending, error: e.uploadError || "", blob: !!e.blob } : null;
+    out.saving = /Saving…/.test(s.box.textContent) || !!s.box.querySelector(".gc-retry, .sg-photo-retry, .staging-retry-btn");
+    out.graph = __ac.graphCalls;
+    // Replace opens the chooser too, worded Replace.
+    s.replace.click();
+    out.chooserFromReplace = __ic.chooserOpen();
+    out.titleReplace = document.getElementById("imageSourceChooserTitle").textContent;
+    closeImageSourceChooser();
+    // Reverse through Files.
+    document.getElementById("showReverseBtn").click();
+    out.revPicked = __ic.pickVia(__ac.slot("reverse").add, "files", await __ic.jpeg());
+    out.revCrop = await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("reverse").filled, 3000);
+    out.rev = __ac.slotState("reverse");
+    document.getElementById("showObverseBtn").click();
+    out.graphAll = __ac.graphCalls;
+    return out;
+  });
+  ok(AC.chooserFromPlus && AC.titlePlus === "Add obverse photo" && AC.chooserFromReplace && AC.titleReplace === "Replace obverse photo",
+    "ACC1 the + circle opens the chooser (Add obverse photo) and Replace opens it too (Replace obverse photo): " + JSON.stringify(AC));
+  ok(AC.picked && AC.crop && AC.after.filled && !AC.after.addShown && AC.after.remove && AC.after.removeText === "✕" &&
+     AC.after.label && AC.after.labelText === "Obverse" && AC.after.replace && AC.after.replaceText === "Replace" &&
+     AC.after.recrop && AC.after.recropText === "Recrop" && AC.after.entries === 1,
+    "ACC2 after a pick and crop: the photo, ✕ on its rim, Obverse under it, Replace and a Recrop pill: " + JSON.stringify(AC.after));
+  ok(AC.entry && !AC.entry.pending && !AC.entry.error && AC.entry.blob && !AC.saving && AC.graphAll === 0,
+    "ACC3 the pick stays in memory: no Saving…, no ↻, zero Graph requests: " + JSON.stringify([AC.entry, AC.saving, AC.graphAll]));
+  ok(AC.revPicked && AC.revCrop && AC.rev.filled && AC.rev.remove && AC.rev.replace,
+    "ACC4 the reverse fills the same way, through Files: " + JSON.stringify(AC.rev));
+
+  // ---------- AR. Replace on obverse: same slot, one entry -----------------
+  const AR = await page.evaluate(async () => {
+    __ac.fresh();
+    __ic.pickVia(__ac.slot("obverse").add, "library", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+    const first = __ac.list().find(e => e.type === "obverse");
+    const at = __ac.list().indexOf(first);
+    const picked = __ic.pickVia(__ac.slot("obverse").replace, "camera", await __ic.jpeg());
+    const crop = await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.list().find(e => e.type === "obverse") !== first, 3000);
+    const now = __ac.list().filter(e => e.type === "obverse");
+    return { picked, crop, n: now.length, replaced: now[0] !== first, sameAt: __ac.list().indexOf(now[0]) === at,
+             type: now[0] && now[0].type, state: __ac.slotState("obverse"), graph: __ac.graphCalls };
+  });
+  ok(AR.picked && AR.crop && AR.n === 1 && AR.replaced && AR.sameAt && AR.type === "obverse" && AR.state.remove && AR.graph === 0,
+    "ACR1 Replace on the obverse swaps the photo in place: one obverse entry, same position, still filled, no Graph request: " + JSON.stringify(AR));
+
+  // ---------- AT. The type picker runs before the chooser ------------------
+  const AT = await page.evaluate(async () => {
+    __ac.fresh();
+    const out = {};
+    __ac.tile().click();
+    out.pickerOpen = __ic.overlayOpen("galleryTypePickerOverlay");
+    out.chooserBefore = __ic.chooserOpen();
+    out.chose = __ac.chooseType(/Reference/);
+    out.pickerClosed = !__ic.overlayOpen("galleryTypePickerOverlay");
+    out.chooserAfter = __ic.chooserOpen();
+    out.title = document.getElementById("imageSourceChooserTitle").textContent;
+    closeImageSourceChooser();
+    out.picked = __ac.galleryAdd(/Reference/, "library", await __ic.jpeg());
+    out.crop = await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.thumbs().length === 1, 3000);
+    const t = __ac.thumbs()[0];
+    out.thumb = t ? {
+      type: (t.querySelector(".gc-type") || {}).textContent,
+      label: !!t.querySelector(".gc-caption"), labelPh: (t.querySelector(".gc-caption") || {}).placeholder,
+      replace: (t.querySelector('[data-role="replace"]') || {}).textContent, remove: !!t.querySelector(".gc-remove"),
+      order: [...t.children].map(c => c.classList.contains("gc-img") ? "photo" : c.classList.contains("gc-type") ? "type"
+        : c.classList.contains("gc-caption") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
+      saving: /Saving…/.test(t.textContent) || !!t.querySelector(".gc-retry"),
+    } : null;
+    out.entryType = (__ac.list().find(e => !galleryTypeDef(e.type).flipSource) || {}).type;
+    out.tileStillLast = __ac.tile() && __ac.tile().parentElement.lastElementChild === __ac.tile();
+    out.graph = __ac.graphCalls;
+    return out;
+  });
+  ok(AT.pickerOpen && !AT.chooserBefore && AT.chose && AT.pickerClosed && AT.chooserAfter && AT.title === "Add reference photo",
+    "ACT1 the + tile opens the what-kind-of-photo picker first; the chooser opens only after a type is picked: " + JSON.stringify(AT));
+  ok(AT.picked && AT.crop && AT.thumb && AT.entryType === "reference" && AT.thumb.type === "Reference photo" &&
+     JSON.stringify(AT.thumb.order) === JSON.stringify(["photo", "type", "label", "replace"]) && AT.thumb.remove &&
+     AT.thumb.labelPh === "Label…" && AT.thumb.replace === "Replace" && !AT.thumb.saving && AT.tileStillLast && AT.graph === 0,
+    "ACT2 the picked photo lands as a Reference thumbnail: photo, type, label box, Replace and ✕; no Saving…; + tile still last; no Graph request: " + JSON.stringify(AT));
+
+  // ---------- ACX. Cancel adds nothing --------------------------------------
+  const ACX = await page.evaluate(async () => {
+    __ac.fresh();
+    const out = {};
+    __ac.slot("obverse").add.click();
+    document.getElementById("imageSourceChooserCancel").click();
+    out.flipCancel = { closed: !__ic.chooserOpen(), entries: __ac.list().length, filled: __ac.slotState("obverse").filled };
+    __ac.tile().click();
+    document.getElementById("galleryTypePickerCancelBtn").click();
+    out.typeCancel = { pickerClosed: !__ic.overlayOpen("galleryTypePickerOverlay"), chooser: __ic.chooserOpen(), entries: __ac.list().length };
+    __ac.tile().click(); __ac.chooseType(/Slab/);
+    __ic.chooser().click();   // backdrop
+    out.backdrop = { closed: !__ic.chooserOpen(), entries: __ac.list().length };
+    __ac.slot("obverse").add.click();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    out.esc = { closed: !__ic.chooserOpen(), entries: __ac.list().length };
+    // A source picked, then the OS picker cancelled (no change event): nothing.
+    __ac.slot("obverse").add.click();
+    __ic.chooser().querySelector('.image-chooser-btn[data-source="library"]').click();
+    await new Promise(r => setTimeout(r, 200));
+    out.osCancel = { entries: __ac.list().length, crop: __ic.overlayOpen("bgCropOverlay") };
+    out.thumbs = __ac.thumbs().length; out.graph = __ac.graphCalls;
+    return out;
+  });
+  ok(ACX.flipCancel.closed && ACX.flipCancel.entries === 0 && !ACX.flipCancel.filled && ACX.typeCancel.pickerClosed && !ACX.typeCancel.chooser &&
+     ACX.typeCancel.entries === 0 && ACX.backdrop.closed && ACX.esc.closed && ACX.osCancel.entries === 0 && !ACX.osCancel.crop &&
+     ACX.thumbs === 0 && ACX.graph === 0,
+    "ACX1 Cancel (chooser or type picker), a backdrop tap, Esc, or an abandoned OS picker add nothing and write nothing: " + JSON.stringify(ACX));
+
+  // ---------- AG. Guard refusals --------------------------------------------
+  const AG = await page.evaluate(async () => {
+    const out = {};
+    const refuse = async (trigger, source, file) => {
+      __ic.closeOverlays();
+      const before = __ac.list().length, calls = __ac.graphCalls;
+      const picked = __ic.pickVia(trigger, source, file);
+      await __ic.waitFor(() => __ic.toast() !== "", 3000);
+      await new Promise(r => setTimeout(r, 250));
+      return { picked, toast: __ic.toast(), crop: __ic.overlayOpen("bgCropOverlay"), added: __ac.list().length - before, graph: __ac.graphCalls - calls };
+    };
+    __ac.fresh();
+    out.pdfFiles = await refuse(__ac.slot("obverse").add, "files", __ic.file("pdf"));
+    out.brokenLib = await refuse(__ac.slot("obverse").add, "library", __ic.file("broken"));
+    out.heicFiles = await refuse(__ac.slot("obverse").add, "files", __ic.file("heic"));
+    // Gallery: type first, then a PDF through Files.
+    __ic.closeOverlays();
+    const before = __ac.list().length;
+    out.galPicked = __ac.galleryAdd(/Slab/, "files", __ic.file("pdf"));
+    await __ic.waitFor(() => __ic.toast() !== "", 3000);
+    await new Promise(r => setTimeout(r, 250));
+    out.gal = { toast: __ic.toast(), crop: __ic.overlayOpen("bgCropOverlay"), added: __ac.list().length - before };
+    // Camera is not guarded: an untyped, extension-less capture still crops.
+    __ic.closeOverlays();
+    const f = new File([await (await __ic.jpeg()).arrayBuffer()], "capture", { type: "" });
+    out.cam = { picked: __ic.pickVia(__ac.slot("obverse").add, "camera", f), crop: await __ic.waitFor(() => __ic.overlayOpen("bgCropOverlay"), 3000),
+                toast: __ic.toast(), pickable: await isPickableImage(f) };
+    __ic.closeOverlays();
+    out.graph = __ac.graphCalls;
+    return out;
+  });
+  const acRefused = (r) => r && r.picked !== false && r.toast === TOAST && !r.crop && r.added === 0;
+  ok(acRefused(AG.pdfFiles) && acRefused(AG.brokenLib) && acRefused(AG.heicFiles),
+    "ACG1 obverse +: a PDF and an undecodable HEIC through Files, and a broken JPEG through Library, are refused with the toast; no crop, nothing added: " + JSON.stringify([AG.pdfFiles, AG.brokenLib, AG.heicFiles]));
+  ok(AG.galPicked && AG.gal.toast === TOAST && !AG.gal.crop && AG.gal.added === 0,
+    "ACG2 gallery +: after the type, a PDF through Files is refused the same way: " + JSON.stringify(AG.gal));
+  ok(AG.cam.picked && AG.cam.crop && AG.cam.toast !== TOAST && AG.cam.pickable === false && AG.graph === 0,
+    "ACG3 Camera is not guarded (a file the guard would refuse still opens the crop); refusals sent no Graph request: " + JSON.stringify(AG));
+
+  // ---------- AP. Gallery Replace keeps place, type and label (backlog c) --
+  const AP = await page.evaluate(async () => {
+    __ac.fresh();
+    const out = {};
+    for (const [re, lbl] of [[/Reference/, "first"], [/Slab — front/, "middle"], [/Other/, "last"]]) {
+      __ac.galleryAdd(re, "library", await __ic.jpeg());
+      await __ic.finishCrop();
+      await __ac.waitFor(() => __ac.thumbs().length === ["first", "middle", "last"].indexOf(lbl) + 1, 3000);
+      const t = __ac.thumbs().slice(-1)[0];
+      if (!t) break;   // null-safe: a missing step fails ACP1 by name
+      const cap = t.querySelector(".gc-caption"); cap.value = lbl; cap.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    const before = __ac.list().map(e => ({ type: e.type, caption: e.caption }));
+    const old = __ac.list()[1];
+    const midThumb = __ac.thumbs()[1];
+    out.picked = __ic.pickVia(midThumb && midThumb.querySelector('[data-role="replace"]'), "library", await __ic.jpeg());
+    out.title = document.getElementById("imageSourceChooserTitle").textContent;
+    out.crop = out.picked ? await __ic.finishCrop() : false;
+    await __ac.waitFor(() => __ac.list()[1] !== old, out.picked ? 3000 : 1);
+    out.before = before;
+    out.after = __ac.list().map(e => ({ type: e.type, caption: e.caption }));
+    out.newObject = __ac.list()[1] !== old && __ac.list().indexOf(old) === -1;
+    out.thumbLabels = __ac.thumbs().map(t => (t.querySelector(".gc-caption") || {}).value);
+    out.graph = __ac.graphCalls;
+    return out;
+  });
+  ok(AP.picked && AP.crop && AP.newObject && JSON.stringify(AP.after) === JSON.stringify(AP.before) &&
+     JSON.stringify(AP.thumbLabels) === JSON.stringify(["first", "middle", "last"]) && AP.graph === 0,
+    "ACP1 Replace on the middle gallery photo swaps the photo and keeps its place, type and label (backlog c): " + JSON.stringify(AP));
+
+  // ---------- AM. ✕ removes from the draft only ------------------------------
+  const AM = await page.evaluate(async () => {
+    __ac.fresh();
+    const out = {};
+    __ic.pickVia(__ac.slot("obverse").add, "library", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+    __ac.galleryAdd(/Reference/, "library", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.thumbs().length === 1, 3000);
+    // Flip ✕: asked first; Cancel keeps it.
+    __ac.slot("obverse").remove.click();
+    out.asked = __ac.guardTitle();
+    out.cancelled = __ac.clickGuard("Cancel");
+    out.afterCancel = __ac.slotState("obverse");
+    __ac.slot("obverse").remove.click();
+    out.removed = __ac.clickGuard("Remove");
+    out.afterRemove = __ac.slotState("obverse");
+    // Gallery ✕.
+    const t0 = __ac.thumbs()[0];
+    if (t0) t0.querySelector(".gc-remove").click();
+    out.thumbAsked = __ac.guardTitle();
+    __ac.clickGuard("Remove");
+    out.thumbsLeft = __ac.thumbs().length;
+    out.entriesLeft = __ac.list().length;
+    out.graph = __ac.graphCalls;
+    return out;
+  });
+  ok(/Remove the obverse photo\?/.test(AM.asked) && AM.cancelled && AM.afterCancel.filled && AM.afterCancel.entries === 1,
+    "ACM1 the obverse ✕ asks first, and Cancel keeps the photo: " + JSON.stringify([AM.asked, AM.afterCancel]));
+  ok(AM.removed && !AM.afterRemove.filled && AM.afterRemove.entries === 0 && AM.afterRemove.addShown && !AM.afterRemove.remove && !AM.afterRemove.replace,
+    "ACM2 Remove takes it off the draft: the slot is a + circle again: " + JSON.stringify(AM.afterRemove));
+  ok(/Remove this reference photo\?/.test(AM.thumbAsked) && AM.thumbsLeft === 0 && AM.entriesLeft === 0 && AM.graph === 0,
+    "ACM3 a gallery ✕ asks, then removes from the draft only; nothing is written: " + JSON.stringify(AM));
+
+  // ---------- AS. Save writes the same Staging data as before ---------------
+  const AS = await page.evaluate(async () => {
+    __ac.fresh();
+    __setLiveDbCoinsForTest([{ denom: "10C", year: 1916, mint: "D", variety: "", description: "Mercury Dime",
+      finish: "Business Strike", designation: "", coinId: "C-1916-M-10C-01", pcgs: "4682", mintage: 264000, gsid: "" }]);
+    const set = (id, v) => { document.getElementById(id).value = v; };
+    set("denomination", "10C"); set("year", "1916"); set("mintMark", "D"); set("description", "Mercury Dime"); set("finish", "Business Strike");
+    checkDbCoinsMatch();
+    __ic.pickVia(__ac.slot("obverse").add, "library", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+    __ac.galleryAdd(/Reference/, "files", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.thumbs().length === 1, 3000);
+    const cap = __ac.thumbs()[0] && __ac.thumbs()[0].querySelector(".gc-caption");
+    if (cap) { cap.value = "PCGS photo"; cap.dispatchEvent(new Event("input", { bubbles: true })); }
+    const pickGraph = __ac.graphCalls;
+    await new Promise(r => { saveAddCoinForm("staging"); setTimeout(r, 1200); });
+    const base = writePaths().stagingBase + "/AY-00501";
+    const draft = await __ac.mock.getJson(base + "/coin.json");
+    const paths = [...__ac.mock._store.keys()].filter(p => p.startsWith(base + "/") && !p.endsWith("coin.json")).map(p => p.slice(base.length + 1)).sort();
+    __ac.teardown();
+    return { pickGraph, photos: draft && draft.photos, paths };
+  });
+  const AS_PHOTOS = [
+    { type: "obverse", filename: "AY-00501_obverse_cropped.jpg", caption: "" },
+    { type: "obverse", filename: "AY-00501_obverse_original.jpg", caption: "original" },
+    { type: "reference", filename: "AY-00501_reference_01.jpg", caption: "PCGS photo" },
+  ];
+  ok(AS.pickGraph === 0 && JSON.stringify(AS.photos) === JSON.stringify(AS_PHOTOS) &&
+     JSON.stringify(AS.paths) === JSON.stringify(["AY-00501_obverse_cropped.jpg", "AY-00501_obverse_original.jpg", "AY-00501_reference_01.jpg"]),
+    "ACS1 Save to Staging writes the same draft as before: the obverse crop and its original, the Reference with its label, under the real CollectionID: " + JSON.stringify(AS));
+
+  // ---------- AE. Staging-draft edit (Phase B) --------------------------------
+  const AE = await page.evaluate(async () => {
+    const out = {};
+    await __ac.staging();
+    out.loaded = __ac.slotState("obverse");
+    const ref = __ac.thumbs().find(t => /Reference/.test(t.textContent));
+    out.refLoaded = ref ? { label: ref.querySelector(".gc-caption").value, replace: !!ref.querySelector('[data-role="replace"]'),
+      remove: !!ref.querySelector(".gc-remove"), inStaging: /In Staging/.test(ref.textContent) } : null;
+    out.loadGraph = __ac.graphCalls;
+    // Replace the stored obverse through the chooser: ✕ there at once.
+    const oldObv = __ac.list().find(e => e.type === "obverse");
+    out.repPicked = __ic.pickVia(__ac.slot("obverse").replace, "library", await __ic.jpeg());
+    out.repCrop = await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.list().find(e => e.type === "obverse") !== oldObv, 3000);
+    out.afterReplace = __ac.slotState("obverse");
+    // Replace the stored Reference: place, type and label kept.
+    const refEntry = __ac.list().find(e => e.type === "reference");
+    const refAt = __ac.list().indexOf(refEntry);
+    const refThumb = __ac.thumbs().find(t => /Reference/.test(t.textContent));
+    out.refPicked = __ic.pickVia(refThumb && refThumb.querySelector('[data-role="replace"]'), "files", await __ic.jpeg());
+    out.refCrop = out.refPicked ? await __ic.finishCrop() : false;
+    await __ac.waitFor(() => __ac.list()[refAt] !== refEntry, out.refPicked ? 3000 : 1);
+    const nr = __ac.list()[refAt] || {};
+    out.refAfter = { type: nr.type, caption: nr.caption, stored: !!nr.stagingStored };
+    // ✕ on the stored slab front: the Staging wording.
+    const slab = __ac.thumbs().find(t => /Slab/.test(t.textContent));
+    if (slab) slab.querySelector(".gc-remove").click();
+    out.slabAsk = document.getElementById("writeGuardOverlay").textContent;
+    __ac.clickGuard("Remove");
+    out.slabGone = !__ac.list().some(e => e.type === "slab_obverse");
+    out.pickGraph = __ac.graphCalls;
+    // Save changes.
+    const id = __ac.id, folder = coinDraftFolder(id);
+    await new Promise((resolve) => resolveAddCoinCatalogMatch((m) => completeAddCoinSave("staging", m).then(resolve, resolve), () => resolve()));
+    const draft = await __ac.mock.getJson(folder + "/coin.json");
+    out.photos = draft.photos;
+    out.files = [...__ac.mock._store.keys()].filter(p => p.startsWith(folder + "/") && !p.endsWith("coin.json")).map(p => p.slice(folder.length + 1)).sort();
+    __ac.teardown();
+    return out;
+  });
+  ok(AE.loaded.filled && AE.loaded.remove && AE.loaded.replace && AE.loaded.recrop && AE.loaded.label && !AE.loaded.addShown &&
+     AE.refLoaded && AE.refLoaded.label === "PCGS photo" && AE.refLoaded.replace && AE.refLoaded.remove && AE.refLoaded.inStaging,
+    "ACE1 opening a Staging draft for edit: the stored obverse shows ✕, its name, Replace and Recrop; the stored Reference shows its label, Replace, ✕ and In Staging: " + JSON.stringify([AE.loaded, AE.refLoaded]));
+  ok(AE.repPicked && AE.repCrop && AE.afterReplace.filled && AE.afterReplace.remove && AE.afterReplace.replace && AE.afterReplace.entries === 1,
+    "ACE2 Replace on the stored obverse through the chooser: one obverse, ✕ and Replace still there: " + JSON.stringify(AE.afterReplace));
+  ok(AE.refPicked && AE.refCrop && AE.refAfter.type === "reference" && AE.refAfter.caption === "PCGS photo" && !AE.refAfter.stored,
+    "ACE3 Replace on the stored Reference keeps its place, type and label: " + JSON.stringify(AE.refAfter));
+  ok(/Save changes/.test(AE.slabAsk) && AE.slabGone && AE.pickGraph === 0,
+    "ACE4 ✕ on a stored photo uses the Staging wording (comes off on Save changes); no Graph request before Save: " + JSON.stringify([AE.slabAsk, AE.pickGraph]));
+  const AE_PHOTOS = [
+    { type: "obverse", filename: AC_ID + "_obverse_cropped.jpg", caption: "" },
+    { type: "obverse", filename: AC_ID + "_obverse_original.jpg", caption: "original" },
+    { type: "reference", filename: AC_ID + "_reference_02.jpg", caption: "PCGS photo" },
+  ];
+  ok(JSON.stringify(AE.photos) === JSON.stringify(AE_PHOTOS) &&
+     JSON.stringify(AE.files) === JSON.stringify([AC_ID + "_obverse_cropped.jpg", AC_ID + "_obverse_original.jpg", AC_ID + "_reference_02.jpg"]),
+    "ACE5 Save changes writes what Phase B always wrote: the replaced obverse in place, the new Reference as _02 with its label, the old Reference and the removed slab deleted: " + JSON.stringify([AE.photos, AE.files]));
+
+  // ---------- AD. Backlog (d): ✕ shows at once in a Staging edit -------------
+  const AD = await page.evaluate(async () => {
+    const out = {};
+    await __ac.staging();
+    // Remove the stored obverse, then pick a new one: its ✕ must show
+    // straight after the pick, with nothing redrawing the screen.
+    __ac.slot("obverse").remove.click();
+    __ac.clickGuard("Remove");
+    out.emptied = __ac.slotState("obverse");
+    __ic.pickVia(__ac.slot("obverse").add, "library", await __ic.jpeg());
+    await __ic.finishCrop();
+    await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+    out.picked = __ac.slotState("obverse");
+    // A receipt picked during the edit: its ✕ shows at once too.
+    out.receiptBefore = __ac.shown("receiptRemoveBtn");
+    const purchase = document.getElementById("addCoinPurchaseBody");
+    if (purchase.classList.contains("hidden")) document.getElementById("addCoinPurchaseHeader").click();
+    const lib = document.getElementById("receiptLibraryInput");
+    const dt = new DataTransfer(); dt.items.add(__ic.file("pdf")); lib.files = dt.files;
+    lib.dispatchEvent(new Event("change", { bubbles: true }));
+    await __ac.waitFor(() => !!receiptFiles["receiptPreview"], 3000);
+    await new Promise(r => setTimeout(r, 100));
+    out.receiptAfter = __ac.shown("receiptRemoveBtn");
+    // The new-draft ✕ on the picked (not stored) photo uses the form wording.
+    __ac.slot("obverse").remove.click();
+    out.newAsk = document.getElementById("writeGuardOverlay").textContent;
+    __ac.clickGuard("Cancel");
+    __ac.teardown();
+    return out;
+  });
+  ok(!AD.emptied.filled && AD.emptied.addShown && !AD.emptied.remove && AD.picked.filled && AD.picked.remove && AD.picked.replace,
+    "ACD1 backlog (d): in a Staging edit, a newly picked obverse shows its ✕ straight away (no redraw needed): " + JSON.stringify([AD.emptied, AD.picked]));
+  ok(!AD.receiptBefore && AD.receiptAfter,
+    "ACD2 backlog (d): a receipt attached during a Staging edit shows its ✕ straight away: " + JSON.stringify(AD));
+  ok(/comes off this form only/.test(AD.newAsk) && !/Save changes/.test(AD.newAsk),
+    "ACD3 ✕ on a photo picked during the edit (not yet in Staging) uses the form wording, not the Save-changes wording: " + JSON.stringify(AD.newAsk));
+
+  // ---------- AL. Add Coin layout, new draft and Staging edit -----------------
+  for (const vp of [{ width: 360, height: 800 }, PHONE, TABLET]) {
+    for (const mode of ["new", "staging"]) {
+      const p = await openApp(vp);
+      await setup(p);
+      await setupAddCoin(p);
+      const L = await p.evaluate(async (mode) => {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        // Long values in every flip corner, so ✕ is measured against the worst case.
+        const longCorners = () => {
+          const set = (id, v) => { document.getElementById(id).value = v; };
+          set("denomination", "10C"); set("year", "1916"); set("mintMark", "D");
+          set("description", "Mercury Dime Winged Liberty Head"); set("variety", "Doubled Die Obverse"); set("designation", "FB");
+          set("gradeFrom", "VF-20"); set("gradeSource", "Owner");
+          updateFlipLabels();
+        };
+        if (mode === "new") {
+          __ac.fresh();
+          longCorners();
+          __ic.pickVia(__ac.slot("obverse").add, "library", await __ic.jpeg());
+          await __ic.finishCrop();
+          await __ac.waitFor(() => __ac.slotState("obverse").filled, 3000);
+          for (const re of [/Reference/, /Slab — front/]) {
+            const n = __ac.thumbs().length;
+            __ac.galleryAdd(re, "library", await __ic.jpeg());
+            await __ic.finishCrop();
+            await __ac.waitFor(() => __ac.thumbs().length === n + 1, 3000);
+          }
+        } else {
+          await __ac.staging();
+          longCorners();
+        }
+        updateFlipLabels();
+        document.getElementById("obversePhotoBox").scrollIntoView({ block: "center" });
+        await sleep(150);
+        const inner = window.innerWidth;
+        const R = (el) => el.getBoundingClientRect();
+        const inside = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+        const s = __ac.slot("obverse");
+        const box = R(s.box), frame = R(s.frame), x = R(s.remove), lab = R(s.label), rep = R(s.replace), rc = R(s.recrop);
+        const cx = frame.left + frame.width / 2, cy = frame.top + frame.height / 2, rr = frame.width / 2;
+        const xc = { x: x.left + x.width / 2, y: x.top + x.height / 2 };
+        const labels = [...document.querySelectorAll("#obversePhotoBox .flip-label")].flatMap(l => {
+          const lr = R(l);
+          const lines = l.querySelectorAll(".corner-line").length ? [...l.querySelectorAll(".corner-line")] : [l];
+          return lines.filter(e => e.textContent.trim()).map(e => { const er = R(e); const w = e.scrollWidth;
+            return l.classList.contains("tr") || l.classList.contains("br") ? { left: er.right - w, right: er.right, top: er.top, bottom: er.bottom } : { left: er.left, right: er.left + w, top: er.top, bottom: er.bottom }; });
+        });
+        const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const under = document.elementFromPoint(xc.x, xc.y);
+        const thumbs = __ac.thumbs().map(t => { const tr = R(t), b = t.querySelector('[data-role="replace"]'), img = t.querySelector(".gc-img"), rm = t.querySelector(".gc-remove");
+          if (!b || !img || !rm) return { inside: false, h: 0, rowTop: Math.round(tr.top), off: null, img: [0, 0], top: 0 };
+          return { inside: !!b && inside(R(b), tr), h: b ? Math.round(R(b).height) : 0, rowTop: Math.round(tr.top),
+                   off: { dr: Math.round(R(rm).right - R(img).right), dt: Math.round(R(rm).top - R(img).top), w: Math.round(R(rm).width) },
+                   img: [Math.round(R(img).width), Math.round(R(img).height)], top: Math.round(R(img).top) }; });
+        const addBox = __ac.tile().querySelector(".gc-add-box");
+        const ab = R(addBox);
+        const tileRowTop = Math.round(R(__ac.tile()).top);
+        openImageSourceChooser({ onFile() {} });
+        const panel = R(document.querySelector("#imageSourceChooser .image-chooser-panel"));
+        closeImageSourceChooser();
+        // The empty reverse: the + fills the circle.
+        document.getElementById("showReverseBtn").click();
+        const rv = __ac.slot("reverse");
+        const revEmpty = rv.frame.classList.contains("has-photo") ? null : { add: [Math.round(R(rv.add).width), Math.round(R(rv.add).height)], frame: [Math.round(R(rv.frame).width), Math.round(R(rv.frame).height)],
+          labelInside: inside(R(rv.add.querySelector(".sg-photo-add-label")), R(rv.frame)) };
+        document.getElementById("showObverseBtn").click();
+        return {
+          inner,
+          x: { dist: Math.round(Math.hypot(xc.x - cx, xc.y - cy)), r: Math.round(rr), w: Math.round(x.width), h: Math.round(x.height),
+               overLabel: labels.filter(l => hit(x, l)).length, underIsX: under === s.remove, nLabels: labels.length },
+          order: { labelBelowFrame: lab.top >= frame.bottom - 0.5, replaceBelowLabel: rep.top >= lab.bottom - 0.5, recropBelowReplace: rc.top >= rep.bottom - 0.5 },
+          btns: [rep, rc].map(r => ({ inBox: inside(r, box), inScreen: r.left >= 0 && r.right <= inner, h: Math.round(r.height) })),
+          oneLine: [s.replace, s.recrop].every(b => b.scrollWidth <= b.clientWidth + 1),
+          thumbs, plus: { w: Math.round(ab.width), h: Math.round(ab.height), top: Math.round(ab.top), rowTop: tileRowTop },
+          tileInScreen: R(__ac.tile()).right <= inner,
+          revEmpty,
+          chooser: { inside: panel.left >= 0 && panel.right <= inner, bottomGap: Math.round(window.innerHeight - panel.bottom) },
+          pageScroll: document.documentElement.scrollWidth > inner,
+        };
+      }, mode);
+      const tag = mode + " " + vp.width + "x" + vp.height;
+      console.log("    add coin layout " + tag + ": " + JSON.stringify({ x: L.x, plus: L.plus }));
+      ok(L.btns.every(b => b.inBox && b.inScreen && b.h >= 32) && L.oneLine,
+        `ACL1 ${tag}: Replace and Recrop are one line, 32px+, inside the photo box and the screen: ` + JSON.stringify(L.btns));
+      ok(L.revEmpty && L.revEmpty.add[0] === L.revEmpty.frame[0] - 4 && L.revEmpty.add[1] === L.revEmpty.frame[1] - 4 && L.revEmpty.labelInside,
+        `ACL2 ${tag}: an empty side's + fills its circle (inside the 2px border), with the side's name inside: ` + JSON.stringify(L.revEmpty));
+      ok(L.x.w === 20 && L.x.h === 20 && L.x.dist + 10 <= L.x.r && L.x.underIsX,
+        `ACL3 ${tag}: the ✕ is a 20px circle on the photo, inside the coin's rim, and is what a tap there hits: ` + JSON.stringify(L.x));
+      ok(L.x.nLabels >= 3 && L.x.overLabel === 0,
+        `ACL4 ${tag}: the ✕ overlaps no flip-label text (long values in every corner): ` + JSON.stringify(L.x));
+      ok(L.order.labelBelowFrame && L.order.replaceBelowLabel && L.order.recropBelowReplace,
+        `ACL5 ${tag}: under the photo come its name, then Replace, then the Recrop pill: ` + JSON.stringify(L.order));
+      ok(L.thumbs.length >= 2 && L.thumbs.every(t => t.inside && t.h >= 28 && t.off && JSON.stringify(t.off) === JSON.stringify(L.thumbs[0].off) && t.off.w === 20) && L.tileInScreen,
+        `ACL6 ${tag}: each gallery thumbnail's Replace stays inside it, every ✕ sits at the same corner offset, the + tile is on screen: ` + JSON.stringify(L.thumbs));
+      // Top-aligned with the thumbnails sharing its row; at 360px with two
+      // thumbs the tile wraps to a row of its own (flex-wrap), where there is
+      // nothing beside it to align with.
+      const sameRow = L.thumbs.filter(t => t.rowTop === L.plus.rowTop);
+      ok(L.thumbs.length >= 1 && L.plus.w === L.thumbs[0].img[0] && L.plus.h === L.thumbs[0].img[1] &&
+         sameRow.every(t => t.top === L.plus.top) && (vp.width < 400 || sameRow.length >= 1),
+        `ACL7 ${tag}: the + tile's box is the thumbnail image's size and top-aligned with the thumbnails in its row: ` + JSON.stringify([L.plus, L.thumbs]));
+      ok(L.chooser.inside && !L.pageScroll && (vp.width >= 700 || L.chooser.bottomGap === 0),
+        `ACL8 ${tag}: the chooser fits the screen (a bottom sheet on a phone), no sideways page scroll: ` + JSON.stringify(L.chooser));
+      await p.close();
+    }
   }
 }, module);

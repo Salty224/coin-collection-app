@@ -87,17 +87,38 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       async galleryPick(typeRe, color) {
         const gal = document.getElementById("addCoinGallery");
         const before = this.newCount();
-        gal.querySelector('[data-role="add-files"]').click();
+        // C3: the + tile, then the type, then the chooser's Files source.
+        const tile = gal.querySelector('button.gc-add-tile[data-role="add"]');
+        if (!tile) return false;
+        tile.click();
         const item = [...document.querySelectorAll(".gtp-item")].find(b => typeRe.test(b.textContent));
         if (!item) return false;
         item.click();
-        this.pick(gal.querySelector('input[data-role="files"]'), await this.file(color));
+        const input = this.viaChooserFiles();
+        if (!input) return false;
+        this.pick(input, await this.file(color));
         return this.finishCrop(before);
       },
       async slotPick(type, color) {
         const before = this.newCount();
-        this.pick(document.getElementById(type + "FilesInput"), await this.file(color));
+        // C3: the slot's + circle (or Replace when filled), then Files.
+        const ph = document.getElementById(type + "Placeholder");
+        const rep = document.getElementById(type + "ReplaceBtn");
+        const trigger = ph && ph.offsetParent !== null ? ph : rep;
+        if (!trigger) return false;
+        trigger.click();
+        const input = this.viaChooserFiles();
+        if (!input) return false;
+        this.pick(input, await this.file(color));
         return this.finishCrop(before);
+      },
+      // Taps 📁 Files in the open chooser and returns its input (null if the
+      // chooser didn't open).
+      viaChooserFiles() {
+        const btn = document.querySelector('#imageSourceChooser:not(.hidden) .image-chooser-btn[data-source="files"]');
+        if (!btn) return null;
+        btn.click();
+        return document.getElementById("imageChooserFilesInput");
       },
       async bytesOf(mock, path) {
         const v = await mock.getFileBytes(path);
@@ -301,7 +322,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         entries: list.map(e => [e.type, e.stagingStored, !!e.url, (e.stagingFiles || []).length]),
         obvShown: prev.style.display === "block" && /^blob:/.test(prev.src),
         adjustShown: document.getElementById("obverseAdjustBtn").style.display === "flex",
-        replaceTitle: document.getElementById("obverseFilesBtn").title,
+        // C3: the filled slot's own Replace button (its 📷/🖼️/📁 titles are gone).
+        replaceTitle: document.getElementById("obverseReplaceBtn").style.display !== "none" ? document.getElementById("obverseReplaceBtn").textContent : "",
         adjustSource: !!slotFiles["obverseFrame"],
         thumbStates: thumbs.map(t => (t.querySelector(".photo-upload-state") || {}).textContent || ""),
         thumbImgs: thumbs.map(t => /blob:/.test(t.querySelector(".gc-img").style.backgroundImage)),
@@ -677,7 +699,10 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __teardown();
     }
 
-    // Q6: a fresh Add Coin never shows the remove buttons, even with a photo.
+    // Q6: a fresh Add Coin shows no Staging states and no receipt ✕. C3
+    // changed one thing on purpose: a filled obverse now shows its ✕ on a new
+    // draft too (Ray's layout: "filled photo with ✕ in its corner"); it
+    // removes from the draft only. The empty reverse shows none.
     {
       const mock = await __setup();
       navigate("addcoin");
@@ -714,8 +739,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   ok(Q.q5picked && JSON.stringify(Q.q5.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
      Q.q5.oldGone,
     "Q10 replacing a photo stored under another name lists the new pair and deletes the old file: " + JSON.stringify(Q.q5));
-  ok(Q.q6picked && Q.q6.every(d => d === "none") && Q.q6gallery,
-    "Q11 a fresh Add Coin shows no remove buttons and no Staging states: " + JSON.stringify(Q.q6));
+  ok(Q.q6picked && Q.q6[0] === "flex" && Q.q6[1] === "none" && Q.q6[2] === "none" && Q.q6gallery,
+    "Q11 a fresh Add Coin shows no Staging states and no receipt ✕; since C3 the filled obverse has its ✕ (draft-only) and the empty reverse none: " + JSON.stringify(Q.q6));
 
   // @@NEXT@@
 }, module);
