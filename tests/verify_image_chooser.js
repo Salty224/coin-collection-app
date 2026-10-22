@@ -36,7 +36,8 @@
 //      Replace open the chooser, the gallery's type picker runs first, guard
 //      refusals, Cancel adds nothing, Replace keeps place/type/label, ✕
 //      removes from the draft only, Save writes the same Staging data,
-//      backlog (d) ✕ at once in a Staging edit, layout ACL1-ACL8
+//      backlog (d) ✕ at once in a Staging edit, layout ACL1-ACL10
+//      (ACL9/ACL10: the shrunk circle, labels off it and readable)
 
 const { defineSuite } = require("./harness");
 
@@ -1857,6 +1858,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
           set("denomination", "10C"); set("year", "1916"); set("mintMark", "D");
           set("description", "Mercury Dime Winged Liberty Head"); set("variety", "Doubled Die Obverse"); set("designation", "FB");
           set("gradeFrom", "VF-20"); set("gradeSource", "Owner");
+          // A dime: the smallest circle (128px x 0.70), where the ✕ and the
+          // labels have the least room.
+          document.getElementById("denomination").dispatchEvent(new Event("change"));
           updateFlipLabels();
         };
         if (mode === "new") {
@@ -1893,6 +1897,14 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         });
         const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         const under = document.elementFromPoint(xc.x, xc.y);
+        // Every label line's ink against the circle (nearest point outside
+        // the radius) and inside the flip-frame.
+        const flip = R(s.box.querySelector(".flip-frame"));
+        const offCircle = labels.every(l => { const nx = Math.max(l.left, Math.min(cx, l.right)), ny = Math.max(l.top, Math.min(cy, l.bottom)); return Math.hypot(nx - cx, ny - cy) >= rr - 0.5; });
+        const inFlip = labels.every(l => l.left >= flip.left - 0.5 && l.right <= flip.right + 0.5 && l.top >= flip.top - 0.5 && l.bottom <= flip.bottom + 0.5);
+        const fonts = [...document.querySelectorAll("#obversePhotoBox .flip-label")].filter(l => l.textContent.trim()).map(l => parseFloat(getComputedStyle(l).fontSize));
+        const size = { circle: Math.round(frame.width), expect: Math.round(ADDCOIN_FLIP_DISC_PX * denomScale(document.getElementById("denomination").value)),
+                       flipH: Math.round(flip.height), flipW: Math.round(flip.width), minFont: Math.min(...fonts), offCircle, inFlip };
         const thumbs = __ac.thumbs().map(t => { const tr = R(t), b = t.querySelector('[data-role="replace"]'), img = t.querySelector(".gc-img"), rm = t.querySelector(".gc-remove");
           if (!b || !img || !rm) return { inside: false, h: 0, rowTop: Math.round(tr.top), off: null, img: [0, 0], top: 0 };
           return { inside: !!b && inside(R(b), tr), h: b ? Math.round(R(b).height) : 0, rowTop: Math.round(tr.top),
@@ -1922,10 +1934,11 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
           revEmpty,
           chooser: { inside: panel.left >= 0 && panel.right <= inner, bottomGap: Math.round(window.innerHeight - panel.bottom) },
           pageScroll: document.documentElement.scrollWidth > inner,
+          size,
         };
       }, mode);
       const tag = mode + " " + vp.width + "x" + vp.height;
-      console.log("    add coin layout " + tag + ": " + JSON.stringify({ x: L.x, plus: L.plus }));
+      console.log("    add coin layout " + tag + ": " + JSON.stringify({ x: L.x, plus: L.plus, size: L.size }));
       ok(L.btns.every(b => b.inBox && b.inScreen && b.h >= 32) && L.oneLine,
         `ACL1 ${tag}: Replace and Recrop are one line, 32px+, inside the photo box and the screen: ` + JSON.stringify(L.btns));
       ok(L.revEmpty && L.revEmpty.add[0] === L.revEmpty.frame[0] - 4 && L.revEmpty.add[1] === L.revEmpty.frame[1] - 4 && L.revEmpty.labelInside,
@@ -1947,6 +1960,10 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         `ACL7 ${tag}: the + tile's box is the thumbnail image's size and top-aligned with the thumbnails in its row: ` + JSON.stringify([L.plus, L.thumbs]));
       ok(L.chooser.inside && !L.pageScroll && (vp.width >= 700 || L.chooser.bottomGap === 0),
         `ACL8 ${tag}: the chooser fits the screen (a bottom sheet on a phone), no sideways page scroll: ` + JSON.stringify(L.chooser));
+      ok(L.size.circle === L.size.expect && L.size.expect <= 128 && L.size.flipH <= 180 && L.size.flipW <= 280,
+        `ACL9 ${tag}: the circle is about Edit Coin's size (128px x the denomination scale) in a card no taller than 180px: ` + JSON.stringify(L.size));
+      ok(L.size.offCircle && L.size.inFlip && L.size.minFont >= 14,
+        `ACL10 ${tag}: every corner label stays off the circle and inside the card, at 14px or more: ` + JSON.stringify(L.size));
       await p.close();
     }
   }

@@ -2325,10 +2325,25 @@
     opacity: 1; font-family: inherit; color: var(--gold-bright); cursor: pointer;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   }
-  .addcoin-flip-add .sg-photo-add-plus { font-size: 30px; line-height: 1; }
+  .addcoin-flip-add .sg-photo-add-plus { font-size: 26px; line-height: 1; }
   .addcoin-flip-add .sg-photo-add-label { font-size: 13px; color: var(--text-muted); }
+  /* Shrunk (Ray's S25 look at 73d9dc6: "the circles are too big"): the
+     circle is ADDCOIN_FLIP_DISC_PX (128px at $1, scaled by denomination,
+     set inline by sizeAddCoinFlipFrames(), which also publishes it here as
+     --acf-disc), about Edit Coin's 120px pair-slot photo. The frame is short
+     and wide so the corner labels sit beside the coin rather than above and
+     below it, at 20px instead of 27px. Scoped to .addcoin-flip-slot:
+     .flip-frame is shared with Spotlight and Browse detail. */
+  .addcoin-flip-slot { --acf-disc: 128px; }
+  .addcoin-flip-slot .flip-frame { height: 176px; margin-bottom: 8px; }
+  .addcoin-flip-slot .flip-frame .coin-photo-frame { width: var(--acf-disc); height: var(--acf-disc); }
+  .addcoin-flip-slot .flip-label { font-size: 20px; }
+  /* ✕ centre sits on the 45° line, 12px inside the rim, so the whole 20px
+     circle stays on the coin at every denomination size. */
   .addcoin-flip-slot .addcoin-flip-remove {
-    position: absolute; left: calc(50% + 55px); top: calc(50% - 75px);
+    position: absolute;
+    left: calc(50% + (var(--acf-disc) / 2 - 12px) * 0.7071 - 10px);
+    top: calc(50% - (var(--acf-disc) / 2 - 12px) * 0.7071 - 10px);
     width: 20px; height: 20px; border-radius: 50%; padding: 0;
     border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text-muted);
     font-size: 12px; line-height: 1; cursor: pointer; z-index: 2; font-family: inherit;
@@ -12665,6 +12680,27 @@
     return DENOM_SCALE[denom] || 1.0;
   }
 
+  // Add Coin's obverse/reverse circle at full ($1) size. Shrunk from 210 on
+  // Ray's S25 look at 73d9dc6 ("the circles are too big") to about Edit
+  // Coin's pair-slot photo (120px tall); still scaled by denomination like
+  // every other coin, floored at 70%. The flip-frame around it is short and
+  // wide, so the corner labels sit beside the coin, not above and below it.
+  const ADDCOIN_FLIP_DISC_PX = 128;
+
+  // Sizes both circles and publishes the size as --acf-disc on each photo
+  // box (the ✕'s rim position reads it), then refits the corner labels,
+  // since cornerClearsDisc() measures them against the circle's new size.
+  function sizeAddCoinFlipFrames(denom) {
+    ["obverse", "reverse"].forEach(side => {
+      const frame = document.getElementById(side + "Frame");
+      const box = document.getElementById(side + "PhotoBox");
+      if (!frame) return;
+      sizeCoinElement(frame, denom, ADDCOIN_FLIP_DISC_PX, null);
+      if (box) box.style.setProperty("--acf-disc", frame.style.width);
+    });
+    if (typeof updateFlipLabels === "function") updateFlipLabels();
+  }
+
   function sizeCoinElement(el, denom, baseSizePx, baseFontPx) {
     if (!el) return;
     const scale = denomScale(denom);
@@ -14536,12 +14572,12 @@
     // mini card's TR and BR corners never actually had disc-clearance
     // protection either, only box-width fitting. Found while wiring TL/BL.
     const frame = el.closest(".flip-frame, .flip-frame-mini");
-    // Deliberately .coin-disc only. Add Coin's preview circle is a
-    // .coin-photo-frame, and an ordinary certified grade there ("MS-65
-    // PCGS" at 27px) already reaches 1-3px into it; treating it as a disc
-    // would shrink every such preview to 22px. The preview's clamp guards
-    // the card edge and the other corners, not the photo.
-    const disc = frame && frame.querySelector(".coin-disc");
+    // Add Coin's preview circle (a .coin-photo-frame) counts too, since the
+    // circle shrank to 128px and the labels moved beside it: there is room
+    // to clear it now, so the text is kept off the photo like on a saved
+    // card. (At 210px an ordinary "MS-65 PCGS" reached 1-3px into it and
+    // would have shrunk every preview, so it was left out then.)
+    const disc = frame && frame.querySelector(".coin-disc, .addcoin-flip-slot .coin-photo-frame");
     if (!disc) return true;
     const d = disc.getBoundingClientRect();
     if (!d.width) return true; // not laid out (display:none subtree) — nothing meaningful to test
@@ -20064,9 +20100,7 @@
     // shouldn't have to retype what the album told the app on the way in.
     if (albumContext.denom) {
       document.getElementById("denomination").value = albumContext.denom;
-      const denom = albumContext.denom;
-      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
+      sizeAddCoinFlipFrames(albumContext.denom);
     }
     if (albumContext.year) document.getElementById("year").value = albumContext.year;
     document.getElementById("mintMark").value = albumContext.mintMark || "";
@@ -20106,8 +20140,7 @@
 
     if (wishlistContext.denom) {
       document.getElementById("denomination").value = wishlistContext.denom;
-      sizeCoinElement(document.getElementById("obverseFrame"), wishlistContext.denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), wishlistContext.denom, 210, null);
+      sizeAddCoinFlipFrames(wishlistContext.denom);
     }
     if (wishlistContext.year) document.getElementById("year").value = wishlistContext.year;
     document.getElementById("mintMark").value = wishlistContext.mint || "";
@@ -27917,8 +27950,7 @@
     if (row.finish) document.getElementById("finish").value = row.finish;
     refreshVarietyOptions();
     checkDbCoinsMatch();
-    sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 210, null);
-    sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 210, null);
+    sizeAddCoinFlipFrames(row.denom);
   }
 
   // Shared by the Grader dropdown's change handler and the PCGS label-decode
@@ -29115,6 +29147,9 @@
     const gallerySection = document.getElementById("addCoinGallery");
     if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
     syncAddCoinFlipSlots();
+    // Back to the full-size circle (no denomination); the labels are refit
+    // again below once every field is cleared.
+    sizeAddCoinFlipFrames("");
 
     // --- Value + provenance
     document.getElementById("addCoinValue").value = "";
@@ -30035,10 +30070,9 @@
       } else {
         maybeAutoFillDescription();
       }
-      refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
-      const denom = document.getElementById("denomination").value;
-      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
+      refreshVarietyOptions(); checkDbCoinsMatch();
+      // Sizes the circles, then refits the corners against the new size.
+      sizeAddCoinFlipFrames(document.getElementById("denomination").value);
     });
     document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
     document.getElementById("mintMark").addEventListener("change", (e) => {
