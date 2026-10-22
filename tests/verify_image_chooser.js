@@ -1048,7 +1048,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const inside = (r, box) => r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
       const slots = [...host.querySelectorAll(".sg-photo-slot")].map(s => {
         const sr = s.getBoundingClientRect();
-        const iconEls = [...s.querySelectorAll(".sg-photo-actions button")];
+        const iconEls = [...s.querySelectorAll('.sg-photo-actions button, [data-act="retry"]')];
         const icons = iconEls.map(b => b.getBoundingClientRect());
         const rep = s.querySelector('[data-act="replace"]');
         const add = s.querySelector('[data-act="add"]');
@@ -1133,7 +1133,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         const slots = [...host.querySelectorAll(".sg-photo-slot")].map(s => {
           const sr = s.getBoundingClientRect();
           const body = s.closest(".accordion-body").getBoundingClientRect();
-          const iconEls = [...s.querySelectorAll(".sg-photo-actions button")];
+          const iconEls = [...s.querySelectorAll('.sg-photo-actions button, [data-act="retry"]')];
           const icons = iconEls.map(b => b.getBoundingClientRect());
           const rep = s.querySelector('[data-act="replace"]');
           const add = s.querySelector('[data-act="add"]');
@@ -1194,5 +1194,127 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         `L8-set ${tag}: the + box is the COA thumbnail's size and top-aligned, and keeps that size with no photos: ` + JSON.stringify([L.plus, L.emptyBoxes]));
       await p.close();
     }
+  }
+
+  // ---------- RC. ↻ on a failed save is centred on the photo -----------------
+  // Ray's tablet test of ce5b6be: the 20px corner ↻ sat right next to the
+  // neighbouring photo's ✕. On all four screens, at three sizes: each ↻ is
+  // centred on its own image box (both axes, within 2px), at least 44px,
+  // over a dim of that image, overlapping no ✕ (its own or any other), and
+  // is the element actually under the image's centre. Then (412x915) a real
+  // failed save is retried by tapping the image centre, and it saves.
+  const RC_SCREENS = ["coin-edit", "coin-manage", "set-edit", "set-manage"];
+  for (const vp of [{ width: 360, height: 800 }, PHONE, TABLET]) {
+    const p = vp === PHONE ? page : await openApp(vp);
+    if (p !== page) await setup(p);
+    const tag = vp.width + "x" + vp.height;
+    for (const screen of RC_SCREENS) {
+      const R = await p.evaluate(async (screen) => {
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const isSet = screen.startsWith("set");
+        if (isSet) __ic.installSet(); else __ic.install();
+        const u = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
+        const types = isSet ? ["coa", "coa", "ogp_obverse", "ogp_reverse"] : ["reference", "reference", "obverse", "reverse"];
+        types.forEach((t, i) => galleryFor(__ic.id).push({ type: t, url: u(), rawUrl: u(), filename: __ic.id + "_rc" + i + ".jpg", caption: "", uploadError: "test" }));
+        let host;
+        if (screen === "coin-edit") host = __ic.openEditCoin();
+        else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); host = document.getElementById("managePhotosSections"); }
+        else host = screen === "set-edit" ? __ic.openEditSet() : __ic.openManageSet();
+        __ic.openAll(host.id);
+        await sleep(200);
+        const xs = [...host.querySelectorAll(".gc-remove, .sg-photo-remove")].map(b => b.getBoundingClientRect());
+        const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        const rs = [...host.querySelectorAll('.gc-retry, .sg-photo-face [data-act="retry"]')].map(btn => {
+          const thumb = btn.closest(".gc-thumb"), face = btn.closest(".sg-photo-face");
+          const img = thumb ? thumb.querySelector(".gc-img") : face && face.querySelector(".sg-photo-img, .sg-photo-empty");
+          const dim = thumb ? thumb.querySelector(".gc-failed-dim") : face && face.querySelector(".sg-photo-failed-dim");
+          const holder = thumb || btn.closest(".sg-photo-slot");
+          btn.scrollIntoView({ block: "center" });
+          const r = btn.getBoundingClientRect(), ir = img ? img.getBoundingClientRect() : null, dr = dim ? dim.getBoundingClientRect() : null;
+          const under = ir ? document.elementFromPoint(ir.left + ir.width / 2, ir.top + ir.height / 2) : null;
+          return {
+            kind: thumb ? "thumb" : "pair",
+            dx: ir ? Math.round((r.left + r.width / 2 - (ir.left + ir.width / 2)) * 10) / 10 : null,
+            dy: ir ? Math.round((r.top + r.height / 2 - (ir.top + ir.height / 2)) * 10) / 10 : null,
+            w: Math.round(r.width), h: Math.round(r.height),
+            overX: [...host.querySelectorAll(".gc-remove, .sg-photo-remove")].filter(x => hit(r, x.getBoundingClientRect())).length,
+            dimCovers: !!(dr && ir && Math.abs(dr.left - ir.left) < 1.5 && Math.abs(dr.top - ir.top) < 1.5 && Math.abs(dr.width - ir.width) < 1.5 && Math.abs(dr.height - ir.height) < 1.5),
+            dimBg: dim ? getComputedStyle(dim).backgroundColor : null,
+            underIsBtn: under === btn,
+            stateText: !!(holder && [...holder.querySelectorAll(".photo-upload-state.failed")].some(e => e.textContent.trim() === "Not saved — tap ↻")),
+            xKept: !!(holder && holder.querySelector(thumb ? ".gc-remove" : ".sg-photo-face > .sg-photo-remove")),
+            replaceKept: !!(holder && holder.querySelector('[data-act="replace"], [data-role="replace"]')),
+            inRow: !!btn.closest(".sg-photo-actions"),
+          };
+        });
+        return { n: xs.length, rs, pageScroll: document.documentElement.scrollWidth > window.innerWidth };
+      }, screen);
+      const thumbs = R.rs.filter(r => r.kind === "thumb"), pairs = R.rs.filter(r => r.kind === "pair");
+      ok(thumbs.length >= 2 && pairs.length >= 2 && R.rs.every(r => r.dx !== null && Math.abs(r.dx) <= 2 && Math.abs(r.dy) <= 2 && !r.inRow),
+        `RC1-${screen} ${tag}: every ↻ on a failed save is centred on its own image box (both axes, within 2px), not in the button row: ` + JSON.stringify(R.rs));
+      ok(R.rs.length >= 4 && R.rs.every(r => r.w >= 44 && r.h >= 44),
+        `RC2-${screen} ${tag}: ↻ is at least a 44px tap target: ` + JSON.stringify(R.rs.map(r => [r.w, r.h])));
+      ok(R.rs.length >= 4 && R.n >= 4 && R.rs.every(r => r.overX === 0 && r.underIsBtn),
+        `RC3-${screen} ${tag}: ↻ overlaps no ✕ (its own or a neighbour's) and is the element under the image's centre: ` + JSON.stringify(R.rs.map(r => [r.kind, r.overX, r.underIsBtn])));
+      ok(R.rs.length >= 4 && R.rs.every(r => r.dimCovers && r.dimBg && r.dimBg !== "rgba(0, 0, 0, 0)" && r.stateText && r.xKept && r.replaceKept) && !R.pageScroll,
+        `RC4-${screen} ${tag}: a light dim covers the image; "Not saved — tap ↻", the ✕ and Replace are all still there; no sideways scroll: ` + JSON.stringify(R.rs));
+    }
+    if (p !== page) await p.close();
+  }
+  // Tapping the centred ↻ still retries and saves (real failed upload, then
+  // a tap at the image's centre with the network back), both list kinds.
+  for (const screen of RC_SCREENS) {
+    const T = await page.evaluate(async (screen) => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const isSet = screen.startsWith("set");
+      if (isSet) __ic.installSet(); else __ic.install();
+      let hostId;
+      if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
+      else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
+      else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
+      await sleep(150);
+      const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
+      const backType = isSet ? "ogp_reverse" : "reverse", backPT = isSet ? "OGP_Reverse" : "Reverse";
+      const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /obverse/);
+      const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
+      let failing = true;
+      __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
+      const rows = (pt) => __ic.photoRows().filter(r => r[2] === pt);
+      const failedEntry = (type) => galleryFor(__ic.id).find(e => e.type === type && e.uploadError && !e.uploadPending);
+      const tapCentre = (img) => { if (!img) return false; img.scrollIntoView({ block: "center" });
+        const r = img.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const ok = !!(el && (el.classList.contains("gc-retry") || el.dataset.act === "retry")); if (ok) el.click(); return ok; };
+      const out = {};
+      // Open-ended.
+      const before = rows(openPT).length;
+      out.addO = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropO = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(openType), 5000);
+      const eO = failedEntry(openType);
+      failing = false;
+      const tO = [...openSec().querySelectorAll(".gc-thumb")].pop();
+      out.tapO = tapCentre(tO && tO.querySelector(".gc-img"));
+      await __ic.waitFor(() => eO && !eO.uploadPending && !eO.uploadError && rows(openPT).length === before + 1, 5000);
+      await sleep(200);
+      out.savedO = !!eO && !eO.uploadError && rows(openPT).some(r => r[4] === eO.storedFilename);
+      // Pair (Back).
+      failing = true;
+      const back = pairSec().querySelectorAll(".sg-photo-slot")[1];
+      out.addP = __ic.pickVia(back && back.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
+      out.cropP = await __ic.finishCrop();
+      await __ic.waitFor(() => !!failedEntry(backType), 5000);
+      const eP = failedEntry(backType);
+      failing = false;
+      const back2 = pairSec().querySelectorAll(".sg-photo-slot")[1];
+      out.tapP = tapCentre(back2 && back2.querySelector(".sg-photo-face .sg-photo-img, .sg-photo-face .sg-photo-empty"));
+      await __ic.waitFor(() => eP && !eP.uploadPending && !eP.uploadError && rows(backPT).length === 1, 5000);
+      await sleep(200);
+      out.savedP = !!eP && !eP.uploadError && rows(backPT).some(r => r[4] === eP.storedFilename);
+      __ic.mock.uploadFile = realUpload;
+      return out;
+    }, screen);
+    ok(T.addO && T.cropO && T.tapO && T.savedO && T.addP && T.cropP && T.tapP && T.savedP,
+      `RC5-${screen}: tapping the centred ↻ on a failed save (open-ended and pair) retries and saves — row written: ` + JSON.stringify(T));
   }
 }, module);

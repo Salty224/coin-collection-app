@@ -2292,7 +2292,7 @@
   .gc-replace-text-btn { min-height: 30px; font-size: 12px; margin-top: 4px; }
   /* Chooser-mode pair slot: delete is a corner ✕ on the photo (same look
      and offset as a Reference thumb's .gc-remove); Recrop is a pill under
-     Replace; only ↻ is left in the icon row. */
+     Replace; ↻ (failed save only) is centred on the photo. */
   .sg-photo-slot.sg-chooser-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
   .sg-chooser-mode .sg-photo-face { position: relative; }
   .sg-chooser-mode .sg-photo-remove {
@@ -2315,11 +2315,28 @@
   }
   .gc-add-tile .gc-add-box .sg-photo-add-plus { font-size: 24px; line-height: 1; }
   .gc-add-tile .gc-add-box .sg-photo-add-label { font-size: 10px; color: var(--text-muted); }
-  .gc-thumb .gc-retry {
-    position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%;
-    border: 1px solid var(--gold); background: var(--bg-case); color: var(--gold-bright);
-    font-size: 12px; line-height: 1; cursor: pointer; z-index: 2;
+  /* A photo whose save failed: a light dim over the image so it reads as
+     "not saved", and ↻ centred on the image as a 48px tap target (Ray's
+     tablet test of ce5b6be: the old 20px corner ↻ sat right next to the
+     neighbouring photo's ✕). Same on an open-ended thumb (.gc-retry, centred
+     on its 88px .gc-img) and a chooser-mode pair slot (.sg-photo-retry,
+     centred on .sg-photo-face). The ✕ keeps its corner. */
+  .gc-thumb .gc-failed-dim {
+    position: absolute; top: 0; left: 0; width: 88px; height: 88px; border-radius: 8px;
+    background: rgba(0,0,0,0.4); pointer-events: none; z-index: 1;
   }
+  .sg-chooser-mode .sg-photo-face .sg-photo-failed-dim {
+    position: absolute; inset: 0; border-radius: 8px; background: rgba(0,0,0,0.4);
+    pointer-events: none; z-index: 1;
+  }
+  .gc-thumb .gc-retry, .sg-chooser-mode .sg-photo-face .sg-photo-retry {
+    position: absolute; width: 48px; height: 48px; border-radius: 50%; transform: translate(-50%, -50%);
+    border: 2px solid var(--gold); background: rgba(16,13,8,0.85); color: var(--gold-bright);
+    font-size: 24px; line-height: 1; cursor: pointer; z-index: 2; padding: 0; font-family: inherit;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gc-thumb .gc-retry { top: 44px; left: 44px; }
+  .sg-chooser-mode .sg-photo-face .sg-photo-retry { top: 50%; left: 50%; }
   /* Upload state for a captured photo. A failed upload must be visible on
      the tile itself, not only in a toast that has already faded — the whole
      point of the loud-failure rule is that a capture is never silently lost. */
@@ -25036,19 +25053,22 @@
     if (chooserMode) {
       // Chooser layout (Ray's S25 feedback on C1): delete is a corner ✕ on
       // the photo itself (same look/position as a Reference thumb's ✕),
-      // Recrop is a text pill directly under Replace, and only ↻ (retry a
-      // failed upload) stays in the icon row. Same handlers, same data-act.
-      const retryOnly = entry && entry.uploadError
-        ? `<button type="button" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
+      // Recrop is a text pill directly under Replace, and ↻ (retry a failed
+      // upload) is centred on the photo. Same handlers, same data-act.
+      // A failed save shows ↻ centred on the photo over a light dim (no
+      // longer a row under the buttons); same data-act, same handler.
+      const failedOverlay = entry && entry.uploadError
+        ? `<div class="sg-photo-failed-dim" aria-hidden="true"></div>
+          <button type="button" class="sg-photo-retry" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       slot.innerHTML = filled ? `
         <div class="sg-photo-face">
           ${face}
+          ${failedOverlay}
           <button type="button" class="sg-photo-remove" data-act="remove" aria-label="Remove photo" title="Remove">✕</button>
         </div>
         <div class="sg-photo-label">${label}</div>
         <button type="button" class="sg-photo-replace-btn" data-act="replace" aria-label="Replace ${label} photo">Replace</button>
         ${canReadjust ? `<button type="button" class="sg-photo-replace-btn sg-photo-recrop-btn" data-act="adjust" aria-label="${adjustTitle}" title="${adjustTitle}">Recrop</button>` : ""}
-        ${retryOnly ? `<div class="sg-photo-actions">${retryOnly}</div>` : ""}
         ${stateLines}
       ` : `
         <button type="button" class="sg-photo-add" data-act="add" aria-label="Add ${label} photo">
@@ -25473,8 +25493,9 @@
       const loadingStored = !!(entry.stored && !entry.url);
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
-        ${entry.uploadError ? `<button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${galleryThumbInner(entry)}
+        ${entry.uploadError ? `<div class="gc-failed-dim" aria-hidden="true"></div>
+        <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : ""}
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
