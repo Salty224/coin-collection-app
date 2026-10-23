@@ -718,7 +718,8 @@ Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-v
   with its original and also reads older bare-string photo lists
   (`stagingPhotoTypeFromFilename`); a name it doesn't know is never loaded and
   never touched. Obverse/reverse show the photo, say Replace in their titles
-  (`setFlipSlotReplaceLabels`) and Adjust from the original (`slotFiles`). The
+  (`setFlipSlotReplaceLabels` *(removed 23 Oct 2026, commit 6 `c6f0ba0`)*; the shared photo section now shows
+  Replace) and Adjust from the original (`slotFiles`). The
   stored receipt shows as "{name} (in Staging)". Gallery thumbs say
   "In Staging".
 - **Save (`saveCoinDraftEdit`) — upload first, then record**:
@@ -740,7 +741,8 @@ Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-v
   or slot plus a toast. The retry is the same save; a file that did land
   keeps its name (`stagingNames`/`stagingUploaded`) and isn't re-sent.
 - **Remove (B2)**: ✕ on a stored thumb, and new `obverseRemoveBtn`,
-  `reverseRemoveBtn`, `receiptRemoveBtn` (shown only while editing a Staging
+  `reverseRemoveBtn` (both *(removed 23 Oct 2026, commit 6 `c6f0ba0`)*; photos now use the shared
+  section's ✕), `receiptRemoveBtn` (shown only while editing a Staging
   draft), confirm first (`confirmStagingRemove`). The removal is staged;
   Save writes coin.json without it FIRST, then `graph().deleteItem`. A crop
   takes its `_original` with it; a photo replaced under a different name has
@@ -2080,6 +2082,9 @@ together rather than mixed in at the top level.
   same `_combined.jpg` source (once for the obverse region, once for reverse);
   see "OneDrive folder structure" above for the resulting filenames and the
   Obverse/Reverse update that follows.
+- *(Superseded 23 Oct 2026: Add Coin's preview card, toggle and live corner
+  labels were removed in commit 6 `c6f0ba0`; Add Coin uses Edit Coin's photo
+  section. The bullets below about Add Coin's preview are history.)*
 - **Obverse/Reverse show one at a time via a small toggle**, not stacked and
   not side by side — a dot on each toggle button lights up once that side has
   a photo. This keeps the bigger circle/bigger corner-label text (legible
@@ -2106,7 +2111,8 @@ styled like a collector's handwriting on a 2x2 flip (Caveat font, straight
 horizontal — no rotation) — so the digital record and the physical flip carry
 the same info in the same positions. This applies in two places, both using
 the same corner mapping:
-- **Add Coin (live entry)**: labels update live as the top-level fields are
+- **Add Coin (live entry)** *(removed 23 Oct 2026, commit 6 `c6f0ba0`; only
+  saved-coin views have corner labels now)*: labels update live as the top-level fields are
   filled in. The underlying form fields stay the actual source of truth —
   this overlay never replaces them.
 - **Saved-coin views (Dashboard Spotlight, Browse detail)**: once a coin is
@@ -6589,7 +6595,7 @@ the graphic **only when it's a real third-party grading service** (PCGS/NGC/
 ICG/etc., via the existing `isServiceGradeSource()`) — a raw/Seller/Owner/
 AI-est-sourced grade shows Grade alone. **Scoped correctly after checking
 both render paths**: this only ever applied to Add Coin's own live-entry
-corner (`updateFlipLabels()`) — the SAVED-coin flip corner
+corner (`updateFlipLabels()`, *(removed 23 Oct 2026, commit 6 `c6f0ba0`)* with the preview card) — the SAVED-coin flip corner
 (`applyFlipCorners()`, Spotlight/Browse detail) was already Grade+Designation
 only and has never put GradeSource on the graphic at all; `gradeWithSourceText()`
 (Overview/detail text, "MS-64 (PCGS)") is the separate display that already
@@ -7660,7 +7666,7 @@ collapsed, matching Edit Coin exactly.
 the element to already be visible/laid out — call sites that toggle
 visibility must do so BEFORE populating corner text". The flip labels now
 live inside a collapsed-by-default Photos section, which looks like exactly
-that trap. **It does not apply**: Add Coin's own `updateFlipLabels()` sets
+that trap. **It does not apply**: Add Coin's own `updateFlipLabels()` *(removed 23 Oct 2026, commit 6 `c6f0ba0`)* set
 `textContent` directly and never calls `renderTypeDenomCorner()` — only the
 SAVED-coin renderer (`applyFlipCorners()`, Spotlight/Browse detail) does.
 Verified live, not reasoned about, and pinned by two assertions so a future
@@ -8128,7 +8134,7 @@ Part-F "both options look identical" bug by another route.
 - **Browse detail AND Spotlight**, which share `applyFlipCorners()` — one
   render path, both get it.
 - **Add Coin is deliberately EXCLUDED** (Ray's explicit scoping, correcting
-  the original ask): `updateFlipLabels()` is a different function with a
+  the original ask): `updateFlipLabels()` (*(removed 23 Oct 2026, commit 6 `c6f0ba0`)*) was a different function with a
   different corner mapping, its `flipObverseBR` already carries
   Variety+Designation as two stacked lines, composition often isn't known
   until an Identification match resolves, and this corner has a documented
@@ -8627,7 +8633,7 @@ DB_Coins-backed disambiguation picker (Q1–Q4 confirmed), not the plain
 - **"Other" never writes a persisted MintMark value of its own** (Q2,
   confirmed) — its option value is a one-shot sentinel (`__OTHER_MINT__`),
   normalized straight back to `""` the instant the `change` handler fires,
-  BEFORE `refreshVarietyOptions()`/`checkDbCoinsMatch()`/`updateFlipLabels()`
+  BEFORE `refreshVarietyOptions()`/`checkDbCoinsMatch()`/`updateFlipLabels()` *(removed 23 Oct 2026, commit 6 `c6f0ba0`)*
   or any other reader of `#mintMark.value` runs. It's purely a UI trigger
   for the one-time lookup below; the draft's MintMark stays blank, exactly
   like an ordinary Philadelphia coin — verified directly (a saved draft
