@@ -40,10 +40,10 @@ be asked for the copy-paste version.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code commit on `main` is `277e6eb` (unified image chooser
-C1+C2, merged 22 Oct 2026 by fast-forward to `38b0207`; later commits are
-docs-only); `npm test` = 3249 passed, 0 failed, 0 page errors, 69 suites
-(run on `38b0207`, 22 Oct 2026).
+**Baseline:** last code commit on `main` is `c6f0ba0` (Add Coin uses Edit
+Coin's photo section, merged 23 Oct 2026 by fast-forward to `bac420e`; later
+commits are docs-only); `npm test` = 3464 passed, 0 failed, 0 page errors, 69
+suites (run on `bac420e`, 23 Oct 2026).
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
