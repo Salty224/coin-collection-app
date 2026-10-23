@@ -45,19 +45,13 @@ module.exports = defineSuite("grade-designation-space", async ({ ok, openApp, PH
       const spot = bl(document.getElementById("spotlightBL"));
       __setLiveCoinsForTest([c]); navigate("browse"); showBrowseGrid();
       const grid = bl(document.querySelector("#browseGrid .coin-card .flip-label.bl"));
-      // Add Coin preview: Designation is its own line under Variety.
-      navigate("addcoin");
-      const set = (id, v) => { document.getElementById(id).value = v; };
-      set("denomination", "1C"); set("year", "1914"); set("mintMark", "D"); set("gradeFrom", "VG-8"); set("gradeSource", "PCGS"); set("designation", "BN"); set("variety", "");
-      updateFlipLabels();
-      const addBL = document.getElementById("flipObverseBL").textContent, addBR = document.getElementById("flipObverseBR").textContent;
       __setLiveCoinsForTest(null); __setLiveDataModeForTest(null);
-      return { detail, spot, grid, rows, addBL, addBR, stored: [c.grade, c.designation] };
+      return { detail, spot, grid, rows, stored: [c.grade, c.designation] };
     });
     ok(B.detail === "VG-8 BN", tag("B1 Browse detail shows 'VG-8 BN'"), B.detail);
     ok(B.spot === "VG-8 BN", tag("B2 Spotlight shows 'VG-8 BN'"), B.spot);
     ok(B.grid === "VG-8 BN", tag("B3 Catalog mini card shows 'VG-8 BN'"), B.grid);
-    ok(!/VG-8BN/.test(B.addBL + B.addBR) && B.addBR === "BN", tag("B4 Add Coin preview never runs them together (Designation on its own line)"), [B.addBL, B.addBR]);
+    // B4 (Add Coin's preview card) retired with that card (claude/addcoin-shared-photos, Q1).
     const row = (l) => (B.rows.find(r => r[0] === l) || [])[1];
     ok(row("Grade") === "VG-8 (PCGS)" && row("Designation") === "BN", tag("B5 Overview's Grade and Designation rows are unchanged"), B.rows);
     ok(B.stored[0] === "VG-8" && B.stored[1] === "BN", tag("B6 the stored Grade and Designation are unchanged"), B.stored);

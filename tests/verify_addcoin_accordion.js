@@ -114,34 +114,25 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
   // ---------- E. Behaviour survives the move ----------
   const E = await page.evaluate(() => {
     navigate('addcoin');
-    // Identity fields drive the live flip labels, which live in the
-    // COLLAPSED Photos section now. Add Coin's own updateFlipLabels() uses
-    // plain textContent (it never calls the scrollWidth-measuring
-    // renderTypeDenomCorner()), so a hidden subtree can't break it — this
-    // pins that down rather than leaving it to be re-discovered.
+    // The live preview card (and its flip labels) was retired with Add
+    // Coin's move onto Edit Coin's photo section (claude/addcoin-shared-
+    // photos, Q1); identity edits no longer draw anything in Photos.
     document.getElementById('denomination').value = '10C';
     document.getElementById('year').value = '1916';
     document.getElementById('mintMark').value = 'D';
     document.getElementById('denomination').dispatchEvent(new Event('change'));
-    const labelsWhileCollapsed = {
-      tl: document.getElementById('flipObverseTL').textContent,
-      tr: document.getElementById('flipObverseTR').textContent
-    };
+    const cardGone = ['flipObverseTL', 'flipObverseTR', 'photoToggle', 'obversePhotoBox', 'addCoinGallery']
+      .every(id => !document.getElementById(id));
     document.getElementById('addCoinPhotosHeader').click();
-    const labelsAfterOpen = {
-      tl: document.getElementById('flipObverseTL').textContent,
-      tr: document.getElementById('flipObverseTR').textContent
-    };
+    const sectionHeaders = document.querySelectorAll('#addCoinPhotoSections .accordion-header').length;
     // The series picker and match banners still react from inside Overview.
     checkDbCoinsMatch();
     const bannerVisible = ['dbMatchBanner', 'dbNoMatchBanner', 'dbAmbiguousBanner']
       .some(id => !document.getElementById(id).classList.contains('hidden'));
-    return { labelsWhileCollapsed, labelsAfterOpen, bannerVisible };
+    return { cardGone, sectionHeaders, bannerVisible };
   });
-  ok(E.labelsWhileCollapsed.tl === '1916-D' && E.labelsWhileCollapsed.tr === '10C',
-    "E1 flip-card corner labels still populate correctly while the Photos section is collapsed");
-  ok(JSON.stringify(E.labelsAfterOpen) === JSON.stringify(E.labelsWhileCollapsed),
-    "E2 ... and are unchanged once it is expanded (no hidden-measurement dependency)");
+  ok(E.cardGone, "E1 the retired preview card, its flip labels, toggle and old gallery are gone from the page");
+  ok(E.sectionHeaders === 7, "E2 opening Photos shows Edit Coin's seven photo sections: " + E.sectionHeaders);
   ok(E.bannerVisible, "E3 the match indicator still reacts to identity edits from its new Overview home");
 
   // A real save must still collect fields out of collapsed sections.

@@ -45,20 +45,26 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
 
     // Photo state
     const blob = new Blob([new Uint8Array([1,2,3])], { type: 'image/png' });
-    galleryStore[ADDCOIN_GALLERY_ID] = [{ type:'obverse', url:'blob:x', rawUrl:'blob:y', circleUrl:'blob:z', blob, caption:'', filename:'a.png', rawFilename:'b.png' }];
-    document.getElementById('obversePreview').src = 'blob:z';
-    document.getElementById('obversePreview').style.display = 'block';
-    document.getElementById('obversePlaceholder').style.display = 'none';
-    document.getElementById('obverseFrame').classList.add('has-photo');
-    document.getElementById('obverseDot').classList.add('filled');
-    document.getElementById('obverseAdjustBtn').style.display = 'flex';
+    // Add Coin's photos are Edit Coin's section in draft mode
+    // (claude/addcoin-shared-photos): a pick lives in the gallery and the
+    // section draws it; re-entry must clear both.
+    const realUrl = URL.createObjectURL(blob);
+    galleryStore[ADDCOIN_GALLERY_ID] = [{ type:'obverse', url: realUrl, rawUrl: realUrl, circleUrl: realUrl, blob, caption:'', filename:'a.png', rawFilename:'b.png' }];
+    renderAddCoinPhotos();
+    const obvSlot = () => {
+      const h = [...document.querySelectorAll('#addCoinPhotoSections .accordion-header')].find(x => /Obverse &/.test(x.textContent));
+      if (h.getAttribute('aria-expanded') !== 'true') h.click();
+      return h.nextElementSibling.querySelector('.sg-photo-slot');
+    };
+    const shownBefore = !!obvSlot().querySelector('.sg-photo-img');
     navigate('dashboard');
     navigate('addcoin');
+    const slot = obvSlot();
     const afterPhotoReset = {
       galleryLen: (galleryStore[ADDCOIN_GALLERY_ID] || []).length,
-      previewDisplay: document.getElementById('obversePreview').style.display,
-      hasPhotoClass: document.getElementById('obverseFrame').classList.contains('has-photo'),
-      dotFilled: document.getElementById('obverseDot').classList.contains('filled')
+      shownBefore,
+      imgAfter: !!slot.querySelector('.sg-photo-img'),
+      plusAfter: !!slot.querySelector('[data-act="add"]')
     };
     clearAlbumContext();
     return { afterPlainNav, afterDeepLink, afterPhotoReset };
@@ -74,9 +80,8 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
     "1.8 album deep-link prefill still works after the reset runs first");
   ok(B1.afterDeepLink.bannerHidden === false, "1.9 album context banner shows on a real deep-link");
   ok(B1.afterPhotoReset.galleryLen === 0, "1.10 in-progress gallery cleared on re-entry");
-  ok(B1.afterPhotoReset.previewDisplay === 'none', "1.11 obverse preview hidden on re-entry");
-  ok(B1.afterPhotoReset.hasPhotoClass === false, "1.12 has-photo class removed on re-entry");
-  ok(B1.afterPhotoReset.dotFilled === false, "1.13 photo dot unfilled on re-entry");
+  ok(B1.afterPhotoReset.shownBefore && !B1.afterPhotoReset.imgAfter, "1.11 the obverse photo shown before is gone from the section on re-entry");
+  ok(B1.afterPhotoReset.plusAfter, "1.12 the Obverse slot is an empty \"+\" again on re-entry");
 
   // ---------- #2/#3: description auto-fill clears on no-match, picks on ambiguity ----------
   const B2 = await page.evaluate(() => {
@@ -284,25 +289,13 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
   ok(!B13.finishOptions.includes('Circulated'), "15.1 Circulated removed from the Finish dropdown (wear-state, not a strike method)");
 
   // ---------- Q2/#6: GradeSource on the coin graphic only for real services ----------
-  const BQ2 = await page.evaluate(() => {
-    navigate('addcoin');
-    document.getElementById('gradeFrom').value = 'VF-30';
-    document.getElementById('gradeSource').value = 'PCGS';
-    updateFlipLabels();
-    const serviceBL = document.getElementById('flipObverseBL').textContent;
-    document.getElementById('gradeSource').value = 'Seller';
-    updateFlipLabels();
-    const sellerBL = document.getElementById('flipObverseBL').textContent;
-    document.getElementById('gradeSource').value = '';
-    updateFlipLabels();
-    const blankBL = document.getElementById('flipObverseBL').textContent;
-    return { serviceBL, sellerBL, blankBL,
-      svc: { PCGS: isServiceGradeSource('PCGS'), NGC: isServiceGradeSource('NGC'),
-             Seller: isServiceGradeSource('Seller'), Owner: isServiceGradeSource('Owner') } };
-  });
-  ok(/PCGS/.test(BQ2.serviceBL), "Q2.1 a real grading service still shows on the coin graphic (VF-30 PCGS)");
-  ok(BQ2.sellerBL.trim() === 'VF-30', "Q2.2 a Seller estimate shows Grade alone, no source baked in");
-  ok(BQ2.blankBL.trim() === 'VF-30', "Q2.3 a blank GradeSource shows Grade alone");
+  // Q2.1-Q2.3 checked Add Coin's live preview card, retired with the move
+  // onto Edit Coin's photo section (claude/addcoin-shared-photos, Q1). The
+  // saved coin's card shows Grade + Designation only (verify_grade_
+  // designation_space.js). The service check itself stays.
+  const BQ2 = await page.evaluate(() => ({
+    svc: { PCGS: isServiceGradeSource('PCGS'), NGC: isServiceGradeSource('NGC'),
+           Seller: isServiceGradeSource('Seller'), Owner: isServiceGradeSource('Owner') } }));
   ok(BQ2.svc.PCGS && BQ2.svc.NGC && !BQ2.svc.Seller && !BQ2.svc.Owner,
     "Q2.4 isServiceGradeSource correctly distinguishes real services from Seller/Owner");
 

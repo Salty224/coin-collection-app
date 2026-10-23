@@ -2375,8 +2375,6 @@
      point of the loud-failure rule is that a capture is never silently lost. */
   .photo-upload-state { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
   .photo-upload-state.failed { color: #e08a6a; font-weight: 600; }
-  .staging-retry-btn { background: none; border: 1px solid currentColor; color: inherit; border-radius: 10px;
-                       padding: 0 6px; font-size: 12px; line-height: 16px; cursor: pointer; }
   .gc-add-row { display: flex; gap: 8px; flex-wrap: wrap; }
   /* Three buttons (Add Coin, with 📁 Files) must stay on ONE line down to a
      360px phone. The original "Take photo" / "Choose photo" labels need
@@ -4272,67 +4270,6 @@
                    stay in memory until Save, which writes the draft to Staging
                    exactly as before. renderAddCoinPhotos() draws it. -->
               <div id="addCoinPhotoSections"></div>
-              <!-- RETIRED (Q1, 22 Oct 2026): the live preview card, the
-                   Obverse/Reverse toggle, the 📷 🖼️ 📁 slots and the old
-                   gallery. Hidden here and removed with its code in its own
-                   later commit; nothing visible reads it. -->
-              <div id="addCoinLegacyPhotos" hidden>
-              <div class="photo-toggle" id="photoToggle">
-                <button type="button" class="photo-toggle-btn active" id="showObverseBtn">
-                  Obverse (front) <span class="photo-toggle-dot" id="obverseDot"></span>
-                </button>
-                <button type="button" class="photo-toggle-btn" id="showReverseBtn">
-                  Reverse (back) <span class="photo-toggle-dot" id="reverseDot"></span>
-                </button>
-              </div>
-              <div class="photo-box" id="obversePhotoBox">
-                <div class="flip-frame">
-                  <span class="flip-label tl" id="flipObverseTL"></span>
-                  <span class="flip-label tr" id="flipObverseTR"></span>
-                  <div class="coin-photo-frame" id="obverseFrame">
-                    <span class="placeholder-icon" id="obversePlaceholder">📷</span>
-                    <img id="obversePreview">
-                  </div>
-                  <span class="flip-label bl" id="flipObverseBL"></span>
-                  <span class="flip-label br" id="flipObverseBR"></span>
-                </div>
-                <div class="photo-btns">
-                  <button type="button" id="obverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="obverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                  <button type="button" id="obverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
-                  <button type="button" id="obverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-                  <button type="button" id="obverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
-                </div>
-                <input type="file" id="obverseCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="obverseLibraryInput" accept="image/*">
-                <input type="file" id="obverseFilesInput" accept="image/*,application/pdf">
-              </div>
-              <div class="photo-box" id="reversePhotoBox" style="display:none;">
-                <div class="flip-frame">
-                  <span class="flip-label tl" id="flipReverseTL"></span>
-                  <div class="coin-photo-frame" id="reverseFrame">
-                    <span class="placeholder-icon" id="reversePlaceholder">📷</span>
-                    <img id="reversePreview">
-                  </div>
-                  <span class="flip-label br" id="flipReverseBR"></span>
-                </div>
-                <div class="photo-btns">
-                  <button type="button" id="reverseCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
-                  <button type="button" id="reverseLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                  <button type="button" id="reverseFilesBtn" aria-label="Choose photo from Files (OneDrive, Drive, Downloads)" title="Files">📁</button>
-                  <button type="button" id="reverseAdjustBtn" style="display:none;" aria-label="Adjust photo crop" title="Adjust crop">⤢</button>
-                  <button type="button" id="reverseRemoveBtn" style="display:none;" aria-label="Remove this photo from the draft" title="Remove">✕</button>
-                </div>
-                <input type="file" id="reverseCameraInput" accept="image/*" capture="environment">
-                <input type="file" id="reverseLibraryInput" accept="image/*">
-                <input type="file" id="reverseFilesInput" accept="image/*,application/pdf">
-              </div>
-
-              <!-- General photo gallery (slab/COA/box/other) — supersedes the old
-                   fixed "Additional Photo" slot. Obverse/Reverse above are the two
-                   special flip sources; everything else lives here. -->
-              <div class="gallery-capture" id="addCoinGallery"></div>
-              </div>
             </div>
           </div>
 
@@ -12910,7 +12847,6 @@
       // its own navigate() call, so this never clears a live edit.
       clearCoinDraftEditContext();
       showAddCoinMain();
-      showObversePhoto();
     }
     // Entering Browse from OUTSIDE it (this function) resets every filter
     // axis back to baseline — switching between Browse's own Coins/Rolls/
@@ -13958,8 +13894,8 @@
       renderTypeDenomCorner(trEl, coin);
     }
     // Designation follows Grade after ONE space (e.g. "MS-67 FB"; see
-    // gradeDesignationCornerText()) — a different join style from Add Coin's own live-entry
-    // BR corner (flipObverseBR), which stacks Variety/Designation as two
+    // gradeDesignationCornerText()) — a different join style from Add Coin's
+    // old live-entry BR corner (flipObverseBR, retired Oct 2026), which stacked Variety/Designation as two
     // separate lines; that's a different corner with a different pairing
     // rule, used here only as a reference for "check blank before joining,"
     // not for its stacking mechanism. Designation blank -> Grade alone, no
@@ -13986,9 +13922,9 @@
     //
     // Scope note: applyFlipCorners() is the SAVED-coin renderer, shared by
     // Browse detail and Spotlight — both get this, deliberately, since they
-    // are the same card. Add Coin's own live-entry preview is a different
-    // function (updateFlipLabels()) with a different corner mapping, and is
-    // deliberately NOT wired: its BR already carries Variety+Designation as
+    // are the same card. Add Coin's old live-entry preview (updateFlipLabels(),
+    // retired Oct 2026 with the preview card) had a different corner mapping
+    // and was deliberately NOT wired: its BR already carries Variety+Designation as
     // two stacked lines, composition often isn't known yet at entry time, and
     // this corner has a documented real-device clipping history that a third
     // stacked line would be poking at. The two flip-corner systems have
@@ -20125,9 +20061,6 @@
     // shouldn't have to retype what the album told the app on the way in.
     if (albumContext.denom) {
       document.getElementById("denomination").value = albumContext.denom;
-      const denom = albumContext.denom;
-      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
     }
     if (albumContext.year) document.getElementById("year").value = albumContext.year;
     document.getElementById("mintMark").value = albumContext.mintMark || "";
@@ -20138,7 +20071,6 @@
     if (albumContext.variety) document.getElementById("variety").value = albumContext.variety;
     refreshVarietyOptions();
     checkDbCoinsMatch();
-    updateFlipLabels();
 
     const assignSelect = document.getElementById("assignAlbum");
     const matchValue = albumContext.albumName + " :: " + albumContext.coinId;
@@ -20167,8 +20099,6 @@
 
     if (wishlistContext.denom) {
       document.getElementById("denomination").value = wishlistContext.denom;
-      sizeCoinElement(document.getElementById("obverseFrame"), wishlistContext.denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), wishlistContext.denom, 210, null);
     }
     if (wishlistContext.year) document.getElementById("year").value = wishlistContext.year;
     document.getElementById("mintMark").value = wishlistContext.mint || "";
@@ -20176,7 +20106,6 @@
     refreshVarietyOptions();
     maybeAutoFillDescription();
     checkDbCoinsMatch();
-    updateFlipLabels();
   }
 
   function clearWishlistContext() {
@@ -26172,31 +26101,17 @@
         if (def && def.flipSource) return;
         const thumb = document.createElement("div");
         thumb.className = "gc-thumb";
-        // opts.uploadStates (Add Coin only): a Staging-edit photo says where
-        // it stands — already in Staging, or "Not saved — tap ↻".
-        const stateLine = !opts.uploadStates ? "" :
-          entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button></div>` :
-          entry.stagingStored ? `<div class="photo-upload-state">In Staging</div>` : "";
         const canRemove = true;
         thumb.innerHTML = `
           ${canRemove ? `<button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>` : ""}
           ${galleryThumbInner(entry)}
           <div class="gc-type">${def ? def.label : entry.type}</div>
-          ${stateLine}
           <input type="text" class="gc-caption" placeholder="Caption…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
         `;
         if (canRemove) thumb.querySelector(".gc-remove").addEventListener("click", () => {
-          // A photo already in Staging comes off on Save changes, after a
-          // confirmation (Phase B2); anything else is just dropped, as before.
-          if (entry.stagingStored) {
-            confirmStagingRemove("this " + (def ? def.label.toLowerCase() : "photo"), () => removeStagingEditEntry(entry));
-            return;
-          }
           removeGalleryEntry(id, index);
           render();
         });
-        const retry = thumb.querySelector(".staging-retry-btn");
-        if (retry && opts.onRetry) retry.addEventListener("click", opts.onRetry);
         thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
         grid.appendChild(thumb);
       });
@@ -27333,7 +27248,6 @@
   function updateGradePreview() {
     const resolved = resolveGrade();
     document.getElementById("gradeResolvedPreview").textContent = resolved ? "Grade: " + resolved : "";
-    updateFlipLabels();
   }
 
   function initGradePicker() {
@@ -27416,7 +27330,6 @@
     // with the coarse program-level one on the next keystroke.
     descriptionAutoFilled = false;
     descriptionFromDbCoinsRow = true;
-    updateFlipLabels();
     return true;
   }
 
@@ -28194,8 +28107,6 @@
     if (row.finish) document.getElementById("finish").value = row.finish;
     refreshVarietyOptions();
     checkDbCoinsMatch();
-    sizeCoinElement(document.getElementById("obverseFrame"), row.denom, 210, null);
-    sizeCoinElement(document.getElementById("reverseFrame"), row.denom, 210, null);
   }
 
   // Shared by the Grader dropdown's change handler and the PCGS label-decode
@@ -28274,8 +28185,6 @@
     const pcgsDecodedShape = addCoinIdentityShape();
     addCoinResolvedPick = { row, forShape: addCoinIdentityShapeKey(pcgsDecodedShape), candidateCount: 1 };
     checkDbCoinsMatch();
-
-    updateFlipLabels();
 
     document.getElementById("pcgsLabelAmbiguousPanel").classList.add("hidden");
     document.getElementById("pcgsLabelNotFoundBanner").classList.add("hidden");
@@ -28368,7 +28277,6 @@
     const shape = addCoinIdentityShape();
     addCoinResolvedPick = { row, forShape: addCoinIdentityShapeKey(shape), candidateCount: 1 };
     checkDbCoinsMatch();
-    updateFlipLabels();
     return row;
   }
 
@@ -29382,15 +29290,9 @@
     document.getElementById("gradeSource").value = "";
 
     // --- Photos
-    resetCirclePhotoSlot("obversePreview", "obversePlaceholder", "obverseFrame", "obverseDot", "obverseAdjustBtn");
-    resetCirclePhotoSlot("reversePreview", "reversePlaceholder", "reverseFrame", "reverseDot", "reverseAdjustBtn");
     resetReceiptSlot("receiptPreview", "receiptPlaceholder");
-    delete slotFiles["obverseFrame"];
-    delete slotFiles["reverseFrame"];
     delete galleryStore[ADDCOIN_GALLERY_ID];
     delete receiptFiles["receiptPreview"];
-    const gallerySection = document.getElementById("addCoinGallery");
-    if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
     renderAddCoinPhotos();
 
     // --- Value + provenance
@@ -29414,7 +29316,6 @@
     [...assignAlbumSel.options].forEach(o => { if (o.dataset.injected) o.remove(); });
     assignAlbumSel.value = "";
 
-    updateFlipLabels();
     updateSaveConfidenceUI();
 
     // Accordion sections go back to their default open/closed state too.
@@ -29450,8 +29351,6 @@
   function clearCoinDraftEditContext() {
     editingCoinDraftId = null;
     editDraftFiles = null;
-    ["obverse", "reverse"].forEach(t => setFlipSlotReplaceLabels(t, false));
-    document.querySelectorAll(".staging-slot-state").forEach(n => n.remove());
     showReceiptUploadState("receiptPreview", "", false, null);
     updateStagingEditRemoveButtons();
     const banner = document.getElementById("editDraftBanner");
@@ -29617,7 +29516,6 @@
       ? { row: savedRow, forShape: addCoinIdentityShapeKey(addCoinIdentityShape()), candidateCount: 1 }
       : null;
 
-    updateFlipLabels();
     checkDbCoinsMatch();
     updateSaveConfidenceUI();
   }
@@ -29757,41 +29655,6 @@
     return groups;
   }
 
-  const STAGING_FLIP_SLOT_IDS = {
-    obverse: { preview: "obversePreview", placeholder: "obversePlaceholder", frame: "obverseFrame",
-               dot: "obverseDot", adjust: "obverseAdjustBtn", box: "obversePhotoBox",
-               buttons: ["obverseCameraBtn", "obverseLibraryBtn", "obverseFilesBtn"] },
-    reverse: { preview: "reversePreview", placeholder: "reversePlaceholder", frame: "reverseFrame",
-               dot: "reverseDot", adjust: "reverseAdjustBtn", box: "reversePhotoBox",
-               buttons: ["reverseCameraBtn", "reverseLibraryBtn", "reverseFilesBtn"] }
-  };
-  const FLIP_SLOT_BUTTON_TITLES = { 0: "Camera", 1: "Library", 2: "Files" };
-
-  // Same writes wireMockPhotoSlot's applyCirclePreview() makes for a capture.
-  function showStagingFlipPreview(type, url) {
-    const ids = STAGING_FLIP_SLOT_IDS[type];
-    if (!ids || !url) return;
-    const preview = document.getElementById(ids.preview);
-    preview.src = url;
-    preview.style.display = "block";
-    document.getElementById(ids.placeholder).style.display = "none";
-    document.getElementById(ids.frame).classList.add("has-photo");
-    document.getElementById(ids.dot).classList.add("filled");
-    document.getElementById(ids.adjust).style.display = "flex";
-  }
-
-  // A filled slot says Replace; an empty one keeps its plain titles.
-  function setFlipSlotReplaceLabels(type, replacing) {
-    const ids = STAGING_FLIP_SLOT_IDS[type];
-    if (!ids) return;
-    ids.buttons.forEach((btnId, i) => {
-      const btn = document.getElementById(btnId);
-      if (!btn) return;
-      const base = FLIP_SLOT_BUTTON_TITLES[i];
-      btn.title = replacing ? "Replace — " + base : base;
-    });
-  }
-
   async function fetchStagingFileUrl(path, mime) {
     const bytes = await graph().getFileBytes(path);
     if (bytes == null) return null;
@@ -29828,27 +29691,17 @@
       editDraftFiles.hydratedFiles.add(draft.receiptPhoto);
       showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", draft.receiptPhoto + " (in Staging)");
     }
-    const render = () => {
-      const section = document.getElementById("addCoinGallery");
-      if (section && section._galleryRender) section._galleryRender();
-      renderAddCoinPhotos();
-    };
+    const render = () => renderAddCoinPhotos();
     render();
     updateStagingEditRemoveButtons();
     await Promise.all(entries.map(async entry => {
       try {
         const got = await fetchStagingFileUrl(folder + "/" + entry.storedFilename);
         if (got && editDraftFiles && editDraftFiles.id === id && list.indexOf(entry) !== -1) entry.url = got.url;
-        const flip = STAGING_FLIP_SLOT_IDS[entry.type];
-        if (!flip || !editDraftFiles || editDraftFiles.id !== id || list.indexOf(entry) === -1) return;
-        if (got) showStagingFlipPreview(entry.type, got.url);
-        setFlipSlotReplaceLabels(entry.type, true);
-        // Adjust re-crops from the untouched original when there is one.
-        const raw = entry.rawFilename ? await fetchStagingFileUrl(folder + "/" + entry.rawFilename) : null;
+        if (!entry.rawFilename || !editDraftFiles || editDraftFiles.id !== id || list.indexOf(entry) === -1) return;
         // The photo section's Recrop starts from the untouched original.
+        const raw = await fetchStagingFileUrl(folder + "/" + entry.rawFilename);
         if (raw && list.indexOf(entry) !== -1) entry.stagingRawUrl = raw.url;
-        const source = raw || got;
-        if (source && list.indexOf(entry) !== -1) slotFiles[flip.frame] = source.blob;
       } catch (e) {
         console.warn("Couldn't load " + entry.storedFilename + " from Staging:", e);
       }
@@ -30019,25 +29872,10 @@
     return text;
   }
 
-  // "Not saved — tap ↻" on a flip slot whose upload failed. The gallery
-  // thumbnails draw their own (initGalleryCapture's uploadStates option).
+  // A failed upload shows "Not saved — tap Save changes again" on the photo
+  // itself (the section's draft mode); redrawing the section is all this
+  // needs.
   function renderStagingEditUploadStates() {
-    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
-      const box = document.getElementById(STAGING_FLIP_SLOT_IDS[type].box);
-      if (!box) return;
-      let note = box.querySelector(".staging-slot-state");
-      const entry = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === type);
-      if (!entry || !entry.uploadError) { if (note) note.remove(); return; }
-      if (!note) {
-        note = document.createElement("div");
-        note.className = "photo-upload-state failed staging-slot-state";
-        box.appendChild(note);
-      }
-      note.innerHTML = `Not saved — tap <button type="button" class="staging-retry-btn" aria-label="Retry saving this photo">↻</button>`;
-      note.querySelector("button").addEventListener("click", () => saveAddCoinForm("staging"));
-    });
-    const section = document.getElementById("addCoinGallery");
-    if (section && section._galleryRender) section._galleryRender();
     renderAddCoinPhotos();
   }
 
@@ -30058,22 +29896,6 @@
     });
   }
 
-  function removeStagingEditEntry(entry) {
-    const list = galleryFor(ADDCOIN_GALLERY_ID);
-    const at = list.indexOf(entry);
-    if (at === -1) return;
-    list.splice(at, 1);
-    if (entry.stagingStored && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
-    const flip = STAGING_FLIP_SLOT_IDS[entry.type];
-    if (flip) {
-      resetCirclePhotoSlot(flip.preview, flip.placeholder, flip.frame, flip.dot, flip.adjust);
-      delete slotFiles[flip.frame];
-      setFlipSlotReplaceLabels(entry.type, false);
-    }
-    updateStagingEditRemoveButtons();
-    renderStagingEditUploadStates();
-  }
-
   function removeStagingEditReceipt() {
     if (editDraftFiles) editDraftFiles.receiptRemoved = true;
     delete receiptFiles["receiptPreview"];
@@ -30082,17 +29904,11 @@
     updateStagingEditRemoveButtons();
   }
 
-  // ✕ on the obverse/reverse slots and the receipt shows only while editing
-  // a Staging draft, and only when there is something there to remove. A
-  // fresh capture never sees it.
+  // ✕ on the receipt shows only while editing a Staging draft, and only
+  // when there is a receipt to remove; a fresh capture never sees it. (A
+  // photo's ✕ is the photo section's own.)
   function updateStagingEditRemoveButtons() {
     const editing = !!(editingCoinDraftId && editDraftFiles);
-    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
-      const btn = document.getElementById(type + "RemoveBtn");
-      if (!btn) return;
-      const has = editing && galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === type);
-      btn.style.display = has ? "flex" : "none";
-    });
     const r = document.getElementById("receiptRemoveBtn");
     if (r) {
       const hasReceipt = editing && (!!receiptFiles["receiptPreview"] ||
@@ -30102,16 +29918,6 @@
   }
 
   function wireStagingEditRemoveButtons() {
-    Object.keys(STAGING_FLIP_SLOT_IDS).forEach(type => {
-      const btn = document.getElementById(type + "RemoveBtn");
-      if (!btn) return;
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const entry = galleryFor(ADDCOIN_GALLERY_ID).find(x => x.type === type);
-        if (!entry) return;
-        confirmStagingRemove("the " + type + " photo", () => removeStagingEditEntry(entry));
-      });
-    });
     const r = document.getElementById("receiptRemoveBtn");
     if (r) r.addEventListener("click", () => confirmStagingRemove("the receipt", removeStagingEditReceipt));
   }
@@ -30146,77 +29952,10 @@
     clearWishlistContext();
   }
 
-  // ==================================================================
-  // FLIP LABELS — corner annotations on the obverse/reverse photo previews,
-  // styled like a collector's handwriting on a 2x2 coin flip. Live-updating,
-  // additive to (not a replacement for) the plain-text fields themselves.
-  // ==================================================================
-
-  function updateFlipLabels() {
-    const denom = document.getElementById("denomination").value;
-    const year = document.getElementById("year").value.trim();
-    const mint = document.getElementById("mintMark").value.trim();
-    const variety = document.getElementById("variety").value.trim();
-    const designation = document.getElementById("designation").value.trim();
-    const errorText = document.getElementById("errorDesc").value.trim();
-    const gradeSource = document.getElementById("gradeSource").value;
-    const grade = resolveGrade();
-    const price = document.getElementById("purchasePrice").value;
-
-    const yearMint = year + (mint ? "-" + mint : "");
-    const gradeParts = [];
-    if (grade) gradeParts.push(grade);
-    // Q2 (real live-run finding, #6): GradeSource only belongs on the coin's
-    // own graphic when it's a real third-party certification — PCGS/NGC/etc.
-    // A raw/self-graded/Seller-estimated coin shows Grade alone; the source
-    // stays visible in Overview/detail text regardless (see
-    // gradeWithSourceText(), unaffected by this — that's a different
-    // display, not the coin's own label).
-    if (gradeSource && isServiceGradeSource(gradeSource)) gradeParts.push(gradeSource);
-
-    // Every corner goes through the same shared helpers as the saved-coin
-    // card: renderFittedCornerLines() (which applies FLIP_TEXT_ABBREVIATIONS
-    // on the way in, then shrinks/wraps to fit) and clampFlipCorners() as the
-    // safety net. Display only — the form fields, and so what gets saved,
-    // keep exactly what was typed.
-    //
-    // Obverse: identification, standard shorthand (coded denomination, not the
-    // spelled-out series name), plus Variety+Designation if present. The
-    // Description is NOT drawn on this card (TR is the denomination alone),
-    // so the saved card's trailing-denomination rule has nothing to act on
-    // here.
-    const fit = (id, lines, wrap) => renderFittedCornerLines(document.getElementById(id), lines, wrap);
-    fit("flipObverseTL", [yearMint], -1);
-    fit("flipObverseTR", [denom], -1);
-    fit("flipObverseBL", [gradeParts.join(" ")], 0);
-    fit("flipObverseBR", [variety, designation], 0);
-
-    // Reverse: Error and Purchase Price only, per Ray's own convention (not an
-    // official numismatic standard) — matches the price sticker placement he
-    // sees at his local coin shop.
-    fit("flipReverseTL", [errorText], 0);
-    fit("flipReverseBR", [price ? formatCurrency(price) : ""], -1);
-
-    // Only a laid-out card can be measured: clampFlipCorners() skips one
-    // that's hidden (Photos collapsed, or the face not shown). showObverse/
-    // ReversePhoto() and opening Photos call this function again, so the
-    // card is fitted as soon as it becomes visible.
-    clampFlipCorners(document.querySelector("#obversePhotoBox .flip-frame"));
-    clampFlipCorners(document.querySelector("#reversePhotoBox .flip-frame"));
-  }
-
   function initAddCoin() {
-    // Obverse/Reverse are the flip sources — routed through the two-stage
-    // pipeline (background crop -> circle) and registered as gallery entries.
-    wireMockPhotoSlot("obversePreview", "obversePlaceholder", "obverseCameraBtn", "obverseLibraryBtn", "obverseCameraInput", "obverseLibraryInput", "obverseFrame", "obverseDot", "obverseAdjustBtn", "obverse", () => ADDCOIN_GALLERY_ID,
-      { filesBtnId: "obverseFilesBtn", filesInputId: "obverseFilesInput", guardImages: true });
-    wireMockPhotoSlot("reversePreview", "reversePlaceholder", "reverseCameraBtn", "reverseLibraryBtn", "reverseCameraInput", "reverseLibraryInput", "reverseFrame", "reverseDot", "reverseAdjustBtn", "reverse", () => ADDCOIN_GALLERY_ID,
-      { filesBtnId: "reverseFilesBtn", filesInputId: "reverseFilesInput", guardImages: true });
+    // Photos are Edit Coin's own section in draft mode (renderAddCoinPhotos);
+    // the receipt keeps its own slot.
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");
-    // The old fixed "Additional Photo" slot is superseded by the gallery
-    // widget (its role is now the gallery's "Other" type).
-    initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin",
-      { files: true, guardImages: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
     wireStagingEditRemoveButtons();
     renderAddCoinPhotos();
     refreshVarietyOptions();
@@ -30227,12 +29966,6 @@
     // Replaces the six listeners the two drill-down subviews needed
     // (two open rows, two Backs, two Dones).
     ADD_COIN_SECTIONS.forEach(([headerId, bodyId]) => wireStaticAccordionToggle(headerId, bodyId));
-    // The preview card can only be fitted while Photos is open (a collapsed
-    // section has no layout to measure), so re-fit it whenever it opens.
-    // Registered after the toggle above, so the body is already visible.
-    document.getElementById("addCoinPhotosHeader").addEventListener("click", () => {
-      if (!document.getElementById("addCoinPhotosBody").classList.contains("hidden")) updateFlipLabels();
-    });
 
     document.getElementById("albumContextClearBtn").addEventListener("click", clearAlbumContext);
     document.getElementById("wishlistOriginClearBtn").addEventListener("click", clearWishlistContext);
@@ -30312,23 +30045,20 @@
       } else {
         maybeAutoFillDescription();
       }
-      refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
-      const denom = document.getElementById("denomination").value;
-      sizeCoinElement(document.getElementById("obverseFrame"), denom, 210, null);
-      sizeCoinElement(document.getElementById("reverseFrame"), denom, 210, null);
+      refreshVarietyOptions(); checkDbCoinsMatch();
     });
-    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("year").addEventListener("input", () => { maybeAutoFillDescription(); refreshVarietyOptions(); checkDbCoinsMatch(); });
     document.getElementById("mintMark").addEventListener("change", (e) => {
       // "— none (Other) —" is a one-shot sentinel, never a real persisted
       // value (Q2, confirmed) — normalize straight back to "" BEFORE
       // anything else reads .value, so refreshVarietyOptions()/
-      // checkDbCoinsMatch()/updateFlipLabels() below (and every other
+      // checkDbCoinsMatch() below (and every other
       // reader in the file) only ever see "" or a real code.
       if (e.target.value === MINT_MARK_OTHER_SENTINEL) {
         e.target.value = "";
         handleMintMarkOtherApply();
       }
-      refreshVarietyOptions(); checkDbCoinsMatch(); updateFlipLabels();
+      refreshVarietyOptions(); checkDbCoinsMatch();
     });
     // Finish/Designation/GradeSource are all real inputs to
     // dbCoinsCandidatesFor() (the Finish tier, the Designation tier, and the
@@ -30359,11 +30089,11 @@
         otherInput.style.display = "none";
         document.getElementById("variety").value = e.target.value;
       }
-      checkDbCoinsMatch(); updateFlipLabels();
+      checkDbCoinsMatch();
     });
     document.getElementById("varietyOther").addEventListener("input", (e) => {
       document.getElementById("variety").value = e.target.value;
-      checkDbCoinsMatch(); updateFlipLabels();
+      checkDbCoinsMatch();
     });
 
     // checkDbCoinsMatch() is new here (2026-09-10) and is required, not
@@ -30376,7 +30106,7 @@
     // the repro that started this (the green "Matched" banner survived
     // "Trump" being typed under it). Same rule the Finish/Designation/
     // GradeSource listeners below already follow for their own tiers.
-    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; descriptionFromDbCoinsRow = false; hideDescriptionAmbiguousPanel(); checkDbCoinsMatch(); updateFlipLabels(); });
+    document.getElementById("description").addEventListener("input", () => { descriptionAutoFilled = false; descriptionFromDbCoinsRow = false; hideDescriptionAmbiguousPanel(); checkDbCoinsMatch(); });
     document.getElementById("descriptionAmbiguousSelect").addEventListener("change", (e) => {
       if (!e.target.value) return;
       document.getElementById("description").value = e.target.value;
@@ -30391,10 +30121,8 @@
       // the ambiguity itself resolves (0/1 candidates) or the user types
       // directly into Description (a real manual override, handled by
       // #description's own "input" listener above).
-      updateFlipLabels();
       checkDbCoinsMatch();
     });
-    document.getElementById("designation").addEventListener("input", updateFlipLabels);
 
     // Error: unfiltered dropdown (applies to any coin) + manual "Other"
     // override, same shape as Variety's override but no context-filtering.
@@ -30411,48 +30139,15 @@
         otherInput.style.display = "none";
         document.getElementById("errorDesc").value = e.target.value;
       }
-      updateFlipLabels();
     });
     document.getElementById("errorOther").addEventListener("input", (e) => {
       document.getElementById("errorDesc").value = e.target.value;
-      updateFlipLabels();
     });
-
-    document.getElementById("gradeSource").addEventListener("change", updateFlipLabels);
-    document.getElementById("purchasePrice").addEventListener("input", updateFlipLabels);
 
     document.getElementById("saveToDatabaseBtn").addEventListener("click", () => saveAddCoinForm("database"));
     document.getElementById("saveToStagingBtn").addEventListener("click", () => saveAddCoinForm("staging"));
 
-    initPhotoToggle();
     initYearPicker();
-    updateFlipLabels();
-  }
-
-  // ==================================================================
-  // OBVERSE / REVERSE TOGGLE — one flip card visible at a time so the page
-  // doesn't get long now that each card is bigger.
-  // ==================================================================
-
-  function showObversePhoto() {
-    document.getElementById("obversePhotoBox").style.display = "block";
-    document.getElementById("reversePhotoBox").style.display = "none";
-    document.getElementById("showObverseBtn").classList.add("active");
-    document.getElementById("showReverseBtn").classList.remove("active");
-    updateFlipLabels(); // fit the corners now that this face can be measured
-  }
-
-  function showReversePhoto() {
-    document.getElementById("obversePhotoBox").style.display = "none";
-    document.getElementById("reversePhotoBox").style.display = "block";
-    document.getElementById("showReverseBtn").classList.add("active");
-    document.getElementById("showObverseBtn").classList.remove("active");
-    updateFlipLabels(); // fit the corners now that this face can be measured
-  }
-
-  function initPhotoToggle() {
-    document.getElementById("showObverseBtn").addEventListener("click", showObversePhoto);
-    document.getElementById("showReverseBtn").addEventListener("click", showReversePhoto);
   }
 
   // ==================================================================

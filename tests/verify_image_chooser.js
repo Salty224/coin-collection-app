@@ -328,9 +328,11 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const ms = __ic.openAll(__ic.openManageSet().id);
     const manageSet = { old: ms.querySelectorAll('[data-act="camera"], [data-act="library"], .gc-add-row, .gc-replace-row').length,
                         chooser: ms.querySelectorAll(".sg-photo-add, .gc-add-tile, [data-act='replace'], [data-role='replace']").length };
+    // Add Coin moved onto Edit Coin's photo section (claude/addcoin-shared-
+    // photos): its old 📷 🖼️ 📁 slots and gallery are gone, the chooser is in.
     navigate("addcoin");
-    const ac = document.getElementById("view-addcoin");
-    const addCoin = { old: !!document.getElementById("obverseCameraBtn") + ac.querySelectorAll(".gc-add-row").length,
+    const ac = __ic.openAll("addCoinPhotoSections");
+    const addCoin = { old: !!document.getElementById("obverseCameraBtn") + ac.querySelectorAll('.gc-add-row, [data-act="camera"], [data-act="library"]').length,
                       chooser: ac.querySelectorAll(".sg-photo-add, .gc-add-tile").length };
     navigate("addset");
     if (typeof renderAddSetDocs === "function") renderAddSetDocs();
@@ -342,9 +344,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     return { editSet, manageSet, addCoin, addSet, wishlist };
   });
   ok(X.editSet.old === 0 && X.editSet.chooser > 0 && X.manageSet.old === 0 && X.manageSet.chooser > 0 &&
-     X.addCoin.old > 0 && X.addCoin.chooser === 0 && X.addSet.old > 0 && X.addSet.chooser === 0 &&
+     X.addCoin.old === 0 && X.addCoin.chooser > 0 && X.addSet.old > 0 && X.addSet.chooser === 0 &&
      X.wishlist.old === 3 && X.wishlist.chooser === 0,
-    "X1 scope after C2: Edit Set and Manage Photos for a Set use the chooser; only Add Coin, Add Set and Wishlist keep their old 📷/🖼️ buttons: " + JSON.stringify(X));
+    "X1 scope: Edit Set, Manage Photos for a Set and now Add Coin use the chooser; only Add Set and Wishlist keep their old 📷/🖼️ buttons: " + JSON.stringify(X));
 
   // ---------- V. The Set screens (C2) -----------------------------------------
   for (const surface of ["edit", "manage"]) {

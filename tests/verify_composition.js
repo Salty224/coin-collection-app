@@ -284,26 +284,18 @@ module.exports = defineSuite("composition", async ({ ok, openApp, PHONE, TABLET 
   ok(JF.bimetal.shown === "50% Gold, 50% Silver",
     "J5 -- while a composition naming 2+ precious metals falls back to ONE joined, UNSPLIT line (may not itself fit the box — known, accepted gap for a case zero real coins exercise)");
 
-  // ------------------------------- K. Scope guard: Add Coin deliberately untouched
+  // ------------------------------- K. Scope guard: Add Coin draws no composition
+  // Add Coin's live preview card (whose BR held Variety+Designation) was
+  // retired with the move onto Edit Coin's photo section (claude/addcoin-
+  // shared-photos, Q1). K now pins that Add Coin draws no flip-card corner
+  // at all, so composition can't creep onto an entry screen.
   const K = await page.evaluate(() => {
     navigate("addcoin");
-    document.getElementById("denomination").value = "$1";
-    document.getElementById("year").value = "1889";
-    document.getElementById("mintMark").value = "CC";
-    document.getElementById("variety").value = "Test Variety";
-    document.getElementById("designation").value = "PL";
-    updateFlipLabels();
-    const br = document.getElementById("flipObverseBR");
-    return {
-      text: br.textContent,
-      lineCount: br.querySelectorAll(".corner-line").length,
-      hasComposition: br.textContent.indexOf("Silver") !== -1 || br.textContent.indexOf("%") !== -1
-    };
+    return { corners: document.querySelectorAll("#view-addcoin .flip-label").length,
+             fn: typeof updateFlipLabels };
   });
-  ok(K.lineCount === 2 && !K.hasComposition,
-    "K1 Add Coin's live-entry BR still holds Variety+Designation only — composition is deliberately NOT added there (documented clipping history; composition often unknown at entry)");
-  ok(K.text.indexOf("Test Variety") !== -1 && K.text.indexOf("PL") !== -1,
-    "K2 -- and both of its existing values still render");
+  ok(K.corners === 0 && K.fn === "undefined",
+    "K1 Add Coin draws no flip-card corners (its preview card is retired), so no composition appears there: " + JSON.stringify(K));
 
   // ------------------------------------ M. The reduction chain, in isolation
   const M = await page.evaluate(() => ({
