@@ -249,6 +249,9 @@ commit 5).
   Edit Coin, Manage Photos (coin and Set), Edit Set, the parent-COA
   read-through and the coin page's Photos strip. Front/Back unchanged; the
   "+" boxes unchanged (88px tile, 120px pair box).
+  *(Open-ended tiles on the editing screens superseded on
+  `claude/photo-label-save-changes`, F1: half the section wide, photo drawn
+  whole in a 120px box. See "Photo labels save with Save Changes".)*
   - Open-ended thumbs (`.gc-thumb.gc-shaped`, chooser mode only): the tile
     stays 88px tall and its width follows the image, capped at 174px of
     image (a 2:1 TrueView fills 174x88). `galleryThumbInner(entry, {shaped,
@@ -526,6 +529,78 @@ label saved on blur had no undo.
   app is closed or the tab killed, exactly like an unsaved field.
 - **Not verified:** any real device; Samsung Internet; a real write to
   `_Testing`.
+- **Ray's tablet test of `c90b51b` passed.** Three fixes before merge, same
+  branch (`22c407f`), suite `tests/verify_tile_width_label_editor.js` (179;
+  F1/F2 layout on all six screens at 360x800, 412x915 and 1024x768):
+  - **F1, open-ended tiles at pair width.** Reference, COA and Other tiles
+    (coins and Sets), and their "+" tile, are each half the section wide, two
+    per row, the same width as a pair slot on the same screen (measured: 112px
+    Edit Coin / 144px Manage Photos at 360; 138/170 at 412; 444/476 at 1024).
+    The photo is drawn whole (`background-size: contain`, letterboxed on
+    black) in a 120px-tall box, whatever its shape, so a row's tiles match;
+    120px is the pair slot's "+" and photo height. CSS `.gc-half-grid`
+    (two-column grid, 10px gap like `.sg-photo-pair`), added by
+    `manageOpenEndedBlock` in chooser mode only, so every chooser screen gets
+    it (Edit Coin, Edit Set, Manage Photos coin/Set, Add Coin, the
+    Staging-draft edit). The failed-save dim and ↻ now sit inside the image
+    box (`galleryThumbInner(entry, { inside })`). **Supersedes, for these
+    tiles only, the T1 follow-up's "open-ended thumbs at their own shape"**
+    (`.gc-thumb.gc-shaped` / `.gc-img-sizer`): pair slots, the "Crop from
+    another photo" source tiles, the coin page's Photos strip and the
+    parent-COA read-through still follow the photo's shape. Non-chooser
+    galleries (Add Set, Wishlist) unchanged.
+  - **F2, one-line label box + full-width editor.** The box
+    (`.gc-caption.gc-label-box`, readonly so a tap never raises the keyboard
+    on the small box) is one line with "…" (nowrap, ellipsis), 12px, 30px
+    tall; its `title` is the whole label. A tap, or Enter/Space, opens
+    `#photoLabelEditor` (`openPhotoLabelEditor(box, entry, title)`): a
+    full-width panel (max 640px) near the top of the screen, a textarea with
+    the whole label, a line saying what will save it (Save Changes / Save
+    labels / the coin's Save), Cancel and Done. Done, Enter or a backdrop tap
+    put the text back in the box by firing the box's own `input` event, so
+    the label is unsaved exactly as if typed there (red line, Back warning,
+    "Save labels" button, draft caption all unchanged); a newline becomes a
+    space. Cancel and Esc change nothing. `navigate()` closes it without
+    applying (`closePhotoLabelEditor(false)`). A tile redrawn while it is
+    open gets the text on the box now on screen (`photoLabelThumbs`). A
+    legacyOnly box (`.gc-caption-legacy`) never opens it. Draft mode too.
+  - **F3, stale text.** Manage Photos' footer said "Photos are held for this
+    session only — no OneDrive write happens yet." It is now
+    `#managePhotosNote`, set in `openManagePhotos`: an owned record (via
+    `photoCommitTargetId`) reads "Photos save to OneDrive as you add, replace
+    or remove them. Labels save when you tap Save labels."; anything else (a
+    Set still in progress) "This record isn't on the All sheet yet, so
+    photos added here are kept for this session only." The grep found two
+    more: Edit Set's footer (`#editSetSaveNote`, set in
+    `showBrowseEditSetView`) now says the Set's fields are session-only but
+    photos and labels save; and the Mark ready toast no longer says Copilot
+    moves the row across (backlog (b), closed): it says to tap Promote, or,
+    with no CoinID yet, that it waits in the Docket's Research section.
+    Left as they are because they are still true: the flag-off mockup texts
+    (`addCoinMockNote`, `stagingMockNote`, Edit Coin's session-only note,
+    the mock toasts), Wishlist, Batch Receipt, the quick-capture note,
+    Edit Set's own session-only toast.
+  - **Tests changed to follow the design, not weakened**:
+    `verify_addcoin_shared_photos` SH1-SH4/SH8 and AC4 (open-ended tiles on
+    the editing screens are checked as half-width contain boxes; pair slots
+    and the coin-page strip still checked for shape; "+" boxes are a tile
+    wide and 120px tall); `verify_photo_receipt_write` V8 (the thumbnail is
+    contain in its own 120px box, the viewer's box doesn't leak onto it);
+    `verify_photo_label_save` L12 (a normal box opens the editor, a legacy
+    one doesn't). `verify_image_chooser` RC4 passes unchanged once the dim
+    covers the image border (`inset: -1px`).
+  - **Negative controls** (real app.html, restored by checksum, each failing
+    by name): two-column grid removed (F1b-F1f x18); "+" box back to 88px
+    (F1f x18); photo cover-cropped (F1e x18); old shaped tiles in the JS
+    (F1b-F1f); no ellipsis (F2a x18); tap not opening the editor (F2b x18,
+    F2c-F2p); Done not firing the box's input (F2d/F2e/F2k/F2m/F2o/F2p);
+    navigate leaving the editor open (F2l); Cancel applying (F2f/F2g); Done
+    writing to a redrawn-away box (F2k); old footer text (F3a/F3c).
+  - `npm test` on `22c407f`: 3697 passed, 0 failed, 0 page errors, 71
+    suites (3518 + 179).
+  - **Not verified:** any real device; how the letterboxed tiles and the
+    editor feel on the S25 and tablet; the editor with the on-screen keyboard
+    up.
 
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
@@ -1069,7 +1144,7 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   restarted. Plan only first, before any build.
 - (b) The "Mark ready" toast still says the app doesn't write the All sheet
   ("Copilot moves the row across"); out of date since Promote and the direct
-  write landed.
+  write landed. *(Fixed on `claude/photo-label-save-changes`, not merged.)*
 - (c) The Add Coin gallery has no per-photo Replace button. *(Closed 23 Oct 2026, on main: Add Coin uses Edit Coin's
   section, which has Replace.)*
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
@@ -1099,6 +1174,17 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (l) Close Drawer / navigate should warn on any unsaved edit (all fields,
   Edit Coin and the other edit screens), not only Back. Today `navigate()`
   leaves silently and the edits (photo labels included) are discarded.
+  Next branch, plan first (Ray, 23 Oct): the same "Discard unsaved edits?"
+  dialog as Back.
+- (m) Next branch, plan first, don't build yet (Ray, 23 Oct): photos on the
+  edit screens wait for Save, the same as Add Coin's draft mode, instead of
+  saving on capture; Discard undoes them; Manage Photos gets ONE Save button
+  for photos and labels together (replacing "Save labels").
+- (n) Next branch, plan first (Ray, 23 Oct): Package/OGP becomes open-ended
+  (any number of photos, each labelled, e.g. Closed / Open) instead of a
+  Front/Back pair. Needs a plan for the existing Front/Back Package photos
+  (PhotoType `OGP_Obverse`/`OGP_Reverse`, Add Set's whole-set mirror, the
+  Set's flip-photo fallback `setFlipPhotoUrl`).
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
