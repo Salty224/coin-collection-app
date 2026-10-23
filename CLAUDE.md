@@ -135,7 +135,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commits 1-5 built, T1 passed, held for T2 on the S25)
+## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commits 1-6 built, T1 passed, held for T2 on the S25)
 Ray's decision (22 Oct 2026), replacing unified-image-chooser C3: Add Coin
 and Edit Coin give the SAME photo experience; only the timing differs.
 Add Coin and the Staging-draft edit will render Edit Coin's own section
@@ -156,8 +156,8 @@ commit 5).
   (3) Add Coin new draft uses the section — BUILT; (4) the Staging-draft
   edit uses it — BUILT; (5) crop from another photo in draft mode — BUILT,
   HELD for T2 (Ray tests Add Coin and a Staging edit on the S25); (6) remove
-  the dead Add Coin preview/slot code, its own revertible commit — NOT
-  built; (7) CLAUDE.md. Details of 2-5 below, after the T1 follow-ups.
+  the dead Add Coin preview/slot code, its own revertible commit — BUILT
+  (`c6f0ba0`); (7) CLAUDE.md. Details of 2-6 below, after the T1 follow-ups.
 - **S3 golden (`tests/fixtures/addcoin_photo_save_golden.json`)**, recorded
   on `main` `38b0207` before any change: a fixed pick set (front, back,
   holder front/back, two references labelled "TrueView obverse/reverse", one
@@ -341,8 +341,8 @@ commit 5).
   by `clearCoinDraftEditContext`. Same sections (Package/OGP and COA
   included), wording and shapes as Edit Coin (AC2 compares the two screens'
   text). The retired preview card, Obverse/Reverse toggle, 📷 🖼️ 📁 slots
-  and old gallery sit in `<div id="addCoinLegacyPhotos" hidden>`; their code
-  still runs on the hidden elements until commit 6. **S3 golden unchanged**:
+  and old gallery sat in `<div id="addCoinLegacyPhotos" hidden>` until
+  commit 6 removed them. **S3 golden unchanged**:
   only `pickAll` moved (section "+" -> chooser -> Files -> crop). S3.8 no
   upload before Save; S3.9 section empty after Save; AC1-AC6 at 360x800,
   412x915, 1024x768. Tests that drove the retired UI follow the change:
@@ -350,10 +350,7 @@ commit 5).
   Library / Files whole and on screen), `verify_addcoin_accordion` (counts
   Add Coin's own sections; B3 = the section host), and
   **`tests/verify_addcoin_preview_fit.js` is deleted** with the preview card
-  it tested (69 suites). Assertions in `verify_addcoin_accordion` C,
-  `verify_addcoin_bugfixes` Q2/#6, `verify_composition` and
-  `verify_grade_designation_space` that read `flipObverse*` text still pass
-  against the hidden card; they go with it in commit 6.
+  it tested (69 suites).
 - **Commit 4 (`671c058`), the Staging-draft edit uses the section.**
   `loadStagingEditFiles` loads coin.json's photos into the same section as
   `stagingStored` entries, sets `stagingRawUrl` from the `_original` for
@@ -380,6 +377,26 @@ commit 5).
   cropping over a saved obverse replaces it like any Replace: at Save its old
   `_original` is no longer listed and is deleted. Saved coins unchanged.
   Tests CF1-CF6, SE5.
+- **Commit 6 (`c6f0ba0`), the retired code removed** (its own revertible
+  commit, built after T2 was set up; it changes nothing Ray sees). Gone: the
+  preview card markup and its six file inputs (`obverse/reverse
+  Camera/Library/FilesInput`), `updateFlipLabels`, `showObversePhoto` /
+  `showReversePhoto` / `initPhotoToggle`, the obverse/reverse
+  `wireMockPhotoSlot` calls, `initGalleryCapture("addCoinGallery")`,
+  `STAGING_FLIP_SLOT_IDS`, `showStagingFlipPreview`,
+  `setFlipSlotReplaceLabels`, `removeStagingEditEntry`, the flip-slot parts
+  of `updateStagingEditRemoveButtons` / `wireStagingEditRemoveButtons` /
+  `renderStagingEditUploadStates` (now just a section redraw),
+  `initGalleryCapture`'s Add Coin-only Staging states, `.staging-retry-btn`.
+  Kept on purpose: the receipt slot and its ✕; `wireMockPhotoSlot`
+  (Wishlist, receipts); `initGalleryCapture`'s generic `opts.files` /
+  `guardImages` (no caller now; Add Set's C4 may use them); the CSS the
+  Wishlist toggle shares. Tests that read the removed card now check its
+  absence or the chooser route: `verify_files_picker` (inventory 42 -> 38
+  inputs, 22 -> 20 camera inputs; D/E drive the chooser from Add Coin's
+  section; A3 Add Coin has only the receipt's inputs), accordion E1/E2,
+  bugfixes 1.11/1.12 (Q2.1-Q2.3 removed with the card), composition K1,
+  grade-designation B4 removed, image-chooser X1.
 - **Negative controls, commits A-5** (real app.html, restored by checksum,
   each failing by name): crop tiles square (CT1/CT2 x6); Edit's COA tap to
   the old panel (CR3 x2); COA strip centred (CR4 x2, DK6); draft picks
@@ -390,9 +407,11 @@ commit 5).
   staging-edit-photos P5); removals not counted (staging-edit-photos Q5);
   crop hidden in draft mode (DM1, AC1, AC2, SE5, CF1-CF4, CF6); original
   kept on a draft crop (CF3, CF6); temp filename in the dialog (CF2).
+  Commit 6: the old markup put back, hidden (files-picker B1/B3/C1/A3/A9,
+  accordion E1, composition K1, image-chooser X1).
 - **npm test**: commit A `baab8ea` 3482/0/0/70; commit 2 `f423bfe`
   3491/0/0/70; commit 3 `2352da2` 3463/0/0/69 (preview-fit suite removed); commit 4 `671c058` 3467/0/0/69; commit 5
-  `68f1c54` 3474/0/0/69.
+  `68f1c54` 3474/0/0/69; commit 6 `c6f0ba0` 3464/0/0/69 (10 assertions on the removed card dropped).
 - **Not verified**: any real device; the chooser's Files and Camera from
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
@@ -751,6 +770,10 @@ Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-v
   against `_Testing`.
 
 ## Add Coin: 📁 Files button + photo guard (Oct 2026, merged to main at `0a86551`, built on `claude/add-coin-files-picker-button`)
+*(On `claude/addcoin-shared-photos`, not yet on main: these slots and inputs
+are removed; Add Coin's photos go through the shared image chooser, whose
+Files input has the same accept and guard. See "Add Coin uses Edit Coin's
+photo section", commit 6.)*
 Merged to `main` (fast-forward to `0a86551`). Suite: `tests/verify_files_picker.js` (40).
 - **Why:** Chrome on Android opens its Photos-style picker for an image-only
   accept, and that picker's cloud sources are Google Photos or None — OneDrive
