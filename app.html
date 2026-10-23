@@ -2233,6 +2233,11 @@
     display: block; position: relative; width: auto; height: auto; line-height: 0;
   }
   .crop-src-tile.gc-shaped > .gc-type { width: 0; min-width: 100%; box-sizing: border-box; }
+  .gc-thumb .gc-label-failed {
+    font-size: 11px; color: #e06c5a; margin-top: 2px;
+    width: 0; min-width: 100%; box-sizing: border-box;
+  }
+  .gc-thumb .gc-caption[readonly] { opacity: 0.75; font-style: italic; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -4958,6 +4963,7 @@
           <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="managePhotosMeta"></div>
         </div>
         <div id="managePhotosSections"></div>
+        <button class="save-btn" id="managePhotosSaveLabelsBtn" type="button" style="display:none;">Save labels</button>
         <p class="placeholder-note">Photos are held for this session only — no OneDrive write happens yet.</p>
       </section>
 
@@ -9330,7 +9336,7 @@
       if (existing) {
         values.PhotoID = existing.PhotoID;
         await patchRecordRow(PHOTOS_SHEET_NAME, existing.__row, map, values);
-        return { photoId: existing.PhotoID, row: existing.__row, replaced: true };
+        return { photoId: existing.PhotoID, row: existing.__row, replaced: true, label: values.Label };
       }
     }
     if (replacePhotoId) {
@@ -9343,14 +9349,35 @@
         // the only thing saying what it is.
         if (!values.Label) values.Label = target.Label || "";
         await patchRecordRow(PHOTOS_SHEET_NAME, target.__row, map, values);
-        return { photoId: target.PhotoID, row: target.__row, replaced: true };
+        return { photoId: target.PhotoID, row: target.__row, replaced: true, label: values.Label };
       }
       // The row is gone (detached elsewhere, or never written) — fall
       // through and record it as new rather than losing the photo.
     }
     values.PhotoID = await nextPhotoId();
     const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values);
-    return { photoId: values.PhotoID, row, replaced: false };
+    return { photoId: values.PhotoID, row, replaced: false, label: values.Label };
+  }
+
+  // Label save on blur (Oct 2026). Writes ONE cell: the Label column of the
+  // photo's own row, found by PhotoID (and checked against CollectionID).
+  //
+  // Deliberately NOT patchRecordRow(): that rewrites the whole row from A to
+  // the last mapped column, and the map (ensureSheetHeaderMap) only holds
+  // columns with a header in A1:Z1. A column with a blank header sitting
+  // inside that span is not in the map and is written as "" — blanked — and
+  // every mapped cell goes back as the trimmed TEXT readRecordRows() read
+  // (a formula would be flattened to its value). A single-cell PATCH can do
+  // none of that: nothing but Label is touched, DateAdded included.
+  async function writePhotoLabel(collectionId, photoId, label) {
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    if (!map.Label) throw new Error("The Photos tab has no Label column.");
+    const hit = await findPhotoRowByPhotoId(photoId);
+    if (!hit || hit.CollectionID !== collectionId) throw new Error("No Photos row " + photoId + " for " + collectionId + ".");
+    const a1 = columnIndexToLetters(map.Label) + hit.__row;
+    await graph().patchWorkbookRanges(writePaths().workbook, PHOTOS_SHEET_NAME,
+      [{ address: a1 + ":" + a1, values: [[label]] }]);
+    return { row: hit.__row };
   }
 
   // Detach = blank the row, NOT delete the file. Two deliberate reasons:
@@ -12715,6 +12742,7 @@
 
   document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("managePhotosBackBtn").addEventListener("click", () => navBackHandler());
+  document.getElementById("managePhotosSaveLabelsBtn").addEventListener("click", () => saveManagePhotosLabels());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
   let previousViewId = null;
@@ -12734,6 +12762,9 @@
   }
 
   function navigate(viewId) {
+    // Leaving a screen throws away label edits that weren't saved with
+    // Save Changes (Oct 2026); a draft's labels (Add Coin) are untouched.
+    discardPhotoLabels();
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
       clearWishlistContext();
@@ -17410,7 +17441,10 @@
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditView").style.display = "block";
-    setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit → detail
+    // edit → detail, through the same unsaved-edits check as the form's own
+    // Back (the in-form Back is hidden; this chrome Back is the visible one).
+    setNavBack(() => leaveBrowseEditGuarded());
+    discardPhotoLabels(coin.id); // a fresh form shows the labels on the sheet
 
     const details = coinDetailsFor(coin.id);
     browseEditTouchedFields.clear(); // fresh form — nothing user-modified yet
@@ -17607,7 +17641,8 @@
     if (!coin) return;
     document.getElementById("browseDetailView").style.display = "none";
     document.getElementById("browseEditSetView").style.display = "block";
-    setNavBack(() => showBrowseDetail(currentBrowseCoin)); // edit set → detail
+    setNavBack(() => leaveBrowseEditSetGuarded()); // edit set → detail, asks first if labels changed
+    discardPhotoLabels(coin.id); // a fresh form shows the labels on the sheet
 
     const details = coinDetailsFor(coin.id);
 
@@ -17893,26 +17928,7 @@
     // backing out is the natural thing to try when a save won't go through.
     // Reopening then repopulates from the workbook and the typing is gone
     // with no warning at any point.
-    document.getElementById("browseEditBackBtn").addEventListener("click", () => {
-      const leave = () => {
-        browseEditTouchedFields.clear();
-        document.getElementById("browseEditView").style.display = "none";
-        document.getElementById("browseDetailView").style.display = "block";
-      };
-      if (!browseEditTouchedFields.size) { leave(); return; }
-      showWriteGuard({
-        title: "Discard unsaved edits?",
-        bodyHtml:
-          `<p style="margin:0 0 10px;">You've changed ${browseEditTouchedFields.size} field` +
-          `${browseEditTouchedFields.size === 1 ? "" : "s"} on ${escapeHtmlText(currentBrowseCoin ? currentBrowseCoin.id : "this coin")} ` +
-          `without saving.</p>` +
-          `<p style="margin:0; opacity:0.8;">Going back reloads the record from the workbook and your changes are lost.</p>`,
-        buttons: [
-          { label: "Keep editing" },
-          { label: "Discard", primary: true, onClick: leave }
-        ]
-      });
-    });
+    document.getElementById("browseEditBackBtn").addEventListener("click", () => leaveBrowseEditGuarded());
 
     // One delegated listener for the whole form marks which fields the
     // user has genuinely touched. Delegated (not per-field) so any field
@@ -18075,6 +18091,43 @@
   //   - write layer off        -> the pre-existing session-only stub, verbatim
   //   - identity overwrite     -> confirm first, then fall through to the write
   //   - otherwise              -> real single-row workbook write
+  // Back from Edit Coin. Unsaved fields and unsaved photo labels both ask
+  // first (Keep editing / Discard); Discard throws both away.
+  function leaveBrowseEditGuarded() {
+    const coin = currentBrowseCoin;
+    const id = coin ? coin.id : "";
+    confirmLeaveWithUnsavedEdits(id, browseEditTouchedFields.size, id, () => {
+      browseEditTouchedFields.clear();
+      showBrowseDetail(coin);
+    });
+  }
+
+  // True when no writable field on the form differs from the row as read.
+  // Save Changes with only photo labels changed then writes just the label
+  // cells: the coin row isn't touched, so LastModified/Reviewed aren't
+  // stamped (a label write stamps nothing else).
+  function rowFieldsUnchanged(snapshotValues, nextValues) {
+    if (!snapshotValues) return false;
+    return Object.keys(nextValues).every(name =>
+      ALL_WRITABLE_COLUMNS.indexOf(name) === -1 || cellsEqual(snapshotValues[name], nextValues[name]));
+  }
+
+  // Save Changes with only labels changed (see rowFieldsUnchanged).
+  async function performBrowseEditLabelsOnly(coin) {
+    const btn = document.getElementById("browseEditSaveBtn");
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    let res;
+    try { res = await savePhotoLabels(coin.id); }
+    finally { btn.disabled = false; btn.textContent = originalLabel; }
+    const head = res.saved
+      ? "Saved " + coin.id + " — " + res.saved + " label" + (res.saved === 1 ? "" : "s") + " updated."
+      : "Couldn't save the labels on " + coin.id + ".";
+    showToast(head + photoLabelResultText(res));
+    if (photoLabelsAllSaved(res)) showBrowseDetail(coin);
+  }
+
   function commitBrowseEdit(coin, form, identityShape, resolvedRow, viaPicker) {
     // With the write layer ON, a missing snapshot means the baseline read is
     // still in flight (or failed) — NOT that this is a mockup session.
@@ -18096,8 +18149,21 @@
       // begin with, and this stub predates the write layer entirely.
       const linkMsg = resolvedRow ? " Matches DB_Coins " + resolvedRow.coinId + "." : "";
       applyEditsToRecord(coin, form.record);
-      showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg);
-      showBrowseDetail(coin);
+      (async () => {
+        const lres = unsavedPhotoLabelCount(coin.id) ? await savePhotoLabels(coin.id) : null;
+        const labelMsg = lres && lres.saved
+          ? " " + lres.saved + " photo label" + (lres.saved === 1 ? "" : "s") + " saved to the workbook." : "";
+        showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg + labelMsg + photoLabelResultText(lres));
+        if (photoLabelsAllSaved(lres)) showBrowseDetail(coin);
+      })();
+      return;
+    }
+
+    // Only photo labels changed: write just those (no coin-row write, so no
+    // LastModified/Reviewed stamp and no row conflict check — the labels
+    // live on the Photos tab).
+    if (unsavedPhotoLabelCount(coin.id) && rowFieldsUnchanged(browseEditSnapshot.values, form.workbook)) {
+      performBrowseEditLabelsOnly(coin);
       return;
     }
 
@@ -18147,13 +18213,18 @@
     const originalLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Saving…";
+    const restoreBtn = () => { btn.disabled = false; btn.textContent = originalLabel; };
     let result;
     try {
       result = await saveCoinRowToWorkbook(coin.id, form.workbook, browseEditSnapshot.values);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = originalLabel;
+    } catch (e) {
+      restoreBtn();
+      throw e;
     }
+    // Order (Oct 2026): fields, then the CoinID re-link, then photo labels.
+    // A blocked or failed field save writes no labels at all; they stay in
+    // their boxes for the next Save Changes.
+    if (!result.ok) restoreBtn();
 
     if (result.ok) {
       // CoinID re-linking — a separate, narrow write attempted ONLY after
@@ -18204,6 +18275,17 @@
       // against what's now really on the row, not the pre-save values.
       browseEditSnapshot = { id: coin.id, values: result.values };
       applyEditsToRecord(coin, form.record);
+
+      // Photo labels last, one cell each. A label that fails keeps its
+      // text and the red line, and the form stays open so Save Changes
+      // retries (the fields now match the row, so that retry writes only
+      // the labels).
+      let lres = null;
+      try {
+        if (unsavedPhotoLabelCount(coin.id)) lres = await savePhotoLabels(coin.id);
+      } finally {
+        restoreBtn();
+      }
       // result.written includes LastModified/Reviewed, which are stamped on
       // every successful save regardless of what the user changed (see
       // ADMIN_ONLY_SAVE_FIELDS) — excluded here so the toast's count
@@ -18211,9 +18293,14 @@
       // Real writes either way; this only changes what's counted for
       // display.
       const userFacingWritten = result.written.filter(f => ADMIN_ONLY_SAVE_FIELDS.indexOf(f) === -1);
+      const labelPart = lres && lres.saved ? ", " + lres.saved + " label" + (lres.saved === 1 ? "" : "s") : "";
       showToast("Saved " + coin.id + " to the workbook (" + userFacingWritten.length + " field" +
-        (userFacingWritten.length === 1 ? "" : "s") + " updated)." + coinIdMsg);
-      showBrowseDetail(coin);
+        (userFacingWritten.length === 1 ? "" : "s") + " updated" + labelPart + ")." + coinIdMsg + photoLabelResultText(lres));
+      if (photoLabelsAllSaved(lres)) {
+        showBrowseDetail(coin);
+      } else {
+        browseEditTouchedFields.clear(); // the fields are saved; only labels remain
+      }
       return;
     }
     if (result.reason === "conflict") {
@@ -18316,10 +18403,7 @@
     wireStaticAccordionToggle("editSetStorageHeader", "editSetStorageBody");
     wireStaticAccordionToggle("editSetReceiptAccordionHeader", "editSetReceiptAccordionBody");
 
-    document.getElementById("browseEditSetBackBtn").addEventListener("click", () => {
-      document.getElementById("browseEditSetView").style.display = "none";
-      document.getElementById("browseDetailView").style.display = "block";
-    });
+    document.getElementById("browseEditSetBackBtn").addEventListener("click", () => leaveBrowseEditSetGuarded());
 
     document.getElementById("browseEditSetSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
@@ -18352,9 +18436,31 @@
           notes: document.getElementById("editSetNotes").value.trim()
         }
       });
-      showToast("Updated " + coin.id + " for this session only — not saved to OneDrive.");
-      showBrowseDetail(coin);
+      // The Set's fields are session-only, but its photos (and so their
+      // labels) save for real: changed labels are written here.
+      (async () => {
+        const btn = document.getElementById("browseEditSetSaveBtn");
+        const originalLabel = btn.textContent;
+        let lres = null;
+        if (unsavedPhotoLabelCount(coin.id)) {
+          btn.disabled = true; btn.textContent = "Saving…";
+          try { lres = await savePhotoLabels(coin.id); }
+          finally { btn.disabled = false; btn.textContent = originalLabel; }
+        }
+        const labelMsg = lres && lres.saved
+          ? " " + lres.saved + " photo label" + (lres.saved === 1 ? "" : "s") + " saved to the workbook." : "";
+        showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + labelMsg + photoLabelResultText(lres));
+        if (photoLabelsAllSaved(lres)) showBrowseDetail(coin);
+      })();
     });
+  }
+
+  // Back from Edit Set: unsaved photo labels ask first (Keep editing /
+  // Discard). Its other fields are session-only and have never warned.
+  function leaveBrowseEditSetGuarded() {
+    const coin = currentBrowseCoin;
+    const id = coin ? coin.id : "";
+    confirmLeaveWithUnsavedEdits(id, 0, id, () => showBrowseDetail(coin));
   }
 
   // The set of Finish values DB_Coins itself actually uses anywhere in the
@@ -24325,7 +24431,12 @@
       coinPhotoCache[entry.rawFilename] = entry.rawUrl;
       rawName = entry.rawFilename;
     }
-    const res = await writePhotoRow(collectionId, entry, entry.filename, rawName, entry.storedPhotoId || null);
+    // The Label written here is the photo's SAVED label, never the text in
+    // the box: a typed label is only written by Save Changes (Oct 2026). A
+    // brand-new photo has none yet, so its row starts blank.
+    const res = await writePhotoRow(collectionId,
+      { type: entry.type, subGroupId: entry.subGroupId, caption: entry.savedLabel || "" },
+      entry.filename, rawName, entry.storedPhotoId || null);
     syncStoredPhotoIndexUpsert(collectionId, {
       photoId: res.photoId,
       photoType: photoTypeForGalleryType(entry.type),
@@ -24333,8 +24444,9 @@
       subGroupId: entry.subGroupId && entry.subGroupId !== DEFAULT_SUBGROUP_ID ? entry.subGroupId : "",
       filename: entry.filename,
       originalFilename: rawName,
-      label: entry.caption || ""
+      label: res.label || ""
     });
+    entry.savedLabel = res.label || "";
     return res;
   }
 
@@ -24449,7 +24561,12 @@
         // Keep an existing hydrated entry's fetched url; only refresh the
         // fields the sheet owns.
         if (already.stored) {
-          already.caption = row.label || already.caption || "";
+          // A label typed but not yet written wins over the sheet; otherwise
+          // the sheet is the truth, blank included (the old
+          // `row.label || already.caption` put a cleared label back, and put
+          // the OLD label back over a typed one on any redraw).
+          if (!photoLabelDirty(already)) already.caption = row.label || "";
+          already.savedLabel = row.label || "";
           already.storedPhotoId = row.photoId || already.storedPhotoId || "";
           already.storedOriginalFilename = row.originalFilename || already.storedOriginalFilename || "";
         }
@@ -24462,6 +24579,7 @@
         circleUrl: null,
         blob: null,
         caption: row.label || "",
+        savedLabel: row.label || "",
         filename: row.filename,
         rawFilename: null,
         subGroupId: sg,
@@ -24475,6 +24593,179 @@
       added.push(entry);
     });
     return added;
+  }
+
+  // ==================================================================
+  // PHOTO LABELS SAVE WITH SAVE CHANGES (Oct 2026)
+  // ==================================================================
+  // A label typed on a saved photo works like the coin's other fields:
+  // typing changes it in memory only, and Save Changes (Edit Coin, Edit Set)
+  // or "Save labels" (Manage Photos) writes it. Back offers Discard; any
+  // other way of leaving the screen throws the edit away. Nothing writes a
+  // label on blur, Enter, a redraw, navigation or the app going to the
+  // background. Draft mode (Add Coin, a Staging edit) is unchanged: Save
+  // writes the labels with the draft.
+  //
+  // entry.savedLabel is the label known to be on the row. Capture, Replace
+  // and ↻ write that, never the box text (commitGalleryPhoto).
+  function photoLabelDirty(entry) {
+    if (!entry || entry.savedLabel === undefined) return false;
+    return String(entry.caption || "").trim() !== String(entry.savedLabel || "").trim();
+  }
+  // Unsaved = waiting for Save. Also covers a photo with no row yet (still
+  // saving, or its save failed) that already has text typed into its box.
+  function photoLabelUnsaved(entry) {
+    if (!entry || entry.legacyOnly) return false;
+    if (entry.savedLabel === undefined) {
+      return !!String(entry.caption || "").trim() &&
+        (!!entry.uploadPending || galleryEntryNeverSaved(entry));
+    }
+    return photoLabelDirty(entry);
+  }
+  // Only a record whose photos really save (an owned coin or Set, write
+  // layer on) has labels to save; anything else keeps them in memory.
+  function unsavedPhotoLabelEntries(targetId) {
+    if (!targetId || targetId === ADDCOIN_GALLERY_ID || !photoCommitTargetId(targetId)) return [];
+    return (galleryStore[targetId] || []).filter(photoLabelUnsaved);
+  }
+  function unsavedPhotoLabelCount(targetId) { return unsavedPhotoLabelEntries(targetId).length; }
+
+  // The thumbnail currently drawn for each entry, so a save or a discard can
+  // update the box and the "Label not saved" line without a redraw.
+  const photoLabelThumbs = new WeakMap();
+  function paintPhotoLabelState(entry) {
+    const thumb = photoLabelThumbs.get(entry);
+    if (!thumb || !thumb.isConnected) return;
+    let line = thumb.querySelector(".gc-label-failed");
+    if (entry.labelError) {
+      if (!line) {
+        line = document.createElement("div");
+        line.className = "gc-label-failed";
+        line.textContent = "Label not saved";
+        const box = thumb.querySelector(".gc-caption");
+        if (box) box.insertAdjacentElement("afterend", line); else thumb.appendChild(line);
+      }
+    } else if (line) line.remove();
+    const box = thumb.querySelector(".gc-caption");
+    if (box && box.value !== (entry.caption || "")) box.value = entry.caption || "";
+  }
+  function syncStoredPhotoIndexLabel(collectionId, photoId, label) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].map(r =>
+      r.photoId === photoId ? Object.assign({}, r, { label }) : r);
+  }
+
+  // Writes every unsaved label for one record, one at a time, one cell each
+  // (writePhotoLabel). A photo still saving is waited for first. Returns
+  // counts for the caller's message:
+  //   saved       labels written
+  //   failed      writes that failed (text kept, red "Label not saved")
+  //   noPhotoRow  labels whose photo has no row yet (save failed; tap ↻)
+  async function savePhotoLabels(targetId) {
+    const out = { saved: 0, failed: 0, noPhotoRow: 0 };
+    const commitId = photoCommitTargetId(targetId);
+    if (!commitId) return out;
+    const entries = unsavedPhotoLabelEntries(targetId);
+    for (const entry of entries) {
+      if (entry.uploadPending && entry.commitPromise) {
+        try { await entry.commitPromise; } catch (e) { /* reported by the save */ }
+      }
+      if (galleryEntryNeverSaved(entry) || !entry.storedPhotoId) {
+        out.noPhotoRow++;
+        entry.labelError = "Its photo isn't saved yet.";
+        paintPhotoLabelState(entry);
+        continue;
+      }
+      if (!photoLabelDirty(entry)) continue; // the photo's own save settled it
+      const label = String(entry.caption || "").trim();
+      try {
+        await writePhotoLabel(commitId, entry.storedPhotoId, label);
+        entry.savedLabel = label;
+        entry.labelError = "";
+        syncStoredPhotoIndexLabel(commitId, entry.storedPhotoId, label);
+        out.saved++;
+      } catch (e) {
+        entry.labelError = String(e && e.message ? e.message : e);
+        out.failed++;
+      }
+      paintPhotoLabelState(entry);
+    }
+    refreshManagePhotosSaveLabelsBtn();
+    return out;
+  }
+  // The label half of a save message. Empty when no label was involved.
+  function photoLabelResultText(res) {
+    if (!res) return "";
+    const n = (k, w) => k + " " + w + (k === 1 ? "" : "s");
+    let t = "";
+    if (res.failed) t += " " + n(res.failed, "label") + " not saved — it's still in the box. Tap Save Changes to try again.";
+    if (res.noPhotoRow) t += " " + n(res.noPhotoRow, "label") + " not saved — its photo isn't saved yet. Tap ↻ on the photo, then Save Changes.";
+    return t;
+  }
+  function photoLabelsAllSaved(res) { return !res || (!res.failed && !res.noPhotoRow); }
+
+  // Throws away unsaved label edits: every box goes back to the label on the
+  // sheet (a photo with no row yet goes back to blank). Without a target,
+  // every saved record in memory; drafts are never touched.
+  function discardPhotoLabels(targetId) {
+    const ids = targetId ? [targetId] : Object.keys(galleryStore);
+    ids.forEach(id => {
+      if (id === ADDCOIN_GALLERY_ID) return;
+      (galleryStore[id] || []).forEach(entry => {
+        if (!photoLabelUnsaved(entry) && !entry.labelError) return;
+        entry.caption = entry.savedLabel !== undefined ? entry.savedLabel : "";
+        entry.labelError = "";
+        paintPhotoLabelState(entry);
+      });
+    });
+    refreshManagePhotosSaveLabelsBtn();
+  }
+
+  // Back from a screen with label boxes. Unsaved labels (plus `fieldCount`
+  // unsaved form fields, Edit Coin) ask first; Discard throws them away and
+  // leaves. Keep editing leaves everything as typed.
+  function confirmLeaveWithUnsavedEdits(targetId, fieldCount, recordId, leave) {
+    const labels = unsavedPhotoLabelCount(targetId);
+    const go = () => { discardPhotoLabels(targetId); leave(); };
+    if (!labels && !fieldCount) { go(); return; }
+    const parts = [];
+    if (fieldCount) parts.push(fieldCount + " field" + (fieldCount === 1 ? "" : "s"));
+    if (labels) parts.push(labels + " photo label" + (labels === 1 ? "" : "s"));
+    showWriteGuard({
+      title: "Discard unsaved edits?",
+      bodyHtml:
+        `<p style="margin:0 0 10px;">You've changed ${parts.join(" and ")} on ${escapeHtmlText(recordId || "this record")} ` +
+        `without saving.</p>` +
+        `<p style="margin:0; opacity:0.8;">Going back reloads the record from the workbook and your changes are lost.</p>`,
+      buttons: [
+        { label: "Keep editing" },
+        { label: "Discard", primary: true, onClick: go }
+      ]
+    });
+  }
+
+  // Manage Photos has no other Save, so it gets "Save labels", shown only
+  // while a label on this record is unsaved.
+  function refreshManagePhotosSaveLabelsBtn() {
+    const btn = document.getElementById("managePhotosSaveLabelsBtn");
+    if (!btn) return;
+    let id = null;
+    try { id = managePhotosCtx && managePhotosCtx.id; } catch (e) { /* not declared yet (startup) */ }
+    btn.style.display = (id && unsavedPhotoLabelCount(id)) ? "" : "none";
+  }
+  async function saveManagePhotosLabels() {
+    const ctx = managePhotosCtx;
+    if (!ctx || !ctx.id) return;
+    const btn = document.getElementById("managePhotosSaveLabelsBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+    let res;
+    try { res = await savePhotoLabels(ctx.id); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = "Save labels"; } }
+    const head = res.saved
+      ? "Saved " + ctx.id + " — " + res.saved + " label" + (res.saved === 1 ? "" : "s") + " updated."
+      : (photoLabelsAllSaved(res) ? "Nothing to save." : "Couldn't save the labels on " + ctx.id + ".");
+    showToast(head + photoLabelResultText(res));
+    refreshManagePhotosSaveLabelsBtn();
   }
 
   // Fetches the thumbnails for whichever hydrated entries don't have one
@@ -24568,6 +24859,9 @@
     const at = list.indexOf(oldEntry);
     if (!newEntry.caption && oldEntry && oldEntry.caption) newEntry.caption = oldEntry.caption;
     if (oldEntry && oldEntry.storedPhotoId) newEntry.storedPhotoId = oldEntry.storedPhotoId;
+    // The replacement writes the label already on the row; any text typed
+    // and not yet saved stays in the box (caption, above) for Save Changes.
+    if (oldEntry && oldEntry.savedLabel !== undefined) newEntry.savedLabel = oldEntry.savedLabel;
     // Take the replaced photo's own slot, so the live list keeps the same
     // order as the saved rows (the row itself is updated in place). Removing
     // it and re-adding pushed a repeatable photo (Reference, Other, COA) to
@@ -25584,7 +25878,9 @@
   function openManagePhotos(ctx) {
     managePhotosCtx = ctx;
     navigate("managephotos");
-    setNavBack(ctx.backTo || (() => navigate("dashboard")));
+    // Back asks first when a label was changed and not saved (Save labels).
+    const back = ctx.backTo || (() => navigate("dashboard"));
+    setNavBack(() => confirmLeaveWithUnsavedEdits(ctx.id, 0, ctx.id, back));
     document.getElementById("managePhotosName").textContent = ctx.name || ctx.id || "";
     document.getElementById("managePhotosMeta").textContent = ctx.meta || "";
     renderManagePhotos();
@@ -25700,7 +25996,12 @@
       // because the tile is exactly as wide as the image.
       const shaped = chooserMode && galleryEntryIsShaped(entry);
       thumb.className = "gc-thumb" + (shaped ? " gc-shaped" : "");
+      thumb.dataset.file = entry.storedFilename || entry.filename || "";
       const loadingStored = !!(entry.stored && !entry.url);
+      // An old-style photo (legacy All columns, no Photos row) has nowhere
+      // to keep a label until it is Replaced; the box says so instead of
+      // taking text it can't save.
+      const legacyLabel = chooserMode && !draft && !!entry.legacyOnly;
       const failedOverlay = (entry.uploadError && !draft) ? `<div class="gc-failed-dim" aria-hidden="true"></div>
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       thumb.innerHTML = `
@@ -25710,7 +26011,8 @@
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}
-        ${chooserMode ? `<input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${chooserMode ? `<input type="text" class="gc-caption" ${legacyLabel ? `readonly placeholder="Replace this photo to give it a label" title="Replace this photo to give it a label"` : `placeholder="Label…"`} value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${entry.labelError && !draft ? `<div class="gc-label-failed">Label not saved</div>` : ""}
         <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
@@ -25752,7 +26054,18 @@
       });
       const retry = thumb.querySelector(".gc-retry");
       if (retry) retry.addEventListener("click", () => retryGalleryPhotoCommit(targetId, entry, render));
-      thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+      const captionBox = thumb.querySelector(".gc-caption");
+      captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
+      if (chooserMode && !draft) {
+        // Saved photo: typing changes the label in memory only; Save
+        // Changes (or "Save labels") writes it. Enter just closes the
+        // keyboard.
+        photoLabelThumbs.set(entry, thumb);
+        captionBox.addEventListener("input", () => refreshManagePhotosSaveLabelsBtn());
+        captionBox.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); captionBox.blur(); }
+        });
+      }
       grid.appendChild(thumb);
     });
     body.appendChild(grid);
@@ -25831,6 +26144,7 @@
     if (!ctx || !host) return;
     options = options || {};
     const render = () => renderManagePhotosInto(hostId, ctx, options);
+    refreshManagePhotosSaveLabelsBtn();
     const returnHere = options.onReturnHere || (() => {});
     // Merge in whatever this record already has on the Photos tab, so every
     // section below shows the CURRENT photo for each slot rather than an

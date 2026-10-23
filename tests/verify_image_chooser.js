@@ -504,9 +504,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     ok(SR.p && SR.pc && JSON.stringify(SR.ogpRows) === JSON.stringify(["PH-00010"]) && SR.ogpSlots === 2 && SR.ogpEntries === 1 && SR.backEmpty,
       `SR1-${surface} Replace on the stored OGP front keeps one row, PH-00010; the pair still renders two slots with one front entry and Back empty: ` + JSON.stringify(SR));
     ok(SR.added && SR.c1 && SR.replaced && SR.c2 && SR.replaced1 && SR.c3 && SR.rows.length === 2 && SR.sameId &&
-       SR.newLabel === "Test" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
+       SR.newLabel === "" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
        SR.p1File && SR.p1File !== "AY-00090_coa_01.jpg" && SR.p1Label === "page 1" && SR.uploads === 3,
-      `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID and Label kept, old file left on disk, three uploads: ` + JSON.stringify(SR));
+      `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID and its SAVED Label kept (the typed, unsaved "Test" is not written by Replace; Save Changes writes it), old file left on disk, three uploads: ` + JSON.stringify(SR));
     ok(JSON.stringify(SR.thumbsAfterSecond) === JSON.stringify(["page 1", "Test"]) && SR.gallery === 2,
       `SR3-${surface} after Replace on the last COA (Test) the live list is page 1, then Test, in that order — no leftover thumbnail: ` + JSON.stringify(SR));
     ok(JSON.stringify(SR.thumbs) === JSON.stringify(["page 1", "Test"]) &&
@@ -951,9 +951,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       return out;
     }, surface);
     ok(RR.added && RR.crop1 && RR.replaced && RR.crop2 && RR.rows.length === 2 && RR.sameId &&
-       RR.newLabel === "Test" && RR.newFile !== RR.addedFile && RR.oldFileOnDisk && RR.newFileOnDisk &&
+       RR.newLabel === "" && RR.newFile !== RR.addedFile && RR.oldFileOnDisk && RR.newFileOnDisk &&
        RR.uploads.length === 2 && RR.uploads[0] === RR.addedFile && RR.uploads[1] === RR.newFile,
-      `R3-${surface} add + Files, label, Replace + Library: still two Reference rows, the added row updated in place with the new file and label Test, the old file left on disk, exactly two uploads: ` + JSON.stringify(RR));
+      `R3-${surface} add + Files, label, Replace + Library: still two Reference rows, the added row updated in place with the new file and its saved (blank) label — the typed, unsaved "Test" waits for Save Changes — the old file left on disk, exactly two uploads: ` + JSON.stringify(RR));
     ok(RR.thumbs.length === 2 && RR.thumbs[0] === "PCGS photo" && RR.thumbs[1] === "Test" &&
        RR.gallery.length === 2 && RR.gallery[1] === RR.newFile &&
        RR.index.length === 2 && RR.index.indexOf(RR.addedFile) === -1,
