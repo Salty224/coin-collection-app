@@ -422,6 +422,111 @@ commit 5).
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
 
+## Photo labels save with Save Changes (Oct 2026, built on `claude/photo-label-save-changes`, NOT merged)
+**Held for Ray's tablet test and merge go-ahead.** Branch cut from `main`
+`e8abe7d`. Suite: `tests/verify_photo_label_save.js`. Replaces the earlier
+`claude/label-save-on-blur` (`dfcb4f1`/`3994ee4`, never merged, kept on origin
+as history): Ray tested save-on-blur on TEST and chose design B, because a
+label saved on blur had no undo.
+- **The rule.** A label typed on a saved photo (Reference, COA, Other on a
+  coin; COA, Other on a Set) works like the coin's other fields: typing
+  changes memory only. Nothing writes a label on blur, Enter, a redraw,
+  navigation, the chrome Back, `visibilitychange` or `pagehide`, and there
+  is no "Label saved." toast. Enter only closes the keyboard.
+- **What saves it.**
+  - Edit Coin: Save Changes.
+  - Edit Set: Save Changes writes changed labels for real, even though the
+    Set's other fields stay session-only (Ray's Q1).
+  - Manage Photos (coin and Set): a "Save labels" button
+    (`#managePhotosSaveLabelsBtn`) under the sections, shown only while a
+    label differs from the saved one (Ray's Q2).
+  - Draft mode (Add Coin, the Staging-draft edit): unchanged; Save writes
+    the labels with the draft.
+- **Back asks; everything else discards.** Edit Coin, Edit Set and Manage
+  Photos Back show "Discard unsaved edits?" (Keep editing / Discard) when a
+  label is unsaved. Edit Coin's dialog counts fields and labels together
+  ("1 field and 1 photo label"). Discard puts every box back to
+  `entry.savedLabel` (blank for a photo with no row yet) and clears the red
+  line. `navigate()` (Close Drawer and every other route) discards without
+  asking, as it already did for Edit Coin's fields (Ray's Q3; see backlog
+  (l)). Opening Edit Coin or Edit Set also discards that record's leftovers.
+- **Found while building, and fixed: Edit Coin's Back warning was not
+  reachable.** The in-form Back (`#browseEditBackBtn`) is hidden by CSS like
+  every `.back-link`; the visible chrome Back called `showBrowseDetail()`
+  straight, skipping the warning for fields too. Both now go through
+  `leaveBrowseEditGuarded()`; Edit Set through `leaveBrowseEditSetGuarded()`;
+  Manage Photos' `setNavBack` wraps `ctx.backTo` the same way.
+- **Capture, Replace and ↻ write the SAVED label, never the box text**
+  (Ray's Q4). `commitGalleryPhoto` passes `entry.savedLabel || ""` to
+  `writePhotoRow`. Replace carries `savedLabel` (and the typed caption) to
+  the new entry, so the typed text stays unsaved in the box and Save Changes
+  writes it. A brand-new photo's row starts with a blank Label, even with
+  text typed while it says "Saving…". ✕ is unchanged.
+- **Save Changes order (Edit Coin):** the coin row (with its conflict check),
+  then the CoinID re-link, then each changed label, one at a time, one cell
+  each. A conflict block or a failed field save writes no labels. If the
+  fields save and a label fails, the label keeps its text and the red
+  "Label not saved" line, and the form stays open; the next Save Changes
+  finds no field changed and writes only the labels.
+- **Labels-only save:** when no writable field differs from the snapshot
+  (`rowFieldsUnchanged`), only the label cells are written; the coin row is
+  not touched, so LastModified/Reviewed are not stamped.
+- **Messages (Ray's Q5):** folded into the existing toast. "Saved AY-00099
+  to the workbook (2 fields updated, 1 label)."; labels only "Saved AY-00099
+  — 1 label updated."; Edit Set "… for this session only — not saved to
+  OneDrive. 1 photo label saved to the workbook."; failures add "1 label not
+  saved — it's still in the box. Tap Save Changes to try again." or "1 label
+  not saved — its photo isn't saved yet. Tap ↻ on the photo, then Save
+  Changes."
+- **A photo still saving** is waited for (its `commitPromise`) before its
+  label is written. A photo whose save failed (no row) gets no label write;
+  ↻ writes its row with a blank Label, then Save Changes writes the label.
+- **Functions:** `photoLabelDirty`, `photoLabelUnsaved`,
+  `unsavedPhotoLabelEntries` / `unsavedPhotoLabelCount` (only records whose
+  photos really save, via `photoCommitTargetId`), `savePhotoLabels(targetId)`
+  (returns `{saved, failed, noPhotoRow}`), `photoLabelResultText`,
+  `discardPhotoLabels(targetId?)` (never touches `ADDCOIN_GALLERY_ID`),
+  `confirmLeaveWithUnsavedEdits`, `refreshManagePhotosSaveLabelsBtn`,
+  `saveManagePhotosLabels`, `performBrowseEditLabelsOnly`, `rowFieldsUnchanged`.
+- **Carried over from the blur branch, with their tests:**
+  - `writePhotoLabel(collectionId, photoId, label)`: ONE cell, the Label
+    column at the row found by PhotoID and checked against CollectionID.
+    Not `patchRecordRow`, which rewrites A..last mapped column and blanks a
+    column whose header is blank (`ensureSheetHeaderMap` reads A1:Z1 only).
+    `writePhotoRow`'s own replace path still does that (backlog item,
+    unchanged).
+  - `entry.savedLabel`: set by hydration, by `commitGalleryPhoto` (the Label
+    `writePhotoRow` wrote; it now returns `label`) and by a label write.
+  - The hydration fix: a redraw never puts the sheet label back over an
+    unsaved one, and a cleared label stays cleared.
+  - legacyOnly photos: read-only box, "Replace this photo to give it a
+    label". Thumbs carry `data-file`.
+- **Tests.** One existing suite followed the Q4 change, not weakened:
+  `verify_image_chooser` SR2-edit/SR2-manage/R3-edit/R3-manage now expect the
+  replaced row's Label to be the SAVED one (blank) while the box still shows
+  the typed "Test".
+- **Suite (54):** N1 nothing written before Save (blur, Enter, redraw,
+  visibilitychange, pagehide); S1-S5 Save order, single cell, fields-only,
+  conflict, failed field save, labels-only; L4 hydration; L5 new photo
+  still saving; L6 never-saved photo; L7 label failure and retry; L9
+  Replace; D1-D7 Back/Discard/navigate; L10 draft mode; L11 Edit Set and
+  Manage Photos coin/Set; L12 legacyOnly; LL red line at 360x800, 412x915,
+  1024x768. `npm test` on `e2d4eae`: 3518 passed, 0 failed, 0 page errors,
+  70 suites.
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): blur save put back (N1a-c, L5d); no discard on leave (D4-D7,
+  L11c x3); old hydration overwrite (N1b/d, L4a/b); capture/Replace writing
+  the typed text (L5c/d, L6d, L9a); labels written before the fields (S1c,
+  S3, S4, S5a); label as a whole-row write (S1c/d, S5a, L5c, L11a/b x2);
+  labels not counted in the Back warning (D1-D3, D5, L11c x3); labels-only
+  save still writing the coin row (S5a/b, L6b, L7d); "Save labels" always
+  shown (L11 x6); no wait for a photo still saving (L5c); a failed label
+  still leaving the form (L7a/c).
+- **Not protected, by design:** a label typed and not saved is lost if the
+  app is closed or the tab killed, exactly like an unsaved field.
+- **Not verified:** any real device; Samsung Internet; a real write to
+  `_Testing`.
+
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
 every fix below passed Ray's tests on the S25 and tablet; tested build
@@ -508,7 +613,9 @@ on the S25: every image interaction works the same way. Suite:
   Coin and Manage Photos (suite 50 -> 56). Negative control: removing the
   PhotoID check fails R1b, R4-edit, R4-manage. Not changed: a label typed
   in the box is only held in memory and is written only by the next
-  capture/Replace of that photo (pre-existing, flagged).
+  capture/Replace of that photo (pre-existing, flagged). *(Superseded: labels
+  save with Save Changes / "Save labels", see "Photo labels save with Save
+  Changes"; Replace now writes the saved label, never the typed one.)*
 - **Stage C2 (built on `6eb34d7`, Ray's go-ahead after his S25 pass): the
   Set branch of `renderManagePhotosInto`** (Edit Set and Manage Photos for a
   Set) passes `setPickOpts = { chooser: true }` to OGP, Whole set, each
@@ -989,6 +1096,9 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   note; the receipt viewer can show an old copy after a same-name
   replacement.
 - (k) Deploy workflow: upgrade its actions to Node 24 versions.
+- (l) Close Drawer / navigate should warn on any unsaved edit (all fields,
+  Edit Coin and the other edit screens), not only Back. Today `navigate()`
+  leaves silently and the edits (photo labels included) are discarded.
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
