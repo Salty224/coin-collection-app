@@ -135,7 +135,7 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commit 1 of 7 built plus T1 follow-ups, items 2-8 passed on the S25)
+## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commits 1-5 built, T1 passed, held for T2 on the S25)
 Ray's decision (22 Oct 2026), replacing unified-image-chooser C3: Add Coin
 and Edit Coin give the SAME photo experience; only the timing differs.
 Add Coin and the Staging-draft edit will render Edit Coin's own section
@@ -149,13 +149,15 @@ add Package (OGP) and COA to both coin screens; crop sources Holder,
 Reference and Other only; that failed-save wording; branch Option A
 (main fast-forwarded to `38b0207`, this branch cut from it); Add Set's
 matching text renamed now, text only.
-Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
+Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1, 266 at
+commit 5).
 - **Planned commits**: (1) wording, crop sources, OGP/COA on the coin
-  screens — BUILT, T1 = Ray tests Edit Coin on the S25; (2) draft mode in
-  the shared blocks; (3) Add Coin new draft uses the section; (4) the
-  Staging-draft edit uses it; (5) crop from another photo in draft mode —
-  T2 = Ray tests Add Coin and a Staging edit; (6) remove the dead Add Coin
-  preview/slot code, its own revertible commit; (7) CLAUDE.md.
+  screens — BUILT, T1 passed; (2) draft mode in the shared blocks — BUILT;
+  (3) Add Coin new draft uses the section — BUILT; (4) the Staging-draft
+  edit uses it — BUILT; (5) crop from another photo in draft mode — BUILT,
+  HELD for T2 (Ray tests Add Coin and a Staging edit on the S25); (6) remove
+  the dead Add Coin preview/slot code, its own revertible commit — NOT
+  built; (7) CLAUDE.md. Details of 2-5 below, after the T1 follow-ups.
 - **S3 golden (`tests/fixtures/addcoin_photo_save_golden.json`)**, recorded
   on `main` `38b0207` before any change: a fixed pick set (front, back,
   holder front/back, two references labelled "TrueView obverse/reverse", one
@@ -306,6 +308,94 @@ Suite: `tests/verify_addcoin_shared_photos.js` (70 at commit 1).
 - **Not verified, follow-up**: a real TrueView, slab and COA photo on the
   S25; a very tall image (narrower than 1:2) gives a very narrow tile, and
   no minimum width was added.
+
+- **After T1 (Ray, 22 Oct, on `1e231f0`): Q1-Q3 accepted** — whole-set and
+  sub-group pairs keep their own shape; crop-source tiles at their own
+  shape; Edit Coin's parent COA tap opens the full-screen viewer.
+- **Commit A (`baab8ea`)**: "Crop from another photo" source tiles
+  (`.crop-src-tile.gc-shaped`, `galleryShapedSizer`, painted when a stored
+  file arrives) follow the photo's own shape; on Edit Coin / Manage Photos
+  for a coin inside a Set, tapping a parent COA page calls
+  `openCoinPhotoInViewer` (footer "COA — from parent Set — {label}"); the
+  "COA — from parent Set" thumbs are left-aligned on the coin page and in
+  Edit (`.gallery-strip[data-role="coa-strip"] { justify-content:
+  flex-start }`). Tests CT1-CT4, CR3 (full-screen viewer), CR4, DK6.
+- **Commit 2 (`f423bfe`), draft mode in the shared blocks.**
+  `buildPhotoPairSlot`, `managePairBlock`, `manageOpenEndedBlock` and
+  `renderManagePhotosInto` take `opts.draft` (an object, may be `{}`;
+  `draft.onRemove(entry)` optional). A pick, Replace, Recrop or ✕ changes
+  the in-memory gallery only (`draftPlaceGalleryEntry`, never a commit,
+  whatever the target id); no hydration, no "Saving…", no ↻; a failed save
+  reads `DRAFT_NOT_SAVED_TEXT` = "Not saved — tap Save changes again". ✕
+  goes through `confirmRemoveDraftPhoto` ("It hasn't been saved yet, so
+  taking it off writes nothing"; a `stagingStored` photo "comes off the
+  draft when you tap Save changes"). Recrop uses `draftRecropSource`
+  (`rawUrl`, then `stagingRawUrl`, then the shown photo). Tests DM1-DM9,
+  driven on a REAL owned coin with the write layer on, so only draft mode
+  keeps them off OneDrive.
+- **Commit 3 (`2352da2`), Add Coin's new draft uses the section.**
+  `renderAddCoinPhotos()` draws `renderManagePhotosInto("addCoinPhotoSections",
+  { id: ADDCOIN_GALLERY_ID, kind: "coin" }, { draft })` inside Add Coin's
+  Photos accordion, over the same gallery Save already reads; called at
+  init, by `resetAddCoinForm`, by the Staging load/upload-state renders and
+  by `clearCoinDraftEditContext`. Same sections (Package/OGP and COA
+  included), wording and shapes as Edit Coin (AC2 compares the two screens'
+  text). The retired preview card, Obverse/Reverse toggle, 📷 🖼️ 📁 slots
+  and old gallery sit in `<div id="addCoinLegacyPhotos" hidden>`; their code
+  still runs on the hidden elements until commit 6. **S3 golden unchanged**:
+  only `pickAll` moved (section "+" -> chooser -> Files -> crop). S3.8 no
+  upload before Save; S3.9 section empty after Save; AC1-AC6 at 360x800,
+  412x915, 1024x768. Tests that drove the retired UI follow the change:
+  `verify_files_picker` I1/I2 (no 📷 🖼️ 📁 rows; the chooser's Camera /
+  Library / Files whole and on screen), `verify_addcoin_accordion` (counts
+  Add Coin's own sections; B3 = the section host), and
+  **`tests/verify_addcoin_preview_fit.js` is deleted** with the preview card
+  it tested (69 suites). Assertions in `verify_addcoin_accordion` C,
+  `verify_addcoin_bugfixes` Q2/#6, `verify_composition` and
+  `verify_grade_designation_space` that read `flipObverse*` text still pass
+  against the hidden card; they go with it in commit 6.
+- **Commit 4 (`671c058`), the Staging-draft edit uses the section.**
+  `loadStagingEditFiles` loads coin.json's photos into the same section as
+  `stagingStored` entries, sets `stagingRawUrl` from the `_original` for
+  Recrop, and keeps `parentSetId` / `parentSetName` from `draft.originSetId`
+  on `editDraftFiles`; `renderAddCoinPhotos` passes them as the ctx parent,
+  so **the parent Set's COA read-through shows on a Staging draft only when
+  the draft already names a parent Set** (coin drafts don't today). ✕ on a
+  saved photo counts `editDraftFiles.removedCount` (the "N photos removed"
+  toast). A failed Save shows the draft-mode text; Save changes is the
+  retry. Save, names and deletes (`uploadStagingEditFiles`,
+  `mergeStagingEditFiles`, `finishStagingEditFiles`) unchanged.
+  `verify_staging_edit_photos.js` picks and checks through the section
+  (P2, P6, Q1-Q3, Q11 rewritten to the new UI); every save-output assertion
+  unchanged. New SE1-SE4.
+- **Commit 5 (`68f1c54`), crop from another photo in draft mode.** The
+  section shows on Add Coin and the Staging edit too. Sources
+  (`cropSourceEntriesFor(id, draft)`) are the draft's Holder/Reference/Other
+  photos that have a picture; `cropSourceName` names a pick by its type in
+  the dialogs (never the `__addcoin_draft__` filename);
+  `saveDraftCropFromUpload` places the crop as the Obverse/Reverse (asking
+  first, "Nothing is written until you save") or a new Reference. **Same
+  rule as a saved coin: no `_original` copy for a crop from another photo**,
+  so Save writes `{ID}_obverse_cropped.jpg` alone. On a Staging edit,
+  cropping over a saved obverse replaces it like any Replace: at Save its old
+  `_original` is no longer listed and is deleted. Saved coins unchanged.
+  Tests CF1-CF6, SE5.
+- **Negative controls, commits A-5** (real app.html, restored by checksum,
+  each failing by name): crop tiles square (CT1/CT2 x6); Edit's COA tap to
+  the old panel (CR3 x2); COA strip centred (CR4 x2, DK6); draft picks
+  committing (DM2-DM6, DM9); old failed-save text and ↻ (DM8); committed
+  remove in draft (DM6, DM7, DM9); legacy UI shown (AC3); no section (AC1,
+  AC2, AC4, AC5 x3, S3.1/S3.2/S3.5/S3.6); no re-render on reset (S3.9);
+  parent ignored on a draft (SE1); no Staging original (SE3,
+  staging-edit-photos P5); removals not counted (staging-edit-photos Q5);
+  crop hidden in draft mode (DM1, AC1, AC2, SE5, CF1-CF4, CF6); original
+  kept on a draft crop (CF3, CF6); temp filename in the dialog (CF2).
+- **npm test**: commit A `baab8ea` 3482/0/0/70; commit 2 `f423bfe`
+  3491/0/0/70; commit 3 `2352da2` 3463/0/0/69 (preview-fit suite removed); commit 4 `671c058` 3467/0/0/69; commit 5
+  `68f1c54` 3474/0/0/69.
+- **Not verified**: any real device; the chooser's Files and Camera from
+  Add Coin's section on the S25; a real Staging edit's Recrop and crop from
+  a Holder photo; how Add Coin reads without the preview card.
 
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
@@ -843,9 +933,12 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (b) The "Mark ready" toast still says the app doesn't write the All sheet
   ("Copilot moves the row across"); out of date since Promote and the direct
   write landed.
-- (c) The Add Coin gallery has no per-photo Replace button.
+- (c) The Add Coin gallery has no per-photo Replace button. *(Closed on
+  `claude/addcoin-shared-photos`, not yet on main: Add Coin uses Edit Coin's
+  section, which has Replace.)*
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
-  its remove (✕) button only after the screen is redrawn.
+  its remove (✕) button only after the screen is redrawn. *(Photos closed on
+  `claude/addcoin-shared-photos`, not yet on main; the receipt is unchanged.)*
 - (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are on
   `main` (22 Oct 2026). Add Coin is being moved onto Edit Coin's photo
   section on `claude/addcoin-shared-photos` (that also closes (c) and (d));
