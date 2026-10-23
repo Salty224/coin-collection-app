@@ -25193,7 +25193,7 @@
   // the edit opens (loadStagingEditFiles), so until then there is nothing to
   // crop from yet.
   async function draftRecropSource(entry) {
-    const u = entry && (entry.rawUrl || entry.url);
+    const u = entry && (entry.rawUrl || entry.stagingRawUrl || entry.url);
     if (!u) return null;
     try { return await fetch(u).then(r => r.blob()); } catch (e) { return null; }
   }
@@ -25222,7 +25222,8 @@
     // Still flip sources only — retainRaw is the existing rule for which
     // types have an adjuster at all, and mis-framing is a circle problem.
     const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || entry.stored || (draft && entry.url)));
-    const adjustsRaw = !!(entry && (entry.rawUrl || storedRawFilenameFor(entry)));
+    const adjustsRaw = draft ? !!(entry && (entry.rawUrl || entry.stagingRawUrl))
+      : !!(entry && (entry.rawUrl || storedRawFilenameFor(entry)));
     const adjustTitle = adjustsRaw ? "Recrop (from the original)" : "Recrop (from the saved photo)";
     // A filled slot's capture buttons are a REPLACE, and say so. This is
     // the gap AY-00208 exposed: the buttons were always here, but a slot
@@ -29415,6 +29416,7 @@
     if (banner) banner.classList.add("hidden");
     const staging = document.getElementById("saveToStagingBtn");
     if (staging) staging.textContent = "Save to Staging";
+    renderAddCoinPhotos();
   }
 
   // Reverses resolveGrade(). That function collapses three different UI
@@ -29762,7 +29764,12 @@
     const id = draft.collectionID;
     const folder = coinDraftFolder(id);
     const groups = stagingPhotoGroups(draft);
-    editDraftFiles = { id, hydratedFiles: new Set(), receiptPhoto: draft.receiptPhoto || "" };
+    // A coin inside a Set shows its Set's COA read-through, same rule as Edit
+    // Coin — only when the draft already names a parent Set.
+    const parentId = String(draft.originSetId || "").trim();
+    const parentRec = parentId ? activeCoins().find(c => c.id === parentId) : null;
+    editDraftFiles = { id, hydratedFiles: new Set(), receiptPhoto: draft.receiptPhoto || "",
+      parentSetId: parentId, parentSetName: parentRec ? parentRec.name : "" };
     const list = galleryFor(ADDCOIN_GALLERY_ID);
     const entries = groups.map(g => {
       const entry = {
@@ -29796,6 +29803,8 @@
         setFlipSlotReplaceLabels(entry.type, true);
         // Adjust re-crops from the untouched original when there is one.
         const raw = entry.rawFilename ? await fetchStagingFileUrl(folder + "/" + entry.rawFilename) : null;
+        // The photo section's Recrop starts from the untouched original.
+        if (raw && list.indexOf(entry) !== -1) entry.stagingRawUrl = raw.url;
         const source = raw || got;
         if (source && list.indexOf(entry) !== -1) slotFiles[flip.frame] = source.blob;
       } catch (e) {
@@ -30068,10 +30077,25 @@
   // Add Coin's photos: Edit Coin's own section (renderManagePhotosInto) in
   // draft mode, over the same in-memory gallery Save already reads
   // (ADDCOIN_GALLERY_ID). What is saved, and where, is unchanged.
+  //
+  // Editing a Staging draft (commit 4) uses the same section over the same
+  // gallery: the draft's own photos are loaded into it as stagingStored
+  // entries (loadStagingEditFiles), ✕ on one of those comes off at Save
+  // changes (counted for the toast), and a coin whose draft names a parent
+  // Set shows that Set's COA, read-only.
   function renderAddCoinPhotos() {
-    renderManagePhotosInto("addCoinPhotoSections",
-      { id: ADDCOIN_GALLERY_ID, name: "New coin", meta: "", kind: "coin" },
-      { draft: {} });
+    const editing = !!(editingCoinDraftId && editDraftFiles);
+    const ctx = { id: ADDCOIN_GALLERY_ID, name: editing ? editingCoinDraftId : "New coin", meta: "", kind: "coin" };
+    if (editing && editDraftFiles.parentSetId) {
+      ctx.parentSetId = editDraftFiles.parentSetId;
+      ctx.parentSetName = editDraftFiles.parentSetName;
+    }
+    renderManagePhotosInto("addCoinPhotoSections", ctx, { draft: {
+      onRemove: (entry) => {
+        if (entry && entry.stagingStored && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
+        updateStagingEditRemoveButtons();
+      }
+    } });
   }
 
   function resetAddCoinAfterSave() {

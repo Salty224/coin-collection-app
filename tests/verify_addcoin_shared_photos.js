@@ -885,6 +885,93 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     await p.close();
   }
 
+  // ---------- SE. The Staging-draft edit uses the section (commit 4) --------
+  // A draft's own photos load into the section; the parent Set's COA shows
+  // only when the draft already names a parent Set; Recrop on a saved
+  // Staging photo starts from its original and writes nothing.
+  {
+    const p = await openApp(PHONE);
+    await installHelpers(p);
+    await installShapes(p);
+    const SE = await p.evaluate(async () => {
+      const s = window.__sh, sp = window.__sp, out = {};
+      const DID = "AY-00777";
+      const draft = (extra) => Object.assign({ type: "coin", version: 1, collectionID: DID, status: "Draft",
+        denom: "50C", category: "", year: "1957", mint: "", variety: "", description: "Franklin Half Dollar",
+        finish: "Business Strike", designation: "", errorDesc: "", grade: "", gradeSource: "", serNo: "", cacBean: "",
+        cost: 0, shippingCost: 0, purchaseDate: "", vendor: "", storageLocation: "", container: "", assignAlbum: "",
+        remarks: "", itemNumber: "", gsid: "", coinId: "", matchedHow: "none",
+        photos: [{ type: "obverse", filename: DID + "_obverse_cropped.jpg", caption: "" },
+                 { type: "obverse", filename: DID + "_obverse_original.jpg", caption: "original" }],
+        receiptPhoto: "", researchNote: "", allRowWritten: false, forceAdded: false, filesMovedOnPromotion: false,
+        savedVia: "staging", createdDate: "2026-10-22T10:00:00Z" }, extra || {});
+      const jpeg = async (fill) => { const c = document.createElement("canvas"); c.width = 200; c.height = 200;
+        const x = c.getContext("2d"); x.fillStyle = fill; x.fillRect(0, 0, 200, 200); return await new Promise(r => c.toBlob(r, "image/jpeg", 0.9)); };
+      const open = async (d) => {
+        s.install();
+        const folder = writePaths().stagingBase + "/" + DID;
+        await graph().uploadFile(folder + "/" + DID + "_obverse_cropped.jpg", await jpeg("#a33"));
+        await graph().uploadFile(folder + "/" + DID + "_obverse_original.jpg", await jpeg("#3a3"));
+        await graph().uploadJson(folder + "/coin.json", d);
+        await beginCoinDraftEdit(DID);
+        const ph = document.getElementById("addCoinPhotosHeader");
+        if (ph.getAttribute("aria-expanded") !== "true") ph.click();
+        await sp.sleep(300);
+        return document.getElementById("addCoinPhotoSections");
+      };
+      // 1. The draft names a parent Set (with a COA).
+      let host = await open(draft({ originSetId: s.SET }));
+      sp.openAll(host);
+      const strip = host.querySelector('[data-role="coa-strip"]');
+      out.withParent = { heading: /COA — from parent Set/.test(host.textContent), names: host.textContent.indexOf(s.set.name) !== -1,
+        thumbs: strip ? strip.querySelectorAll(".gc-thumb").length : 0, ownCoa: sp.titles(host).some(t => /COA \/ certificates/.test(t)) };
+      const t0 = strip && strip.querySelector(".gc-thumb");
+      if (t0) t0.click();
+      await sp.sleep(200);
+      out.withParent.viewer = !document.getElementById("mediaViewerOverlay").classList.contains("hidden") &&
+        /COA — from parent Set/.test(document.getElementById("mediaViewerFooter").textContent);
+      if (typeof closeMediaViewer === "function") closeMediaViewer();
+      // Recrop on the saved Staging obverse: from its original, no write.
+      const obv = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+      const calls = [];
+      const m = graph();
+      ["uploadFile", "uploadJson", "deleteItem", "patchWorkbookRanges"].forEach(k => { const f = m[k].bind(m); m[k] = (...a) => { calls.push(k); return f(...a); }; });
+      const slot = sp.section(host, /Obverse &/).querySelector(".sg-photo-slot");
+      const rc = slot.querySelector('[data-act="adjust"]');
+      out.recrop = { btn: !!rc, title: rc ? rc.title : "", fromOriginal: !!(obv && obv.stagingRawUrl) };
+      if (rc) {
+        rc.click();
+        if (await sp.waitFor(() => sp.overlayOpen("bgCropOverlay"))) document.getElementById("bgCropUseBtn").click();
+        if (await sp.waitFor(() => sp.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
+        await sp.sleep(200);
+      }
+      const nowObv = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "obverse");
+      out.recrop.replaced = nowObv.length === 1 && nowObv[0] !== obv && !!nowObv[0].blob && !nowObv[0].stagingStored;
+      out.recrop.calls = calls.slice();
+      navigate("addcoin"); s.teardown();
+      // 2. No parent Set on the draft.
+      host = await open(draft());
+      sp.openAll(host);
+      out.noParent = { heading: /COA — from parent Set/.test(host.textContent), ownCoa: sp.titles(host).some(t => /COA \/ certificates/.test(t)) };
+      navigate("addcoin"); s.teardown();
+      // 3. A fresh Add Coin after an edit: no parent, nothing left over.
+      navigate("addcoin");
+      const fresh = document.getElementById("addCoinPhotoSections");
+      out.fresh = { heading: /COA — from parent Set/.test(fresh.textContent), photos: fresh.querySelectorAll(".sg-photo-img, .gc-thumb").length };
+      return out;
+    });
+    console.log("    staging edit: " + JSON.stringify(SE));
+    ok(SE.withParent.heading && SE.withParent.names && SE.withParent.thumbs === 1 && !SE.withParent.ownCoa && SE.withParent.viewer,
+      "SE1 a Staging draft that names a parent Set shows the Set's COA (read-only, opens full screen) and no COA slot of its own: " + JSON.stringify(SE.withParent));
+    ok(!SE.noParent.heading && SE.noParent.ownCoa,
+      "SE2 a Staging draft with no parent Set shows no parent COA and has its own COA section: " + JSON.stringify(SE.noParent));
+    ok(SE.recrop.btn && /from the original/.test(SE.recrop.title) && SE.recrop.fromOriginal && SE.recrop.replaced &&
+       SE.recrop.calls.length === 0,
+      "SE3 Recrop on a saved Staging obverse starts from its original and changes only the draft (no write until Save changes): " + JSON.stringify(SE.recrop));
+    ok(!SE.fresh.heading && SE.fresh.photos === 0, "SE4 a fresh Add Coin after an edit starts empty, with no parent COA: " + JSON.stringify(SE.fresh));
+    await p.close();
+  }
+
   // ---------- CT. Crop-from-another-photo source tiles at their own shape --
   // Ray's Q2 (22 Oct): the Holder/Reference/Other tiles in "Crop from another
   // photo" follow the photo's own shape, like the gallery thumbs.

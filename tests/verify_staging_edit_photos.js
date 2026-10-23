@@ -84,20 +84,41 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         return await this.waitFor(() => this.newCount() > countBefore);
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
-      async galleryPick(typeRe, color) {
-        const gal = document.getElementById("addCoinGallery");
+      // Add Coin's photos are Edit Coin's section in draft mode
+      // (claude/addcoin-shared-photos, commit 4): every pick is a "+" or a
+      // Replace -> chooser -> Files -> the crop tool.
+      section(re) {
+        const host = document.getElementById("addCoinPhotoSections");
+        const h = [...host.querySelectorAll(".accordion-header")].find(x => re.test(x.textContent));
+        if (!h) return null;
+        if (h.getAttribute("aria-expanded") !== "true") h.click();
+        return h.nextElementSibling;
+      },
+      slot(sectionRe, i) { const b = this.section(sectionRe); return b ? b.querySelectorAll(".sg-photo-slot")[i] : null; },
+      async chooserPick(trigger, color) {
         const before = this.newCount();
-        gal.querySelector('[data-role="add-files"]').click();
-        const item = [...document.querySelectorAll(".gtp-item")].find(b => typeRe.test(b.textContent));
-        if (!item) return false;
-        item.click();
-        this.pick(gal.querySelector('input[data-role="files"]'), await this.file(color));
+        if (!trigger) return false;
+        trigger.click();
+        const files = document.querySelector('#imageSourceChooser .image-chooser-btn[data-source="files"]');
+        if (!files) return false;
+        files.click();
+        this.pick(document.getElementById("imageChooserFilesInput"), await this.file(color));
         return this.finishCrop(before);
       },
+      async galleryPick(typeRe, color) {
+        let trigger = null;
+        if (/Holder/.test(typeRe.source)) {
+          const slot = this.slot(/Holder/, /back/.test(typeRe.source) ? 1 : 0);
+          trigger = slot && slot.querySelector('[data-act="add"], [data-act="replace"]');
+        } else {
+          const b = this.section(/Reference photos/);
+          trigger = b && b.querySelector('[data-role="add"]');
+        }
+        return this.chooserPick(trigger, color);
+      },
       async slotPick(type, color) {
-        const before = this.newCount();
-        this.pick(document.getElementById(type + "FilesInput"), await this.file(color));
-        return this.finishCrop(before);
+        const slot = this.slot(/Obverse &/, type === "reverse" ? 1 : 0);
+        return this.chooserPick(slot && slot.querySelector('[data-act="add"], [data-act="replace"]'), color);
       },
       async bytesOf(mock, path) {
         const v = await mock.getFileBytes(path);
@@ -295,16 +316,19 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
             [id + "_slab_obverse.jpg"]: "#33a", [id + "_reference_01.jpg"]: "#aa3" });
       await __ph.sleep(100);
       const list = galleryFor(ADDCOIN_GALLERY_ID);
-      const prev = document.getElementById("obversePreview");
-      const thumbs = [...document.querySelectorAll("#addCoinGallery .gc-thumb")];
+      const obvSlot = __ph.slot(/Obverse &/, 0);
+      const prev = obvSlot && obvSlot.querySelector(".sg-photo-img");
+      const holder = __ph.slot(/Holder/, 0);
+      const thumbs = [...__ph.section(/Reference photos/).querySelectorAll(".gc-thumb")];
+      const obvEntry = list.find(e => e.type === "obverse");
       out.p2 = {
         entries: list.map(e => [e.type, e.stagingStored, !!e.url, (e.stagingFiles || []).length]),
-        obvShown: prev.style.display === "block" && /^blob:/.test(prev.src),
-        adjustShown: document.getElementById("obverseAdjustBtn").style.display === "flex",
-        replaceTitle: document.getElementById("obverseFilesBtn").title,
-        adjustSource: !!slotFiles["obverseFrame"],
-        thumbStates: thumbs.map(t => (t.querySelector(".photo-upload-state") || {}).textContent || ""),
-        thumbImgs: thumbs.map(t => /blob:/.test(t.querySelector(".gc-img").style.backgroundImage)),
+        obvShown: !!(prev && /^blob:/.test(prev.getAttribute("src"))),
+        adjustShown: !!(obvSlot && obvSlot.querySelector('[data-act="adjust"]')),
+        replaceTitle: obvSlot && obvSlot.querySelector('[data-act="replace"]') ? obvSlot.querySelector('[data-act="replace"]').textContent : "",
+        adjustSource: !!(obvEntry && obvEntry.stagingRawUrl),
+        thumbStates: [...document.querySelectorAll("#addCoinPhotoSections .photo-upload-state")].map(n => n.textContent),
+        thumbImgs: [!!(holder && holder.querySelector(".sg-photo-img"))].concat(thumbs.map(t => /blob:/.test(t.querySelector(".gc-img").style.backgroundImage))),
         captions: thumbs.map(t => t.querySelector(".gc-caption").value),
         receipt: document.getElementById("receiptPhotoBox") ? document.getElementById("receiptPhotoBox").textContent : document.body.textContent.indexOf(id + "_receipt.pdf (in Staging)") !== -1
       };
@@ -429,13 +453,13 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         kept: !!(entry && entry.blob), error: !!(entry && entry.uploadError),
         stillEditing: document.getElementById("view-addcoin").classList.contains("active") && editingCoinDraftId === id,
         notes: __val("notesField"),
-        badge: [...document.querySelectorAll("#addCoinGallery .photo-upload-state.failed")].map(n => n.textContent.trim()),
-        retryBtn: !!document.querySelector("#addCoinGallery .staging-retry-btn"),
+        badge: [...document.querySelectorAll("#addCoinPhotoSections .photo-upload-state.failed")].map(n => n.textContent.trim()),
+        retryBtn: !!document.querySelector("#addCoinPhotoSections .sg-photo-retry, #addCoinPhotoSections .gc-retry"),
         toast: document.getElementById("toast").textContent
       };
       mock.uploadFile = realUpload;
-      const retryBtn = document.querySelector("#addCoinGallery .staging-retry-btn");
-      if (retryBtn) retryBtn.click();
+      // The retry is Save changes itself.
+      await __saveEdit();
       await __ph.waitFor(() => document.getElementById("view-staging").classList.contains("active"), 4000);
       const saved = await mock.getJson(__draftPath(id));
       out.p6.retry = {
@@ -489,11 +513,11 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "P4 opening an edit loads the draft's photos (the obverse with its _original as one) with their images: " +
       JSON.stringify(P.p2.entries));
   ok(P.p2.obvShown && P.p2.adjustShown && P.p2.adjustSource && /Replace/.test(P.p2.replaceTitle),
-    "P5 -- the obverse slot shows the stored photo, offers Adjust (from the original) and says Replace: " +
+    "P5 -- the obverse slot shows the stored photo, offers Recrop (from the original) and Replace: " +
       JSON.stringify([P.p2.obvShown, P.p2.adjustShown, P.p2.adjustSource, P.p2.replaceTitle]));
-  ok(P.p2.thumbStates.every(t => t === "In Staging") && P.p2.thumbImgs.every(Boolean) &&
-     JSON.stringify(P.p2.captions) === JSON.stringify(["holder", "auction"]),
-    "P6 -- the gallery shows the slab and reference photos, marked In Staging, with their captions: " +
+  ok(P.p2.thumbStates.length === 0 && P.p2.thumbImgs.length === 2 && P.p2.thumbImgs.every(Boolean) &&
+     JSON.stringify(P.p2.captions) === JSON.stringify(["auction"]),
+    "P6 -- the section shows the holder and reference photos like Edit Coin (no state line), the reference with its label: " +
       JSON.stringify(P.p2));
   ok(P.p2.receipt === true || /_receipt\.pdf \(in Staging\)/.test(String(P.p2.receipt)),
     "P7 -- and the receipt on file is shown");
@@ -525,11 +549,11 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "P16 a failed upload leaves coin.json unchanged: " + JSON.stringify(P.p6));
   ok(P.p6.kept && P.p6.error && P.p6.stillEditing && P.p6.notes === "typed during the failed save",
     "P17 -- the photo (with its Blob) and the typed fields stay; the form is not reset or left");
-  ok(P.p6.badge.some(t => /Not saved — tap/.test(t)) && P.p6.retryBtn && /Couldn't save/.test(P.p6.toast),
-    "P18 -- it says \"Not saved — tap ↻\" with a retry button, and a toast says so");
+  ok(P.p6.badge.some(t => t === "Not saved — tap Save changes again") && !P.p6.retryBtn && /Couldn't save/.test(P.p6.toast),
+    "P18 -- it says \"Not saved — tap Save changes again\" (no ↻ in draft mode), and a toast says so: " + JSON.stringify([P.p6.badge, P.p6.retryBtn]));
   ok(P.p6.retry.fileThere && P.p6.retry.photos.indexOf(ID + "_slab_reverse.jpg") !== -1 &&
      P.p6.retry.remarks === "typed during the failed save",
-    "P19 -- tapping ↻ lands the photo and the edit: " + JSON.stringify(P.p6.retry));
+    "P19 -- tapping Save changes again lands the photo and the edit: " + JSON.stringify(P.p6.retry));
   ok(P.p7a.opened === false && /already written to the All sheet/.test(P.p7a.toast),
     "P20 the edit is refused once the coin was written to the All sheet (allRowWritten): " + JSON.stringify(P.p7a));
   ok(P.p7b.opened === false && /already left Staging/.test(P.p7b.toast) && P.p7.binding === null,
@@ -580,10 +604,11 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __setLiveDbCoinsForTest(catalog);
       await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
       await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
-      const x = () => document.querySelector("#addCoinGallery .gc-thumb .gc-remove") || { click() {} };
-      out.q1hasX = !!document.querySelector("#addCoinGallery .gc-thumb .gc-remove");
+      const x = () => { const sl = __ph.slot(/Holder/, 0); return (sl && sl.querySelector(".sg-photo-remove")) || { click() {} }; };
+      out.q1hasX = !!(__ph.slot(/Holder/, 0) || document).querySelector(".sg-photo-remove");
       x().click();
       out.q1asked = guardOpen();
+      out.q1askBody = guardOpen() ? document.getElementById("writeGuardBody").textContent : "";
       clickGuard("Cancel");
       out.q1afterCancel = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "slab_obverse").length;
       x().click();
@@ -606,11 +631,13 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __setLiveDbCoinsForTest(catalog);
       await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
       await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
-      const btn = document.getElementById("obverseRemoveBtn");
-      out.q2shown = btn.style.display !== "none";
-      btn.click();
+      const obvSlot = __ph.slot(/Obverse &/, 0);
+      const btn = obvSlot && obvSlot.querySelector(".sg-photo-remove");
+      out.q2shown = !!btn;
+      if (btn) btn.click();
       clickGuard("Remove");
-      out.q2slotEmpty = document.getElementById("obversePreview").style.display === "none";
+      const after = __ph.slot(/Obverse &/, 0);
+      out.q2slotEmpty = !!(after && after.querySelector('[data-act="add"]') && !after.querySelector(".sg-photo-img"));
       await __saveEdit();
       const saved = await mock.getJson(__draftPath(id));
       out.q2 = {
@@ -627,7 +654,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __setLiveDbCoinsForTest(catalog);
       await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF"], { type: "application/pdf" }));
       await openEdit(mock, Object.assign({}, base, twoPhotos), twoFiles);
-      const qx = document.querySelector("#addCoinGallery .gc-thumb .gc-remove");
+      const qsl = __ph.slot(/Holder/, 0);
+      const qx = qsl && qsl.querySelector(".sg-photo-remove");
       if (qx) qx.click();
       clickGuard("Remove");
       mock.deleteItem = () => Promise.reject(new Error("locked"));
@@ -677,23 +705,29 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __teardown();
     }
 
-    // Q6: a fresh Add Coin never shows the remove buttons, even with a photo.
+    // Q6: a fresh Add Coin shows no Staging states and no receipt ✕; its
+    // photo's ✕ (the section's own, as on Edit Coin) says nothing is written.
     {
       const mock = await __setup();
       navigate("addcoin");
       const body = document.getElementById("addCoinPhotosBody");
       if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
       out.q6picked = await __ph.slotPick("obverse", "#f00");
-      out.q6 = ["obverseRemoveBtn", "reverseRemoveBtn", "receiptRemoveBtn"].map(i => document.getElementById(i).style.display);
-      out.q6gallery = !document.querySelector("#addCoinGallery .photo-upload-state");
+      out.q6 = [document.getElementById("receiptRemoveBtn").style.display];
+      out.q6gallery = !document.querySelector("#addCoinPhotoSections .photo-upload-state");
+      const fx = __ph.slot(/Obverse &/, 0).querySelector(".sg-photo-remove");
+      if (fx) fx.click();
+      out.q6x = { title: (document.getElementById("writeGuardTitle") || {}).textContent || "",
+        body: guardOpen() ? document.getElementById("writeGuardBody").textContent : "" };
+      clickGuard("Cancel");
       navigate("addcoin");
       __teardown();
     }
     return out;
   }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
 
-  ok(Q.q1hasX && Q.q1asked && Q.q1afterCancel === 1,
-    "Q1 ✕ on a stored photo asks first, and Cancel keeps it: " + JSON.stringify([Q.q1hasX, Q.q1asked, Q.q1afterCancel]));
+  ok(Q.q1hasX && Q.q1asked && Q.q1afterCancel === 1 && /Save changes/.test(Q.q1askBody || ""),
+    "Q1 ✕ on a stored photo asks first (it comes off at Save changes), and Cancel keeps it: " + JSON.stringify([Q.q1hasX, Q.q1asked, Q.q1afterCancel, Q.q1askBody]));
   ok(Q.q1beforeSave === true,
     "Q2 -- nothing is deleted before Save changes");
   ok(JSON.stringify(Q.q1.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) && Q.q1.gone,
@@ -714,8 +748,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   ok(Q.q5picked && JSON.stringify(Q.q5.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
      Q.q5.oldGone,
     "Q10 replacing a photo stored under another name lists the new pair and deletes the old file: " + JSON.stringify(Q.q5));
-  ok(Q.q6picked && Q.q6.every(d => d === "none") && Q.q6gallery,
-    "Q11 a fresh Add Coin shows no remove buttons and no Staging states: " + JSON.stringify(Q.q6));
+  ok(Q.q6picked && Q.q6.every(d => d === "none") && Q.q6gallery && /hasn't been saved yet/.test(Q.q6x.body),
+    "Q11 a fresh Add Coin shows no receipt ✕ and no Staging states, and a photo's ✕ says nothing is written: " + JSON.stringify([Q.q6, Q.q6x]));
 
   // @@NEXT@@
 }, module);
