@@ -709,6 +709,109 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     await p.close();
   }
 
+  // ---------- DM. Draft mode in the shared blocks (commit 2) ---------------
+  // Add Coin and the Staging-draft edit use Edit Coin's own blocks with
+  // opts.draft: a pick, Replace, Recrop or ✕ changes the in-memory gallery
+  // only. Driven on a REAL owned coin id with the write layer on, so the
+  // only thing keeping these off OneDrive is draft mode itself.
+  {
+    const DM = await page.evaluate(async () => {
+      const s = window.__sp, out = {};
+      s.install([]);
+      const calls = [];
+      Object.keys(Object.getPrototypeOf(s.mock)).concat(Object.keys(s.mock)).forEach(k => {
+        if (typeof s.mock[k] !== "function" || k.charAt(0) === "_") return;
+        const f = s.mock[k].bind(s.mock);
+        s.mock[k] = (...a) => { calls.push(k); return f(...a); };
+      });
+      const host = document.createElement("div"); host.id = "dmHost"; document.body.appendChild(host);
+      const removed = [];
+      const draft = { onRemove: (e) => removed.push(e.type) };
+      const ctx = { id: s.ID, name: "x", meta: s.ID, kind: "coin" };
+      const render = () => renderManagePhotosInto("dmHost", ctx, { draft });
+      render(); s.openAll(host);
+      out.titles = s.titles(host);
+      const sec = (re) => s.section(host, re);
+      // Obverse pick
+      await s.pickVia(sec(/Obverse &/).querySelector('[data-act="add"]'));
+      await s.sleep(150);
+      const obv = galleryFor(s.ID).find(e => e.type === "obverse");
+      out.obv = { has: !!obv, url: !!(obv && obv.url), pending: !!(obv && obv.uploadPending), calls: calls.slice(),
+        saving: /Saving…/.test(host.textContent), retry: host.querySelectorAll(".sg-photo-retry, .gc-retry").length };
+      // Reference pick
+      await s.pickVia(sec(/Reference photos/).querySelector('[data-role="add"]'));
+      await s.sleep(150);
+      out.ref = { n: galleryFor(s.ID).filter(e => e.type === "reference").length, calls: calls.slice(),
+        thumbs: sec(/Reference photos/).querySelectorAll(".gc-thumb").length, saving: /Saving…/.test(host.textContent) };
+      // Replace obverse
+      const before = galleryFor(s.ID).find(e => e.type === "obverse");
+      await s.pickVia(sec(/Obverse &/).querySelector('[data-act="replace"]'));
+      await s.sleep(150);
+      const obvs = galleryFor(s.ID).filter(e => e.type === "obverse");
+      out.rep = { n: obvs.length, changed: obvs[0] !== before, calls: calls.slice() };
+      // Recrop obverse
+      const beforeRe = galleryFor(s.ID).find(e => e.type === "obverse");
+      const rc = sec(/Obverse &/).querySelector('[data-act="adjust"]');
+      out.recropBtn = !!rc;
+      if (rc) {
+        rc.click();
+        if (await s.waitFor(() => s.overlayOpen("bgCropOverlay"))) document.getElementById("bgCropUseBtn").click();
+        if (await s.waitFor(() => s.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
+        await s.sleep(200);
+      }
+      const afterRe = galleryFor(s.ID).filter(e => e.type === "obverse");
+      out.recrop = { n: afterRe.length, changed: afterRe[0] !== beforeRe, raw: !!(afterRe[0] && afterRe[0].rawUrl), calls: calls.slice() };
+      // ✕ on a fresh pick
+      sec(/Reference photos/).querySelector(".gc-remove").click();
+      out.rm = { title: s.guardTitle(), body: s.guardBody() };
+      s.clickGuard("Remove"); await s.sleep(50);
+      out.rm.left = galleryFor(s.ID).filter(e => e.type === "reference").length;
+      out.rm.removed = removed.slice(); out.rm.calls = calls.slice();
+      // ✕ on a photo already saved in the Staging draft
+      draftPlaceGalleryEntry(s.ID, null, { type: "other", url: obvs[0].url, caption: "box", stored: true, stagingStored: true,
+        storedFilename: s.ID + "_other_01.jpg", filename: s.ID + "_other_01.jpg" }, render);
+      s.openAll(host);
+      sec(/Other photos/).querySelector(".gc-remove").click();
+      out.rmS = { body: s.guardBody(), buttons: s.guardButtons() };
+      s.clickGuard("Cancel"); await s.sleep(30);
+      out.rmS.kept = galleryFor(s.ID).some(e => e.type === "other");
+      sec(/Other photos/).querySelector(".gc-remove").click();
+      s.clickGuard("Remove"); await s.sleep(30);
+      out.rmS.gone = !galleryFor(s.ID).some(e => e.type === "other");
+      out.rmS.removed = removed.slice();
+      // A failed save and a save in flight
+      galleryFor(s.ID).forEach(e => { e.uploadError = "boom"; });
+      draftPlaceGalleryEntry(s.ID, null, { type: "reference", url: obvs[0].url, caption: "x", uploadPending: true }, render);
+      s.openAll(host);
+      out.failed = { text: (host.textContent.match(/Not saved — tap Save changes again/g) || []).length,
+        oldText: /Not saved — tap ↻/.test(host.textContent), retry: host.querySelectorAll(".sg-photo-retry, .gc-retry").length,
+        saving: /Saving…/.test(host.textContent), arrow: host.textContent.indexOf("↻") !== -1 };
+      out.calls = calls.slice();
+      host.remove();
+      s.teardown();
+      return out;
+    });
+    const noCalls = (c) => c.length === 0;
+    console.log("    draft mode: " + JSON.stringify(DM));
+    ok(JSON.stringify(DM.titles) === JSON.stringify(COIN_TITLES.filter(t => !/Crop/.test(t))),
+      "DM1 draft mode shows Edit Coin's sections (crop from another photo comes in a later commit): " + JSON.stringify(DM.titles));
+    ok(DM.obv.has && DM.obv.url && !DM.obv.pending && noCalls(DM.obv.calls) && !DM.obv.saving && DM.obv.retry === 0,
+      "DM2 an Obverse pick goes into the draft only: no Graph call, no Saving…, no ↻: " + JSON.stringify(DM.obv));
+    ok(DM.ref.n === 1 && DM.ref.thumbs === 1 && noCalls(DM.ref.calls) && !DM.ref.saving,
+      "DM3 a Reference pick goes into the draft only: " + JSON.stringify(DM.ref));
+    ok(DM.rep.n === 1 && DM.rep.changed && noCalls(DM.rep.calls), "DM4 Replace swaps the photo in the draft, still one Obverse, nothing written");
+    ok(DM.recropBtn && DM.recrop.n === 1 && DM.recrop.changed && DM.recrop.raw && noCalls(DM.recrop.calls),
+      "DM5 Recrop works from the draft's own photo and keeps its original, nothing written: " + JSON.stringify(DM.recrop));
+    ok(DM.rm.title === "Remove photo?" && /hasn't been saved yet/.test(DM.rm.body) && DM.rm.left === 0 &&
+       JSON.stringify(DM.rm.removed) === '["reference"]' && noCalls(DM.rm.calls),
+      "DM6 ✕ on a pick asks, says nothing is written, and removes it with no write: " + JSON.stringify(DM.rm));
+    ok(/Save changes/.test(DM.rmS.body) && DM.rmS.kept && DM.rmS.gone && DM.rmS.removed.indexOf("other") !== -1,
+      "DM7 ✕ on a photo saved in the Staging draft says it comes off at Save changes; Cancel keeps it, Remove takes it off: " + JSON.stringify(DM.rmS));
+    ok(DM.failed.text >= 1 && !DM.failed.oldText && DM.failed.retry === 0 && !DM.failed.arrow && !DM.failed.saving,
+      "DM8 a failed save reads \"Not saved — tap Save changes again\"; no ↻ and no Saving… in draft mode: " + JSON.stringify(DM.failed));
+    ok(noCalls(DM.calls), "DM9 nothing in draft mode touched OneDrive: " + JSON.stringify(DM.calls));
+  }
+
   // ---------- CT. Crop-from-another-photo source tiles at their own shape --
   // Ray's Q2 (22 Oct): the Holder/Reference/Other tiles in "Crop from another
   // photo" follow the photo's own shape, like the gallery thumbs.

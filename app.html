@@ -25116,9 +25116,81 @@
   // screens are converted in stages): an empty slot is ONE "+" box with the
   // label inside it, a filled slot shows a single "Replace" button — both
   // open openImageSourceChooser() instead of per-slot 📷/🖼️ inputs.
+  // ==================================================================
+  // DRAFT MODE (Add Coin uses Edit Coin's photo section, commit 2)
+  // ==================================================================
+  // Add Coin and the Staging-draft edit render the SAME blocks as Edit Coin,
+  // with opts.draft set. Only the timing differs: a pick, Replace, Recrop or
+  // ✕ changes the in-memory gallery and nothing else. Nothing is uploaded
+  // and no Photos row is written here; the host's Save writes the whole
+  // draft to Staging exactly as before. So draft mode never shows "Saving…"
+  // or ↻: a photo whose save failed reads "Not saved — tap Save changes
+  // again", because Save is the retry.
+  //
+  // opts.draft is an object (it may be {}):
+  //   onRemove(entry)  optional, after a photo is taken off the draft
+  //                    (the Staging edit counts removed stored photos).
+  const DRAFT_NOT_SAVED_TEXT = "Not saved — tap Save changes again";
+
+  // Placing a pick in draft mode: never a commit, whatever the target id.
+  // A Replace takes the old photo's own place and its label, like the
+  // committed Replace.
+  function draftPlaceGalleryEntry(targetId, oldEntry, newEntry, done) {
+    const list = galleryFor(targetId);
+    const at = oldEntry ? list.indexOf(oldEntry) : -1;
+    if (oldEntry && !newEntry.caption && oldEntry.caption) newEntry.caption = oldEntry.caption;
+    if (at >= 0) list[at] = newEntry;
+    else addGalleryEntry(targetId, newEntry);
+    if (done) done(newEntry);
+    return newEntry;
+  }
+
+  // ✕ in draft mode. A photo already saved in the Staging draft comes off
+  // when Save changes runs (its file is deleted then); a pick that was never
+  // saved just goes. Either way nothing is written now, and Cancel changes
+  // nothing.
+  function confirmRemoveDraftPhoto(targetId, entry, draft, onRemoved) {
+    const def = galleryTypeDef(entry && entry.type);
+    const label = (def && def.label) || "this photo";
+    const finish = () => {
+      const list = galleryFor(targetId);
+      const at = list.indexOf(entry);
+      if (at !== -1) list.splice(at, 1);
+      if (draft && draft.onRemove) draft.onRemove(entry);
+      if (onRemoved) onRemoved();
+    };
+    if (entry && entry.stagingStored) {
+      showWriteGuard({
+        title: "Remove photo?",
+        bodyHtml: "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this draft?</p>" +
+          "<p>It comes off the draft when you tap <b>Save changes</b>, and its file is deleted from Staging then. " +
+          "Until you save, nothing changes — leaving without saving keeps it.</p>",
+        buttons: [{ label: "Cancel", primary: true }, { label: "Remove", onClick: finish }]
+      });
+      return;
+    }
+    showWriteGuard({
+      title: "Remove photo?",
+      bodyHtml: "<p>Remove <strong>" + escapeHtmlText(label) + "</strong>?</p>" +
+        "<p>It hasn't been saved yet, so taking it off writes nothing.</p>",
+      buttons: [{ label: "Cancel" }, { label: "Remove", primary: true, onClick: finish }]
+    });
+  }
+
+  // Recrop in draft mode: from the untouched original when there is one,
+  // otherwise from the photo shown. A Staging photo's bytes are fetched when
+  // the edit opens (loadStagingEditFiles), so until then there is nothing to
+  // crop from yet.
+  async function draftRecropSource(entry) {
+    const u = entry && (entry.rawUrl || entry.url);
+    if (!u) return null;
+    try { return await fetch(u).then(r => r.blob()); } catch (e) { return null; }
+  }
+
   function buildPhotoPairSlot(opts) {
     const { typeKey, targetId, subGroupId, label, onChange } = opts;
     const chooserMode = !!opts.chooser;
+    const draft = opts.draft || null;
     const def = galleryTypeDef(typeKey);
     const list = galleryFor(targetId);
     const idx = list.findIndex(e => e.type === typeKey &&
@@ -25138,7 +25210,7 @@
     // quality tradeoff and why the raw-only restriction was too tight).
     // Still flip sources only — retainRaw is the existing rule for which
     // types have an adjuster at all, and mis-framing is a circle problem.
-    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || entry.stored));
+    const canReadjust = !!(def.retainRaw && entry && (entry.rawUrl || entry.stored || (draft && entry.url)));
     const adjustsRaw = !!(entry && (entry.rawUrl || storedRawFilenameFor(entry)));
     const adjustTitle = adjustsRaw ? "Recrop (from the original)" : "Recrop (from the saved photo)";
     // A filled slot's capture buttons are a REPLACE, and say so. This is
@@ -25154,7 +25226,9 @@
     const face = entry && entry.url
       ? `<img class="sg-photo-img" src="${entry.url}" alt="">`
       : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
-    const stateLines = `
+    const stateLines = draft ? `
+      ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
+      ${entry && entry.uploadError ? `<div class="photo-upload-state failed">${DRAFT_NOT_SAVED_TEXT}</div>` : ""}` : `
       ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
       ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
       ${entry && entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}`;
@@ -25165,7 +25239,7 @@
       // upload) is centred on the photo. Same handlers, same data-act.
       // A failed save shows ↻ centred on the photo over a light dim (no
       // longer a row under the buttons); same data-act, same handler.
-      const failedOverlay = entry && entry.uploadError
+      const failedOverlay = entry && entry.uploadError && !draft
         ? `<div class="sg-photo-failed-dim" aria-hidden="true"></div>
           <button type="button" class="sg-photo-retry" data-act="retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       // A photo that isn't a coin face (Holder, Package/OGP, a Set's whole-set
@@ -25216,7 +25290,8 @@
         const done = () => { if (onChange) onChange(newEntry, typeKey); };
         // Replacing carries the old photo's PhotoID and Label forward so
         // its row is updated in place, not dropped and re-added.
-        if (entry) replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
+        if (draft) draftPlaceGalleryEntry(targetId, entry, newEntry, done);
+        else if (entry) replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
         else addGalleryEntryAndCommit(targetId, newEntry, done);
       }, subGroupId);
     };
@@ -25237,6 +25312,17 @@
     const adjustBtn = slot.querySelector('[data-act="adjust"]');
     if (adjustBtn) adjustBtn.addEventListener("click", async () => {
       const done = () => { if (onChange) onChange(entry, typeKey); };
+      if (draft) {
+        const src = await draftRecropSource(entry);
+        if (!src) { showToast("This photo is still loading — try Recrop again in a moment."); return; }
+        runCropPipeline(src, typeKey, targetId, (newEntry) => {
+          // The new crop keeps the original it came from, so a later Recrop
+          // still starts from the untouched photo.
+          if (!newEntry.rawUrl && entry.rawUrl) newEntry.rawUrl = entry.rawUrl;
+          draftPlaceGalleryEntry(targetId, entry, newEntry, done);
+        }, subGroupId);
+        return;
+      }
       if (entry.rawUrl) {
         const raw = await fetch(entry.rawUrl).then(r => r.blob());
         runCropPipeline(raw, typeKey, targetId, (newEntry) => {
@@ -25252,6 +25338,7 @@
     });
     const rm = slot.querySelector('[data-act="remove"]');
     if (rm) rm.addEventListener("click", () => {
+      if (draft) { confirmRemoveDraftPhoto(targetId, entry, draft, () => { if (onChange) onChange(null, typeKey); }); return; }
       confirmRemoveGalleryPhoto(targetId, entry, () => {
         removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
         if (onChange) onChange(null, typeKey);
@@ -25598,7 +25685,8 @@
         typeKey, targetId, subGroupId,
         label: faces ? (i === 0 ? "Obverse" : "Reverse") : (i === 0 ? "Front" : "Back"),
         onChange: () => render(),
-        chooser: !!(opts && opts.chooser)
+        chooser: !!(opts && opts.chooser),
+        draft: (opts && opts.draft) || null
       }));
     });
     body.appendChild(pair);
@@ -25612,6 +25700,7 @@
   function manageOpenEndedBlock(body, typeKey, targetId, hint, render, opts) {
     const def = galleryTypeDef(typeKey);
     const chooserMode = !!(opts && opts.chooser);
+    const draft = (opts && opts.draft) || null;
     // "Reference photo" -> "reference photo"; "Other" -> "other photo".
     const photoNoun = ((def ? def.label : "photo").toLowerCase().replace(/\s*photo$/, "") + " photo").trim();
     if (hint) {
@@ -25631,15 +25720,15 @@
       const shaped = chooserMode && galleryEntryIsShaped(entry);
       thumb.className = "gc-thumb" + (shaped ? " gc-shaped" : "");
       const loadingStored = !!(entry.stored && !entry.url);
-      const failedOverlay = entry.uploadError ? `<div class="gc-failed-dim" aria-hidden="true"></div>
+      const failedOverlay = (entry.uploadError && !draft) ? `<div class="gc-failed-dim" aria-hidden="true"></div>
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
         ${galleryThumbInner(entry, shaped ? { shaped: true, inside: failedOverlay } : null)}
         ${shaped ? "" : failedOverlay}
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
-        ${entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
-        ${entry.uploadError ? `<div class="photo-upload-state failed">Not saved — tap ↻</div>` : ""}
+        ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
+        ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}
         ${chooserMode ? `<input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
         <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
@@ -25656,7 +25745,8 @@
       const handleReplace = (f) => {
         if (!f) return;
         runCropPipeline(f, typeKey, targetId, (newEntry) => {
-          replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
+          if (draft) draftPlaceGalleryEntry(targetId, entry, newEntry, render);
+          else replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
         });
       };
       if (chooserMode) {
@@ -25673,6 +25763,7 @@
         repLib.addEventListener("change", () => handleReplace(repLib.files[0]));
       }
       thumb.querySelector(".gc-remove").addEventListener("click", () => {
+        if (draft) { confirmRemoveDraftPhoto(targetId, entry, draft, render); return; }
         confirmRemoveGalleryPhoto(targetId, entry, () => {
           removeGalleryEntry(targetId, galleryFor(targetId).indexOf(entry));
           render();
@@ -25688,7 +25779,8 @@
     const handleAdd = (f) => {
       if (!f) return;
       runCropPipeline(f, typeKey, targetId, (entry) => {
-        addGalleryEntryAndCommit(targetId, entry, render);
+        if (draft) draftPlaceGalleryEntry(targetId, null, entry, render);
+        else addGalleryEntryAndCommit(targetId, entry, render);
       });
     };
     if (chooserMode) {
@@ -25764,7 +25856,11 @@
     // empty "＋". Pure in-memory (the index is already fetched); the
     // thumbnails themselves are fetched once per filename per session and
     // trigger exactly one re-render when they land.
-    if (ctx.id) {
+    // Draft mode (options.draft): Add Coin and the Staging-draft edit. The
+    // record has no Photos rows yet — its photos live in the in-memory
+    // gallery until Save — so there is nothing to hydrate.
+    const draftMode = options.draft || null;
+    if (ctx.id && !draftMode) {
       hydrateStoredPhotos(ctx.id);
       ensureStoredThumbs(ctx.id, render);
     }
@@ -25781,11 +25877,11 @@
       // Unified image chooser (Oct 2026), stages C1/C2: the coin branch
       // (Edit Coin and Manage Photos for a coin) and the Set branch below
       // both use the "+" / Replace chooser.
-      const pickOpts = { chooser: true };
+      const pickOpts = { chooser: true, draft: draftMode };
       // Only offered where a crop could actually be saved (a real, owned
       // coin with the photo write layer on) — otherwise it would be a dead
       // end. Coins only: Sets never reach this branch.
-      if (photoCommitTargetId(id)) {
+      if (photoCommitTargetId(id) && !draftMode) {
         appendManageSection(host, "✂️ Crop from another photo",
           manageCount(id, e => cropSourceEntriesFor(id).indexOf(e) !== -1),
           (body) => manageCropFromUploadBlock(body, id, render),
