@@ -2237,7 +2237,7 @@
     font-size: 11px; color: #e06c5a; margin-top: 2px;
     width: 0; min-width: 100%; box-sizing: border-box;
   }
-  .gc-thumb .gc-caption[readonly] { opacity: 0.75; font-style: italic; }
+  .gc-thumb .gc-caption.gc-caption-legacy { opacity: 0.75; font-style: italic; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -2342,6 +2342,55 @@
      and a button centres its content, which pushed the + box down off the
      thumbnail's top edge. */
   .gc-grid.gc-chooser-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; align-items: flex-start; }
+  /* Open-ended tiles (Reference, COA, Other, and a Set's COA/Other) are the
+     same width as a pair slot: two equal columns, half the section each,
+     with the same 10px gap as .sg-photo-pair (Ray's tablet test of c90b51b).
+     The "+" tile is one of the two columns too. The photo is drawn whole
+     inside a 120px-tall box (contain, letterboxed on black), whatever its
+     shape, so every tile in a row is the same size; 120px matches the pair
+     slot's "+" box and its photo height. */
+  .gc-grid.gc-chooser-grid.gc-half-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start;
+  }
+  .gc-half-grid > .gc-thumb, .gc-half-grid > button.gc-add-tile { width: auto; min-width: 0; }
+  .gc-half-grid > .gc-thumb > .gc-img {
+    width: 100%; height: 120px; box-sizing: border-box; position: relative;
+    background-size: contain;
+  }
+  .gc-half-grid > .gc-thumb .gc-failed-dim { width: auto; height: auto; inset: -1px; }
+  .gc-half-grid > .gc-thumb .gc-retry { top: 50%; left: 50%; }
+  .gc-half-grid > button.gc-add-tile .gc-add-box { width: 100%; height: 120px; }
+  /* The label box: one line, "…" when the label is longer than the tile.
+     Tapping it opens the full-width label editor (#photoLabelEditor);
+     readonly, so a tap never raises the keyboard on the small box. */
+  .gc-thumb .gc-caption.gc-label-box {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    font-size: 12px; min-height: 30px; padding: 4px 6px;
+  }
+  .label-editor-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 206;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: calc(var(--top-strip-h, 0px) + 10vh); box-sizing: border-box;
+  }
+  .label-editor-overlay.hidden { display: none; }
+  .label-editor-panel {
+    width: 100%; max-width: 640px; box-sizing: border-box; margin: 0 10px;
+    background: var(--bg-case); border: 1px solid var(--case-border-bright, var(--case-border));
+    border-radius: 14px; padding: 14px;
+  }
+  .label-editor-title { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+  .label-editor-input {
+    display: block; width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical;
+    font-family: inherit; font-size: 16px; line-height: 1.35; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid var(--case-border); background: var(--bg-elevated); color: var(--text);
+  }
+  .label-editor-note { font-size: 11px; color: var(--text-muted); margin: 6px 0 12px; }
+  .label-editor-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .label-editor-btns button {
+    min-height: 44px; min-width: 96px; border-radius: 10px; font-family: inherit; font-size: 15px; cursor: pointer;
+    border: 1px solid var(--case-border); background: transparent; color: var(--text-muted);
+  }
+  .label-editor-btns button.primary { border-color: var(--gold); background: var(--bg-elevated); color: var(--gold-bright); }
   button.gc-add-tile {
     width: 88px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0;
     font: inherit; color: inherit;
@@ -3671,7 +3720,7 @@
           </div>
 
           <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
-          <div class="placeholder-note">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
+          <div class="placeholder-note" id="editSetSaveNote">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
       </section>
 
@@ -4964,7 +5013,7 @@
         </div>
         <div id="managePhotosSections"></div>
         <button class="save-btn" id="managePhotosSaveLabelsBtn" type="button" style="display:none;">Save labels</button>
-        <p class="placeholder-note">Photos are held for this session only — no OneDrive write happens yet.</p>
+        <p class="placeholder-note" id="managePhotosNote"></p>
       </section>
 
       <!-- ============ ACQUISITIONS (hub behind the Acquisitions drawer) ============ -->
@@ -5098,6 +5147,22 @@
        FILES_PICKER_ACCEPT — the non-image half is what makes Android open its
        Files screen (where OneDrive is listed) instead of a Google-Photos-only
        picker. Library and Files picks are checked by isPickableImage(). -->
+  <!-- Full-width label editor (Oct 2026): opened by tapping a photo's
+       one-line label box. Done (or a backdrop tap, or Enter) puts the text
+       back in the box; it is still unsaved until Save Changes / Save labels
+       / the draft's Save, exactly like typing in the box used to be. Cancel
+       (or Esc) changes nothing. -->
+  <div class="label-editor-overlay hidden" id="photoLabelEditor" role="dialog" aria-modal="true" aria-labelledby="photoLabelEditorTitle">
+    <div class="label-editor-panel">
+      <p class="label-editor-title" id="photoLabelEditorTitle">Label</p>
+      <textarea class="label-editor-input" id="photoLabelEditorInput" rows="3" placeholder="Label…" aria-labelledby="photoLabelEditorTitle"></textarea>
+      <p class="label-editor-note" id="photoLabelEditorNote"></p>
+      <div class="label-editor-btns">
+        <button type="button" id="photoLabelEditorCancel">Cancel</button>
+        <button type="button" class="primary" id="photoLabelEditorDone">Done</button>
+      </div>
+    </div>
+  </div>
   <div class="image-chooser-overlay hidden" id="imageSourceChooser" role="dialog" aria-modal="true" aria-labelledby="imageSourceChooserTitle">
     <div class="image-chooser-panel">
       <div class="image-chooser-title" id="imageSourceChooserTitle">Add a photo</div>
@@ -12764,6 +12829,8 @@
   function navigate(viewId) {
     // Leaving a screen throws away label edits that weren't saved with
     // Save Changes (Oct 2026); a draft's labels (Add Coin) are untouched.
+    // An open label editor closes without putting its text back.
+    closePhotoLabelEditor(false);
     discardPhotoLabels();
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
@@ -17643,6 +17710,13 @@
     document.getElementById("browseEditSetView").style.display = "block";
     setNavBack(() => leaveBrowseEditSetGuarded()); // edit set → detail, asks first if labels changed
     discardPhotoLabels(coin.id); // a fresh form shows the labels on the sheet
+    // The Set's own fields are still session-only, but its photos and their
+    // labels really save when the photo write layer is on; say both.
+    document.getElementById("editSetSaveNote").textContent = photoCommitTargetId(coin.id)
+      ? "The Set's fields are session-only: they update this browser's copy and reset on reload. " +
+        "Photos save to OneDrive as you add them; their labels save when you tap Save Changes."
+      : "Session-only — edits update this browser's in-memory copy so you can see them round-trip, " +
+        "but nothing is written to OneDrive and everything resets on reload.";
 
     const details = coinDetailsFor(coin.id);
 
@@ -21432,10 +21506,12 @@
       return;
     }
     try {
-      await markCoinDraftReady(collectionId);
+      const ready = await markCoinDraftReady(collectionId);
       await renderStagingList();
-      showToast(collectionId + " marked ready for reconciliation — its CollectionID is unchanged. " +
-        "The app doesn't write the All sheet yet, so Copilot moves the row across.");
+      showToast(collectionId + " marked ready — its CollectionID is unchanged. " +
+        (ready && ready.coinId
+          ? "Tap Promote to write it to the All sheet."
+          : "It has no CoinID yet, so it waits in the Docket's Awaiting Copilot Research section (Re-check, Force Add or Dismiss)."));
     } catch (e) {
       console.error("Couldn't mark draft ready:", e);
       showToast("Couldn't update " + collectionId + ": " + String(e && e.message || e));
@@ -24648,6 +24724,7 @@
     } else if (line) line.remove();
     const box = thumb.querySelector(".gc-caption");
     if (box && box.value !== (entry.caption || "")) box.value = entry.caption || "";
+    if (box && box.classList.contains("gc-label-box")) box.title = box.value;
   }
   function syncStoredPhotoIndexLabel(collectionId, photoId, label) {
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
@@ -24746,6 +24823,67 @@
 
   // Manage Photos has no other Save, so it gets "Save labels", shown only
   // while a label on this record is unsaved.
+  // Full-width label editor (Oct 2026, Ray's tablet test of c90b51b). The
+  // box on the tile is one line with "…"; this shows the whole label.
+  // Done puts the text back in the box through its own "input" listeners,
+  // so the label is unsaved exactly as if it had been typed in the box:
+  // Save Changes / Save labels write a saved photo's label, a draft's Save
+  // writes a draft's. Cancel and Esc change nothing.
+  let photoLabelEditorState = null;
+  function photoLabelEditorSaveHint(box) {
+    if (box && box.closest("#addCoinPhotoSections")) return "The label is saved with the coin when you tap Save.";
+    if (box && box.closest("#managePhotosSections")) return "Not saved yet: tap Save labels to save it.";
+    return "Not saved yet: tap Save Changes to save it.";
+  }
+  function openPhotoLabelEditor(box, entry, title) {
+    const overlay = document.getElementById("photoLabelEditor");
+    const input = document.getElementById("photoLabelEditorInput");
+    if (!overlay || !input || !box) return;
+    photoLabelEditorState = { box, entry };
+    document.getElementById("photoLabelEditorTitle").textContent = title || "Label";
+    document.getElementById("photoLabelEditorNote").textContent = photoLabelEditorSaveHint(box);
+    input.value = box.value || "";
+    overlay.classList.remove("hidden");
+    box.blur();
+    input.focus();
+    try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* ignore */ }
+  }
+  function closePhotoLabelEditor(apply) {
+    const overlay = document.getElementById("photoLabelEditor");
+    const st = photoLabelEditorState;
+    photoLabelEditorState = null;
+    if (overlay) overlay.classList.add("hidden");
+    if (!apply || !st) return;
+    const text = String(document.getElementById("photoLabelEditorInput").value || "")
+      .replace(/\s*[\r\n]+\s*/g, " ");
+    // The tile may have been redrawn while the editor was open (a photo
+    // finishing its save); write to the box that is on screen now.
+    let box = st.box;
+    if (!box || !box.isConnected) {
+      const thumb = photoLabelThumbs.get(st.entry);
+      box = thumb && thumb.isConnected ? thumb.querySelector(".gc-caption") : null;
+    }
+    if (box) {
+      if (box.value === text) return;
+      box.value = text;
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    } else if (st.entry) {
+      st.entry.caption = text;
+      refreshManagePhotosSaveLabelsBtn();
+    }
+  }
+  (function initPhotoLabelEditor() {
+    const overlay = document.getElementById("photoLabelEditor");
+    if (!overlay) return;
+    document.getElementById("photoLabelEditorDone").addEventListener("click", () => closePhotoLabelEditor(true));
+    document.getElementById("photoLabelEditorCancel").addEventListener("click", () => closePhotoLabelEditor(false));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closePhotoLabelEditor(true); });
+    document.getElementById("photoLabelEditorInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); closePhotoLabelEditor(true); }
+      else if (e.key === "Escape") { e.preventDefault(); closePhotoLabelEditor(false); }
+    });
+  })();
+
   function refreshManagePhotosSaveLabelsBtn() {
     const btn = document.getElementById("managePhotosSaveLabelsBtn");
     if (!btn) return;
@@ -25883,6 +26021,12 @@
     setNavBack(() => confirmLeaveWithUnsavedEdits(ctx.id, 0, ctx.id, back));
     document.getElementById("managePhotosName").textContent = ctx.name || ctx.id || "";
     document.getElementById("managePhotosMeta").textContent = ctx.meta || "";
+    // What this screen really does with a photo. An owned coin or Set
+    // (write layer on) saves each photo as it is added; anything else (a Set
+    // still in progress, nothing on the All sheet yet) keeps them in memory.
+    document.getElementById("managePhotosNote").textContent = photoCommitTargetId(ctx.id)
+      ? "Photos save to OneDrive as you add, replace or remove them. Labels save when you tap Save labels."
+      : "This record isn't on the All sheet yet, so photos added here are kept for this session only.";
     renderManagePhotos();
   }
 
@@ -25987,15 +26131,15 @@
       body.appendChild(p);
     }
     const grid = document.createElement("div");
-    grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid" : "");
+    grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid gc-half-grid" : "");
     galleryFor(targetId).forEach((entry, index) => {
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
-      // Chooser-mode thumbs are drawn at the photo's own shape; see
-      // galleryThumbInner(). The ✕ stays on the image's top-right corner
-      // because the tile is exactly as wide as the image.
-      const shaped = chooserMode && galleryEntryIsShaped(entry);
-      thumb.className = "gc-thumb" + (shaped ? " gc-shaped" : "");
+      // Chooser-mode tiles are half the section wide (.gc-half-grid) and
+      // draw the whole photo inside a fixed box, so they are not "shaped";
+      // the failed-save dim and ↻ go inside the image box so they cover and
+      // centre on it.
+      thumb.className = "gc-thumb";
       thumb.dataset.file = entry.storedFilename || entry.filename || "";
       const loadingStored = !!(entry.stored && !entry.url);
       // An old-style photo (legacy All columns, no Photos row) has nowhere
@@ -26006,12 +26150,12 @@
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       thumb.innerHTML = `
         <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
-        ${galleryThumbInner(entry, shaped ? { shaped: true, inside: failedOverlay } : null)}
-        ${shaped ? "" : failedOverlay}
+        ${galleryThumbInner(entry, chooserMode ? { inside: failedOverlay } : null)}
+        ${chooserMode ? "" : failedOverlay}
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}
-        ${chooserMode ? `<input type="text" class="gc-caption" ${legacyLabel ? `readonly placeholder="Replace this photo to give it a label" title="Replace this photo to give it a label"` : `placeholder="Label…"`} value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${chooserMode ? `<input type="text" class="gc-caption ${legacyLabel ? "gc-caption-legacy" : "gc-label-box"}" readonly ${legacyLabel ? `placeholder="Replace this photo to give it a label" title="Replace this photo to give it a label"` : `placeholder="Label…" aria-label="Label — tap to edit" title="${(entry.caption || "").replace(/"/g, "&quot;")}"`} value="${(entry.caption || "").replace(/"/g, "&quot;")}">
         ${entry.labelError && !draft ? `<div class="gc-label-failed">Label not saved</div>` : ""}
         <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
@@ -26057,13 +26201,19 @@
       const captionBox = thumb.querySelector(".gc-caption");
       captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
       if (chooserMode && !draft) {
-        // Saved photo: typing changes the label in memory only; Save
-        // Changes (or "Save labels") writes it. Enter just closes the
-        // keyboard.
+        // Saved photo: a label changes in memory only; Save Changes (or
+        // "Save labels") writes it.
         photoLabelThumbs.set(entry, thumb);
         captionBox.addEventListener("input", () => refreshManagePhotosSaveLabelsBtn());
+      }
+      if (chooserMode && !legacyLabel) {
+        // The box is one line; tapping it (or Enter / Space on it) opens
+        // the full-width editor, which puts the text back here on Done.
+        captionBox.addEventListener("input", () => { captionBox.title = captionBox.value; });
+        const openEditor = () => openPhotoLabelEditor(captionBox, entry, "Label for this " + photoNoun);
+        captionBox.addEventListener("click", openEditor);
         captionBox.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") { e.preventDefault(); captionBox.blur(); }
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditor(); }
         });
       }
       grid.appendChild(thumb);

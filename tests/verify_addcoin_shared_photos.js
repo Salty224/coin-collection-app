@@ -498,8 +498,11 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
           const img = t.querySelector(".gc-img"), ir = R(img);
           const ratio = this.ratioOfUrl(img && img.style.backgroundImage);
           const rm = R(t.querySelector(".gc-remove")), cap = R(t.querySelector(".gc-caption")), rep = R(t.querySelector('[data-role="replace"]'));
+          const grid = t.closest(".gc-half-grid");
+          const half = grid ? r1((grid.clientWidth - (parseFloat(getComputedStyle(grid).columnGap) || 0)) / 2) : null;
           return { kind: "thumb", shaped: t.classList.contains("gc-shaped"), want: ratio, got: ir && Math.round(ir.width / ir.height * 1000) / 1000,
             w: ir && r1(ir.width), h: ir && r1(ir.height), right: R(t).right,
+            size: img ? getComputedStyle(img).backgroundSize : null, tileW: r1(R(t).width), half,
             xdr: rm && r1(rm.right - ir.right), xdt: rm && r1(rm.top - ir.top),
             capW: cap && r1(cap.width), repW: rep && r1(rep.width) };
         }).filter(x => x.want);
@@ -512,7 +515,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
             want: urlRatio[img.getAttribute("src")], got: Math.round(ir.width / ir.height * 1000) / 1000, w: r1(ir.width), h: r1(ir.height), slotW: r1(sr.width), right: sr.right,
             xdr: rm && r1(rm.right - ir.right), xdt: rm && r1(rm.top - ir.top), labW: lab && r1(lab.width), repW: rep && r1(rep.width) };
         }).filter(Boolean);
-        const plus = [...host.querySelectorAll(".gc-add-box")].map(b => { const r = R(b); return [Math.round(r.width), Math.round(r.height)]; });
+        const plus = [...host.querySelectorAll(".gc-add-box")].map(b => { const r = R(b); return [r1(r.width), Math.round(r.height)]; });
         const pairAdd = [...host.querySelectorAll(".sg-photo-add")].map(b => Math.round(R(b).height));
         return { thumbs, slots, plus, pairAdd };
       }
@@ -545,17 +548,27 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       const close = (a, b) => Math.abs(a - b) / b <= 0.03;
       console.log("    shapes " + t + ": " + JSON.stringify(nonFace.map(x => [x.kind[0], x.want === 2 ? "W" : "T", x.w, x.h])));
       const wantCount = { "coin-edit": 6, "coin-manage": 6, "set-edit": 4, "set-manage": 4, "coin-page": 6 }[screen];
-      ok(nonFace.length === wantCount && nonFace.every(x => x.shaped),
-        `SH1 ${t}: every Holder/Reference/Package/COA/Other/whole-set photo is drawn at its own shape (${nonFace.length}/${wantCount})`);
-      ok(nonFace.length && nonFace.filter(x => x.want === 2).every(x => close(x.got, 2)),
-        `SH2 ${t}: a wide 2:1 image's thumbnail is 2:1: ` + JSON.stringify(nonFace.filter(x => x.want === 2).map(x => x.got)));
-      ok(nonFace.length && nonFace.filter(x => x.want !== 2).every(x => close(x.got, 0.625)),
-        `SH3 ${t}: a tall 1:1.6 image's thumbnail is 1:1.6: ` + JSON.stringify(nonFace.filter(x => x.want !== 2).map(x => x.got)));
-      ok(nonFace.every(x => x.kind === "thumb"
+      // Oct 2026 (Ray's tablet test of c90b51b): on the editing screens an
+      // open-ended tile (Reference, COA, Other) is half the section wide and
+      // draws its photo whole inside a 120px box, whatever its shape. Pair
+      // slots and the coin page's read-only strip still follow the shape.
+      const editing = screen !== "coin-page";
+      const shapedSet = editing ? nonFace.filter(x => x.kind === "pair") : nonFace;
+      const tileSet = editing ? nonFace.filter(x => x.kind === "thumb") : [];
+      ok(nonFace.length === wantCount && shapedSet.length && shapedSet.every(x => x.shaped) &&
+         tileSet.every(x => !x.shaped && x.size === "contain" && Math.abs(x.w - x.tileW) <= 1 && Math.abs(x.tileW - x.half) <= 1 && Math.abs(x.h - 120) <= 1) &&
+         (!editing || tileSet.length > 0),
+        `SH1 ${t}: pair photos${editing ? "" : " and strip thumbs"} follow their own shape; open-ended tiles draw the photo whole in a half-width 120px box (${nonFace.length}/${wantCount}): ` +
+        JSON.stringify(tileSet.map(x => [x.w, x.h, x.tileW, x.half, x.size])));
+      ok(shapedSet.filter(x => x.want === 2).every(x => close(x.got, 2)),
+        `SH2 ${t}: a wide 2:1 image drawn at its shape is 2:1: ` + JSON.stringify(shapedSet.filter(x => x.want === 2).map(x => x.got)));
+      ok(shapedSet.filter(x => x.want !== 2).every(x => close(x.got, 0.625)),
+        `SH3 ${t}: a tall 1:1.6 image drawn at its shape is 1:1.6: ` + JSON.stringify(shapedSet.filter(x => x.want !== 2).map(x => x.got)));
+      ok(shapedSet.every(x => x.kind === "thumb"
           ? (x.want === 2 ? x.w <= 177 : Math.abs(x.h - 88) <= 1)
           : (x.h <= 120.5 && (x.h >= 119 || x.w >= x.slotW - 1))),
-        `SH4 ${t}: same height as before (88px thumbnail, 120px pair photo) unless the width cap applies: ` +
-        JSON.stringify(nonFace.map(x => [x.w, x.h])));
+        `SH4 ${t}: same height as before (88px strip thumbnail, 120px pair photo) unless the width cap applies: ` +
+        JSON.stringify(shapedSet.map(x => [x.w, x.h])));
       ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
         `SH5 ${t}: no sideways scroll, every photo stays on the screen and inside its own slot: ` +
         JSON.stringify(nonFace.filter(x => x.kind === "pair").map(x => [x.w, x.slotW])));
@@ -567,8 +580,9 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
             : (Math.abs(x.labW - x.w) <= 1 && Math.abs(x.repW - x.w) <= 1)),
           `SH7 ${t}: the label box and Replace are exactly as wide as the photo: ` +
           JSON.stringify(nonFace.map(x => [x.w, x.capW || x.labW, x.repW])));
-        ok(m.plus.length && m.plus.every(b => b[0] === 88 && b[1] === 88) && m.pairAdd.every(h => h === 120),
-          `SH8 ${t}: the + boxes keep their square size: ` + JSON.stringify([m.plus, m.pairAdd]));
+        const tileW = tileSet.length ? tileSet[0].tileW : null;
+        ok(m.plus.length && tileW && m.plus.every(b => Math.abs(b[0] - tileW) <= 1 && b[1] === 120) && m.pairAdd.every(h => h === 120),
+          `SH8 ${t}: the + boxes are a tile wide (${tileW}px) and 120px tall, like the pair slot's +: ` + JSON.stringify([m.plus, m.pairAdd]));
       }
       if (screen.indexOf("coin") === 0) {
         ok(faces.length === 1 && faces.every(x => !x.shaped && (x.kind === "pair"
@@ -875,9 +889,13 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const m = AC.m;
     const nonFace = m.thumbs.filter(x => x.want !== 1).concat(m.slots.filter(x => x.want !== 1));
     const faces = m.thumbs.filter(x => x.want === 1).concat(m.slots.filter(x => x.want === 1));
-    ok(nonFace.length === 6 && nonFace.every(x => x.shaped) &&
-       nonFace.every(x => close(x.got, x.want === 2 ? 2 : 0.625)),
-      `AC4 ${tag}: Add Coin draws Holder, Reference, Package, COA and Other at their own shape: ` + JSON.stringify(nonFace.map(x => [x.want, x.got])));
+    // Pair slots (Holder, Package) follow the shape; open-ended tiles
+    // (Reference, COA, Other) draw the photo whole in a half-width 120px box.
+    const acPairs = nonFace.filter(x => x.kind === "pair"), acTiles = nonFace.filter(x => x.kind === "thumb");
+    ok(nonFace.length === 6 && acPairs.length && acPairs.every(x => x.shaped && close(x.got, x.want === 2 ? 2 : 0.625)) &&
+       acTiles.length && acTiles.every(x => !x.shaped && x.size === "contain" && Math.abs(x.tileW - x.half) <= 1 && Math.abs(x.h - 120) <= 1),
+      `AC4 ${tag}: Add Coin draws Holder and Package at their own shape, and Reference, COA and Other whole in half-width tiles: ` +
+      JSON.stringify([acPairs.map(x => [x.want, x.got]), acTiles.map(x => [x.tileW, x.half, x.h, x.size])]));
     ok(faces.length === 1 && !faces[0].shaped && faces[0].h === 120, `AC5 ${tag}: Obverse stays square in its slot: ` + JSON.stringify(faces));
     ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
       `AC6 ${tag}: no sideways scroll, every photo inside its slot`);

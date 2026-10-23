@@ -697,9 +697,10 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     host = L.openAll("browseEditPhotosSections");
     const box = L.boxFor(host, "AY-00099_legacy.jpg");
     return { found: !!box, readOnly: box && box.readOnly, placeholder: box && box.placeholder,
-             normalReadOnly: L.boxFor(host, "AY-00099_other_01.jpg").readOnly };
+             legacyNoEditor: !!box && box.classList.contains("gc-caption-legacy") && !box.classList.contains("gc-label-box"),
+             normalOpensEditor: L.boxFor(host, "AY-00099_other_01.jpg").classList.contains("gc-label-box") };
   });
-  ok(I.found && I.readOnly && I.placeholder === "Replace this photo to give it a label" && I.normalReadOnly === false,
+  ok(I.found && I.readOnly && I.placeholder === "Replace this photo to give it a label" && I.legacyNoEditor && I.normalOpensEditor,
     "L12 a photo with no Photos row (legacyOnly) gets a read-only box saying \"Replace this photo to give it a label\": " + JSON.stringify(I));
 
   // ---------- LL layout of the red line -----------------------------------

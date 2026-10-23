@@ -1119,13 +1119,16 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     const out = { wide: read(cells[0], wide), tall: read(cells[1], tall), count: cells.length };
     document.getElementById("galleryViewerOverlay").classList.add("hidden");
 
-    // Scope guard: the Manage Photos THUMBNAIL must stay a cover-cropped
-    // square — this fix is the viewer's alone.
+    // Scope guard: the viewer's own box must not leak onto the Manage Photos
+    // THUMBNAIL. Since Oct 2026 (Ray's tablet test of c90b51b) that thumbnail
+    // draws the whole photo too (contain), but in its own 120px tile box,
+    // not the viewer's much taller one.
     const host = document.getElementById("managePhotosSections");
     renderManagePhotosInto("managePhotosSections", { id, name: "Mercury Dime", meta: id, kind: "coin" });
     [...host.querySelectorAll(".accordion-header")].forEach(h => h.click());
     const thumb = host.querySelector(".gc-thumb .gc-img");
     out.thumbSize = thumb ? getComputedStyle(thumb).backgroundSize : null;
+    out.thumbH = thumb ? Math.round(parseFloat(getComputedStyle(thumb).height)) : null;
     delete galleryStore[id];
     return out;
   });
@@ -1149,7 +1152,8 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(V.wide.autoVisibleFraction < 0.25,
     "V6 the box is far smaller than the image, so painting at natural size showed a sliver — this is what the old CSS did");
   ok(V.wide.boxW > 250, "V7 and the viewer is now a size worth opening a dialog for (was a 130px square)");
-  ok(V.thumbSize === "cover", "V8 the Manage Photos thumbnail is untouched — still a cover-cropped square");
+  ok(V.thumbSize === "contain" && V.thumbH === 120,
+    "V8 the Manage Photos thumbnail keeps its own 120px tile box (the viewer's box doesn't leak onto it): " + JSON.stringify([V.thumbSize, V.thumbH]));
 
   // ---------- N. Nav smoke + no overflow ------------------------------
   for (const [vp, name] of [[PHONE, "phone"], [TABLET, "tablet"]]) {
