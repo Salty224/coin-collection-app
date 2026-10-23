@@ -2233,6 +2233,11 @@
     display: block; position: relative; width: auto; height: auto; line-height: 0;
   }
   .crop-src-tile.gc-shaped > .gc-type { width: 0; min-width: 100%; box-sizing: border-box; }
+  .gc-thumb .gc-label-failed {
+    font-size: 11px; color: #e06c5a; margin-top: 2px;
+    width: 0; min-width: 100%; box-sizing: border-box;
+  }
+  .gc-thumb .gc-caption[readonly] { opacity: 0.75; font-style: italic; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -9330,7 +9335,7 @@
       if (existing) {
         values.PhotoID = existing.PhotoID;
         await patchRecordRow(PHOTOS_SHEET_NAME, existing.__row, map, values);
-        return { photoId: existing.PhotoID, row: existing.__row, replaced: true };
+        return { photoId: existing.PhotoID, row: existing.__row, replaced: true, label: values.Label };
       }
     }
     if (replacePhotoId) {
@@ -9343,14 +9348,35 @@
         // the only thing saying what it is.
         if (!values.Label) values.Label = target.Label || "";
         await patchRecordRow(PHOTOS_SHEET_NAME, target.__row, map, values);
-        return { photoId: target.PhotoID, row: target.__row, replaced: true };
+        return { photoId: target.PhotoID, row: target.__row, replaced: true, label: values.Label };
       }
       // The row is gone (detached elsewhere, or never written) — fall
       // through and record it as new rather than losing the photo.
     }
     values.PhotoID = await nextPhotoId();
     const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values);
-    return { photoId: values.PhotoID, row, replaced: false };
+    return { photoId: values.PhotoID, row, replaced: false, label: values.Label };
+  }
+
+  // Label save on blur (Oct 2026). Writes ONE cell: the Label column of the
+  // photo's own row, found by PhotoID (and checked against CollectionID).
+  //
+  // Deliberately NOT patchRecordRow(): that rewrites the whole row from A to
+  // the last mapped column, and the map (ensureSheetHeaderMap) only holds
+  // columns with a header in A1:Z1. A column with a blank header sitting
+  // inside that span is not in the map and is written as "" — blanked — and
+  // every mapped cell goes back as the trimmed TEXT readRecordRows() read
+  // (a formula would be flattened to its value). A single-cell PATCH can do
+  // none of that: nothing but Label is touched, DateAdded included.
+  async function writePhotoLabel(collectionId, photoId, label) {
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    if (!map.Label) throw new Error("The Photos tab has no Label column.");
+    const hit = await findPhotoRowByPhotoId(photoId);
+    if (!hit || hit.CollectionID !== collectionId) throw new Error("No Photos row " + photoId + " for " + collectionId + ".");
+    const a1 = columnIndexToLetters(map.Label) + hit.__row;
+    await graph().patchWorkbookRanges(writePaths().workbook, PHOTOS_SHEET_NAME,
+      [{ address: a1 + ":" + a1, values: [[label]] }]);
+    return { row: hit.__row };
   }
 
   // Detach = blank the row, NOT delete the file. Two deliberate reasons:
@@ -12713,7 +12739,7 @@
   let spotlightOriginated = false;
   let scrollToCaseOnDashboard = false;
 
-  document.getElementById("navBackBtn").addEventListener("click", () => navBackHandler());
+  document.getElementById("navBackBtn").addEventListener("click", () => { flushPendingPhotoLabels(); navBackHandler(); });
   document.getElementById("managePhotosBackBtn").addEventListener("click", () => navBackHandler());
   document.getElementById("navHomeBtn").addEventListener("click", () => navigate("dashboard"));
 
@@ -12734,6 +12760,9 @@
   }
 
   function navigate(viewId) {
+    // Leaving a screen with a label box still focused: write it (a hidden
+    // box doesn't reliably fire blur).
+    flushPendingPhotoLabels();
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
       clearWishlistContext();
@@ -24333,8 +24362,9 @@
       subGroupId: entry.subGroupId && entry.subGroupId !== DEFAULT_SUBGROUP_ID ? entry.subGroupId : "",
       filename: entry.filename,
       originalFilename: rawName,
-      label: entry.caption || ""
+      label: res.label != null ? res.label : (entry.caption || "")
     });
+    entry.savedLabel = res.label != null ? res.label : (entry.caption || "");
     return res;
   }
 
@@ -24449,7 +24479,12 @@
         // Keep an existing hydrated entry's fetched url; only refresh the
         // fields the sheet owns.
         if (already.stored) {
-          already.caption = row.label || already.caption || "";
+          // A label typed but not yet written wins over the sheet; otherwise
+          // the sheet is the truth, blank included (the old
+          // `row.label || already.caption` put a cleared label back, and put
+          // the OLD label back over a typed one on any redraw).
+          if (!photoLabelDirty(already)) already.caption = row.label || "";
+          already.savedLabel = row.label || "";
           already.storedPhotoId = row.photoId || already.storedPhotoId || "";
           already.storedOriginalFilename = row.originalFilename || already.storedOriginalFilename || "";
         }
@@ -24462,6 +24497,7 @@
         circleUrl: null,
         blob: null,
         caption: row.label || "",
+        savedLabel: row.label || "",
         filename: row.filename,
         rawFilename: null,
         subGroupId: sg,
@@ -24476,6 +24512,110 @@
     });
     return added;
   }
+
+  // ==================================================================
+  // LABEL SAVE ON BLUR (Oct 2026)
+  // ==================================================================
+  // A label typed on a saved photo used to live only in memory until the
+  // photo was next captured or replaced. Now it is written to its Photos
+  // row when the box loses focus (blur, Enter, a redraw, leaving the screen,
+  // or the app going to the background). Draft mode (Add Coin, a Staging
+  // edit) is unchanged: the label stays in memory and Save writes it.
+  //
+  // entry.savedLabel is the label known to be on the row. A label is
+  // "dirty" when the box differs from it; only a dirty label is written.
+  function photoLabelDirty(entry) {
+    if (!entry || entry.savedLabel === undefined) return false;
+    return String(entry.caption || "").trim() !== String(entry.savedLabel || "").trim();
+  }
+  // The thumbnail currently drawn for each entry, so a write can show or
+  // clear "Label not saved" without a redraw (a redraw flushes labels, and a
+  // failure that redraws would retry forever).
+  const photoLabelThumbs = new WeakMap();
+  function paintPhotoLabelState(entry) {
+    const thumb = photoLabelThumbs.get(entry);
+    if (!thumb || !thumb.isConnected) return;
+    let line = thumb.querySelector(".gc-label-failed");
+    if (entry.labelError) {
+      if (!line) {
+        line = document.createElement("div");
+        line.className = "gc-label-failed";
+        line.textContent = "Label not saved";
+        const box = thumb.querySelector(".gc-caption");
+        if (box) box.insertAdjacentElement("afterend", line); else thumb.appendChild(line);
+      }
+    } else if (line) line.remove();
+  }
+  function syncStoredPhotoIndexLabel(collectionId, photoId, label) {
+    if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
+    LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].map(r =>
+      r.photoId === photoId ? Object.assign({}, r, { label }) : r);
+  }
+  // Writes this entry's label if it changed. One write at a time per photo:
+  // a second call queues behind the first and re-checks, so two quick blurs
+  // never race. A photo still saving is waited for first (the same pattern
+  // as ✕); that save writes entry.caption into the row itself, so often
+  // nothing is left to do.
+  function commitPhotoLabel(targetId, entry) {
+    if (!entry || targetId === ADDCOIN_GALLERY_ID) return Promise.resolve(null);
+    const prev = entry.labelPromise || Promise.resolve();
+    const run = prev.then(async () => {
+      if (entry.uploadPending && entry.commitPromise) {
+        try { await entry.commitPromise; } catch (e) { /* reported by the save */ }
+      }
+      // Still saving (a stale promise from an earlier attempt): the save
+      // writes entry.caption into the row itself, and its own redraw flushes
+      // anything typed after that.
+      if (entry.uploadPending) return null;
+      if (galleryEntryNeverSaved(entry)) {
+        if (photoLabelDirty(entry) || entry.caption) {
+          if (!entry.labelKeptNoticeShown) {
+            entry.labelKeptNoticeShown = true;
+            showToast("Label kept — it saves with the photo when ↻ succeeds.");
+          }
+        }
+        return null;
+      }
+      if (entry.legacyOnly) return null;
+      if (!photoLabelDirty(entry)) return null;
+      const commitId = photoCommitTargetId(targetId);
+      if (!commitId || !entry.storedPhotoId) return null;
+      const label = String(entry.caption || "").trim();
+      try {
+        await writePhotoLabel(commitId, entry.storedPhotoId, label);
+        entry.savedLabel = label;
+        entry.labelError = "";
+        syncStoredPhotoIndexLabel(commitId, entry.storedPhotoId, label);
+        paintPhotoLabelState(entry);
+        showToast("Label saved.");
+        return { saved: true, label };
+      } catch (e) {
+        entry.labelError = String(e && e.message ? e.message : e);
+        paintPhotoLabelState(entry);
+        showToast("Couldn't save the label — it's still in the box. Tap the box and tap away to try again. (" + entry.labelError + ")");
+        return { saved: false, error: entry.labelError };
+      }
+    });
+    entry.labelPromise = run.catch(() => null);
+    return run;
+  }
+  // Writes every changed label on every saved record in memory. Run before a
+  // redraw, on leaving the screen, and when the app is hidden. Writes go out
+  // in the background; nothing waits on them. Returns the promises (tests).
+  function flushPendingPhotoLabels() {
+    const out = [];
+    Object.keys(galleryStore).forEach(id => {
+      if (id === ADDCOIN_GALLERY_ID) return;
+      (galleryStore[id] || []).forEach(entry => {
+        if (photoLabelDirty(entry) || entry.uploadPending) out.push(commitPhotoLabel(id, entry));
+      });
+    });
+    return out;
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushPendingPhotoLabels();
+  });
+  window.addEventListener("pagehide", () => flushPendingPhotoLabels());
 
   // Fetches the thumbnails for whichever hydrated entries don't have one
   // yet, then re-renders ONCE — not once per photo, and only if something
@@ -25700,7 +25840,12 @@
       // because the tile is exactly as wide as the image.
       const shaped = chooserMode && galleryEntryIsShaped(entry);
       thumb.className = "gc-thumb" + (shaped ? " gc-shaped" : "");
+      thumb.dataset.file = entry.storedFilename || entry.filename || "";
       const loadingStored = !!(entry.stored && !entry.url);
+      // An old-style photo (legacy All columns, no Photos row) has nowhere
+      // to keep a label until it is Replaced; the box says so instead of
+      // taking text it can't save.
+      const legacyLabel = chooserMode && !draft && !!entry.legacyOnly;
       const failedOverlay = (entry.uploadError && !draft) ? `<div class="gc-failed-dim" aria-hidden="true"></div>
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
       thumb.innerHTML = `
@@ -25710,7 +25855,8 @@
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
         ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}
-        ${chooserMode ? `<input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${chooserMode ? `<input type="text" class="gc-caption" ${legacyLabel ? `readonly placeholder="Replace this photo to give it a label" title="Replace this photo to give it a label"` : `placeholder="Label…"`} value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${entry.labelError && !draft ? `<div class="gc-label-failed">Label not saved</div>` : ""}
         <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
@@ -25752,7 +25898,19 @@
       });
       const retry = thumb.querySelector(".gc-retry");
       if (retry) retry.addEventListener("click", () => retryGalleryPhotoCommit(targetId, entry, render));
-      thumb.querySelector(".gc-caption").addEventListener("input", (e) => { entry.caption = e.target.value; });
+      const captionBox = thumb.querySelector(".gc-caption");
+      captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
+      if (chooserMode && !draft) {
+        // Saved photo: write the label when the box loses focus. "change"
+        // fires on blur only if the text changed; "blur" covers the rest.
+        // commitPhotoLabel() writes nothing when the label is unchanged.
+        photoLabelThumbs.set(entry, thumb);
+        captionBox.addEventListener("change", () => commitPhotoLabel(targetId, entry));
+        captionBox.addEventListener("blur", () => commitPhotoLabel(targetId, entry));
+        captionBox.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); captionBox.blur(); }
+        });
+      }
       grid.appendChild(thumb);
     });
     body.appendChild(grid);
@@ -25829,6 +25987,9 @@
   function renderManagePhotosInto(hostId, ctx, options) {
     const host = document.getElementById(hostId);
     if (!ctx || !host) return;
+    // A redraw removes the label box, and a removed box doesn't reliably
+    // fire blur: write any changed label first.
+    flushPendingPhotoLabels();
     options = options || {};
     const render = () => renderManagePhotosInto(hostId, ctx, options);
     const returnHere = options.onReturnHere || (() => {});
