@@ -24705,13 +24705,24 @@
   // "Stored" means actually in OneDrive: a hydrated Photos-tab/legacy entry,
   // or a capture from this session whose upload has finished. A capture
   // still uploading (or failed) has no file to read back yet.
-  function cropSourceEntriesFor(collectionId) {
+  function cropSourceEntriesFor(collectionId, draft) {
+    // Draft mode (Add Coin, the Staging-draft edit): a source is any Holder,
+    // Reference or Other photo on the draft that has a picture yet — a pick
+    // just made, or a Staging photo once its bytes have arrived. Nothing
+    // there is in CoinPhotos.
+    if (draft) return galleryFor(collectionId).filter(e =>
+      CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && (e.url || e.blob));
     return galleryFor(collectionId).filter(e =>
       CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && e.storedFilename &&
       !e.uploadPending && !e.uploadError);
   }
 
-  async function loadCropSourceBlob(src) {
+  async function loadCropSourceBlob(src, draft) {
+    if (draft) {
+      if (!src) return null;
+      if (src.blob) return src.blob;
+      return src.url ? fetch(src.url).then(r => r.blob()) : null;
+    }
     if (!src || !src.storedFilename) return null;
     const url = await ensureCoinPhotoFetch(src.storedFilename);
     if (!url) return null;
@@ -24721,12 +24732,12 @@
   // The section body: one thumbnail per stored source photo. Each tile is a
   // plain button — there is deliberately no <input type=file> anywhere in
   // this flow.
-  function manageCropFromUploadBlock(body, targetId, render) {
+  function manageCropFromUploadBlock(body, targetId, render, draft) {
     const p = document.createElement("p");
     p.style.cssText = "font-size:11px; color:var(--text-muted); margin:0 0 8px;";
     p.textContent = "Tap a Holder, Reference or Other photo to crop this coin's Obverse, Reverse or a Reference image out of it. The photo you tap is never changed.";
     body.appendChild(p);
-    const sources = cropSourceEntriesFor(targetId);
+    const sources = cropSourceEntriesFor(targetId, draft);
     if (!sources.length) {
       const none = document.createElement("p");
       none.className = "placeholder-note";
@@ -24743,8 +24754,9 @@
       // Sources are Holder/Reference/Other — never a flip source — so each
       // tile follows its photo's own shape (Ray's Q2, 22 Oct).
       tile.className = "crop-src-tile gc-shaped";
-      tile.dataset.filename = src.storedFilename;
-      tile.setAttribute("aria-label", "Crop from " + (def ? def.label : src.type) + ", " + src.storedFilename);
+      tile.dataset.filename = src.storedFilename || src.filename || "";
+      tile.setAttribute("aria-label", "Crop from " + (def ? def.label : src.type) +
+        (src.storedFilename ? ", " + src.storedFilename : (src.caption ? ", " + src.caption : "")));
       const img = document.createElement("div");
       img.className = "gc-img";
       if (src.url) {
@@ -24757,15 +24769,23 @@
       label.textContent = def ? def.label : src.type;
       tile.appendChild(img);
       tile.appendChild(label);
-      tile.addEventListener("click", () => startCropFromUpload(targetId, src, render));
+      tile.addEventListener("click", () => startCropFromUpload(targetId, src, render, draft));
       grid.appendChild(tile);
       paintStoredThumbWhenReady(src, tile);
     });
     body.appendChild(grid);
   }
 
-  function startCropFromUpload(targetId, src, render) {
-    if (!photoCommitTargetId(targetId)) {
+  // The photo a crop comes from, as the dialogs name it: its file once saved,
+  // otherwise (a draft's own pick) its type and label.
+  function cropSourceName(src) {
+    if (src.storedFilename) return src.storedFilename;
+    const def = galleryTypeDef(src.type);
+    return "the " + (def ? def.label : "photo") + (src.caption ? " (" + src.caption + ")" : "") + " photo";
+  }
+
+  function startCropFromUpload(targetId, src, render, draft) {
+    if (!draft && !photoCommitTargetId(targetId)) {
       showToast("Saving photos is turned off for this build, so a crop can't be saved.");
       return;
     }
@@ -24773,10 +24793,10 @@
     // then frame into the circle, an extra image crops free-form. That is
     // exactly the per-type behaviour runCropPipeline() already has, so the
     // crop tool itself is reused unchanged.
-    const pick = (dest) => () => confirmCropDestination(targetId, src, dest, render);
+    const pick = (dest) => () => confirmCropDestination(targetId, src, dest, render, draft);
     showWriteGuard({
       title: "Crop this photo into…",
-      bodyHtml: "<p>From <b>" + escapeHtmlText(src.storedFilename) + "</b>. That photo stays exactly as it is.</p>" +
+      bodyHtml: "<p>From <b>" + escapeHtmlText(cropSourceName(src)) + "</b>. That photo stays exactly as it is.</p>" +
         "<p>Where should the crop go?</p>",
       buttons: [
         { label: "Obverse", primary: true, onClick: pick("obverse") },
@@ -24789,29 +24809,49 @@
 
   // Replacing what the flip card shows is confirmed first. An extra image is
   // purely additive, so it isn't.
-  function confirmCropDestination(targetId, src, dest, render) {
+  function confirmCropDestination(targetId, src, dest, render, draft) {
     const current = dest === "reference" ? null : galleryFor(targetId).find(e => e.type === dest);
-    if (!current) { runCropFromUpload(targetId, src, dest, render); return; }
+    if (!current) { runCropFromUpload(targetId, src, dest, render, draft); return; }
     const side = dest === "obverse" ? "obverse" : "reverse";
     const shown = current.storedFilename || current.filename || "";
     showWriteGuard({
       title: "Replace the " + side + "?",
       bodyHtml: "<p>Your new crop becomes this coin's " + side + " image.</p>" +
-        (shown ? "<p>The current file, <b>" + escapeHtmlText(shown) + "</b>, stays in OneDrive — nothing is deleted or overwritten.</p>" : ""),
+        (draft ? "<p>Nothing is written until you save.</p>"
+          : (shown ? "<p>The current file, <b>" + escapeHtmlText(shown) + "</b>, stays in OneDrive — nothing is deleted or overwritten.</p>" : "")),
       buttons: [
         { label: "Cancel" },
-        { label: "Crop and replace", primary: true, onClick: () => runCropFromUpload(targetId, src, dest, render) }
+        { label: "Crop and replace", primary: true, onClick: () => runCropFromUpload(targetId, src, dest, render, draft) }
       ]
     });
   }
 
-  async function runCropFromUpload(targetId, src, dest, render) {
+  async function runCropFromUpload(targetId, src, dest, render, draft) {
     let blob = null;
-    try { blob = await loadCropSourceBlob(src); } catch (e) { blob = null; }
-    if (!blob) { showToast("Couldn't load " + src.storedFilename + " from OneDrive to crop it."); return; }
+    try { blob = await loadCropSourceBlob(src, draft); } catch (e) { blob = null; }
+    if (!blob) {
+      showToast(draft ? "Couldn't load " + cropSourceName(src) + " to crop it." : "Couldn't load " + src.storedFilename + " from OneDrive to crop it.");
+      return;
+    }
     runCropPipeline(blob, dest, targetId, (newEntry) => {
-      saveCropFromUpload(targetId, dest, src, newEntry, render);
-    }, null, { titleSuffix: " (from " + src.storedFilename + ")" });
+      if (draft) saveDraftCropFromUpload(targetId, dest, src, newEntry, render);
+      else saveCropFromUpload(targetId, dest, src, newEntry, render);
+    }, null, { titleSuffix: " (from " + (src.storedFilename || (galleryTypeDef(src.type) || {}).label || "photo") + ")" });
+  }
+
+  // Draft mode: the crop goes into the draft like a pick, and is saved with
+  // it. Same rule as a saved coin: no _original copy is kept for a crop from
+  // another photo (the source photo is kept as itself), so a later Recrop
+  // works from the cropped image.
+  function saveDraftCropFromUpload(targetId, dest, src, newEntry, render) {
+    if (newEntry.rawUrl) { try { URL.revokeObjectURL(newEntry.rawUrl); } catch (e) {} }
+    newEntry.rawUrl = null;
+    newEntry.rawFilename = null;
+    const current = dest === "reference" ? null : galleryFor(targetId).find(e => e.type === dest);
+    draftPlaceGalleryEntry(targetId, current, newEntry, () => render());
+    const def = galleryTypeDef(dest);
+    showToast("Cropped into " + (dest === "reference" ? "a new Reference photo" : "the " + (def ? def.label : dest)) +
+      ". It's saved with the coin. No original copy is kept for a crop from another photo, so a later Recrop works from this cropped image.");
   }
 
   // SAVING. Two rules, both about never losing a file:
@@ -25893,10 +25933,12 @@
       // Only offered where a crop could actually be saved (a real, owned
       // coin with the photo write layer on) — otherwise it would be a dead
       // end. Coins only: Sets never reach this branch.
-      if (photoCommitTargetId(id) && !draftMode) {
+      // Draft mode (Add Coin, the Staging-draft edit) offers it too: the crop
+      // goes into the draft and is saved with it.
+      if (draftMode || photoCommitTargetId(id)) {
         appendManageSection(host, "✂️ Crop from another photo",
-          manageCount(id, e => cropSourceEntriesFor(id).indexOf(e) !== -1),
-          (body) => manageCropFromUploadBlock(body, id, render),
+          manageCount(id, e => cropSourceEntriesFor(id, draftMode).indexOf(e) !== -1),
+          (body) => manageCropFromUploadBlock(body, id, render, draftMode),
           { open: openTitles.has("✂️ Crop from another photo") });
       }
 

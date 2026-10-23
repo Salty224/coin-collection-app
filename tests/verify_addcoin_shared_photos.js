@@ -793,8 +793,8 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     });
     const noCalls = (c) => c.length === 0;
     console.log("    draft mode: " + JSON.stringify(DM));
-    ok(JSON.stringify(DM.titles) === JSON.stringify(COIN_TITLES.filter(t => !/Crop/.test(t))),
-      "DM1 draft mode shows Edit Coin's sections (crop from another photo comes in a later commit): " + JSON.stringify(DM.titles));
+    ok(JSON.stringify(DM.titles) === JSON.stringify(COIN_TITLES),
+      "DM1 draft mode shows Edit Coin's sections, Crop from another photo included (commit 5): " + JSON.stringify(DM.titles));
     ok(DM.obv.has && DM.obv.url && !DM.obv.pending && noCalls(DM.obv.calls) && !DM.obv.saving && DM.obv.retry === 0,
       "DM2 an Obverse pick goes into the draft only: no Graph call, no Saving…, no ↻: " + JSON.stringify(DM.obv));
     ok(DM.ref.n === 1 && DM.ref.thumbs === 1 && noCalls(DM.ref.calls) && !DM.ref.saving,
@@ -824,8 +824,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       const s = window.__sh, sp = window.__sp, out = {};
       const textsOf = (host) => {
         sp.openAll(host);
-        // The crop section joins Add Coin in commit 5; compare everything else.
-        const bodies = [...host.querySelectorAll(".accordion-body")].filter(b => !/Crop/.test(b.previousElementSibling.textContent));
+        const bodies = [...host.querySelectorAll(".accordion-body")];
         return { hints: bodies.flatMap(b => [...b.querySelectorAll(":scope > p")]).map(x => x.textContent.trim()),
           slotLabels: [...host.querySelectorAll(".sg-photo-add-label, .sg-photo-label")].map(x => x.textContent.trim()),
           addLabels: [...host.querySelectorAll(".gc-add-box .sg-photo-add-label")].map(x => x.textContent.trim()) };
@@ -867,7 +866,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     });
     const tag = vp.width + "x" + vp.height, close = (a, b) => Math.abs(a - b) / b <= 0.03;
     if (vp.width === 360) {
-      ok(JSON.stringify(AC.titles) === JSON.stringify(AC.editTitles.filter(t => !/Crop/.test(t))) &&
+      ok(JSON.stringify(AC.titles) === JSON.stringify(AC.editTitles) && AC.titles.some(t => /Crop from another photo/.test(t)) &&
          AC.titles.some(t => /Package \/ OGP/.test(t)) && AC.titles.some(t => /COA \/ certificates/.test(t)),
         "AC1 Add Coin's Photos shows Edit Coin's sections, Package/OGP and COA included: " + JSON.stringify(AC.titles));
       ok(AC.sameWording, "AC2 Add Coin's hints, slot labels and + labels read exactly as Edit Coin's: " + JSON.stringify([AC.add, AC.edit]));
@@ -947,6 +946,19 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       }
       const nowObv = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "obverse");
       out.recrop.replaced = nowObv.length === 1 && nowObv[0] !== obv && !!nowObv[0].blob && !nowObv[0].stagingStored;
+      // Crop from a saved Staging Holder photo into a new Reference.
+      const folderS = writePaths().stagingBase + "/" + DID;
+      draftPlaceGalleryEntry(ADDCOIN_GALLERY_ID, null, { type: "slab_obverse", url: nowObv[0].url, blob: null, caption: "",
+        stored: true, stagingStored: true, storedFilename: DID + "_slab_obverse.jpg", filename: DID + "_slab_obverse.jpg" }, renderAddCoinPhotos);
+      sp.openAll(host);
+      const tile = (sp.section(host, /Crop from another photo/) || document.createElement("div")).querySelector(".crop-src-tile");
+      out.recrop.stagingTile = !!tile;
+      if (tile) {
+        tile.click(); sp.clickGuard("Reference");
+        if (await sp.waitFor(() => sp.overlayOpen("bgCropOverlay"))) document.getElementById("bgCropUseBtn").click();
+        await sp.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === "reference"));
+      }
+      out.recrop.cropRef = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "reference" && e.blob).length;
       out.recrop.calls = calls.slice();
       navigate("addcoin"); s.teardown();
       // 2. No parent Set on the draft.
@@ -968,7 +980,86 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     ok(SE.recrop.btn && /from the original/.test(SE.recrop.title) && SE.recrop.fromOriginal && SE.recrop.replaced &&
        SE.recrop.calls.length === 0,
       "SE3 Recrop on a saved Staging obverse starts from its original and changes only the draft (no write until Save changes): " + JSON.stringify(SE.recrop));
+    ok(SE.recrop.stagingTile && SE.recrop.cropRef === 1 && SE.recrop.calls.length === 0,
+      "SE5 on a Staging edit a saved Holder photo is a crop source; cropping it into a Reference changes only the draft: " + JSON.stringify(SE.recrop));
     ok(!SE.fresh.heading && SE.fresh.photos === 0, "SE4 a fresh Add Coin after an edit starts empty, with no parent COA: " + JSON.stringify(SE.fresh));
+    await p.close();
+  }
+
+  // ---------- CF. Crop from another photo in draft mode (commit 5) --------
+  // On Add Coin (and a Staging edit) the sources are the draft's own Holder,
+  // Reference and Other photos; the crop goes into the draft and is saved
+  // with it — no write until Save, and no _original copy, same rule as a
+  // saved coin.
+  {
+    const p = await openApp(PHONE);
+    await installHelpers(p);
+    const CF = await p.evaluate(async () => {
+      const sp = window.__sp, out = {};
+      const mock = createMockGraphClient({ workbookColumns: { "All::CollectionID": ["AY-00500"] } });
+      const calls = [];
+      Object.keys(Object.getPrototypeOf(mock)).concat(Object.keys(mock)).forEach(k => {
+        if (typeof mock[k] !== "function" || k.charAt(0) === "_") return;
+        const f = mock[k].bind(mock); mock[k] = (...a) => { calls.push(k); return f(...a); };
+      });
+      __setGraphClientForTest(mock);
+      __setAddCoinWriteEnabledForTest(true);
+      __setLiveDbCoinsForTest([{ denom: "10C", year: 1916, mint: "D", variety: "", description: "Mercury Dime",
+        finish: "Business Strike", designation: "", coinId: "C-1916-D-10C-01", pcgs: "4682", mintage: 264000, gsid: "" }]);
+      navigate("addcoin");
+      ["denomination:10C", "year:1916", "mintMark:D", "description:Mercury Dime", "finish:Business Strike"].forEach(kv => {
+        const [k, v] = kv.split(":"); document.getElementById(k).value = v; });
+      checkDbCoinsMatch();
+      const ph = document.getElementById("addCoinPhotosHeader");
+      if (ph.getAttribute("aria-expanded") !== "true") ph.click();
+      const host = document.getElementById("addCoinPhotoSections");
+      const sec = (re) => sp.section(host, re) || document.createElement("div");
+      out.emptyNote = (sec(/Crop from another photo/).textContent.match(/No Holder, Reference or Other photos/) || [""])[0];
+      // A Holder front pick, then crop the Obverse out of it.
+      await sp.pickVia(sec(/Holder/).querySelector('[data-act="add"]'));
+      await sp.sleep(150);
+      const tiles = [...sec(/Crop from another photo/).querySelectorAll(".crop-src-tile")];
+      out.tiles = tiles.length;
+      out.tileShaped = tiles.every(t => t.classList.contains("gc-shaped"));
+      const holder = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "slab_obverse");
+      if (tiles[0]) tiles[0].click();
+      out.dest = { title: sp.guardTitle(), body: sp.guardBody(), buttons: sp.guardButtons() };
+      sp.clickGuard("Obverse");
+      if (await sp.waitFor(() => sp.overlayOpen("bgCropOverlay"))) document.getElementById("bgCropUseBtn").click();
+      if (await sp.waitFor(() => sp.overlayOpen("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      await sp.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === "obverse"));
+      const obv = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+      out.obv = { has: !!obv, blob: !!(obv && obv.blob), raw: !!(obv && (obv.rawUrl || obv.rawFilename)),
+        holderKept: galleryFor(ADDCOIN_GALLERY_ID).indexOf(holder) !== -1, toast: document.getElementById("toast").textContent };
+      // A second crop into the Obverse asks to replace, and says nothing is written yet.
+      const t2 = sec(/Crop from another photo/).querySelector(".crop-src-tile");
+      if (t2) t2.click();
+      sp.clickGuard("Obverse");
+      out.replace = { title: sp.guardTitle(), body: sp.guardBody() };
+      sp.clickGuard("Cancel");
+      out.callsBeforeSave = calls.filter(k => /upload|patch|delete|addTableRow/i.test(k));
+      // Save the new draft: the crop is saved as the obverse, without an _original.
+      const res = await new Promise((resolve, reject) => resolveAddCoinCatalogMatch(
+        (m) => completeAddCoinSave("staging", m).then(resolve, reject), () => resolve("cancelled")));
+      const draft = await mock.getJson(writePaths().stagingBase + "/AY-00501/coin.json");
+      out.saved = draft ? draft.photos.map(p => p.filename) : null;
+      __setLiveDbCoinsForTest(null); __setAddCoinWriteEnabledForTest(null); __setGraphClientForTest(null);
+      return out;
+    });
+    console.log("    crop in draft: " + JSON.stringify(CF));
+    ok(CF.emptyNote && CF.tiles === 1 && CF.tileShaped,
+      "CF1 Add Coin offers Crop from another photo: empty until a Holder/Reference/Other photo is picked, then that pick is a source tile at its own shape: " + JSON.stringify([CF.emptyNote, CF.tiles, CF.tileShaped]));
+    ok(CF.dest.title === "Crop this photo into…" && /Holder — front/.test(CF.dest.body) && !/__addcoin_draft__/.test(CF.dest.body) &&
+       JSON.stringify(CF.dest.buttons) === JSON.stringify(["Obverse", "Reverse", "Reference", "Cancel"]),
+      "CF2 the destination dialog names the draft's photo by its type (no temp filename) and offers Obverse/Reverse/Reference: " + JSON.stringify(CF.dest));
+    ok(CF.obv.has && CF.obv.blob && !CF.obv.raw && CF.obv.holderKept && /saved with the coin/.test(CF.obv.toast),
+      "CF3 the crop lands as the draft's Obverse (no original copy) and the Holder photo stays as it was: " + JSON.stringify(CF.obv));
+    ok(CF.replace.title === "Replace the obverse?" && /Nothing is written until you save/.test(CF.replace.body),
+      "CF4 cropping into an Obverse that's already there asks first, and says nothing is written yet: " + JSON.stringify(CF.replace));
+    ok(CF.callsBeforeSave.length === 0, "CF5 nothing was written before Save: " + JSON.stringify(CF.callsBeforeSave));
+    ok(JSON.stringify(CF.saved) === JSON.stringify(["AY-00501_obverse_cropped.jpg", "AY-00501_slab_obverse.jpg"]) ||
+       JSON.stringify((CF.saved || []).slice().sort()) === JSON.stringify(["AY-00501_obverse_cropped.jpg", "AY-00501_slab_obverse.jpg"]),
+      "CF6 Save writes the crop as the obverse with no _original, beside the Holder photo: " + JSON.stringify(CF.saved));
     await p.close();
   }
 
