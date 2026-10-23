@@ -11,7 +11,11 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
   // ---------- A. Section structure ----------
   const A = await page.evaluate(() => {
     navigate('addcoin');
-    const hs = [...document.querySelectorAll('#view-addcoin .accordion-header')];
+    // Add Coin's own sections only: the photo section inside Photos is Edit
+    // Coin's shared section (claude/addcoin-shared-photos) with its own
+    // accordions, asserted in verify_addcoin_shared_photos.js.
+    const hs = [...document.querySelectorAll('#view-addcoin .accordion-header')]
+      .filter(h => !h.closest('#addCoinPhotoSections'));
     return {
       order: hs.map(h => h.querySelector('span').textContent.trim()),
       expanded: hs.map(h => h.getAttribute('aria-expanded')),
@@ -45,8 +49,7 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
       overview: ['denomination', 'addCoinBullionToggle', 'year', 'mintMark', 'description', 'varietySelect',
                  'finish', 'gradeFrom', 'gradeSource', 'designation', 'errorSelect']
                  .every(f => inSection('addCoinOverviewBody', f)),
-      photos: ['photoToggle', 'obversePhotoBox', 'reversePhotoBox', 'addCoinGallery']
-                 .every(f => inSection('addCoinPhotosBody', f)),
+      photos: inSection('addCoinPhotosBody', 'addCoinPhotoSections'),
       notes: inSection('addCoinNotesBody', 'notesField'),
       purchase: ['purchasePrice', 'shippingCost', 'purchaseDate', 'vendor', 'receiptPreview']
                  .every(f => inSection('addCoinPurchaseBody', f)),
@@ -62,7 +65,7 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
   });
   ok(B.grading, "B1 Grading & Certification holds the grader, PCGS label and cert-number fields");
   ok(B.overview, "B2 Overview holds every identity/grade field, including Error and Finish");
-  ok(B.photos, "B3 Photos holds the obverse/reverse toggle, both photo boxes and the gallery");
+  ok(B.photos, "B3 Photos holds Edit Coin's photo section (the toggle, photo boxes and old gallery are retired)");
   ok(B.notes, "B4 Notes & Facts holds the Notes textarea (Fun Fact is DB_Coins catalog data, not captured here)");
   ok(B.purchase, "B5 Purchase Details holds price/shipping/date/vendor/receipt, inline");
   ok(B.storage, "B6 Storage holds storage location, container and Assign to Album");
@@ -189,6 +192,7 @@ module.exports = defineSuite("addcoin-accordion", async ({ ok, openApp, PHONE, T
       return {
         overflow: document.body.scrollWidth > window.innerWidth,
         allOpen: [...document.querySelectorAll('#view-addcoin .accordion-body')]
+          .filter(b => !b.closest('#addCoinPhotoSections'))
           .every(b => !b.classList.contains('hidden'))
       };
     });

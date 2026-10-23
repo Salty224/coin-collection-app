@@ -812,6 +812,79 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     ok(noCalls(DM.calls), "DM9 nothing in draft mode touched OneDrive: " + JSON.stringify(DM.calls));
   }
 
+  // ---------- AC. Add Coin uses Edit Coin's photo section (commit 3) ------
+  // Same sections, wording and shapes as Edit Coin, in draft mode; the
+  // retired preview card, toggle, 📷 🖼️ 📁 slots and old gallery are gone
+  // from view. (Crop from another photo joins in commit 5.)
+  for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
+    const p = await openApp(vp);
+    await installHelpers(p);
+    await installShapes(p);
+    const AC = await p.evaluate(async () => {
+      const s = window.__sh, sp = window.__sp, out = {};
+      const textsOf = (host) => {
+        sp.openAll(host);
+        // The crop section joins Add Coin in commit 5; compare everything else.
+        const bodies = [...host.querySelectorAll(".accordion-body")].filter(b => !/Crop/.test(b.previousElementSibling.textContent));
+        return { hints: bodies.flatMap(b => [...b.querySelectorAll(":scope > p")]).map(x => x.textContent.trim()),
+          slotLabels: [...host.querySelectorAll(".sg-photo-add-label, .sg-photo-label")].map(x => x.textContent.trim()),
+          addLabels: [...host.querySelectorAll(".gc-add-box .sg-photo-add-label")].map(x => x.textContent.trim()) };
+      };
+      // Edit Coin, empty coin, for the reference wording.
+      s.install(); __setStoredPhotosForTest({}); delete galleryStore[s.COIN];
+      const edit = textsOf(s.open("coin-edit"));
+      const editTitles = sp.titles(document.getElementById("browseEditPhotosSections"));
+      s.teardown();
+      // Add Coin, fresh.
+      s.install();
+      navigate("addcoin");
+      const ph = document.getElementById("addCoinPhotosHeader");
+      if (ph.getAttribute("aria-expanded") !== "true") ph.click();
+      const host = document.getElementById("addCoinPhotoSections");
+      out.titles = sp.titles(host);
+      out.editTitles = editTitles;
+      const add = textsOf(host);
+      out.sameWording = JSON.stringify(add) === JSON.stringify(edit);
+      out.add = add; out.edit = edit;
+      const vis = (id) => { const e = document.getElementById(id); return !!(e && e.offsetParent); };
+      out.legacyVisible = ["photoToggle", "showObverseBtn", "obverseCameraBtn", "obverseFilesBtn", "reverseCameraBtn",
+        "addCoinGallery", "flipObverseTL", "obversePhotoBox"].filter(vis);
+      // Photos of every shape in the draft, then measure like SH.
+      const url = (f) => getCachedCoinPhotoUrl(f);
+      const C = s.COIN;
+      [["obverse", C + "_obverse_cropped.jpg"], ["slab_obverse", C + "_slab_obverse.jpg"], ["reference", C + "_reference_01.jpg"],
+       ["reference", C + "_reference_02.jpg"], ["ogp_obverse", C + "_ogp_obverse.jpg"], ["coa", C + "_coa_01.jpg"],
+       ["other", C + "_other_01.jpg"]].forEach(([type, f]) => draftPlaceGalleryEntry(ADDCOIN_GALLERY_ID, null,
+         { type, url: url(f), blob: null, caption: "" }, null));
+      renderAddCoinPhotos();
+      sp.openAll(host);
+      await sp.sleep(400);
+      out.m = Object.assign(s.measure(host), { inner: window.innerWidth, pageScroll: document.documentElement.scrollWidth > window.innerWidth });
+      delete galleryStore[ADDCOIN_GALLERY_ID];
+      renderAddCoinPhotos();
+      s.teardown();
+      return out;
+    });
+    const tag = vp.width + "x" + vp.height, close = (a, b) => Math.abs(a - b) / b <= 0.03;
+    if (vp.width === 360) {
+      ok(JSON.stringify(AC.titles) === JSON.stringify(AC.editTitles.filter(t => !/Crop/.test(t))) &&
+         AC.titles.some(t => /Package \/ OGP/.test(t)) && AC.titles.some(t => /COA \/ certificates/.test(t)),
+        "AC1 Add Coin's Photos shows Edit Coin's sections, Package/OGP and COA included: " + JSON.stringify(AC.titles));
+      ok(AC.sameWording, "AC2 Add Coin's hints, slot labels and + labels read exactly as Edit Coin's: " + JSON.stringify([AC.add, AC.edit]));
+      ok(AC.legacyVisible.length === 0, "AC3 the retired preview card, toggle, 📷 🖼️ 📁 slots and old gallery are not shown: " + JSON.stringify(AC.legacyVisible));
+    }
+    const m = AC.m;
+    const nonFace = m.thumbs.filter(x => x.want !== 1).concat(m.slots.filter(x => x.want !== 1));
+    const faces = m.thumbs.filter(x => x.want === 1).concat(m.slots.filter(x => x.want === 1));
+    ok(nonFace.length === 6 && nonFace.every(x => x.shaped) &&
+       nonFace.every(x => close(x.got, x.want === 2 ? 2 : 0.625)),
+      `AC4 ${tag}: Add Coin draws Holder, Reference, Package, COA and Other at their own shape: ` + JSON.stringify(nonFace.map(x => [x.want, x.got])));
+    ok(faces.length === 1 && !faces[0].shaped && faces[0].h === 120, `AC5 ${tag}: Obverse stays square in its slot: ` + JSON.stringify(faces));
+    ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
+      `AC6 ${tag}: no sideways scroll, every photo inside its slot`);
+    await p.close();
+  }
+
   // ---------- CT. Crop-from-another-photo source tiles at their own shape --
   // Ray's Q2 (22 Oct): the Holder/Reference/Other tiles in "Crop from another
   // photo" follow the photo's own shape, like the gallery thumbs.
@@ -878,27 +951,39 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const GALLERY_LABEL = { slab_obverse: /Slab — front|Holder — front/, slab_reverse: /Slab — back|Holder — back/,
                             reference: /Reference/, other: /Other/ };
 
-    // ---- pickAll: main 38b0207's Add Coin (📷 🖼️ 📁 slots + gallery) ----
+    // ---- pickAll: Add Coin on Edit Coin's photo section (commit 3) ----
+    // Each pick: the section's "+" (a pair slot's own "+", or the "+" tile of
+    // an open-ended list) -> chooser -> Files -> the crop tool. A label is
+    // typed into the new photo's own label box. Main 38b0207 picked through
+    // the 📷 🖼️ 📁 slots and the old gallery; the golden is unchanged.
+    const SECTION = { obverse: /Obverse &/, reverse: /Obverse &/, slab_obverse: /Holder/, slab_reverse: /Holder/,
+                      reference: /Reference photos/, other: /Other photos/ };
+    const sectionBody = (type) => {
+      const host = document.getElementById("addCoinPhotoSections");
+      const h = [...host.querySelectorAll(".accordion-header")].find(x => SECTION[type].test(x.textContent));
+      if (!h) return null;
+      if (h.getAttribute("aria-expanded") !== "true") h.click();
+      return h.nextElementSibling;
+    };
     async function pickOne(p) {
       const before = count();
-      if (p.type === "obverse" || p.type === "reverse") {
-        feed(document.getElementById(p.type + "FilesInput"), await file(p.color));
-      } else {
-        const gal = document.getElementById("addCoinGallery");
-        gal.querySelector('[data-role="add-files"]').click();
-        const item = [...document.querySelectorAll(".gtp-item")].find(b => GALLERY_LABEL[p.type].test(b.textContent));
-        if (!item) return false;
-        item.click();
-        feed(gal.querySelector('input[data-role="files"]'), await file(p.color));
-      }
+      const ph = document.getElementById("addCoinPhotosHeader");
+      if (ph.getAttribute("aria-expanded") !== "true") ph.click();
+      const body = sectionBody(p.type);
+      if (!body) return false;
+      const def = galleryTypeDef(p.type);
+      const trigger = def.repeatable ? body.querySelector('[data-role="add"]')
+        : body.querySelectorAll(".sg-photo-slot")[/reverse$/.test(p.type) ? 1 : 0].querySelector('[data-act="add"]');
+      if (!trigger) return false;
+      trigger.click();
+      const files = document.querySelector('#imageSourceChooser .image-chooser-btn[data-source="files"]');
+      if (!files) return false;
+      files.click();
+      feed(document.getElementById("imageChooserFilesInput"), await file(p.color));
       if (!(await finishCrop(before))) return false;
       if (p.caption) {
-        // Type the label into the new photo's own label box.
-        const entry = galleryFor(ADDCOIN_GALLERY_ID)[count() - 1];
-        const thumbs = [...document.querySelectorAll("#addCoinGallery .gc-thumb")];
-        const nonFlip = galleryFor(ADDCOIN_GALLERY_ID).filter(e => !(galleryTypeDef(e.type) || {}).flipSource);
-        const thumb = thumbs[nonFlip.indexOf(entry)];
-        const box = thumb && thumb.querySelector(".gc-caption");
+        const thumbs = [...sectionBody(p.type).querySelectorAll(".gc-thumb")];
+        const box = thumbs.length && thumbs[thumbs.length - 1].querySelector(".gc-caption");
         if (!box) return false;
         box.value = p.caption;
         box.dispatchEvent(new Event("input", { bubbles: true }));
@@ -933,6 +1018,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     checkDbCoinsMatch();
 
     const picked = await pickAll();
+    const uploadsBeforeSave = uploads.length;
     const inMemory = galleryFor(ADDCOIN_GALLERY_ID).map(e => ({ type: e.type, caption: e.caption || "" }));
     const res = await new Promise((resolve, reject) => {
       resolveAddCoinCatalogMatch(
@@ -942,8 +1028,11 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const id = "AY-00501";
     const folder = writePaths().stagingBase + "/" + id + "/";
     const draft = await mock.getJson(folder + "coin.json");
+    await sleep(100);
     const out = {
-      picked, inMemory, cancelled: res === "cancelled",
+      picked, inMemory, cancelled: res === "cancelled", uploadsBeforeSave,
+      afterSave: { gallery: galleryFor(ADDCOIN_GALLERY_ID).length,
+        photos: document.querySelectorAll("#addCoinPhotoSections .sg-photo-img, #addCoinPhotoSections .gc-thumb").length },
       collectionID: draft && draft.collectionID,
       photos: draft ? (draft.photos || []).map(p => (typeof p === "string") ? { filename: p } :
         { type: p.type, filename: p.filename, caption: p.caption || "" }) : null,
@@ -965,6 +1054,8 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     "S3.2 the form held the picks in pick order");
   ok(!S3.cancelled && S3.collectionID === "AY-00501", "S3.3 the save wrote a new draft at AY-00501");
   ok(S3.uploadsOutsideDraft === 0, "S3.4 nothing was uploaded outside the draft's Staging folder");
+  ok(S3.uploadsBeforeSave === 0, "S3.8 picking photos on Add Coin wrote nothing; only Save uploads");
+  ok(S3.afterSave.gallery === 0 && S3.afterSave.photos === 0, "S3.9 after Save the photo section is empty for the next coin: " + JSON.stringify(S3.afterSave));
 
   const now = { collectionID: S3.collectionID, photos: S3.photos, receiptPhoto: S3.receiptPhoto, uploads: S3.uploads };
   if (RECORD) {

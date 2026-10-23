@@ -357,18 +357,31 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
                  overflow: el.scrollWidth > el.clientWidth, clipped: kids.filter(k => k.scrollWidth > k.clientWidth).length,
                  right: el.getBoundingClientRect().right };
       };
-      const out = { obv: row(document.querySelector("#obversePhotoBox .photo-btns")) };
-      document.getElementById("showReverseBtn").click();
-      out.rev = row(document.querySelector("#reversePhotoBox .photo-btns"));
-      out.gal = row(document.querySelector("#addCoinGallery .gc-add-row"));
+      // Add Coin moved onto Edit Coin's photo section (claude/addcoin-shared-
+      // photos, commit 3): the 📷 🖼️ 📁 rows and the old gallery are retired.
+      // Every "+" opens the shared chooser; its Camera / Library / Files
+      // buttons are the row to check now.
+      const host = document.getElementById("addCoinPhotoSections");
+      const h = [...host.querySelectorAll(".accordion-header")].find(x => /Obverse &/.test(x.textContent));
+      if (h.getAttribute("aria-expanded") !== "true") h.click();
+      const out = { legacyRows: [...document.querySelectorAll("#view-addcoin .photo-btns, #view-addcoin .gc-add-row")]
+        .filter(e => e.offsetParent !== null).length };
+      h.nextElementSibling.querySelector('[data-act="add"]').click();
+      const btns = [...document.querySelectorAll('#imageSourceChooser .image-chooser-btn')].filter(k => k.offsetParent !== null);
+      out.chooser = { count: btns.length, labels: btns.map(b => b.textContent.replace(/\s+/g, " ").trim()),
+        clipped: btns.filter(b => b.scrollWidth > b.clientWidth).length,
+        onScreen: btns.every(b => b.getBoundingClientRect().right <= window.innerWidth && b.getBoundingClientRect().left >= 0) };
+      closeImageSourceChooser();
       out.pageScroll = document.documentElement.scrollWidth > window.innerWidth;
       out.inner = window.innerWidth;
       return out;
     });
     const tag = vp.width + "x" + vp.height;
     const good = (r, n) => r.count === n && r.lines === 1 && !r.overflow && r.clipped === 0 && r.right <= L.inner;
-    ok(good(L.obv, 3) && good(L.rev, 3), `I1 ${tag}: Obverse and Reverse rows (📷 🖼️ 📁) are one line: ` + JSON.stringify([L.obv, L.rev]));
-    ok(good(L.gal, 3), `I2 ${tag}: Add photo row (Camera / Library / Files) is one line, no clipped label: ` + JSON.stringify(L.gal));
+    ok(L.legacyRows === 0, `I1 ${tag}: Add Coin shows no 📷 🖼️ 📁 rows any more (retired with the preview card): ` + L.legacyRows);
+    ok(L.chooser.count === 3 && /Camera/.test(L.chooser.labels[0]) && /Library/.test(L.chooser.labels[1]) && /Files/.test(L.chooser.labels[2]) &&
+       L.chooser.clipped === 0 && L.chooser.onScreen,
+      `I2 ${tag}: Add Coin's "+" opens Camera / Library / Files, every label whole and on screen: ` + JSON.stringify(L.chooser));
     ok(!L.pageScroll, `I3 ${tag}: no sideways page scroll`);
     if (p !== page) await p.close();
   }

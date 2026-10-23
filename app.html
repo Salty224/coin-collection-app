@@ -4267,6 +4267,16 @@
               <span>Photos</span><span class="accordion-chevron">›</span>
             </button>
             <div class="accordion-body hidden" id="addCoinPhotosBody">
+              <!-- Edit Coin's own photo section, in draft mode (Ray, 22 Oct
+                   2026): same wording, shapes and sections as Edit Coin; picks
+                   stay in memory until Save, which writes the draft to Staging
+                   exactly as before. renderAddCoinPhotos() draws it. -->
+              <div id="addCoinPhotoSections"></div>
+              <!-- RETIRED (Q1, 22 Oct 2026): the live preview card, the
+                   Obverse/Reverse toggle, the 📷 🖼️ 📁 slots and the old
+                   gallery. Hidden here and removed with its code in its own
+                   later commit; nothing visible reads it. -->
+              <div id="addCoinLegacyPhotos" hidden>
               <div class="photo-toggle" id="photoToggle">
                 <button type="button" class="photo-toggle-btn active" id="showObverseBtn">
                   Obverse (front) <span class="photo-toggle-dot" id="obverseDot"></span>
@@ -4322,6 +4332,7 @@
                    fixed "Additional Photo" slot. Obverse/Reverse above are the two
                    special flip sources; everything else lives here. -->
               <div class="gallery-capture" id="addCoinGallery"></div>
+              </div>
             </div>
           </div>
 
@@ -29337,6 +29348,7 @@
     delete receiptFiles["receiptPreview"];
     const gallerySection = document.getElementById("addCoinGallery");
     if (gallerySection && gallerySection._galleryRender) gallerySection._galleryRender();
+    renderAddCoinPhotos();
 
     // --- Value + provenance
     document.getElementById("addCoinValue").value = "";
@@ -29770,6 +29782,7 @@
     const render = () => {
       const section = document.getElementById("addCoinGallery");
       if (section && section._galleryRender) section._galleryRender();
+      renderAddCoinPhotos();
     };
     render();
     updateStagingEditRemoveButtons();
@@ -29974,6 +29987,7 @@
     });
     const section = document.getElementById("addCoinGallery");
     if (section && section._galleryRender) section._galleryRender();
+    renderAddCoinPhotos();
   }
 
   // Phase B2 — REMOVE. Taking a photo (or the receipt) off a draft is
@@ -30049,6 +30063,15 @@
     });
     const r = document.getElementById("receiptRemoveBtn");
     if (r) r.addEventListener("click", () => confirmStagingRemove("the receipt", removeStagingEditReceipt));
+  }
+
+  // Add Coin's photos: Edit Coin's own section (renderManagePhotosInto) in
+  // draft mode, over the same in-memory gallery Save already reads
+  // (ADDCOIN_GALLERY_ID). What is saved, and where, is unchanged.
+  function renderAddCoinPhotos() {
+    renderManagePhotosInto("addCoinPhotoSections",
+      { id: ADDCOIN_GALLERY_ID, name: "New coin", meta: "", kind: "coin" },
+      { draft: {} });
   }
 
   function resetAddCoinAfterSave() {
@@ -30129,6 +30152,7 @@
     initGalleryCapture("addCoinGallery", () => ADDCOIN_GALLERY_ID, "coin",
       { files: true, guardImages: true, uploadStates: true, onRetry: () => saveAddCoinForm("staging") });
     wireStagingEditRemoveButtons();
+    renderAddCoinPhotos();
     refreshVarietyOptions();
     populateStatusSelect(document.getElementById("addCoinStatus"));
     document.getElementById("addCoinStatus").value = "Owned"; // default for a freshly-loaded page, before the first resetAddCoinForm() call
