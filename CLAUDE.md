@@ -422,6 +422,119 @@ commit 5).
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
 
+## Photo labels save on blur (Oct 2026, built on `claude/label-save-on-blur`, NOT merged)
+**Held for Ray's on-device test and merge go-ahead.** Branch cut from `main`
+`e8abe7d`. Suite: `tests/verify_label_save_on_blur.js` (45).
+- **Bug (on `main` too):** on the shared chooser, a label typed on a saved
+  photo was kept in memory only, and written only by that photo's next
+  capture, Replace or ↻. The label box exists only on the open-ended thumbs:
+  Reference, COA and Other on a coin; COA and Other on a Set. Pair slots
+  have no label box.
+- **Now:** a changed label on a saved photo is written to its Photos row:
+  on blur; on Enter (which blurs the box); before any section redraw
+  (`renderManagePhotosInto` calls `flushPendingPhotoLabels()` first); on
+  `navigate()` and the chrome Back button; and on `visibilitychange` to
+  hidden and on `pagehide`. Toast "Label saved." Screens: Edit Coin, Manage
+  Photos (coin and Set), Edit Set.
+- **Draft mode is unchanged** (Add Coin, the Staging-draft edit): the label
+  stays in memory and Save writes it. Blur sends nothing:
+  `commitPhotoLabel` returns at once for `ADDCOIN_GALLERY_ID`. The S3 golden
+  is unchanged.
+- **Functions:** `writePhotoLabel(collectionId, photoId, label)`,
+  `commitPhotoLabel(targetId, entry)`, `flushPendingPhotoLabels()`,
+  `photoLabelDirty(entry)`, `paintPhotoLabelState(entry)`,
+  `syncStoredPhotoIndexLabel()`, and `photoLabelThumbs` (a WeakMap from
+  entry to thumb).
+- **`entry.savedLabel`** is the label known to be on the row. It is set by
+  hydration (`row.label`), by `commitGalleryPhoto` (the Label that
+  `writePhotoRow` actually wrote; `writePhotoRow` now returns `label`), and
+  by a label write. Only a label that differs from it (after trimming) is
+  written. Writes for one photo run one at a time (`entry.labelPromise`).
+- **The write is ONE cell:** the Label column, at the row found by PhotoID
+  and checked against CollectionID. Nothing else is stamped: no DateAdded,
+  no All-sheet LastModified (Ray's Q4).
+- **Addition A finding (the patchRecordRow blanking backlog item).**
+  - `ensureSheetHeaderMap()` maps only the headers present in `A1:Z1`.
+    `patchRecordRow()` writes every cell from A to the last mapped column,
+    and puts `""` in any position that isn't in the map. So a Photos column
+    whose header is BLANK, sitting inside that span, is blanked by any
+    whole-row write.
+  - Named columns are carried over (by `buildPhotoRowPatch`), but as the
+    trimmed text `readRecordRows()` read, so a formula in one would be
+    flattened to its value.
+  - Columns after the last mapped column are never touched.
+  - **Guard in this branch:** the label write does not use `patchRecordRow`
+    or `buildPhotoRowPatch` at all. A single-cell PATCH cannot blank
+    anything else.
+  - **Left alone on purpose:** `writePhotoRow()`'s replace path (a capture
+    or Replace on an existing row) still rebuilds the row from known fields
+    only. It still blanks a blank-header column AND any named column it
+    doesn't list. Receipts behaves the same way. That is the existing
+    backlog item, unchanged.
+- **Still saving when the box blurs:** waits for `entry.commitPromise` (the
+  same pattern as ✕). If the photo is still pending afterwards, it does
+  nothing: that save writes `entry.caption` itself, and its redraw flushes
+  anything typed later. A just-captured photo has no `savedLabel` until its
+  save lands, so it is never "dirty" while pending.
+- **Never-saved photo** (`galleryEntryNeverSaved`, e.g. offline): no write.
+  The label stays in the box and in memory, with one toast "Label kept — it
+  saves with the photo when ↻ succeeds." ↻ then writes the photo and the
+  label in one row.
+- **Write failure:** the text stays in the box, with a toast "Couldn't save
+  the label — it's still in the box. Tap the box and tap away to try again.
+  (…)". A red "Label not saved" line (`.gc-label-failed`) shows under the
+  box until a write succeeds. It is painted without a redraw, because a
+  redraw flushes labels, and a failing flush that redrew would retry
+  forever.
+- **Hydration fix (same area, on `main` too):** `hydrateStoredPhotos()` used
+  `already.caption = row.label || already.caption`. That put the old sheet
+  label back over a typed one on any redraw, and put a cleared label back.
+  Now an unsaved label wins; otherwise the sheet's label is used, blank
+  included.
+- **legacyOnly photos** (old All columns, no Photos row): the box is
+  read-only, with the placeholder "Replace this photo to give it a label"
+  (Ray's Q1). Today only obverse/reverse can be legacyOnly, and those are
+  pair slots with no label box, so no real stored photo reaches this yet. It
+  is asserted with a synthetic entry (L12).
+- Thumbs carry `data-file` (the stored filename) so tests can find them.
+- **Tests (45):**
+  - L1: one single-cell write; every other cell and the blank-header column
+    unchanged; DateAdded still a number; the table doesn't grow.
+  - L2: an unchanged blur sends nothing.
+  - L3: Enter.
+  - L4: a redraw keeps and writes an unsaved label; a cleared label sticks.
+  - L5: a Replace in flight, then blur. L5e: the wait on a dirty pending
+    entry.
+  - L6: never-saved photo.
+  - L7: failure, then retry.
+  - L8: navigate and Back.
+  - L9: Replace keeps the edited label and the PhotoID.
+  - L10: draft mode, and the Staging-edit caption merge.
+  - L11: the four live screens.
+  - L12: legacyOnly.
+  - L13: visibilitychange and pagehide.
+  - LL: the red line at 360x800, 412x915 and 1024x768.
+- **Negative controls** (real app.html, restored by checksum):
+  - blur/change listeners removed: 17 fail, incl. L1, L3, L7 and L11 x4;
+  - hydration overwrite put back: L4a, L4b;
+  - the wait removed: L5e (L5 itself passes, see above);
+  - a failed write marked saved: L7d;
+  - the label written via `patchRecordRow(buildPhotoRowPatch(...))`: L1b,
+    L1c, L1d, L3b and L11 x4 (the blank-header column is blanked);
+  - visibility/pagehide listeners removed: L13a, L13b;
+  - the navigate/Back flush removed: L8b only. L8a still passes, because
+    the box loses focus anyway when its screen is hidden.
+- **Not protected:**
+  - closing the tab or killing the app while the write is in flight
+    (pagehide starts it, but nothing waits for it; no keepalive);
+  - a label typed and the app killed with no pagehide;
+  - Add Set and Wishlist labels (C4, `initGalleryCapture`, untouched);
+  - receipts;
+  - `stage.html`.
+- **Not verified:** any real device; whether Samsung Internet fires blur,
+  visibilitychange and pagehide as Chromium does; a real write to
+  `_Testing`.
+
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
 every fix below passed Ray's tests on the S25 and tablet; tested build
@@ -508,7 +621,8 @@ on the S25: every image interaction works the same way. Suite:
   Coin and Manage Photos (suite 50 -> 56). Negative control: removing the
   PhotoID check fails R1b, R4-edit, R4-manage. Not changed: a label typed
   in the box is only held in memory and is written only by the next
-  capture/Replace of that photo (pre-existing, flagged).
+  capture/Replace of that photo (pre-existing, flagged). *(Superseded: labels
+  save on blur, see "Photo labels save on blur".)*
 - **Stage C2 (built on `6eb34d7`, Ray's go-ahead after his S25 pass): the
   Set branch of `renderManagePhotosInto`** (Edit Set and Manage Photos for a
   Set) passes `setPickOpts = { chooser: true }` to OGP, Whole set, each
