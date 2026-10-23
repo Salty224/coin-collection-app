@@ -135,7 +135,13 @@ extra-column blanking on Photos/Receipts row replace) are still unfixed.
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
 
-## Add Coin uses Edit Coin's photo section (Oct 2026, HELD on `claude/addcoin-shared-photos`; commits 1-6 built, T1 passed, held for T2 on the S25)
+## Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)
+**Merged on Ray's go-ahead (23 Oct 2026).** T1 passed on `1e231f0`; T2 passed on
+`031c48f` on the S25 and tablet (T2.1-T2.9 as expected, T2.10 skipped); Q1-Q3
+after T1 accepted. Commit 6 (`c6f0ba0`, the retired code removed) and this
+doc commit came after T2 and change nothing Ray sees. `main` is the source of
+truth; the branch stays on origin as history. Add Coin's old 📷 🖼️ 📁 slots,
+preview card and gallery are gone from `main`.
 Ray's decision (22 Oct 2026), replacing unified-image-chooser C3: Add Coin
 and Edit Coin give the SAME photo experience; only the timing differs.
 Add Coin and the Staging-draft edit will render Edit Coin's own section
@@ -425,9 +431,8 @@ accepted, and stay on `claude/unified-image-chooser` at `3101bf2` as history
 only. Ray's decision (22 Oct 2026) replaces C3: Add Coin and the
 Staging-draft edit use Edit Coin's own photo section in a draft storage mode
 (picks held in memory, written to Staging only on Save), built on
-`claude/addcoin-shared-photos`. Until that lands, `main`'s Add Coin keeps its
-📷 🖼️ 📁 buttons (see "Add Coin: 📁 Files button"), and Add Set and Wishlist
-keep theirs (C4).
+`claude/addcoin-shared-photos`, merged to `main` 23 Oct 2026 (Add Coin's own
+📷 🖼️ 📁 buttons are gone). Add Set and Wishlist keep theirs (C4).
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
 (tip `e8d822a`, never merged, kept as history). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
@@ -616,7 +621,7 @@ on the S25: every image interaction works the same way. Suite:
   the C3 described in the original plan; C4 Add Set and Wishlist; C5
   receipts only with Ray's go-ahead (needs a PDF-allowed, unguarded call).
   `stage.html` is out of scope; its 8 inputs stay pinned. Add Coin's own 📁
-  code stays until the Add Coin branch lands.
+  code was removed when the Add Coin branch merged (23 Oct 2026).
 - **Tests changed**: `verify_files_picker` B3 (37 -> 40 inputs), new B4 (the
   chooser's three inputs), C1 (21 -> 22 camera inputs), A9 (the chooser's
   one Files input excepted). `verify_photo_receipt_write` P4/P5/P9/P10 and
@@ -770,7 +775,7 @@ Merged to `main` (fast-forward to `44b7a3d`; last code commit `b2abb18`). TEST-v
   against `_Testing`.
 
 ## Add Coin: 📁 Files button + photo guard (Oct 2026, merged to main at `0a86551`, built on `claude/add-coin-files-picker-button`)
-*(On `claude/addcoin-shared-photos`, not yet on main: these slots and inputs
+*(Superseded 23 Oct 2026, now on main: these slots and inputs
 are removed; Add Coin's photos go through the shared image chooser, whose
 Files input has the same accept and guard. See "Add Coin uses Edit Coin's
 photo section", commit 6.)*
@@ -956,16 +961,14 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
 - (b) The "Mark ready" toast still says the app doesn't write the All sheet
   ("Copilot moves the row across"); out of date since Promote and the direct
   write landed.
-- (c) The Add Coin gallery has no per-photo Replace button. *(Closed on
-  `claude/addcoin-shared-photos`, not yet on main: Add Coin uses Edit Coin's
+- (c) The Add Coin gallery has no per-photo Replace button. *(Closed 23 Oct 2026, on main: Add Coin uses Edit Coin's
   section, which has Replace.)*
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
-  its remove (✕) button only after the screen is redrawn. *(Photos closed on
-  `claude/addcoin-shared-photos`, not yet on main; the receipt is unchanged.)*
+  its remove (✕) button only after the screen is redrawn. *(Photos closed 23 Oct 2026, on main; the receipt is unchanged.)*
 - (e) Unified image chooser: C1 (coin screens) and C2 (Set screens) are on
-  `main` (22 Oct 2026). Add Coin is being moved onto Edit Coin's photo
-  section on `claude/addcoin-shared-photos` (that also closes (c) and (d));
-  C4 (Add Set, Wishlist) after it, C5 receipts only with his go-ahead.
+  `main` (22 Oct 2026). Add Coin and the Staging-draft edit use Edit
+  Coin's photo section, merged 23 Oct 2026 (closes (c) and (d)). Left:
+  C4 (Add Set, Wishlist), C5 receipts only with his go-ahead.
   HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
@@ -1199,7 +1202,7 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
 - **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
 
 ## Crop from an uploaded photo (Oct 2026, merged to main)
-*(On `claude/addcoin-shared-photos`, not yet on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Obverse/Reverse/Reference — see "Add Coin uses Edit Coin's photo section".)*
+*(Superseded 23 Oct 2026, now on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Obverse/Reverse/Reference — see "Add Coin uses Edit Coin's photo section".)*
 Built on `claude/crop-from-uploaded-photos` (`e636e64`..`15359ea`), merged to
 `main` on Ray's go-ahead. Suite: `tests/verify_crop_from_upload.js` (46).
 - **Why:** on Ray's phone the file picker opens Google Photos only, so a photo
