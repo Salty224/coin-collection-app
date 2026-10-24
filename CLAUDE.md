@@ -249,9 +249,11 @@ commit 5).
   Edit Coin, Manage Photos (coin and Set), Edit Set, the parent-COA
   read-through and the coin page's Photos strip. Front/Back unchanged; the
   "+" boxes unchanged (88px tile, 120px pair box).
-  *(Open-ended tiles on the editing screens superseded on
-  `claude/photo-label-save-changes`, F1: half the section wide, photo drawn
-  whole in a 120px box. See "Photo labels save with Save Changes".)*
+  *(Open-ended tiles on the editing screens, the coin page strip and the
+  three coin screens' parent-COA tiles superseded on
+  `claude/photo-label-save-changes`: same row height, own shape, labels in
+  the viewer. See "Photo labels save with Save Changes". Add Set step 2's
+  parent-COA copy and the crop-source tiles keep this.)*
   - Open-ended thumbs (`.gc-thumb.gc-shaped`, chooser mode only): the tile
     stays 88px tall and its width follows the image, capped at 174px of
     image (a 2:1 TrueView fills 174x88). `galleryThumbInner(entry, {shaped,
@@ -426,7 +428,7 @@ commit 5).
   a Holder photo; how Add Coin reads without the preview card.
 
 ## Photo labels save with Save Changes (Oct 2026, built on `claude/photo-label-save-changes`, NOT merged)
-**Held for Ray's tablet test and merge go-ahead.** Branch cut from `main`
+**Held for Ray's tablet test of `13e931c` and merge go-ahead.** Branch cut from `main`
 `e8abe7d`. Suite: `tests/verify_photo_label_save.js`. Replaces the earlier
 `claude/label-save-on-blur` (`dfcb4f1`/`3994ee4`, never merged, kept on origin
 as history): Ray tested save-on-blur on TEST and chose design B, because a
@@ -530,9 +532,11 @@ label saved on blur had no undo.
 - **Not verified:** any real device; Samsung Internet; a real write to
   `_Testing`.
 - **Ray's tablet test of `c90b51b` passed.** Three fixes before merge, same
-  branch (`22c407f`), suite `tests/verify_tile_width_label_editor.js` (179;
+  branch (`22c407f`), suite `tests/verify_tile_width_label_editor.js` (179,
+  since replaced by `verify_row_tiles_viewer_label.js`;
   F1/F2 layout on all six screens at 360x800, 412x915 and 1024x768):
-  - **F1, open-ended tiles at pair width.** Reference, COA and Other tiles
+  - **F1, open-ended tiles at pair width** *(superseded by the same-height
+    tiles below, Ray's tablet test of 22c407f)*. Reference, COA and Other tiles
     (coins and Sets), and their "+" tile, are each half the section wide, two
     per row, the same width as a pair slot on the same screen (measured: 112px
     Edit Coin / 144px Manage Photos at 360; 138/170 at 412; 444/476 at 1024).
@@ -549,7 +553,9 @@ label saved on blur had no undo.
     another photo" source tiles, the coin page's Photos strip and the
     parent-COA read-through still follow the photo's shape. Non-chooser
     galleries (Add Set, Wishlist) unchanged.
-  - **F2, one-line label box + full-width editor.** The box
+  - **F2, one-line label box + full-width editor** *(superseded: labels
+    are edited in the full-screen viewer, see below; the box, the editor
+    and their functions are removed)*. The box
     (`.gc-caption.gc-label-box`, readonly so a tap never raises the keyboard
     on the small box) is one line with "…" (nowrap, ellipsis), 12px, 30px
     tall; its `title` is the whole label. A tap, or Enter/Space, opens
@@ -601,6 +607,118 @@ label saved on blur had no undo.
   - **Not verified:** any real device; how the letterboxed tiles and the
     editor feel on the S25 and tablet; the editor with the on-screen keyboard
     up.
+- **Ray's tablet test of `22c407f`: F3 kept; F1 and F2 replaced** (no black
+  bars anywhere, label text centred, labels edited in the full-screen viewer).
+  Same branch, commit `13e931c`. Suite `tests/verify_row_tiles_viewer_label.js`
+  (316), which replaces `verify_tile_width_label_editor.js` (its F3 block is
+  kept unchanged). Plan answers: Q1 a photo wider than the row is scaled
+  down whole; Q2 the label field sits at the top of the viewer; Q3 tiles are
+  at least ~80px wide, a narrower photo centred on the tile's own
+  (transparent, never black) background; Q4 the parent Set's COA follows
+  the new layout on the three coin screens, Add Set step 2 keeps its copy;
+  Q5 a Set's page strip gets the layout only; Q6 110px / 200px from 700px.
+  - **A, same-height tiles.** Reference / COA / Other on every chooser
+    screen (Edit Coin, Edit Set, Manage Photos coin/Set, Add Coin, the
+    Staging-draft edit): `.gc-row-grid` sets `--gc-row-h` (110px, 200px at
+    `min-width: 700px`). Each tile (`.gc-thumb.gc-row-tile`) has a photo box
+    (`.gc-img.gc-img-row`) of width `calc(--gc-row-h * --gc-ar)`,
+    `max-width: 100%`, `aspect-ratio: --gc-ar`, `background-size: cover` on
+    a transparent background: the box IS the photo's shape, so no bars and
+    nothing cropped; a photo wider than the row is scaled down to the row
+    width (shorter, top still aligned). `--gc-ar` comes from a tiny hidden
+    `<img class="gc-row-sizer">` (`galleryRowSizer(url)`): a capture-phase
+    `load` listener and `applyRowSizerShapes(root)` (for cached files) set
+    it; until then, or if the file can't be decoded, the box is a square.
+    `galleryThumbInner(entry, { row: true, inside })`. The flex row wraps
+    with `align-items: flex-start`, so tops line up and a tile grows
+    downward for its label. Tile `min-width: 80px` with the photo centred;
+    every other child takes the tile's width (`width: 0; min-width: 100%`).
+    ✕, the failed-save dim and ↻ sit inside the photo box (✕ at -7px from
+    its padding box = 6px past the outer corner, same as a pair slot's).
+    The "+" tile is a square at `--gc-row-h`. Pair slots unchanged.
+    `paintStoredThumbWhenReady` adds the sizer when a stored file arrives
+    (it removes only the icon text, keeping ✕ and ↻).
+  - **B, labels in the viewer.** Under each tile one centred line
+    (`button.gc-label-line`, nowrap, ellipsis, `title` = whole label): the
+    label, or muted "Tap to label" (`PHOTO_LABEL_EMPTY_TEXT`); a legacy
+    photo reads "Replace this photo to give it a label" (italic,
+    `.gc-label-legacy`). `paintPhotoLabelLine(line, entry, legacy)`. Tapping
+    the photo (role=button, Enter/Space too) or the line calls
+    `openGalleryPhotoInViewer(entry, { title, label: { draft, legacy, hint,
+    title } })`: the in-app media viewer with `#mediaViewerLabel` (label,
+    3-row textarea `#mediaViewerLabelInput`, the save hint from
+    `photoLabelSaveHint(el)`, Cancel / Done) at the TOP, under the bar, so
+    the keyboard can't cover it; while the field has focus the viewer also
+    follows `visualViewport` (`syncMediaViewerToVisualViewport`). Done or
+    Enter -> `finishMediaViewerLabel(true)` -> `applyPhotoLabelText(entry,
+    text, draft)`: memory only, newline -> space, refreshes "Save labels",
+    repaints the line (via `photoLabelThumbs`, now set in draft mode too,
+    so a redrawn tile gets it). Cancel, Esc, ✕ and the phone's Back change
+    nothing; `navigate()` calls `cancelMediaViewerLabel()`. Every save rule
+    is unchanged (Save Changes / Save labels / draft Save, Back warning,
+    Discard). Legacy photos: no field, footer "{type} — Replace this photo
+    to give it a label". ✕ and ↻ inside the photo keep their jobs (the
+    click handler ignores buttons). Removed: the inline box, `#photoLabelEditor`
+    and its functions, `.gc-half-grid`, `.gc-caption-legacy`.
+  - **Pair-slot photos open the viewer, VIEW ONLY** (Ray's addition): in
+    chooser mode, a filled slot's `.sg-photo-face` (role=button) opens
+    `openGalleryPhotoInViewer(entry, { title: label })` with no label field.
+    ✕, Replace, Recrop and ↻ unchanged. Every chooser screen, draft mode
+    included. `openCoinPhotoInViewer` and the new function share
+    `showEntryInMediaViewer`; `openMediaViewer` hides the label panel first.
+  - **Viewer close is now immediate.** `closeMediaViewer()` hides at once,
+    then `history.back()`; the pop that follows is expected and ignored
+    (`mediaViewerExpectPop`). Before, it waited for the pop, so a viewer
+    reopened in between (Done, then a quick tap on the next photo) was
+    closed by the late pop and the second Done applied nothing (found by the
+    label-save suite). Phone Back still closes it (an unexpected pop).
+  - **C, coin page.** `#detailPhotoStrip` (coin and Set pages) is a
+    `.gc-row-strip` of `.gc-row-tile`s: same heights, tops aligned, the
+    category caption (`.gc-type`, "Reference photo", "COA / certificate")
+    centred under the photo and wrapping downward; the specific label is in
+    the viewer (footer) only. The parent Set's COA (`renderParentCoaReadThrough`
+    with `opts.row`) uses the same layout on the coin page, Edit Coin and
+    Manage Photos, captioned `COA_CATEGORY_CAPTION` ("COA / certificate").
+    **Add Set step 2's call passes no `row`**, so it keeps the shaped tiles
+    captioned with each page's label (C4 untouched). Coin page taps stay
+    view only.
+  - **Left alone on purpose:** Add Set's gallery (`initGalleryCapture`: 88px
+    squares, inline caption input), the Set gallery viewer panel, the "Crop
+    from another photo" source tiles (88px, `galleryShapedSizer`), Wishlist
+    (no gallery), and `manageOpenEndedBlock`'s non-chooser branch (no caller
+    passes it any more; not deleted).
+  - **Tests changed to follow the design, not weakened:**
+    `verify_photo_label_save` (helpers type/blur/enter now go through the
+    viewer; reads use the line's title; L12 = legacy has no field);
+    `verify_image_chooser` (order and caption reads use the label line;
+    SR2/R3 type "Test" through the viewer); `verify_addcoin_shared_photos`
+    SH1-SH9 and AC4 (row-height tiles, + squares at the row height, the
+    coin page's Obverse a square at the row height), OC2 and S3's `pickAll`
+    caption (through the viewer), DK1 and CR2 (parent COA captioned
+    "COA / certificate", row tile); `verify_photo_receipt_write` V8 (cover
+    at the row height, measured on the open view); `verify_staging_edit_photos`
+    (caption read); `verify_in_app_viewer` B4/B5 (count only what is shown;
+    the label panel is hidden on the coin page).
+  - **Negative controls** (real app.html, restored by checksum, each failing
+    by name): black bars back (T5 x18); "+" not square (T8 x18); no width cap
+    (T3/T4/T7 x72); tops not aligned (T6b x3; a first version of the suite
+    passed this control because no fixture row mixed tile heights, so T6b
+    adds a photo still saving); no 80px minimum (T7 x12); tap on the photo
+    doing nothing (V1/V2 x36, B-block; a first version crashed instead of
+    failing because B5 pressed Back with no viewer open and left the app;
+    B5 now only presses Back while the viewer's entry is on top); Done not
+    applying (B1-B12, G1/G2); Cancel applying (B3-B5); a legacy photo
+    getting a field (B13); the field at the bottom (V2 x18); the coin page
+    caption showing the label (C3/C4); captions not centred (C3 x15);
+    pair-slot tap not opening the viewer (P1 x3); Add Set's gallery tiles
+    changed (K1); Add Set step 2's copy following the new layout (K2); the
+    old footer text (F3a/F3c).
+  - `npm test` on `13e931c`: 3834 passed, 0 failed, 0 page errors, 71 suites (3697 - 179 for the retired verify_tile_width_label_editor + 316 for verify_row_tiles_viewer_label; every other suite keeps its count, its assertions rewritten, not removed).
+  - **Not verified:** any real device; the field with the on-screen keyboard
+    up (headless can't raise one: the test checks the field sits in the top
+    half above the photo); Samsung Internet's visualViewport; how 200px
+    tiles feel on the tablet; a real undecodable HEIC (falls back to a
+    square by code, not seen).
 
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
@@ -1397,7 +1515,7 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
   `receipt-1page.pdf`. Note that every other suite still runs from
   `file://`, so there the viewer's external-PDF path shows the fallback.
 
-- **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified.
+- **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified. *(Since `13e931c`, on `claude/photo-label-save-changes`: Close hides at once and the pop that follows is ignored, `mediaViewerExpectPop`; the viewer also carries the photo-label field for the edit screens.)*
 
 ## Crop from an uploaded photo (Oct 2026, merged to main)
 *(Superseded 23 Oct 2026, now on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Obverse/Reverse/Reference — see "Add Coin uses Edit Coin's photo section".)*
