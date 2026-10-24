@@ -428,6 +428,105 @@ commit 5).
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
 
+## Photos wait for Save (Oct 2026, HELD on `claude/photos-wait-for-save`, NOT merged)
+Backlog items l, m, n, o. Plan answered by Ray 24 Oct 2026 (Q1-Q11). Built in
+stages; **C1 is built, held for Ray's device test**. C2 (leave warning in
+navigate(), Add Coin, the device Back history guard) and C3 (open-ended
+Package/OGP) are not built yet; C4 is this file. Branch cut from `main`
+`34dc28b`. Suite: `tests/verify_photos_wait_for_save.js` (32).
+- **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
+  `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
+  are held in memory and written only by Save Changes (Edit Coin, Edit Set)
+  or Save (Manage Photos). Nothing writes on tap-away, a redraw,
+  visibilitychange or pagehide. Draft mode (Add Coin, the Staging-draft
+  edit) is unchanged; its S3 golden is unchanged.
+- **Where it changed: one choke point.** `addGalleryEntryAndCommit` (every
+  add/Replace/Recrop/crop-from-another goes through it) now places the entry
+  `pendingSave` instead of writing (`placePendingAdd`; a single-instance slot
+  that still holds a photo becomes a Replace of it). `opts.immediate` keeps
+  the old write for any caller that needs it (none today).
+  `replaceGalleryEntryAndCommit` records `pendingReplaces` (the saved photo it
+  replaces; replacing a pick that was never saved points past it).
+- **✕** (`confirmRemovePendingPhoto`, called from `confirmRemoveGalleryPhoto`
+  for a saved record): a saved photo is marked `pendingRemove` and hidden, but
+  stays IN the list, because taken out the next redraw would hydrate it back
+  from the Photos index. A pick that was never saved just goes; a pick that
+  replaced a saved photo takes that photo with it. A legacyOnly photo still
+  gets the old "can't remove this one" dialog. Hidden from the screen via
+  `visibleGalleryFor`, `manageCount`, the pair slot lookup, the open-ended
+  loop and `cropSourceEntriesFor`.
+- **Save** (`savePhotosAndLabels` -> `savePendingPhotos`, then
+  `savePhotoLabels`). Order: adds and replaces one at a time in screen order
+  (each uploads its crop, then its `_original`, THEN writes its Photos row, so
+  a row never points at a missing file); removals last (row blanked, file
+  never deleted); labels last, one cell each. Edit Coin: the coin row (with
+  its conflict check), then the CoinID re-link, then photos, then labels; a
+  conflict or a failed field save writes no photos. With no field changed the
+  coin row is not touched (`performBrowseEditLabelsOnly`, now photos and
+  labels). Edit Set writes photos and labels; its fields stay session-only.
+- **Partial failure.** A failed photo stays `pendingSave` with `uploadError`,
+  dimmed, "Not saved — tap Save again", no ↻ (Save is the retry). Each file
+  that uploaded is remembered (`entry.uploadedNames`), so the next Save sends
+  only what is missing; a photo whose row landed is never re-sent. A removal
+  whose write fails stays `pendingRemove`. The toast names the files
+  (`photoSaveFailureText`); the form stays open (`photoEditsAllSaved`).
+- **A new photo's row is created with its typed label** (Ray's Q1), so its
+  label needs no second write and counts as a photo change, not a label
+  (`unsavedPhotoLabelEntries` skips pending entries). This reverses the old
+  "a brand-new photo's row starts with a blank Label".
+- **In-place Replace writes ONLY Filename and OriginalFilename** (Ray's Q3),
+  each a single cell, re-checked against PhotoID and CollectionID just before
+  (`replaceFileCells` inside `writePhotoRow`). PhotoType, SubGroupID, Label
+  and DateAdded are left as they are. New rows still use `writeRecordRow`
+  (claim a blank row); detach still blanks the whole row on purpose. Label
+  writes stay single-cell (`writePhotoLabel`). The replaced file stays on disk
+  (the later `_Replaced` folder item would move it after the row write).
+- **Repeatable filenames** are chosen at Save: a pick's provisional name no
+  longer counts in `nextFreeRepeatableFilename` / `coinPhotoNameKnown`, so a
+  discarded pick never uses up a number.
+- **Progress and lock.** The Save button shows the spinning coin and "Saving
+  photo 2 of 3…", "Removing 1 photo…", "Saving labels…"
+  (`pendingButtonProgress`); each tile shows "Saving…" as it goes
+  (`photoHostRenders` / `repaintPhotoHost`). While a Save runs
+  (`withEditSaveLock`, `editSaveInFlight`) Back and Close Drawer toast "Still
+  saving — wait for it to finish" and the active view takes no taps
+  (`body.edit-save-locked`) (Ray's Q5).
+- **Manage Photos** has ONE "Save" (`saveManagePhotos`; the element keeps the
+  id `managePhotosSaveLabelsBtn`), shown while a photo or label is unsaved.
+  Footer: "Photos and labels save to OneDrive when you tap Save." Edit Set's
+  footer: "Photos and their labels save to OneDrive when you tap Save
+  Changes."
+- **Discard** (`discardPendingPhotos`, wrapped with labels in
+  `discardUnsavedPhotoEdits`): picks go, replaced photos come back in their own
+  place, ✕'d photos come back. Back's "Discard unsaved edits?" counts photos
+  ("1 field, 1 photo label and 2 photos"). In C1 `navigate()` (Close Drawer,
+  every other route) still discards silently; C2 adds the warning there.
+  Opening Edit Coin or Edit Set discards that record's leftovers.
+- **Known effect, accepted:** ↻ no longer appears on a saved record (Save is
+  the retry). `retryGalleryPhotoCommit` and the ↻ markup are kept for a
+  committed failure, which nothing produces today.
+- **Tests changed to follow the design, not weakened:** `verify_image_chooser`
+  (pick-then-row blocks tap Save via `finishCrop`'s autoSave; SR2/R3 now
+  expect Save to write the typed label as its own cell; RM, UNS rewritten to
+  ✕ / failed-at-Save; RC rewritten: RC1/RC2 check the failed mark and dim
+  with no ↻, RC3 the retry by Save — the four centred-↻ geometry checks per
+  screen and size are gone with the ↻, 208 -> 184), `verify_photo_label_save`
+  (L5, L6, L9 rewritten for label-on-create, failure at Save, file-cell
+  Replace), `verify_photo_receipt_write` (J, Q, R2, S, U tap Save; U14's
+  fixture now has a real row so the failed detach really happens; U9b added),
+  `verify_crop_from_upload` (flow taps Save; C3a added; F retries by Save),
+  `verify_addcoin_shared_photos` (pickVia taps Save on a saved coin; CS4b
+  added), `verify_row_tiles_viewer_label` (V1 and F3a wording).
+- **Negative controls** (real app.html, restored by checksum, each failing by
+  name): write on pick (25 fail); ✕ takes the photo out of the list (W1d, W1e,
+  W2, W3c, W3e, W8, W9, W9b); photos before the coin row (W3, W3e, W11);
+  whole-row Replace (W4, W4b); retry re-uploads (W7c); no lock (W12); new row
+  without its typed label (W5); Discard leaving pending photos (W8b, W8c, W13).
+- `npm test` on C1 `aa41775`: 3848 passed, 0 failed, 0 page errors, 72 suites
+  (3836 - 24 retired centred-↻ checks + 32 new suite + 4 added elsewhere).
+- **Not verified:** any real device; Samsung Internet; a real Save to
+  `_Testing` with several photos.
+
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
 passed and the Edit Set toast fix (`a576e42`, below). `main` is the source of
