@@ -57,7 +57,11 @@ module.exports = defineSuite("addcoin-bugfixes", async ({ ok, openApp, PHONE }) 
       return h.nextElementSibling.querySelector('.sg-photo-slot');
     };
     const shownBefore = !!obvSlot().querySelector('.sg-photo-img');
+    // A picked photo is an unsaved edit: leaving asks first (C2 leave
+    // guard), and Discard is what clears it.
     navigate('dashboard');
+    const discard = [...document.querySelectorAll('#writeGuardBtns button')].find(x => x.textContent === 'Discard');
+    if (discard) discard.click();
     navigate('addcoin');
     const slot = obvSlot();
     const afterPhotoReset = {

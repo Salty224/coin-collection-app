@@ -30,7 +30,7 @@
 //       stays unsaved; Save Changes writes it
 //   D   Edit Coin Back: the warning counts labels; Keep editing keeps the
 //       text; Discard restores the sheet label and reopening shows it; the
-//       in-form Back is guarded too; navigate (Close Drawer) discards silently
+//       in-form Back is guarded too; navigate (Close Drawer) asks too (C2)
 //   L10 draft mode unchanged
 //   L11 Edit Set Save Changes, Manage Photos coin and Set "Save labels"
 //       (shown only while a label is unsaved) and their Back + Discard
@@ -576,11 +576,15 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     out.inFormDialog = L.guardOpen();
     L.clickGuard("Discard");
     out.inFormCaption = L.entry("AY-00099", "AY-00099_other_01.jpg").caption;
-    // navigate (Close Drawer) discards silently.
+    // navigate (Close Drawer) asks too since C2 (backlog l); Discard
+    // restores the sheet label.
     host = await L.openEditCoin();
     L.type(L.boxFor(host, "AY-00099_reference_01.jpg"), "Left via Close Drawer");
     document.getElementById("navHomeBtn").click();
     out.navDialog = L.guardOpen();
+    out.navText = L.guardText();
+    L.clickGuard("Discard");
+    out.navLeft = document.getElementById("view-dashboard").classList.contains("active");
     out.navCaption = L.entry("AY-00099", "AY-00099_reference_01.jpg").caption;
     out.patchesEnd = L.photoPatches();
     out.row = L.row("PH-00002")[5];
@@ -597,8 +601,8 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
   ok(F.leftEdit && F.caption === "PCGS photo" && F.patches.length === 0 && F.reopenBox === "PCGS photo",
     "D4 Discard restores the sheet label, writes nothing, and reopening shows it: " + JSON.stringify([F.leftEdit, F.caption, F.patches, F.reopenBox]));
   ok(F.inFormDialog && F.inFormCaption === "", "D5 the form's own Back is guarded the same way: " + JSON.stringify([F.inFormDialog, F.inFormCaption]));
-  ok(!F.navDialog && F.navCaption === "PCGS photo" && F.patchesEnd.length === 0 && F.row === "PCGS photo",
-    "D6 navigate (Close Drawer) discards without asking and writes nothing: " + JSON.stringify([F.navDialog, F.navCaption, F.patchesEnd, F.row]));
+  ok(F.navDialog && /1 photo label on AY-00099/.test(F.navText) && F.navLeft && F.navCaption === "PCGS photo" && F.patchesEnd.length === 0 && F.row === "PCGS photo",
+    "D6 navigate (Close Drawer) asks first (C2); Discard restores the sheet label and writes nothing: " + JSON.stringify([F.navDialog, F.navText, F.navLeft, F.navCaption, F.patchesEnd, F.row]));
   ok(F.cleanNoDialog, "D7 with nothing unsaved, Back leaves without asking");
 
   // ---------- L10 draft mode ---------------------------------------------
@@ -678,9 +682,9 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
   });
   ok(R1.label === "Certificate front" && R1.patches.length === 1 && R1.patches[0] === "Photos!F6:F6" && R1.extra === "keep-me",
     "L11a Edit Set Save Changes writes the changed label for real, one cell: " + JSON.stringify(R1));
-  ok(R1.toast === "1 photo label saved to the workbook." && R1.left,
+  ok(R1.toast === "Saved AY-00090 — 1 label updated." && R1.left,
     "L11b Edit Set, only a label changed: the message says just that the label was saved (no session-only wording): " + R1.toast);
-  ok(/^Updated AY-00090 for this session only — not saved to OneDrive\. 1 photo label saved to the workbook\.$/.test(R1.both),
+  ok(/^Updated AY-00090 for this session only — not saved to OneDrive\. Saved AY-00090 — 1 label updated\.$/.test(R1.both),
     "L11d Edit Set, a field and a label changed: the session-only wording for the field, plus the label count: " + R1.both);
   ok(/^Updated AY-00090 for this session only — not saved to OneDrive\.$/.test(R1.fieldOnly),
     "L11e Edit Set, only a field changed: the session-only wording, no label count: " + R1.fieldOnly);

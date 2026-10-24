@@ -12809,7 +12809,9 @@
   // whatever it currently points at. Return-to-Dashboard is always a hard
   // reset to the top. Set here as a mutable module-level function ref.
   let navBackHandler = () => navigate("dashboard");
-  function setNavBack(fn) { navBackHandler = fn; }
+  // Every screen change sets its Back target, so this is also where the
+  // device-Back history guard re-checks whether an editing screen is up.
+  function setNavBack(fn) { navBackHandler = fn; queueLeaveGuardSync(); }
 
   // Top-level views whose "up one level" is not the Dashboard: the three
   // Acquisitions sub-flows go back to the Acquisitions hub; the two
@@ -12848,8 +12850,9 @@
   document.getElementById("managePhotosSaveLabelsBtn").addEventListener("click", () => saveManagePhotos());
   document.getElementById("navHomeBtn").addEventListener("click", () => {
     if (editSaveInFlight) { showToast(EDIT_SAVE_LOCK_TEXT); return; }
-    navigate("dashboard");
+    navigate("dashboard"); // asks first when the editing screen has unsaved edits
   });
+  window.addEventListener("popstate", onLeaveGuardPop);
 
   let previousViewId = null;
 
@@ -12867,10 +12870,16 @@
     document.getElementById("navChrome").classList.toggle("hidden", viewId === "dashboard");
   }
 
+  // Leaving an editing screen with something unsaved asks first (backlog
+  // l and o): Keep editing stays, Discard throws it away and goes on.
+  // Returns whether the screen changed now.
   function navigate(viewId) {
-    // Leaving a screen throws away label edits that weren't saved with
-    // Save Changes (Oct 2026); a draft's labels (Add Coin) are untouched.
-    // An open label editor closes without putting its text back.
+    return guardLeaveEditScreen(() => navigateNow(viewId));
+  }
+  function navigateNow(viewId) {
+    // Whatever is still unsaved anywhere else (a record not on screen) goes;
+    // a draft's labels (Add Coin) are untouched. An open label editor closes
+    // without putting its text back.
     cancelMediaViewerLabel();
     discardUnsavedPhotoEdits();
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
@@ -17268,7 +17277,8 @@
     // Back target is captured and restored so it still goes wherever it
     // originally came from — same per-origin back-handler pattern the
     // retired child-flip cards used, and that Albums' filled-slot tap uses.
-    row.addEventListener("click", () => {
+    // From Edit Set this leaves the form, so unsaved edits ask first.
+    row.addEventListener("click", () => guardLeaveEditScreen(() => {
       if (onBeforeNavigate) onBeforeNavigate();
       const setBackHandler = browseDetailBackHandler;
       browseDetailBackHandler = () => {
@@ -17277,7 +17287,7 @@
       };
       showBrowseDetail(child);
       window.scrollTo({ top: 0 });
-    });
+    }));
     return row;
   }
 
@@ -17840,6 +17850,13 @@
     const now = editSetFieldValues();
     return EDIT_SET_FIELD_IDS.some(id => now[id] !== editSetOpenedFields[id]);
   }
+  // How many Set fields differ from the form as opened (Ray's Q4: the leave
+  // warning counts them, though they are session-only).
+  function editSetChangedFieldCount() {
+    if (!editSetOpenedFields) return 0;
+    const now = editSetFieldValues();
+    return EDIT_SET_FIELD_IDS.filter(id => now[id] !== editSetOpenedFields[id]).length;
+  }
 
   // (returnToEditSetView() lived here. It existed so that drilling from Edit
   // Set's Photos section into a child's Manage Photos could come back to Edit
@@ -18081,6 +18098,9 @@
     ["input", "change"].forEach(evt => {
       editView.addEventListener(evt, e => {
         if (browseEditApplyingProgrammatically) return; // app-driven populate, not the user
+        // The receipt saves the moment it is picked (Q10), so it is never an
+        // unsaved field.
+        if (e.target && e.target.type === "file") return;
         if (e.target && e.target.id) browseEditTouchedFields.add(e.target.id);
       });
     });
@@ -18237,8 +18257,7 @@
   // first (Keep editing / Discard); Discard throws both away.
   function leaveBrowseEditGuarded() {
     const coin = currentBrowseCoin;
-    const id = coin ? coin.id : "";
-    confirmLeaveWithUnsavedEdits(id, browseEditTouchedFields.size, id, () => {
+    guardLeaveEditScreen(() => {
       browseEditTouchedFields.clear();
       showBrowseDetail(coin);
     });
@@ -18266,10 +18285,7 @@
       try { res = await savePhotosAndLabels(coin.id, setProgress); }
       finally { setProgress(null); }
     });
-    const what = photoSaveSummaryText(res);
-    const head = what
-      ? "Saved " + coin.id + " — " + what + (photoSaveOnlyLabels(res) ? " updated." : ".")
-      : "Couldn't save the photo changes on " + coin.id + ".";
+    const head = photoSaveHeadline(coin.id, res) || "Couldn't save the photo changes on " + coin.id + ".";
     showToast(head + photoSaveFailureText(res, "Save Changes"));
     if (photoEditsAllSaved(res)) showBrowseDetail(coin);
   }
@@ -18298,8 +18314,8 @@
       (async () => {
         const pres = photoEditsPending(coin.id)
           ? await withEditSaveLock(() => savePhotosAndLabels(coin.id, null)) : null;
-        const what = photoSaveSummaryText(pres);
-        const labelMsg = what ? " " + what.charAt(0).toUpperCase() + what.slice(1) + " saved to the workbook." : "";
+        const headline = photoSaveHeadline(coin.id, pres);
+        const labelMsg = headline ? " " + headline : "";
         showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg + labelMsg + photoSaveFailureText(pres, "Save Changes"));
         if (photoEditsAllSaved(pres)) showBrowseDetail(coin);
       })();
@@ -18607,15 +18623,10 @@
             finally { setProgress(null); }
           });
         }
-        // Labels only keeps its exact old wording ("1 photo label saved to
-        // the workbook."); photos say what landed.
-        const p = pres ? pres.photos : null;
-        const anyPhoto = !!(p && (p.added || p.replaced || p.removed));
-        const lsaved = pres && pres.labels ? pres.labels.saved : 0;
-        const what = photoSaveSummaryText(pres);
-        const labelMsg = anyPhoto
-          ? " " + what.charAt(0).toUpperCase() + what.slice(1) + " saved to the workbook."
-          : (lsaved ? " " + lsaved + " photo label" + (lsaved === 1 ? "" : "s") + " saved to the workbook." : "");
+        // What really landed, in the one wording every editing screen uses
+        // ("Saved AY-00463 — 1 photo added." / "— 1 label updated.").
+        const headline = photoSaveHeadline(coin.id, pres);
+        const labelMsg = headline ? " " + headline : "";
         const failText = photoSaveFailureText(pres, "Save Changes");
         // The session-only wording is about the Set's fields, so it shows
         // only when a field changed; a photos/labels-only save just says what
@@ -18629,12 +18640,11 @@
     });
   }
 
-  // Back from Edit Set: unsaved photo labels ask first (Keep editing /
-  // Discard). Its other fields are session-only and have never warned.
+  // Back from Edit Set: unsaved fields, photos and labels ask first (Keep
+  // editing / Discard). The fields are session-only but still count (Q4).
   function leaveBrowseEditSetGuarded() {
     const coin = currentBrowseCoin;
-    const id = coin ? coin.id : "";
-    confirmLeaveWithUnsavedEdits(id, 0, id, () => showBrowseDetail(coin));
+    guardLeaveEditScreen(() => showBrowseDetail(coin));
   }
 
   // The set of Finish values DB_Coins itself actually uses anywhere in the
@@ -24926,31 +24936,172 @@
     refreshManagePhotosSaveLabelsBtn();
   }
 
-  // Back from a screen with label boxes. Unsaved labels (plus `fieldCount`
-  // unsaved form fields, Edit Coin) ask first; Discard throws them away and
-  // leaves. Keep editing leaves everything as typed.
-  function confirmLeaveWithUnsavedEdits(targetId, fieldCount, recordId, leave) {
-    if (editSaveInFlight) { showToast(EDIT_SAVE_LOCK_TEXT); return; }
-    const labels = unsavedPhotoLabelCount(targetId);
-    const photos = pendingPhotoCount(targetId);
-    const go = () => { discardUnsavedPhotoEdits(targetId); leave(); };
-    if (!labels && !fieldCount && !photos) { go(); return; }
+  // ------------------------------------------------------------------
+  // LEAVE GUARD (Oct 2026, backlog l and o). Every way off an editing
+  // screen asks first when something on it is unsaved: the in-form Back,
+  // the chrome Back, Close Drawer, any other navigate(), and the device's
+  // own Back button (the history guard below). One check, one dialog.
+  // ------------------------------------------------------------------
+  // Which editing screen is on show: "editcoin", "editset",
+  // "managephotos" or "addcoin" (a new coin or a Staging-draft edit), else null.
+  function activeEditScreen() {
+    const view = document.querySelector(".view.active");
+    const vid = view ? view.id.replace(/^view-/, "") : "";
+    if (vid === "browse") {
+      const shown = id => { const el = document.getElementById(id); return !!el && el.style.display === "block"; };
+      if (shown("browseEditView")) return "editcoin";
+      if (shown("browseEditSetView")) return "editset";
+      return null;
+    }
+    if (vid === "managephotos") return "managephotos";
+    if (vid === "addcoin") return "addcoin";
+    return null;
+  }
+  // "1 field, 1 photo label and 2 photos".
+  function unsavedEditsCountText(c) {
+    const n = (k, w) => k + " " + w + (k === 1 ? "" : "s");
     const parts = [];
-    if (fieldCount) parts.push(fieldCount + " field" + (fieldCount === 1 ? "" : "s"));
-    if (labels) parts.push(labels + " photo label" + (labels === 1 ? "" : "s"));
-    if (photos) parts.push(photos + " photo" + (photos === 1 ? "" : "s"));
+    if (c.fields) parts.push(n(c.fields, "field"));
+    if (c.labels) parts.push(n(c.labels, "photo label"));
+    if (c.photos) parts.push(n(c.photos, "photo"));
+    if (c.receipts) parts.push(n(c.receipts, "receipt"));
     if (parts.length > 2) parts.splice(0, parts.length - 1, parts.slice(0, -1).join(", "));
+    return parts.join(" and ");
+  }
+  // What is unsaved on the editing screen now showing, or null when nothing
+  // is (or no editing screen is up). discard() throws it all away.
+  function unsavedEditsForView() {
+    const screen = activeEditScreen();
+    if (!screen) return null;
+    const c = { fields: 0, labels: 0, photos: 0, receipts: 0 };
+    let id = "", discard = () => {};
+    if (screen === "editcoin" || screen === "editset") {
+      id = currentBrowseCoin ? currentBrowseCoin.id : "";
+      c.fields = screen === "editcoin" ? browseEditTouchedFields.size : editSetChangedFieldCount();
+      c.labels = unsavedPhotoLabelCount(id);
+      c.photos = pendingPhotoCount(id);
+      discard = () => {
+        if (screen === "editcoin") browseEditTouchedFields.clear();
+        else editSetOpenedFields = editSetFieldValues();
+        discardUnsavedPhotoEdits(id);
+      };
+    } else if (screen === "managephotos") {
+      id = managePhotosCtx ? managePhotosCtx.id : "";
+      c.labels = unsavedPhotoLabelCount(id);
+      c.photos = pendingPhotoCount(id);
+      discard = () => discardUnsavedPhotoEdits(id);
+    } else {
+      id = editingCoinDraftId || "";
+      c.fields = addCoinTouchedFields.size;
+      c.photos = addCoinUnsavedPhotoCount();
+      c.receipts = addCoinUnsavedReceipt() ? 1 : 0;
+      discard = () => { resetAddCoinForm(); clearCoinDraftEditContext(); };
+    }
+    if (!c.fields && !c.labels && !c.photos && !c.receipts) return null;
+    return { screen, id, counts: c, text: unsavedEditsCountText(c), discard };
+  }
+  function showDiscardEditsDialog(u, onDiscard, onKeep) {
+    const who = u.id ? escapeHtmlText(u.id) : (u.screen === "addcoin" ? "this new coin" : "this record");
     showWriteGuard({
       title: "Discard unsaved edits?",
       bodyHtml:
-        `<p style="margin:0 0 10px;">You've changed ${parts.join(" and ")} on ${escapeHtmlText(recordId || "this record")} ` +
-        `without saving.</p>` +
-        `<p style="margin:0; opacity:0.8;">Going back reloads the record from the workbook and your changes are lost.</p>`,
+        `<p style="margin:0 0 10px;">You've changed ${u.text} on ${who} and haven't saved them.</p>` +
+        `<p style="margin:0; opacity:0.8;">Discard leaves this screen and loses those changes. ` +
+        `Keep editing stays here so you can save.</p>`,
       buttons: [
-        { label: "Keep editing" },
-        { label: "Discard", primary: true, onClick: go }
+        { label: "Keep editing", onClick: onKeep },
+        { label: "Discard", primary: true, onClick: onDiscard }
       ]
     });
+  }
+  // Runs leave() at once when nothing is unsaved; otherwise asks first and
+  // runs it only after Discard. Returns whether it left straight away.
+  // While a Save is running nothing leaves (Ray's Q5).
+  function guardLeaveEditScreen(leave, onKeep) {
+    if (editSaveInFlight) { showToast(EDIT_SAVE_LOCK_TEXT); if (onKeep) onKeep(); return false; }
+    const u = unsavedEditsForView();
+    if (!u) { leave(); return true; }
+    showDiscardEditsDialog(u, () => { u.discard(); leave(); }, onKeep);
+    return false;
+  }
+  // Add Coin's own record of what the user really did (not the deep-link
+  // prefill, not a Staging draft being loaded): only genuine user events
+  // count (isTrusted), file inputs aside (photos and the receipt are counted
+  // from what they left behind).
+  const addCoinTouchedFields = new Set();
+  function addCoinUnsavedPhotoCount() {
+    const picks = (galleryStore[ADDCOIN_GALLERY_ID] || []).filter(e => !e.stagingStored).length;
+    const removed = editDraftFiles && editDraftFiles.removedCount ? editDraftFiles.removedCount : 0;
+    return picks + removed;
+  }
+  function addCoinUnsavedReceipt() {
+    const r = receiptFiles["receiptPreview"];
+    return !!(r && r.blob) || !!(editDraftFiles && editDraftFiles.receiptRemoved);
+  }
+
+  // ------------------------------------------------------------------
+  // DEVICE BACK (Ray's Q6). Opening an editing screen pushes ONE history
+  // entry, so the phone's Back pops it instead of leaving the app. The pop
+  // runs the same check as the in-app Back: nothing unsaved leaves exactly
+  // as the in-app Back would; something unsaved asks, Keep editing pushes
+  // the entry back, Discard leaves. Leaving any other way (Save, in-app
+  // Back, navigate) steps back over the entry, so entries never pile up.
+  // The photo viewer keeps its own entry on top of this one; Back there
+  // closes only the viewer (the pop lands on this entry, which stays).
+  // ------------------------------------------------------------------
+  // Each entry carries its own token, so one left behind by a reload (the
+  // page came back on top of an old entry) is never mistaken for ours.
+  const leaveGuard = { armed: false, token: "", expectPop: false, rearmAfterPop: false };
+  function leaveGuardIsTop() {
+    return !!(leaveGuard.token && history.state && history.state.coinLeaveGuard === leaveGuard.token);
+  }
+  function armLeaveGuard() {
+    if (leaveGuard.expectPop) { leaveGuard.rearmAfterPop = true; return; }
+    if (leaveGuard.armed && leaveGuardIsTop()) return;
+    if (leaveGuard.armed && history.state && history.state.mediaViewer) return; // the viewer sits on top
+    const token = "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    try { history.pushState({ coinLeaveGuard: token }, ""); leaveGuard.armed = true; leaveGuard.token = token; }
+    catch (e) { leaveGuard.armed = false; /* Back simply isn't intercepted */ }
+  }
+  function disarmLeaveGuard() {
+    leaveGuard.rearmAfterPop = false;
+    if (!leaveGuard.armed) return;
+    leaveGuard.armed = false;
+    if (leaveGuardIsTop()) { leaveGuard.expectPop = true; history.back(); }
+  }
+  // Called after every screen change (setNavBack runs on each one).
+  function syncLeaveGuard() {
+    if (activeEditScreen()) armLeaveGuard(); else disarmLeaveGuard();
+  }
+  let leaveGuardSyncQueued = false;
+  function queueLeaveGuardSync() {
+    if (leaveGuardSyncQueued) return;
+    leaveGuardSyncQueued = true;
+    Promise.resolve().then(() => { leaveGuardSyncQueued = false; syncLeaveGuard(); });
+  }
+  function onLeaveGuardPop() {
+    if (leaveGuard.expectPop) {
+      leaveGuard.expectPop = false;
+      if (leaveGuard.rearmAfterPop) { leaveGuard.rearmAfterPop = false; syncLeaveGuard(); }
+      return;
+    }
+    if (!leaveGuard.armed || leaveGuardIsTop()) return; // not ours (the viewer's own pop)
+    leaveGuard.armed = false;
+    const writeGuard = document.getElementById("writeGuardOverlay");
+    const chooser = document.getElementById("imageSourceChooser");
+    if (editSaveInFlight || (writeGuard && !writeGuard.classList.contains("hidden"))) {
+      if (editSaveInFlight) showToast(EDIT_SAVE_LOCK_TEXT);
+      armLeaveGuard(); // a dialog or a Save is up: Back changes nothing
+      return;
+    }
+    if (chooser && !chooser.classList.contains("hidden")) { closeImageSourceChooser(); armLeaveGuard(); return; }
+    // The crop tool open: Back cancels the crop (like its Cancel button)
+    // and stays on the screen; any other panel open: Back changes nothing.
+    const open = id => { const el = document.getElementById(id); return !!el && !el.classList.contains("hidden"); };
+    if (open("bgCropOverlay")) { closeBgCrop(); armLeaveGuard(); return; }
+    if (open("photoAdjustOverlay")) { closePhotoAdjust(); armLeaveGuard(); return; }
+    if ([...document.querySelectorAll(".photo-adjust-overlay")].some(el => !el.classList.contains("hidden"))) { armLeaveGuard(); return; }
+    guardLeaveEditScreen(() => navBackHandler(), () => armLeaveGuard());
   }
 
   // Manage Photos has no other Save, so it gets "Save labels", shown only
@@ -25009,10 +25160,8 @@
       try { res = await savePhotosAndLabels(ctx.id, setProgress); }
       finally { setProgress(null); }
     });
-    const what = photoSaveSummaryText(res);
-    const head = what
-      ? "Saved " + ctx.id + " — " + what + (photoSaveOnlyLabels(res) ? " updated." : ".")
-      : (photoEditsAllSaved(res) ? "Nothing to save." : "Couldn't save " + ctx.id + ".");
+    const head = photoSaveHeadline(ctx.id, res) ||
+      (photoEditsAllSaved(res) ? "Nothing to save." : "Couldn't save " + ctx.id + ".");
     showToast(head + photoSaveFailureText(res, "Save"));
     refreshManagePhotosSaveLabelsBtn();
   }
@@ -25248,6 +25397,12 @@
   function photoSaveOnlyLabels(res) {
     const p = (res && res.photos) || {};
     return !!(res && res.labels && res.labels.saved && !p.added && !p.replaced && !p.removed);
+  }
+  // "Saved AY-00099 — 1 photo added." / "… — 1 label updated." Empty when
+  // nothing landed. One wording for every editing screen (Ray, C2).
+  function photoSaveHeadline(recordId, res) {
+    const what = photoSaveSummaryText(res);
+    return what ? "Saved " + recordId + " — " + what + (photoSaveOnlyLabels(res) ? " updated." : ".") : "";
   }
   function photoEditsAllSaved(res) {
     if (!res) return true;
@@ -25743,7 +25898,6 @@
   // with it, since the slot is what the user is clearing. `rerender` repaints.
   function confirmRemovePendingPhoto(targetId, entry, rerender) {
     const def = galleryTypeDef(entry && entry.type);
-    const label = (def && def.label) || "this photo";
     const list = galleryFor(targetId);
     const underneath = entry.pendingSave ? (entry.pendingReplaces || null) : entry;
     const removesSaved = !!(underneath && !underneath.legacyOnly);
@@ -25760,15 +25914,15 @@
       refreshManagePhotosSaveLabelsBtn();
       if (rerender) rerender();
     };
+    // "This Reference photo …" (Ray's wording, C2).
+    const noun = escapeHtmlText(!def ? "photo" : (/photo$|certificate$/i.test(def.label) ? def.label : def.label + " photo"));
     const body = removesSaved
-      ? "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this record?</p>" +
-        "<p>It comes off when you tap <b>Save</b>: its row on the <strong>Photos</strong> tab is detached then. The stored file itself is never deleted. " +
-        "Until you save nothing changes, and Discard brings it back.</p>" +
+      ? "<p>This " + noun + " will be removed when you tap <b>Save</b>. Until then nothing changes, " +
+        "and Discard brings it back. The photo file itself is never deleted.</p>" +
         (legacyKeeps
           ? "<p><strong>Note:</strong> this coin also has a photo recorded in the old <strong>All</strong> sheet columns, which this app never writes. Removing the Photos row won't make the photo disappear — it will keep showing from there.</p>"
           : "")
-      : "<p>Remove <strong>" + escapeHtmlText(label) + "</strong>?</p>" +
-        "<p>It hasn't been saved yet, so taking it off writes nothing.</p>";
+      : "<p>This " + noun + " hasn't been saved yet, so taking it off writes nothing.</p>";
     showWriteGuard({
       title: "Remove photo?",
       bodyHtml: body,
@@ -26496,12 +26650,17 @@
 
   let managePhotosCtx = null;
 
+  // Opening it from another editing screen (a Set's Manage Photos opening a
+  // coin's) asks first when that screen has unsaved edits.
   function openManagePhotos(ctx) {
+    return guardLeaveEditScreen(() => openManagePhotosNow(ctx));
+  }
+  function openManagePhotosNow(ctx) {
     managePhotosCtx = ctx;
-    navigate("managephotos");
-    // Back asks first when a label was changed and not saved (Save labels).
+    navigateNow("managephotos");
+    // Back asks first when a photo or label is unsaved.
     const back = ctx.backTo || (() => navigate("dashboard"));
-    setNavBack(() => confirmLeaveWithUnsavedEdits(ctx.id, 0, ctx.id, back));
+    setNavBack(() => guardLeaveEditScreen(back));
     document.getElementById("managePhotosName").textContent = ctx.name || ctx.id || "";
     document.getElementById("managePhotosMeta").textContent = ctx.meta || "";
     // What this screen really does with a photo. An owned coin or Set
@@ -26638,10 +26797,10 @@
         ${draft ? (entry.uploadError ? `<div class="photo-upload-state failed">${DRAFT_NOT_SAVED_TEXT}</div>` : "") : pendingStateLine(entry)}`;
       thumb.innerHTML = chooserMode ? `
         ${galleryThumbInner(entry, { row: true, inside: removeBtn + failedOverlay })}
-        ${stateLines}
         <button type="button" class="gc-label-line" data-role="label"></button>
         ${entry.labelError && !draft ? `<div class="gc-label-failed">Label not saved</div>` : ""}
-        <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `
+        <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>
+        ${stateLines}` : `
         ${removeBtn}
         ${galleryThumbInner(entry, null)}
         ${failedOverlay}
@@ -30274,6 +30433,7 @@
   // reset always happens first, and a deep-link's own prefill still lands on
   // top of it exactly as before.
   function resetAddCoinForm() {
+    addCoinTouchedFields.clear();
     // --- Album / Wishlist deep-link banners. Hides them ONLY — does not
     // touch the albumContext/wishlistContext module variables themselves.
     // Those variables are set by a slot/Wishlist-item click BEFORE
@@ -30606,7 +30766,7 @@
     const refusal = coinDraftEditRefusal(draft);
     if (refusal) { showToast(refusal); return false; }
 
-    navigate("addcoin");
+    if (!navigate("addcoin")) return false; // the screen it came from asked first
     editingCoinDraftId = collectionId;
     applyCoinDraftToForm(draft);
 
@@ -31021,6 +31181,16 @@
   }
 
   function initAddCoin() {
+    // What the user really typed or picked on Add Coin (see
+    // addCoinTouchedFields): a deep-link prefill and a Staging draft being
+    // loaded set values without trusted events, so they never count.
+    ["input", "change"].forEach(evt => {
+      document.getElementById("view-addcoin").addEventListener(evt, e => {
+        const t = e.target;
+        if (!e.isTrusted || !t || !t.id || t.type === "file") return;
+        addCoinTouchedFields.add(t.id);
+      });
+    });
     // Photos are Edit Coin's own section in draft mode (renderAddCoinPhotos);
     // the receipt keeps its own slot.
     wireMockPhotoSlot("receiptPreview", "receiptPlaceholder", "receiptCameraBtn", "receiptLibraryBtn", "receiptCameraInput", "receiptLibraryInput");

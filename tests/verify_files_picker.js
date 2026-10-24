@@ -190,6 +190,9 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
       },
       freshAddCoin() {
         navigate("addcoin");
+        // Leftover picks from the last block ask first (C2); throw them away.
+        const discard = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent === "Discard");
+        if (discard) discard.click();
         const body = document.getElementById("addCoinPhotosBody");
         if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
         if (typeof closeBgCrop === "function") closeBgCrop();

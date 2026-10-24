@@ -642,7 +642,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       return out;
     }, screen);
     const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    ok(RM.addA && RM.cropA && RM.aSavedFirst && RM.confirmA && /comes off when you tap/.test(RM.aBody) && RM.aHeldRow && RM.aHidden &&
+    ok(RM.addA && RM.cropA && RM.aSavedFirst && RM.confirmA && /will be removed when you tap Save/.test(RM.aBody) && RM.aHeldRow && RM.aHidden &&
        RM.aBlank && RM.aOnDisk && !RM.aIndex &&
        eq(RM.afterA.thumbs, [RM.storedLabel]) && eq(RM.afterA.files, RM.afterA.savedFiles) && eq(RM.afterA.thumbs, RM.afterA.savedLabels),
       `RM1-${RM.screen} open-ended: ✕ on a saved photo hides it and writes nothing; Save blanks its row fully, the file stays on disk, and the live list is exactly the saved rows: ` + JSON.stringify(RM));

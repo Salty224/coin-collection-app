@@ -989,12 +989,13 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       }
       out.recrop.cropRef = galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.type === "reference" && e.blob).length;
       out.recrop.calls = calls.slice();
-      navigate("addcoin"); s.teardown();
+      // Leaving a draft with picks asks first (C2); Discard throws them away.
+      navigate("addcoin"); sp.clickGuard("Discard"); s.teardown();
       // 2. No parent Set on the draft.
       host = await open(draft());
       sp.openAll(host);
       out.noParent = { heading: /COA — from parent Set/.test(host.textContent), ownCoa: sp.titles(host).some(t => /COA \/ certificates/.test(t)) };
-      navigate("addcoin"); s.teardown();
+      navigate("addcoin"); sp.clickGuard("Discard"); s.teardown();
       // 3. A fresh Add Coin after an edit: no parent, nothing left over.
       navigate("addcoin");
       const fresh = document.getElementById("addCoinPhotoSections");

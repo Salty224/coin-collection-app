@@ -60,6 +60,11 @@ async function setup(page) {
       },
       async install() {
         const self = this;
+        // Whatever the last screen left unsaved goes first, without asking
+        // (C2: leaving an editing screen with unsaved edits asks).
+        const ov0 = document.getElementById("writeGuardOverlay"); if (ov0) ov0.classList.add("hidden");
+        discardUnsavedPhotoEdits(); browseEditTouchedFields.clear(); addCoinTouchedFields.clear();
+        navigateNow("dashboard");
         const allRow = ["AY-00099", 1916, "D", "10C", "", "Mercury Dime", 40, 30, 0, "", null,
           "Safe", "", "VF-20", "Owner", "", "", "", "", "", null,
           "Business Strike", "C-1916-D-10C-01", "Owned", null, null, "", ""];
@@ -430,9 +435,12 @@ module.exports = defineSuite("row-tiles-viewer-label", async ({ ok, openApp, PHO
     document.getElementById("mediaViewerLabelDone").click();
     await T.sleep(60);
     out.redraw = { caption: entry().caption, line: line().textContent };
-    // Leaving the screen applies nothing
+    // Leaving the screen applies nothing. The label done above is unsaved,
+    // so leaving asks first (C2); Discard leaves.
     tap(photo()); T.input().value = "never applied";
     navigate("dashboard");
+    const discardBtn = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent === "Discard");
+    if (discardBtn) discardBtn.click();
     await T.sleep(60);
     out.nav = { open: T.viewer().open, caption: entry().caption };
     out.writesTotal = writes();

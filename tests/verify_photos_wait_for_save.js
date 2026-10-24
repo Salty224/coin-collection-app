@@ -25,8 +25,9 @@
 //   W10 Edit Set Save Changes saves its photos
 //   W11 a conflict block writes no photos
 //   W12 Back and Close Drawer are locked while Save runs (toast)
-//   W13 leaving by navigate discards pending photos and writes nothing
-//   W14 layout of the pending states at 360x800, 412x915, 1024x768
+//   W13 leaving by navigate asks first (C2); Discard drops pending photos, writes nothing
+//   W14 layout of the pending states at 360x800, 412x915, 1024x768; the status
+//       line sits under Replace on every tile type (C2)
 
 const { defineSuite } = require("./harness");
 
@@ -48,6 +49,11 @@ async function setup(page) {
       set: { id: "AY-00090", name: "1957 Proof Set", denom: "Multiple", year: 1957, mint: "", category: "Proof Set" },
       install() {
         const self = this;
+        // Whatever the last block left unsaved goes first, without asking
+        // (C2: leaving an editing screen with unsaved edits asks).
+        const ov0 = document.getElementById("writeGuardOverlay"); if (ov0) ov0.classList.add("hidden");
+        discardUnsavedPhotoEdits(); browseEditTouchedFields.clear();
+        navigateNow("dashboard");
         // Column H has a blank header: it is NOT in the header map. Its
         // cells carry "keep-me" so a whole-row rewrite would show as blanked.
         const allRow = ["AY-00099", 1916, "D", "10C", "", "Mercury Dime", 40, 30, 0, "", null,
@@ -282,7 +288,7 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     // ✕ the stored Reference.
     const refThumb = W.thumb(host, "AY-00099_reference_01.jpg");
     out.removeDialog = W.removeVia(refThumb && refThumb.querySelector(".gc-remove"));
-    out.removeText = /comes off when you tap/.test(W.lastGuard || "") || true;
+    out.removeText = /will be removed when you tap Save/.test(W.lastGuard || "") || true;
     await W.sleep(80); host = W.editHost();
     out.refHidden = !W.thumb(host, "AY-00099_reference_01.jpg");
     out.refStillInList = galleryFor("AY-00099").some(e => e.storedFilename === "AY-00099_reference_01.jpg" && e.pendingRemove);
@@ -514,7 +520,7 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     return { uploads: W.uploads.slice(), coaRows: W.mock._grids.Photos.filter(r => r[2] === "COA").length, toast: W.toast(), closed: !W.editSetOpen() };
   });
   ok("W10 Edit Set Save Changes uploads the new COA page and writes its row",
-    W10.uploads.length === 1 && W10.coaRows === 2 && W10.closed && /1 photo added saved to the workbook\./.test(W10.toast), W10);
+    W10.uploads.length === 1 && W10.coaRows === 2 && W10.closed && /^Saved AY-00090 — 1 photo added\.$/.test(W10.toast), W10);
 
   // ---------- W11 a conflict block writes no photos ------------------------
   const W11 = await page.evaluate(async () => {
@@ -559,7 +565,7 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
   ok("W12 Back and Close Drawer during Save toast \"Still saving — wait for it to finish\" and leave nothing",
     W12.locked && W12.open1 && W12.open2 && W12.t1 === "Still saving — wait for it to finish" && W12.t2 === W12.t1 && W12.unlocked, W12);
 
-  // ---------- W13 navigate discards pending photos silently (C1) -----------
+  // ---------- W13 navigate asks first; Discard drops the pick (C2) ----------
   const W13 = await page.evaluate(async () => {
     const W = __ws; W.install();
     let host = await W.openEditCoin();
@@ -567,11 +573,19 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     const plus = [...refBody.querySelectorAll("button")].find(b => /Add|＋|\+/.test(b.getAttribute("aria-label") || b.textContent));
     await W.addVia(plus); await W.sleep(120);
     W.graphCalls = 0;
-    navigate("dashboard");
+    const left = navigate("dashboard");
+    await W.sleep(40);
+    const asked = W.guardOpen() ? W.guardText() : "";
+    const pendingWhileAsking = pendingPhotoCount("AY-00099");
+    W.clickGuard("Discard");
     await W.sleep(80);
-    return { writes: W.graphCalls, pending: pendingPhotoCount("AY-00099"), refs: galleryFor("AY-00099").filter(e => e.type === "reference").length };
+    const view = (document.querySelector(".view.active") || {}).id;
+    return { left, asked, pendingWhileAsking, view, writes: W.graphCalls, pending: pendingPhotoCount("AY-00099"),
+      refs: galleryFor("AY-00099").filter(e => e.type === "reference").length };
   });
-  ok("W13 leaving by navigate discards the pick and writes nothing", W13.writes === 0 && W13.pending === 0 && W13.refs === 1, W13);
+  ok("W13 navigate with a pending pick asks first (nothing thrown away yet); Discard drops it, leaves and writes nothing",
+    W13.left === false && /changed 1 photo on AY-00099/.test(W13.asked) && W13.pendingWhileAsking === 1 &&
+    W13.view === "view-dashboard" && W13.writes === 0 && W13.pending === 0 && W13.refs === 1, W13);
 
   // ---------- W14 layout of the pending states -----------------------------
   for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
@@ -584,13 +598,23 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
       await W.addVia(plus); await W.sleep(150); host = W.editHost();
       const t = [...W.section(host, /Reference/).querySelectorAll(".gc-thumb")].find(x => /Not saved yet/.test(x.textContent));
       const st = t && t.querySelector(".photo-upload-state");
-      const tr = t && t.getBoundingClientRect(), sr = st && st.getBoundingClientRect();
+      const rep = t && t.querySelector('[data-role="replace"]');
+      const tr = t && t.getBoundingClientRect(), sr = st && st.getBoundingClientRect(), rr = rep && rep.getBoundingClientRect();
+      // A pair slot's line too (a Holder pick): also under its Replace.
+      const holderSlot = W.slotFor(host, /Holder/, "Front");
+      await W.addVia(holderSlot && holderSlot.querySelector('[data-act="add"]')); await W.sleep(150); host = W.editHost();
+      const hs = W.slotFor(host, /Holder/, "Front");
+      const hst = hs && hs.querySelector(".photo-upload-state"), hrep = hs && hs.querySelector('[data-act="replace"]');
       const out = { has: !!st, inside: !!(tr && sr && sr.left >= tr.left - 1 && sr.right <= tr.right + 1),
-        oneLine: !!(st && st.getBoundingClientRect().height < 24), overflow: document.documentElement.scrollWidth > window.innerWidth };
-      navigate("dashboard");
+        oneLine: !!(st && st.getBoundingClientRect().height < 24), overflow: document.documentElement.scrollWidth > window.innerWidth,
+        underReplace: !!(sr && rr && sr.top >= rr.bottom - 1),
+        slotUnderReplace: !!(hst && hrep && hst.getBoundingClientRect().top >= hrep.getBoundingClientRect().bottom - 1) };
+      discardUnsavedPhotoEdits(); navigate("dashboard");
       return out;
     });
     ok("W14 at " + vp.width + "x" + vp.height + " the \"Not saved yet\" line sits inside its tile on one line, no sideways scroll",
       L.has && L.inside && L.oneLine && !L.overflow, L);
+    ok("W14b at " + vp.width + "x" + vp.height + " the status line sits under the Replace button, on a Reference tile and a Holder slot",
+      L.underReplace && L.slotUnderReplace, L);
   }
 }, module);
