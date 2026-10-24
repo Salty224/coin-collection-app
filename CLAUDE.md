@@ -481,8 +481,9 @@ label saved on blur had no undo.
   not touched, so LastModified/Reviewed are not stamped.
 - **Messages (Ray's Q5):** folded into the existing toast. "Saved AY-00099
   to the workbook (2 fields updated, 1 label)."; labels only "Saved AY-00099
-  — 1 label updated."; Edit Set "… for this session only — not saved to
-  OneDrive. 1 photo label saved to the workbook."; failures add "1 label not
+  — 1 label updated."; Edit Set labels only "1 photo label saved to the
+  workbook." *(changed by `a576e42`; see the Edit Set toast fix below)*;
+  failures add "1 label not
   saved — it's still in the box. Tap Save Changes to try again." or "1 label
   not saved — its photo isn't saved yet. Tap ↻ on the photo, then Save
   Changes."
@@ -507,13 +508,14 @@ label saved on blur had no undo.
     `writePhotoRow` wrote; it now returns `label`) and by a label write.
   - The hydration fix: a redraw never puts the sheet label back over an
     unsaved one, and a cleared label stays cleared.
-  - legacyOnly photos: read-only box, "Replace this photo to give it a
-    label". Thumbs carry `data-file`.
+  - legacyOnly photos get no label field (*since `13e931c` the label is
+    edited in the viewer; the line under the tile reads "Replace this photo
+    to give it a label"*). Thumbs carry `data-file`.
 - **Tests.** One existing suite followed the Q4 change, not weakened:
   `verify_image_chooser` SR2-edit/SR2-manage/R3-edit/R3-manage now expect the
   replaced row's Label to be the SAVED one (blank) while the box still shows
   the typed "Test".
-- **Suite (54):** N1 nothing written before Save (blur, Enter, redraw,
+- **Suite (54 at `e2d4eae`, 56 since `a576e42`):** N1 nothing written before Save (blur, Enter, redraw,
   visibilitychange, pagehide); S1-S5 Save order, single cell, fields-only,
   conflict, failed field save, labels-only; L4 hydration; L5 new photo
   still saving; L6 never-saved photo; L7 label failure and retry; L9
