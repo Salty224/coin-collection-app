@@ -40,10 +40,11 @@ be asked for the copy-paste version.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code commit on `main` is `c6f0ba0` (Add Coin uses Edit
-Coin's photo section, merged 23 Oct 2026 by fast-forward to `bac420e`; later
-commits are docs-only); `npm test` = 3464 passed, 0 failed, 0 page errors, 69
-suites (run on `bac420e`, 23 Oct 2026).
+**Baseline:** last code commit on `main` is `a576e42` (photo labels save
+with Save Changes, same-height photo tiles, labels in the viewer; merged 24
+Oct 2026 by fast-forward of `claude/photo-label-save-changes`; later commits
+are docs-only); `npm test` = 3836 passed, 0 failed, 0 page errors, 71 suites
+(run on `a576e42`, 24 Oct 2026).
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
@@ -427,8 +428,10 @@ commit 5).
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
 
-## Photo labels save with Save Changes (Oct 2026, built on `claude/photo-label-save-changes`, NOT merged)
-**Held for Ray's tablet test of `13e931c` and merge go-ahead.** Branch cut from `main`
+## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
+**Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
+passed and the Edit Set toast fix (`a576e42`, below). `main` is the source of
+truth; the branch stays on origin as history. Branch cut from `main`
 `e8abe7d`. Suite: `tests/verify_photo_label_save.js`. Replaces the earlier
 `claude/label-save-on-blur` (`dfcb4f1`/`3994ee4`, never merged, kept on origin
 as history): Ray tested save-on-blur on TEST and chose design B, because a
@@ -719,6 +722,23 @@ label saved on blur had no undo.
     half above the photo); Samsung Internet's visualViewport; how 200px
     tiles feel on the tablet; a real undecodable HEIC (falls back to a
     square by code, not seen).
+- **Edit Set Save Changes toast (fix before merge, `a576e42`, Ray's tablet
+  test of `dac32fe`).** A labels-only save said "Updated AY-00463 for this
+  session only — not saved to OneDrive. 1 photo label saved to the
+  workbook." Edit Set now keeps a copy of its field values when it opens
+  (`editSetOpenedFields` from `editSetFieldValues()`, over
+  `EDIT_SET_FIELD_IDS`, taken at the end of `showBrowseEditSetView`);
+  `editSetFieldsChanged()` compares at Save. Only labels changed: "1 photo
+  label saved to the workbook." (plus any label-failure text). A field
+  changed, with or without labels: "Updated {ID} for this session only —
+  not saved to OneDrive." plus the label count if any. Nothing changed:
+  "No changes to save." The copy is retaken after a save (the form stays
+  open when a label failed). Tests `verify_photo_label_save` L11b (labels
+  only, now exact), new L11d (field + label) and L11e (field only).
+  Negative controls (real app.html, restored by checksum): the old wording
+  always (L11b fails); field changes never noticed (L11d, L11e fail).
+  `npm test` on `a576e42`: 3836 passed, 0 failed, 0 page errors, 71 suites
+  (3834 + 2).
 
 ## Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)
 **Merged on Ray's go-ahead.** C1 (coin screens) and C2 (Set screens) and
@@ -1262,7 +1282,7 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   restarted. Plan only first, before any build.
 - (b) The "Mark ready" toast still says the app doesn't write the All sheet
   ("Copilot moves the row across"); out of date since Promote and the direct
-  write landed. *(Fixed on `claude/photo-label-save-changes`, not merged.)*
+  write landed. *(Fixed; on main since 24 Oct 2026.)*
 - (c) The Add Coin gallery has no per-photo Replace button. *(Closed 23 Oct 2026, on main: Add Coin uses Edit Coin's
   section, which has Replace.)*
 - (d) A new obverse, reverse or receipt picked during a Staging edit shows
@@ -1298,6 +1318,10 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   edit screens wait for Save, the same as Add Coin's draft mode, instead of
   saving on capture; Discard undoes them; Manage Photos gets ONE Save button
   for photos and labels together (replacing "Save labels").
+- (o) Same next branch as (l) and (m) (Ray, 24 Oct): Close Drawer on Add
+  Coin must warn before throwing away a half-entered coin. Today
+  `navigate("addcoin")` resets the form (`resetAddCoinForm()`) and leaving
+  by any route discards whatever was typed or picked, with no warning.
 - (n) Next branch, plan first (Ray, 23 Oct): Package/OGP becomes open-ended
   (any number of photos, each labelled, e.g. Closed / Open) instead of a
   Front/Back pair. Needs a plan for the existing Front/Back Package photos
@@ -1515,7 +1539,7 @@ Built on `claude/in-app-pdf-viewer-options`, held for Ray's go-ahead.
   `receipt-1page.pdf`. Note that every other suite still runs from
   `file://`, so there the viewer's external-PDF path shows the fallback.
 
-- **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified. *(Since `13e931c`, on `claude/photo-label-save-changes`: Close hides at once and the pop that follows is ignored, `mediaViewerExpectPop`; the viewer also carries the photo-label field for the edit screens.)*
+- **In-app image viewer (Oct 2026) is the app's only use of browser history:** opening it pushes one same-URL entry so the phone's back button closes it, and Close/Escape remove that entry with `history.back()`; back-gesture behaviour on the tablet is unverified. *(Since `13e931c`, on main 24 Oct 2026: Close hides at once and the pop that follows is ignored, `mediaViewerExpectPop`; the viewer also carries the photo-label field for the edit screens.)*
 
 ## Crop from an uploaded photo (Oct 2026, merged to main)
 *(Superseded 23 Oct 2026, now on main: renamed "Crop from another photo", sources Holder/Reference/Other, destinations Obverse/Reverse/Reference — see "Add Coin uses Edit Coin's photo section".)*
