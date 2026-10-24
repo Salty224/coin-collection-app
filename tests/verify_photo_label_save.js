@@ -666,12 +666,33 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     L.clickGuard("Discard");
     out.caption = L.entry("AY-00090", "AY-00090_coa_01.jpg").caption;
     out.left2 = !L.editSetOpen();
+    // A Set field and a label together: the session-only wording is for the
+    // field, plus the label count.
+    host = L.openEditSet();
+    document.getElementById("editSetNotes").value = "Field change";
+    L.type(L.boxFor(host, "AY-00090_coa_01.jpg"), "Certificate back");
+    L.clearToast();
+    document.getElementById("browseEditSetSaveBtn").click();
+    await L.waitFor(() => L.row("PH-00011")[5] === "Certificate back", 3000);
+    await L.sleep(100);
+    out.both = L.toast();
+    // A Set field alone: the session-only wording, no label count.
+    host = L.openEditSet();
+    document.getElementById("editSetNotes").value = "Field change again";
+    L.clearToast();
+    document.getElementById("browseEditSetSaveBtn").click();
+    await L.sleep(150);
+    out.fieldOnly = L.toast();
     return out;
   });
   ok(R1.label === "Certificate front" && R1.patches.length === 1 && R1.patches[0] === "Photos!F6:F6" && R1.extra === "keep-me",
     "L11a Edit Set Save Changes writes the changed label for real, one cell: " + JSON.stringify(R1));
-  ok(/for this session only — not saved to OneDrive\. 1 photo label saved to the workbook\./.test(R1.toast) && R1.left,
-    "L11b Edit Set's message says the label was saved: " + R1.toast);
+  ok(R1.toast === "1 photo label saved to the workbook." && R1.left,
+    "L11b Edit Set, only a label changed: the message says just that the label was saved (no session-only wording): " + R1.toast);
+  ok(/^Updated AY-00090 for this session only — not saved to OneDrive\. 1 photo label saved to the workbook\.$/.test(R1.both),
+    "L11d Edit Set, a field and a label changed: the session-only wording for the field, plus the label count: " + R1.both);
+  ok(/^Updated AY-00090 for this session only — not saved to OneDrive\.$/.test(R1.fieldOnly),
+    "L11e Edit Set, only a field changed: the session-only wording, no label count: " + R1.fieldOnly);
   ok(R1.dialog && /1 photo label on AY-00090/.test(R1.text) && R1.caption === "Certificate front" && R1.left2,
     "L11c Edit Set Back asks, and Discard restores the label on the sheet (the one just saved): " + JSON.stringify([R1.dialog, R1.text, R1.caption]));
 

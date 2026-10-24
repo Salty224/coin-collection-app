@@ -17795,6 +17795,28 @@
     // --- Storage
     document.getElementById("editSetStorageLocation").value = coin.storageLocation || "";
     document.getElementById("editSetContainer").value = coin.container || "";
+    // What the form showed on opening, so Save can tell whether any Set
+    // field changed (the toast only claims a session-only update when one
+    // did).
+    editSetOpenedFields = editSetFieldValues();
+  }
+
+  // Every editable Edit Set field, as the form holds it now. Compared with
+  // the copy taken when the form opened.
+  const EDIT_SET_FIELD_IDS = ["editSetYearField", "editSetDescription", "editSetValue", "editSetCost",
+    "editSetStorageLocation", "editSetContainer", "editSetStatus", "editSetSaleDate", "editSetBuyer",
+    "editSetSalePrice", "editSetPlatform", "editSetShippingCost", "editSetVendor", "editSetPurchaseDate",
+    "editSetFunFact", "editSetNotes"];
+  let editSetOpenedFields = null;
+  function editSetFieldValues() {
+    const out = {};
+    EDIT_SET_FIELD_IDS.forEach(id => { const el = document.getElementById(id); out[id] = el ? String(el.value).trim() : ""; });
+    return out;
+  }
+  function editSetFieldsChanged() {
+    if (!editSetOpenedFields) return true; // nothing to compare with: say what we did
+    const now = editSetFieldValues();
+    return EDIT_SET_FIELD_IDS.some(id => now[id] !== editSetOpenedFields[id]);
   }
 
   // (returnToEditSetView() lived here. It existed so that drilling from Edit
@@ -18506,6 +18528,7 @@
     document.getElementById("browseEditSetSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
+      const fieldsChanged = editSetFieldsChanged();
       applyEditsToRecord(coin, {
         row: {
           year: numOrUndefined(document.getElementById("editSetYearField").value),
@@ -18547,7 +18570,13 @@
         }
         const labelMsg = lres && lres.saved
           ? " " + lres.saved + " photo label" + (lres.saved === 1 ? "" : "s") + " saved to the workbook." : "";
-        showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + labelMsg + photoLabelResultText(lres));
+        // The session-only wording is about the Set's fields, so it shows
+        // only when a field changed; a labels-only save just says what was
+        // written (Ray's tablet test of dac32fe).
+        const labelText = (labelMsg + photoLabelResultText(lres)).trim();
+        if (fieldsChanged) showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + labelMsg + photoLabelResultText(lres));
+        else showToast(labelText || "No changes to save.");
+        editSetOpenedFields = editSetFieldValues();
         if (photoLabelsAllSaved(lres)) showBrowseDetail(coin);
       })();
     });
