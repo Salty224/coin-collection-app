@@ -309,7 +309,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       out[k] = {
         ogpFront: !!(ogp && ogp.querySelector('.sg-photo-slot [data-act="replace"]')),
         ogpBackEmpty: !!(ogp && ogp.querySelectorAll('.sg-photo-slot [data-act="add"]').length === 1),
-        coaCaption: coa ? [...coa.querySelectorAll(".gc-thumb .gc-caption")].map(i => i.value) : null,
+        coaCaption: coa ? [...coa.querySelectorAll(".gc-thumb .gc-label-line")].map(i => i.title) : null,
         coaTile: !!(coa && coa.querySelector("button.gc-add-tile")),
         ogpCount: ((ogp && ogp.previousElementSibling.textContent) || "").replace(/\s+/g, " ")
       };
@@ -497,12 +497,13 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => {
           const img = t.querySelector(".gc-img"), ir = R(img);
           const ratio = this.ratioOfUrl(img && img.style.backgroundImage);
-          const rm = R(t.querySelector(".gc-remove")), cap = R(t.querySelector(".gc-caption")), rep = R(t.querySelector('[data-role="replace"]'));
-          const grid = t.closest(".gc-half-grid");
-          const half = grid ? r1((grid.clientWidth - (parseFloat(getComputedStyle(grid).columnGap) || 0)) / 2) : null;
-          return { kind: "thumb", shaped: t.classList.contains("gc-shaped"), want: ratio, got: ir && Math.round(ir.width / ir.height * 1000) / 1000,
+          const rm = R(t.querySelector(".gc-remove")), cap = R(t.querySelector(".gc-label-line")), rep = R(t.querySelector('[data-role="replace"]'));
+          // Same-height tiles (Oct 2026): the row height and the row's width.
+          const row = t.closest(".gc-row-grid, .gc-row-strip");
+          const rowH = row ? parseFloat(getComputedStyle(row).getPropertyValue("--gc-row-h")) : null;
+          return { kind: "thumb", shaped: t.classList.contains("gc-row-tile"), want: ratio, got: ir && Math.round(ir.width / ir.height * 1000) / 1000,
             w: ir && r1(ir.width), h: ir && r1(ir.height), right: R(t).right,
-            size: img ? getComputedStyle(img).backgroundSize : null, tileW: r1(R(t).width), half,
+            size: img ? getComputedStyle(img).backgroundSize : null, tileW: r1(R(t).width), rowH, rowW: row ? r1(row.clientWidth) : null,
             xdr: rm && r1(rm.right - ir.right), xdt: rm && r1(rm.top - ir.top),
             capW: cap && r1(cap.width), repW: rep && r1(rep.width) };
         }).filter(x => x.want);
@@ -548,46 +549,46 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       const close = (a, b) => Math.abs(a - b) / b <= 0.03;
       console.log("    shapes " + t + ": " + JSON.stringify(nonFace.map(x => [x.kind[0], x.want === 2 ? "W" : "T", x.w, x.h])));
       const wantCount = { "coin-edit": 6, "coin-manage": 6, "set-edit": 4, "set-manage": 4, "coin-page": 6 }[screen];
-      // Oct 2026 (Ray's tablet test of c90b51b): on the editing screens an
-      // open-ended tile (Reference, COA, Other) is half the section wide and
-      // draws its photo whole inside a 120px box, whatever its shape. Pair
-      // slots and the coin page's read-only strip still follow the shape.
+      // Oct 2026 (Ray's tablet test of 22c407f): every open-ended tile
+      // (Reference, COA, Other, on the editing screens and the coin page's
+      // strip) is its own shape at one row height — 110px on a phone, 200px
+      // from 700px wide — never wider than the row. Pair slots are unchanged.
       const editing = screen !== "coin-page";
-      const shapedSet = editing ? nonFace.filter(x => x.kind === "pair") : nonFace;
-      const tileSet = editing ? nonFace.filter(x => x.kind === "thumb") : [];
-      ok(nonFace.length === wantCount && shapedSet.length && shapedSet.every(x => x.shaped) &&
-         tileSet.every(x => !x.shaped && x.size === "contain" && Math.abs(x.w - x.tileW) <= 1 && Math.abs(x.tileW - x.half) <= 1 && Math.abs(x.h - 120) <= 1) &&
-         (!editing || tileSet.length > 0),
-        `SH1 ${t}: pair photos${editing ? "" : " and strip thumbs"} follow their own shape; open-ended tiles draw the photo whole in a half-width 120px box (${nonFace.length}/${wantCount}): ` +
-        JSON.stringify(tileSet.map(x => [x.w, x.h, x.tileW, x.half, x.size])));
+      const wantRowH = vp.width >= 700 ? 200 : 110;
+      const shapedSet = nonFace;
+      const tileSet = nonFace.filter(x => x.kind === "thumb");
+      ok(nonFace.length === wantCount && shapedSet.every(x => x.shaped) && tileSet.length > 0 &&
+         tileSet.every(x => x.size === "cover" && x.rowH === wantRowH),
+        `SH1 ${t}: pair photos and the open-ended tiles all follow their own shape (${nonFace.length}/${wantCount}), tiles at the ${wantRowH}px row height: ` +
+        JSON.stringify(tileSet.map(x => [x.w, x.h, x.rowH, x.size])));
       ok(shapedSet.filter(x => x.want === 2).every(x => close(x.got, 2)),
         `SH2 ${t}: a wide 2:1 image drawn at its shape is 2:1: ` + JSON.stringify(shapedSet.filter(x => x.want === 2).map(x => x.got)));
       ok(shapedSet.filter(x => x.want !== 2).every(x => close(x.got, 0.625)),
         `SH3 ${t}: a tall 1:1.6 image drawn at its shape is 1:1.6: ` + JSON.stringify(shapedSet.filter(x => x.want !== 2).map(x => x.got)));
       ok(shapedSet.every(x => x.kind === "thumb"
-          ? (x.want === 2 ? x.w <= 177 : Math.abs(x.h - 88) <= 1)
+          ? (Math.abs(x.h - x.rowH) <= 1 || Math.abs(x.w - x.rowW) <= 1)
           : (x.h <= 120.5 && (x.h >= 119 || x.w >= x.slotW - 1))),
-        `SH4 ${t}: same height as before (88px strip thumbnail, 120px pair photo) unless the width cap applies: ` +
+        `SH4 ${t}: tiles at the row height (unless capped at the row width), pair photos 120px unless the slot's width caps them: ` +
         JSON.stringify(shapedSet.map(x => [x.w, x.h])));
       ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
         `SH5 ${t}: no sideways scroll, every photo stays on the screen and inside its own slot: ` +
         JSON.stringify(nonFace.filter(x => x.kind === "pair").map(x => [x.w, x.slotW])));
-      if (screen !== "coin-page") {
+      if (editing) {
         ok(nonFace.every(x => Math.abs(x.xdr - 6) <= 1 && Math.abs(x.xdt + 6) <= 1),
           `SH6 ${t}: the ✕ sits on each image's own top-right corner: ` + JSON.stringify(nonFace.map(x => [x.xdr, x.xdt])));
         ok(nonFace.every(x => x.kind === "thumb"
-            ? (Math.abs(x.capW - x.w) <= 1 && Math.abs(x.repW - x.w) <= 1)
+            ? (Math.abs(x.capW - x.tileW) <= 1 && Math.abs(x.repW - x.tileW) <= 1 && x.tileW >= Math.max(80, x.w) - 1)
             : (Math.abs(x.labW - x.w) <= 1 && Math.abs(x.repW - x.w) <= 1)),
-          `SH7 ${t}: the label box and Replace are exactly as wide as the photo: ` +
-          JSON.stringify(nonFace.map(x => [x.w, x.capW || x.labW, x.repW])));
-        const tileW = tileSet.length ? tileSet[0].tileW : null;
-        ok(m.plus.length && tileW && m.plus.every(b => Math.abs(b[0] - tileW) <= 1 && b[1] === 120) && m.pairAdd.every(h => h === 120),
-          `SH8 ${t}: the + boxes are a tile wide (${tileW}px) and 120px tall, like the pair slot's +: ` + JSON.stringify([m.plus, m.pairAdd]));
+          `SH7 ${t}: the label line and Replace are as wide as the tile (the photo, at least 80px); a pair's as wide as its photo: ` +
+          JSON.stringify(nonFace.map(x => [x.w, x.tileW, x.capW || x.labW, x.repW])));
+        ok(m.plus.length && m.plus.every(b => Math.abs(b[0] - wantRowH) <= 1 && b[1] === wantRowH) && m.pairAdd.every(h => h === 120),
+          `SH8 ${t}: the + tiles are squares at the row height (${wantRowH}px); the pair slot's + is still 120px: ` + JSON.stringify([m.plus, m.pairAdd]));
       }
       if (screen.indexOf("coin") === 0) {
-        ok(faces.length === 1 && faces.every(x => !x.shaped && (x.kind === "pair"
-            ? (x.w === x.slotW && x.h === 120) : (x.w === 88 && x.h === 88))),
-          `SH9 ${t}: Front is unchanged (not reshaped): ` + JSON.stringify(faces));
+        ok(faces.length === 1 && faces.every(x => x.kind === "pair"
+            ? (!x.shaped && x.w === x.slotW && x.h === 120)
+            : (Math.abs(x.w - x.rowH) <= 1 && Math.abs(x.h - x.rowH) <= 1)),
+          `SH9 ${t}: the Obverse pair slot is unchanged; on the coin page it is a square at the row height: ` + JSON.stringify(faces));
       }
     }
     await p.close();
@@ -621,7 +622,7 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         const mv = document.getElementById("mediaViewerOverlay");
         out[screen] = { thumbs: thumbs.length, ownCoa, align,
           heading: (host.textContent.match(/COA — from parent Set/) || [""])[0],
-          ratio: r ? Math.round(r.width / r.height * 1000) / 1000 : null, shaped: !!(first && first.classList.contains("gc-shaped")),
+          ratio: r ? Math.round(r.width / r.height * 1000) / 1000 : null, shaped: !!(first && first.classList.contains("gc-row-tile")),
           viewerOpen: !mv.classList.contains("hidden"),
           footer: document.getElementById("mediaViewerFooter").textContent,
           viewerImg: !!document.querySelector("#mediaViewerStage img"),
@@ -711,8 +712,8 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     });
     console.log("    child Docket: " + JSON.stringify(DK.child) + " parent's Package/OGP or other photos shown on the child: " + DK.child.parentOtherShown);
     ok(DK.child.inPhotos && /Photos/.test(DK.child.photosTitle) && DK.child.heading && DK.child.names && DK.child.thumbs === 1 &&
-       JSON.stringify(DK.child.labels) === JSON.stringify(["page 1"]),
-      "DK1 a coin inside a Set shows the Set's COA in its page's Photos section, headed \"COA — from parent Set\" with the Set's name: " + JSON.stringify(DK.child));
+       JSON.stringify(DK.child.labels) === JSON.stringify(["COA / certificate"]),
+      "DK1 a coin inside a Set shows the Set's COA in its page's Photos section, headed \"COA — from parent Set\" with the Set's name, captioned \"COA / certificate\" (the page's own label is in the viewer): " + JSON.stringify(DK.child));
     ok(DK.child.readOnly && DK.child.buttons, "DK2 the parent's COA on the coin page is read-only: no ✕, no Replace, no label box");
     ok(DK.viewer.open && /COA — from parent Set/.test(DK.viewer.footer) && /page 1/.test(DK.viewer.footer) && DK.viewer.img && !DK.viewer.gallery,
       "DK3 tapping it opens that page in the in-app viewer, labelled as the parent Set's: " + JSON.stringify(DK.viewer));
@@ -890,12 +891,14 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const nonFace = m.thumbs.filter(x => x.want !== 1).concat(m.slots.filter(x => x.want !== 1));
     const faces = m.thumbs.filter(x => x.want === 1).concat(m.slots.filter(x => x.want === 1));
     // Pair slots (Holder, Package) follow the shape; open-ended tiles
-    // (Reference, COA, Other) draw the photo whole in a half-width 120px box.
+    // (Reference, COA, Other) are their own shape at the row height.
     const acPairs = nonFace.filter(x => x.kind === "pair"), acTiles = nonFace.filter(x => x.kind === "thumb");
+    const acRowH = vp.width >= 700 ? 200 : 110;
     ok(nonFace.length === 6 && acPairs.length && acPairs.every(x => x.shaped && close(x.got, x.want === 2 ? 2 : 0.625)) &&
-       acTiles.length && acTiles.every(x => !x.shaped && x.size === "contain" && Math.abs(x.tileW - x.half) <= 1 && Math.abs(x.h - 120) <= 1),
-      `AC4 ${tag}: Add Coin draws Holder and Package at their own shape, and Reference, COA and Other whole in half-width tiles: ` +
-      JSON.stringify([acPairs.map(x => [x.want, x.got]), acTiles.map(x => [x.tileW, x.half, x.h, x.size])]));
+       acTiles.length && acTiles.every(x => x.shaped && x.size === "cover" && close(x.got, x.want === 2 ? 2 : 0.625) &&
+         (Math.abs(x.h - acRowH) <= 1 || Math.abs(x.w - x.rowW) <= 1)),
+      `AC4 ${tag}: Add Coin draws Holder and Package at their own shape, and Reference, COA and Other at their own shape at the ${acRowH}px row height: ` +
+      JSON.stringify([acPairs.map(x => [x.want, x.got]), acTiles.map(x => [x.w, x.h, x.rowH, x.size])]));
     ok(faces.length === 1 && !faces[0].shaped && faces[0].h === 120, `AC5 ${tag}: Obverse stays square in its slot: ` + JSON.stringify(faces));
     ok(!m.pageScroll && nonFace.every(x => x.right <= m.inner + 0.5 && (x.kind === "thumb" || x.w <= x.slotW + 0.5)),
       `AC6 ${tag}: no sideways scroll, every photo inside its slot`);
@@ -1179,10 +1182,13 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       if (!(await finishCrop(before))) return false;
       if (p.caption) {
         const thumbs = [...sectionBody(p.type).querySelectorAll(".gc-thumb")];
-        const box = thumbs.length && thumbs[thumbs.length - 1].querySelector(".gc-caption");
-        if (!box) return false;
-        box.value = p.caption;
-        box.dispatchEvent(new Event("input", { bubbles: true }));
+        // The label is typed in the full-screen viewer: tap the label line,
+        // type, Done.
+        const line = thumbs.length && thumbs[thumbs.length - 1].querySelector(".gc-label-line");
+        if (!line) return false;
+        line.click();
+        document.getElementById("mediaViewerLabelInput").value = p.caption;
+        document.getElementById("mediaViewerLabelDone").click();
       }
       return true;
     }

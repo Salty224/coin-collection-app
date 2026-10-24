@@ -189,16 +189,21 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   ok(B1.historyState && B1.historyState.mediaViewer === true, "B3 opening the viewer adds one history entry");
 
   // View only: nothing that edits, deletes or captures.
+  // (Since Oct 2026 the viewer also holds a label field for the edit screens;
+  // opened from the coin page that panel stays hidden, so only what is
+  // actually shown counts here.)
   const B4 = await page.evaluate(() => {
     const ov = document.getElementById("mediaViewerOverlay");
-    const buttons = [...ov.querySelectorAll("button")];
+    const shown = (el) => !el.closest(".hidden") && el.getClientRects().length > 0;
+    const buttons = [...ov.querySelectorAll("button")].filter(shown);
     return {
-      inputs: ov.querySelectorAll("input, select, textarea").length,
+      labelPanelHidden: document.getElementById("mediaViewerLabel").classList.contains("hidden"),
+      inputs: [...ov.querySelectorAll("input, select, textarea")].filter(shown).length,
       buttonIds: buttons.map(b => b.id),
       forbidden: /remove|delete|replace|adjust|edit|capture|camera|library|trash/i.test(ov.innerText + " " + buttons.map(b => b.getAttribute("aria-label") || "").join(" "))
     };
   });
-  ok(B4.inputs === 0, "B4 the viewer contains no inputs (no capture, no file picker)");
+  ok(B4.inputs === 0 && B4.labelPanelHidden, "B4 the viewer shows no inputs (no capture, no file picker, no label field)");
   ok(JSON.stringify(B4.buttonIds) === JSON.stringify(["mediaViewerCloseBtn"]) && B4.forbidden === false,
     "B5 its only control is Close — no edit, delete, replace, adjust or capture");
 

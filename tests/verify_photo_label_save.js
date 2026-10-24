@@ -157,14 +157,42 @@ async function setup(page) {
         this.closeOverlays();
         return this.openAll("managePhotosSections");
       },
+      // A photo's label line (Oct 2026: the label is edited in the
+      // full-screen viewer, which the line or the photo opens).
       boxFor(host, filename) {
         const t = [...host.querySelectorAll(".gc-thumb")].find(x => x.dataset.file === filename);
-        return t ? t.querySelector(".gc-caption") : null;
+        return t ? t.querySelector(".gc-label-line") : null;
       },
+      val(line) { return line ? line.title : null; },
       entry(targetId, filename) { return galleryFor(targetId).find(e => (e.storedFilename || e.filename) === filename) || null; },
-      type(box, text) { if (!box) return false; box.focus(); box.value = text; box.dispatchEvent(new Event("input", { bubbles: true })); return true; },
-      blur(box) { if (!box) return false; box.dispatchEvent(new Event("change", { bubbles: true })); box.blur(); return true; },
-      enter(box) { if (!box) return false; box.focus(); box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; },
+      // Tap the label line, type in the viewer's field, tap Done.
+      type(line, text) {
+        if (!line) return false;
+        line.click();
+        const lab = document.getElementById("mediaViewerLabel");
+        if (lab.classList.contains("hidden")) return false;
+        const input = document.getElementById("mediaViewerLabelInput");
+        input.focus(); input.value = text; input.dispatchEvent(new Event("input", { bubbles: true }));
+        document.getElementById("mediaViewerLabelDone").click();
+        return true;
+      },
+      // Typing in the field and leaving it (no Done) applies nothing.
+      blur(line) {
+        if (!line) return false;
+        line.click();
+        const input = document.getElementById("mediaViewerLabelInput");
+        input.focus(); input.dispatchEvent(new Event("change", { bubbles: true })); input.blur();
+        closeMediaViewer();
+        return true;
+      },
+      // Enter in the field applies the text (Done).
+      enter(line) {
+        if (!line) return false;
+        line.click();
+        const input = document.getElementById("mediaViewerLabelInput");
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        return true;
+      },
       typeNotes(text) {
         const n = document.getElementById("browseEditNotes");
         n.value = text; n.dispatchEvent(new Event("input", { bubbles: true }));
@@ -238,7 +266,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     await L.sleep(80);
     out.afterRedraw = L.calls.filter(c => c === "patchWorkbookRanges").length;
     box = L.boxFor(L.editHost(), "AY-00099_reference_01.jpg");
-    out.boxAfterRedraw = box && box.value;
+    out.boxAfterRedraw = L.val(box);
     // App switch / page close.
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
@@ -359,14 +387,14 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     L.type(L.boxFor(host, "AY-00099_reference_01.jpg"), "");
     hydrateStoredPhotos("AY-00099");
     renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(L.coin));
-    const keptBlank = L.boxFor(L.editHost(), "AY-00099_reference_01.jpg").value;
+    const keptBlank = L.val(L.boxFor(L.editHost(), "AY-00099_reference_01.jpg"));
     await L.save();
     const row = L.row("PH-00002")[5];
     // Reopen: the cleared label stays cleared on screen too.
     showBrowseEditView(L.coin); await L.sleep(100);
     hydrateStoredPhotos("AY-00099");
     host = await L.openEditCoin();
-    return { keptBlank, row, box: L.boxFor(host, "AY-00099_reference_01.jpg").value };
+    return { keptBlank, row, box: L.val(L.boxFor(host, "AY-00099_reference_01.jpg")) };
   });
   ok(B.keptBlank === "", "L4a a redraw keeps an unsaved (cleared) label instead of putting the sheet label back: " + JSON.stringify(B.keptBlank));
   ok(B.row === "" && B.box === "", "L4b once saved, the cleared label stays cleared (sheet and screen): " + JSON.stringify([B.row, B.box]));
@@ -383,7 +411,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadPending);
     out.pending = !!e;
     const thumb = [...L.section(L.editHost(), /Other/).querySelectorAll(".gc-thumb")].pop();
-    L.type(thumb.querySelector(".gc-caption"), "Mint box");
+    L.type(thumb.querySelector(".gc-label-line"), "Mint box");
     out.unsavedWhilePending = unsavedPhotoLabelCount("AY-00099");
     L.patches = []; L.clearToast();
     // Save while the photo is still saving: it waits, then writes the label.
@@ -416,7 +444,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     await L.waitFor(() => galleryFor("AY-00099").some(e => e.type === "other" && e.uploadPending), 3000);
     const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadPending);
     const thumb = [...L.section(L.editHost(), /Other/).querySelectorAll(".gc-thumb")].pop();
-    L.type(thumb.querySelector(".gc-caption"), "Typed, not saved");
+    L.type(thumb.querySelector(".gc-label-line"), "Typed, not saved");
     L.uploadGate = null; release();
     await L.waitFor(() => !!e.storedPhotoId, 4000);
     await L.sleep(100);
@@ -438,7 +466,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadError);
     out.failed = !!e;
     const sec = () => L.section(L.editHost(), /Other/);
-    L.type([...sec().querySelectorAll(".gc-thumb")].pop().querySelector(".gc-caption"), "Slab label");
+    L.type([...sec().querySelectorAll(".gc-thumb")].pop().querySelector(".gc-label-line"), "Slab label");
     L.patches = []; L.clearToast();
     await L.save();
     out.photoPatches = L.photoPatches().length;
@@ -480,7 +508,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const box = L.boxFor(L.editHost(), "AY-00099_reference_01.jpg");
     const thumb = box.closest(".gc-thumb");
     const line = thumb.querySelector(".gc-label-failed");
-    out.boxValue = box.value;
+    out.boxValue = L.val(box);
     out.line = line ? line.textContent : null;
     out.lineVisible = !!line && line.getBoundingClientRect().height > 0;
     // Fixed: the next Save Changes writes only the label.
@@ -520,8 +548,8 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     out.label = row[5]; out.file = row[4]; out.rowsSame = L.rowCount() === rows;
     const e = galleryFor("AY-00099").find(x => x.type === "reference" && !x.stored);
     out.caption = e && e.caption; out.photoId = e && e.storedPhotoId;
-    const b2 = [...L.section(L.editHost(), /Reference/).querySelectorAll(".gc-caption")][0];
-    out.box = b2 && b2.value;
+    const b2 = [...L.section(L.editHost(), /Reference/).querySelectorAll(".gc-label-line")][0];
+    out.box = L.val(b2);
     await L.save();
     out.label2 = L.row("PH-00002")[5];
     return out;
@@ -541,7 +569,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const out = { dialog: L.guardOpen(), text: L.guardText() };
     L.clickGuard("Keep editing");
     out.keepOpen = L.editOpen();
-    out.keepBox = L.boxFor(L.editHost(), "AY-00099_reference_01.jpg").value;
+    out.keepBox = L.val(L.boxFor(L.editHost(), "AY-00099_reference_01.jpg"));
     L.typeNotes("A field too");
     document.getElementById("navBackBtn").click();
     out.text2 = L.guardText();
@@ -550,7 +578,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     out.caption = L.entry("AY-00099", "AY-00099_reference_01.jpg").caption;
     out.patches = L.patches.slice();
     host = await L.openEditCoin();
-    out.reopenBox = L.boxFor(host, "AY-00099_reference_01.jpg").value;
+    out.reopenBox = L.val(L.boxFor(host, "AY-00099_reference_01.jpg"));
     // The in-form Back is guarded too.
     L.type(L.boxFor(host, "AY-00099_other_01.jpg"), "In-form back");
     document.getElementById("browseEditBackBtn").click();
@@ -591,7 +619,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
       blob: new Blob([new Uint8Array([1])], { type: "image/jpeg" }), filename: id + "_reference_01.jpg", caption: "" });
     renderAddCoinPhotos();
     const host = L.openAll("addCoinPhotoSections");
-    const box = host.querySelector('.gc-thumb[data-file="' + id + '_reference_01.jpg"] .gc-caption');
+    const box = host.querySelector('.gc-thumb[data-file="' + id + '_reference_01.jpg"] .gc-label-line');
     L.graphCalls = 0;
     const out = { typed: L.type(box, "Draft label") };
     L.blur(box);
@@ -687,7 +715,7 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
       `L11-${name}c Back asks first; Discard restores the saved label and goes back: ` + JSON.stringify([R.dialog, R.wentBack, R.caption]));
   }
 
-  // ---------- L12 legacyOnly box is read-only ------------------------------
+  // ---------- L12 legacyOnly photo: no label field ------------------------
   const I = await page.evaluate(async () => {
     const L = __lb; L.install();
     let host = await L.openEditCoin();
@@ -695,13 +723,21 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
       filename: "AY-00099_legacy.jpg", storedFilename: "AY-00099_legacy.jpg", caption: "", savedLabel: "" });
     renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(L.coin));
     host = L.openAll("browseEditPhotosSections");
-    const box = L.boxFor(host, "AY-00099_legacy.jpg");
-    return { found: !!box, readOnly: box && box.readOnly, placeholder: box && box.placeholder,
-             legacyNoEditor: !!box && box.classList.contains("gc-caption-legacy") && !box.classList.contains("gc-label-box"),
-             normalOpensEditor: L.boxFor(host, "AY-00099_other_01.jpg").classList.contains("gc-label-box") };
+    const line = L.boxFor(host, "AY-00099_legacy.jpg");
+    const fieldShown = () => !document.getElementById("mediaViewerLabel").classList.contains("hidden");
+    const out = { found: !!line, text: line && line.textContent, legacy: !!line && line.classList.contains("gc-label-legacy") };
+    if (line) line.click();
+    out.legacyViewer = mediaViewerIsOpen(); out.legacyField = fieldShown();
+    out.footer = document.getElementById("mediaViewerFooter").textContent;
+    closeMediaViewer();
+    L.boxFor(host, "AY-00099_other_01.jpg").click();
+    out.normalField = fieldShown();
+    closeMediaViewer();
+    return out;
   });
-  ok(I.found && I.readOnly && I.placeholder === "Replace this photo to give it a label" && I.legacyNoEditor && I.normalOpensEditor,
-    "L12 a photo with no Photos row (legacyOnly) gets a read-only box saying \"Replace this photo to give it a label\": " + JSON.stringify(I));
+  ok(I.found && I.legacy && I.text === "Replace this photo to give it a label" && I.legacyViewer && !I.legacyField &&
+      /Replace this photo to give it a label/.test(I.footer) && I.normalField,
+    "L12 a photo with no Photos row (legacyOnly) says \"Replace this photo to give it a label\" and its viewer has no label field: " + JSON.stringify(I));
 
   // ---------- LL layout of the red line -----------------------------------
   for (const [w, h] of [[360, 800], [412, 915], [1024, 768]]) {
@@ -718,13 +754,13 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
       const line = thumb.querySelector(".gc-label-failed");
       const tr = thumb.getBoundingClientRect(), lr = line ? line.getBoundingClientRect() : null;
       const out = { line: !!line, inside: !!lr && lr.left >= tr.left - 1 && lr.right <= tr.right + 1,
-        below: !!lr && lr.top >= box.getBoundingClientRect().bottom - 1,
+        below: !!lr && lr.top >= box.getBoundingClientRect().bottom - 1,   // under the label line
         noScroll: document.documentElement.scrollWidth <= window.innerWidth };
       discardPhotoLabels("AY-00099");
       navigate("dashboard");
       return out;
     });
-    ok(K.line && K.inside && K.below && K.noScroll, `LL ${w}x${h}: "Label not saved" sits under the box, inside the thumb, no sideways scroll: ` + JSON.stringify(K));
+    ok(K.line && K.inside && K.below && K.noScroll, `LL ${w}x${h}: "Label not saved" sits under the label line, inside the thumb, no sideways scroll: ` + JSON.stringify(K));
   }
 
   await page.evaluate(() => {

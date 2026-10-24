@@ -329,7 +329,7 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         adjustSource: !!(obvEntry && obvEntry.stagingRawUrl),
         thumbStates: [...document.querySelectorAll("#addCoinPhotoSections .photo-upload-state")].map(n => n.textContent),
         thumbImgs: [!!(holder && holder.querySelector(".sg-photo-img"))].concat(thumbs.map(t => /blob:/.test(t.querySelector(".gc-img").style.backgroundImage))),
-        captions: thumbs.map(t => t.querySelector(".gc-caption").value),
+        captions: thumbs.map(t => t.querySelector(".gc-label-line").title),
         receipt: document.getElementById("receiptPhotoBox") ? document.getElementById("receiptPhotoBox").textContent : document.body.textContent.indexOf(id + "_receipt.pdf (in Staging)") !== -1
       };
       // Saving with no photo change keeps coin.json's photos exactly.

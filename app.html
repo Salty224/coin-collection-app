@@ -2237,7 +2237,6 @@
     font-size: 11px; color: #e06c5a; margin-top: 2px;
     width: 0; min-width: 100%; box-sizing: border-box;
   }
-  .gc-thumb .gc-caption.gc-caption-legacy { opacity: 0.75; font-style: italic; }
   .gc-thumb .gc-caption {
     width: 100%; margin-top: 4px; font-size: 10px; padding: 3px 4px; box-sizing: border-box;
     border-radius: 4px; border: 1px solid var(--case-border); background: var(--bg-case); color: var(--text);
@@ -2307,9 +2306,12 @@
      and offset as a Reference thumb's .gc-remove); Recrop is a pill under
      Replace; ↻ (failed save only) is centred on the photo. */
   .sg-photo-slot.sg-chooser-mode .sg-photo-actions { flex-wrap: wrap; gap: 6px 4px; }
-  .sg-chooser-mode .sg-photo-face { position: relative; }
+  .sg-chooser-mode .sg-photo-face { position: relative; cursor: pointer; }
   /* Photos drawn at their own shape (Oct 2026, Ray's T1 follow-up): Holder,
      Reference, Package/OGP, COA, Other and a Set's whole-set/sub-group pairs.
+     The .gc-shaped thumb rules below now serve only Add Set step 2's
+     parent-COA copy; the open-ended tiles and the coin page use the
+     same-height .gc-row-tile rules further down. */
      Same height as the square tiles were; width follows the image, capped so
      a very wide image can't overflow a 360px phone. Label, caption and
      Replace use width:0 + min-width:100% so they take the image's width
@@ -2342,55 +2344,56 @@
      and a button centres its content, which pushed the + box down off the
      thumbnail's top edge. */
   .gc-grid.gc-chooser-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; align-items: flex-start; }
-  /* Open-ended tiles (Reference, COA, Other, and a Set's COA/Other) are the
-     same width as a pair slot: two equal columns, half the section each,
-     with the same 10px gap as .sg-photo-pair (Ray's tablet test of c90b51b).
-     The "+" tile is one of the two columns too. The photo is drawn whole
-     inside a 120px-tall box (contain, letterboxed on black), whatever its
-     shape, so every tile in a row is the same size; 120px matches the pair
-     slot's "+" box and its photo height. */
-  .gc-grid.gc-chooser-grid.gc-half-grid {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start;
+  /* Open-ended tiles in chooser mode (Reference, COA, Other, and a Set's
+     COA/Other) and the coin page's Photos strip, Ray's tablet test of
+     22c407f: every photo is the same height (--gc-row-h) and its own shape,
+     so there are no bars and nothing is cropped. Width = row height x the
+     photo's shape (--gc-ar, set once the photo loads), never wider than the
+     row; a wider photo is scaled down whole (shorter, top still aligned).
+     Rows wrap with their tops aligned; a tile grows downward for its label.
+     A tile is at least 80px wide so its label reads; a narrower photo sits
+     centred in that width on the tile's own (transparent) background. The
+     "+" tile is a square at the row height. 110px on a phone, 200px from
+     700px wide. */
+  .gc-row-grid, .gc-row-strip { --gc-row-h: 110px; }
+  @media (min-width: 700px) { .gc-row-grid, .gc-row-strip { --gc-row-h: 200px; } }
+  .gc-row-strip { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .gc-thumb.gc-row-tile { width: max-content; min-width: 80px; max-width: 100%; }
+  .gc-thumb.gc-row-tile > .gc-img.gc-img-row {
+    --gc-ar: 1;
+    display: block; position: relative; box-sizing: border-box; margin: 0 auto;
+    width: calc(var(--gc-row-h) * var(--gc-ar)); max-width: 100%;
+    height: auto; aspect-ratio: var(--gc-ar); overflow: visible;
+    background-color: transparent; background-size: cover; background-position: center;
   }
-  .gc-half-grid > .gc-thumb, .gc-half-grid > button.gc-add-tile { width: auto; min-width: 0; }
-  .gc-half-grid > .gc-thumb > .gc-img {
-    width: 100%; height: 120px; box-sizing: border-box; position: relative;
-    background-size: contain;
+  .gc-img-row.gc-img-row-empty {
+    background-color: rgba(255,255,255,0.03); font-size: 24px; text-align: center; line-height: var(--gc-row-h);
   }
-  .gc-half-grid > .gc-thumb .gc-failed-dim { width: auto; height: auto; inset: -1px; }
-  .gc-half-grid > .gc-thumb .gc-retry { top: 50%; left: 50%; }
-  .gc-half-grid > button.gc-add-tile .gc-add-box { width: 100%; height: 120px; }
-  /* The label box: one line, "…" when the label is longer than the tile.
-     Tapping it opens the full-width label editor (#photoLabelEditor);
-     readonly, so a tap never raises the keyboard on the small box. */
-  .gc-thumb .gc-caption.gc-label-box {
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
-    font-size: 12px; min-height: 30px; padding: 4px 6px;
+  .gc-img-row > .gc-row-sizer {
+    position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: 0; top: 0;
   }
-  .label-editor-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 206;
-    display: flex; align-items: flex-start; justify-content: center;
-    padding-top: calc(var(--top-strip-h, 0px) + 10vh); box-sizing: border-box;
+  .gc-row-grid .gc-img-row { cursor: pointer; }
+  /* -7px from the padding box: the photo box has a 1px border, so the ✕ lands
+     6px past the photo's outer corner, exactly where a pair slot's ✕ sits. */
+  .gc-thumb .gc-img-row > .gc-remove { top: -7px; right: -7px; }
+  .gc-thumb .gc-img-row > .gc-failed-dim { inset: -1px; width: auto; height: auto; border-radius: 8px; }
+  .gc-thumb .gc-img-row > .gc-retry { top: 50%; left: 50%; }
+  .gc-thumb.gc-row-tile > :not(.gc-img) { width: 0; min-width: 100%; box-sizing: border-box; }
+  .gc-row-strip .gc-row-tile .gc-type {
+    text-align: center; white-space: normal; overflow-wrap: anywhere; font-size: 11px; margin-top: 4px;
   }
-  .label-editor-overlay.hidden { display: none; }
-  .label-editor-panel {
-    width: 100%; max-width: 640px; box-sizing: border-box; margin: 0 10px;
-    background: var(--bg-case); border: 1px solid var(--case-border-bright, var(--case-border));
-    border-radius: 14px; padding: 14px;
+  /* The label line under a chooser tile: one line, centred, the tile's width,
+     "…" when the label is longer. Tapping it (or the photo) opens the
+     full-screen viewer, where the label is edited. */
+  .gc-thumb .gc-label-line {
+    display: block; margin-top: 4px; padding: 3px 2px; min-height: 22px;
+    background: none; border: 0; font: inherit; font-size: 12px; color: var(--text);
+    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
   }
-  .label-editor-title { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
-  .label-editor-input {
-    display: block; width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical;
-    font-family: inherit; font-size: 16px; line-height: 1.35; padding: 10px 12px;
-    border-radius: 8px; border: 1px solid var(--case-border); background: var(--bg-elevated); color: var(--text);
-  }
-  .label-editor-note { font-size: 11px; color: var(--text-muted); margin: 6px 0 12px; }
-  .label-editor-btns { display: flex; gap: 10px; justify-content: flex-end; }
-  .label-editor-btns button {
-    min-height: 44px; min-width: 96px; border-radius: 10px; font-family: inherit; font-size: 15px; cursor: pointer;
-    border: 1px solid var(--case-border); background: transparent; color: var(--text-muted);
-  }
-  .label-editor-btns button.primary { border-color: var(--gold); background: var(--bg-elevated); color: var(--gold-bright); }
+  .gc-thumb .gc-label-line.gc-label-empty { color: var(--text-muted); }
+  .gc-thumb .gc-label-line.gc-label-legacy { color: var(--text-muted); font-style: italic; cursor: default; }
+  .gc-row-grid > button.gc-add-tile { width: var(--gc-row-h); }
+  .gc-row-grid > button.gc-add-tile .gc-add-box { width: 100%; height: var(--gc-row-h); }
   button.gc-add-tile {
     width: 88px; text-align: center; cursor: pointer; background: none; border: 0; padding: 0;
     font: inherit; color: inherit;
@@ -2536,6 +2539,21 @@
     display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: center;
   }
   .media-viewer .mv-footer:empty { display: none; }
+  .media-viewer .mv-label { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.12); flex-shrink: 0; }
+  .media-viewer .mv-label.hidden { display: none; }
+  .media-viewer .mv-label-title { display: block; font-size: 12px; color: #a99f8b; margin-bottom: 6px; }
+  .media-viewer .mv-label-input {
+    display: block; width: 100%; box-sizing: border-box; min-height: 72px; resize: none;
+    font-family: inherit; font-size: 16px; line-height: 1.35; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: #15120d; color: #f2ead8;
+  }
+  .media-viewer .mv-label-note { font-size: 11px; color: #a99f8b; margin: 6px 0 8px; }
+  .media-viewer .mv-label-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .media-viewer .mv-label-btns button {
+    min-height: 44px; min-width: 96px; border-radius: 10px; font-family: inherit; font-size: 15px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.3); background: transparent; color: #d9d2c2;
+  }
+  .media-viewer .mv-label-btns button.primary { border-color: var(--gold); color: var(--gold-bright); background: rgba(255,255,255,0.06); }
   .media-viewer .mv-footer a { color: var(--gold); }
   /* Multi-page PDF receipt (pdf.js). The stage stops centring and the pages
      scroll inside their own column. */
@@ -5152,17 +5170,6 @@
        back in the box; it is still unsaved until Save Changes / Save labels
        / the draft's Save, exactly like typing in the box used to be. Cancel
        (or Esc) changes nothing. -->
-  <div class="label-editor-overlay hidden" id="photoLabelEditor" role="dialog" aria-modal="true" aria-labelledby="photoLabelEditorTitle">
-    <div class="label-editor-panel">
-      <p class="label-editor-title" id="photoLabelEditorTitle">Label</p>
-      <textarea class="label-editor-input" id="photoLabelEditorInput" rows="3" placeholder="Label…" aria-labelledby="photoLabelEditorTitle"></textarea>
-      <p class="label-editor-note" id="photoLabelEditorNote"></p>
-      <div class="label-editor-btns">
-        <button type="button" id="photoLabelEditorCancel">Cancel</button>
-        <button type="button" class="primary" id="photoLabelEditorDone">Done</button>
-      </div>
-    </div>
-  </div>
   <div class="image-chooser-overlay hidden" id="imageSourceChooser" role="dialog" aria-modal="true" aria-labelledby="imageSourceChooserTitle">
     <div class="image-chooser-panel">
       <div class="image-chooser-title" id="imageSourceChooserTitle">Add a photo</div>
@@ -5195,6 +5202,18 @@
     <div class="mv-bar">
       <div class="mv-title" id="mediaViewerTitle"></div>
       <button type="button" class="mv-close" id="mediaViewerCloseBtn" aria-label="Close">✕</button>
+    </div>
+    <!-- Photo label, edited here (Oct 2026): shown only when a Reference /
+         COA / Other photo is opened from an edit screen. At the TOP, under
+         the bar, so the on-screen keyboard can never cover it. -->
+    <div class="mv-label hidden" id="mediaViewerLabel">
+      <label class="mv-label-title" for="mediaViewerLabelInput" id="mediaViewerLabelTitle">Label</label>
+      <textarea class="mv-label-input" id="mediaViewerLabelInput" rows="3" placeholder="Label…"></textarea>
+      <p class="mv-label-note" id="mediaViewerLabelNote"></p>
+      <div class="mv-label-btns">
+        <button type="button" id="mediaViewerLabelCancel">Cancel</button>
+        <button type="button" class="primary" id="mediaViewerLabelDone">Done</button>
+      </div>
     </div>
     <div class="mv-stage" id="mediaViewerStage"></div>
     <div class="mv-footer" id="mediaViewerFooter"></div>
@@ -12830,7 +12849,7 @@
     // Leaving a screen throws away label edits that weren't saved with
     // Save Changes (Oct 2026); a draft's labels (Add Coin) are untouched.
     // An open label editor closes without putting its text back.
-    closePhotoLabelEditor(false);
+    cancelMediaViewerLabel();
     discardPhotoLabels();
     if (previousViewId === "addcoin" && viewId !== "addcoin") {
       clearAlbumContext();
@@ -16674,7 +16693,7 @@
     parentCoaHolder.id = "detailParentCoa";
     const parentCoaCount = coaParent
       ? renderParentCoaReadThrough(parentCoaHolder, coaParent.id, coaParent.name,
-          { onOpen: (entry) => openCoinPhotoInViewer(coin, entry,
+          { row: true, onOpen: (entry) => openCoinPhotoInViewer(coin, entry,
               { label: ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ") }) })
       : 0;
     const photosAcc = (galleryExtras.length || parentCoaCount)
@@ -16683,18 +16702,22 @@
       const acc = photosAcc;
       const strip = document.createElement("div");
       strip.id = "detailPhotoStrip";
-      strip.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; padding-top:10px;";
+      // Same-height tiles, tops aligned, each photo its own shape; the
+      // category caption is centred under it and wraps downward. The
+      // photo's own label is shown in the viewer, not here (Oct 2026).
+      strip.className = "gc-row-strip";
+      strip.style.cssText = "padding-top:10px;";
       galleryExtras.forEach(entry => {
         const def = galleryTypeDef(entry.type);
         const thumb = document.createElement(isSet ? "div" : "button");
-        thumb.className = "gc-thumb" + (galleryEntryIsShaped(entry) ? " gc-shaped" : "");
+        thumb.className = "gc-thumb gc-row-tile";
         thumb.style.cursor = "pointer";
         if (!isSet) {
           thumb.type = "button";
           thumb.dataset.photoType = entry.type;
           thumb.setAttribute("aria-label", "View " + (def ? def.label : entry.type) + " full screen");
         }
-        thumb.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${def ? def.label : entry.type}</div>`;
+        thumb.innerHTML = `${galleryThumbInner(entry, { row: true })}<div class="gc-type">${def ? def.label : entry.type}</div>`;
         thumb.addEventListener("click", isSet
           ? () => openGalleryViewer(coin.id, coin.name + " — photos")
           : () => openCoinPhotoInViewer(coin, entry));
@@ -16702,6 +16725,7 @@
         paintStoredThumbWhenReady(entry, thumb);
       });
       acc.body.appendChild(strip);
+      applyRowSizerShapes(strip);
     }
     if (parentCoaCount) photosAcc.body.appendChild(parentCoaHolder);
 
@@ -24718,13 +24742,12 @@
         line = document.createElement("div");
         line.className = "gc-label-failed";
         line.textContent = "Label not saved";
-        const box = thumb.querySelector(".gc-caption");
-        if (box) box.insertAdjacentElement("afterend", line); else thumb.appendChild(line);
+        const after = thumb.querySelector(".gc-label-line");
+        if (after) after.insertAdjacentElement("afterend", line); else thumb.appendChild(line);
       }
     } else if (line) line.remove();
-    const box = thumb.querySelector(".gc-caption");
-    if (box && box.value !== (entry.caption || "")) box.value = entry.caption || "";
-    if (box && box.classList.contains("gc-label-box")) box.title = box.value;
+    const labelLine = thumb.querySelector(".gc-label-line");
+    if (labelLine) paintPhotoLabelLine(labelLine, entry, labelLine.classList.contains("gc-label-legacy"));
   }
   function syncStoredPhotoIndexLabel(collectionId, photoId, label) {
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
@@ -24823,66 +24846,38 @@
 
   // Manage Photos has no other Save, so it gets "Save labels", shown only
   // while a label on this record is unsaved.
-  // Full-width label editor (Oct 2026, Ray's tablet test of c90b51b). The
-  // box on the tile is one line with "…"; this shows the whole label.
-  // Done puts the text back in the box through its own "input" listeners,
-  // so the label is unsaved exactly as if it had been typed in the box:
-  // Save Changes / Save labels write a saved photo's label, a draft's Save
-  // writes a draft's. Cancel and Esc change nothing.
-  let photoLabelEditorState = null;
-  function photoLabelEditorSaveHint(box) {
-    if (box && box.closest("#addCoinPhotoSections")) return "The label is saved with the coin when you tap Save.";
-    if (box && box.closest("#managePhotosSections")) return "Not saved yet: tap Save labels to save it.";
+  // Labels are edited in the full-screen viewer (Oct 2026, Ray's tablet
+  // test of 22c407f; replaces the inline box and the full-width editor).
+  // The tile shows one centred line: the label, or a muted "Tap to label".
+  // Done in the viewer changes memory only, exactly as typing in the old box
+  // did: Save Changes / Save labels write a saved photo's label, a draft's
+  // Save writes a draft's, and Back / Discard treat it like any unsaved edit.
+  const PHOTO_LABEL_EMPTY_TEXT = "Tap to label";
+  const PHOTO_LABEL_LEGACY_TEXT = "Replace this photo to give it a label";
+  function paintPhotoLabelLine(line, entry, legacy) {
+    if (!line) return;
+    const text = String(entry.caption || "");
+    line.classList.toggle("gc-label-legacy", !!legacy);
+    line.classList.toggle("gc-label-empty", !legacy && !text);
+    line.textContent = legacy ? PHOTO_LABEL_LEGACY_TEXT : (text || PHOTO_LABEL_EMPTY_TEXT);
+    line.title = legacy ? PHOTO_LABEL_LEGACY_TEXT : text;
+  }
+  // Where the label will be saved, for the line under the viewer's field.
+  function photoLabelSaveHint(hostEl) {
+    if (hostEl && hostEl.closest("#addCoinPhotoSections")) return "The label is saved with the coin when you tap Save.";
+    if (hostEl && hostEl.closest("#managePhotosSections")) return "Not saved yet: tap Save labels to save it.";
     return "Not saved yet: tap Save Changes to save it.";
   }
-  function openPhotoLabelEditor(box, entry, title) {
-    const overlay = document.getElementById("photoLabelEditor");
-    const input = document.getElementById("photoLabelEditorInput");
-    if (!overlay || !input || !box) return;
-    photoLabelEditorState = { box, entry };
-    document.getElementById("photoLabelEditorTitle").textContent = title || "Label";
-    document.getElementById("photoLabelEditorNote").textContent = photoLabelEditorSaveHint(box);
-    input.value = box.value || "";
-    overlay.classList.remove("hidden");
-    box.blur();
-    input.focus();
-    try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* ignore */ }
+  // The text from the viewer's field lands here: one line, memory only.
+  function applyPhotoLabelText(entry, rawText, draft) {
+    if (!entry) return false;
+    const text = String(rawText || "").replace(/\s*[\r\n]+\s*/g, " ");
+    if (text === String(entry.caption || "")) return false;
+    entry.caption = text;
+    if (!draft) refreshManagePhotosSaveLabelsBtn();
+    paintPhotoLabelState(entry);
+    return true;
   }
-  function closePhotoLabelEditor(apply) {
-    const overlay = document.getElementById("photoLabelEditor");
-    const st = photoLabelEditorState;
-    photoLabelEditorState = null;
-    if (overlay) overlay.classList.add("hidden");
-    if (!apply || !st) return;
-    const text = String(document.getElementById("photoLabelEditorInput").value || "")
-      .replace(/\s*[\r\n]+\s*/g, " ");
-    // The tile may have been redrawn while the editor was open (a photo
-    // finishing its save); write to the box that is on screen now.
-    let box = st.box;
-    if (!box || !box.isConnected) {
-      const thumb = photoLabelThumbs.get(st.entry);
-      box = thumb && thumb.isConnected ? thumb.querySelector(".gc-caption") : null;
-    }
-    if (box) {
-      if (box.value === text) return;
-      box.value = text;
-      box.dispatchEvent(new Event("input", { bubbles: true }));
-    } else if (st.entry) {
-      st.entry.caption = text;
-      refreshManagePhotosSaveLabelsBtn();
-    }
-  }
-  (function initPhotoLabelEditor() {
-    const overlay = document.getElementById("photoLabelEditor");
-    if (!overlay) return;
-    document.getElementById("photoLabelEditorDone").addEventListener("click", () => closePhotoLabelEditor(true));
-    document.getElementById("photoLabelEditorCancel").addEventListener("click", () => closePhotoLabelEditor(false));
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) closePhotoLabelEditor(true); });
-    document.getElementById("photoLabelEditorInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); closePhotoLabelEditor(true); }
-      else if (e.key === "Escape") { e.preventDefault(); closePhotoLabelEditor(false); }
-    });
-  })();
 
   function refreshManagePhotosSaveLabelsBtn() {
     const btn = document.getElementById("managePhotosSaveLabelsBtn");
@@ -25435,7 +25430,9 @@
   // <img> inside sizes the tile (the .gc-img background still paints the
   // photo, so every reader of .gc-img and its background-image is
   // unchanged). Front/Back are never shaped. A tile with no image yet
-  // (loading, demo seed) stays today's square.
+  // (loading, demo seed) stays today's square. Since Oct 2026 only Add Set
+  // step 2's parent-COA copy uses it; the chooser screens and the coin page
+  // use opts.row (same height, own shape) instead.
   // opts.inside: extra markup placed INSIDE the image box (a shaped tile
   // puts its failed-save dim and ↻ there, so they cover and centre on the
   // photo whatever its width).
@@ -25452,7 +25449,9 @@
   document.addEventListener("error", (e) => {
     const el = e.target;
     if (!el || !el.classList) return;
-    if (el.classList.contains("gc-img-sizer")) {
+    if (el.classList.contains("gc-row-sizer")) {
+      el.remove(); // the same-height box keeps its square default
+    } else if (el.classList.contains("gc-img-sizer")) {
       const box = el.parentElement;
       el.remove();
       if (box) box.classList.remove("gc-img-shaped");
@@ -25461,12 +25460,39 @@
       if (slot) slot.classList.remove("sg-shaped");
     }
   }, true);
+  // Same-height tiles (opts.row, Oct 2026): the photo box is the photo's
+  // own shape at the row height (CSS --gc-ar). A tiny hidden copy of the
+  // image reports that shape once it loads; until then, or if the image
+  // can't be decoded, the box stays a square.
+  function galleryRowSizer(url) {
+    return `<img class="gc-row-sizer" src="${url}" alt="" aria-hidden="true">`;
+  }
+  function applyRowSizerShape(img) {
+    const box = img && img.parentElement;
+    if (!box || !img.naturalWidth || !img.naturalHeight) return;
+    box.style.setProperty("--gc-ar", String(img.naturalWidth / img.naturalHeight));
+  }
+  document.addEventListener("load", (e) => {
+    const el = e.target;
+    if (el && el.classList && el.classList.contains("gc-row-sizer")) applyRowSizerShape(el);
+  }, true);
+  // A sizer that loaded before it was in the page (a cached file) fires its
+  // load event too early for the listener above; this catches those.
+  function applyRowSizerShapes(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll("img.gc-row-sizer").forEach(img => { if (img.complete) applyRowSizerShape(img); });
+  }
   function galleryThumbInner(entry, opts) {
     const def = galleryTypeDef(entry.type);
     const icon = def ? def.icon : "🖼️";
     const imgStyle = entry.url ? ` style="background-image:url('${entry.url}')"` : "";
     const shaped = !!(opts && opts.shaped && galleryEntryIsShaped(entry));
     const inside = (opts && opts.inside) || "";
+    if (opts && opts.row) {
+      return entry.url
+        ? `<div class="gc-img gc-img-row"${imgStyle}>${galleryRowSizer(entry.url)}${inside}</div>`
+        : `<div class="gc-img gc-img-row gc-img-row-empty">${icon}${inside}</div>`;
+    }
     if (shaped && entry.url) {
       return `<div class="gc-img gc-img-shaped"${imgStyle}>${galleryShapedSizer(entry.url)}${inside}</div>`;
     }
@@ -25749,6 +25775,22 @@
     if (retryBtn) retryBtn.addEventListener("click", () => {
       retryGalleryPhotoCommit(targetId, entry, () => { if (onChange) onChange(entry, typeKey); });
     });
+    // Chooser screens: tapping the photo itself opens it full screen, VIEW
+    // ONLY (no label field), so it can be looked at closely before deciding
+    // to Replace or Recrop (Ray, 23 Oct 2026). ✕ and ↻ on the photo keep
+    // their own jobs.
+    const faceEl = chooserMode && entry ? slot.querySelector(".sg-photo-face") : null;
+    if (faceEl) {
+      faceEl.setAttribute("role", "button");
+      faceEl.setAttribute("tabindex", "0");
+      faceEl.setAttribute("aria-label", "View the " + label + " photo full screen");
+      const view = () => openGalleryPhotoInViewer(entry, { title: label });
+      faceEl.addEventListener("click", (e) => { if (e.target.closest("button")) return; view(); });
+      faceEl.addEventListener("keydown", (e) => {
+        if (e.target !== faceEl) return;
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); view(); }
+      });
+    }
     const rm = slot.querySelector('[data-act="remove"]');
     if (rm) rm.addEventListener("click", () => {
       if (draft) { confirmRemoveDraftPhoto(targetId, entry, draft, () => { if (onChange) onChange(null, typeKey); }); return; }
@@ -25884,7 +25926,9 @@
   // opts.onOpen(entry) (the coin's own page): each page is a button that
   // opens that one photo in the in-app viewer, instead of the Set's photo
   // panel. Read-only either way: no ✕, no Replace.
+  const COA_CATEGORY_CAPTION = "COA / certificate";
   function renderParentCoaReadThrough(hostEl, parentId, parentName, opts) {
+    const rowLayout = !!(opts && opts.row);
     if (!hostEl) return 0;
     hostEl.innerHTML = "";
     if (!parentId) return 0;
@@ -25907,25 +25951,31 @@
         ${parentName ? parentName + " · " : ""}${coa.length} photo${coa.length === 1 ? "" : "s"} —
         the certificate belongs to the Set, so it's managed there, not on this coin.
       </p>
-      <div class="gallery-strip" data-role="coa-strip"></div>
+      <div class="gallery-strip${rowLayout ? " gc-row-strip" : ""}" data-role="coa-strip"></div>
     `;
     const strip = wrap.querySelector('[data-role="coa-strip"]');
     const onOpen = opts && opts.onOpen;
     coa.forEach(entry => {
       const t = document.createElement(onOpen ? "button" : "div");
-      t.className = "gc-thumb gc-shaped";
+      t.className = rowLayout ? "gc-thumb gc-row-tile" : "gc-thumb gc-shaped";
       if (onOpen) {
         t.type = "button";
         t.style.cursor = "pointer";
         t.setAttribute("aria-label", "View the parent Set's COA" + (entry.caption ? ", " + entry.caption : "") + ", full screen");
       }
-      t.innerHTML = `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${escapeHtmlText(entry.caption || "COA")}</div>`;
+      // The three coin screens (opts.row) use the same-height layout and the
+      // category caption, the label staying in the viewer; Add Set step 2
+      // keeps its own unchanged copy (shaped tiles, label as the caption).
+      t.innerHTML = rowLayout
+        ? `${galleryThumbInner(entry, { row: true })}<div class="gc-type">${escapeHtmlText(COA_CATEGORY_CAPTION)}</div>`
+        : `${galleryThumbInner(entry, { shaped: true })}<div class="gc-type">${escapeHtmlText(entry.caption || "COA")}</div>`;
       t.addEventListener("click", onOpen ? () => onOpen(entry)
         : () => openGalleryViewer(parentId, (parentName || "Set") + " — COA"));
       strip.appendChild(t);
       paintStoredThumbWhenReady(entry, t);
     });
     hostEl.appendChild(wrap);
+    if (rowLayout) applyRowSizerShapes(strip);
     return coa.length;
   }
 
@@ -26131,40 +26181,45 @@
       body.appendChild(p);
     }
     const grid = document.createElement("div");
-    grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid gc-half-grid" : "");
+    grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid gc-row-grid" : "");
     galleryFor(targetId).forEach((entry, index) => {
       if (entry.type !== typeKey) return;
       const thumb = document.createElement("div");
-      // Chooser-mode tiles are half the section wide (.gc-half-grid) and
-      // draw the whole photo inside a fixed box, so they are not "shaped";
-      // the failed-save dim and ↻ go inside the image box so they cover and
-      // centre on it.
-      thumb.className = "gc-thumb";
+      // Chooser-mode tiles are the photo's own shape at one row height
+      // (.gc-row-grid / .gc-row-tile); ✕, the failed-save dim and ↻ sit in
+      // the photo box so they land on the photo itself.
+      thumb.className = "gc-thumb" + (chooserMode ? " gc-row-tile" : "");
       thumb.dataset.file = entry.storedFilename || entry.filename || "";
       const loadingStored = !!(entry.stored && !entry.url);
       // An old-style photo (legacy All columns, no Photos row) has nowhere
-      // to keep a label until it is Replaced; the box says so instead of
-      // taking text it can't save.
+      // to keep a label until it is Replaced; its line says so, and the
+      // viewer shows no label field for it.
       const legacyLabel = chooserMode && !draft && !!entry.legacyOnly;
       const failedOverlay = (entry.uploadError && !draft) ? `<div class="gc-failed-dim" aria-hidden="true"></div>
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>` : "";
-      thumb.innerHTML = `
-        <button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>
-        ${galleryThumbInner(entry, chooserMode ? { inside: failedOverlay } : null)}
-        ${chooserMode ? "" : failedOverlay}
+      const removeBtn = `<button type="button" class="gc-remove" aria-label="Remove photo" title="Remove">✕</button>`;
+      const stateLines = `
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
-        ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}
-        ${chooserMode ? `<input type="text" class="gc-caption ${legacyLabel ? "gc-caption-legacy" : "gc-label-box"}" readonly ${legacyLabel ? `placeholder="Replace this photo to give it a label" title="Replace this photo to give it a label"` : `placeholder="Label…" aria-label="Label — tap to edit" title="${(entry.caption || "").replace(/"/g, "&quot;")}"`} value="${(entry.caption || "").replace(/"/g, "&quot;")}">
+        ${entry.uploadError ? `<div class="photo-upload-state failed">${draft ? DRAFT_NOT_SAVED_TEXT : "Not saved — tap ↻"}</div>` : ""}`;
+      thumb.innerHTML = chooserMode ? `
+        ${galleryThumbInner(entry, { row: true, inside: removeBtn + failedOverlay })}
+        ${stateLines}
+        <button type="button" class="gc-label-line" data-role="label"></button>
         ${entry.labelError && !draft ? `<div class="gc-label-failed">Label not saved</div>` : ""}
-        <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `<div class="gc-replace-row">
+        <button type="button" class="gc-replace-text-btn" data-role="replace" aria-label="Replace this photo">Replace</button>` : `
+        ${removeBtn}
+        ${galleryThumbInner(entry, null)}
+        ${failedOverlay}
+        ${stateLines}
+        <div class="gc-replace-row">
           <button type="button" class="gc-replace-btn" data-role="rep-cam" aria-label="Replace this photo using the camera" title="Replace — camera">📷</button>
           <button type="button" class="gc-replace-btn" data-role="rep-lib" aria-label="Replace this photo from the library" title="Replace — library">🖼️</button>
           <span class="gc-replace-label">Replace</span>
         </div>
         <input type="file" accept="image/*" capture="environment" data-role="rep-cam-input" style="display:none;">
         <input type="file" accept="image/*" data-role="rep-lib-input" style="display:none;">
-        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">`}
+        <input type="text" class="gc-caption" placeholder="Label…" value="${(entry.caption || "").replace(/"/g, "&quot;")}">
       `;
       // Per-thumbnail Replace. A repeatable type has no fixed slot to match
       // on, so this carries the photo's own PhotoID (and its Label) forward
@@ -26198,27 +26253,37 @@
       });
       const retry = thumb.querySelector(".gc-retry");
       if (retry) retry.addEventListener("click", () => retryGalleryPhotoCommit(targetId, entry, render));
-      const captionBox = thumb.querySelector(".gc-caption");
-      captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
-      if (chooserMode && !draft) {
+      if (chooserMode) {
         // Saved photo: a label changes in memory only; Save Changes (or
-        // "Save labels") writes it.
+        // "Save labels") writes it. The thumb is remembered so a save, a
+        // discard or the viewer's Done repaints its label line in place.
         photoLabelThumbs.set(entry, thumb);
-        captionBox.addEventListener("input", () => refreshManagePhotosSaveLabelsBtn());
-      }
-      if (chooserMode && !legacyLabel) {
-        // The box is one line; tapping it (or Enter / Space on it) opens
-        // the full-width editor, which puts the text back here on Done.
-        captionBox.addEventListener("input", () => { captionBox.title = captionBox.value; });
-        const openEditor = () => openPhotoLabelEditor(captionBox, entry, "Label for this " + photoNoun);
-        captionBox.addEventListener("click", openEditor);
-        captionBox.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openEditor(); }
+        const labelLine = thumb.querySelector(".gc-label-line");
+        paintPhotoLabelLine(labelLine, entry, legacyLabel);
+        const photoEl = thumb.querySelector(".gc-img");
+        photoEl.setAttribute("role", "button");
+        photoEl.setAttribute("tabindex", "0");
+        photoEl.setAttribute("aria-label", "View this " + photoNoun + " full screen" + (legacyLabel ? "" : " and edit its label"));
+        // The tap opens the full-screen viewer with a label field (none for
+        // an old-style photo). ✕ and ↻ inside the photo keep their own jobs.
+        const openViewer = () => openGalleryPhotoInViewer(entry, {
+          title: def ? def.label : "Photo",
+          label: { draft, legacy: legacyLabel, hint: photoLabelSaveHint(thumb), title: "Label for this " + photoNoun }
         });
+        photoEl.addEventListener("click", (e) => { if (e.target.closest("button")) return; openViewer(); });
+        photoEl.addEventListener("keydown", (e) => {
+          if (e.target !== photoEl) return;
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openViewer(); }
+        });
+        labelLine.addEventListener("click", openViewer);
+      } else {
+        const captionBox = thumb.querySelector(".gc-caption");
+        captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
       }
       grid.appendChild(thumb);
     });
     body.appendChild(grid);
+    applyRowSizerShapes(grid);
 
     const handleAdd = (f) => {
       if (!f) return;
@@ -26396,7 +26461,7 @@
         const holder = document.createElement("div");
         const viewCoin = activeCoins().find(c => c.id === id) || { id, name: ctx.name || id };
         renderParentCoaReadThrough(holder, parent.id, parent.name,
-          { onOpen: (entry) => openCoinPhotoInViewer(viewCoin, entry,
+          { row: true, onOpen: (entry) => openCoinPhotoInViewer(viewCoin, entry,
               { label: ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ") }) });
         if (holder.innerHTML.trim()) host.appendChild(holder);
       }
@@ -26660,6 +26725,15 @@
       const img = tileHost.querySelector(".gc-img");
       if (!img || !document.contains(img)) return;
       img.style.backgroundImage = `url('${url}')`;
+      // A same-height tile takes the photo's own shape once it arrives. Its
+      // ✕ and ↻ live inside the photo box, so only the icon text goes.
+      if (img.classList.contains("gc-img-row")) {
+        [...img.childNodes].forEach(n => { if (n.nodeType === 3) n.remove(); });
+        img.classList.remove("gc-img-row-empty");
+        img.insertAdjacentHTML("afterbegin", galleryRowSizer(url));
+        applyRowSizerShapes(img);
+        return;
+      }
       img.textContent = "";
       // A shaped tile takes the photo's own shape once it arrives.
       if (tileHost.classList && tileHost.classList.contains("gc-shaped")) {
@@ -26741,6 +26815,7 @@
 
   function openMediaViewer(title) {
     const overlay = document.getElementById("mediaViewerOverlay");
+    hideMediaViewerLabel(); // a caller that wants the label field shows it after this
     mediaViewerToken++;
     document.getElementById("mediaViewerTitle").textContent = title || "";
     destroyActivePdfViewer();
@@ -26795,7 +26870,58 @@
   // never put here, since other surfaces keep using them.
   function trackMediaViewerObjectUrl(url) { mediaViewerObjectUrls.push(url); return url; }
 
+  // The label field. Done puts the text on the photo (memory only, see
+  // applyPhotoLabelText); Cancel, Escape, ✕ and the phone's Back button
+  // change nothing. The field is at the top of the viewer, under the bar, so
+  // the on-screen keyboard (which comes up from the bottom) can't cover it;
+  // while it has focus the viewer also shrinks to the visible area, so a
+  // landscape phone keeps it in view too.
+  function showMediaViewerLabel(entry, lab) {
+    const panel = document.getElementById("mediaViewerLabel");
+    const input = document.getElementById("mediaViewerLabelInput");
+    mediaViewerLabelState = { entry, draft: lab.draft || null };
+    document.getElementById("mediaViewerLabelTitle").textContent = lab.title || "Label";
+    document.getElementById("mediaViewerLabelNote").textContent = lab.hint || "";
+    input.value = entry.caption || "";
+    panel.classList.remove("hidden");
+  }
+  function hideMediaViewerLabel() {
+    mediaViewerLabelState = null;
+    const panel = document.getElementById("mediaViewerLabel");
+    if (panel) panel.classList.add("hidden");
+    const input = document.getElementById("mediaViewerLabelInput");
+    if (input) { input.value = ""; input.blur(); }
+    resetMediaViewerToVisualViewport();
+  }
+  function finishMediaViewerLabel(apply) {
+    const st = mediaViewerLabelState;
+    const text = (document.getElementById("mediaViewerLabelInput") || {}).value || "";
+    mediaViewerLabelState = null; // closing must never apply it a second time
+    if (apply && st) applyPhotoLabelText(st.entry, text, st.draft);
+    closeMediaViewer();
+  }
+  // navigate() calls this: leaving the screen never applies a half-typed label.
+  function cancelMediaViewerLabel() {
+    if (!mediaViewerLabelState) return;
+    mediaViewerLabelState = null;
+    closeMediaViewer();
+  }
+  function syncMediaViewerToVisualViewport() {
+    const overlay = document.getElementById("mediaViewerOverlay");
+    const vv = window.visualViewport;
+    if (!overlay || !vv || !mediaViewerLabelState) return;
+    overlay.style.bottom = "auto";
+    overlay.style.top = vv.offsetTop + "px";
+    overlay.style.height = vv.height + "px";
+  }
+  function resetMediaViewerToVisualViewport() {
+    const overlay = document.getElementById("mediaViewerOverlay");
+    if (!overlay) return;
+    overlay.style.bottom = overlay.style.top = overlay.style.height = "";
+  }
+
   function hideMediaViewer() {
+    hideMediaViewerLabel();
     destroyActivePdfViewer();
     document.getElementById("mediaViewerStage").classList.remove("pdf-mode");
     document.getElementById("mediaViewerOverlay").classList.add("hidden");
@@ -26806,14 +26932,17 @@
     mediaViewerObjectUrls = [];
   }
 
+  // Hides at once, then steps back over the viewer's history entry. The pop
+  // that history.back() causes arrives later; it is expected and ignored, so
+  // a viewer opened again in between (Done on one photo, then a quick tap on
+  // the next) is not closed by it.
+  let mediaViewerExpectPop = false;
   function closeMediaViewer() {
     if (!mediaViewerIsOpen()) return;
-    if (mediaViewerHistoryPushed && history.state && history.state.mediaViewer) {
-      history.back(); // popstate below does the hiding
-    } else {
-      mediaViewerHistoryPushed = false;
-      hideMediaViewer();
-    }
+    const stepBack = mediaViewerHistoryPushed && history.state && history.state.mediaViewer;
+    mediaViewerHistoryPushed = false;
+    hideMediaViewer();
+    if (stepBack) { mediaViewerExpectPop = true; history.back(); }
   }
 
   // Coin page thumbnails: the two faces first, then the slab pair, then
@@ -26835,6 +26964,34 @@
     const label = (opts && opts.label) || [def ? def.label : entry.type, entry.caption].filter(Boolean).join(" — ");
     const token = openMediaViewer(detailTitleText(coin));
     setMediaViewerFooter(`<span>${escapeHtmlText(label)}</span>`);
+    return showEntryInMediaViewer(entry, label, token);
+  }
+
+  // One photo from an edit screen (Edit Coin, Edit Set, Manage Photos, Add
+  // Coin, the Staging-draft edit), full screen, so it can be looked at
+  // closely. opts.title: the bar text. opts.label: present for a Reference /
+  // COA / Other photo — the viewer then shows a label field at the top
+  // ({ draft, legacy, hint, title }); a legacy photo gets no field, only the
+  // "Replace this photo to give it a label" note. Without opts.label the
+  // viewer is view only (a pair slot's photo). Nothing here writes.
+  let mediaViewerLabelState = null;
+  function openGalleryPhotoInViewer(entry, opts) {
+    opts = opts || {};
+    const def = galleryTypeDef(entry.type);
+    const typeLabel = def ? def.label : entry.type;
+    const token = openMediaViewer(opts.title || typeLabel);
+    const lab = opts.label || null;
+    if (lab && lab.legacy) {
+      setMediaViewerFooter(`<span>${escapeHtmlText(typeLabel)} — ${escapeHtmlText(PHOTO_LABEL_LEGACY_TEXT)}</span>`);
+    } else if (lab) {
+      setMediaViewerFooter(`<span>${escapeHtmlText(typeLabel)}</span>`);
+      showMediaViewerLabel(entry, lab);
+    } else {
+      setMediaViewerFooter(`<span>${escapeHtmlText([typeLabel, entry.caption].filter(Boolean).join(" — "))}</span>`);
+    }
+    return showEntryInMediaViewer(entry, typeLabel, token);
+  }
+  function showEntryInMediaViewer(entry, label, token) {
     if (entry.url) { setMediaViewerImage(entry.url, label); return token; }
     if (entry.stored && entry.storedFilename) {
       ensureCoinPhotoFetch(entry.storedFilename).then(url => {
@@ -27406,10 +27563,22 @@
 
   function initMediaViewer() {
     document.getElementById("mediaViewerCloseBtn").addEventListener("click", closeMediaViewer);
+    document.getElementById("mediaViewerLabelDone").addEventListener("click", () => finishMediaViewerLabel(true));
+    document.getElementById("mediaViewerLabelCancel").addEventListener("click", () => finishMediaViewerLabel(false));
+    const labelInput = document.getElementById("mediaViewerLabelInput");
+    labelInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finishMediaViewerLabel(true); }
+    });
+    labelInput.addEventListener("focus", syncMediaViewerToVisualViewport);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncMediaViewerToVisualViewport);
+      window.visualViewport.addEventListener("scroll", syncMediaViewerToVisualViewport);
+    }
     document.addEventListener("keydown", e => {
       if (e.key === "Escape" && mediaViewerIsOpen()) closeMediaViewer();
     });
     window.addEventListener("popstate", () => {
+      if (mediaViewerExpectPop) { mediaViewerExpectPop = false; return; }
       if (!mediaViewerIsOpen()) return;
       mediaViewerHistoryPushed = false;
       hideMediaViewer();

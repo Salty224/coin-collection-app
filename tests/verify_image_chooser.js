@@ -276,9 +276,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       ref: { thumbs: ref.querySelectorAll(".gc-thumb").length,
              replace: thumb && (thumb.querySelector('[data-role="replace"]') || {}).textContent,
              remove: !!(thumb && thumb.querySelector(".gc-remove")),
-             caption: thumb && thumb.querySelector(".gc-caption").value,
+             caption: thumb && thumb.querySelector(".gc-label-line").title,
              order: thumb && [...thumb.children].map(c => c.classList.contains("gc-img") ? "photo"
-               : c.classList.contains("gc-caption") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
+               : c.classList.contains("gc-label-line") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
              recrop: thumb ? thumb.querySelectorAll('[data-act="adjust"], [data-role="adjust"]').length + [...thumb.querySelectorAll("button")].filter(b => /recrop|⤢/i.test(b.textContent)).length : null,
              tile: !!tile, tileLast: tile && tile.parentElement.lastElementChild === tile,
              tileLabel: tile && tile.querySelector(".sg-photo-add-label").textContent },
@@ -379,8 +379,8 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         ogp: pair(/OGP/), whole: pair(/Whole set/), sub: pair(/Sub-groups/),
         coa: { thumbs: coa ? coa.querySelectorAll(".gc-thumb").length : 0,
                order: coaThumb && [...coaThumb.children].map(c => c.classList.contains("gc-img") ? "photo"
-                 : c.classList.contains("gc-caption") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
-               caption: coaThumb && coaThumb.querySelector(".gc-caption").value,
+                 : c.classList.contains("gc-label-line") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
+               caption: coaThumb && coaThumb.querySelector(".gc-label-line").title,
                remove: !!(coaThumb && coaThumb.querySelector(".gc-remove")),
                tileLast: !!coaTile && coaTile.parentElement.lastElementChild === coaTile,
                tileLabel: coaTile && coaTile.querySelector(".sg-photo-add-label").textContent },
@@ -471,16 +471,17 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       await __ic.waitFor(() => __ic.photoRows().filter(r => r[2] === "COA").length === 2, 4000);
       await new Promise(r => setTimeout(r, 300));
       const second = [...sec().querySelectorAll(".gc-thumb")][1];
-      const cap = second && second.querySelector(".gc-caption");
-      if (cap) { cap.value = "Test"; cap.dispatchEvent(new Event("input", { bubbles: true })); }
+      const cap = second && second.querySelector(".gc-label-line");
+      // The label is typed in the full-screen viewer (tap the line, Done).
+      if (cap) { cap.click(); document.getElementById("mediaViewerLabelInput").value = "Test"; document.getElementById("mediaViewerLabelDone").click(); }
       // Copy the row: the mock updates its row arrays in place.
       const addedRow = [...(__ic.photoRows().find(r => r[2] === "COA" && r[0] !== "PH-00011") || [])];
-      out.thumbsAfterFirst = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.thumbsAfterFirst = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
       out.replaced = __ic.pickVia(second && second.querySelector('[data-role="replace"]'), "library", await __ic.jpeg());
       out.c2 = await __ic.finishCrop();
       await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === addedRow[0]) || [])[4] !== addedRow[4], 4000);
       await new Promise(r => setTimeout(r, 300));
-      out.thumbsAfterSecond = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.thumbsAfterSecond = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
       // And Replace on the stored page 1 itself.
       const first = [...sec().querySelectorAll(".gc-thumb")][0];
       out.replaced1 = __ic.pickVia(first && first.querySelector('[data-role="replace"]'), "files", await __ic.jpeg());
@@ -495,7 +496,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       out.sameId = !!newRow[0]; out.newLabel = newRow[5]; out.newFile = newRow[4];
       out.p1File = p1[4]; out.p1Label = p1[5];
       out.oldOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.addedFile));
-      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
       out.gallery = galleryFor("AY-00090").filter(e => e.type === "coa").length;
       out.galleryFiles = galleryFor("AY-00090").filter(e => e.type === "coa").map(e => e.filename);
       out.uploads = up.length;
@@ -554,7 +555,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
       const onDisk = async (f) => !!(f && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + f));
       const openView = () => ({
-        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value),
+        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
         files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
         savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
       });
@@ -684,7 +685,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const title = () => (document.getElementById("writeGuardTitle") || {}).textContent || "";
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
       const openView = () => ({
-        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value),
+        thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
         files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
         savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
       });
@@ -889,7 +890,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const refs = __ic.photoRows().filter(r => r[2] === "Reference");
     const row = refs.find(r => r[0] === "PH-00002");
     const host = __ic.openSection("browseEditPhotosSections", /Reference/);
-    const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+    const thumbs = [...host.querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
     return { picked, crop, refs: refs.length, filename: row && row[4], label: row && row[5],
              thumbs, gallery: galleryFor("AY-00099").filter(e => e.type === "reference").length };
   });
@@ -916,8 +917,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       await __ic.waitFor(() => __ic.photoRows().filter(r => r[2] === "Reference").length === 2, 4000);
       await new Promise(r => setTimeout(r, 300));
       const second = [...sec().querySelectorAll(".gc-thumb")][1];
-      const cap = second && second.querySelector(".gc-caption");
-      if (cap) { cap.value = "Test"; cap.dispatchEvent(new Event("input", { bubbles: true })); }
+      const cap = second && second.querySelector(".gc-label-line");
+      // The label is typed in the full-screen viewer (tap the line, Done).
+      if (cap) { cap.click(); document.getElementById("mediaViewerLabelInput").value = "Test"; document.getElementById("mediaViewerLabelDone").click(); }
       const addedRow = __ic.photoRows().find(r => r[2] === "Reference" && r[0] !== "PH-00002") || [];
       out.addedFile = addedRow[4];
       out.replaced = __ic.pickVia(second && second.querySelector('[data-role="replace"]'), "library", await __ic.jpeg());
@@ -932,7 +934,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       out.newFile = newRow[4];
       out.oldFileOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.addedFile));
       out.newFileOnDisk = !!(await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + out.newFile));
-      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
       out.gallery = galleryFor("AY-00099").filter(e => e.type === "reference").map(e => e.filename);
       out.index = storedPhotoRowsFor("AY-00099").filter(r => r.galleryType === "reference").map(r => r.filename);
       out.uploads = [...up];
@@ -946,7 +948,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       await new Promise(r => setTimeout(r, 300));
       const p2 = __ic.photoRows().find(r => r[0] === "PH-00002") || [];
       out.r5file = p2[4];
-      out.r5thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-caption") || {}).value);
+      out.r5thumbs = [...sec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title);
       out.r5gallery = galleryFor("AY-00099").filter(e => e.type === "reference").map(e => e.filename);
       return out;
     }, surface);
