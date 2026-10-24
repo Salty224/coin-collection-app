@@ -360,7 +360,7 @@ module.exports = defineSuite("row-tiles-viewer-label", async ({ ok, openApp, PHO
       ok(longL.text === LONG && longL.overflows && emptyL.text === "Tap to label" && /gc-label-empty/.test(emptyL.cls),
         "T11 " + tag + " a long label ends in …; an empty one reads a muted \"Tap to label\": " + JSON.stringify([longL.overflows, emptyL.text, emptyL.cls]));
       const V = M.viewer || {};
-      const wantNote = screen === "addCoin" || screen === "stagingEdit" ? /tap Save\./ : /^manage/.test(screen) ? /Save labels/ : /Save Changes/;
+      const wantNote = screen === "addCoin" || screen === "stagingEdit" ? /tap Save\./ : /^manage/.test(screen) ? /tap Save to save it/ : /Save Changes/;
       ok(V.open && V.field && V.value === LONG && V.img && wantNote.test(V.note),
         "V1 " + tag + " tapping the photo opens the full-screen viewer with the label field, its label and the right save note: " +
         JSON.stringify([V.open, V.field, V.value === LONG, !!V.img, V.note]));
@@ -685,8 +685,9 @@ module.exports = defineSuite("row-tiles-viewer-label", async ({ ok, openApp, PHO
     const html = document.documentElement.innerHTML;
     return { owned, draft, stale: /Photos are held for this session only — no OneDrive write happens yet/.test(html) };
   });
-  ok(/save to OneDrive/.test(F3.owned) && /Save labels/.test(F3.owned) && !/no OneDrive write/.test(F3.owned),
-    "F3a an owned record's footer says photos save to OneDrive and labels save with Save labels: " + JSON.stringify(F3.owned));
+  // Photos wait for Save (Oct 2026): one Save for photos and labels.
+  ok(/save to OneDrive when you tap Save/.test(F3.owned) && !/as you add/.test(F3.owned) && !/no OneDrive write/.test(F3.owned),
+    "F3a an owned record's footer says photos and labels save to OneDrive when you tap Save: " + JSON.stringify(F3.owned));
   ok(/isn't on the All sheet yet/.test(F3.draft) && /session only/.test(F3.draft),
     "F3b a record not on the All sheet yet says its photos are kept for this session only: " + JSON.stringify(F3.draft));
   ok(!F3.stale, "F3c the old \"no OneDrive write happens yet\" footer is gone from the page");

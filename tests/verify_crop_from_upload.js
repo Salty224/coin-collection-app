@@ -132,11 +132,17 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
         }
         const before = this.uploads.length;
         out.stages = await this.drive();
+        // Photos wait for Save (Oct 2026): the crop is held, nothing is
+        // written until Save; then the same files and rows land.
+        await sleep(30);
+        out.toast = document.getElementById("toast").textContent;
+        out.uploadsBeforeSave = this.uploads.length - before;
+        out.pendingBeforeSave = galleryFor(ID).some(e => e.pendingSave);
+        out.saveRes = await savePhotosAndLabels(ID, null);
         out.settled = await this.settle(() => this.uploads.length > before &&
           !galleryFor(ID).some(e => e.uploadPending));
         await sleep(30);
         out.newUploads = this.uploads.slice(before);
-        out.toast = document.getElementById("toast").textContent;
         return out;
       },
       fileIntact(name) {
@@ -235,7 +241,8 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
   });
   ok(C.tile && C.confirmTitle === "", "C1 no confirmation when the coin has no obverse yet");
   ok(C.stages && C.stages.stage1 && C.stages.stage2, "C2 the existing crop tool runs: square crop, then the circle step");
-  ok(C.settled && C.cropped, "C3 saved as the standard {ID}_obverse_cropped.jpg on a first crop");
+  ok(C.uploadsBeforeSave === 0 && C.pendingBeforeSave, "C3a nothing is uploaded until Save; the crop waits as a pending photo");
+  ok(C.settled && C.cropped, "C3 saved as the standard {ID}_obverse_cropped.jpg on a first crop (at Save)");
   ok(!C.original && !(C.newUploads || []).some(p => /_original/.test(p)), "C4 no _original copy is written");
   ok(C.sourceIntact, "C5 the source photo's file is unchanged");
   ok(C.sourceRow && C.sourceRow.file === "AY-00004_slab_obverse.jpg" && C.sourceRow.type === "Slab_Obverse",
@@ -335,12 +342,14 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
     const built = galleryFilenameFor(c.ID, "reference", count).cropped;
     const entry = { type: "reference", url: null, rawUrl: null, blob: await c.jpeg("#3a6"), caption: "",
                     filename: built, rawFilename: null };
+    // Photos wait for Save (Oct 2026): the pick is held, then Save names it.
     await addGalleryEntryAndCommit(c.ID, entry, () => {});
+    await savePhotosAndLabels(c.ID, null);
     const out = { built, saved: entry.filename, r3Intact: c.fileIntact(r3), r1Intact: c.fileIntact(r1),
                   exists4: c.exists(c.ID + "_reference_04.jpg") };
-    // A retry keeps the name it resolved the first time.
-    entry.uploadError = "x";
-    await retryGalleryPhotoCommit(c.ID, entry, () => {});
+    // A retry (the next Save) keeps the name it resolved the first time.
+    entry.pendingSave = true; entry.uploadError = "x";
+    await savePhotosAndLabels(c.ID, null);
     out.retryName = entry.filename;
     c.teardown();
     return out;

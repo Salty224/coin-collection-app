@@ -399,62 +399,49 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
   ok(B.keptBlank === "", "L4a a redraw keeps an unsaved (cleared) label instead of putting the sheet label back: " + JSON.stringify(B.keptBlank));
   ok(B.row === "" && B.box === "", "L4b once saved, the cleared label stays cleared (sheet and screen): " + JSON.stringify([B.row, B.box]));
 
-  // ---------- L5 brand-new photo typed while saving -------------------------
+  // ---------- L5 brand-new photo: its label goes in with its row ------------
+  // Photos wait for Save (Oct 2026, Ray's Q1): a new photo is held until
+  // Save Changes, and its row is created with the label typed for it — one
+  // row write, no separate label cell. Supersedes the old L5 (row started
+  // blank, label written after), which belonged to save-on-capture.
   const C = await page.evaluate(async () => {
     const L = __lb; L.install();
     const host = await L.openEditCoin();
-    let release; L.uploadGate = new Promise(r => { release = r; });
     const out = {};
+    L.graphCalls = 0;
     out.picked = L.pickVia(L.section(host, /Other/).querySelector('[data-role="add"]'), await L.jpeg());
     out.crop = await L.finishCrop();
-    await L.waitFor(() => galleryFor("AY-00099").some(e => e.type === "other" && e.uploadPending), 3000);
-    const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadPending);
+    await L.sleep(120);
+    const e = galleryFor("AY-00099").find(x => x.type === "other" && x.pendingSave);
     out.pending = !!e;
     const thumb = [...L.section(L.editHost(), /Other/).querySelectorAll(".gc-thumb")].pop();
     L.type(thumb.querySelector(".gc-label-line"), "Mint box");
-    out.unsavedWhilePending = unsavedPhotoLabelCount("AY-00099");
+    out.writesBeforeSave = L.graphCalls;
+    out.asLabel = unsavedPhotoLabelCount("AY-00099");
+    out.asPhoto = pendingPhotoCount("AY-00099");
+    let release; L.uploadGate = new Promise(r => { release = r; });
     L.patches = []; L.clearToast();
-    // Save while the photo is still saving: it waits, then writes the label.
-    const clicked = document.getElementById("browseEditSaveBtn"); clicked.click();
+    document.getElementById("browseEditSaveBtn").click();
     await L.sleep(150);
     out.photoPatchesWhileHeld = L.photoPatches().length;
     L.uploadGate = null; release();
-    await L.waitFor(() => !document.getElementById("browseEditSaveBtn").disabled && !!e.storedPhotoId && e.savedLabel === "Mint box", 4000);
+    await L.waitFor(() => !document.getElementById("browseEditSaveBtn").disabled && !!e.storedPhotoId, 4000);
     await L.sleep(100);
     const row = L.row(e.storedPhotoId);
     out.label = row && row[5];
     out.patches = L.photoPatches();
+    out.savedLabel = e.savedLabel;
     out.toast = L.toast();
     return out;
   });
-  ok(C.picked && C.crop && C.pending && C.unsavedWhilePending === 1, "L5a a new Other photo is still saving and has a typed label: " + JSON.stringify(C));
-  ok(C.photoPatchesWhileHeld === 0, "L5b Save Changes waits for the photo's own save: " + C.photoPatchesWhileHeld);
-  ok(C.label === "Mint box" && C.patches.length >= 2 && /F\d+:F\d+$/.test(C.patches[C.patches.length - 1]) &&
-     !/F\d+:F\d+$/.test(C.patches[0]),
-    "L5c the photo's row is written first (with a blank Label), then the label cell: " + JSON.stringify(C.patches));
+  ok(C.picked && C.crop && C.pending && C.writesBeforeSave === 0,
+    "L5a a new Other photo waits for Save, writing nothing, even with a label typed: " + JSON.stringify(C));
+  ok(C.asLabel === 0 && C.asPhoto === 1, "L5b its label is counted with the photo (1 photo change), not as a separate label: " + JSON.stringify([C.asLabel, C.asPhoto]));
+  ok(C.photoPatchesWhileHeld === 0, "L5c Save Changes writes no Photos row until the photo's file has uploaded: " + C.photoPatchesWhileHeld);
+  ok(C.label === "Mint box" && C.savedLabel === "Mint box" && !C.patches.some(p => /^Photos!F\d+:F\d+$/.test(p)),
+    "L5d the new row is created WITH its typed label; no separate label-cell write: " + JSON.stringify(C.patches));
 
-  // L5d: the row a brand-new photo's own save writes has a blank Label, even
-  // with text typed while it was saving (no Save Changes pressed).
-  const C5 = await page.evaluate(async () => {
-    const L = __lb; L.install();
-    const host = await L.openEditCoin();
-    let release; L.uploadGate = new Promise(r => { release = r; });
-    L.pickVia(L.section(host, /Other/).querySelector('[data-role="add"]'), await L.jpeg());
-    await L.finishCrop();
-    await L.waitFor(() => galleryFor("AY-00099").some(e => e.type === "other" && e.uploadPending), 3000);
-    const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadPending);
-    const thumb = [...L.section(L.editHost(), /Other/).querySelectorAll(".gc-thumb")].pop();
-    L.type(thumb.querySelector(".gc-label-line"), "Typed, not saved");
-    L.uploadGate = null; release();
-    await L.waitFor(() => !!e.storedPhotoId, 4000);
-    await L.sleep(100);
-    const row = L.row(e.storedPhotoId);
-    return { label: row && row[5], caption: e.caption, unsaved: unsavedPhotoLabelCount("AY-00099") };
-  });
-  ok(C5.label === "" && C5.caption === "Typed, not saved" && C5.unsaved === 1,
-    "L5d a new photo's row starts with a blank Label; the typed text stays unsaved until Save Changes: " + JSON.stringify(C5));
-
-  // ---------- L6 never-saved photo -----------------------------------------
+  // ---------- L6 a photo whose upload fails at Save -------------------------
   const D = await page.evaluate(async () => {
     const L = __lb; L.install();
     const host = await L.openEditCoin();
@@ -462,37 +449,35 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const out = {};
     out.picked = L.pickVia(L.section(host, /Other/).querySelector('[data-role="add"]'), await L.jpeg());
     out.crop = await L.finishCrop();
-    await L.waitFor(() => galleryFor("AY-00099").some(e => e.type === "other" && e.uploadError), 4000);
-    const e = galleryFor("AY-00099").find(x => x.type === "other" && x.uploadError);
-    out.failed = !!e;
+    await L.sleep(120);
+    const e = galleryFor("AY-00099").find(x => x.type === "other" && x.pendingSave);
     const sec = () => L.section(L.editHost(), /Other/);
     L.type([...sec().querySelectorAll(".gc-thumb")].pop().querySelector(".gc-label-line"), "Slab label");
     L.patches = []; L.clearToast();
     await L.save();
+    out.failed = !!(e && e.uploadError && e.pendingSave);
     out.photoPatches = L.photoPatches().length;
     out.all = L.allPatches().length;
     out.toast = L.toast();
     out.caption = e.caption;
     out.editOpen = L.editOpen();
-    out.line = !!e.labelError;
-    // ↻ with the network back: the row is written with a blank Label.
+    const lastThumb = [...sec().querySelectorAll(".gc-thumb")].pop();
+    out.hasRetry = !!lastThumb.querySelector(".gc-retry");
+    out.state = lastThumb.querySelector(".photo-upload-state.failed") ? lastThumb.querySelector(".photo-upload-state.failed").textContent : "";
+    // The network is back: the next Save Changes writes the row, label and all.
     L.failUpload = false;
-    const retry = [...sec().querySelectorAll(".gc-thumb")].pop().querySelector(".gc-retry");
-    out.hasRetry = !!retry;
-    if (retry) retry.click();
-    await L.waitFor(() => !e.uploadPending && !e.uploadError && !!e.storedPhotoId, 4000);
-    await L.sleep(100);
-    out.rowAfterRetry = L.row(e.storedPhotoId) && L.row(e.storedPhotoId)[5];
     await L.save();
-    out.rowAfterSave = L.row(e.storedPhotoId) && L.row(e.storedPhotoId)[5];
+    out.rowAfterSave = e.storedPhotoId && L.row(e.storedPhotoId) && L.row(e.storedPhotoId)[5];
+    out.closed = !L.editOpen();
     return out;
   });
-  ok(D.picked && D.crop && D.failed, "L6a a new Other photo fails to save: " + JSON.stringify([D.picked, D.crop, D.failed]));
-  ok(D.photoPatches === 0 && D.all === 0 && /1 label not saved — its photo isn't saved yet\. Tap ↻ on the photo, then Save Changes\./.test(D.toast),
-    "L6b Save Changes writes nothing for a never-saved photo and says so: " + JSON.stringify([D.photoPatches, D.all, D.toast]));
-  ok(D.caption === "Slab label" && D.editOpen && D.line, "L6c the text is kept, the screen stays, the red line shows: " + JSON.stringify([D.caption, D.editOpen, D.line]));
-  ok(D.hasRetry && D.rowAfterRetry === "" && D.rowAfterSave === "Slab label",
-    "L6d ↻ writes the row with a blank Label; the next Save Changes writes the label: " + JSON.stringify([D.hasRetry, D.rowAfterRetry, D.rowAfterSave]));
+  ok(D.picked && D.crop && D.failed, "L6a a new Other photo's upload fails at Save; it stays pending: " + JSON.stringify(D));
+  ok(D.photoPatches === 0 && D.all === 0 && /1 photo not saved \(AY-00099_other_02\.jpg\) — it's still on screen\. Tap Save Changes again\./.test(D.toast),
+    "L6b nothing is written for it and the message names it: " + JSON.stringify([D.photoPatches, D.all, D.toast]));
+  ok(D.caption === "Slab label" && D.editOpen && !D.hasRetry && D.state === "Not saved — tap Save again",
+    "L6c the label is kept, the screen stays, the photo is marked (no ↻; Save is the retry): " + JSON.stringify([D.caption, D.editOpen, D.hasRetry, D.state]));
+  ok(D.rowAfterSave === "Slab label" && D.closed,
+    "L6d the next Save Changes creates the row with the label and returns to the coin's page: " + JSON.stringify([D.rowAfterSave, D.closed]));
 
   // ---------- L7 label write fails after the fields save --------------------
   const E = await page.evaluate(async () => {
@@ -533,7 +518,10 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
   ok(E.retryAll === 0 && E.lmSame && E.row2 === "Will fail first" && E.lineGone && !E.editOpen2,
     "L7d the next Save Changes writes only the label, the line goes, back to detail: " + JSON.stringify(E));
 
-  // ---------- L9 Replace writes the saved label ----------------------------
+  // ---------- L9 Replace keeps the row and its PhotoID; the label is a cell --
+  // Photos wait for Save (Oct 2026): Replace is held; at Save the row is
+  // updated in place (file cells only, Ray's Q3), keeping its PhotoID and
+  // its saved Label; the typed label is then written as its own cell.
   const G = await page.evaluate(async () => {
     const L = __lb; L.install();
     const host = await L.openEditCoin();
@@ -542,22 +530,25 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     const rows = L.rowCount();
     const rep = box.closest(".gc-thumb").querySelector('[data-role="replace"]');
     const out = { picked: L.pickVia(rep, await L.jpeg()), crop: await L.finishCrop() };
-    await L.waitFor(() => galleryFor("AY-00099").some(e => e.type === "reference" && !e.stored && !e.uploadPending && e.storedFilename), 4000);
-    await L.sleep(100);
-    const row = L.row("PH-00002");
-    out.label = row[5]; out.file = row[4]; out.rowsSame = L.rowCount() === rows;
+    await L.sleep(120);
+    out.rowBefore = L.row("PH-00002").slice(0, 6);
     const e = galleryFor("AY-00099").find(x => x.type === "reference" && !x.stored);
-    out.caption = e && e.caption; out.photoId = e && e.storedPhotoId;
+    out.caption = e && e.caption;
     const b2 = [...L.section(L.editHost(), /Reference/).querySelectorAll(".gc-label-line")][0];
     out.box = L.val(b2);
+    L.patches = [];
     await L.save();
-    out.label2 = L.row("PH-00002")[5];
+    const row = L.row("PH-00002");
+    out.file = row[4]; out.label2 = row[5]; out.rowsSame = L.rowCount() === rows; out.photoId = e && e.storedPhotoId;
+    out.patches = L.photoPatches();
     return out;
   });
-  ok(G.picked && G.crop && G.label === "PCGS photo" && G.file !== "AY-00099_reference_01.jpg" && G.rowsSame && G.photoId === "PH-00002",
-    "L9a Replace updates PH-00002 in place with the SAVED label, not the typed one: " + JSON.stringify(G));
-  ok(G.caption === "Edited, not saved" && G.box === "Edited, not saved" && G.label2 === "Edited, not saved",
-    "L9b the typed text stays unsaved in the box; Save Changes writes it: " + JSON.stringify([G.caption, G.box, G.label2]));
+  ok(G.picked && G.crop && G.rowBefore[4] === "AY-00099_reference_01.jpg" && G.rowBefore[5] === "PCGS photo",
+    "L9a a Replace waits for Save; the row is unchanged until then: " + JSON.stringify(G.rowBefore));
+  ok(G.caption === "Edited, not saved" && G.box === "Edited, not saved", "L9b the typed label carries over to the replacement, still unsaved: " + JSON.stringify([G.caption, G.box]));
+  ok(G.file !== "AY-00099_reference_01.jpg" && G.rowsSame && G.photoId === "PH-00002" && G.label2 === "Edited, not saved" &&
+     G.patches.length === 2 && /^Photos!E3:E3,I3:I3$/.test(G.patches[0]) && /^Photos!F3:F3$/.test(G.patches[1]),
+    "L9c Save updates PH-00002 in place (file cells), then writes the typed label as one cell: " + JSON.stringify(G));
 
   // ---------- D Edit Coin Back / Discard / navigate -------------------------
   const F = await page.evaluate(async () => {

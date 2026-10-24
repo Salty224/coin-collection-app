@@ -145,6 +145,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
         if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
         if (await this.waitFor(() => this.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
+        // Photos wait for Save (Oct 2026): on a saved coin a pick is held;
+        // tap Save right after it so the checks read the saved rows. Draft
+        // mode (Add Coin) has no target here and is untouched.
+        if (this.ID && photoCommitTargetId(this.ID)) { await this.sleep(60); await savePhotosAndLabels(this.ID, null); }
         return true;
       },
       rows() { return this.mock._grids.Photos.filter(r => r[1] === this.ID).map(r => ({ id: r[0], type: r[2], file: r[4], label: r[5] })); }
@@ -262,6 +266,9 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       document.getElementById("bgCropUseBtn").click();
       if (await c.waitFor(() => c.overlayOpen("photoAdjustOverlay"), 1200)) document.getElementById("photoAdjustUseBtn").click();
     }
+    await c.sleep(60);
+    out.uploadsBeforeSave = c.uploads.length;
+    await savePhotosAndLabels(ID, null); // photos wait for Save (Oct 2026)
     await c.waitFor(() => c.uploads.length > 0 && !galleryFor(ID).some(e => e.uploadPending), 4000);
     await c.sleep(60);
     out.uploads = c.uploads.slice();
@@ -289,7 +296,8 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
   ok(/^Crop — Obverse \(from /.test(CS.cropTitle), "CS3c the crop tool's title names the Obverse: " + CS.cropTitle);
   ok(CS.uploads.length === 1 && /AY-00099_obverse_cropped_02\.jpg$/.test(CS.uploads[0]) &&
      CS.front.length === 1 && CS.front[0].id === "PH-1" && CS.front[0].file === "AY-00099_obverse_cropped_02.jpg",
-    "CS4 a crop from an Other photo lands as the Obverse: one upload, the Front row updated in place: " + JSON.stringify([CS.uploads, CS.front]));
+    "CS4 a crop from an Other photo lands as the Obverse at Save: one upload, the Front row updated in place: " + JSON.stringify([CS.uploads, CS.front]));
+  ok(CS.uploadsBeforeSave === 0, "CS4b nothing is uploaded until Save: " + CS.uploadsBeforeSave);
   ok(CS.srcRow && CS.srcRow.file === "AY-00099_other_01.jpg" && CS.srcRow.type === "Other",
     "CS5 the Other photo it was cropped from is unchanged");
 

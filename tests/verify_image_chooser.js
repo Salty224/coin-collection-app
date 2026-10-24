@@ -192,10 +192,20 @@ async function setup(page) {
         this.closeOverlays();
         return document.getElementById("managePhotosSections");
       },
+      // Photos wait for Save (Oct 2026): on a saved record a pick is held
+      // until Save. With autoSave (the default for blocks that check what a
+      // pick WRITES) this taps Save right after the crop, so their checks
+      // read the saved rows exactly as before. Blocks about the held state
+      // itself turn it off.
+      autoSave: true,
       async finishCrop() {
         if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
         if (await this.waitFor(() => this.overlayOpen("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        if (this.autoSave && this.id && photoCommitTargetId(this.id)) {
+          await sleep(60);
+          await savePhotosAndLabels(this.id, null);
+        }
         return true;
       },
       async refused(trigger, source, file) {
@@ -505,9 +515,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     ok(SR.p && SR.pc && JSON.stringify(SR.ogpRows) === JSON.stringify(["PH-00010"]) && SR.ogpSlots === 2 && SR.ogpEntries === 1 && SR.backEmpty,
       `SR1-${surface} Replace on the stored OGP front keeps one row, PH-00010; the pair still renders two slots with one front entry and Back empty: ` + JSON.stringify(SR));
     ok(SR.added && SR.c1 && SR.replaced && SR.c2 && SR.replaced1 && SR.c3 && SR.rows.length === 2 && SR.sameId &&
-       SR.newLabel === "" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
+       SR.newLabel === "Test" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
        SR.p1File && SR.p1File !== "AY-00090_coa_01.jpg" && SR.p1Label === "page 1" && SR.uploads === 3,
-      `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID and its SAVED Label kept (the typed, unsaved "Test" is not written by Replace; Save Changes writes it), old file left on disk, three uploads: ` + JSON.stringify(SR));
+      `SR2-${surface} COA: add + Files, label, Replace + Library, then Replace page 1: still two COA rows, each updated in place with its PhotoID (file cells only); the Save after the Replace writes the typed "Test" as its own cell, page 1 keeps its label, old file left on disk, three uploads: ` + JSON.stringify(SR));
     ok(JSON.stringify(SR.thumbsAfterSecond) === JSON.stringify(["page 1", "Test"]) && SR.gallery === 2,
       `SR3-${surface} after Replace on the last COA (Test) the live list is page 1, then Test, in that order — no leftover thumbnail: ` + JSON.stringify(SR));
     ok(JSON.stringify(SR.thumbs) === JSON.stringify(["page 1", "Test"]) &&
@@ -516,19 +526,20 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   }
 
   // ---------- RM. Remove: the live list matches the saved rows ------------
-  // S25 on 7f83aad (main has it too): ✕ on a photo still saving let the
-  // add's own write finish AFTER the detach — DateAdded landed on the blanked
-  // row, the row went back into the session index and the photo came back on
-  // screen until a restart. Every screen, open-ended and pair: a just-added
-  // photo removed WHILE SAVING, one removed after it saved, and one stored
-  // before the screen opened. After each remove the rendered photos and their
-  // order must equal the saved rows, the row must be fully blank and the file
-  // left on disk.
+  // Photos wait for Save (Oct 2026): ✕ is held like every other photo
+  // change and written at Save. (The old RM1/RM4 raced a ✕ against a save
+  // still in flight; a Save now locks the screen, so that race can't
+  // happen.) Every screen, open-ended and pair: a photo added and saved,
+  // then ✕ + Save; a pick ✕'d before any Save (nothing written); a photo
+  // stored before the screen opened, ✕ + Save. After each, the rendered
+  // photos equal the saved rows, a removed row is fully blank and its file
+  // stays on disk.
   for (const screen of ["coin-edit", "coin-manage", "set-edit", "set-manage"]) {
     const RM = await page.evaluate(async (screen) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       const isSet = screen.startsWith("set");
       if (isSet) __ic.installSet(); else __ic.install();
+      __ic.autoSave = false;
       let hostId;
       if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
       else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
@@ -539,134 +550,123 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
       const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
-      // One-shot slow Photos write: applied at once, answered 3s later — the
-      // window in which the S25 showed "Saving…" with the ✕ already there.
-      const realPatch = __ic.mock.patchWorkbookRanges.bind(__ic.mock);
-      let armed = false;
-      __ic.mock.patchWorkbookRanges = async (...a) => {
-        const r = await realPatch(...a);
-        if (armed && a[1] === "Photos") { armed = false; await sleep(3000); }
-        return r;
-      };
       const confirm = () => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === "Remove"); if (b) b.click(); return !!b; };
+      const body = () => (document.getElementById("writeGuardBody") || {}).textContent || "";
       const allRows = () => __ic.mock._grids.Photos;
-      const rowById = (id) => [...(allRows().find(r => r[0] === id) || [])];
       const blank = (n) => (allRows()[n - 1] || []).every(v => v === "" || v === undefined || v === null);
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
       const onDisk = async (f) => !!(f && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + f));
+      const save = () => savePhotosAndLabels(__ic.id, null);
+      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove);
       const openView = () => ({
         thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
-        files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
+        files: visible(openType).map(e => e.storedFilename || e.filename),
         savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
       });
       const pairView = () => {
         const slots = [...pairSec().querySelectorAll(".sg-photo-slot")];
         return {
           filled: slots.map(sl => !!sl.querySelector(".sg-photo-remove")),
-          files: pairTypes.map(t => { const e = galleryFor(__ic.id).find(x => x.type === t); return e ? (e.storedFilename || e.filename) : null; }),
+          files: pairTypes.map(t => { const e = visible(t)[0]; return e ? (e.storedFilename || e.filename) : null; }),
           saved: pairTypes.map((t, i) => { const r = saved([pairPTs[i]])[0]; return r ? r[4] : null; }),
         };
       };
       const out = { screen };
-      // Open-ended. A: added, saved, kept for now. B: added, removed WHILE saving.
+      // A: added and saved, then ✕ + Save.
       const before = saved([openPT]).length;
       out.addA = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
       out.cropA = await __ic.finishCrop();
-      await __ic.waitFor(() => saved([openPT]).length === before + 1 && !galleryFor(__ic.id).some(e => e.uploadPending), 5000);
-      await sleep(200);
-      const rowA = [...saved([openPT]).find(r => r[0] !== (isSet ? "PH-00011" : "PH-00002"))];
-      armed = true;
-      out.addB = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
-      out.cropB = await __ic.finishCrop();
-      await __ic.waitFor(() => saved([openPT]).length === before + 2, 5000);
-      const rowB = [...saved([openPT]).find(r => r[0] !== rowA[0] && r[0] !== (isSet ? "PH-00011" : "PH-00002"))];
-      const rowBn = allRows().findIndex(r => r[0] === rowB[0]) + 1;
-      // Hold the entry itself: once removed it leaves the gallery, so waiting
-      // on "nothing in the gallery is pending" would end before its own
-      // delayed write resumes — exactly the moment the bug happens.
-      const entB = galleryFor(__ic.id).find(e => e.uploadPending);
-      out.bPending = !!entB;
-      const thumbsB = [...openSec().querySelectorAll(".gc-thumb")];
-      const rmB = thumbsB.length ? thumbsB[thumbsB.length - 1].querySelector(".gc-remove") : null;
-      if (rmB) rmB.click();
-      out.confirmB = confirm();
-      await __ic.waitFor(() => !(entB && entB.uploadPending) && blank(rowBn), 6000);
-      await sleep(400);
-      out.afterB = openView(); out.bBlank = blank(rowBn); out.bOnDisk = await onDisk(rowB[4]);
-      out.bIndex = storedPhotoRowsFor(__ic.id).some(r => r.filename === rowB[4]);
-      // A: removed after it saved.
+      await sleep(80);
+      await save();
+      const rowA = [...(saved([openPT]).find(r => r[0] !== (isSet ? "PH-00011" : "PH-00002")) || [])];
+      out.aSavedFirst = saved([openPT]).length === before + 1;
       const rowAn = allRows().findIndex(r => r[0] === rowA[0]) + 1;
       const thumbsA = [...openSec().querySelectorAll(".gc-thumb")];
       const rmA = thumbsA.length ? thumbsA[thumbsA.length - 1].querySelector(".gc-remove") : null;
       if (rmA) rmA.click();
+      out.aBody = body();
       out.confirmA = confirm();
-      await __ic.waitFor(() => blank(rowAn), 4000);
-      await sleep(300);
+      await sleep(80);
+      out.aHeldRow = !blank(rowAn);
+      out.aHidden = [...openSec().querySelectorAll(".gc-thumb")].length === thumbsA.length - 1;
+      await save();
+      await sleep(80);
       out.afterA = openView(); out.aBlank = blank(rowAn); out.aOnDisk = await onDisk(rowA[4]);
-      // The photo stored before the screen opened.
+      out.aIndex = storedPhotoRowsFor(__ic.id).some(r => r.filename === rowA[4]);
+      // B: a pick ✕'d before any Save — nothing written.
+      out.addB = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
+      out.cropB = await __ic.finishCrop();
+      await sleep(80);
+      const callsB = __ic.graphCalls;
+      const thumbsB = [...openSec().querySelectorAll(".gc-thumb")];
+      const rmB = thumbsB.length ? thumbsB[thumbsB.length - 1].querySelector(".gc-remove") : null;
+      if (rmB) rmB.click();
+      out.bBody = body();
+      out.confirmB = confirm();
+      await sleep(80);
+      await save();
+      out.bGraph = __ic.graphCalls - callsB;
+      out.afterB = openView();
+      // S: the photo stored before the screen opened, ✕ + Save.
       const storedId = isSet ? "PH-00011" : "PH-00002";
       const rowSn = allRows().findIndex(r => r[0] === storedId) + 1;
       const rmS = openSec().querySelector(".gc-thumb .gc-remove");
       if (rmS) rmS.click();
       out.confirmS = confirm();
-      await __ic.waitFor(() => blank(rowSn), 4000);
-      await sleep(300);
+      await save(); await sleep(80);
       out.afterS = openView(); out.sBlank = blank(rowSn);
-      // Pair. Back: added, removed WHILE saving. Front: stored before opening.
-      const backBefore = saved([pairPTs[1]]).length;
-      armed = true;
+      // Pair Back: a pick ✕'d before Save.
       const backSlot = pairSec().querySelectorAll(".sg-photo-slot")[1];
       out.addBack = __ic.pickVia(backSlot && backSlot.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
       out.cropBack = await __ic.finishCrop();
-      await __ic.waitFor(() => saved([pairPTs[1]]).length === backBefore + 1, 5000);
-      const rowBk = [...(saved([pairPTs[1]])[0] || [])];
-      const rowBkn = allRows().findIndex(r => r[0] === rowBk[0]) + 1;
-      const entBk = galleryFor(__ic.id).find(e => e.uploadPending);
-      out.backPending = !!entBk;
+      await sleep(80);
+      const callsBk = __ic.graphCalls;
       const rmBk = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector(".sg-photo-remove");
       if (rmBk) rmBk.click();
       out.confirmBack = confirm();
-      await __ic.waitFor(() => !(entBk && entBk.uploadPending) && rowBkn > 0 && blank(rowBkn), 6000);
-      await sleep(400);
-      out.afterBack = pairView(); out.backBlank = rowBkn > 0 && blank(rowBkn); out.backOnDisk = await onDisk(rowBk[4]);
+      await save(); await sleep(80);
+      out.backGraph = __ic.graphCalls - callsBk;
+      out.afterBack = pairView();
+      // Pair Front stored before opening: ✕ + Save.
       const frontId = isSet ? "PH-00010" : "PH-00001";
       const rowFn = allRows().findIndex(r => r[0] === frontId) + 1;
       const rmF = pairSec().querySelectorAll(".sg-photo-slot")[0].querySelector(".sg-photo-remove");
       if (rmF) rmF.click();
       out.confirmFront = confirm();
-      await __ic.waitFor(() => blank(rowFn), 4000);
-      await sleep(300);
+      await sleep(60);
+      out.frontHeld = !blank(rowFn);
+      await save(); await sleep(80);
       out.afterFront = pairView(); out.frontBlank = blank(rowFn);
       out.storedLabel = isSet ? "page 1" : "PCGS photo";
+      __ic.autoSave = true;
       return out;
     }, screen);
     const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    ok(RM.addB && RM.cropB && RM.bPending && RM.confirmB && RM.bBlank && RM.bOnDisk && !RM.bIndex &&
-       eq(RM.afterB.thumbs, [RM.storedLabel, ""]) && eq(RM.afterB.files, RM.afterB.savedFiles) && eq(RM.afterB.thumbs, RM.afterB.savedLabels),
-      `RM1-${RM.screen} open-ended: ✕ on a just-added photo WHILE it is still saving — its row ends fully blank (no stray DateAdded), its file stays on disk, and the live list right after is exactly the saved rows in order: ` + JSON.stringify(RM));
-    ok(RM.confirmA && RM.aBlank && RM.aOnDisk && eq(RM.afterA.thumbs, [RM.storedLabel]) &&
-       eq(RM.afterA.files, RM.afterA.savedFiles) && eq(RM.afterA.thumbs, RM.afterA.savedLabels),
-      `RM2-${RM.screen} open-ended: ✕ on a just-added photo after it saved — the live list matches the saved rows, file on disk: ` + JSON.stringify(RM.afterA));
+    ok(RM.addA && RM.cropA && RM.aSavedFirst && RM.confirmA && /comes off when you tap/.test(RM.aBody) && RM.aHeldRow && RM.aHidden &&
+       RM.aBlank && RM.aOnDisk && !RM.aIndex &&
+       eq(RM.afterA.thumbs, [RM.storedLabel]) && eq(RM.afterA.files, RM.afterA.savedFiles) && eq(RM.afterA.thumbs, RM.afterA.savedLabels),
+      `RM1-${RM.screen} open-ended: ✕ on a saved photo hides it and writes nothing; Save blanks its row fully, the file stays on disk, and the live list is exactly the saved rows: ` + JSON.stringify(RM));
+    ok(RM.addB && RM.cropB && RM.confirmB && /hasn't been saved yet/.test(RM.bBody) && RM.bGraph === 0 &&
+       eq(RM.afterB.thumbs, [RM.storedLabel]) && eq(RM.afterB.files, RM.afterB.savedFiles),
+      `RM2-${RM.screen} open-ended: ✕ on a pick before any Save — zero Graph calls, and the live list matches the saved rows: ` + JSON.stringify([RM.bGraph, RM.afterB]));
     ok(RM.confirmS && RM.sBlank && eq(RM.afterS.thumbs, []) && eq(RM.afterS.files, []) && eq(RM.afterS.savedFiles, []),
-      `RM3-${RM.screen} open-ended: ✕ on the photo stored before the screen opened — no thumbnail left, no saved row: ` + JSON.stringify(RM.afterS));
-    ok(RM.addBack && RM.cropBack && RM.backPending && RM.confirmBack && RM.backBlank && RM.backOnDisk &&
-       eq(RM.afterBack.filled, [true, false]) && RM.afterBack.files[1] === null && eq(RM.afterBack.files, RM.afterBack.saved),
-      `RM4-${RM.screen} pair: ✕ on a just-added Back photo WHILE it is still saving — row fully blank, file on disk, the Back slot is "+" again and the slots match the saved rows: ` + JSON.stringify(RM.afterBack) + " " + JSON.stringify([RM.backPending, RM.backBlank, RM.backOnDisk]));
-    ok(RM.confirmFront && RM.frontBlank && eq(RM.afterFront.filled, [false, false]) && eq(RM.afterFront.files, [null, null]) && eq(RM.afterFront.saved, [null, null]),
-      `RM5-${RM.screen} pair: ✕ on the Front stored before the screen opened — both slots empty, matching the saved rows: ` + JSON.stringify(RM.afterFront));
+      `RM3-${RM.screen} open-ended: ✕ + Save on the photo stored before the screen opened — no thumbnail left, no saved row: ` + JSON.stringify(RM.afterS));
+    ok(RM.addBack && RM.cropBack && RM.confirmBack && RM.backGraph === 0 &&
+       RM.afterBack.filled[1] === false && RM.afterBack.files[1] === null && eq(RM.afterBack.files, RM.afterBack.saved),
+      `RM4-${RM.screen} pair: ✕ on a Back pick before Save — zero Graph calls, the Back slot is "+" again and the slots match the saved rows: ` + JSON.stringify([RM.backGraph, RM.afterBack]));
+    ok(RM.confirmFront && RM.frontHeld && RM.frontBlank && eq(RM.afterFront.filled, [false, false]) && eq(RM.afterFront.files, [null, null]) && eq(RM.afterFront.saved, [null, null]),
+      `RM5-${RM.screen} pair: ✕ on the stored Front waits for Save, then both slots are empty, matching the saved rows: ` + JSON.stringify(RM.afterFront));
   }
 
-  // UNS. A photo that was NEVER SAVED (its upload failed) has no Photos row,
-  // so the ✕ removes it from the screen with no write at all. Same
-  // confirmation. Both list kinds on all four screens: force a failed save,
-  // ✕, confirm — the thumbnail is gone, zero Graph calls during the remove,
-  // the live list matches the saved rows. Then ↻ still saves a failed photo
-  // when ✕ isn't used.
+  // UNS. A photo whose upload fails AT SAVE stays pending and marked. ✕ on it
+  // removes it with no write at all (it was never saved); otherwise the next
+  // Save, with the network back, saves it. Both list kinds, all four screens.
   for (const screen of ["coin-edit", "coin-manage", "set-edit", "set-manage"]) {
     const U = await page.evaluate(async (screen) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       const isSet = screen.startsWith("set");
       if (isSet) __ic.installSet(); else __ic.install();
+      __ic.autoSave = false;
       let hostId;
       if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
       else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
@@ -677,16 +677,17 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
       const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
-      // Every upload fails while armed: no file lands, no row is written.
       const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
       let failing = false;
       __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
       const confirm = () => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === "Remove"); if (b) b.click(); return !!b; };
       const title = () => (document.getElementById("writeGuardTitle") || {}).textContent || "";
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
+      const save = () => savePhotosAndLabels(__ic.id, null);
+      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove);
       const openView = () => ({
         thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
-        files: galleryFor(__ic.id).filter(e => e.type === openType).map(e => e.storedFilename || e.filename),
+        files: visible(openType).map(e => e.storedFilename || e.filename),
         savedLabels: saved([openPT]).map(r => r[5]), savedFiles: saved([openPT]).map(r => r[4]),
       });
       const pairView = () => {
@@ -694,111 +695,78 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         return {
           filled: slots.map(sl => !!sl.querySelector(".sg-photo-remove")),
           plus: slots.map(sl => !!sl.querySelector(".sg-photo-add")),
-          files: pairTypes.map(t => { const e = galleryFor(__ic.id).find(x => x.type === t); return e ? (e.storedFilename || e.filename) : null; }),
+          files: pairTypes.map(t => { const e = visible(t)[0]; return e ? (e.storedFilename || e.filename) : null; }),
           saved: pairTypes.map((t, i) => { const r = saved([pairPTs[i]])[0]; return r ? r[4] : null; }),
         };
       };
-      const failedEntry = (type) => galleryFor(__ic.id).find(e => e.type === type && e.uploadError && !e.uploadPending);
+      const failedEntry = (type) => galleryFor(__ic.id).find(e => e.type === type && e.uploadError && e.pendingSave);
       const out = { screen, storedLabel: isSet ? "page 1" : "PCGS photo" };
-
-      // 1. Open-ended: failed save, then ✕.
       failing = true;
+      // 1. Open-ended: fails at Save, then ✕.
       out.addO = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
       out.cropO = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(openType), 5000);
+      await sleep(80); await save(); await sleep(80);
       const entO = failedEntry(openType);
-      out.oFailed = !!entO; out.oRowsBefore = saved([openPT]).length;
-      out.oThumbsBefore = openSec().querySelectorAll(".gc-thumb").length;
+      out.oFailed = !!entO;
       const thumbsO = [...openSec().querySelectorAll(".gc-thumb")];
-      const rmO = thumbsO.length ? thumbsO[thumbsO.length - 1].querySelector(".gc-remove") : null;
-      __ic.clearToast();
+      const lastO = thumbsO[thumbsO.length - 1];
+      out.oState = lastO && lastO.querySelector(".photo-upload-state.failed") ? lastO.querySelector(".photo-upload-state.failed").textContent : "";
+      out.oRetry = !!(lastO && lastO.querySelector(".gc-retry"));
       const callsO = __ic.graphCalls;
+      const rmO = lastO ? lastO.querySelector(".gc-remove") : null;
       if (rmO) rmO.click();
       out.oTitle = title();
       out.confirmO = confirm();
-      await __ic.waitFor(() => openSec().querySelectorAll(".gc-thumb").length === out.oThumbsBefore - 1, 3000);
-      await sleep(300);
+      await sleep(120);
       out.oGraph = __ic.graphCalls - callsO;
-      out.oToast = __ic.toast();
       out.afterO = openView();
       out.oGone = !galleryFor(__ic.id).includes(entO);
-
-      // 2. Pair (Back): failed save, then ✕.
+      // 2. Pair Back: fails at Save, then ✕.
       const backSlot = pairSec().querySelectorAll(".sg-photo-slot")[1];
       out.addP = __ic.pickVia(backSlot && backSlot.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
       out.cropP = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(pairTypes[1]), 5000);
+      await sleep(80); await save(); await sleep(80);
       const entP = failedEntry(pairTypes[1]);
       out.pFailed = !!entP;
       out.pRetryShown = !!pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector('[data-act="retry"]');
-      const rmP = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector(".sg-photo-remove");
-      __ic.clearToast();
       const callsP = __ic.graphCalls;
+      const rmP = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector(".sg-photo-remove");
       if (rmP) rmP.click();
       out.pTitle = title();
       out.confirmP = confirm();
-      await __ic.waitFor(() => !galleryFor(__ic.id).includes(entP), 3000);
-      await sleep(300);
+      await sleep(120);
       out.pGraph = __ic.graphCalls - callsP;
       out.afterP = pairView();
-
-      // 3. Open-ended: failed save, then ↻ with the network back. Starts
-      // from a freshly opened screen so ↻ is tested on its own, not after
-      // whatever steps 1-2 left behind.
-      __ic.mock.uploadFile = realUpload;
-      if (isSet) __ic.installSet(); else __ic.install();
-      if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
-      else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
-      else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
-      await sleep(150);
-      const realUpload2 = __ic.mock.uploadFile.bind(__ic.mock);
-      __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload2(...a); };
-      failing = true;
-      out.oRowsBefore = saved([openPT]).length;
+      // 3 and 4. Fails at Save, ✕ not used: the next Save saves it.
+      out.rowsBefore = saved([openPT]).length;
       out.addR = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
       out.cropR = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(openType), 5000);
-      const entR = failedEntry(openType);
-      failing = false;
-      const thumbsR = [...openSec().querySelectorAll(".gc-thumb")];
-      const retryO = thumbsR.length ? thumbsR[thumbsR.length - 1].querySelector(".gc-retry") : null;
-      out.rRetryShown = !!retryO;
-      if (retryO) retryO.click();
-      await __ic.waitFor(() => entR && !entR.uploadPending && !entR.uploadError && saved([openPT]).length === out.oRowsBefore + 1, 5000);
-      await sleep(300);
-      out.rSaved = !!entR && !entR.uploadError && !!entR.storedFilename && saved([openPT]).some(r => r[4] === entR.storedFilename);
-      out.afterR = openView();
-
-      // 4. Pair (Back): failed save, then ↻.
-      failing = true;
       const backSlot2 = pairSec().querySelectorAll(".sg-photo-slot")[1];
       out.addR2 = __ic.pickVia(backSlot2 && backSlot2.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
       out.cropR2 = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(pairTypes[1]), 5000);
-      const entR2 = failedEntry(pairTypes[1]);
+      await sleep(80); await save(); await sleep(80);
+      const entR = failedEntry(openType), entR2 = failedEntry(pairTypes[1]);
+      out.bothFailed = !!entR && !!entR2;
       failing = false;
-      const retryP = pairSec().querySelectorAll(".sg-photo-slot")[1].querySelector('[data-act="retry"]');
-      out.r2RetryShown = !!retryP;
-      if (retryP) retryP.click();
-      await __ic.waitFor(() => entR2 && !entR2.uploadPending && !entR2.uploadError && saved([pairPTs[1]]).length === 1, 5000);
-      await sleep(300);
-      out.r2Saved = !!entR2 && !entR2.uploadError && saved([pairPTs[1]]).some(r => r[4] === entR2.storedFilename);
-      out.afterR2 = pairView();
-      __ic.mock.uploadFile = realUpload2;
+      await save(); await sleep(80);
+      out.rSaved = !!entR && !entR.uploadError && !entR.pendingSave && saved([openPT]).some(r => r[4] === entR.storedFilename);
+      out.r2Saved = !!entR2 && !entR2.uploadError && !entR2.pendingSave && saved([pairPTs[1]]).some(r => r[4] === entR2.storedFilename);
+      out.afterR = openView(); out.afterR2 = pairView();
+      __ic.mock.uploadFile = realUpload;
+      __ic.autoSave = true;
       return out;
     }, screen);
     const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    ok(U.addO && U.cropO && U.oFailed && U.oTitle === "Remove photo?" && U.confirmO && U.oGone && U.oGraph === 0 &&
-       eq(U.afterO.thumbs, [U.storedLabel]) && eq(U.afterO.files, U.afterO.savedFiles) && eq(U.afterO.thumbs, U.afterO.savedLabels) &&
-       /never saved/.test(U.oToast),
-      `UNS1-${U.screen} open-ended: ✕ on a photo whose save failed — same "Remove photo?" confirmation, the thumbnail is gone, zero Graph calls during the remove, and the live list matches the saved rows: ` + JSON.stringify(U));
-    ok(U.addP && U.cropP && U.pFailed && U.pRetryShown && U.pTitle === "Remove photo?" && U.confirmP && U.pGraph === 0 &&
-       eq(U.afterP.filled, [true, false]) && U.afterP.plus[1] === true && eq(U.afterP.files, U.afterP.saved),
-      `UNS2-${U.screen} pair: ✕ on a Back photo whose save failed — same confirmation, zero Graph calls, the Back slot shows "+" again and the slots match the saved rows: ` + JSON.stringify([U.pFailed, U.pRetryShown, U.pTitle, U.pGraph, U.afterP]));
-    ok(U.addR && U.cropR && U.rRetryShown && U.rSaved && eq(U.afterR.files, U.afterR.savedFiles),
-      `UNS3-${U.screen} open-ended: ↻ on a failed save (✕ not used) still saves it — row written, the live list matches the saved rows: ` + JSON.stringify([U.rRetryShown, U.rSaved, U.afterR]));
-    ok(U.addR2 && U.cropR2 && U.r2RetryShown && U.r2Saved && eq(U.afterR2.filled, [true, true]) && eq(U.afterR2.files, U.afterR2.saved),
-      `UNS4-${U.screen} pair: ↻ on a failed Back save (✕ not used) still saves it — row written, both slots filled and matching the saved rows: ` + JSON.stringify([U.r2RetryShown, U.r2Saved, U.afterR2]));
+    ok(U.addO && U.cropO && U.oFailed && U.oState === "Not saved — tap Save again" && !U.oRetry && U.oTitle === "Remove photo?" && U.confirmO && U.oGone && U.oGraph === 0 &&
+       eq(U.afterO.thumbs, [U.storedLabel]) && eq(U.afterO.files, U.afterO.savedFiles) && eq(U.afterO.thumbs, U.afterO.savedLabels),
+      `UNS1-${U.screen} open-ended: a photo whose upload failed at Save is marked "Not saved — tap Save again" (no ↻); ✕ removes it with zero Graph calls and the live list matches the saved rows: ` + JSON.stringify(U));
+    ok(U.addP && U.cropP && U.pFailed && !U.pRetryShown && U.pTitle === "Remove photo?" && U.confirmP && U.pGraph === 0 &&
+       U.afterP.filled[1] === false && U.afterP.plus[1] === true && eq(U.afterP.files, U.afterP.saved),
+      `UNS2-${U.screen} pair: ✕ on a Back photo that failed at Save — zero Graph calls, the Back slot shows "+" again and the slots match the saved rows: ` + JSON.stringify([U.pFailed, U.pRetryShown, U.pTitle, U.pGraph, U.afterP]));
+    ok(U.addR && U.cropR && U.bothFailed && U.rSaved && eq(U.afterR.files, U.afterR.savedFiles),
+      `UNS3-${U.screen} open-ended: with ✕ not used, the next Save (network back) saves the failed photo — row written, list matches the saved rows: ` + JSON.stringify([U.rSaved, U.afterR]));
+    ok(U.addR2 && U.cropR2 && U.r2Saved && U.afterR2.filled[1] === true && eq(U.afterR2.files, U.afterR2.saved),
+      `UNS4-${U.screen} pair: the next Save saves the failed Back photo — slot filled and matching the saved row: ` + JSON.stringify([U.r2Saved, U.afterR2]));
   }
 
   // Set: guard refusals, zero Graph calls.
@@ -953,9 +921,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       return out;
     }, surface);
     ok(RR.added && RR.crop1 && RR.replaced && RR.crop2 && RR.rows.length === 2 && RR.sameId &&
-       RR.newLabel === "" && RR.newFile !== RR.addedFile && RR.oldFileOnDisk && RR.newFileOnDisk &&
+       RR.newLabel === "Test" && RR.newFile !== RR.addedFile && RR.oldFileOnDisk && RR.newFileOnDisk &&
        RR.uploads.length === 2 && RR.uploads[0] === RR.addedFile && RR.uploads[1] === RR.newFile,
-      `R3-${surface} add + Files, label, Replace + Library: still two Reference rows, the added row updated in place with the new file and its saved (blank) label — the typed, unsaved "Test" waits for Save Changes — the old file left on disk, exactly two uploads: ` + JSON.stringify(RR));
+      `R3-${surface} add + Files, label, Replace + Library: still two Reference rows, the added row updated in place with the new file (file cells only), and the Save after the Replace writes the typed "Test" as its own cell — the old file left on disk, exactly two uploads: ` + JSON.stringify(RR));
     ok(RR.thumbs.length === 2 && RR.thumbs[0] === "PCGS photo" && RR.thumbs[1] === "Test" &&
        RR.gallery.length === 2 && RR.gallery[1] === RR.newFile &&
        RR.index.length === 2 && RR.index.indexOf(RR.addedFile) === -1,
@@ -1200,13 +1168,13 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     }
   }
 
-  // ---------- RC. ↻ on a failed save is centred on the photo -----------------
-  // Ray's tablet test of ce5b6be: the 20px corner ↻ sat right next to the
-  // neighbouring photo's ✕. On all four screens, at three sizes: each ↻ is
-  // centred on its own image box (both axes, within 2px), at least 44px,
-  // over a dim of that image, overlapping no ✕ (its own or any other), and
-  // is the element actually under the image's centre. Then (412x915) a real
-  // failed save is retried by tapping the image centre, and it saves.
+  // ---------- RC. A photo that failed at Save is marked on the photo ---------
+  // Photos wait for Save (Oct 2026): on a saved record a failed photo stays
+  // pending; Save itself is the retry, so there is no ↻ any more. The dim
+  // still covers the image and the line reads "Not saved — tap Save again";
+  // ✕ and Replace stay reachable. (Supersedes the centred-↻ checks from
+  // Ray's tablet test of ce5b6be: there is no ↻ to centre.) All four
+  // screens, three sizes; then the next Save saves them.
   const RC_SCREENS = ["coin-edit", "coin-manage", "set-edit", "set-manage"];
   for (const vp of [{ width: 360, height: 800 }, PHONE, TABLET]) {
     const p = vp === PHONE ? page : await openApp(vp);
@@ -1218,60 +1186,51 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         const isSet = screen.startsWith("set");
         if (isSet) __ic.installSet(); else __ic.install();
         const u = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
-        const types = isSet ? ["coa", "coa", "ogp_obverse", "ogp_reverse"] : ["reference", "reference", "obverse", "reverse"];
-        types.forEach((t, i) => galleryFor(__ic.id).push({ type: t, url: u(), rawUrl: u(), filename: __ic.id + "_rc" + i + ".jpg", caption: "", uploadError: "test" }));
+        const types = isSet ? ["coa", "coa", "ogp_reverse"] : ["reference", "reference", "reverse"];
         let host;
         if (screen === "coin-edit") host = __ic.openEditCoin();
         else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); host = document.getElementById("managePhotosSections"); }
         else host = screen === "set-edit" ? __ic.openEditSet() : __ic.openManageSet();
+        // Opening an editing screen discards leftovers, so the failed photos
+        // go in after it opens, then the screen redraws.
+        if (isSet) galleryFor(__ic.id).filter(e => e.type === "ogp_reverse").forEach(e => galleryFor(__ic.id).splice(galleryFor(__ic.id).indexOf(e), 1));
+        types.forEach((t, i) => galleryFor(__ic.id).push({ type: t, url: u(), rawUrl: null, filename: __ic.id + "_rc" + i + ".jpg", caption: "", uploadError: "test", pendingSave: true }));
+        photoHostRenders[__ic.id].render();
         __ic.openAll(host.id);
         await sleep(200);
-        const xs = [...host.querySelectorAll(".gc-remove, .sg-photo-remove")].map(b => b.getBoundingClientRect());
-        const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-        const rs = [...host.querySelectorAll('.gc-retry, .sg-photo-face [data-act="retry"]')].map(btn => {
-          const thumb = btn.closest(".gc-thumb"), face = btn.closest(".sg-photo-face");
-          const img = thumb ? thumb.querySelector(".gc-img") : face && face.querySelector(".sg-photo-img, .sg-photo-empty");
-          const dim = thumb ? thumb.querySelector(".gc-failed-dim") : face && face.querySelector(".sg-photo-failed-dim");
-          const holder = thumb || btn.closest(".sg-photo-slot");
-          btn.scrollIntoView({ block: "center" });
-          const r = btn.getBoundingClientRect(), ir = img ? img.getBoundingClientRect() : null, dr = dim ? dim.getBoundingClientRect() : null;
-          const under = ir ? document.elementFromPoint(ir.left + ir.width / 2, ir.top + ir.height / 2) : null;
+        const failed = [...host.querySelectorAll(".photo-upload-state.failed")].map(st => {
+          const thumb = st.closest(".gc-thumb"), slot = st.closest(".sg-photo-slot");
+          const holder = thumb || slot;
+          const img = thumb ? thumb.querySelector(".gc-img") : slot && slot.querySelector(".sg-photo-img, .sg-photo-empty");
+          const dim = thumb ? thumb.querySelector(".gc-failed-dim") : slot && slot.querySelector(".sg-photo-failed-dim");
+          const ir = img ? img.getBoundingClientRect() : null, dr = dim ? dim.getBoundingClientRect() : null;
           return {
             kind: thumb ? "thumb" : "pair",
-            dx: ir ? Math.round((r.left + r.width / 2 - (ir.left + ir.width / 2)) * 10) / 10 : null,
-            dy: ir ? Math.round((r.top + r.height / 2 - (ir.top + ir.height / 2)) * 10) / 10 : null,
-            w: Math.round(r.width), h: Math.round(r.height),
-            overX: [...host.querySelectorAll(".gc-remove, .sg-photo-remove")].filter(x => hit(r, x.getBoundingClientRect())).length,
+            text: st.textContent.trim(),
+            retry: !!(holder && holder.querySelector('.gc-retry, [data-act="retry"]')),
             dimCovers: !!(dr && ir && Math.abs(dr.left - ir.left) < 1.5 && Math.abs(dr.top - ir.top) < 1.5 && Math.abs(dr.width - ir.width) < 1.5 && Math.abs(dr.height - ir.height) < 1.5),
             dimBg: dim ? getComputedStyle(dim).backgroundColor : null,
-            underIsBtn: under === btn,
-            stateText: !!(holder && [...holder.querySelectorAll(".photo-upload-state.failed")].some(e => e.textContent.trim() === "Not saved — tap ↻")),
             xKept: !!(holder && holder.querySelector(thumb ? ".gc-remove" : ".sg-photo-face > .sg-photo-remove")),
             replaceKept: !!(holder && holder.querySelector('[data-act="replace"], [data-role="replace"]')),
-            inRow: !!btn.closest(".sg-photo-actions"),
           };
         });
-        return { n: xs.length, rs, pageScroll: document.documentElement.scrollWidth > window.innerWidth };
+        return { failed, pageScroll: document.documentElement.scrollWidth > window.innerWidth };
       }, screen);
-      const thumbs = R.rs.filter(r => r.kind === "thumb"), pairs = R.rs.filter(r => r.kind === "pair");
-      ok(thumbs.length >= 2 && pairs.length >= 2 && R.rs.every(r => r.dx !== null && Math.abs(r.dx) <= 2 && Math.abs(r.dy) <= 2 && !r.inRow),
-        `RC1-${screen} ${tag}: every ↻ on a failed save is centred on its own image box (both axes, within 2px), not in the button row: ` + JSON.stringify(R.rs));
-      ok(R.rs.length >= 4 && R.rs.every(r => r.w >= 44 && r.h >= 44),
-        `RC2-${screen} ${tag}: ↻ is at least a 44px tap target: ` + JSON.stringify(R.rs.map(r => [r.w, r.h])));
-      ok(R.rs.length >= 4 && R.n >= 4 && R.rs.every(r => r.overX === 0 && r.underIsBtn),
-        `RC3-${screen} ${tag}: ↻ overlaps no ✕ (its own or a neighbour's) and is the element under the image's centre: ` + JSON.stringify(R.rs.map(r => [r.kind, r.overX, r.underIsBtn])));
-      ok(R.rs.length >= 4 && R.rs.every(r => r.dimCovers && r.dimBg && r.dimBg !== "rgba(0, 0, 0, 0)" && r.stateText && r.xKept && r.replaceKept) && !R.pageScroll,
-        `RC4-${screen} ${tag}: a light dim covers the image; "Not saved — tap ↻", the ✕ and Replace are all still there; no sideways scroll: ` + JSON.stringify(R.rs));
+      const thumbs = R.failed.filter(r => r.kind === "thumb"), pairs = R.failed.filter(r => r.kind === "pair");
+      ok(thumbs.length >= 2 && pairs.length >= 1 && R.failed.every(r => r.text === "Not saved — tap Save again" && !r.retry),
+        `RC1-${screen} ${tag}: a photo that failed at Save reads "Not saved — tap Save again" and has no ↻ (Save is the retry): ` + JSON.stringify(R.failed));
+      ok(R.failed.length >= 3 && R.failed.every(r => r.dimCovers && r.dimBg && r.dimBg !== "rgba(0, 0, 0, 0)" && r.xKept && r.replaceKept) && !R.pageScroll,
+        `RC2-${screen} ${tag}: a light dim covers the image; the ✕ and Replace are still there; no sideways scroll: ` + JSON.stringify(R.failed));
     }
     if (p !== page) await p.close();
   }
-  // Tapping the centred ↻ still retries and saves (real failed upload, then
-  // a tap at the image's centre with the network back), both list kinds.
+  // The next Save, with the network back, saves the failed photos.
   for (const screen of RC_SCREENS) {
     const T = await page.evaluate(async (screen) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       const isSet = screen.startsWith("set");
       if (isSet) __ic.installSet(); else __ic.install();
+      __ic.autoSave = false;
       let hostId;
       if (screen === "coin-edit") hostId = __ic.openEditCoin().id;
       else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); hostId = "managePhotosSections"; }
@@ -1285,40 +1244,27 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       let failing = true;
       __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
       const rows = (pt) => __ic.photoRows().filter(r => r[2] === pt);
-      const failedEntry = (type) => galleryFor(__ic.id).find(e => e.type === type && e.uploadError && !e.uploadPending);
-      const tapCentre = (img) => { if (!img) return false; img.scrollIntoView({ block: "center" });
-        const r = img.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        const ok = !!(el && (el.classList.contains("gc-retry") || el.dataset.act === "retry")); if (ok) el.click(); return ok; };
       const out = {};
-      // Open-ended.
-      const before = rows(openPT).length;
       out.addO = __ic.pickVia(openSec().querySelector('[data-role="add"]'), "files", await __ic.jpeg());
       out.cropO = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(openType), 5000);
-      const eO = failedEntry(openType);
-      failing = false;
-      const tO = [...openSec().querySelectorAll(".gc-thumb")].pop();
-      out.tapO = tapCentre(tO && tO.querySelector(".gc-img"));
-      await __ic.waitFor(() => eO && !eO.uploadPending && !eO.uploadError && rows(openPT).length === before + 1, 5000);
-      await sleep(200);
-      out.savedO = !!eO && !eO.uploadError && rows(openPT).some(r => r[4] === eO.storedFilename);
-      // Pair (Back).
-      failing = true;
       const back = pairSec().querySelectorAll(".sg-photo-slot")[1];
       out.addP = __ic.pickVia(back && back.querySelector('[data-act="add"]'), "files", await __ic.jpeg());
       out.cropP = await __ic.finishCrop();
-      await __ic.waitFor(() => !!failedEntry(backType), 5000);
-      const eP = failedEntry(backType);
+      await sleep(80);
+      await savePhotosAndLabels(__ic.id, null);
+      const eO = galleryFor(__ic.id).find(e => e.type === openType && e.uploadError);
+      const eP = galleryFor(__ic.id).find(e => e.type === backType && e.uploadError);
+      out.failedBoth = !!eO && !!eP;
       failing = false;
-      const back2 = pairSec().querySelectorAll(".sg-photo-slot")[1];
-      out.tapP = tapCentre(back2 && back2.querySelector(".sg-photo-face .sg-photo-img, .sg-photo-face .sg-photo-empty"));
-      await __ic.waitFor(() => eP && !eP.uploadPending && !eP.uploadError && rows(backPT).length === 1, 5000);
-      await sleep(200);
+      await savePhotosAndLabels(__ic.id, null);
+      await sleep(100);
+      out.savedO = !!eO && !eO.uploadError && rows(openPT).some(r => r[4] === eO.storedFilename);
       out.savedP = !!eP && !eP.uploadError && rows(backPT).some(r => r[4] === eP.storedFilename);
       __ic.mock.uploadFile = realUpload;
+      __ic.autoSave = true;
       return out;
     }, screen);
-    ok(T.addO && T.cropO && T.tapO && T.savedO && T.addP && T.cropP && T.tapP && T.savedP,
-      `RC5-${screen}: tapping the centred ↻ on a failed save (open-ended and pair) retries and saves — row written: ` + JSON.stringify(T));
+    ok(T.addO && T.cropO && T.addP && T.cropP && T.failedBoth && T.savedO && T.savedP,
+      `RC3-${screen}: two photos that failed at Save (open-ended and pair) are saved by the next Save — rows written: ` + JSON.stringify(T));
   }
 }, module);

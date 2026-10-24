@@ -271,7 +271,9 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     galleryStore["AY-00001"] = [];
     const entry = { type: "slab_obverse", url: "blob:x", blob: new Blob(["p"]), caption: "",
       filename: "AY-00001_slab_obverse.jpg", rawFilename: null };
+    // Photos wait for Save (Oct 2026): the capture is held, then Save writes it.
     await addGalleryEntryAndCommit("AY-00001", entry, () => {});
+    await savePhotosAndLabels("AY-00001", null);
     const afterFail = {
       stillInGallery: galleryFor("AY-00001").indexOf(entry) !== -1,
       keptBlob: !!entry.blob,
@@ -279,7 +281,8 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       rows: mock._grids.Photos.filter(r => r[1] === "AY-00001").length
     };
     fail = false;
-    await retryGalleryPhotoCommit("AY-00001", entry, () => {});
+    // The retry is the next Save: the photo stayed pending.
+    await savePhotosAndLabels("AY-00001", null);
     const afterRetry = {
       error: entry.uploadError,
       rows: mock._grids.Photos.filter(r => r[1] === "AY-00001").length,
@@ -592,6 +595,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       type: "reference", url: null, rawUrl: null, blob: new Blob(["nr"]), caption: "",
       filename: "AY-00004_reference_02.jpg", rawFilename: null
     }, () => {});
+    await savePhotosAndLabels(id, null); // photos wait for Save (Oct 2026)
 
     // Isolates the SHEET-side Label fallback specifically. The JS side
     // already copies the old caption onto the replacement, so without this
@@ -717,6 +721,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       type: "obverse", url: null, rawUrl: null, blob: new Blob([new Uint8Array([8])]), caption: "",
       filename: "AY-00004_obverse_cropped.jpg", rawFilename: null
     }, () => {});
+    await savePhotosAndLabels(id, null); // photos wait for Save (Oct 2026)
     const rows = mock._grids.Photos.filter(r => r[1] === id);
     const out = {
       rowCount: rows.length, photoId, rowPhotoId: rows[0] && rows[0][0], rowFilename: rows[0] && rows[0][4],
@@ -750,6 +755,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       type: "obverse", url: fresh, rawUrl: null, blob: new Blob([new Uint8Array([2])]), caption: "",
       filename: "AY-00004_obverse_cropped.jpg", rawFilename: null
     }, () => {});
+    await savePhotosAndLabels(id, null); // photos wait for Save (Oct 2026)
     const after = getCachedCoinPhotoUrl("AY-00004_obverse_cropped.jpg");
     delete galleryStore[id];
     __setGraphClientForTest(null); __resetSheetHeaderMapsForTest();
@@ -989,6 +995,9 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     // Confirm.
     clickIn(openSlot(), '[data-act="remove"]');
     clickGuard(1);
+    // Photos wait for Save (Oct 2026): the ✕ is held, Save detaches the row.
+    out.heldUntilSave = mock._grids.Photos.some(r => r[0] === "PH-00001");
+    await savePhotosAndLabels(id, null);
     await new Promise(r => setTimeout(r, 300));
     out.afterConfirm = { rowPresent: mock._grids.Photos.some(r => r[0] === "PH-00001"),
       indexEntries: (LIVE_PHOTOS && LIVE_PHOTOS[id] || []).length,
@@ -1010,6 +1019,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     host2.querySelectorAll(".accordion-header")[0].click();
     clickIn(host2.querySelector(".sg-photo-slot"), '[data-act="remove"]');
     clickGuard(1);
+    await savePhotosAndLabels("AY-00099", null);
     await new Promise(r => setTimeout(r, 300));
     out.plainAfterConfirm = { entries: galleryFor("AY-00099").length };
     renderManagePhotosInto("managePhotosSections", ctx2);
@@ -1021,9 +1031,12 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     // --- A FAILING detach must leave the screen alone. Removing locally and
     //     firing the write off unawaited is what let the screen and the sheet
     //     disagree in the first place.
+    // A real row behind the photo, so the detach really reaches its write
+    // (and fails) — without one there is no write to fail.
+    const realRow = await writePhotoRow("AY-00099", { type: "obverse", caption: "" }, "AY-00099_obverse_cropped.jpg", "");
     const realPatch = mock.patchWorkbookRanges.bind(mock);
     mock.patchWorkbookRanges = () => Promise.reject(new Error("network down"));
-    __setStoredPhotosForTest({ "AY-00099": [{ photoId: "PH-00051", photoType: "Obverse",
+    __setStoredPhotosForTest({ "AY-00099": [{ photoId: realRow.photoId, photoType: "Obverse",
       galleryType: "obverse", subGroupId: "", filename: "AY-00099_obverse_cropped.jpg",
       originalFilename: "", label: "" }] });
     delete galleryStore["AY-00099"];
@@ -1038,10 +1051,13 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     if (probed) probed.__probe = "keep-me";
     clickIn(host3.querySelector(".sg-photo-slot"), '[data-act="remove"]');
     clickGuard(1);
+    await savePhotosAndLabels("AY-00099", null);
     await new Promise(r => setTimeout(r, 300));
     out.afterFailedDetach = { entries: galleryFor("AY-00099").length,
       survived: (galleryFor("AY-00099")[0] || {}).__probe === "keep-me",
-      indexEntries: (LIVE_PHOTOS && LIVE_PHOTOS["AY-00099"] || []).length };
+      indexEntries: (LIVE_PHOTOS && LIVE_PHOTOS["AY-00099"] || []).length,
+      stillPending: !!(galleryFor("AY-00099")[0] || {}).pendingRemove,
+      rowKept: mock._grids.Photos.some(r => r[0] === realRow.photoId) };
     mock.patchWorkbookRanges = realPatch;
 
     __setStoredPhotosForTest(null); __setLiveCoinsForTest(null); __setGraphClientForTest(null);
@@ -1064,13 +1080,15 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     "U8 and says up front when a legacy column will keep the photo showing anyway");
   ok(U.afterCancel.entries === 1 && U.afterCancel.rowPresent === true,
     "U9 Cancel changes nothing — not the gallery, not the workbook");
-  ok(U.afterConfirm.rowPresent === false, "U10 Confirm detaches the Photos row");
+  ok(U.heldUntilSave === true, "U9b Confirm writes nothing yet: the row stays until Save");
+  ok(U.afterConfirm.rowPresent === false, "U10 Confirm, then Save, detaches the Photos row");
   ok(U.afterConfirm.indexEntries === 0, "U11 and updates the session's Photos index, so it can't be re-hydrated back");
   ok(U.afterConfirm.fileKept === true, "U12 while the stored file is never deleted");
   ok(U.plainAfterConfirm.entries === 0 && U.plainAfterRerender.entries === 0 && U.plainAfterRerender.slotEmpty === true,
     "U13 with no legacy column, a removed photo stays removed across a re-render");
-  ok(U.afterFailedDetach.entries === 1 && U.afterFailedDetach.survived === true && U.afterFailedDetach.indexEntries === 1,
-    "U14 a FAILED detach removes nothing — the SAME entry is still there, so the removal waits on the write rather than being optimistic");
+  ok(U.afterFailedDetach.entries === 1 && U.afterFailedDetach.survived === true && U.afterFailedDetach.indexEntries === 1 &&
+     U.afterFailedDetach.stillPending === true && U.afterFailedDetach.rowKept === true,
+    "U14 a FAILED detach at Save removes nothing — the SAME entry is still there, still waiting to come off at the next Save, and its row is kept: " + JSON.stringify(U.afterFailedDetach));
 
   // ---------- V. The gallery viewer shows the WHOLE photo --------------
   // Reported live on AY-00207: the reference-photo viewer showed a small
