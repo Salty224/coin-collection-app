@@ -430,10 +430,13 @@ commit 5).
 
 ## Photos wait for Save (Oct 2026, HELD on `claude/photos-wait-for-save`, NOT merged)
 Backlog items l, m, n, o. Plan answered by Ray 24 Oct 2026 (Q1-Q11). Built in
-stages; **C1 is built, held for Ray's device test**. C2 (leave warning in
-navigate(), Add Coin, the device Back history guard) and C3 (open-ended
-Package/OGP) are not built yet; C4 is this file. Branch cut from `main`
-`34dc28b`. Suite: `tests/verify_photos_wait_for_save.js` (32).
+stages. **C1 is built and passed Ray's tablet test of `c5a8b29`** (steps 1-9,
+11-13; step 10, the workbook check, deferred to a computer session; step 14,
+airplane mode, skipped, so the partial-failure path is device-unverified).
+**C2 is built, held for Ray's device test** (see "C2: the leave guard"
+below). C3 (open-ended Package/OGP) is not built yet; C4 is this file.
+Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
+(35), `tests/verify_leave_guard.js` (37).
 - **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
   `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
   are held in memory and written only by Save Changes (Edit Coin, Edit Set)
@@ -499,8 +502,8 @@ Package/OGP) are not built yet; C4 is this file. Branch cut from `main`
 - **Discard** (`discardPendingPhotos`, wrapped with labels in
   `discardUnsavedPhotoEdits`): picks go, replaced photos come back in their own
   place, ✕'d photos come back. Back's "Discard unsaved edits?" counts photos
-  ("1 field, 1 photo label and 2 photos"). In C1 `navigate()` (Close Drawer,
-  every other route) still discards silently; C2 adds the warning there.
+  ("1 field, 1 photo label and 2 photos"). *(C1 left `navigate()` discarding
+  silently; since C2 it asks first, see below.)*
   Opening Edit Coin or Edit Set discards that record's leftovers.
 - **Known effect, accepted:** ↻ no longer appears on a saved record (Save is
   the retry). `retryGalleryPhotoCommit` and the ↻ markup are kept for a
@@ -526,6 +529,93 @@ Package/OGP) are not built yet; C4 is this file. Branch cut from `main`
   (3836 - 24 retired centred-↻ checks + 32 new suite + 4 added elsewhere).
 - **Not verified:** any real device; Samsung Internet; a real Save to
   `_Testing` with several photos.
+
+### C2: the leave guard (built on the same branch, HELD for Ray's device test)
+Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
+- **One check, one dialog, every way off an editing screen.**
+  `activeEditScreen()` says which editing screen is up ("editcoin",
+  "editset", "managephotos", "addcoin" — a new coin or a Staging-draft
+  edit); `unsavedEditsForView()` says what is unsaved there (fields, photo
+  labels, photos, a receipt on Add Coin) and how to discard it;
+  `guardLeaveEditScreen(leave, onKeep)` runs `leave` at once when nothing is
+  unsaved, else shows `showDiscardEditsDialog`. Title "Discard unsaved
+  edits?"; body "You've changed {count} on {ID} and haven't saved them.
+  Discard leaves this screen and loses those changes. Keep editing stays
+  here so you can save." ({ID} is "this new coin" on a new Add Coin.)
+  Buttons Keep editing / Discard. The old `confirmLeaveWithUnsavedEdits` is
+  gone.
+- **Where it runs.** `navigate(viewId)` is now the guard around
+  `navigateNow(viewId)` and returns whether it left (`beginCoinDraftEdit`
+  checks it). That covers Close Drawer and every other route. The in-form
+  and chrome Back of Edit Coin / Edit Set / Manage Photos, Edit Set's "Coins
+  in this Set" row, and `openManagePhotos` (wrapping `openManagePhotosNow`,
+  so a Set's Manage Photos opening a coin's asks first) all go through it.
+  While a Save runs nothing leaves: `navigate()` toasts "Still saving —
+  wait for it to finish" and returns false.
+- **What counts.** Edit Coin: `browseEditTouchedFields` (file inputs no
+  longer count: the receipt saves on pick, Q10). Edit Set: fields that
+  differ from the form as opened (`editSetChangedFieldCount`, Q4; they are
+  session-only but still count). Both plus unsaved labels and pending photos.
+  Manage Photos: labels and photos. Add Coin: `addCoinTouchedFields` (a
+  delegated listener on `#view-addcoin` that records only trusted user events
+  and skips file inputs, so an album or Wishlist deep-link prefill and a
+  Staging draft being loaded never count), photo picks
+  (`addCoinUnsavedPhotoCount`: entries not `stagingStored`, plus Staging
+  photos ✕'d), and a picked or removed receipt (`addCoinUnsavedReceipt`).
+  Add Coin's Discard is `resetAddCoinForm()` + `clearCoinDraftEditContext()`.
+- **Device Back (Q6).** Opening an editing screen pushes ONE history entry
+  `{coinLeaveGuard: token}` (`armLeaveGuard`); `setNavBack` (run on every
+  screen change) queues `syncLeaveGuard`, which arms or disarms, so redraws
+  never stack a second entry. The popstate handler (`onLeaveGuardPop`) runs
+  the same check: nothing unsaved -> the in-app Back (`navBackHandler`);
+  something unsaved -> the dialog; Keep editing pushes the entry back;
+  Discard runs the in-app Back. Leaving any other way (Save that leaves,
+  in-app Back, Close Drawer, navigate) steps back over the entry
+  (`disarmLeaveGuard`, the pop it causes is expected and ignored). The photo
+  viewer keeps its own entry on top; Back there closes only the viewer (the
+  pop lands on our entry, which stays). While a dialog or a Save is up, Back
+  re-arms and changes nothing; with the image chooser open it closes the
+  chooser; with the crop tool open it cancels the crop (as its Cancel does). Each entry has its own token, so one left behind by a reload is
+  never mistaken for ours.
+- **Tidy-ups (Ray, C1 test).** (1) The status line ("Not saved yet",
+  "Saving…", "Not saved — tap Save again") sits under the Replace button on
+  every tile type (open-ended tiles had it above the label line). (2) Remove
+  dialog for a saved photo: "This {Reference photo} will be removed when you
+  tap Save. Until then nothing changes, and Discard brings it back. The
+  photo file itself is never deleted." plus the legacy All-columns note when
+  it applies; a never-saved pick: "This {…} hasn't been saved yet, so taking
+  it off writes nothing." (3) The Discard dialog above. (4) One Save toast
+  wording on every editing screen, `photoSaveHeadline`: "Saved {ID} — 1 photo
+  added." / "— 1 photo removed." / "— 1 label updated." (Edit Set's labels-
+  only toast used to be "1 photo label saved to the workbook."). Edit Coin's
+  fields toast keeps "Saved {ID} to the workbook (N fields updated, …)".
+- **Edge case pinned (Ray, C1 test):** a label changed and then ✕ on the
+  same photo: Save writes the removal only; the toast says "Saved {ID} — 1
+  photo removed."; the row ends fully blank; no Label cell is written
+  (`unsavedPhotoLabelEntries` skips `pendingRemove`). Test E1.
+- **Tests changed to follow the design, not weakened:**
+  `verify_photos_wait_for_save` (install discards leftovers; W10 new toast;
+  W13 navigate now asks, Discard drops the pick; W14b the status line under
+  Replace on a Reference tile and a Holder slot), `verify_photo_label_save`
+  (L11b/L11d new Edit Set toast), `verify_image_chooser` (RM1 new Remove
+  wording).
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): navigate() unguarded (G1a, G1c, G3b, G4a, G5a-d, G7b, G9); the
+  history guard removed (H1-H8, 15 checks); the Add Coin prefill counted as
+  an edit (G6, G7a, G7b); Edit Set fields not counted (G3a, G3b, G8);
+  entries without a token (H7); Back with the crop tool open leaving the
+  screen (H8b); the status line back above the label line (W14b x3). The E1
+  edge case has two protections, each enough on its own (✕'d photos are
+  removed before labels are written, and `unsavedPhotoLabelEntries` skips
+  `pendingRemove`): removing either one alone still passes; removing both
+  fails E1a and E1c.
+- `npm test` on C2: 3888 passed, 0 failed, 0 page errors, 73 suites (3848 +
+  37 new leave-guard checks + 3 W14b).
+- **Not verified:** any real device; Samsung Internet's and the installed
+  app's handling of the history entry (Chrome may skip a history entry
+  pushed without a recent tap when Back is pressed; every push here follows
+  a tap, but that is untested on a device); Android's Back gesture versus
+  the Back button.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -1410,7 +1500,8 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   note; the receipt viewer can show an old copy after a same-name
   replacement.
 - (k) Deploy workflow: upgrade its actions to Node 24 versions.
-- (l) Close Drawer / navigate should warn on any unsaved edit (all fields,
+- (l) *(Built on `claude/photos-wait-for-save`, C2, held: see "C2: the
+  leave guard".)* Close Drawer / navigate should warn on any unsaved edit (all fields,
   Edit Coin and the other edit screens), not only Back. Today `navigate()`
   leaves silently and the edits (photo labels included) are discarded.
   Next branch, plan first (Ray, 23 Oct): the same "Discard unsaved edits?"
@@ -1419,7 +1510,7 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   edit screens wait for Save, the same as Add Coin's draft mode, instead of
   saving on capture; Discard undoes them; Manage Photos gets ONE Save button
   for photos and labels together (replacing "Save labels").
-- (o) Same next branch as (l) and (m) (Ray, 24 Oct): Close Drawer on Add
+- (o) *(Built on `claude/photos-wait-for-save`, C2, held.)* Same next branch as (l) and (m) (Ray, 24 Oct): Close Drawer on Add
   Coin must warn before throwing away a half-entered coin. Today
   `navigate("addcoin")` resets the form (`resetAddCoinForm()`) and leaving
   by any route discards whatever was typed or picked, with no warning.
@@ -1428,6 +1519,15 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   Front/Back pair. Needs a plan for the existing Front/Back Package photos
   (PhotoType `OGP_Obverse`/`OGP_Reverse`, Add Set's whole-set mirror, the
   Set's flip-photo fallback `setFlipPhotoUrl`).
+- (p) Its own small branch, after C3 (Ray, 24 Oct): retire the All-sheet
+  photo fallback. The app still reads the old flat All columns (Obverse,
+  Obverse_Original, Reverse, Reverse_Original, Photo3, Photo4, OGPPhoto) when
+  a record has no Photos row (`legacyStoredRowsFor`, `storedPhotoFilename`'s
+  fallback, `legacyFallbackFilenameFor`), and the Remove dialog's note "this
+  coin also has a photo recorded in the old All sheet columns". The 3 Oct
+  workbook copy shows all 41 filenames in those columns also have Photos
+  rows, so the fallback looks unneeded. Recheck against the CURRENT workbook
+  first. The All columns themselves stay as history (never cleared).
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
