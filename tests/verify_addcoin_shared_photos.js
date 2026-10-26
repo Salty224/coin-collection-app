@@ -21,7 +21,8 @@
 //   CS  crop sources are Holder, Reference and Other; destinations Front,
 //       Back, Reference; a crop from an Other photo lands as the Front
 //   OC  the coin screens gain Package (OGP) and COA: stored rows now show,
-//       a new OGP front and a labelled COA page commit like every other
+//       (Package is open-ended since Oct 2026, C3: a new Package photo saves
+//       as {ID}_ogp_NN with an OGP row) and a labelled COA page commit like every other
 //       photo; a coin inside a Set has no COA slot of its own unless it
 //       already has COA photos
 //   L   layout of the coin screens at 360x800, 412x915 and 1024x768
@@ -315,8 +316,11 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       const coa = c.section(host, /COA \/ certificates/);
       await c.sleep(60);
       out[k] = {
-        ogpFront: !!(ogp && ogp.querySelector('.sg-photo-slot [data-act="replace"]')),
-        ogpBackEmpty: !!(ogp && ogp.querySelectorAll('.sg-photo-slot [data-act="add"]').length === 1),
+        // Package is open-ended (Oct 2026): the stored front is a row tile
+        // reading "Front" (display only), with Replace, and a + to add more.
+        ogpFront: !!(ogp && ogp.querySelector('.gc-thumb[data-file="AY-00099_ogp_obverse.jpg"] [data-role="replace"]')) &&
+          ((ogp.querySelector('.gc-thumb[data-file="AY-00099_ogp_obverse.jpg"] .gc-label-line') || {}).textContent === "Front"),
+        ogpBackEmpty: !!(ogp && ogp.querySelector("button.gc-add-tile") && !ogp.querySelector(".sg-photo-slot")),
         coaCaption: coa ? [...coa.querySelectorAll(".gc-thumb .gc-label-line")].map(i => i.title) : null,
         coaTile: !!(coa && coa.querySelector("button.gc-add-tile")),
         ogpCount: ((ogp && ogp.previousElementSibling.textContent) || "").replace(/\s+/g, " ")
@@ -325,8 +329,8 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     // 2. A new OGP back and a labelled COA page, through the chooser.
     const host = c.openEditCoin();
     const ogp = c.section(host, /Package \/ OGP/);
-    out.pickOgp = await c.pickVia(ogp && ogp.querySelector('.sg-photo-slot [data-act="add"]'));
-    await c.waitFor(() => c.rows().some(r => r.type === "OGP_Reverse") && !galleryFor(ID).some(e => e.uploadPending), 4000);
+    out.pickOgp = await c.pickVia(ogp && ogp.querySelector("button.gc-add-tile"));
+    await c.waitFor(() => c.rows().some(r => r.type === "OGP") && !galleryFor(ID).some(e => e.uploadPending), 4000);
     const coa = c.section(c.openEditCoin(), /COA \/ certificates/);
     out.pickCoa = await c.pickVia(coa && coa.querySelector("button.gc-add-tile"));
     await c.waitFor(() => c.rows().filter(r => r.type === "COA").length === 2 && !galleryFor(ID).some(e => e.uploadPending), 4000);
@@ -349,14 +353,14 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
   });
   for (const k of ["edit", "manage"]) {
     const o = OC[k];
-    ok(o.ogpFront && o.ogpBackEmpty, `OC1-${k} a stored OGP front shows in Package / OGP, with Replace; the back is an empty +`);
+    ok(o.ogpFront && o.ogpBackEmpty, `OC1-${k} a stored OGP front shows in Package / OGP as a tile reading "Front", with Replace, and a + to add more`);
     ok(JSON.stringify(o.coaCaption) === JSON.stringify(["page 1"]) && o.coaTile,
       `OC2-${k} a stored COA page shows with its label, and a + tile to add another: ` + JSON.stringify(o.coaCaption));
   }
-  const ogpRow = OC.rows.find(r => r.type === "OGP_Reverse");
+  const ogpRow = OC.rows.find(r => r.type === "OGP");
   const coaRows = OC.rows.filter(r => r.type === "COA");
-  ok(OC.pickOgp && ogpRow && ogpRow.file === "AY-00099_ogp_reverse.jpg",
-    "OC3 a new OGP back on a coin saves as {ID}_ogp_reverse.jpg with an OGP_Reverse row: " + JSON.stringify(OC.rows));
+  ok(OC.pickOgp && ogpRow && ogpRow.file === "AY-00099_ogp_01.jpg",
+    "OC3 a new Package photo on a coin saves as {ID}_ogp_01.jpg with an OGP row: " + JSON.stringify(OC.rows));
   ok(OC.pickCoa && coaRows.length === 2 && coaRows.some(r => r.file === "AY-00099_coa_02.jpg"),
     "OC4 a new COA page on a coin saves as the next _coa_NN with a COA row");
   ok(OC.uploads.length === 2, "OC5 exactly two uploads for the two picks: " + JSON.stringify(OC.uploads));
@@ -397,14 +401,15 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       const tag = surface + " " + vp.width + "x" + vp.height;
       console.log("    coin layout " + tag + ": " + JSON.stringify(L.pairs.map(x => [x.title.slice(0, 12), x.widths])));
       const front = L.pairs.find(x => /Obverse & reverse/.test(x.title));
-      const ogp = L.pairs.find(x => /Package/.test(x.title));
       const holder = L.pairs.find(x => /Holder/.test(x.title));
       ok(!L.pageScroll, `L1 ${tag}: no horizontal page scroll`);
-      ok(L.pairs.length === 3 && L.pairs.every(x => x.inBody && x.widths.length === 2 && x.widths[0] === x.widths[1]),
-        `L2 ${tag}: Obverse & reverse, Holder and Package pairs each sit inside their card, both slots the same width: ` + JSON.stringify(L.pairs));
-      ok(front && ogp && holder && ogp.widths[0] === front.widths[0] && holder.widths[0] === front.widths[0],
-        `L3 ${tag}: the Package / OGP slots are the same width as Obverse & reverse's`);
-      ok(L.thumbs.length === 2 && L.thumbs.every(Boolean), `L4 ${tag}: each COA page's Replace stays inside its thumbnail, inside the screen`);
+      // Package / OGP is open-ended since Oct 2026: tiles, not a pair.
+      ok(L.pairs.length === 2 && L.pairs.every(x => x.inBody && x.widths.length === 2 && x.widths[0] === x.widths[1]) &&
+         !L.pairs.some(x => /Package/.test(x.title)),
+        `L2 ${tag}: Obverse & reverse and Holder pairs each sit inside their card, both slots the same width (Package is tiles now): ` + JSON.stringify(L.pairs));
+      ok(front && holder && holder.widths[0] === front.widths[0],
+        `L3 ${tag}: the Holder slots are the same width as Obverse & reverse's`);
+      ok(L.thumbs.length === 3 && L.thumbs.every(Boolean), `L4 ${tag}: each COA page's and the Package photo's Replace stays inside its tile, inside the screen`);
       ok(L.titlesOneLine, `L5 ${tag}: every section title, "Holder (slab or flip)" included, fits on one line`);
       await p.close();
     }

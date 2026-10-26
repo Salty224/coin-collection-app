@@ -9198,6 +9198,7 @@
     reference: "Reference",
     ogp_obverse: "OGP_Obverse",
     ogp_reverse: "OGP_Reverse",
+    ogp: "OGP",
     coa: "COA",
     subgroup_obverse: "SubGroup_Obverse",
     subgroup_reverse: "SubGroup_Reverse",
@@ -11725,6 +11726,13 @@
     { key: "ogp_obverse",      label: "Package (OGP) — front", icon: "📦", suffix: "_ogp_obverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
     { key: "ogp_reverse",      label: "Package (OGP) — back",  icon: "📦", suffix: "_ogp_reverse", flipSource: false, retainRaw: false, aspect: "free", repeatable: false, tier: "set", scope: "both" },
     { key: "coa",              label: "COA / certificate", icon: "📜", suffix: "_coa",          flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" },
+    // Open-ended Package / OGP (Oct 2026, backlog n): any number of photos,
+    // each labelled ("Closed", "Open"…), PhotoType "OGP", {ID}_ogp_NN.jpg.
+    // The ogp_obverse / ogp_reverse pair above stays defined for reading
+    // existing rows (they join this list, Front first) and for Add Set,
+    // whose own Front/Back pair is unchanged; managedOnly keeps this type
+    // out of Add Set's type picker.
+    { key: "ogp",              label: "Package",           icon: "📦", suffix: "_ogp",          flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both", managedOnly: true },
     // --- Sub-group tier (see SUB-GROUP PHOTOS below) ---
     { key: "subgroup_obverse", label: "Sub-group — front", icon: "🖼️", suffix: "_obverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
     { key: "subgroup_reverse", label: "Sub-group — back",  icon: "🖼️", suffix: "_reverse",      flipSource: false, retainRaw: false, aspect: "free",   repeatable: false, tier: "subgroup", scope: "set" },
@@ -11732,6 +11740,29 @@
     { key: "other",            label: "Other photo",      icon: "🖼️", suffix: "_other",         flipSource: false, retainRaw: false, aspect: "free",   repeatable: true,  tier: "set", scope: "both" }
   ];
   function galleryTypeDef(key) { return GALLERY_TYPES.find(t => t.key === key) || null; }
+
+  // Package photos: the open-ended "ogp" type plus any existing
+  // OGP_Obverse / OGP_Reverse rows, mapped on read with no workbook write
+  // (Ray's Q8). An old Front/Back row keeps its side through a Replace
+  // (packageSide), so it keeps its place and, while its label is blank,
+  // shows "Front" / "Back" on screen only; that text is never written.
+  const PACKAGE_TYPES = ["ogp_obverse", "ogp_reverse", "ogp"];
+  function isPackageEntry(e) { return !!e && PACKAGE_TYPES.indexOf(e.type) !== -1; }
+  function packageSideOf(e) {
+    if (!e) return "";
+    if (e.packageSide) return e.packageSide;
+    return e.type === "ogp_obverse" ? "front" : e.type === "ogp_reverse" ? "back" : "";
+  }
+  function packageDisplayLabel(e) {
+    const side = packageSideOf(e);
+    return side === "front" ? "Front" : side === "back" ? "Back" : "";
+  }
+  // Screen order: an old Front, then an old Back, then the rest as added.
+  function packageEntriesInOrder(list) {
+    const rank = e => { const s = packageSideOf(e); return s === "front" ? 0 : s === "back" ? 1 : 2; };
+    return list.filter(isPackageEntry).map((e, i) => ({ e, i }))
+      .sort((a, b) => rank(a.e) - rank(b.e) || a.i - b.i).map(x => x.e);
+  }
 
   // SUB-GROUP PHOTOS: a Set's sub-groups (e.g. "Philadelphia"/"Denver" cello
   // packs in a Mint Set) each get their own obverse/reverse pair showing that
@@ -11920,7 +11951,12 @@
       e.type === (reverse ? "subgroup_reverse" : "subgroup_obverse") &&
       (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID && e.url);
     if (whole) return whole.url;
-    const ogp = list.find(e => e.type === (reverse ? "ogp_reverse" : "ogp_obverse") && e.url);
+    // Front: the first Package photo in screen order (an old OGP_Obverse
+    // row sorts first, so an existing Set shows what it always did). A
+    // Set's page shows the front only; the back keeps the old pairing.
+    const ogp = reverse
+      ? list.find(e => e.type === "ogp_reverse" && e.url)
+      : packageEntriesInOrder(list).find(e => e.url);
     return ogp ? ogp.url : null;
   }
 
@@ -25211,7 +25247,7 @@
   const PHOTO_LABEL_LEGACY_TEXT = "Replace this photo to give it a label";
   function paintPhotoLabelLine(line, entry, legacy) {
     if (!line) return;
-    const text = String(entry.caption || "");
+    const text = String(entry.caption || "") || packageDisplayLabel(entry);
     line.classList.toggle("gc-label-legacy", !!legacy);
     line.classList.toggle("gc-label-empty", !legacy && !text);
     line.textContent = legacy ? PHOTO_LABEL_LEGACY_TEXT : (text || PHOTO_LABEL_EMPTY_TEXT);
@@ -26178,7 +26214,7 @@
     // slots above the widget, never the gallery picker — exclude them here.
     GALLERY_TYPES.filter(t => allowedTypes
       ? allowedTypes.includes(t.key)
-      : (!t.flipSource && (t.scope === "both" || t.scope === scope))).forEach(t => {
+      : (!t.flipSource && !t.managedOnly && (t.scope === "both" || t.scope === scope))).forEach(t => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "gtp-item";
@@ -26855,6 +26891,8 @@
   // opts.chooser (Unified image chooser, Oct 2026): each thumbnail gets ONE
   // "Replace" text button and the add row becomes a "+" tile at the end of
   // the grid; both open openImageSourceChooser(). ✕ and ↻ are unchanged.
+  // Package / OGP is open-ended (Oct 2026, backlog n), same block as COA.
+  const PACKAGE_HINT = "The packaging itself — box, folder, envelope or case. Add as many as you like and label each one (e.g. \"Closed\", \"Open\").";
   function manageOpenEndedBlock(body, typeKey, targetId, hint, render, opts) {
     const def = galleryTypeDef(typeKey);
     const chooserMode = !!(opts && opts.chooser);
@@ -26869,8 +26907,12 @@
     }
     const grid = document.createElement("div");
     grid.className = "gc-grid" + (chooserMode ? " gc-chooser-grid gc-row-grid" : "");
-    galleryFor(targetId).forEach((entry, index) => {
-      if (entry.type !== typeKey || entry.pendingRemove) return;
+    // Package also lists old OGP_Obverse / OGP_Reverse photos, Front first.
+    const members = typeKey === "ogp"
+      ? packageEntriesInOrder(galleryFor(targetId))
+      : galleryFor(targetId).filter(e => e.type === typeKey);
+    members.forEach((entry) => {
+      if (entry.pendingRemove) return;
       const thumb = document.createElement("div");
       // Chooser-mode tiles are the photo's own shape at one row height
       // (.gc-row-grid / .gc-row-tile); ✕, the failed-save dim and ↻ sit in
@@ -26915,6 +26957,10 @@
       const handleReplace = (f) => {
         if (!f) return;
         runCropPipeline(f, typeKey, targetId, (newEntry) => {
+          // An old Front/Back package photo keeps its side (and so its place
+          // and its on-screen "Front"/"Back"); its row keeps its PhotoType,
+          // since a Replace writes only the file cells.
+          if (packageSideOf(entry)) newEntry.packageSide = packageSideOf(entry);
           if (draft) draftPlaceGalleryEntry(targetId, entry, newEntry, render);
           else replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
         });
@@ -27120,10 +27166,8 @@
       // stored OGP/COA rows were hydrated into the gallery and then shown
       // nowhere. Same blocks and hints as the Set branch below.
       appendManageSection(host, "📦 Package / OGP",
-        manageCount(id, e => e.type.indexOf("ogp_") === 0),
-        (body) => managePairBlock(body, null,
-          "The packaging itself — box, folder or envelope exterior.",
-          ["ogp_obverse", "ogp_reverse"], id, null, render, pickOpts),
+        manageCount(id, isPackageEntry),
+        (body) => manageOpenEndedBlock(body, "ogp", id, PACKAGE_HINT, render, pickOpts),
         { open: openTitles.has("📦 Package / OGP") });
 
       // A coin inside a Set keeps its parent's COA read-through below instead
@@ -27163,10 +27207,8 @@
     // part of this render and is untouched.
     const setPickOpts = { chooser: true };
     appendManageSection(host, "📦 Package / OGP",
-      manageCount(id, e => e.type.indexOf("ogp_") === 0),
-      (body) => managePairBlock(body, null,
-        "The packaging itself — box, folder or envelope exterior.",
-        ["ogp_obverse", "ogp_reverse"], id, null, render, setPickOpts),
+      manageCount(id, isPackageEntry),
+      (body) => manageOpenEndedBlock(body, "ogp", id, PACKAGE_HINT, render, setPickOpts),
       { open: openTitles.has("📦 Package / OGP") });
 
     appendManageSection(host, "🖼️ Whole set — front &amp; back",

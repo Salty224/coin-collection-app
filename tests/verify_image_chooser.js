@@ -145,14 +145,15 @@ async function setup(page) {
       clearToast() { const t = document.getElementById("toast"); t.classList.remove("show"); t.textContent = ""; },
       async waitFor(fn, ms) { const end = Date.now() + (ms || 3000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
       photoRows() { return this.mock._grids.Photos.filter(r => r[1] === this.id); },
-      // Stage C2: a Set (AY-00090) with a stored OGP front (PH-00010) and a
+      // Stage C2: a Set (AY-00090) with a stored whole-set front (PH-00010;
+      // the OGP pair it used to be is open-ended since Oct 2026) and a
       // stored COA page labelled "page 1" (PH-00011), plus a named sub-group.
       set: { id: "AY-00090", name: "1957 United States Proof Set With An Extremely Long Description", denom: "Multiple", year: 1957, mint: "", category: "Proof Set" },
       installSet() {
         const self = this;
         const mock = createMockGraphClient({ sheets: { Photos: [
           ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"],
-          ["PH-00010", "AY-00090", "OGP_Obverse", "", "AY-00090_ogp_obverse.jpg", "", 46000, ""],
+          ["PH-00010", "AY-00090", "SubGroup_Obverse", "", "AY-00090_obverse.jpg", "", 46000, ""],
           ["PH-00011", "AY-00090", "COA", "", "AY-00090_coa_01.jpg", "page 1", 46000, ""],
           ["", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""],
         ] } });
@@ -164,13 +165,13 @@ async function setup(page) {
         __setAddCoinWriteEnabledForTest(true);
         __setLiveCoinsForTest([this.set]);
         __setStoredPhotosForTest({ "AY-00090": [
-          { photoId: "PH-00010", photoType: "OGP_Obverse", galleryType: "ogp_obverse", subGroupId: "",
-            filename: "AY-00090_ogp_obverse.jpg", originalFilename: "", label: "" },
+          { photoId: "PH-00010", photoType: "SubGroup_Obverse", galleryType: "subgroup_obverse", subGroupId: "",
+            filename: "AY-00090_obverse.jpg", originalFilename: "", label: "" },
           { photoId: "PH-00011", photoType: "COA", galleryType: "coa", subGroupId: "",
             filename: "AY-00090_coa_01.jpg", originalFilename: "", label: "page 1" },
         ] });
         const url = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
-        __setCoinPhotoCacheForTest("AY-00090_ogp_obverse.jpg", url());
+        __setCoinPhotoCacheForTest("AY-00090_obverse.jpg", url());
         __setCoinPhotoCacheForTest("AY-00090_coa_01.jpg", url());
         delete galleryStore[this.set.id];
         // A named sub-group, so the Sub-groups section renders a pair.
@@ -386,7 +387,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const other = sec(/Other photos/);
       const receipt = document.getElementById("editSetReceiptCameraInput");
       return {
-        ogp: pair(/OGP/), whole: pair(/Whole set/), sub: pair(/Sub-groups/),
+        whole: pair(/Whole set/), sub: pair(/Sub-groups/),
         coa: { thumbs: coa ? coa.querySelectorAll(".gc-thumb").length : 0,
                order: coaThumb && [...coaThumb.children].map(c => c.classList.contains("gc-img") ? "photo"
                  : c.classList.contains("gc-label-line") ? "label" : c.dataset.role === "replace" ? "replace" : null).filter(Boolean),
@@ -402,14 +403,14 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
           (document.getElementById("editSetReceiptLibraryInput") || {}).getAttribute && document.getElementById("editSetReceiptLibraryInput").getAttribute("accept")] : null,
       };
     }, surface);
-    const [ogpF, ogpB] = V.ogp;
-    ok(V.ogp.length === 2 && ogpF.filled && ogpF.replace === "Replace" && ogpF.labelAfterImg && ogpF.removeInFace &&
+    const [ogpF, ogpB] = V.whole;
+    ok(V.whole.length === 2 && ogpF.filled && ogpF.replace === "Replace" && ogpF.labelAfterImg && ogpF.removeInFace &&
        ogpF.removeText === "✕" && ogpF.icons.length === 0 && ogpF.trash === 0 && ogpF.recrop === 0,
-      `V1-${surface} a filled Set pair slot (OGP front): photo, label, Replace, ✕ in the photo's corner, no icon row, no 🗑️, no Recrop (⤢ never showed on Set photos): ` + JSON.stringify(ogpF));
+      `V1-${surface} a filled Set pair slot (whole-set front): photo, label, Replace, ✕ in the photo's corner, no icon row, no 🗑️, no Recrop (⤢ never showed on Set photos): ` + JSON.stringify(ogpF));
     ok(ogpB && ogpB.addBox && ogpB.addLabel === "Back" && !ogpB.replace && ogpB.icons.length === 0 &&
-       V.whole.length === 2 && V.whole.every(x => x.addBox) && V.sub.length === 2 && V.sub[1].filled && V.sub[0].addBox,
-      `V2-${surface} empty Set slots (OGP back, whole set, sub-group) are one + box with the label inside: ` + JSON.stringify([ogpB, V.whole, V.sub]));
-    ok([...V.ogp, ...V.whole, ...V.sub].every(x => x.old === 0) && V.oldAll === 0 && V.inputs === 0,
+       V.sub.length === 2 && V.sub[1].filled && V.sub[0].addBox,
+      `V2-${surface} empty Set slots (whole-set back, sub-group) are one + box with the label inside: ` + JSON.stringify([ogpB, V.whole, V.sub]));
+    ok([...V.whole, ...V.sub].every(x => x.old === 0) && V.oldAll === 0 && V.inputs === 0,
       `V3-${surface} no 📷/🖼️/📁 buttons, no add/replace rows and no file input anywhere on the Set photos: ` + JSON.stringify([V.oldAll, V.inputs]));
     ok(V.coa.thumbs === 1 && JSON.stringify(V.coa.order) === JSON.stringify(["photo", "label", "replace"]) &&
        V.coa.caption === "page 1" && V.coa.remove && V.coa.tileLast && V.coa.tileLabel === "COA / certificate" && V.otherTile,
@@ -438,13 +439,13 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     await new Promise(r => setTimeout(r, 300));
     out.noCrop = !__ic.overlayOpen("bgCropOverlay");
     out.added = galleryFor("AY-00090").length - before; out.graph = __ic.graphCalls - calls; out.rows = __ic.photoRows().length - rows;
-    // Whole set front through Files.
+    // Whole set back through Files (the front is the stored one).
     const whole = __ic.openSection(host.id, /Whole set/);
     const r0 = __ic.photoRows().length;
     out.picked = __ic.pickVia(whole && whole.querySelector('.sg-photo-slot [data-act="add"]'), "files", await __ic.jpeg());
     out.crop = await __ic.finishCrop();
     await __ic.waitFor(() => __ic.photoRows().length > r0, 4000);
-    const row = __ic.photoRows().find(r => r[2] === "SubGroup_Obverse");
+    const row = __ic.photoRows().find(r => r[2] === "SubGroup_Reverse");
     out.rowsAdded = __ic.photoRows().length - r0; out.file = row && row[4];
     out.uploaded = !!(row && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + row[4]));
     return out;
@@ -452,7 +453,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
   ok(SC.opened && SC.cancel && SC.backdrop && SC.noCrop && SC.added === 0 && SC.graph === 0 && SC.rows === 0,
     "SC1 Set: + opens the chooser; Cancel and a backdrop tap close it; nothing added, zero Graph calls, no row: " + JSON.stringify(SC));
   ok(SC.picked && SC.crop && SC.rowsAdded === 1 && SC.uploaded && /^AY-00090_.*\.jpg$/.test(SC.file || ""),
-    "SJ1 Set: a JPEG through Files on the whole-set front crops, uploads and writes one SubGroup_Obverse row: " + JSON.stringify(SC));
+    "SJ1 Set: a JPEG through Files on the whole-set back crops, uploads and writes one SubGroup_Reverse row: " + JSON.stringify(SC));
 
   // Set Replace: pair slot keeps its PhotoID; COA keeps PhotoID and Label; the
   // live list shows no leftover (the b2c7ec2 hydrate fix, on the Set screens).
@@ -461,16 +462,16 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       __ic.installSet();
       const hostId = surface === "edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
       const out = { surface };
-      const ogp = () => __ic.openSection(hostId, /OGP/);
+      const ogp = () => __ic.openSection(hostId, /Whole set/);
       await new Promise(r => setTimeout(r, 150));
       out.p = __ic.pickVia(ogp().querySelector('.sg-photo-slot [data-act="replace"]'), "library", await __ic.jpeg());
       out.pc = await __ic.finishCrop();
-      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00010") || [])[4] !== "AY-00090_ogp_obverse.jpg", 4000);
+      await __ic.waitFor(() => (__ic.photoRows().find(r => r[0] === "PH-00010") || [])[4] !== "AY-00090_obverse.jpg", 4000);
       await new Promise(r => setTimeout(r, 300));
-      const ogps = __ic.photoRows().filter(r => r[2] === "OGP_Obverse");
+      const ogps = __ic.photoRows().filter(r => r[2] === "SubGroup_Obverse");
       out.ogpRows = ogps.map(r => r[0]);
       const slots = [...ogp().querySelectorAll(".sg-photo-slot")];
-      out.ogpSlots = slots.length; out.ogpEntries = galleryFor("AY-00090").filter(e => e.type === "ogp_obverse").length;
+      out.ogpSlots = slots.length; out.ogpEntries = galleryFor("AY-00090").filter(e => e.type === "subgroup_obverse").length;
       out.backEmpty = !!slots[1] && !!slots[1].querySelector(".sg-photo-add");
       // COA: + Files adds a second page; label it; Replace -> Library.
       const sec = () => __ic.openSection(hostId, /COA/);
@@ -513,7 +514,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       return out;
     }, surface);
     ok(SR.p && SR.pc && JSON.stringify(SR.ogpRows) === JSON.stringify(["PH-00010"]) && SR.ogpSlots === 2 && SR.ogpEntries === 1 && SR.backEmpty,
-      `SR1-${surface} Replace on the stored OGP front keeps one row, PH-00010; the pair still renders two slots with one front entry and Back empty: ` + JSON.stringify(SR));
+      `SR1-${surface} Replace on the stored whole-set front keeps one row, PH-00010; the pair still renders two slots with one front entry and Back empty: ` + JSON.stringify(SR));
     ok(SR.added && SR.c1 && SR.replaced && SR.c2 && SR.replaced1 && SR.c3 && SR.rows.length === 2 && SR.sameId &&
        SR.newLabel === "Test" && SR.newFile !== SR.addedFile && SR.oldOnDisk &&
        SR.p1File && SR.p1File !== "AY-00090_coa_01.jpg" && SR.p1Label === "page 1" && SR.uploads === 3,
@@ -546,10 +547,10 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
       await sleep(150);
       const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
-      const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
-      const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
+      const pairTypes = isSet ? ["subgroup_obverse", "subgroup_reverse"] : ["obverse", "reverse"];
+      const pairPTs = isSet ? ["SubGroup_Obverse", "SubGroup_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /Whole set/ : /Obverse & reverse/);
       const confirm = () => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === "Remove"); if (b) b.click(); return !!b; };
       const body = () => (document.getElementById("writeGuardBody") || {}).textContent || "";
       const allRows = () => __ic.mock._grids.Photos;
@@ -557,7 +558,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
       const onDisk = async (f) => !!(f && await __ic.mock.getItemMeta("CoinCollection/_Testing/CoinPhotos/" + f));
       const save = () => savePhotosAndLabels(__ic.id, null);
-      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove);
+      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID);
       const openView = () => ({
         thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
         files: visible(openType).map(e => e.storedFilename || e.filename),
@@ -673,10 +674,10 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
       await sleep(150);
       const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
-      const pairTypes = isSet ? ["ogp_obverse", "ogp_reverse"] : ["obverse", "reverse"];
-      const pairPTs = isSet ? ["OGP_Obverse", "OGP_Reverse"] : ["Obverse", "Reverse"];
+      const pairTypes = isSet ? ["subgroup_obverse", "subgroup_reverse"] : ["obverse", "reverse"];
+      const pairPTs = isSet ? ["SubGroup_Obverse", "SubGroup_Reverse"] : ["Obverse", "Reverse"];
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /Whole set/ : /Obverse & reverse/);
       const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
       let failing = false;
       __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };
@@ -684,7 +685,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       const title = () => (document.getElementById("writeGuardTitle") || {}).textContent || "";
       const saved = (pts) => __ic.photoRows().filter(r => pts.indexOf(r[2]) !== -1);
       const save = () => savePhotosAndLabels(__ic.id, null);
-      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove);
+      const visible = (t) => galleryFor(__ic.id).filter(e => e.type === t && !e.pendingRemove && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID);
       const openView = () => ({
         thumbs: [...openSec().querySelectorAll(".gc-thumb")].map(t => (t.querySelector(".gc-label-line") || {}).title),
         files: visible(openType).map(e => e.storedFilename || e.filename),
@@ -775,18 +776,18 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
     const host = __ic.openEditSet();
     __ic.openAll(host.id);
     await new Promise(r => setTimeout(r, 600));
-    const ogpRep = () => __ic.openSection(host.id, /OGP/).querySelector('.sg-photo-slot [data-act="replace"]');
+    const ogpRep = () => __ic.openSection(host.id, /Whole set/).querySelector('.sg-photo-slot [data-act="replace"]');
     const coa = () => __ic.openSection(host.id, /COA/);
     const out = {};
     out.pdfFiles = await __ic.refused(ogpRep(), "files", __ic.file("pdf"));
     out.heicFiles = await __ic.refused(ogpRep(), "files", __ic.file("heic"));
     out.pdfLib = await __ic.refused(coa().querySelector('[data-role="add"]'), "library", __ic.file("pdf"));
     out.brokenRep = await __ic.refused(coa().querySelector('[data-role="replace"]'), "files", __ic.file("broken"));
-    out.rowsKept = JSON.stringify(__ic.photoRows().map(r => r[4])) === JSON.stringify(["AY-00090_ogp_obverse.jpg", "AY-00090_coa_01.jpg"]);
+    out.rowsKept = JSON.stringify(__ic.photoRows().map(r => r[4])) === JSON.stringify(["AY-00090_obverse.jpg", "AY-00090_coa_01.jpg"]);
     return out;
   });
   ok([SG.pdfFiles, SG.heicFiles, SG.pdfLib, SG.brokenRep].every(r => r && r.picked && r.toast === TOAST && !r.crop && r.added === 0 && r.graph === 0) && SG.rowsKept,
-    "SG1 Set: PDF and HEIC through Files on OGP Replace, a PDF through Library on the COA +, a broken JPEG on COA Replace — all refused with the toast, no crop, nothing added, zero Graph calls, rows untouched: " + JSON.stringify(SG));
+    "SG1 Set: PDF and HEIC through Files on the whole-set front's Replace, a PDF through Library on the COA +, a broken JPEG on COA Replace — all refused with the toast, no crop, nothing added, zero Graph calls, rows untouched: " + JSON.stringify(SG));
 
   // ---------- C. Cancel / backdrop / Esc ------------------------------------
   const C = await page.evaluate(async () => {
@@ -1094,9 +1095,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       await setup(p);
       const L = await p.evaluate(async (surface) => {
         __ic.installSet();
-        // The busiest slot: OGP front as a failed session capture (↻ shows).
+        // The busiest slot: the whole-set front as a failed session capture (↻ shows).
         const u = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
-        galleryFor("AY-00090").push({ type: "ogp_obverse", url: u(), filename: "AY-00090_ogp_obverse.jpg", caption: "", uploadError: "test" });
+        galleryFor("AY-00090").push({ type: "subgroup_obverse", subGroupId: DEFAULT_SUBGROUP_ID, url: u(), filename: "AY-00090_obverse.jpg", caption: "", uploadError: "test" });
         const host = surface === "edit" ? __ic.openEditSet() : __ic.openManageSet();
         __ic.openAll(host.id);
         await new Promise(r => setTimeout(r, 200));
@@ -1147,7 +1148,7 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       }, surface);
       const tag = surface + " " + vp.width + "x" + vp.height;
       console.log("    set layout " + tag + ": widths " + JSON.stringify(L.pairs));
-      ok(L.slots.length >= 6 && L.slots.some(s => s.n === 1) && L.slots.every(s => s.clipped === 0 && s.squeezed === 0 && s.lines <= 1 && s.inBody) &&
+      ok(L.slots.length >= 4 && L.slots.some(s => s.n === 1) && L.slots.every(s => s.clipped === 0 && s.squeezed === 0 && s.lines <= 1 && s.inBody) &&
          L.pairs.every(w => w.length !== 2 || w[0] === w[1]),
         `L1-set ${tag}: every Set pair-slot button (Replace and ↻) sits inside its slot at full size, each slot inside its card, both slots of a pair the same width: ` + JSON.stringify([L.pairs, L.slots]));
       ok(L.slots.filter(s => s.repH !== null).length >= 2 && L.slots.filter(s => s.repH !== null).every(s => s.repH >= 32 && s.repOneLine) &&
@@ -1186,14 +1187,14 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
         const isSet = screen.startsWith("set");
         if (isSet) __ic.installSet(); else __ic.install();
         const u = () => URL.createObjectURL(new Blob([new Uint8Array([1])], { type: "image/jpeg" }));
-        const types = isSet ? ["coa", "coa", "ogp_reverse"] : ["reference", "reference", "reverse"];
+        const types = isSet ? ["coa", "coa", "subgroup_reverse"] : ["reference", "reference", "reverse"];
         let host;
         if (screen === "coin-edit") host = __ic.openEditCoin();
         else if (screen === "coin-manage") { openManagePhotos({ id: "AY-00099", name: "x", meta: "AY-00099", kind: "coin", backTo: () => {} }); __ic.closeOverlays(); host = document.getElementById("managePhotosSections"); }
         else host = screen === "set-edit" ? __ic.openEditSet() : __ic.openManageSet();
         // Opening an editing screen discards leftovers, so the failed photos
         // go in after it opens, then the screen redraws.
-        if (isSet) galleryFor(__ic.id).filter(e => e.type === "ogp_reverse").forEach(e => galleryFor(__ic.id).splice(galleryFor(__ic.id).indexOf(e), 1));
+        if (isSet) galleryFor(__ic.id).filter(e => e.type === "subgroup_reverse" && (e.subGroupId || DEFAULT_SUBGROUP_ID) === DEFAULT_SUBGROUP_ID).forEach(e => galleryFor(__ic.id).splice(galleryFor(__ic.id).indexOf(e), 1));
         types.forEach((t, i) => galleryFor(__ic.id).push({ type: t, url: u(), rawUrl: null, filename: __ic.id + "_rc" + i + ".jpg", caption: "", uploadError: "test", pendingSave: true }));
         photoHostRenders[__ic.id].render();
         __ic.openAll(host.id);
@@ -1237,9 +1238,9 @@ module.exports = defineSuite("image-chooser", async ({ ok, openApp, PHONE, TABLE
       else hostId = screen === "set-edit" ? __ic.openEditSet().id : __ic.openManageSet().id;
       await sleep(150);
       const openType = isSet ? "coa" : "reference", openPT = isSet ? "COA" : "Reference";
-      const backType = isSet ? "ogp_reverse" : "reverse", backPT = isSet ? "OGP_Reverse" : "Reverse";
+      const backType = isSet ? "subgroup_reverse" : "reverse", backPT = isSet ? "SubGroup_Reverse" : "Reverse";
       const openSec = () => __ic.openSection(hostId, isSet ? /COA/ : /Reference/);
-      const pairSec = () => __ic.openSection(hostId, isSet ? /OGP/ : /Obverse & reverse/);
+      const pairSec = () => __ic.openSection(hostId, isSet ? /Whole set/ : /Obverse & reverse/);
       const realUpload = __ic.mock.uploadFile.bind(__ic.mock);
       let failing = true;
       __ic.mock.uploadFile = async (...a) => { if (failing) throw new Error("network down (test)"); return realUpload(...a); };

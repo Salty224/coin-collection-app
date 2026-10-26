@@ -86,14 +86,14 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     caseInsensitive: galleryTypeForPhotoType("  slab_obverse  "),
     unknown: galleryTypeForPhotoType("Nonsense")
   }));
-  ok(B.map.length === 11 && B.map.every(([, v]) => !!v), "B1 every gallery type has a PhotoType");
+  ok(B.map.length === 12 && B.map.every(([, v]) => !!v), "B1 every gallery type has a PhotoType");
   const expected = {
     obverse: "Obverse", reverse: "Reverse", slab_obverse: "Slab_Obverse",
     slab_reverse: "Slab_Reverse", reference: "Reference", ogp_obverse: "OGP_Obverse",
-    ogp_reverse: "OGP_Reverse", coa: "COA", subgroup_obverse: "SubGroup_Obverse",
+    ogp_reverse: "OGP_Reverse", ogp: "OGP", coa: "COA", subgroup_obverse: "SubGroup_Obverse",
     subgroup_reverse: "SubGroup_Reverse", other: "Other"
   };
-  ok(B.map.every(([k, v]) => expected[k] === v), "B2 the five existing sheet values are matched exactly and the six new ones follow the same shape");
+  ok(B.map.every(([k, v]) => expected[k] === v), "B2 the five existing sheet values are matched exactly and the seven new ones (OGP since Oct 2026) follow the same shape");
   ok(JSON.stringify(B.back) === JSON.stringify(["obverse", "slab_reverse", "ogp_obverse", "coa", "subgroup_reverse", "other"]),
     "B3 the reverse mapping round-trips");
   ok(B.caseInsensitive === "slab_obverse", "B4 reverse mapping tolerates case/whitespace from the sheet");

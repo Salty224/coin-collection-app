@@ -74,7 +74,7 @@ async function setup(page) {
           ["PH-00003", "AY-00099", "Reference", "", "AY-00099_reference_02.jpg", "Tall slab", 46000, ""],
           ["PH-00004", "AY-00099", "Reference", "", "AY-00099_reference_03.jpg", "", 46000, ""],
           ["PH-00005", "AY-00099", "Reference", "", "AY-00099_reference_04.jpg", "Panorama", 46000, ""],
-          ["PH-00010", "AY-00090", "OGP_Obverse", "", "AY-00090_ogp_obverse.jpg", "", 46000, ""],
+          ["PH-00010", "AY-00090", "SubGroup_Obverse", "", "AY-00090_obverse.jpg", "", 46000, ""], // the whole-set front (Package is open-ended since Oct 2026)
           ["PH-00011", "AY-00090", "COA", "", "AY-00090_coa_01.jpg", LONG, 46000, ""],
           ["PH-00012", "AY-00090", "COA", "", "AY-00090_coa_02.jpg", "page 2", 46000, ""],
           ["PH-00013", "AY-00090", "COA", "", "AY-00090_coa_03.jpg", "", 46000, ""],
@@ -154,12 +154,12 @@ async function setup(page) {
           const oh = document.getElementById("editSetPhotosHeader");
           if (oh.getAttribute("aria-expanded") !== "true") oh.click();
           this.closeAll();
-          return { host: this.openAll("editSetPhotosSections"), list: /COA/, pair: /Package/ };
+          return { host: this.openAll("editSetPhotosSections"), list: /COA/, pair: /Whole set/ };
         }
         if (screen === "manageSet") {
           openManagePhotos({ id: this.set.id, name: "x", meta: this.set.id, kind: "set", backTo: () => {} });
           this.closeAll();
-          return { host: this.openAll("managePhotosSections"), list: /COA/, pair: /Package/ };
+          return { host: this.openAll("managePhotosSections"), list: /COA/, pair: /Whole set/ };
         }
         if (screen === "addCoin") {
           navigate("addcoin");
