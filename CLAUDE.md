@@ -833,6 +833,12 @@ fresh open leaves); Q2 wait for C4 (backlog q).
   `history.go()` itself is subject to Chrome's skip rule is unverified (the
   intervention is documented for the browser's Back, not the page's own
   go(); if it were, the Dashboard's first Back would leave).
+- **The viewer's late pop.** Closing the photo viewer (label Done) hides it
+  and calls `history.back()`; that pop arrives a moment later. A redraw in
+  between used to reuse the viewer's entry for ours, so the late pop looked
+  like a real Back and left Edit Coin (caught by `verify_photo_label_save`
+  D5/D6 on the first full run). `armLeaveGuard` now does nothing while
+  `mediaViewerExpectPop` is set; the pop lands on our entry.
 - **Mint Mark "— none (Other) —" (Ray's change 2).** Picking it showed
   "— none (Philadelphia) —": the option carried a sentinel value
   (`__OTHER_MINT__`) that the change handler reset to "", which selects the
@@ -894,7 +900,8 @@ fresh open leaves); Q2 wait for C4 (backlog q).
   no entry added on a tap: the same 9; the Dashboard not stepping down:
   C4b, D1b; "Other" reset to "" on pick (the old jump to Philadelphia):
   M1a, M1c, M2a; forms not showing Other for an already-linked coin: M2b,
-  M3; Tap to label not focusing: T1a. The self-check itself was proved on a
+  M3; Tap to label not focusing: T1a; re-arming while the viewer's step back
+  is pending: photo-label-save D5, D6. The self-check itself was proved on a
   probe suite: a reversed raw `ok` and a reversed `check` both fail it.
 - **Not verified:** any real device (the whole point of the Back fix is
   Chrome's real rule, emulated here); Samsung Internet; the installed app.
