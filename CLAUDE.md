@@ -439,11 +439,14 @@ tablet test** (see "C2 follow-ups" and "C3: open-ended Package / OGP"
 below); C4 is this file. **Ray's tablet test of `0a0cbd1` passed except a
 second Back in a row leaving the app; that, the Dashboard exit toast, the
 Mint Mark display and Tap to label are fixed in round 2, held for his
-retest** (see "Round 2 after Ray's tablet test of `0a0cbd1`").
+retest** (see "Round 2 after Ray's tablet test of `0a0cbd1`"). **His retest
+of `6eaef11` passed everything except Tap to label (field focused, no
+keyboard); round 3 re-focuses the field, held for his retest** (see "Round
+3 after Ray's tablet retest of `6eaef11`").
 Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
 (35), `tests/verify_leave_guard.js` (37), `tests/verify_device_back_everywhere.js`
 (49 since round 2), `tests/verify_ogp_open_ended.js` (40),
-`tests/verify_tablet_retest_0a0cbd1.js` (12).
+`tests/verify_tablet_retest_0a0cbd1.js` (17 since round 3).
 - **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
   `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
   are held in memory and written only by Save Changes (Edit Coin, Edit Set)
@@ -907,6 +910,64 @@ fresh open leaves); Q2 wait for C4 (backlog q).
   76 suites (3961 + 16 in device-back-everywhere + 12 in the new suite).
 - **Not verified:** any real device (the whole point of the Back fix is
   Chrome's real rule, emulated here); Samsung Internet; the installed app.
+
+### Round 3 after Ray's tablet retest of `6eaef11` (same branch, HELD for his retest)
+Passed on the tablet: Back twice from a coin page and from an open album
+(each reaching the Dashboard), the Dashboard "Press Back again to exit"
+toast and exit, Back with "Discard unsaved edits?" open on Edit Coin (stayed,
+text kept), Mint Mark "— none (Other) —" on Add Coin. Failed: Tap to label
+opened the viewer but the keyboard didn't come up. Answers: Q1 keep the
+5-entry stack; Q2 yes to the Set notes labels, built in the Edit Set saving
+build (backlog r), and hide a Set's Fun Fact until it has a real source.
+- **The focus was already synchronous.** The label line's click handler
+  opens the viewer, unhides the field and calls `focus()` in the same task:
+  no animation, timeout, requestAnimationFrame or image-load wait (the photo
+  loads into the stage separately). The field is a `<textarea>` that exists
+  in the page from load; only its panel is unhidden. So the cause is not the
+  one Ray suggested.
+- **Likely cause (not provable here):** that same tap adds two history
+  entries (the leave guard's Back step on `pointerup`, then the viewer's own
+  entry on `click`). On Android the browser can drop the keyboard while it
+  processes such changes, which happens after the handler has returned, so a
+  keyboard raised in the handler goes away again. Headless Chromium has no
+  on-screen keyboard, so this can't be seen in a suite.
+- **The fix:** `showMediaViewerLabel` still focuses inside the tap (caret
+  at the end), then re-focuses the field at 60, 300 and 700 ms
+  (`MEDIA_VIEWER_LABEL_REFOCUS_MS`, `focusMediaViewerLabelInput`). Before
+  each re-focus: the viewer must still be open on the same photo
+  (`mediaViewerLabelState` unchanged), the focus must be on the field or on
+  nothing (a control the user moved to is never taken back), and the
+  keyboard must not already be up (`onScreenKeyboardLooksUp`: the visual
+  viewport under 70% of the screen's height; a wrong "up", e.g. split
+  screen, only skips the re-focus). If the field is still focused, it is
+  blurred first, because `focus()` on the focused element may do nothing. A
+  re-focus leaves the caret where it is.
+- **Why it should hold on Samsung Internet and the installed app:** both are
+  Chromium, like Chrome. In Chromium a script `focus()` raises the keyboard
+  whenever the page has had a user tap at all ("sticky" activation), not
+  only inside the tap's own handler (that stricter rule is Safari's), so a
+  re-focus a moment later is allowed to bring it back. The installed app
+  runs in Chrome's engine.
+- **Known effect, accepted:** when the keyboard really was dropped, the user
+  may see it close and open again within the first second.
+- **Set Fun Fact, now:** on real data a Set's Fun Fact is always blank, and
+  blank already hides it on the Set page (`notesAndFactsHtml` skips it) and
+  on Edit Set (`#editSetFunFact` and its label hidden). Only the offline
+  demo shows one. Hiding the display entirely is recorded in backlog (r),
+  not built here.
+- **Tests:** `verify_tablet_retest_0a0cbd1.js` 12 -> 17, new T2a-T2e: a
+  focus lost right after the tap is put back; a still-focused field with no
+  keyboard is stepped off and focused again; with the keyboard up the field
+  is focused once only; a control the user moved to keeps the focus;
+  nothing is re-focused after the viewer closes. T1a/T1b unchanged.
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): no re-focus (T2a, T2b); no blur before re-focusing a focused
+  field (T2b); the open/same-photo, user-moved-on and keyboard-up checks all
+  removed (T2c, T2d). T2e is a guard assertion: a field in a closed (hidden)
+  viewer can't take focus, so it passes with its check removed too.
+- `npm test` on round 3: see the baseline line at the top of this file.
+- **Not verified:** any real device; whether the keyboard really comes up
+  on the tablet; Samsung Internet; the installed app.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -1839,7 +1900,10 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   for a coin, DB_Sets.Notes for a Set); "Fun Fact" (read-only: DB_Coins.FunFact
   for a coin; for a Set, DB_Sets.KeyNotable or History, Ray to choose, since
   DB_Sets has no Fun Fact column). See "Round 2 after Ray's tablet test of
-  `0a0cbd1`" for every column read today.
+  `0a0cbd1`" for every column read today. **Ray's answer (26 Oct, round 3):
+  yes to these labels, built in this build. A Set's Fun Fact display is
+  hidden entirely (Set page and Edit Set, demo data included) until a real
+  source exists.**
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
