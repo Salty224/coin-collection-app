@@ -6,7 +6,7 @@
 // navigate(), and the phone's own Back button (which left the app). Now one
 // check (unsavedEditsForView) asks first everywhere, with one dialog:
 //   "Discard unsaved edits?" / "You've changed {count} on {ID} and haven't
-//   saved them. Discard leaves this screen and loses those changes. Keep
+//   saved. Discard leaves this screen and loses those changes. Keep
 //   editing stays here so you can save."
 //
 //   G1  Close Drawer on Edit Coin with a field typed asks; Keep editing
@@ -26,10 +26,10 @@
 //   H2  device Back with nothing unsaved leaves as the in-app Back would
 //   H3  device Back with something unsaved asks; Keep editing stays and
 //       re-arms; the next Back asks again; Discard leaves
-//   H4  leaving by the in-app Back steps back over the entry
+//   H4  leaving by the in-app Back keeps the one entry on top
 //   H5  device Back inside the photo viewer closes only the viewer
 //   H6  Manage Photos and Add Coin arm the guard too; a Save that leaves
-//       steps back over it
+//       keeps the entry on top
 //   H7  an old guard entry left by a reload never swallows a Back
 //   H8  device Back with the chooser or the crop tool open closes that and
 //       stays
@@ -44,7 +44,7 @@ const ALL_HEADERS = ["CollectionID", "Year", "MintMark", "Denomination", "Variet
   "Grade", "GradeSource", "Designation", "SerNo", "CACBean", "Remarks", "Reviewed", "LastModified",
   "Finish", "CoinID", "Status", "SaleDate", "SalePrice", "Buyer", "Platform"];
 
-const DIALOG_BODY = /^You've changed (.+) on (.+) and haven't saved them\.Discard leaves this screen and loses those changes\. Keep editing stays here so you can save\.$/;
+const DIALOG_BODY = /^You've changed (.+) on (.+) and haven't saved\.Discard leaves this screen and loses those changes\. Keep editing stays here so you can save\.$/;
 
 async function setup(page) {
   await page.evaluate(({ HEADER, ALL_HEADERS }) => {
@@ -263,7 +263,7 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     return { back, drawer, left, cleanDialog: L.guardOpen(), cleanView: L.view() };
   });
   ok("G3a Edit Set Back with a changed field asks (\"1 field on AY-00090\")",
-    G3.back.open && /You've changed 1 field on AY-00090 and haven't saved them\./.test(G3.back.body), G3);
+    G3.back.open && /You've changed 1 field on AY-00090 and haven't saved\./.test(G3.back.body), G3);
   ok("G3b Edit Set Close Drawer asks the same, Discard leaves", G3.drawer.open && /1 field on AY-00090/.test(G3.drawer.body) && G3.left === "dashboard", G3);
   ok("G3c an unchanged Edit Set leaves without asking", !G3.cleanDialog && G3.cleanView === "dashboard", G3);
 
@@ -300,7 +300,7 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     return { d, stayed, back, left, yearAfter: document.getElementById("year").value };
   });
   ok("G5a Close Drawer on Add Coin with a typed Year asks (\"1 field on this new coin\")",
-    G5.d.open && /You've changed 1 field on this new coin and haven't saved them\./.test(G5.d.body), G5);
+    G5.d.open && /You've changed 1 field on this new coin and haven't saved\./.test(G5.d.body), G5);
   ok("G5b Keep editing stays on Add Coin with the Year kept", G5.stayed.view === "addcoin" && G5.stayed.year === "1916", G5);
   ok("G5c Back asks too; Discard leaves and the next Add Coin is blank",
     G5.back.open && G5.left === "acquisitions" && G5.yearAfter === "", G5);
@@ -406,6 +406,7 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     history.pushState = (st, t, u) => { if (st && st.coinLeaveGuard) pushes++; return realPush(st, t, u); };
     const topBefore = L.guardTop();
     try {
+      navigate("needsdbcoins"); await L.sleep(30); navigate("dashboard"); await L.sleep(30);
       await L.openEditCoin(); await L.sleep(60);
       var afterOpen = pushes;
       // Redraws and Back-target resets must not push again.
@@ -417,8 +418,9 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     } finally { history.pushState = realPush; }
     return { topBefore, afterOpen, afterRedraw: pushes, top: L.guardTop() };
   });
-  ok("H1a opening Edit Coin pushes exactly one history entry, on top", !H1.topBefore && H1.afterOpen === 1 && H1.top, H1);
-  ok("H1b redraws, Back-target resets and re-opening the form push nothing more", H1.afterRedraw === 1, H1);
+  ok("H1a the guard's entry is already on top before Edit Coin opens; screen changes and opening Edit Coin push nothing more",
+    H1.topBefore && H1.afterOpen === 0 && H1.top, H1);
+  ok("H1b redraws, Back-target resets and re-opening the form push nothing more", H1.afterRedraw === 0, H1);
 
   // ---------- H2 device Back, nothing unsaved -------------------------------
   const H2 = await page.evaluate(async () => {
@@ -427,7 +429,7 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     return { dialog: L.guardOpen(), detail: L.detailOpen(), edit: L.editOpen(), view: L.view(), top: L.guardTop() };
   });
   ok("H2 device Back with nothing unsaved leaves Edit Coin for the coin's page, as the in-app Back does",
-    !H2.dialog && H2.detail && !H2.edit && H2.view === "browse" && !H2.top, H2);
+    !H2.dialog && H2.detail && !H2.edit && H2.view === "browse" && H2.top, H2);
 
   // ---------- H3 device Back, something unsaved -----------------------------
   const H3 = await page.evaluate(async () => {
@@ -450,8 +452,8 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
   ok("H3a device Back on Edit Coin with a typed field asks with the same dialog",
     H3.d1.open && /1 field on AY-00099/.test(H3.d1.body) && DIALOG_BODY.test(H3.d1.body) && H3.stayed, H3);
   ok("H3b Keep editing stays, keeps the text and re-arms the guard", H3.rearmed.top && H3.rearmed.edit && H3.rearmed.text === "Bought at the show", H3);
-  ok("H3c the next device Back asks again; Discard leaves for the coin's page and writes nothing",
-    H3.d2.open && H3.detail && !H3.edit && !H3.top && H3.writes === 0, H3);
+  ok("H3c the next device Back asks again; Discard leaves for the coin's page and writes nothing (the entry stays on top)",
+    H3.d2.open && H3.detail && !H3.edit && H3.top && H3.writes === 0, H3);
 
   // ---------- H4 in-app Back steps back over the entry ----------------------
   const H4 = await page.evaluate(async () => {
@@ -466,8 +468,8 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     L.closeDrawer(); await L.sleep(200);
     return { armed, afterBack, armed2, afterDrawer: { top: L.guardTop(), view: L.view() } };
   });
-  ok("H4a the chrome Back steps back over the entry (it is no longer on top)", H4.armed && !H4.afterBack.top && H4.afterBack.detail && !H4.afterBack.dialog, H4);
-  ok("H4b Close Drawer steps back over it too", H4.armed2 && !H4.afterDrawer.top && H4.afterDrawer.view === "dashboard", H4);
+  ok("H4a the chrome Back keeps the one entry on top (the coin's page catches the next device Back)", H4.armed && H4.afterBack.top && H4.afterBack.detail && !H4.afterBack.dialog, H4);
+  ok("H4b Close Drawer keeps it on top too (the Dashboard catches the next device Back)", H4.armed2 && H4.afterDrawer.top && H4.afterDrawer.view === "dashboard", H4);
 
   // ---------- H5 device Back inside the photo viewer -------------------------
   const H5 = await page.evaluate(async () => {
@@ -518,13 +520,14 @@ module.exports = defineSuite("leave-guard", async ({ ok: okRaw, openApp, PHONE }
     H6.manage && H6.manageBack.view === "needsdbcoins" && !H6.manageBack.dialog, H6);
   ok("H6b Add Coin arms the guard; device Back with nothing typed goes to Acquisitions",
     H6.add && H6.addBack.view === "acquisitions" && !H6.addBack.dialog, H6);
-  ok("H6c a Save that leaves Edit Coin steps back over the entry", H6.saved.detail && !H6.saved.top && !H6.saved.dialog, H6);
+  ok("H6c a Save that leaves Edit Coin keeps the one entry on top, no dialog", H6.saved.detail && H6.saved.top && !H6.saved.dialog, H6);
 
   // ---------- H7 an entry left by a reload is not mistaken for ours ----------
   const H7 = await page.evaluate(async () => {
     const L = __lg; L.install(); await L.sleep(200);
     // A reload on an editing screen leaves the page on top of an old entry.
     history.pushState({ coinLeaveGuard: "left-by-a-reload" }, "");
+    leaveGuard.armed = false;
     await L.openEditCoin(); await L.sleep(60);
     const armed = L.guardTop();
     await L.back();
