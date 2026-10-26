@@ -3211,20 +3211,20 @@
               <label>Mint Mark</label>
               <select id="browseEditMintMark">
                 <option value="">— none (Philadelphia) —</option>
-                <!-- Same one-shot sentinel as Add Coin's identical option
-                     (MINT_MARK_OTHER_SENTINEL): a coin with no mint mark that
-                     is NOT the ordinary Philadelphia case. Normalized straight
-                     back to "" on change, so the SAVED MintMark is blank
-                     either way and every existing reader is unaffected.
-                     Deliberately NARROWER here than in Add Coin: resolving it
-                     writes nothing but the (already blank) Mint Mark — never
-                     Description/Variety/Finish/Denomination/Year, which on an
-                     existing coin are curated values this form must not
-                     silently rewrite (see "No Description auto-fill in Edit
-                     Coin"). What it DOES do is make the resolved row
-                     authoritative for the CoinID re-link this save already
-                     performs. -->
-                <option value="__OTHER_MINT__">— none (Other) —</option>
+                <!-- "— none (Other) —", the same option as Add Coin's: a coin
+                     with no mint mark that is NOT the ordinary Philadelphia
+                     case. Its value is "" (marked data-mint-other), so the
+                     SAVED MintMark is blank either way and every existing
+                     reader is unaffected; mintMarkOtherSelected() tells the
+                     two apart. Deliberately NARROWER here than in Add Coin:
+                     resolving it writes nothing but the (already blank) Mint
+                     Mark — never Description/Variety/Finish/Denomination/
+                     Year, which on an existing coin are curated values this
+                     form must not silently rewrite (see "No Description
+                     auto-fill in Edit Coin"). What it DOES do is make the
+                     resolved row authoritative for the CoinID re-link this
+                     save already performs. -->
+                <option value="" data-mint-other="1">— none (Other) —</option>
                 <!-- Explicit "P" — real data (bug found via live device testing):
                      Philadelphia normally carries no mint mark at all, but a
                      handful of real issues DO explicitly mark it (2017 Lincoln
@@ -4118,17 +4118,14 @@
                 <option value="">— none (Philadelphia) —</option>
                 <!-- "— none (Other) —": a coin with genuinely no mint mark
                      struck somewhere OTHER than Philadelphia (item 8, Q1-Q4
-                     confirmed). Its option value is a one-shot SENTINEL
-                     (MINT_MARK_OTHER_SENTINEL), never a real, persisted
-                     MintMark — the moment this fires, the select's own
-                     value is normalized straight back to "" (Q2: this still
-                     writes a blank MintMark, same as Philadelphia; "Other"
-                     is purely a UI trigger for the one-time DB_Coins.Mint
-                     lookup below, not a distinct stored value). Every other
-                     reader of #mintMark.value in this file — the base
-                     matcher, the draft, the flip labels — therefore only
-                     ever sees "" or a real code, exactly as before. -->
-                <option value="__OTHER_MINT__">— none (Other) —</option>
+                     confirmed). Its value is "" like the Philadelphia option
+                     (Q2: both write a blank MintMark); the option is marked
+                     data-mint-other and picking it runs the one-time
+                     DB_Coins.Mint lookup below. The box keeps showing
+                     "— none (Other) —" (Ray's tablet test of 0a0cbd1: it
+                     used to jump back to Philadelphia). Every reader of
+                     #mintMark.value only ever sees "" or a real code. -->
+                <option value="" data-mint-other="1">— none (Other) —</option>
                 <!-- See Browse Edit's identical dropdown for why "P" is a real,
                      separate option from the default blank. -->
                 <option value="P">P — Philadelphia (explicit)</option>
@@ -17434,6 +17431,7 @@
 
     set("browseEditYear", values.Year);
     setSel("browseEditMintMark", values.MintMark);
+    if (!skip("browseEditMintMark")) showMintMarkOtherForCoinId(document.getElementById("browseEditMintMark"), values.CoinID || (coin && coin.coinId));
     setSel("browseEditDenomination", values.Denomination);
     set("browseEditDescription", values.Description);
     set("browseEditVariety", values.Variety);
@@ -17618,6 +17616,7 @@
     // flip card's corners).
     document.getElementById("browseEditYear").value = coin.year != null ? coin.year : "";
     document.getElementById("browseEditMintMark").value = coin.mint || "";
+    showMintMarkOtherForCoinId(document.getElementById("browseEditMintMark"), coin.coinId);
     document.getElementById("browseEditDenomination").value = coin.denom || "";
     document.getElementById("browseEditDescription").value = coin.description || coin.name || "";
     document.getElementById("browseEditVariety").value = coin.variety || "";
@@ -18098,13 +18097,12 @@
     // Being marked touched is correct and wanted: picking "Other" IS a real
     // user edit of Mint Mark to blank.
     document.getElementById("browseEditMintMark").addEventListener("change", (e) => {
-      if (e.target.value !== MINT_MARK_OTHER_SENTINEL) {
+      if (!mintMarkOtherSelected(e.target)) {
         // Any ordinary mint-mark change supersedes a previously resolved
         // "Other" answer — that answer was about a blank mint mark.
         browseEditResolvedMintPick = null;
         return;
       }
-      e.target.value = "";
       handleBrowseEditMintMarkOtherApply();
     });
 
@@ -25083,44 +25081,83 @@
   }
 
   // ------------------------------------------------------------------
-  // DEVICE BACK (Ray's Q6, widened Oct 2026 to every screen). The app keeps
-  // ONE history entry of its own on top of the page at all times, so the
-  // device's Back pops it instead of leaving the app. The pop runs the app's
-  // own Back (navBackHandler, the same up-one-level the chrome Back uses;
-  // not a browser history of screens), then the entry goes straight back.
-  // On an editing screen the usual check runs first (unsaved -> asks). On
-  // the Dashboard, Back asks "Leave Salty's Cabinet?". A dialog open: Back
-  // is its Cancel / Keep editing / Stay. The image chooser, the crop tool
-  // and the other small panels close first; the photo viewer keeps its own
-  // entry on top of this one, so Back there closes only the viewer. While a
-  // Save runs Back changes nothing. Redraws and screen changes never push a
-  // second entry: one is pushed only when ours is not already on top.
+  // DEVICE BACK (Ray's Q6, widened Oct 2026 to every screen; rebuilt after
+  // his tablet test of 0a0cbd1). The app keeps a short stack of history
+  // entries of its own on top of the page, so the device's Back pops one of
+  // them instead of leaving the app. The pop runs the app's own Back
+  // (navBackHandler, the same up-one-level the chrome Back uses; not a
+  // browser history of screens). On an editing screen the usual check runs
+  // first (unsaved -> asks). On the Dashboard, Back shows "Press Back again
+  // to exit"; a second Back within 2 seconds leaves. A dialog open: Back is
+  // its Cancel / Keep editing. The image chooser, the crop tool and the
+  // other small panels close first; the photo viewer keeps its own entry on
+  // top of ours, so Back there closes only the viewer. While a Save runs
+  // Back changes nothing.
+  //
+  // WHY A STACK, AND WHY ENTRIES ARE ADDED ONLY ON A TAP. Chrome skips, on
+  // Back, any history entry the page added another entry on top of without
+  // a user tap in between (its "history manipulation intervention"). The
+  // first version put its one entry straight back inside the Back handler,
+  // which is never a tap, so the entry under it was skipped and the SECOND
+  // Back in a row left the app (Ray's steps 5, 6, 11 and 13). Now: one entry
+  // is added per tap or key press, up to LEAVE_GUARD_DEPTH, and a caught
+  // Back just steps down the stack, adding nothing. Only when no entry of
+  // ours is left (the stack used up, or the first moment after opening) is
+  // one added without a tap; the next tap adds a proper one (Ray's Q1).
   // ------------------------------------------------------------------
-  // Each entry carries its own token, so one left behind by a reload (the
-  // page came back on top of an old entry) is never mistaken for ours: it
-  // is reused in place (replaceState) rather than stacked on, and leaving
-  // walks past it.
-  const leaveGuard = { armed: false, token: "", expectPop: false, rearmAfterPop: false, leaving: false, steppedOut: false };
-  function leaveGuardIsTop() {
-    return !!(leaveGuard.token && history.state && history.state.coinLeaveGuard === leaveGuard.token);
+  // The token is this page load's own, so an entry left behind by a reload
+  // (the page came back on top of an old entry) is never mistaken for ours:
+  // it is reused in place (replaceState) rather than stacked on, and
+  // leaving walks past it. Each entry also carries its place in the stack.
+  const LEAVE_GUARD_DEPTH = 5;
+  const DASHBOARD_EXIT_WINDOW_MS = 2000;
+  const DASHBOARD_EXIT_TEXT = "Press Back again to exit";
+  const leaveGuard = {
+    token: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    depth: 0,            // where we believe we are in our own stack (0 = none of ours on top)
+    expectPop: false, rearmAfterPop: false,
+    leaving: false, steppedOut: false,
+    exitUntil: 0, exitTimer: null,
+  };
+  function guardDepthOf(st) {
+    return (st && st.coinLeaveGuard && st.coinLeaveGuard === leaveGuard.token) ? (Number(st.d) || 1) : 0;
   }
+  function leaveGuardIsTop() { return guardDepthOf(history.state) > 0; }
   // An entry this app pushed, on this page load or an earlier one.
   function historyStateIsOurs(st) { return !!(st && (st.coinLeaveGuard || st.mediaViewer)); }
-  function armLeaveGuard() {
+  function dashboardExitArmed() { return leaveGuard.exitUntil > Date.now(); }
+  // opts.gesture: called from a tap or key press, so one more entry may be
+  // added (up to LEAVE_GUARD_DEPTH). Without it an entry is added only when
+  // none of ours is on top.
+  function armLeaveGuard(opts) {
+    const gesture = !!(opts && opts.gesture);
     if (leaveGuard.leaving) return;
     if (leaveGuard.expectPop) { leaveGuard.rearmAfterPop = true; return; }
-    if (leaveGuard.armed && leaveGuardIsTop()) return;
-    if (leaveGuard.armed && history.state && history.state.mediaViewer) return; // the viewer sits on top
-    const token = "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    if (!gesture && dashboardExitArmed()) return; // the exit window: Back must reach the page itself
+    const st = history.state;
+    if (st && st.mediaViewer && mediaViewerIsOpen()) return; // the viewer sits on top
+    const d = guardDepthOf(st);
     try {
-      const st = history.state;
-      const reuse = st && (st.coinLeaveGuard || (st.mediaViewer && !mediaViewerIsOpen()));
-      if (reuse) history.replaceState({ coinLeaveGuard: token }, "");
-      else history.pushState({ coinLeaveGuard: token }, "");
-      leaveGuard.armed = true; leaveGuard.token = token;
-    } catch (e) { leaveGuard.armed = false; /* Back simply isn't intercepted */ }
+      if (d === 0) {
+        // Numbered one above whatever of ours lies underneath, so a Back
+        // that lands on that one is still seen as a Back.
+        const next = leaveGuard.depth + 1;
+        const entry = { coinLeaveGuard: leaveGuard.token, d: next };
+        const reuse = st && (st.coinLeaveGuard || (st.mediaViewer && !mediaViewerIsOpen()));
+        if (reuse) history.replaceState(entry, "");
+        else history.pushState(entry, "");
+        leaveGuard.depth = next;
+      } else {
+        leaveGuard.depth = d;
+        if (gesture && d < LEAVE_GUARD_DEPTH) {
+          history.pushState({ coinLeaveGuard: leaveGuard.token, d: d + 1 }, "");
+          leaveGuard.depth = d + 1;
+        }
+      }
+    } catch (e) { /* Back simply isn't intercepted */ }
   }
-  // Called after every screen change (setNavBack runs on each one).
+  // Called after every screen change (setNavBack runs on each one). Adds
+  // an entry only when none of ours is on top.
   function syncLeaveGuard() { armLeaveGuard(); }
   let leaveGuardSyncQueued = false;
   function queueLeaveGuardSync() {
@@ -25128,7 +25165,7 @@
     leaveGuardSyncQueued = true;
     Promise.resolve().then(() => { leaveGuardSyncQueued = false; syncLeaveGuard(); });
   }
-  // Back inside a dialog: the safe button (Cancel, Keep editing, Stay; an
+  // Back inside a dialog: the safe button (Cancel, Keep editing; an
   // acknowledgement's OK). A dialog with none just closes, running nothing.
   const DIALOG_BACK_SAFE = [/^(cancel|keep editing|stay)\b/i, /^(ok|close|done)$/i];
   function backOutOfWriteGuard() {
@@ -25153,33 +25190,43 @@
     const sp = document.getElementById("splashScreen");
     return !!sp && !sp.classList.contains("hidden") && !sp.classList.contains("fade-out") && sp.style.display !== "none";
   }
-  // The Dashboard's Back. Stay keeps the app open; Leave does what the
-  // device's Back would have done had the app not caught it.
-  function askLeaveApp() {
-    showWriteGuard({
-      title: "Leave Salty's Cabinet?",
-      bodyHtml: "<p style=\"margin:0;\">Stay keeps the app open. Leave closes it.</p>",
-      buttons: [
-        { label: "Stay", primary: true },
-        { label: "Leave", onClick: () => leaveApp() }
-      ]
-    });
+  // The Dashboard's Back (Ray, test of 0a0cbd1; replaces the Stay / Leave
+  // prompt). It says "Press Back again to exit" and steps down to the page's
+  // own entry, so the very next Back is the device's own and leaves: two
+  // presses in all. After 2 seconds the entry goes back (a tap does that
+  // sooner), and Back shows the message again.
+  function startDashboardExit() {
+    cancelDashboardExit();
+    showToast(DASHBOARD_EXIT_TEXT);
+    leaveGuard.exitUntil = Date.now() + DASHBOARD_EXIT_WINDOW_MS;
+    const d = guardDepthOf(history.state);
+    if (d > 0) { leaveGuard.expectPop = true; leaveGuard.rearmAfterPop = false; leaveGuard.depth = 0; history.go(-d); }
+    leaveGuard.exitTimer = setTimeout(() => {
+      leaveGuard.exitTimer = null; leaveGuard.exitUntil = 0;
+      if (!leaveGuard.leaving && !pageHidden) armLeaveGuard();
+    }, DASHBOARD_EXIT_WINDOW_MS);
+  }
+  function cancelDashboardExit() {
+    if (leaveGuard.exitTimer) { clearTimeout(leaveGuard.exitTimer); leaveGuard.exitTimer = null; }
+    leaveGuard.exitUntil = 0;
   }
   let pageHidden = false;
   window.addEventListener("pagehide", () => { pageHidden = true; });
   window.addEventListener("pageshow", (e) => {
     pageHidden = false;
-    if (e.persisted) { leaveGuard.leaving = false; leaveGuard.armed = false; queueLeaveGuardSync(); }
+    if (e.persisted) { leaveGuard.leaving = false; leaveGuard.depth = 0; cancelDashboardExit(); queueLeaveGuardSync(); }
   });
   // Steps back over our own entries (this load's and any left by an earlier
-  // one), then once more, out of the page. If nothing is behind the page
-  // (an installed app opened from its icon, a tab opened fresh) a page can't
-  // leave on its own: it tries window.close(), and if still here says to
-  // press Back once more, which the app no longer catches.
+  // one), then once more, out of the page. Used while the splash is up and
+  // when a second Back on the Dashboard lands on an older entry of ours.
+  // If nothing is behind the page a page can't leave on its own: it tries
+  // window.close(), and if still here says to press Back once more, which
+  // the app no longer catches.
   function leaveApp() {
+    cancelDashboardExit();
     leaveGuard.leaving = true;
     leaveGuard.steppedOut = false;
-    leaveGuard.armed = false;
+    leaveGuard.depth = 0;
     if (historyStateIsOurs(history.state)) { history.back(); return; } // the pop continues below
     stepOutOfPage();
   }
@@ -25195,13 +25242,22 @@
       }, 300);
     }, 400);
   }
-  // Touching the app again after Leave means staying after all.
-  document.addEventListener("pointerdown", (e) => {
-    if (leaveGuard.leaving && e.isTrusted) { leaveGuard.leaving = false; queueLeaveGuardSync(); }
-  }, true);
+  // A tap or a key press: the moment an entry may be added that Chrome
+  // will not skip. Touching the app also means staying (it ends the exit
+  // window and a leave in progress).
+  function onLeaveGuardGesture(e) {
+    if (!e.isTrusted) return;
+    if (e.type === "keydown" && (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta")) return;
+    leaveGuard.leaving = false;
+    cancelDashboardExit();
+    armLeaveGuard({ gesture: true });
+  }
+  document.addEventListener("pointerup", onLeaveGuardGesture, true);
+  document.addEventListener("keydown", onLeaveGuardGesture, true);
   function onLeaveGuardPop() {
     if (leaveGuard.expectPop) {
       leaveGuard.expectPop = false;
+      leaveGuard.depth = guardDepthOf(history.state);
       if (leaveGuard.rearmAfterPop) { leaveGuard.rearmAfterPop = false; syncLeaveGuard(); }
       return;
     }
@@ -25211,14 +25267,22 @@
       else stepOutOfPage();
       return;
     }
-    if (!leaveGuard.armed || leaveGuardIsTop()) return; // not ours (the viewer's own pop)
-    leaveGuard.armed = false;
+    const st = history.state;
+    const d = guardDepthOf(st);
+    const was = leaveGuard.depth;
+    // The second Back on the Dashboard landed on an older entry (one left
+    // by a reload): keep going out.
+    if (dashboardExitArmed()) { leaveApp(); return; }
+    if (st && st.mediaViewer) return;      // forward onto the viewer's entry
+    if (was === 0) return;                 // nothing of ours was on top: not our pop
+    if (d > 0 && d >= was) { leaveGuard.depth = d; return; } // the viewer's own pop, or forward
+    leaveGuard.depth = d;
     // Still loading: there is nothing open to protect, so Back leaves.
     if (splashShowing()) { leaveApp(); return; }
     handleDeviceBack();
-    // The entry goes back at once, so a second Back (say, with a dialog now
-    // open) is caught too.
-    armLeaveGuard();
+    // Nothing of ours left: put one back (no tap now, so the next tap adds
+    // a proper one). Otherwise the stack under us catches the next Back.
+    if (guardDepthOf(history.state) === 0 && !leaveGuard.leaving && !dashboardExitArmed()) armLeaveGuard();
   }
   function handleDeviceBack() {
     const open = id => { const el = document.getElementById(id); return !!el && !el.classList.contains("hidden"); };
@@ -25231,7 +25295,7 @@
     const panel = BACK_CLOSES_PANELS.find(([id]) => open(id));
     if (panel) { panel[1](); return; }
     const view = document.querySelector(".view.active");
-    if (view && view.id === "view-dashboard") { askLeaveApp(); return; }
+    if (view && view.id === "view-dashboard") { startDashboardExit(); return; }
     guardLeaveEditScreen(() => navBackHandler());
   }
 
@@ -27000,16 +27064,19 @@
         photoEl.setAttribute("aria-label", "View this " + photoNoun + " full screen" + (legacyLabel ? "" : " and edit its label"));
         // The tap opens the full-screen viewer with a label field (none for
         // an old-style photo). ✕ and ↻ inside the photo keep their own jobs.
-        const openViewer = () => openGalleryPhotoInViewer(entry, {
+        // focus: "Tap to label" (the line under the photo) opens it with
+        // the label field already focused, keyboard up; a tap on the photo
+        // just opens it (Ray's tablet test of 0a0cbd1).
+        const openViewer = (focus) => openGalleryPhotoInViewer(entry, {
           title: def ? def.label : "Photo",
-          label: { draft, legacy: legacyLabel, hint: photoLabelSaveHint(thumb), title: "Label for this " + photoNoun }
+          label: { draft, legacy: legacyLabel, hint: photoLabelSaveHint(thumb), title: "Label for this " + photoNoun, focus: !!focus }
         });
-        photoEl.addEventListener("click", (e) => { if (e.target.closest("button")) return; openViewer(); });
+        photoEl.addEventListener("click", (e) => { if (e.target.closest("button")) return; openViewer(false); });
         photoEl.addEventListener("keydown", (e) => {
           if (e.target !== photoEl) return;
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openViewer(); }
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openViewer(false); }
         });
-        labelLine.addEventListener("click", openViewer);
+        labelLine.addEventListener("click", () => openViewer(true));
       } else {
         const captionBox = thumb.querySelector(".gc-caption");
         captionBox.addEventListener("input", (e) => { entry.caption = e.target.value; });
@@ -27615,6 +27682,13 @@
     document.getElementById("mediaViewerLabelNote").textContent = lab.hint || "";
     input.value = entry.caption || "";
     panel.classList.remove("hidden");
+    // Focused inside the same tap, so the phone raises its keyboard (a
+    // focus outside a tap doesn't); the caret goes to the end of the text.
+    if (lab.focus) {
+      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+      const n = input.value.length;
+      try { input.setSelectionRange(n, n); } catch (e) { /* not a text field */ }
+    }
   }
   function hideMediaViewerLabel() {
     mediaViewerLabelState = null;
@@ -29717,7 +29791,33 @@
   // Philadelphia" lookup. Never a real, persisted MintMark — both forms
   // normalize it straight back to "" before anything else reads the field.
   // Shared so Add Coin and Edit Coin cannot drift apart on the literal.
-  const MINT_MARK_OTHER_SENTINEL = "__OTHER_MINT__";
+  // The "— none (Other) —" option. Its value is "" like "— none
+  // (Philadelphia) —" (both write a blank MintMark), so every reader of the
+  // select's .value only ever sees "" or a real code. What tells the two
+  // apart is which OPTION is selected, marked data-mint-other. (Before Oct
+  // 2026 it carried a sentinel value that the change handler reset to "",
+  // which put the box back on "— none (Philadelphia) —" the moment it was
+  // picked: Ray's tablet test of 0a0cbd1.)
+  function mintMarkOtherOption(sel) { return sel ? sel.querySelector("option[data-mint-other]") : null; }
+  function mintMarkOtherSelected(sel) {
+    const o = sel && sel.selectedOptions && sel.selectedOptions[0];
+    return !!(o && o.hasAttribute("data-mint-other"));
+  }
+  function selectMintMarkOther(sel) { const o = mintMarkOtherOption(sel); if (o) o.selected = true; }
+  // A catalog row with no mint mark that was struck somewhere other than
+  // Philadelphia: what "— none (Other) —" stands for.
+  function dbCoinIsUnmarkedNonPhiladelphia(row) {
+    return !!row && normField(row.mint || "") === "" && normField(row.mintFull || "") !== "" &&
+      normField(row.mintFull) !== normField("Philadelphia");
+  }
+  // A coin (or draft) already linked to such a row shows "— none (Other) —"
+  // when its form opens, not "— none (Philadelphia) —". Display only: both
+  // write the same blank MintMark.
+  function showMintMarkOtherForCoinId(sel, coinId) {
+    if (!sel || sel.value !== "" || mintMarkOtherSelected(sel) || !coinId) return;
+    const row = activeDbCoins().find(c => normField(c.coinId) === normField(coinId));
+    if (dbCoinIsUnmarkedNonPhiladelphia(row)) selectMintMarkOther(sel);
+  }
 
   // The DB_Coins rows that could be "this coin has no mint mark, and it is
   // NOT the ordinary Philadelphia case" for a given Year + Denomination,
@@ -29774,6 +29874,9 @@
 
     const showApplied = (row, mf) => {
       applyIdentifierDbCoinsMatch(row);
+      // Filling the form from the row set Mint Mark to "" (the first
+      // option, Philadelphia); the coin is the "Other" case, so show that.
+      selectMintMarkOther(document.getElementById("mintMark"));
       document.getElementById("mintMarkOtherAppliedMsg").innerHTML = mf
         ? "<strong>Struck at multiple facilities</strong> — mint not individually identifiable for this issue. Linked to <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>."
         : "No mint mark, struck at <strong>" + escapeHtmlText(row.mintFull || "") + "</strong> — <strong>" + escapeHtmlText(row.coinId || "(no CoinID)") + "</strong>";
@@ -30778,6 +30881,7 @@
 
     document.getElementById("year").value = draft.year || "";
     setSelectValuePreservingUnknown(document.getElementById("mintMark"), draft.mint || "");
+    showMintMarkOtherForCoinId(document.getElementById("mintMark"), draft.coinId);
     document.getElementById("description").value = draft.description || "";
     // What was saved is the answer, not a starting guess — a later Year or
     // Denomination edit must not silently overwrite it.
@@ -31429,10 +31533,7 @@
       // anything else reads .value, so refreshVarietyOptions()/
       // checkDbCoinsMatch() below (and every other
       // reader in the file) only ever see "" or a real code.
-      if (e.target.value === MINT_MARK_OTHER_SENTINEL) {
-        e.target.value = "";
-        handleMintMarkOtherApply();
-      }
+      if (mintMarkOtherSelected(e.target)) handleMintMarkOtherApply();
       refreshVarietyOptions(); checkDbCoinsMatch();
     });
     // Finish/Designation/GradeSource are all real inputs to

@@ -22,7 +22,7 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
       document.getElementById("year").dispatchEvent(new Event("input"));
       if (variety !== undefined) document.getElementById("variety").value = variety;
       const mm = document.getElementById("mintMark");
-      mm.value = "__OTHER_MINT__";
+      selectMintMarkOther(mm);
       mm.dispatchEvent(new Event("change"));
     }, { denom, year, variety });
   }
@@ -43,18 +43,18 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
   // ---------- A. Dropdown option present, correct position, real codes untouched ----------
   const A = await page.evaluate(() => {
     navigate("addcoin");
-    const opts = [...document.querySelectorAll("#mintMark option")].map(o => ({ value: o.value, text: o.textContent.trim() }));
+    const opts = [...document.querySelectorAll("#mintMark option")].map(o => ({ value: o.value, text: o.textContent.trim(), other: o.hasAttribute("data-mint-other") }));
     return opts;
   });
   ok(JSON.stringify(A) === JSON.stringify([
-    { value: "", text: "— none (Philadelphia) —" },
-    { value: "__OTHER_MINT__", text: "— none (Other) —" },
-    { value: "P", text: "P — Philadelphia (explicit)" },
-    { value: "D", text: "D — Denver" },
-    { value: "S", text: "S — San Francisco" },
-    { value: "CC", text: "CC — Carson City" },
-    { value: "O", text: "O — New Orleans" },
-    { value: "W", text: "W — West Point" }
+    { value: "", text: "— none (Philadelphia) —", other: false },
+    { value: "", text: "— none (Other) —", other: true },
+    { value: "P", text: "P — Philadelphia (explicit)", other: false },
+    { value: "D", text: "D — Denver", other: false },
+    { value: "S", text: "S — San Francisco", other: false },
+    { value: "CC", text: "CC — Carson City", other: false },
+    { value: "O", text: "O — New Orleans", other: false },
+    { value: "W", text: "W — West Point", other: false }
   ]), "A1 \"— none (Other) —\" added right after Philadelphia; every real code (P/D/S/CC/O/W) unchanged, same order — " + JSON.stringify(A));
 
   // ---------- B. Missing prerequisites (Year or Denom blank): no lookup fires ----------
@@ -64,7 +64,7 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
     document.getElementById("denomination").dispatchEvent(new Event("change"));
     // Year deliberately left blank.
     const mm = document.getElementById("mintMark");
-    mm.value = "__OTHER_MINT__";
+    selectMintMarkOther(mm);
     mm.dispatchEvent(new Event("change"));
     return {
       mmValue: mm.value,
@@ -162,7 +162,7 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
     document.getElementById("year").value = "1875";
     document.getElementById("year").dispatchEvent(new Event("input"));
     const mm = document.getElementById("mintMark");
-    mm.value = "__OTHER_MINT__";
+    selectMintMarkOther(mm);
     mm.dispatchEvent(new Event("change"));
     const before = FAKE_STAGING.length;
     await new Promise(r => { saveAddCoinForm("staging"); setTimeout(r, 400); });
@@ -182,7 +182,7 @@ module.exports = defineSuite("addcoin-mintmark-other", async ({ ok, openApp, PHO
     document.getElementById("year").value = "1913";
     document.getElementById("year").dispatchEvent(new Event("input"));
     const mm = document.getElementById("mintMark");
-    mm.value = "__OTHER_MINT__";
+    selectMintMarkOther(mm);
     mm.dispatchEvent(new Event("change")); // leaves the ambiguous panel open
     resetAddCoinForm();
     return {

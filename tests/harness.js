@@ -71,21 +71,53 @@ const PHONE = { width: 412, height: 915 };   // Ray's S25, the primary target
 const TABLET = { width: 1024, height: 768 };
 
 // Runs one suite and returns its result. `fn` receives a context with:
-//   ok(cond, label)      — record an assertion
+//   ok(cond, label)      — record an assertion (the original, condition first)
+//   check(label, cond, data) — the SHARED check helper every new suite uses:
+//                          label first, the failing data appended to the
+//                          label. A label that isn't a string is itself a
+//                          failure, so reversed arguments can't pass.
+//   selfCheck(fn)        — every new suite calls this first with its own
+//                          check function: one deliberately false check that
+//                          MUST fail (counted as a pass only if it did), and
+//                          one true check that must pass. A suite whose check
+//                          is wired wrong fails here by name instead of
+//                          passing everything (it happened twice).
 //   openApp(viewport)    — a fresh page with app.html loaded and settled
 //   PHONE / TABLET       — the two standard viewports
 // Page and console errors are collected automatically and reported as
 // failures, so a suite cannot pass while the page is throwing.
 async function runSuite(name, fn) {
   const result = { name, pass: 0, fail: 0, failures: [], errors: [] };
+  let probe = null; // set while selfCheck runs a deliberately false check
+  const record = (cond, label) => {
+    if (probe) { probe.push(!!cond); return; }
+    if (cond) result.pass++;
+    else { result.fail++; result.failures.push(label); }
+  };
   const exe = resolveChromium();
   const browser = await chromium.launch(exe ? { executablePath: exe } : {});
   try {
     const ctx = {
       PHONE, TABLET,
-      ok(cond, label) {
-        if (cond) result.pass++;
-        else { result.fail++; result.failures.push(label); }
+      ok(cond, label) { record(cond, label); },
+      check(label, cond, data) {
+        if (typeof label !== "string") {
+          record(false, "CHECK MISUSED: the first argument must be the label (got " + typeof label + ")");
+          return false;
+        }
+        let tail = "";
+        if (!cond) { try { tail = ": " + JSON.stringify(data); } catch (e) { tail = ": (data not serialisable)"; } }
+        record(!!cond, label + tail);
+        return !!cond;
+      },
+      selfCheck(checkFn) {
+        probe = [];
+        try { checkFn("SELF-CHECK must fail", false, { deliberately: "false" }); }
+        catch (e) { probe.push("threw"); }
+        const hits = probe; probe = null;
+        record(hits.length === 1 && hits[0] === false,
+          "SELF-CHECK: a deliberately false check must fail, and it did not (" + JSON.stringify(hits) + "): this suite's check is wired wrong");
+        checkFn("SELF-CHECK must pass", true, null);
       },
       async openApp(viewport) {
         const page = await browser.newPage({ viewport: viewport || PHONE });

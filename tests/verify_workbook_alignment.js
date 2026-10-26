@@ -259,12 +259,13 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     navigate('browse');
     const coin = FAKE_COINS.find(c => c.id === "AY-00007"); // Peace Dollar, 1928, blank mint
     showBrowseDetail(coin); showBrowseEditView(coin);
-    const opts = [...document.querySelectorAll('#browseEditMintMark option')].map(o => o.value);
+    const optEls = [...document.querySelectorAll('#browseEditMintMark option')];
+    const opts = optEls.map(o => o.value);
     const panel = document.getElementById('browseEditMintMarkOtherAmbiguousPanel');
     const mfOpt = document.getElementById('browseEditMintMarkOtherMultipleFacilitiesOption');
     return {
       opts,
-      otherIndex: opts.indexOf('__OTHER_MINT__'),
+      otherIndex: optEls.findIndex(o => o.hasAttribute('data-mint-other') && o.value === ''),
       // The recurring trap in this file: there is no generic .hidden rule, so
       // a panel can report classList "hidden" while rendering fully visible.
       panelReallyHidden: panel.classList.contains('hidden') && getComputedStyle(panel).display === 'none',
@@ -292,7 +293,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
       year: document.getElementById('browseEditYear').value
     };
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const after = {
       mintMark: sel.value,
@@ -328,7 +329,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     document.getElementById('browseEditYear').value = '1921';
     document.getElementById('browseEditDenomination').value = '$1';
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const res = {
       notFound: !document.getElementById('browseEditMintMarkOtherNotFoundBanner').classList.contains('hidden'),
@@ -350,7 +351,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     document.getElementById('browseEditYear').value = '1921';
     document.getElementById('browseEditDenomination').value = '$1';
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const panelOpen = !document.getElementById('browseEditMintMarkOtherAmbiguousPanel').classList.contains('hidden');
     const cards = [...document.querySelectorAll('#browseEditMintMarkOtherAmbiguousList .ambiguous-match')];
@@ -392,7 +393,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     document.getElementById('browseEditYear').value = '1921';
     document.getElementById('browseEditDenomination').value = '$1';
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const pickedFor1921 = browseEditResolvedMintPick !== null;
 
@@ -420,7 +421,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     document.getElementById('browseEditYear').value = '1921';
     document.getElementById('browseEditDenomination').value = '$1';
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const msg = document.getElementById('browseEditMintMarkOtherAppliedMsg').textContent;
     const res = { msg, picked: browseEditResolvedMintPick ? browseEditResolvedMintPick.row.coinId : null };
@@ -439,7 +440,7 @@ module.exports = defineSuite("workbook-alignment", async ({ ok, openApp, PHONE }
     document.getElementById('browseEditYear').value = '1921';
     document.getElementById('browseEditDenomination').value = '$1';
     const sel = document.getElementById('browseEditMintMark');
-    sel.value = '__OTHER_MINT__';
+    selectMintMarkOther(sel);
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     const had = browseEditResolvedMintPick !== null;
     const other = FAKE_COINS.find(c => c.id === "AY-00005");
