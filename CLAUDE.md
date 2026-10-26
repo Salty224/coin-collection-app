@@ -436,10 +436,14 @@ airplane mode, skipped, so the partial-failure path is device-unverified).
 **C2 passed Ray's tablet test of `79b4f90`** (all 15 steps). **The C2
 follow-ups and C3 (open-ended Package/OGP) are built, held for Ray's
 tablet test** (see "C2 follow-ups" and "C3: open-ended Package / OGP"
-below); C4 is this file.
+below); C4 is this file. **Ray's tablet test of `0a0cbd1` passed except a
+second Back in a row leaving the app; that, the Dashboard exit toast, the
+Mint Mark display and Tap to label are fixed in round 2, held for his
+retest** (see "Round 2 after Ray's tablet test of `0a0cbd1`").
 Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
 (35), `tests/verify_leave_guard.js` (37), `tests/verify_device_back_everywhere.js`
-(33), `tests/verify_ogp_open_ended.js` (40).
+(49 since round 2), `tests/verify_ogp_open_ended.js` (40),
+`tests/verify_tablet_retest_0a0cbd1.js` (12).
 - **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
   `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
   are held in memory and written only by Save Changes (Edit Coin, Edit Set)
@@ -635,7 +639,10 @@ acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
   source the Set's page reads), it and its label (`#editSetFunFactLabel`)
   hidden when blank. It is out of `EDIT_SET_FIELD_IDS`, so it never counts
   in the leave warning, and Save no longer writes `details.funFact`.
-- **Device Back on every screen.** The app keeps ONE history entry
+- **Device Back on every screen.** *(Superseded by round 2 below: a stack
+  of entries added only on taps, and a "Press Back again to exit" toast on
+  the Dashboard instead of the Stay / Leave prompt. The one-entry design
+  let a second Back in a row leave the app on Ray's tablet.)* The app keeps ONE history entry
   `{coinLeaveGuard: token}` on top at all times (`armLeaveGuard`, run from
   `setNavBack` on every screen change; it pushes only when ours is not
   already on top). The device's Back pops it and `handleDeviceBack()` runs,
@@ -652,7 +659,9 @@ acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
   app's own Back (the editing screens still ask about unsaved edits). The
   photo viewer keeps its own entry on top, so Back there closes only the
   viewer, as before.
-- **Leave** (`leaveApp`, `stepOutOfPage`): stops catching Back, steps back
+- **Leave** (`leaveApp`, `stepOutOfPage`) *(the Stay / Leave prompt is
+  gone since round 2; `leaveApp` now runs only while the splash is up and
+  when the Dashboard's second Back lands on an older entry of ours)*: stops catching Back, steps back
   over our own entries (this load's and any an earlier load left —
   `historyStateIsOurs`), then once more out of the page. With nothing behind
   the page it tries `window.close()` and, if still here, toasts "Press Back
@@ -679,7 +688,7 @@ acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
   Chrome can skip a history entry pushed without a recent tap; the entry is
   first pushed at load, so the very first Back after opening may leave
   without asking on some devices (untested).
-- **Tests:** `verify_device_back_everywhere.js` (33): W1 wording; F1a-d Fun
+- **Tests** *(D1-D4 and S1 rewritten in round 2)*: `verify_device_back_everywhere.js` (33): W1 wording; F1a-d Fun
   Fact; K1 device Back = the chrome Back on Catalog, a coin's page, a Set's
   page, the album list, an open album, Docket, Staging Review, Ledger,
   Acquisitions; D1-D4 the Dashboard prompt, Stay, Back-in-prompt = Stay,
@@ -774,6 +783,121 @@ writes).
   Package upload to `_Testing`.
 - `npm test` on C3: 3961 passed, 0 failed, 0 page errors, 75 suites (3921 +
   40; every rewritten suite keeps its count).
+
+
+### Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest)
+Passed on the tablet: steps 1-4, 8-10, 14-20, 22, 23 (step 20 with and
+without a whole-set front). Skipped: 7 (same pattern as 5 and 6), 21 (no
+OGP_Obverse rows in the workbook). Failed, all one bug: ONE device Back
+always worked, a SECOND Back in a row left the app (step 5 coin -> grid ->
+out; step 6 album -> list -> out; step 11 Dashboard prompt -> Back -> out;
+step 13 Edit Coin "Discard unsaved edits?" open -> Back -> out, the edits
+lost silently). Answers: Q1 yes, add the fallback (the first Back after a
+fresh open leaves); Q2 wait for C4 (backlog q).
+- **Why it happened (Chrome's history manipulation intervention).** On Back,
+  Chrome skips any history entry the page added another entry on top of
+  without a user tap since it arrived there. The one-entry guard put its
+  entry back INSIDE the Back handler (never a tap), so the entry under it was
+  marked skippable and the next Back jumped straight past it out of the app.
+  A tap clears the marks, which is why one Back always worked. Headless
+  Chromium doesn't apply the rule to script-driven Backs, so no suite saw it.
+- **The fix: a short stack, entries added only on a tap.** `LEAVE_GUARD_DEPTH`
+  = 5. Each entry is `{coinLeaveGuard: <this load's token>, d: n}`
+  (`guardDepthOf`, `leaveGuard.depth`). `onLeaveGuardGesture` (capture-phase
+  `pointerup` and `keydown`, trusted only) adds one entry per tap up to the
+  depth: the moment Chrome won't skip it. It also ends the exit window and a
+  leave in progress (touching the app = staying). A caught Back just steps
+  down the stack and adds NOTHING while an entry of ours is left; only when
+  none is left (the stack used up, or the moment after opening) does
+  `armLeaveGuard()` add one without a tap, and the next tap adds a proper
+  one (Q1's fallback). Screen changes (`setNavBack` -> `queueLeaveGuardSync`)
+  add nothing while ours is on top. A pop that lands on an entry numbered no
+  lower than where we were (the photo viewer's own pop, or forward) is not a
+  Back. An entry left by a reload is still reused in place (`replaceState`),
+  numbered one above whatever of ours lies under it.
+- **Dashboard exit (Ray's change 1).** The "Leave Salty's Cabinet?" Stay /
+  Leave dialog (`askLeaveApp`) is gone. Back on the Dashboard
+  (`startDashboardExit`) toasts `DASHBOARD_EXIT_TEXT` "Press Back again to
+  exit" and steps down to the page's own entry (`history.go(-d)`, an
+  expected pop), so the very next Back is the device's own and leaves: two
+  presses in all. After `DASHBOARD_EXIT_WINDOW_MS` (2000) an entry goes back
+  on (`cancelDashboardExit`, the timer); a tap does it sooner. If that second
+  Back lands on an older entry of ours (left by a reload) the app walks out
+  past it (`leaveApp`). The window.close() + "Press Back once more" fallback
+  is kept only for that walk and the splash.
+- **Known and untestable here:** after the 2-second window, a Back with no tap
+  in between may leave at once on Chrome (the entry put back by the timer had
+  no tap); any tap restores the toast. Freshly opened, the first Back leaves
+  until the first tap (Q1, as Ray observed). A run of more than 4 Backs with
+  no tap in between can reach the bottom of the stack and leave. Whether
+  `history.go()` itself is subject to Chrome's skip rule is unverified (the
+  intervention is documented for the browser's Back, not the page's own
+  go(); if it were, the Dashboard's first Back would leave).
+- **Mint Mark "— none (Other) —" (Ray's change 2).** Picking it showed
+  "— none (Philadelphia) —": the option carried a sentinel value
+  (`__OTHER_MINT__`) that the change handler reset to "", which selects the
+  first "" option, Philadelphia; on Add Coin `applyDbCoinsRowToForm` set ""
+  again after a match. Now the option's value IS "" and it is marked
+  `data-mint-other`; `mintMarkOtherSelected(sel)` tells the two apart,
+  `selectMintMarkOther(sel)` selects it (Add Coin re-selects it after the
+  lookup fills the form). Every reader of `.value` still sees "" or a real
+  code. On BOTH screens that have the dropdown (Add Coin `#mintMark`, used by
+  the Staging-draft edit too, and Edit Coin `#browseEditMintMark`), a coin or
+  draft already linked to an unmarked non-Philadelphia catalog row opens on
+  "— none (Other) —" (`showMintMarkOtherForCoinId`,
+  `dbCoinIsUnmarkedNonPhiladelphia`; display only). `MINT_MARK_OTHER_SENTINEL`
+  is gone. What each option writes to All.MintMark: "— none (Philadelphia) —"
+  -> blank; "— none (Other) —" -> blank (the lookup's resolved row sets the
+  CoinID: Add Coin fills the form from it, Edit Coin makes it the save's
+  CoinID re-link); "P — Philadelphia (explicit)" -> P; D -> D; S -> S;
+  CC -> CC; O -> O; W -> W. A value the list lacks (e.g. "P/D") is kept by
+  `setSelectValuePreservingUnknown` and written back unchanged.
+- **"Tap to label" (Ray's change 3).** The label line under a tile calls
+  `openGalleryPhotoInViewer(entry, { label: { …, focus: true } })`;
+  `showMediaViewerLabel` focuses `#mediaViewerLabelInput` inside the same
+  tap (so the phone raises its keyboard) with the caret at the end. A tap on
+  the photo itself opens the viewer without focusing the field.
+- **Set notes: report only, no fix here (for the Edit Set saving build,
+  backlog r).** Columns: coin page "Notes yours" = All.Remarks
+  (`coin.remarks`), demo lookup as fallback; Edit Coin "Notes editable" =
+  All.Remarks (snapshot-driven, writes it); coin page / Edit Coin "Fun Fact"
+  = DB_Coins.FunFact (`catalogFunFactFor`); "Catalog Notes" =
+  DB_Coins.Notes (`catalogNotesFor`). Set page "Notes yours" = the Set row's
+  own All.Remarks (same code as a coin). Edit Set's Notes box = the
+  session-only details lookup (`coinDetailsFor(id).notes`, FAKE_COIN_DETAILS
+  in demo, `sessionCoinDetails` live), NOT All.Remarks: that is why
+  AY-00463's box opens empty, and an Edit Set Save writes it to the session
+  only (the page keeps showing All.Remarks, which wins). Not caused by C2:
+  the same line is on `main`. Set "Fun Fact" (page and Edit Set) =
+  `catalogFunFactFor`, whose DB_Coins match never matches Denomination
+  "Multiple", so live it is always blank (demo shows FAKE_COIN_DETAILS). No
+  Set screen reads DB_Sets.Notes, DB_Sets.KeyNotable or (except an album's
+  History page) DB_Sets.History.
+- **Tests:** `verify_device_back_everywhere.js` 33 -> 49: SELF; C1-C5 under
+  an EMULATED Chrome skip rule (`__chrome`: every pushState records whether
+  a tap credited it, a history move clears the credit, a tap clears the
+  marks, the device Back skips marked entries; Ray's steps 5, 6, 11, 13 and
+  the fresh-open case); D1-D3 rewritten for the toast (the prompt is gone,
+  checked in the source); S1 rewritten (entries only on taps, none on a
+  caught Back while ours are left). New `verify_tablet_retest_0a0cbd1.js`
+  (12): SELF; M1-M3 Mint Mark on Add Coin, Edit Coin and a draft; T1 the
+  label focus. `verify_addcoin_mintmark_other` and
+  `verify_workbook_alignment` select the option the way a user does
+  (`selectMintMarkOther`) and check the option list by its marker.
+  `verify_leave_guard` unchanged and passing.
+- **Shared check helper (harness):** `check(label, cond, data)` and
+  `selfCheck(fn)`, see the standing rule under "Regression suites are
+  COMMITTED".
+- **Negative controls** (real app.html, restored by checksum, each failing by
+  name): the old design (entry put back inside the Back handler, taps add
+  nothing) fails C1b, C2b, C3b, C1c, C1d, C3c, S1a-c: Ray's exact failures;
+  no entry added on a tap: the same 9; the Dashboard not stepping down:
+  C4b, D1b; "Other" reset to "" on pick (the old jump to Philadelphia):
+  M1a, M1c, M2a; forms not showing Other for an already-linked coin: M2b,
+  M3; Tap to label not focusing: T1a. The self-check itself was proved on a
+  probe suite: a reversed raw `ok` and a reversed `check` both fail it.
+- **Not verified:** any real device (the whole point of the Back fix is
+  Chrome's real rule, emulated here); Samsung Internet; the installed app.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -1688,6 +1812,25 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   workbook copy shows all 41 filenames in those columns also have Photos
   rows, so the fallback looks unneeded. Recheck against the CURRENT workbook
   first. The All columns themselves stay as history (never cleared).
+- (q) After C4 (Ray's Q2, 26 Oct): once C4 moves Add Set onto the open-ended
+  Package list, and a workbook check shows no OGP_Obverse / OGP_Reverse
+  Photos rows remain, retire the old-style OGP read mapping (`PACKAGE_TYPES`'
+  `ogp_obverse`/`ogp_reverse`, `packageEntriesInOrder`'s Front/Back order,
+  `packageDisplayLabel`, `packageSide` on Replace, `setFlipPhotoUrl`'s
+  OGP_Reverse lookup).
+- (r) The Edit Set saving and split build (queued, not started). Two items
+  for it (Ray, 26 Oct): (1) "Coins in this Set" shows the Set's coin count
+  and lists its coins, probably from DB_SetComposition; each line is replaced
+  by Ray's own child coin once that coin has been split out. (2) Set notes:
+  Edit Set's Notes box reads and writes the session-only details lookup, not
+  the Set's All.Remarks (which its page shows), so it opens empty and its
+  Save never reaches the page; and a Set's "Fun Fact" is always blank live
+  (it looks in DB_Coins). Proposed labels, pending Ray: "My notes" (editable,
+  All.Remarks) on coins and Sets; "Catalogue notes" (read-only: DB_Coins.Notes
+  for a coin, DB_Sets.Notes for a Set); "Fun Fact" (read-only: DB_Coins.FunFact
+  for a coin; for a Set, DB_Sets.KeyNotable or History, Ray to choose, since
+  DB_Sets has no Fun Fact column). See "Round 2 after Ray's tablet test of
+  `0a0cbd1`" for every column read today.
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
@@ -2048,7 +2191,7 @@ run `npm test` and nothing asks him to.
   non-zero on any failure or uncaught page error (verified in both the
   aggregated and standalone paths).
 
-**Two rules worth keeping:**
+**Three rules worth keeping:**
 - **Never hardcode a browser path in a suite.** Playwright's default
   resolution cannot be relied on — the installed version pins a build number
   that may not be what a sandbox pre-installed (verified: default launch
@@ -2060,6 +2203,14 @@ run `npm test` and nothing asks him to.
   ignored, or quietly weakened to pass. This project's existing discipline
   (assertions "updated to follow a real design change, not weakened") is the
   standard to hold.
+- **Every new suite uses the shared check helper and starts with a must-fail
+  self-check (standing rule, Ray, 26 Oct 2026).** The harness gives each
+  suite `check(label, cond, data)` (label first; a non-string label is
+  itself a failure) and `selfCheck(fn)`. A new suite's first line is
+  `const ok = check; selfCheck(ok);`: one deliberately false check that must
+  fail (counted as a pass only if it did) and one true check that must pass.
+  Reversed check arguments have made a brand-new suite pass everything
+  twice; with the self-check such a suite fails by name instead.
 
 **Only the Add Coin Phase 1 suite is committed so far** (69 assertions).
 Retro-rebuilding the older suites remains the separate tracked item it
