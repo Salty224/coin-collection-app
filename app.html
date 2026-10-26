@@ -25136,6 +25136,10 @@
     if (!gesture && dashboardExitArmed()) return; // the exit window: Back must reach the page itself
     const st = history.state;
     if (st && st.mediaViewer && mediaViewerIsOpen()) return; // the viewer sits on top
+    // The viewer just closed and its own step back hasn't landed yet: that
+    // pop lands on our entry. Reusing the viewer's entry now would make the
+    // late pop look like a real Back (it left Edit Coin after a label Done).
+    if (mediaViewerExpectPop) return;
     const d = guardDepthOf(st);
     try {
       if (d === 0) {
