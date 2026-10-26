@@ -965,7 +965,8 @@ build (backlog r), and hide a Set's Fun Fact until it has a real source.
   field (T2b); the open/same-photo, user-moved-on and keyboard-up checks all
   removed (T2c, T2d). T2e is a guard assertion: a field in a closed (hidden)
   viewer can't take focus, so it passes with its check removed too.
-- `npm test` on round 3: see the baseline line at the top of this file.
+- `npm test` on round 3 (`826e2d4`): 3994 passed, 0 failed, 0 page errors,
+  76 suites (3989 + 5 new T2 checks).
 - **Not verified:** any real device; whether the keyboard really comes up
   on the tablet; Samsung Internet; the installed app.
 
