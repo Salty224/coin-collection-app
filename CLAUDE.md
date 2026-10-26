@@ -433,10 +433,13 @@ Backlog items l, m, n, o. Plan answered by Ray 24 Oct 2026 (Q1-Q11). Built in
 stages. **C1 is built and passed Ray's tablet test of `c5a8b29`** (steps 1-9,
 11-13; step 10, the workbook check, deferred to a computer session; step 14,
 airplane mode, skipped, so the partial-failure path is device-unverified).
-**C2 is built, held for Ray's device test** (see "C2: the leave guard"
-below). C3 (open-ended Package/OGP) is not built yet; C4 is this file.
+**C2 passed Ray's tablet test of `79b4f90`** (all 15 steps). **The C2
+follow-ups and C3 (open-ended Package/OGP) are built, held for Ray's
+tablet test** (see "C2 follow-ups" and "C3: open-ended Package / OGP"
+below); C4 is this file.
 Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
-(35), `tests/verify_leave_guard.js` (37).
+(35), `tests/verify_leave_guard.js` (37), `tests/verify_device_back_everywhere.js`
+(33), `tests/verify_ogp_open_ended.js` (40).
 - **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
   `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
   are held in memory and written only by Save Changes (Edit Coin, Edit Set)
@@ -539,7 +542,7 @@ Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
   labels, photos, a receipt on Add Coin) and how to discard it;
   `guardLeaveEditScreen(leave, onKeep)` runs `leave` at once when nothing is
   unsaved, else shows `showDiscardEditsDialog`. Title "Discard unsaved
-  edits?"; body "You've changed {count} on {ID} and haven't saved them.
+  edits?"; body "You've changed {count} on {ID} and haven't saved.
   Discard leaves this screen and loses those changes. Keep editing stays
   here so you can save." ({ID} is "this new coin" on a new Add Coin.)
   Buttons Keep editing / Discard. The old `confirmLeaveWithUnsavedEdits` is
@@ -563,7 +566,9 @@ Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
   (`addCoinUnsavedPhotoCount`: entries not `stagingStored`, plus Staging
   photos ✕'d), and a picked or removed receipt (`addCoinUnsavedReceipt`).
   Add Coin's Discard is `resetAddCoinForm()` + `clearCoinDraftEditContext()`.
-- **Device Back (Q6).** Opening an editing screen pushes ONE history entry
+- **Device Back (Q6).** *(Widened to every screen by the C2 follow-ups
+  below: the entry now stays on top everywhere and nothing steps back over
+  it except Leave.)* Opening an editing screen pushes ONE history entry
   `{coinLeaveGuard: token}` (`armLeaveGuard`); `setNavBack` (run on every
   screen change) queues `syncLeaveGuard`, which arms or disarms, so redraws
   never stack a second entry. The popstate handler (`onLeaveGuardPop`) runs
@@ -616,6 +621,159 @@ Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
   pushed without a recent tap when Back is pressed; every push here follows
   a tap, but that is untested on a device); Android's Back gesture versus
   the Back button.
+
+### C2 follow-ups (same branch, commit `7b4471e`, HELD for Ray's tablet test)
+Ray's tablet test of `79b4f90` passed; his answers: Q1 keep the separate
+remove line for a never-saved pick; Q2 Back inside any confirmation dialog
+acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
+- **Wording.** The discard dialog body is "You've changed {count} on {ID}
+  and haven't saved. Discard leaves this screen and loses those changes.
+  Keep editing stays here so you can save." (no "them").
+- **Edit Set's Fun Fact is read-only**, like Edit Coin's (Fun Fact is
+  Copilot-maintained, never edited in the app): `#editSetFunFact` is a
+  `.readonly-field` div filled from `catalogFunFactFor(coin)` (the same
+  source the Set's page reads), it and its label (`#editSetFunFactLabel`)
+  hidden when blank. It is out of `EDIT_SET_FIELD_IDS`, so it never counts
+  in the leave warning, and Save no longer writes `details.funFact`.
+- **Device Back on every screen.** The app keeps ONE history entry
+  `{coinLeaveGuard: token}` on top at all times (`armLeaveGuard`, run from
+  `setNavBack` on every screen change; it pushes only when ours is not
+  already on top). The device's Back pops it and `handleDeviceBack()` runs,
+  then the entry goes straight back (so a second Back with a dialog now
+  open is caught too). In order: a Save running -> lock toast, nothing
+  else; a confirmation dialog open -> its safe button (`backOutOfWriteGuard`,
+  `DIALOG_BACK_SAFE`: Cancel / Keep editing / Stay first, else OK / Close /
+  Done, else the dialog just closes running nothing — Ray's Q2); the image
+  chooser, the crop tool (`closeBgCrop` / `closePhotoAdjust`) and the small
+  panels (`BACK_CLOSES_PANELS`: docket match, type picker, sub-group sheet,
+  gallery viewer, grading help, year filter) close; on the Dashboard
+  `askLeaveApp()` shows "Leave Salty's Cabinet?" with Stay / Leave;
+  anywhere else `guardLeaveEditScreen(() => navBackHandler())`, i.e. the
+  app's own Back (the editing screens still ask about unsaved edits). The
+  photo viewer keeps its own entry on top, so Back there closes only the
+  viewer, as before.
+- **Leave** (`leaveApp`, `stepOutOfPage`): stops catching Back, steps back
+  over our own entries (this load's and any an earlier load left —
+  `historyStateIsOurs`), then once more out of the page. With nothing behind
+  the page it tries `window.close()` and, if still here, toasts "Press Back
+  once more to close Salty's Cabinet." Until the app is touched again
+  (a trusted pointerdown) nothing re-arms, so that next Back is the
+  device's own. A page restored from the back-forward cache re-arms.
+- **Reloads.** An entry left by a reload (an old `coinLeaveGuard` token, or
+  a `{mediaViewer:true}` with no viewer open) is reused in place with
+  `replaceState`, never stacked on, and never swallows a Back.
+- **Splash.** While the splash is up Back is not caught (nothing is open
+  yet): it leaves as Leave does.
+- `disarmLeaveGuard` is gone: Save, the in-app Back and Close Drawer no
+  longer step back over the entry, since it now belongs on every screen.
+- **How far Leave really goes (not verifiable here):** a web page can only
+  step back in its own tab's history. In a browser tab with a page before
+  ours, Leave goes to that page (after a fresh sign-in that may be the
+  Microsoft sign-in page). Opened fresh (a bookmark, a new tab) or as the
+  installed app from its icon there is nothing behind the page;
+  `window.close()` is usually refused for a window the page didn't open, so
+  the toast asks for one more Back, which the app no longer catches: in the
+  installed app that closes it, in a tab it leaves or closes the tab.
+  Whether Samsung Internet or the installed app allows `window.close()`, and
+  how each treats the Back gesture versus the Back button, is device-only.
+  Chrome can skip a history entry pushed without a recent tap; the entry is
+  first pushed at load, so the very first Back after opening may leave
+  without asking on some devices (untested).
+- **Tests:** `verify_device_back_everywhere.js` (33): W1 wording; F1a-d Fun
+  Fact; K1 device Back = the chrome Back on Catalog, a coin's page, a Set's
+  page, the album list, an open album, Docket, Staging Review, Ledger,
+  Acquisitions; D1-D4 the Dashboard prompt, Stay, Back-in-prompt = Stay,
+  Leave stepping out / window.close / toast / not re-arming until touched,
+  walking past old entries; Q1a-d / Q2 Back inside dialogs; P1a/b panels and
+  the viewer; S1 one entry over many screen changes and Backs; S2 a reload's
+  entry reused; S3a/b Save lock and splash. `verify_leave_guard.js`
+  H1/H2/H3c/H4/H6c/H7 follow the one-entry-always design (not weakened).
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): "them" back (W1); Fun Fact an editable counted field (F1a/F1b);
+  Back caught on editing screens only, as in C2 (K1 x9, D1-D3, Q1, P1,
+  S1-S3a: 22); no Dashboard prompt (D1-D4); dialog Back pressing the first
+  button (Q1b, Q1d); dialog Back doing nothing, the C2 behaviour (D2, Q1a-d,
+  Q2); no re-arm after a caught Back (10); every sync pushing (S1); a
+  reload's entry stacked on (S2); Leave not walking past old entries (D4); a
+  redraw re-arming during Leave (D3c); Back not locked while saving (S3a);
+  Back caught while the splash is up (S3b); panels not closed (P1a).
+- **A test-quality trap found and fixed:** the new suite first passed its
+  `ok()` arguments in the wrong order (label first), so every check counted
+  as passed whatever happened; the first control run showed every control
+  "passing". It now uses the same `ok(label, cond, data)` wrapper as the C1
+  and C2 suites. Assume a brand-new suite is broken until a control fails it.
+- `npm test` on the follow-ups (`7b4471e`): 3921 passed, 0 failed, 0 page
+  errors, 74 suites (3888 + 33).
+
+### C3: open-ended Package / OGP (same branch, HELD for Ray's tablet test)
+Backlog n; Ray's Q7 (open-ended in Add Coin and the Staging-draft edit too)
+and Q8 (map existing OGP_Obverse / OGP_Reverse rows on read, no workbook
+writes).
+- **New gallery type `ogp`** (`label "Package"`, suffix `_ogp`,
+  repeatable): PhotoType **"OGP"**, files `{ID}_ogp_NN.jpg`, one label per
+  photo. "📦 Package / OGP" on Edit Coin, Edit Set, Manage Photos (coin and
+  Set), Add Coin and the Staging-draft edit is now `manageOpenEndedBlock`
+  (`PACKAGE_HINT` suggests labels "Closed" / "Open"), not a pair. Holder
+  stays a Front/Back pair. Numbers are chosen at Save, so a discarded pick
+  uses none (C1 rule).
+- **Old rows mapped on read, never rewritten.** `PACKAGE_TYPES`
+  (`ogp_obverse`, `ogp_reverse`, `ogp`) all show in the Package list;
+  `packageEntriesInOrder` puts an old Front first, then an old Back, then
+  the rest as added. While its label is blank an old row's label line reads
+  "Front" / "Back" (`packageDisplayLabel`, display only: the viewer's label
+  field stays blank and the text is never written). Replace on an old row
+  keeps its row (PhotoID, PhotoType OGP_Obverse/OGP_Reverse, Label,
+  DateAdded; only Filename/OriginalFilename are written, C1's Q3) under a
+  new `{ID}_ogp_NN.jpg` name; the new entry carries `packageSide`, so it
+  keeps its place and its "Front" until reload re-reads the row. ✕ detaches
+  as normal. The `ogp_obverse`/`ogp_reverse` keys stay defined for reading
+  and for Add Set.
+- **Set flip photo** (`setFlipPhotoUrl`): the whole-set front first,
+  unchanged; then the first Package photo in screen order, so an existing
+  Set with an OGP_Obverse row shows exactly what it did. The back side keeps
+  the old OGP_Reverse lookup (a Set's page shows the front only).
+- **Add Set untouched (C4).** Its own Package Front/Back pair
+  (`ADDSET_OGP_PAIR`) and the whole-set mirror into `addSetPhotoFiles
+  ["whole"]` are unchanged; the new type is `managedOnly`, which keeps it
+  out of `openGalleryTypePicker`'s default list (Add Set's "Add photo"
+  picker). Wishlist untouched.
+- **Draft mode** needed no new code: `stagingPhotoTypeFromFilename`,
+  `nextFreeStagingRepeatableFilename`, `uploadCoinDraftPhotos` and
+  promotion (`recordPromotedCoinRecords`) are generic on the type table, so
+  an Add Coin Package pick saves as `{ID}_ogp_01.jpg` in Staging and is
+  promoted as an OGP row with its label.
+- **Copilot item (Ray's Q9):** if `Lookup_PhotoTypes` exists it needs the
+  value "OGP"; the app writes it either way and needs no new column.
+- **Tests:** `verify_ogp_open_ended.js` (40): O1-O3 the four screens (tiles,
+  + Package, hint; old rows Front first with "Front"/"Back"; reading writes
+  nothing); O4 two labelled picks save as OGP rows `_ogp_02/_03` past a
+  stored `_01`, a discarded pick using no number; O5 Replace on an old Front
+  (row kept, file cells only, still first, still "Front"); O6 the viewer
+  field blank; O7 ✕ on an old Back; O8 the flip photo in five cases plus the
+  Set's page; O9 Add Coin's draft naming and promotion; O10 Staging names;
+  O11 Add Set's pair and type picker; O12 layout at 360x800, 412x915,
+  1024x768. **Tests changed to follow the design, not weakened:**
+  `verify_addcoin_shared_photos` (OC1/OC3: a stored OGP front is a "Front"
+  tile, a new Package photo saves as `_ogp_01` with an OGP row; L2-L4:
+  Package is tiles, so two pairs and three tiles are checked),
+  `verify_image_chooser` (its Set-pair example moved from the OGP pair to
+  the whole-set pair, still a real Set pair: fixture PH-00010 is now a
+  whole-set front, SJ1 adds the whole-set back, `visible()` ignores the named
+  sub-group, L1-set counts 4 slots), `verify_row_tiles_viewer_label`
+  (P1/P2's Set pair is the whole-set pair), `verify_photo_receipt_write`
+  (B1/B2: 12 types, OGP added).
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): Package still a pair (O1-O4, O9a, O12: 25); old rows not mapped
+  (O2 x4, O4c, O5, O7: 16); no "Front"/"Back" on screen (O2 x4, O4c, O5c,
+  O7); the flip photo taking list order (O8b, O8e, O8f); Replace dropping
+  the old side (O5c); Add Set's picker offering Package (O11b); no OGP
+  PhotoType (15). Two controls first crashed the suite part-way; O4/O5/O7
+  are null-safe now so they fail by name.
+- **Not verified:** any real device; whether the real workbook has any
+  OGP_Obverse/OGP_Reverse rows (the 05 Sep upload listed none); a real
+  Package upload to `_Testing`.
+- `npm test` on C3: 3961 passed, 0 failed, 0 page errors, 75 suites (3921 +
+  40; every rewritten suite keeps its count).
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -1500,13 +1658,14 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   note; the receipt viewer can show an old copy after a same-name
   replacement.
 - (k) Deploy workflow: upgrade its actions to Node 24 versions.
-- (l) *(Built on `claude/photos-wait-for-save`, C2, held: see "C2: the
-  leave guard".)* Close Drawer / navigate should warn on any unsaved edit (all fields,
+- (l) *(Built on `claude/photos-wait-for-save`, C2; passed Ray's tablet
+  test of `79b4f90`; device Back widened to every screen in the C2
+  follow-ups, held.)* Close Drawer / navigate should warn on any unsaved edit (all fields,
   Edit Coin and the other edit screens), not only Back. Today `navigate()`
   leaves silently and the edits (photo labels included) are discarded.
   Next branch, plan first (Ray, 23 Oct): the same "Discard unsaved edits?"
   dialog as Back.
-- (m) Next branch, plan first, don't build yet (Ray, 23 Oct): photos on the
+- (m) *(Built on `claude/photos-wait-for-save`, C1, device-tested.)* Photos on the
   edit screens wait for Save, the same as Add Coin's draft mode, instead of
   saving on capture; Discard undoes them; Manage Photos gets ONE Save button
   for photos and labels together (replacing "Save labels").
@@ -1514,7 +1673,8 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   Coin must warn before throwing away a half-entered coin. Today
   `navigate("addcoin")` resets the form (`resetAddCoinForm()`) and leaving
   by any route discards whatever was typed or picked, with no warning.
-- (n) Next branch, plan first (Ray, 23 Oct): Package/OGP becomes open-ended
+- (n) *(Built on `claude/photos-wait-for-save`, C3, held: see "C3:
+  open-ended Package / OGP".)* Package/OGP becomes open-ended
   (any number of photos, each labelled, e.g. Closed / Open) instead of a
   Front/Back pair. Needs a plan for the existing Front/Back Package photos
   (PhotoType `OGP_Obverse`/`OGP_Reverse`, Add Set's whole-set mirror, the
@@ -10180,7 +10340,9 @@ upload, not assumed):**
 the five real values matched exactly, plus `OGP_Obverse`, `OGP_Reverse`,
 `COA`, `SubGroup_Obverse`, `SubGroup_Reverse`, `Other` in the same
 Title_Case_With_Underscores shape. Ray may have Copilot record these 11 in
-a `Lookup_PhotoTypes` tab; nothing here is built against one.
+a `Lookup_PhotoTypes` tab; nothing here is built against one. *(A 12th,
+"OGP", comes with open-ended Package / OGP; see C3 under "Photos wait for
+Save".)*
 
 **The write layer.** New Photos/Receipts module: header maps resolved from
 the sheet's own header row at run time (`ensureSheetHeaderMap()`, cached
