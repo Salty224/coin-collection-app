@@ -13,6 +13,11 @@
 //   M3  a Staging draft opened for edit shows "— none (Other) —" the same way
 //   T1  "Tap to label" opens the viewer with the label field focused; a tap
 //       on the photo itself opens it without focusing the field
+//   T2  (retest of 6eaef11: focused, but no keyboard on the tablet) the
+//       field is focused again a moment after the tap, so a keyboard the
+//       browser dropped after the tap comes back; never when the keyboard is
+//       already up, never after the user moved to another control, never
+//       once the viewer has closed
 
 const { defineSuite } = require("./harness");
 
@@ -163,4 +168,53 @@ module.exports = defineSuite("tablet-retest-0a0cbd1", async ({ openApp, check, s
     lineText === "Tap to label" && T1a.open && T1a.field && T1a.active === "mediaViewerLabelInput", { lineText, T1a });
   ok("T1b a tap on the photo itself opens the viewer with the field shown but not focused",
     T1b.open && T1b.field && T1b.active !== "mediaViewerLabelInput", T1b);
+
+  // ---------- T2 the label field is focused again after the tap ----------------
+  await page.evaluate(() => navigate("addcoin"));
+  // renderAddCoinPhotos() again: navigate() reset the form, so put the photo back.
+  await page.evaluate(async (f) => {
+    const c = document.createElement("canvas"); c.width = 200; c.height = 120;
+    c.getContext("2d").fillRect(0, 0, 200, 120);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
+    addGalleryEntry(ADDCOIN_GALLERY_ID, { type: "reference", url: URL.createObjectURL(blob), caption: "", filename: f });
+    renderAddCoinPhotos();
+    for (let i = 0; i < 3; i++) {
+      document.querySelectorAll('#view-addcoin [aria-expanded="false"]').forEach(h => {
+        if (h.id === "addCoinPhotosHeader" || h.closest("#addCoinPhotoSections")) h.click();
+      });
+      await __t.sleep(40);
+    }
+    window.__focusCount = 0;
+    document.getElementById("mediaViewerLabelInput").addEventListener("focus", () => { window.__focusCount++; });
+  }, file);
+  const T2run = async (setup) => {
+    await page.evaluate(() => { window.__focusCount = 0; });
+    await page.click(lineSel);
+    const r = await page.evaluate(setup || (() => null));
+    await page.waitForTimeout(900);
+    const out = await page.evaluate(() => ({ count: window.__focusCount, open: mediaViewerIsOpen(),
+      active: document.activeElement && document.activeElement.id }));
+    await page.evaluate(() => { if (mediaViewerIsOpen()) document.getElementById("mediaViewerLabelCancel").click(); });
+    await page.waitForTimeout(150);
+    return Object.assign(out, { setup: r });
+  };
+  // a) the keyboard was dropped after the tap (focus lost): it comes back.
+  const T2a = await T2run(() => { document.getElementById("mediaViewerLabelInput").blur(); return document.activeElement.id || "body"; });
+  // b) still focused, no keyboard: stepped off and focused again.
+  const T2b = await T2run();
+  // c) keyboard already up: left alone, one focus only.
+  const T2c = await T2run(() => { window.__kbUp = window.onScreenKeyboardLooksUp; window.onScreenKeyboardLooksUp = () => true; return true; });
+  await page.evaluate(() => { window.onScreenKeyboardLooksUp = window.__kbUp; });
+  // d) the user moved to another control (the Done button): not taken back.
+  const T2d = await T2run(() => { document.getElementById("mediaViewerLabelDone").focus(); return document.activeElement.id; });
+  // e) closed straight away: nothing focused afterwards, no error.
+  const T2e = await T2run(() => { document.getElementById("mediaViewerLabelCancel").click(); return mediaViewerIsOpen(); });
+  await page.evaluate(() => navigateNow("dashboard"));
+  ok("T2a a focus lost right after the tap is put back on the label field",
+    T2a.setup === "body" && T2a.open && T2a.active === "mediaViewerLabelInput" && T2a.count >= 2, T2a);
+  ok("T2b a field still focused but with no keyboard is focused again (more than the one focus of the tap)",
+    T2b.open && T2b.active === "mediaViewerLabelInput" && T2b.count >= 2, T2b);
+  ok("T2c with the keyboard already up the field is focused once only", T2c.open && T2c.count === 1 && T2c.active === "mediaViewerLabelInput", T2c);
+  ok("T2d after the user moves to another control, focus is not taken back", T2d.setup === "mediaViewerLabelDone" && T2d.active === "mediaViewerLabelDone", T2d);
+  ok("T2e once the viewer is closed nothing is re-focused", T2e.setup === false && !T2e.open && T2e.active !== "mediaViewerLabelInput" && T2e.count === 1, T2e);
 }, module);

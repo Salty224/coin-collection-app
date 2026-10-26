@@ -27686,13 +27686,46 @@
     document.getElementById("mediaViewerLabelNote").textContent = lab.hint || "";
     input.value = entry.caption || "";
     panel.classList.remove("hidden");
-    // Focused inside the same tap, so the phone raises its keyboard (a
-    // focus outside a tap doesn't); the caret goes to the end of the text.
+    // Focused inside the same tap, so the phone raises its keyboard; the
+    // caret goes to the end of the text. Then focused again a moment later
+    // (Ray's tablet retest of 6eaef11: the field was focused but the
+    // keyboard never showed). The tap that opens the viewer also adds two
+    // history entries (the viewer's own, and a Back step from the
+    // leave guard), and on Android the browser can drop the keyboard when it
+    // processes those, which happens after this handler has returned. A
+    // second focus() after that puts it back: in Chrome, Samsung Internet
+    // and the installed app (all Chromium) a script focus raises the
+    // keyboard whenever the page has had a tap, not only inside the tap.
     if (lab.focus) {
-      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
-      const n = input.value.length;
-      try { input.setSelectionRange(n, n); } catch (e) { /* not a text field */ }
+      focusMediaViewerLabelInput(input, true);
+      const st = mediaViewerLabelState;
+      MEDIA_VIEWER_LABEL_REFOCUS_MS.forEach(ms => setTimeout(() => {
+        if (mediaViewerLabelState !== st || !mediaViewerIsOpen()) return; // closed, or another photo
+        const a = document.activeElement;
+        if (a && a !== input && a !== document.body) return; // the user moved on; don't take it back
+        if (onScreenKeyboardLooksUp()) return; // it came up; leave it alone
+        // Still focused but no keyboard: a plain focus() on the focused field
+        // may do nothing, so step off it first and come back.
+        if (a === input) input.blur();
+        focusMediaViewerLabelInput(input, false);
+      }, ms));
     }
+  }
+  const MEDIA_VIEWER_LABEL_REFOCUS_MS = [60, 300, 700];
+  // The keyboard takes a third or more of the screen; browser bars take far
+  // less. A wrong "up" only skips a re-focus, so the guess errs that way
+  // (split screen reads as up).
+  function onScreenKeyboardLooksUp() {
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    const screenH = (window.screen && window.screen.height) || window.innerHeight;
+    return h < screenH * 0.7;
+  }
+  function focusMediaViewerLabelInput(input, caretToEnd) {
+    try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+    if (!caretToEnd) return; // a re-focus leaves the caret where the user put it
+    const n = input.value.length;
+    try { input.setSelectionRange(n, n); } catch (e) { /* not a text field */ }
   }
   function hideMediaViewerLabel() {
     mediaViewerLabelState = null;
