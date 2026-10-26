@@ -903,6 +903,8 @@ fresh open leaves); Q2 wait for C4 (backlog q).
   M3; Tap to label not focusing: T1a; re-arming while the viewer's step back
   is pending: photo-label-save D5, D6. The self-check itself was proved on a
   probe suite: a reversed raw `ok` and a reversed `check` both fail it.
+- `npm test` on round 2 (`40c7f5a`): 3989 passed, 0 failed, 0 page errors,
+  76 suites (3961 + 16 in device-back-everywhere + 12 in the new suite).
 - **Not verified:** any real device (the whole point of the Back fix is
   Chrome's real rule, emulated here); Samsung Internet; the installed app.
 
