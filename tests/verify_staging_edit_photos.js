@@ -369,14 +369,19 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       await __ph.sleep(100);
       const cropBefore = await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped.jpg");
       const rawBefore = await __ph.bytesOf(mock, folder + "/" + id + "_obverse_original.jpg");
+      const putPaths = [];
+      const realUpload = mock.uploadFile;
+      mock.uploadFile = (path, f, o) => { putPaths.push(String(path).split("/").pop()); return realUpload.call(mock, path, f, o); };
       out.p4picked = await __ph.slotPick("obverse", "#33f");
       await __saveEdit();
+      mock.uploadFile = realUpload;
       const saved = await mock.getJson(__draftPath(id));
       const names = await mock.listChildren(folder);
       out.p4 = {
         photos: saved.photos,
-        cropChanged: (await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped.jpg")) !== cropBefore,
-        rawChanged: (await __ph.bytesOf(mock, folder + "/" + id + "_obverse_original.jpg")) !== rawBefore,
+        putPaths: putPaths.filter(n => /\.jpg$/.test(n)).sort(),
+        newCrop: await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped_02.jpg"),
+        cropBefore, rawBefore,
         jpgsInFolder: names.filter(n => /\.jpg$/.test(n)).sort()
       };
       saved.status = "Promoted";
@@ -385,8 +390,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       const rows = mock._grids.Photos.filter(r => r[1] === id);
       out.p4.promote = {
         allOk: moved.allOk,
-        obverseMoves: moved.moves.filter(m => /_obverse_cropped\.jpg$/.test(m.dest)).length,
-        inCoinPhotos: !!(await mock.getItemMeta(p.coinPhotos + "/" + id + "_obverse_cropped.jpg")),
+        obverseMoves: moved.moves.filter(m => /_obverse_cropped_02\.jpg$/.test(m.dest)).length,
+        inCoinPhotos: !!(await mock.getItemMeta(p.coinPhotos + "/" + id + "_obverse_cropped_02.jpg")),
         rows: rows.map(r => [r[2], r[4], r[7]]),
         flag: (await mock.getJson(__draftPath(id))).filesMovedOnPromotion
       };
@@ -529,14 +534,19 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   ok(JSON.stringify(P.p3.after) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg", "Some_Hand_Named.jpg"]),
     "P10 -- and an unrelated edit leaves that list exactly as it was, unknown name included: " + JSON.stringify(P.p3.after));
   const obv = (P.p4.photos || []).map(coinDraftName => coinDraftName && coinDraftName.filename);
-  ok(P.p4picked && P.p4.cropChanged && P.p4.rawChanged,
-    "P11 replacing the obverse overwrites its own file AND its _original in Staging: " + JSON.stringify(P.p4));
-  ok(JSON.stringify(obv.sort()) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
-     JSON.stringify(P.p4.jpgsInFolder) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]),
+  // Superseded (27 Oct 2026): a Replace used to overwrite the draft's own
+  // obverse files in place. It now writes a new _02 pair and never uploads
+  // over a name already in use; the old pair is deleted only after coin.json
+  // lists the new one (finishStagingEditFiles).
+  ok(P.p4picked && JSON.stringify(P.p4.putPaths) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]) &&
+     P.p4.newCrop && P.p4.newCrop !== P.p4.cropBefore,
+    "P11 replacing the obverse writes a new _02 crop and _original in Staging, never over the old names: " + JSON.stringify(P.p4));
+  ok(JSON.stringify(obv.sort()) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]) &&
+     JSON.stringify(P.p4.jpgsInFolder) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]),
     "P12 -- coin.json lists one obverse pair, and the folder holds no second copy: " + JSON.stringify([obv, P.p4.jpgsInFolder]));
   ok(P.p4.promote.allOk && P.p4.promote.obverseMoves === 1 && P.p4.promote.inCoinPhotos,
     "P13 promotion moves exactly one obverse into CoinPhotos: " + JSON.stringify(P.p4.promote));
-  ok(JSON.stringify(P.p4.promote.rows) === JSON.stringify([["Obverse", ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]]) &&
+  ok(JSON.stringify(P.p4.promote.rows) === JSON.stringify([["Obverse", ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]]) &&
      P.p4.promote.flag === true,
     "P14 -- with one Photos row (the original on it) and filesMovedOnPromotion set: " + JSON.stringify(P.p4.promote));
   ok(P.p5picked && JSON.stringify(P.p5.names) === JSON.stringify([ID + "_reference_01.jpg", ID + "_reference_02.jpg"]) && P.p5.r1Same,

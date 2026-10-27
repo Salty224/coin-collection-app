@@ -429,7 +429,9 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     const b = W.section(host, /Other/);
     const plus = [...b.querySelectorAll("button")].find(x => /Add|＋|\+/.test(x.getAttribute("aria-label") || x.textContent));
     await W.addVia(plus); await W.sleep(120);
-    const rawName = ob && ob.rawFilename;
+    // Named at Save (27 Oct 2026): the plain names are taken by the photo
+    // being replaced, so the new pair is _02.
+    const rawName = "AY-00099_obverse_original_02.jpg";
     W.failNames[rawName] = true;
     W.uploads = [];
     await W.save();
@@ -446,7 +448,7 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     return { rawName, first, second: { uploads: W.uploads.slice(), closed: !W.editOpen(), obRowFile: W.row("PH-00001")[4], obRowOrig: W.row("PH-00001")[8], pending: pendingPhotoCount("AY-00099") } };
   });
   ok("W7 a failed _original upload: the crop and the Other uploaded, the form stays open, the toast names the file",
-    W7.first.uploads.length === 2 && W7.first.stillOpen && W7.first.toast.indexOf("1 photo not saved (AY-00099_obverse_cropped.jpg)") !== -1 && /Tap Save Changes again/.test(W7.first.toast), W7);
+    W7.first.uploads.length === 2 && W7.first.stillOpen && W7.first.toast.indexOf("1 photo not saved (AY-00099_obverse_cropped_02.jpg)") !== -1 && /Tap Save Changes again/.test(W7.first.toast), W7);
   ok("W7b the failed Obverse stays pending, marked \"Not saved — tap Save again\" with no ↻; its row is untouched",
     W7.first.obPending && /Not saved — tap Save again/.test(W7.first.slotText) && !W7.first.retryBtn && W7.first.obRowFile === "AY-00099_obverse_cropped.jpg" && W7.first.otherPending === 0, W7);
   ok("W7c the next Save sends ONLY the missing _original (the crop and the Other are not re-sent) and then writes the row",

@@ -7528,19 +7528,45 @@
     return path.split("/").map(encodeURIComponent).join("/");
   }
 
+  const NO_OVERWRITE = { noOverwrite: true };
+  // A failed PUT. `conflict` is true for 409 — the name was already taken
+  // and, with NO_OVERWRITE, nothing was written.
+  function uploadError(path, status, detail) {
+    const err = new Error(status === 409
+      ? "A file named " + path.split("/").pop() + " is already there — nothing was overwritten."
+      : "PUT " + path + " failed: " + status + " " + (detail || ""));
+    err.status = status;
+    err.conflict = status === 409;
+    return err;
+  }
+  // Byte length of whatever a client stores or returns (Blob, ArrayBuffer,
+  // typed array, string). null when it can't be told.
+  function byteLengthOf(v) {
+    if (v == null) return null;
+    if (typeof v.size === "number") return v.size;
+    if (typeof v.byteLength === "number") return v.byteLength;
+    if (typeof v === "string") return v.length;
+    return null;
+  }
+
   const RealGraphClient = {
-    async putContent(path, body, contentType) {
+    // opts.noOverwrite: Graph's conflictBehavior=fail, so a file already at
+    // `path` makes the PUT fail with 409 instead of being replaced. Every
+    // CoinPhotos write and every new photo in a draft folder passes it
+    // (NO_OVERWRITE): a photo file is never written over (Ray, 27 Oct 2026).
+    async putContent(path, body, contentType, opts) {
       const token = await getWriteToken();
       if (!token) throw new Error("Write layer unavailable (not signed in or disabled).");
+      const query = (opts && opts.noOverwrite) ? "?@microsoft.graph.conflictBehavior=fail" : "";
       const res = await fetch(
-        "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content",
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content" + query,
         { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": contentType || "application/octet-stream" }, body }
       );
-      if (!res.ok) throw new Error("PUT " + path + " failed: " + res.status + " " + (await res.text()));
+      if (!res.ok) throw uploadError(path, res.status, await res.text());
       return res.json();
     },
-    uploadFile(path, fileOrBlob) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream"); },
-    uploadBytes(path, bytes) { return this.putContent(path, bytes, "application/octet-stream"); },
+    uploadFile(path, fileOrBlob, opts) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream", opts); },
+    uploadBytes(path, bytes, opts) { return this.putContent(path, bytes, "application/octet-stream", opts); },
     uploadJson(path, obj) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json"); },
     // opts.timeoutMs (optional) puts the whole read — token, request and
     // body — under withRequestTimeout(). Only the Docket queue read passes
@@ -7881,18 +7907,27 @@
         r1: parseInt(m1[2], 10) - 1, c1: colLettersToIndex(m1[1])
       };
     }
+    function mockPut(path, value, opts) {
+      if (opts && opts.noOverwrite && store.has(path)) return Promise.reject(uploadError(path, 409, "nameAlreadyExists"));
+      store.set(path, { kind: "bytes", value });
+      return Promise.resolve({ name: path.split("/").pop() });
+    }
     return {
       _store: store,
       _grids: grids,
       _formulas: formulaGrids,
       _numberFormats: formatGrids,
-      putContent(path, body, contentType) { store.set(path, { kind: "bytes", value: body }); return Promise.resolve({ name: path.split("/").pop() }); },
-      uploadFile(path, f) { store.set(path, { kind: "bytes", value: f }); return Promise.resolve({ name: path.split("/").pop() }); },
-      uploadBytes(path, b) { store.set(path, { kind: "bytes", value: b }); return Promise.resolve({ name: path.split("/").pop() }); },
+      putContent(path, body, contentType, opts) { return mockPut(path, body, opts); },
+      uploadFile(path, f, opts) { return mockPut(path, f, opts); },
+      uploadBytes(path, b, opts) { return mockPut(path, b, opts); },
       uploadJson(path, obj) { store.set(path, { kind: "json", value: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve({ name: path.split("/").pop() }); },
       getJson(path) { const e = store.get(path); return Promise.resolve(e && e.kind === "json" ? JSON.parse(JSON.stringify(e.value)) : null); },
       getFileBytes(path) { const e = store.get(path); return Promise.resolve(e ? e.value : null); },
-      getItemMeta(path) { return Promise.resolve(store.has(path) ? { name: path.split("/").pop() } : null); },
+      getItemMeta(path) {
+        if (!store.has(path)) return Promise.resolve(null);
+        const e = store.get(path);
+        return Promise.resolve({ name: path.split("/").pop(), size: byteLengthOf(e && e.value) });
+      },
       listChildren(folderPath) {
         const prefix = folderPath.endsWith("/") ? folderPath : folderPath + "/";
         const names = new Set();
@@ -9238,15 +9273,29 @@
     if (!s.toUpperCase().startsWith(prefix)) return NaN;
     return parseInt(s.slice(prefix.length).replace(/^-/, ""), 10);
   }
+  //
+  // DUPLICATE IDS (PH-00129 on two AY-00212 rows, 18 Oct 2026). The id used
+  // to be read BEFORE writeRecordRow() took the table's lock, so two photos
+  // committed at the same moment (main saves on pick: a Holder front and
+  // back picked back to back) both read the same highest id and both took
+  // the next one; the lock then gave them different rows. Now the id is
+  // minted INSIDE the lock (writeRecordRow's mintId), and never at or below
+  // one this session already handed out — a column read straight after a
+  // write can lag (no workbook session), so the read alone isn't enough.
+  let lastMintedIds = {}, lastMintedClient = null;
   async function nextRecordId(tableName, columnName, prefix) {
+    // The floor belongs to one workbook client (a test's fresh mock starts over).
+    if (lastMintedClient !== graph()) { lastMintedIds = {}; lastMintedClient = graph(); }
     const col = await graph().readTableColumn(writePaths().workbook, tableName, columnName);
-    let max = 0;
+    let max = lastMintedIds[tableName] || 0;
     for (let i = 1; i < col.length; i++) {
       const n = idSequenceNumber(col[i], prefix);
       if (!isNaN(n) && n > max) max = n;
     }
+    lastMintedIds[tableName] = max + 1;
     return prefix + "-" + String(max + 1).padStart(5, "0");
   }
+  function __resetMintedIdsForTest() { lastMintedIds = {}; lastMintedClient = null; }
   function nextPhotoId() { return nextRecordId(PHOTOS_TABLE_NAME, "PhotoID", "PH"); }
   function nextReceiptId() { return nextRecordId(RECEIPTS_TABLE_NAME, "ReceiptID", "RC"); }
 
@@ -9294,10 +9343,13 @@
   // has a formula column, so there is no cell in the rectangle that must not
   // be overwritten. `values` is keyed by header name; unlisted columns are
   // written blank, which is correct for a row being created.
-  async function writeRecordRow(sheetName, tableName, idColumn, values) {
+  // `mintId` (optional) gives the new row its id INSIDE the lock — see
+  // nextRecordId() for the duplicate it prevents.
+  async function writeRecordRow(sheetName, tableName, idColumn, values, mintId) {
     return withRecordRowLock(tableName, async () => {
       const map = await ensureSheetHeaderMap(sheetName);
       if (!map[idColumn]) throw new Error(sheetName + " sheet has no " + idColumn + " column.");
+      if (mintId) values[idColumn] = await mintId();
       const col = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
 
       let targetRow = null;
@@ -9454,8 +9506,7 @@
       // The row is gone (detached elsewhere, or never written) — fall
       // through and record it as new rather than losing the photo.
     }
-    values.PhotoID = await nextPhotoId();
-    const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values);
+    const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values, nextPhotoId);
     return { photoId: values.PhotoID, row, replaced: false, label: values.Label };
   }
 
@@ -9837,6 +9888,8 @@
     return hit ? hit.ReceiptID : null;
   }
 
+  // `receiptId` null: a new id, minted inside the Receipts table's lock (see
+  // nextRecordId() for the duplicate a mint outside the lock allowed).
   async function writeReceiptRow(collectionId, filename, receiptId) {
     const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
@@ -9851,11 +9904,13 @@
     // manual/Copilot job, same boundary as multi-coin batch entry.)
     const existing = rows.find(r => r.CollectionID === collectionId);
     if (existing) {
+      if (!values.ReceiptID) values.ReceiptID = await withRecordRowLock(RECEIPTS_TABLE_NAME, nextReceiptId);
       await patchRecordRow(RECEIPTS_SHEET_NAME, existing.__row, map, values);
-      return { receiptId, row: existing.__row, replaced: true };
+      return { receiptId: values.ReceiptID, row: existing.__row, replaced: true };
     }
-    const row = await writeRecordRow(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID", values);
-    return { receiptId, row, replaced: false };
+    const row = await writeRecordRow(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID", values,
+      values.ReceiptID ? null : nextReceiptId);
+    return { receiptId: values.ReceiptID, row, replaced: false };
   }
 
   // A "no DB_Coins match for the edited identity" is the same situation
@@ -10801,20 +10856,48 @@
     return moves;
   }
 
+  // One promotion move: copy, verify, then delete the source — and never
+  // over an existing file (Ray, 27 Oct 2026; before this a file already at
+  // the destination was simply written over). A destination that already
+  // holds the SAME bytes is the copy from an earlier run that stopped before
+  // its delete, so the move just finishes. Anything else there is refused:
+  // nothing is overwritten and the source stays in Staging.
+  async function sameFileBytes(a, b) {
+    const toBytes = async (v) => {
+      if (v == null) return null;
+      if (typeof v.arrayBuffer === "function") return new Uint8Array(await v.arrayBuffer());
+      if (v instanceof ArrayBuffer) return new Uint8Array(v);
+      if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+      if (typeof v === "string") return new TextEncoder().encode(v);
+      return null;
+    };
+    const x = await toBytes(a), y = await toBytes(b);
+    if (!x || !y || x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  async function moveFileWithoutOverwrite(m) {
+    const destMeta = await graph().getItemMeta(m.dest);
+    const srcBytes = await graph().getFileBytes(m.src);
+    if (destMeta && srcBytes === null) return { ...m, ok: true, reason: "already moved" };   // idempotent resume
+    if (srcBytes === null) return { ...m, ok: false, reason: "source missing" };
+    const refused = { ...m, ok: false, reason: "a different file is already at " + m.dest.split("/").pop() + " — nothing overwritten, source kept" };
+    if (destMeta) {
+      if (!(await sameFileBytes(srcBytes, await graph().getFileBytes(m.dest)))) return refused;
+    } else {
+      try { await graph().uploadBytes(m.dest, srcBytes, NO_OVERWRITE); }  // copy
+      catch (e) { if (e && e.conflict) return refused; throw e; }
+    }
+    const verify = await graph().getItemMeta(m.dest);   // verify
+    if (!verify) return { ...m, ok: false, reason: "verify failed — source kept" };
+    await graph().deleteItem(m.src);                    // delete the source ONLY after a verified copy
+    return { ...m, ok: true };
+  }
+
   async function movePromotedCoinFiles(draft) {
     const moves = plannedCoinPromotionMoves(draft);
     const results = [];
-    for (const m of moves) {
-      const destMeta = await graph().getItemMeta(m.dest);
-      const srcBytes = await graph().getFileBytes(m.src);
-      if (destMeta && srcBytes === null) { results.push({ ...m, ok: true, reason: "already moved" }); continue; }
-      if (srcBytes === null) { results.push({ ...m, ok: false, reason: "source missing" }); continue; }
-      await graph().uploadBytes(m.dest, srcBytes);       // copy
-      const verify = await graph().getItemMeta(m.dest);   // verify
-      if (!verify) { results.push({ ...m, ok: false, reason: "verify failed — source kept" }); continue; }
-      await graph().deleteItem(m.src);                    // delete original ONLY after a verified copy
-      results.push({ ...m, ok: true });
-    }
+    for (const m of moves) results.push(await moveFileWithoutOverwrite(m));
     const allOk = results.every(r => r.ok);
     let records = null;
     if (allOk) {
@@ -10847,8 +10930,7 @@
       // OriginalFilename — never its own row, which a naive "show all
       // photos" read would render as a duplicate gallery item.
       if (e.caption === "original") continue;
-      const raw = e.filename.indexOf("_cropped.") !== -1
-        ? e.filename.replace("_cropped.", "_original.") : "";
+      const raw = rawNameForCropped(e.filename);
       try {
         const res = await writePhotoRow(id, { type: e.type, caption: e.caption || "", subGroupId: e.subGroupId },
           e.filename, (raw && byName[raw]) ? raw : "");
@@ -10861,7 +10943,7 @@
     if (draft.receiptPhoto) {
       try {
         let receiptId = await findExistingReceiptByFilename(draft.receiptPhoto);
-        if (!receiptId) receiptId = await nextReceiptId();
+        // No existing id: writeReceiptRow mints one inside the table's lock.
         out.receipt = await writeReceiptRow(id, draft.receiptPhoto, receiptId);
       } catch (err) {
         console.warn("Receipts row failed for " + draft.receiptPhoto + ":", err);
@@ -11298,17 +11380,7 @@
   async function movePromotedSetFiles(draft) {
     const moves = plannedPromotionMoves(draft);
     const results = [];
-    for (const m of moves) {
-      const destMeta = await graph().getItemMeta(m.dest);
-      const srcBytes = await graph().getFileBytes(m.src);
-      if (destMeta && srcBytes === null) { results.push({ ...m, ok: true, reason: "already moved" }); continue; } // idempotent resume
-      if (srcBytes === null) { results.push({ ...m, ok: false, reason: "source missing" }); continue; }
-      await graph().uploadBytes(m.dest, srcBytes);              // copy
-      const verify = await graph().getItemMeta(m.dest);          // verify
-      if (!verify) { results.push({ ...m, ok: false, reason: "verify failed — source kept" }); continue; }
-      await graph().deleteItem(m.src);                           // delete original ONLY after verified copy
-      results.push({ ...m, ok: true });
-    }
+    for (const m of moves) results.push(await moveFileWithoutOverwrite(m));
     const allOk = results.every(r => r.ok);
     let records = null;
     if (allOk) {
@@ -11344,7 +11416,7 @@
       const filename = id + "_receipt" + ext;
       try {
         let receiptId = await findExistingReceiptByFilename(filename);
-        if (!receiptId) receiptId = await nextReceiptId();
+        // No existing id: writeReceiptRow mints one inside the table's lock.
         out.receipt = await writeReceiptRow(id, filename, receiptId);
       } catch (err) {
         console.warn("Receipts row failed for " + filename + ":", err);
@@ -11824,6 +11896,19 @@
     const n = (def.repeatable && indexAmongType != null)
       ? "_" + String(indexAmongType + 1).padStart(2, "0") : "";
     return { cropped: collectionId + def.suffix + n + GALLERY_FILE_EXT };
+  }
+
+  // A crop and its untouched original share a number: _cropped.jpg pairs
+  // with _original.jpg, _cropped_02.jpg with _original_02.jpg (a Replace or
+  // Recrop that found the plain name taken). "" when the name isn't one of
+  // the pair.
+  function rawNameForCropped(name) {
+    const s = String(name || "");
+    return /_cropped(_\d+)?\.[^.]+$/.test(s) ? s.replace(/_cropped(_\d+)?(\.[^.]+)$/, "_original$1$2") : "";
+  }
+  function croppedNameForRaw(name) {
+    const s = String(name || "");
+    return /_original(_\d+)?\.[^.]+$/.test(s) ? s.replace(/_original(_\d+)?(\.[^.]+)$/, "_cropped$1$2") : "";
   }
 
   // Sparse demo seed, same by-CollectionID convention as FAKE_COIN_DETAILS/
@@ -23883,7 +23968,7 @@
     const reused = !!receiptId;
     if (!reused) {
       await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob);
-      receiptId = await nextReceiptId();
+      receiptId = null; // minted when the row is written, inside the table's lock
     }
     const res = await writeReceiptRow(collectionId, filename, receiptId);
     return { ...res, filename, reused };
@@ -24634,9 +24719,24 @@
     // _03 and overwrites a real file, and a file with no Photos row behind
     // it was invisible to the count entirely. Now: one past the highest
     // number in use, then stepped up until the name is free in OneDrive.
+    //
+    // FIXED-NAME TYPES TOO (Ray's tablet test, 27 Oct 2026): Obverse,
+    // Reverse, Holder front/back, a Set's whole-set and sub-group pairs. A
+    // Replace or Recrop used to upload under the type's one fixed name
+    // ({ID}_slab_reverse.jpg) and so wrote over the previous file — on main
+    // as well as on this branch. Now the name is chosen at Save the same
+    // way: the plain name when it's free, else _02, _03… (with its
+    // _original sharing the number), never a name already in use. The row's
+    // Filename/OriginalFilename cells are then pointed at the new file and
+    // the old one stays in CoinPhotos untouched.
     const def = galleryTypeDef(entry.type);
     const resolver = entry.resolveFilename ||
-      ((def && def.repeatable && entry.blob) ? () => nextFreeRepeatableFilename(collectionId, entry.type, entry) : null);
+      ((def && def.repeatable && entry.blob) ? () => nextFreeRepeatableFilename(collectionId, entry.type, entry)
+        : (def && entry.blob) ? async () => {
+            const names = await freeSingleFilenames(collectionId, entry);
+            entry.rawFilename = names.rawFilename;
+            return names.filename;
+          } : null);
     if (resolver && !entry.filenameResolved) {
       entry.filename = await resolver();
       entry.filenameResolved = true;
@@ -24645,22 +24745,30 @@
     // A retry after a partial failure re-sends only what didn't land: each
     // file that uploaded is remembered on the entry (Save, Oct 2026).
     entry.uploadedNames = entry.uploadedNames || {};
+    // Every CoinPhotos upload refuses to replace an existing file. If one
+    // turns up under the chosen name anyway (written elsewhere since the
+    // check), nothing is overwritten and the next Save picks a new name.
+    const putNew = async (name, blob) => {
+      try { await graph().uploadFile(p.coinPhotos + "/" + name, blob, NO_OVERWRITE); }
+      catch (e) { if (e && e.conflict) entry.filenameResolved = false; throw e; }
+      entry.uploadedNames[name] = true;
+    };
     if (entry.blob && !entry.uploadedNames[entry.filename]) {
-      await graph().uploadFile(p.coinPhotos + "/" + entry.filename, entry.blob);
-      entry.uploadedNames[entry.filename] = true;
-      // Point the read cache at the bytes just written. Without this a
-      // re-crop that lands on the SAME filename (adjusting an
-      // already-convention-named stored photo) would leave the flip card
-      // and Albums showing the pre-adjust image for the rest of the
-      // session, since both read through getCachedCoinPhotoUrl().
+      await putNew(entry.filename, entry.blob);
+      // Point the read cache at the bytes just written, so the flip card
+      // and Albums (both read through getCachedCoinPhotoUrl()) show them.
       if (entry.url) coinPhotoCache[entry.filename] = entry.url;
     }
     let rawName = "";
-    if (entry.rawFilename && entry.rawUrl) {
+    if (entry.rawFilename && entry.rawStored) {
+      // Recrop from the original: the original is already in CoinPhotos, so
+      // the row keeps pointing at it rather than storing a second copy.
+      if (entry.rawUrl) coinPhotoCache[entry.rawFilename] = entry.rawUrl;
+      rawName = entry.rawFilename;
+    } else if (entry.rawFilename && entry.rawUrl) {
       if (!entry.uploadedNames[entry.rawFilename]) {
         const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
-        await graph().uploadFile(p.coinPhotos + "/" + entry.rawFilename, rawBlob);
-        entry.uploadedNames[entry.rawFilename] = true;
+        await putNew(entry.rawFilename, rawBlob);
       }
       coinPhotoCache[entry.rawFilename] = entry.rawUrl;
       rawName = entry.rawFilename;
@@ -25634,8 +25742,7 @@
   function storedRawFilenameFor(entry) {
     if (!entry || !entry.stored) return "";
     if (entry.storedOriginalFilename) return entry.storedOriginalFilename;
-    const name = entry.storedFilename || "";
-    return name.indexOf("_cropped.") !== -1 ? name.replace("_cropped.", "_original.") : "";
+    return rawNameForCropped(entry.storedFilename);
   }
 
   // Re-opens the crop pipeline on a stored photo. Fetches the bytes back out
@@ -25683,6 +25790,9 @@
       showToast("No original on file — recropping the saved photo itself.");
     }
     runCropPipeline(blob, typeKey, targetId, (newEntry) => {
+      // From the original: that file is already in CoinPhotos, so the row
+      // keeps pointing at it (no second copy, nothing written over it).
+      if (src.fromRaw) { newEntry.rawFilename = src.filename; newEntry.rawStored = true; }
       replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
     }, subGroupId, { titleSuffix: src.fromRaw ? " (from the original)" : " (re-crop)" });
   }
@@ -25990,6 +26100,28 @@
       if (await coinPhotoNameIsFree(collectionId, name, exceptEntry)) return name;
     }
     throw new Error("No free filename for " + base + GALLERY_FILE_EXT);
+  }
+
+  // A fixed-name type's file name(s) at Save: {ID}_slab_reverse.jpg when
+  // free, else _02, _03…; a flip source's crop and original take the same
+  // number ({ID}_obverse_cropped_02.jpg + {ID}_obverse_original_02.jpg).
+  // Never a name a Photos row, the gallery or a CoinPhotos file already
+  // has. An original that is already stored (entry.rawStored, Recrop from
+  // the original) keeps its own name and isn't checked.
+  async function freeSingleFilenames(collectionId, entry) {
+    const names = galleryFilenameFor(collectionId, entry.type, 0, entry.subGroupId);
+    if (!names) throw new Error("No filename convention for photo type " + entry.type);
+    const stem = (n) => n.slice(0, n.length - GALLERY_FILE_EXT.length);
+    const wantRaw = !!(names.raw && entry.rawUrl && !entry.rawStored);
+    for (let n = 1; n <= FREE_NAME_MAX_TRIES; n++) {
+      const tail = n === 1 ? "" : "_" + String(n).padStart(2, "0");
+      const crop = stem(names.cropped) + tail + GALLERY_FILE_EXT;
+      const raw = wantRaw ? stem(names.raw) + tail + GALLERY_FILE_EXT : "";
+      if (!(await coinPhotoNameIsFree(collectionId, crop, entry))) continue;
+      if (raw && !(await coinPhotoNameIsFree(collectionId, raw, entry))) continue;
+      return { filename: crop, rawFilename: wantRaw ? raw : (entry.rawStored ? entry.rawFilename : null) };
+    }
+    throw new Error("No free filename for " + names.cropped);
   }
 
   // Next {ID}_reference_NN (or any repeatable type): one past the highest NN
@@ -26550,7 +26682,12 @@
       }
       if (entry.rawUrl) {
         const raw = await fetch(entry.rawUrl).then(r => r.blob());
+        // An original already in CoinPhotos (saved this session, or itself
+        // kept from an earlier Recrop) is reused, not uploaded again.
+        const rawSaved = entry.rawFilename && (entry.rawStored ||
+          (!entry.pendingSave && entry.uploadedNames && entry.uploadedNames[entry.rawFilename]));
         runCropPipeline(raw, typeKey, targetId, (newEntry) => {
+          if (rawSaved) { newEntry.rawFilename = entry.rawFilename; newEntry.rawStored = true; }
           replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
         }, subGroupId);
       } else {
@@ -30324,12 +30461,12 @@
       if (!names) continue;
       try {
         if (entry.blob) {
-          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.cropped, entry.blob);
+          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.cropped, entry.blob, NO_OVERWRITE);
           uploaded.push({ type: entry.type, filename: names.cropped, caption: entry.caption || "" });
         }
         if (names.raw && entry.rawUrl) {
           const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
-          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.raw, rawBlob);
+          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.raw, rawBlob, NO_OVERWRITE);
           uploaded.push({ type: entry.type, filename: names.raw, caption: "original" });
         }
       } catch (e) {
@@ -31120,12 +31257,15 @@
     const stem = name.slice(collectionId.length).replace(/\.[^.]+$/, "");
     for (const def of GALLERY_TYPES) {
       if (def.tier === "subgroup" || def.scope === "set") continue;
+      // A fixed-name photo can carry a number too (_slab_reverse_02,
+      // _obverse_cropped_02): a Replace never reuses a taken name.
+      const num = "(_\\d+)?$";
       if (def.flipSource) {
-        if (stem === def.suffix + "_cropped") return { type: def.key, raw: false };
-        if (stem === def.suffix + "_original") return { type: def.key, raw: true };
+        if (new RegExp("^" + def.suffix + "_cropped" + num).test(stem)) return { type: def.key, raw: false };
+        if (new RegExp("^" + def.suffix + "_original" + num).test(stem)) return { type: def.key, raw: true };
       } else if (def.repeatable) {
         if (new RegExp("^" + def.suffix + "_\\d+$").test(stem)) return { type: def.key, raw: false };
-      } else if (stem === def.suffix) {
+      } else if (new RegExp("^" + def.suffix + num).test(stem)) {
         return { type: def.key, raw: false };
       }
     }
@@ -31154,7 +31294,7 @@
       byCropped[filename] = g;
     });
     raws.forEach(r => {
-      const g = byCropped[r.filename.replace("_original.", "_cropped.")];
+      const g = byCropped[croppedNameForRaw(r.filename)];
       if (g) g.raw = r.filename;
       else groups.push({ type: r.type, cropped: r.filename, raw: "", caption: "" });
     });
@@ -31252,8 +31392,26 @@
     if (def.repeatable) {
       return { cropped: await nextFreeStagingRepeatableFilename(collectionId, entry.type, taken), raw: "" };
     }
+    // A fixed-name type takes the plain name when it's free, else _02,
+    // _03… (crop and original sharing the number). A Replace used to reuse
+    // the plain name and so wrote over the draft's earlier photo; now the
+    // earlier file is simply no longer listed and is deleted only AFTER
+    // coin.json is written (finishStagingEditFiles), as for any Replace
+    // that lands under another name.
     const n = galleryFilenameFor(collectionId, entry.type, 0, entry.subGroupId);
-    return { cropped: n.cropped, raw: (n.raw && entry.rawUrl) ? n.raw : "" };
+    const wantRaw = !!(n.raw && entry.rawUrl);
+    const stem = (s) => s.slice(0, s.length - GALLERY_FILE_EXT.length);
+    const free = async (name) => !taken.has(name) &&
+      !(await graph().getItemMeta(coinDraftFolder(collectionId) + "/" + name));
+    for (let i = 1; i <= FREE_NAME_MAX_TRIES; i++) {
+      const tail = i === 1 ? "" : "_" + String(i).padStart(2, "0");
+      const cropped = stem(n.cropped) + tail + GALLERY_FILE_EXT;
+      const raw = wantRaw ? stem(n.raw) + tail + GALLERY_FILE_EXT : "";
+      if (!(await free(cropped))) continue;
+      if (raw && !(await free(raw))) continue;
+      return { cropped, raw };
+    }
+    throw new Error("No free filename for " + n.cropped);
   }
 
   // Every entry and receipt picked during this edit that isn't in Staging
@@ -31272,10 +31430,19 @@
           if (entry.stagingNames.raw) taken.add(entry.stagingNames.raw);
         }
         entry.uploadPending = true;
-        await graph().uploadFile(folder + "/" + entry.stagingNames.cropped, entry.blob);
+        // Never over an existing file; a file that already landed on an
+        // earlier attempt of this save isn't sent again.
+        entry.stagingLanded = entry.stagingLanded || {};
+        const put = async (name, blob) => {
+          if (entry.stagingLanded[name]) return;
+          try { await graph().uploadFile(folder + "/" + name, blob, NO_OVERWRITE); }
+          catch (e) { if (e && e.conflict) entry.stagingNames = null; throw e; }
+          entry.stagingLanded[name] = true;
+        };
+        await put(entry.stagingNames.cropped, entry.blob);
         if (entry.stagingNames.raw) {
           const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
-          await graph().uploadFile(folder + "/" + entry.stagingNames.raw, rawBlob);
+          await put(entry.stagingNames.raw, rawBlob);
         }
         entry.stagingUploaded = true;
         entry.uploadError = "";
