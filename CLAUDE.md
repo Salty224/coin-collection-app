@@ -40,11 +40,13 @@ be asked for the copy-paste version.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code commit on `main` is `a576e42` (photo labels save
-with Save Changes, same-height photo tiles, labels in the viewer; merged 24
-Oct 2026 by fast-forward of `claude/photo-label-save-changes`; later commits
-are docs-only); `npm test` = 3836 passed, 0 failed, 0 page errors, 71 suites
-(run on `a576e42`, 24 Oct 2026).
+**Baseline:** last code commit on `main` is `928d7a9` (photos wait for Save,
+the leave guard, device Back on every screen, open-ended Package / OGP, Replace
+never overwrites a photo file, PhotoIDs minted inside the lock; merged 27 Oct
+2026 by fast-forward of `claude/photos-wait-for-save`; later commits are
+docs-only); `npm test` = 4029 passed, 0 failed, 0 page errors, 77 suites (run
+on the merged `main`, 27 Oct 2026). **Not deployed by the merge**: LIVE gets it
+only when Ray runs the deploy workflow for `main`.
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
@@ -133,8 +135,9 @@ writer against the real workbook at once; the deferred bugs (silent file
 overwrite on slab/reference/receipt captures, the receipt re-capture message,
 extra-column blanking on Photos/Receipts row replace) are still unfixed on
 `main`. *(The photo overwrite and the Photos-row replace blanking are fixed on
-`claude/photos-wait-for-save`, held: see "Replace never overwrites a photo
-file" and C1's in-place Replace. Receipts are not.)*
+`claude/photos-wait-for-save`, merged to `main` 27 Oct 2026: see "Replace
+never overwrites a photo file" and C1's in-place Replace. Receipts are not:
+backlog (t). Past LIVE overwrites: backlog (v).)*
 (c) The Staging ID-reader fix was dropped: Ray moved his hand-made Staging
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
@@ -431,7 +434,11 @@ commit 5).
   Add Coin's section on the S25; a real Staging edit's Recrop and crop from
   a Holder photo; how Add Coin reads without the preview card.
 
-## Photos wait for Save (Oct 2026, HELD on `claude/photos-wait-for-save`, NOT merged)
+## Photos wait for Save (Oct 2026, merged to main 27 Oct 2026 by fast-forward to `928d7a9`, built on `claude/photos-wait-for-save`)
+**Merged on Ray's go-ahead (27 Oct 2026)** after his tablet retests (below).
+C1-C3, rounds 2-3 and the Replace / PhotoID fix are all on `main`; the branch
+stays on origin as history. The "held" wording in the sub-section headers
+below records the state while each was being tested.
 Backlog items l, m, n, o. Plan answered by Ray 24 Oct 2026 (Q1-Q11). Built in
 stages. **C1 is built and passed Ray's tablet test of `c5a8b29`** (steps 1-9,
 11-13; step 10, the workbook check, deferred to a computer session; step 14,
@@ -500,7 +507,8 @@ Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
   and DateAdded are left as they are. New rows still use `writeRecordRow`
   (claim a blank row); detach still blanks the whole row on purpose. Label
   writes stay single-cell (`writePhotoLabel`). The replaced file stays on disk
-  (the later `_Replaced` folder item would move it after the row write).
+  (the later `_Replaced` folder item would move it after the row write;
+  *superseded by backlog (s), the "Keep the old photo?" choice*).
   *(Not true for fixed-name types until 27 Oct 2026: their Replace uploaded
   over the old file. Fixed: see "Replace never overwrites a photo file".)*
 - **Repeatable filenames** are chosen at Save: a pick's provisional name no
@@ -549,7 +557,7 @@ Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
 - **Not verified:** any real device; Samsung Internet; a real Save to
   `_Testing` with several photos.
 
-### C2: the leave guard (built on the same branch, HELD for Ray's device test)
+### C2: the leave guard (built on the same branch, HELD for Ray's device test; merged to main 27 Oct 2026)
 Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
 - **One check, one dialog, every way off an editing screen.**
   `activeEditScreen()` says which editing screen is up ("editcoin",
@@ -638,7 +646,7 @@ Backlog l and o, Ray's Q4 and Q6, plus his four tidy-ups from the C1 test.
   a tap, but that is untested on a device); Android's Back gesture versus
   the Back button.
 
-### C2 follow-ups (same branch, commit `7b4471e`, HELD for Ray's tablet test)
+### C2 follow-ups (same branch, commit `7b4471e`, HELD for Ray's tablet test; merged to main 27 Oct 2026)
 Ray's tablet test of `79b4f90` passed; his answers: Q1 keep the separate
 remove line for a never-saved pick; Q2 Back inside any confirmation dialog
 acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
@@ -726,7 +734,7 @@ acts as Cancel / Keep editing; Q3 go ahead with C3 after these.
 - `npm test` on the follow-ups (`7b4471e`): 3921 passed, 0 failed, 0 page
   errors, 74 suites (3888 + 33).
 
-### C3: open-ended Package / OGP (same branch, HELD for Ray's tablet test)
+### C3: open-ended Package / OGP (same branch, HELD for Ray's tablet test; merged to main 27 Oct 2026)
 Backlog n; Ray's Q7 (open-ended in Add Coin and the Staging-draft edit too)
 and Q8 (map existing OGP_Obverse / OGP_Reverse rows on read, no workbook
 writes).
@@ -801,7 +809,7 @@ writes).
   40; every rewritten suite keeps its count).
 
 
-### Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest)
+### Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest; merged to main 27 Oct 2026)
 Passed on the tablet: steps 1-4, 8-10, 14-20, 22, 23 (step 20 with and
 without a whole-set front). Skipped: 7 (same pattern as 5 and 6), 21 (no
 OGP_Obverse rows in the workbook). Failed, all one bug: ONE device Back
@@ -924,7 +932,7 @@ fresh open leaves); Q2 wait for C4 (backlog q).
 - **Not verified:** any real device (the whole point of the Back fix is
   Chrome's real rule, emulated here); Samsung Internet; the installed app.
 
-### Round 3 after Ray's tablet retest of `6eaef11` (same branch, HELD for his retest)
+### Round 3 after Ray's tablet retest of `6eaef11` (same branch, HELD for his retest; merged to main 27 Oct 2026)
 Passed on the tablet: Back twice from a coin page and from an open album
 (each reaching the Dashboard), the Dashboard "Press Back again to exit"
 toast and exit, Back with "Discard unsaved edits?" open on Edit Coin (stayed,
@@ -983,7 +991,7 @@ build (backlog r), and hide a Set's Fun Fact until it has a real source.
 - **Not verified:** any real device; whether the keyboard really comes up
   on the tablet; Samsung Internet; the installed app.
 
-### Replace never overwrites a photo file; PhotoIDs minted inside the lock (same branch, HELD for Ray's retest)
+### Replace never overwrites a photo file; PhotoIDs minted inside the lock (same branch, HELD for Ray's retest; merged to main 27 Oct 2026)
 Ray's tablet test of `826e2d4` (27 Oct 2026). **Must-fix before merge:**
 AY-00724's Holder back was replaced; row PH-00038 kept Filename
 `AY-00724_slab_reverse.jpg` (DateAdded 3 Oct, correctly kept) and the new
@@ -1974,23 +1982,21 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   note; the receipt viewer can show an old copy after a same-name
   replacement.
 - (k) Deploy workflow: upgrade its actions to Node 24 versions.
-- (l) *(Built on `claude/photos-wait-for-save`, C2; passed Ray's tablet
-  test of `79b4f90`; device Back widened to every screen in the C2
-  follow-ups, held.)* Close Drawer / navigate should warn on any unsaved edit (all fields,
+- (l) *(Done: C2 of "Photos wait for Save", merged to main 27 Oct 2026.)* Close Drawer / navigate should warn on any unsaved edit (all fields,
   Edit Coin and the other edit screens), not only Back. Today `navigate()`
   leaves silently and the edits (photo labels included) are discarded.
   Next branch, plan first (Ray, 23 Oct): the same "Discard unsaved edits?"
   dialog as Back.
-- (m) *(Built on `claude/photos-wait-for-save`, C1, device-tested.)* Photos on the
+- (m) *(Done: C1 of "Photos wait for Save", merged to main 27 Oct 2026.)* Photos on the
   edit screens wait for Save, the same as Add Coin's draft mode, instead of
   saving on capture; Discard undoes them; Manage Photos gets ONE Save button
   for photos and labels together (replacing "Save labels").
-- (o) *(Built on `claude/photos-wait-for-save`, C2, held.)* Same next branch as (l) and (m) (Ray, 24 Oct): Close Drawer on Add
+- (o) *(Done: C2 of "Photos wait for Save", merged to main 27 Oct 2026.)* Same next branch as (l) and (m) (Ray, 24 Oct): Close Drawer on Add
   Coin must warn before throwing away a half-entered coin. Today
   `navigate("addcoin")` resets the form (`resetAddCoinForm()`) and leaving
   by any route discards whatever was typed or picked, with no warning.
-- (n) *(Built on `claude/photos-wait-for-save`, C3, held: see "C3:
-  open-ended Package / OGP".)* Package/OGP becomes open-ended
+- (n) *(Done: C3, "C3: open-ended Package / OGP", merged to main 27 Oct
+  2026.)* Package/OGP becomes open-ended
   (any number of photos, each labelled, e.g. Closed / Open) instead of a
   Front/Back pair. Needs a plan for the existing Front/Back Package photos
   (PhotoType `OGP_Obverse`/`OGP_Reverse`, Add Set's whole-set mirror, the
@@ -2027,6 +2033,33 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   yes to these labels, built in this build. A Set's Fun Fact display is
   hidden entirely (Set page and Edit Set, demo data included) until a real
   source exists.**
+- (s) "Keep the old photo?" on Replace of a fixed-name slot (Ray, 27 Oct;
+  replaces the earlier `_Replaced` folder item). Applies to Obverse, Reverse,
+  Holder front/back and a Set's whole-set / sub-group pairs. On Replace the
+  user picks Keep as Reference / Keep as Other / Don't keep; like every
+  other photo edit, nothing happens until Save. At Save the old file is
+  moved out of the way FIRST: renamed to the chosen type's next numbered
+  name with its own new Photos row, or (Don't keep) deleted to the OneDrive
+  recycle bin. The new photo then takes the plain convention name: uploaded
+  under a temporary name first, then renamed, so a failure never leaves a
+  row pointing at a missing file. Guard against a cached old picture
+  showing under the reused name (the session photo cache is keyed by
+  filename). Plan first; until then Replace keeps today's free `_02` names.
+- (t) Receipts never overwrite (Ray, 27 Oct, his Q1 on the Replace fix), its
+  own small branch. Today `commitReceiptCapture` uploads a new filename not
+  on the Receipts tab with replace, and a photographed re-capture
+  `{ID}_receipt.pdf` that IS on the tab skips the upload and keeps the old
+  file. Same `NO_OVERWRITE` / free-name approach as photos.
+- (u) Data fix, outside the app (Ray / Copilot): PhotoID PH-00129 is on two
+  rows on TEST (AY-00212 Slab_Obverse and Slab_Reverse, 18 Oct). Also check
+  LIVE's Photos tab for duplicate PhotoIDs: `main` / LIVE could mint them
+  (id minted before the table lock, no session floor) until the 27 Oct
+  merge. Nothing in the app writes this fix.
+- (v) Note only, no action (Ray, 27 Oct): on LIVE, a Replace or Recrop of a
+  fixed-name photo before the 27 Oct merge uploaded over the old file
+  (`{ID}_slab_reverse.jpg`, `_obverse_cropped.jpg`, `_obverse_original.jpg`
+  …). The overwritten pictures exist only in OneDrive's version history for
+  those files.
 
 ### History: Current status as of 2026-09-05 (superseded, kept for the record)
 The Add Coin Phase 1/Phase 2 merge (`claude/add-coin-write-path-fs2rf8`),
