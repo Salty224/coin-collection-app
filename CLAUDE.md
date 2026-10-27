@@ -5,26 +5,25 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main: last code commit `928d7a9` (photos wait for Save, merged 27 Oct
-  2026); main's head is the docs commit that last rewrote this block (see
-  `git log -1`). LIVE runs: not known here. `928d7a9` is NOT deployed until
-  Ray runs the deploy workflow for `main`; the splash then reads
-  "Build {N} · {D Mon} · {main's head short hash}".
+- main: last code commit `928d7a9` (photos wait for Save); main's head is the
+  docs commit that last rewrote this block (`git log -1`). LIVE runs
+  `928d7a9`'s code: deployed by Ray 27 Oct 2026, splash shows `d08c82e`, no
+  TEST bar.
 - Baseline: 4029 passed, 0 failed, 0 page errors, 77 suites (run on
   `928d7a9`, 27 Oct 2026).
 - Open branch: none. `claude/photos-wait-for-save` (tip `928d7a9`) is merged
-  and stays on origin as history.
-- Next task: not chosen yet; waiting on Ray. Backlog after it, as queued (Ray
-  to confirm the order): (t) receipts never overwrite, (s) "Keep the old
-  photo?" on Replace, (e) C4 Add Set / Wishlist chooser, then (q), (r), (p).
-  Data fixes outside the app: (u) duplicate PhotoIDs. Note only: (v).
-- Open questions for Ray: Q1 the order of the backlog above; Q2 check LIVE's
-  Photos tab for duplicate PhotoIDs (u) soon after deploying `main`.
-- Not verified on a real device: Graph honouring
-  `@microsoft.graph.conflictBehavior=fail` on a real upload (the
-  no-overwrite guard); a real Holder Replace on TEST with `928d7a9`; the
-  Tap to label re-focus raising the keyboard; device Back on Samsung
-  Internet and the installed app. Details: "Photos wait for Save".
+  and kept on origin as history.
+- Next task: (t) receipts never overwrite (own small branch). Then, in Ray's
+  order (27 Oct): (g) value fallback + Set Variety line + album star rule;
+  (r) Edit Set saving, then split out child coins, then partial sales;
+  (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old
+  photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping.
+  (u) is a data fix outside the app; (v) is a note only.
+- Waiting on Ray: he checks LIVE's Photos tab for duplicate PhotoIDs (u) on a
+  computer before any Replace on LIVE. No questions open.
+- Not verified on a real device: Samsung Internet in a browser tab (Back,
+  leave guard, Tap to label); Graph's `@microsoft.graph.conflictBehavior=fail`
+  actually firing (409) on a real upload.
 
 ## Standard end-of-work pattern (standing rule, Oct 2026) — read this first
 **1. With every branch, before reporting it done.** The branch's last commit
@@ -970,6 +969,9 @@ fresh open leaves); Q2 wait for C4 (backlog q).
   76 suites (3961 + 16 in device-back-everywhere + 12 in the new suite).
 - **Not verified:** any real device (the whole point of the Back fix is
   Chrome's real rule, emulated here); Samsung Internet; the installed app.
+  *(27 Oct 2026, Ray's tablet: device Back in the installed app passed: two
+  Backs in a row, Back in dialogs, the Dashboard exit toast. Samsung
+  Internet in a browser tab is still unverified.)*
 
 ### Round 3 after Ray's tablet retest of `6eaef11` (same branch, HELD for his retest; merged to main 27 Oct 2026)
 Passed on the tablet: Back twice from a coin page and from an open album
@@ -1028,7 +1030,9 @@ build (backlog r), and hide a Set's Fun Fact until it has a real source.
 - `npm test` on round 3 (`826e2d4`): 3994 passed, 0 failed, 0 page errors,
   76 suites (3989 + 5 new T2 checks).
 - **Not verified:** any real device; whether the keyboard really comes up
-  on the tablet; Samsung Internet; the installed app.
+  on the tablet; Samsung Internet; the installed app. *(27 Oct 2026, Ray's
+  tablet: Tap to label raises the keyboard, passed. Samsung Internet in a
+  browser tab still unverified.)*
 
 ### Replace never overwrites a photo file; PhotoIDs minted inside the lock (same branch, HELD for Ray's retest; merged to main 27 Oct 2026)
 Ray's tablet test of `826e2d4` (27 Oct 2026). **Must-fix before merge:**
@@ -1136,7 +1140,9 @@ picture was uploaded OVER the old file in TEST's CoinPhotos.
   (3994 + 35 new; the rewritten W7 and P11-P14 keep their counts).
 - **Not verified:** any real device; that Graph's simple upload honours
   `conflictBehavior=fail` (documented for PUT …/content, not tried live);
-  a real Holder Replace on TEST.
+  a real Holder Replace on TEST. *(27 Oct 2026: Ray's tablet retest passed;
+  both the old file and the new `_02` file are in `_Testing/CoinPhotos`.
+  The 409 path itself is still unverified live.)*
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -2006,11 +2012,18 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
-- (g) Value fallback decision, pending with Ray: `coin.value` shows the melt
-  figure (`All.SpotValue`) when `All.Value` is blank (about 12 screens).
-  20 Oct workbook: 347 of 620 owned rows have a blank Value, 320 of them with
-  a melt figure, about $14,560. Recommended option: label melt-derived
-  figures (the other option is to stop falling back). Questions-first.
+- (g) Value fallback: `coin.value` shows the melt figure (`All.SpotValue`)
+  when `All.Value` is blank (about 12 screens). 20 Oct workbook: 347 of 620
+  owned rows have a blank Value, 320 of them with a melt figure, about
+  $14,560. **Decided (Ray, 27 Oct), display-only, 2nd in the queue after
+  (t):** (1) a melt-derived figure is labelled "melt" with the spot-price
+  date (`Ref_SpotPrices` LastUpdated); (2) totals show valued and melt
+  separately; (3) a Variety line on Set cards and Set pages, default
+  "Standard" when blank; (4) album star rule: filled star = Key Date or Key
+  Variety, outline star = Semi-Key, no star otherwise (today any other
+  non-blank KeyDate value also gets a filled star: `keyDateKindOf`,
+  `buildAlbumKeyDateIndex`; check the real `DB_Coins.KeyDate` values for
+  "Key Variety" wording first). Plan first.
 - (h) Graded/reholdered coins: capture design (cost basis, grader, cert,
   slab photos, location). Questions-first.
 - (i) The in-app image viewer's back gesture is unverified on a real
@@ -2056,7 +2069,10 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   `ogp_obverse`/`ogp_reverse`, `packageEntriesInOrder`'s Front/Back order,
   `packageDisplayLabel`, `packageSide` on Replace, `setFlipPhotoUrl`'s
   OGP_Reverse lookup).
-- (r) The Edit Set saving and split build (queued, not started). Two items
+- (r) The Edit Set saving and split build (queued, not started; 3rd in
+  Ray's 27 Oct order). Order inside it: Edit Set saving (ALL fields, with a
+  concurrent-edit conflict check like Edit Coin's snapshot), then splitting
+  out child coins, then partial sales (selling part of a Set). Two items
   for it (Ray, 26 Oct): (1) "Coins in this Set" shows the Set's coin count
   and lists its coins, probably from DB_SetComposition; each line is replaced
   by Ray's own child coin once that coin has been split out. (2) Set notes:
