@@ -9913,6 +9913,39 @@
     return { receiptId: values.ReceiptID, row, replaced: false };
   }
 
+  // Whether `receiptId` still appears on some OTHER coin's row — the check
+  // that stops a Replace from quietly leaving one ReceiptID pointing at two
+  // different files. A row shares an id only via the dedupe path in
+  // commitReceiptCapture() (several coins' own rows deliberately pointing at
+  // one physical document); this is what tells that apart from "this is just
+  // this coin's own row" before reusing an id across a replace.
+  function receiptIdUsedByOtherCoin(rows, receiptId, exceptCollectionId) {
+    return rows.some(r => r.ReceiptID === receiptId && r.CollectionID !== exceptCollectionId);
+  }
+
+  // A receipt filename free of both the Receipts table's own Filename column
+  // and a live check against the CoinReceipts folder — the same two-check
+  // shape coinPhotoNameIsFree() already uses for photos, so a stray file
+  // with no row behind it is caught too, not just a row with no file.
+  async function receiptFilenameIsFree(name, rows) {
+    if (rows.some(r => r.Filename && r.Filename.toLowerCase() === name.toLowerCase())) return false;
+    const meta = await graph().getItemMeta(writePaths().coinReceipts + "/" + name);
+    return !meta;
+  }
+
+  // One past the base name — base.pdf is already known taken by the time
+  // this is called, so trying it again would waste a round trip.
+  async function freeReceiptFilename(baseFilename, rows) {
+    const dot = baseFilename.lastIndexOf(".");
+    const stem = dot === -1 ? baseFilename : baseFilename.slice(0, dot);
+    const ext = dot === -1 ? "" : baseFilename.slice(dot);
+    for (let n = 2; n <= FREE_NAME_MAX_TRIES; n++) {
+      const name = stem + "_" + String(n).padStart(2, "0") + ext;
+      if (await receiptFilenameIsFree(name, rows)) return name;
+    }
+    throw new Error("No free filename for " + baseFilename);
+  }
+
   // A "no DB_Coins match for the edited identity" is the same situation
   // Add Coin already handles for a brand-new entry — reusing that exact
   // queue/hub rather than inventing a parallel research-tracking pattern
@@ -23957,19 +23990,67 @@
     return collectionId + "_receipt.pdf";
   }
 
-  // Uploads (unless an identical filename is already on file) and writes or
-  // replaces this coin's Receipts row. Reuses the existing ReceiptID when
-  // the same document is already recorded against another coin, so one
-  // physical receipt stays ONE id and ONE stored file however many coins it
-  // covers.
+  // Uploads and writes or replaces this coin's Receipts row. Never
+  // overwrites a file (Ray, 27 Oct 2026 — the same NO_OVERWRITE / free-name
+  // approach as photos), and never lets one ReceiptID end up pointing at
+  // two different files.
+  //
+  // A chosen filename can already be "taken" two different ways, and they
+  // get different treatment:
+  //   - the SAME physical document is already stored under it (another
+  //     coin's own capture of this exact receipt, or this coin re-saving
+  //     its own unchanged file) — reuse that ReceiptID and the stored
+  //     file; nothing is uploaded. This is the multi-coin-receipt sharing
+  //     this function's own callers rely on (RC-00001 already covers three
+  //     coins in the real data).
+  //   - a DIFFERENT document merely shares the name (two sellers' own
+  //     invoice.pdf; a re-photographed {ID}_receipt.pdf, which — since
+  //     that name is always this coin's own — is always this coin's own
+  //     prior capture) — never write over it. A free name is picked for
+  //     the new upload instead, same as a fixed-name photo's Replace.
+  // Which is which is decided by bytes (sameFileBytes(), the same check
+  // moveFileWithoutOverwrite() already uses for the identical ambiguity on
+  // a promotion move), not by the filename alone. A byte-fetch failure is
+  // treated as "different" — a spurious extra file is cheap and visible;
+  // silently reusing the wrong ReceiptID is not.
   async function commitReceiptCapture(collectionId, prepared) {
-    const filename = storedReceiptFilename(collectionId, prepared);
-    let receiptId = await findExistingReceiptByFilename(filename);
-    const reused = !!receiptId;
-    if (!reused) {
-      await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob);
-      receiptId = null; // minted when the row is written, inside the table's lock
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const thisRow = rows.find(r => r.CollectionID === collectionId);
+    const candidate = storedReceiptFilename(collectionId, prepared);
+    const sameNameRow = rows.find(r => r.Filename && r.Filename.toLowerCase() === candidate.toLowerCase());
+
+    let storedBytes = null;
+    try { storedBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + candidate); }
+    catch (e) { storedBytes = null; }
+    let sameDoc = false;
+    if (storedBytes != null) {
+      try { sameDoc = await sameFileBytes(storedBytes, prepared.blob); } catch (e) { sameDoc = false; }
     }
+
+    let filename = candidate;
+    const reused = !!(sameNameRow && sameDoc);
+    if (!reused && (sameNameRow || storedBytes != null)) {
+      // A row claims this name, or a file already sits there with no row
+      // behind it (an untraceable leftover) — either way, never write
+      // over it.
+      filename = await freeReceiptFilename(candidate, rows);
+    }
+
+    let receiptId;
+    if (reused) {
+      receiptId = sameNameRow.ReceiptID;
+    } else {
+      await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
+      // Keep this coin's own existing id across the replace — UNLESS some
+      // other coin's row still shares it, in which case following it onto
+      // this coin's new file would leave it pointing at two different
+      // documents. That other row (and its own file) is left untouched
+      // either way; only this coin's row ever changes here.
+      receiptId = (thisRow && thisRow.ReceiptID && !receiptIdUsedByOtherCoin(rows, thisRow.ReceiptID, collectionId))
+        ? thisRow.ReceiptID
+        : null; // null: writeReceiptRow mints a fresh one inside the table's lock
+    }
+
     const res = await writeReceiptRow(collectionId, filename, receiptId);
     return { ...res, filename, reused };
   }
@@ -30482,8 +30563,14 @@
     if (!receipt || !receipt.blob) return "";
     // Same {CollectionID}_receipt.pdf convention the rest of the project
     // already uses — see CLAUDE.md "Receipt photos auto-convert to PDF".
+    // NO_OVERWRITE even though this is a freshly-reserved id's own, just-
+    // created Staging folder (so a real collision is a near-impossibility):
+    // every receipt upload asks for no-overwrite, same as every photo
+    // upload (Ray, 27 Oct 2026). The caller already catches a thrown error
+    // here and reports the receipt as failed without losing the rest of
+    // the save.
     const filename = collectionId + "_receipt.pdf";
-    await graph().uploadFile(coinDraftFolder(collectionId) + "/" + filename, receipt.blob);
+    await graph().uploadFile(coinDraftFolder(collectionId) + "/" + filename, receipt.blob, NO_OVERWRITE);
     return filename;
   }
 
@@ -31456,16 +31543,44 @@
     const receipt = receiptFiles["receiptPreview"];
     if (receipt && receipt.blob && editDraftFiles) editDraftFiles.receiptRemoved = false;
     if (receipt && receipt.blob && !receipt.stagingUploaded) {
-      const name = collectionId + "_receipt.pdf";
-      try {
-        await graph().uploadFile(folder + "/" + name, receipt.blob);
-        receipt.stagingUploaded = true;
-        receipt.stagingName = name;
-        showReceiptUploadState("receiptPreview", "", false, null);
-      } catch (e) {
-        failed.push(name);
+      // Same free-name-on-Replace rule as the fixed-name photo types just
+      // above: the plain {ID}_receipt.pdf name when it's free, else _02,
+      // _03… — never written over (Ray, 27 Oct 2026). No byte-compare is
+      // needed here, unlike commitReceiptCapture()'s own Receipts-table
+      // version: this folder is private to this one draft, so a name
+      // already in it can only ever be this SAME coin's own earlier
+      // capture, never another coin's document. `taken` already includes
+      // whatever the folder actually holds (stagingTakenNames()'s own
+      // listChildren() call), so a prior receipt under the plain name is
+      // correctly seen as unavailable; mergeStagingEditFiles()/
+      // finishStagingEditFiles() delete it afterward, the same way a
+      // replaced fixed-name photo's old file is cleaned up once coin.json
+      // no longer lists it — the old bytes are never overwritten in place,
+      // only superseded once the new name is safely recorded.
+      if (!taken) taken = await stagingTakenNames(collectionId, await readCoinDraft(collectionId));
+      let name = null;
+      for (let i = 1; i <= FREE_NAME_MAX_TRIES; i++) {
+        const tail = i === 1 ? "" : "_" + String(i).padStart(2, "0");
+        const candidate = collectionId + "_receipt" + tail + ".pdf";
+        if (taken.has(candidate)) continue;
+        if (!(await graph().getItemMeta(folder + "/" + candidate))) { name = candidate; break; }
+      }
+      if (!name) {
+        failed.push(collectionId + "_receipt.pdf");
         showReceiptUploadState("receiptPreview", "Not saved — tap ↻", true,
           () => saveAddCoinForm("staging"));
+      } else {
+        taken.add(name);
+        try {
+          await graph().uploadFile(folder + "/" + name, receipt.blob, NO_OVERWRITE);
+          receipt.stagingUploaded = true;
+          receipt.stagingName = name;
+          showReceiptUploadState("receiptPreview", "", false, null);
+        } catch (e) {
+          failed.push(name);
+          showReceiptUploadState("receiptPreview", "Not saved — tap ↻", true,
+            () => saveAddCoinForm("staging"));
+        }
       }
     }
     return failed;

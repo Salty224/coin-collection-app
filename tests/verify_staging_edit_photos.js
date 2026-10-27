@@ -489,7 +489,11 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       __teardown();
     }
 
-    // P8: a receipt picked during an edit replaces the receipt file.
+    // P8: a receipt picked during an edit replaces the receipt file — under
+    // a FREE name, never overwriting the old bytes in place (Ray, 27 Oct
+    // 2026, "receipts never overwrite"). The superseded file is deleted
+    // only AFTER coin.json points elsewhere, the same rule a replaced
+    // fixed-name photo already follows.
     {
       const mock = await __setup();
       __setLiveDbCoinsForTest(catalog);
@@ -500,8 +504,9 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       await __ph.waitFor(() => !!receiptFiles["receiptPreview"]);
       await __saveEdit();
       const saved = await mock.getJson(__draftPath(id));
-      const v = await mock.getFileBytes(folder + "/" + id + "_receipt.pdf");
-      out.p8 = { receiptPhoto: saved.receiptPhoto, content: v instanceof Blob ? await v.text() : String(v) };
+      const v = await mock.getFileBytes(folder + "/" + saved.receiptPhoto);
+      const oldStillThere = !!(await mock.getItemMeta(folder + "/" + id + "_receipt.pdf"));
+      out.p8 = { receiptPhoto: saved.receiptPhoto, content: v instanceof Blob ? await v.text() : String(v), oldStillThere };
       __teardown();
     }
     return out;
@@ -568,8 +573,9 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "P20 the edit is refused once the coin was written to the All sheet (allRowWritten): " + JSON.stringify(P.p7a));
   ok(P.p7b.opened === false && /already left Staging/.test(P.p7b.toast) && P.p7.binding === null,
     "P21 -- and once its files have left Staging (filesMovedOnPromotion): " + JSON.stringify(P.p7b));
-  ok(P.p8.receiptPhoto === ID + "_receipt.pdf" && /new receipt/.test(P.p8.content),
-    "P22 a receipt picked during an edit replaces the receipt file in Staging: " + JSON.stringify(P.p8));
+  ok(P.p8.receiptPhoto === ID + "_receipt_02.pdf" && /new receipt/.test(P.p8.content) && !P.p8.oldStillThere,
+    "P22 a receipt picked during an edit lands under a free name (never overwriting the old file in place), " +
+    "and the superseded name is cleaned up once coin.json no longer lists it: " + JSON.stringify(P.p8));
 
   // ---------- Q. Phase B2: remove ----------
   const Q = await page.evaluate(async ({ base, catalog, id }) => {

@@ -11,19 +11,23 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
   TEST bar.
 - Baseline: 4029 passed, 0 failed, 0 page errors, 77 suites (run on
   `928d7a9`, 27 Oct 2026).
-- Open branch: none. `claude/photos-wait-for-save` (tip `928d7a9`) is merged
-  and kept on origin as history.
-- Next task: (t) receipts never overwrite (own small branch). Then, in Ray's
-  order (27 Oct): (g) value fallback + Set Variety line + album star rule;
-  (r) Edit Set saving, then split out child coins, then partial sales;
-  (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old
-  photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping.
-  (u) is a data fix outside the app; (v) is a note only.
-- Waiting on Ray: he checks LIVE's Photos tab for duplicate PhotoIDs (u) on a
-  computer before any Replace on LIVE. No questions open.
+- Open branch: `claude/receipts-never-overwrite`, cut from main at `02f2613`.
+  (t) receipts never overwrite is BUILT, HELD for Ray's tablet test against
+  `_Testing` — not merged, not deployed. `claude/photos-wait-for-save` (tip
+  `928d7a9`) is merged and kept on origin as history.
+- Next task: Ray's tablet test of `claude/receipts-never-overwrite`. Then,
+  in Ray's order (27 Oct): (g) value fallback + Set Variety line + album
+  star rule; (r) Edit Set saving, then split out child coins, then partial
+  sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the
+  old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP
+  mapping. (u) is a data fix outside the app; (v) is a note only.
+- Waiting on Ray: his tablet test of `claude/receipts-never-overwrite` (see
+  the branch report); he also checks LIVE's Photos tab for duplicate
+  PhotoIDs (u) on a computer before any Replace on LIVE. No questions open.
 - Not verified on a real device: Samsung Internet in a browser tab (Back,
   leave guard, Tap to label); Graph's `@microsoft.graph.conflictBehavior=fail`
-  actually firing (409) on a real upload.
+  actually firing (409) on a real upload, on this branch's receipt
+  free-naming included.
 
 ## Standard end-of-work pattern (standing rule, Oct 2026) — read this first
 **1. With every branch, before reporting it done.** The branch's last commit
@@ -1143,6 +1147,86 @@ picture was uploaded OVER the old file in TEST's CoinPhotos.
   a real Holder Replace on TEST. *(27 Oct 2026: Ray's tablet retest passed;
   both the old file and the new `_02` file are in `_Testing/CoinPhotos`.
   The 409 path itself is still unverified live.)*
+
+## Receipts never overwrite (Oct 2026, held on `claude/receipts-never-overwrite`, HELD for Ray's tablet test)
+Backlog (t), Ray's own Q1 on the "Replace never overwrites a photo file" fix
+above. Same `NO_OVERWRITE` / free-name approach, extended to the one place
+receipts still worked the old, unsafe way.
+- **What was broken.** `commitReceiptCapture()` (Edit Coin / Edit Set /
+  Manage Photos' receipt slot) treated ANY filename match on the Receipts
+  tab as "this is the same document" and skipped the upload — correct for
+  the intended multi-coin sharing (RC-00001 genuinely covers three real
+  coins), wrong the moment two UNRELATED documents happen to share a name
+  (two sellers' own `invoice.pdf`): the second coin's row would point at the
+  FIRST seller's file, and nothing would ever upload for the second. A
+  re-photographed `{ID}_receipt.pdf` hit the identical bug from the other
+  side: since that fixed name is always this coin's own, the "dedupe" always
+  found this coin's own existing row and skipped the real upload entirely —
+  Replace did nothing at all. The Staging-draft-edit receipt branch
+  (`uploadStagingEditFiles()`) had the second half of that same bug:
+  replacing a receipt mid-edit uploaded straight over the old Staging file.
+- **The fix.** Which of the two readings applies is now decided by BYTES
+  (`sameFileBytes()`, the same check `moveFileWithoutOverwrite()` already
+  uses for the identical ambiguity on a promotion move), never by the
+  filename alone. A byte-fetch failure is treated as "different" (Ray's Q2)
+  — a spurious extra file is cheap and visible; silently reusing the wrong
+  ReceiptID is not. New `freeReceiptFilename()`/`receiptFilenameIsFree()`
+  mirror the photo free-name helpers exactly (checked against both the
+  Receipts table's own Filename column and a live `getItemMeta` against
+  CoinReceipts, so a stray file with no row is caught too). Every receipt
+  PUT (`commitReceiptCapture`, the Staging-edit branch, and a brand-new Add
+  Coin draft's own first upload) now passes `NO_OVERWRITE`.
+- **The new invariant (Ray's addition): one ReceiptID must never point at
+  two different files.** Before a replace keeps this coin's own existing
+  ReceiptID, `receiptIdUsedByOtherCoin()` checks whether any OTHER coin's
+  row still carries it. If one does, this coin's row gets a freshly-minted
+  id instead, and the other coin's row and file are left completely
+  untouched — covers both phrasings: a re-photographed fixed-name receipt
+  whose row happens to share an id, and a coin on a genuinely shared
+  receipt (e.g. `invoice.pdf` on two coins) picking something new.
+- **Add Set's own `uploadDraftPhoto()` is deliberately UNCHANGED** — still
+  the same "a second Pause re-uploads over its own Staging file by design"
+  behavior this file already documents; out of scope for this branch.
+- **Blank-row claiming (the new standing rule above), audited for this
+  branch specifically**: `writeReceiptRow()`'s new-row path already went
+  through the shared `writeRecordRow()` helper, which already claims a
+  blank row first — confirmed with a dedicated test (a Receipts table
+  seeded with real rows plus trailing blanks; both `commitReceiptCapture()`
+  and the Staging/promotion path's own `recordPromotedCoinRecords()` claim
+  the next blank row, never appending). No code change was needed here —
+  only the explicit, Receipts-specific test coverage, which didn't exist
+  before (only Photos' had its own row-number assertion).
+- **Tests**: new `tests/verify_receipts_never_overwrite.js` (57): SELF;
+  A `receiptIdUsedByOtherCoin()` in isolation; B
+  `freeReceiptFilename()`/`receiptFilenameIsFree()` in isolation; C two
+  sellers' own `invoice.pdf` — the second coin gets a free name, a real
+  upload, and its own ReceiptID, with the first coin's row and file
+  untouched; D the genuine dedupe (same bytes, two coins) still reuses one
+  id and uploads once; E a re-photographed receipt really replaces what the
+  row shows (new free-named file, SAME id kept, old file untouched); F the
+  shared-id invariant, both phrasings; F3 new Receipts rows claim a blank
+  row for both callers; G every receipt upload asks for no-overwrite; H a
+  409 mid-race leaves the coin's row untouched and a retry lands under a
+  different free name; I a byte-fetch failure is treated as "different"; K
+  `uploadStagingEditFiles()`'s own receipt branch never overwrites the old
+  Staging file in place either. One existing assertion updated to follow
+  the design, not weakened: `verify_staging_edit_photos` P8/P22 (a receipt
+  picked during an edit used to assert the SAME path now held the new
+  bytes — the literal overwrite this branch removes; it now asserts the
+  free name, the old file's survival, and its cleanup once coin.json points
+  elsewhere).
+- **Negative controls** (the literal pre-fix function, and a version of the
+  new one with only the sharing guard removed, both run inline against the
+  real app's own helper functions, not a restored checksum — this is new
+  logic with no prior committed version to diff against): the pre-fix
+  function reproduces both the two-sellers collision and the do-nothing
+  replace; removing only `receiptIdUsedByOtherCoin()`'s check reproduces one
+  ReceiptID pointing at two different files.
+- `npm test` on the branch: 4086 passed, 0 failed, 0 page errors, 78 suites
+  (4029 + 57 new; every other suite's count unchanged).
+- **Not verified:** any real device; any real OneDrive session; that a real
+  Replace's old file and new free-named file both actually show up correctly
+  in `_Testing/CoinReceipts`/a Staging draft folder.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -2433,6 +2517,43 @@ Never use an interactive multiple-choice question tool/prompt on Ray. Always ask
 clarifying questions as plain, copy-pasteable text in the chat response instead —
 he discusses them with Claude (chat) separately and brings back answers to all of
 them at once, which an interactive per-question picker doesn't allow for.
+
+## New rows always claim a blank row (standing rule, Ray, 27 Oct 2026)
+Every write that creates a new row, on any table (All, Photos, Receipts,
+DB_Sets, DB_Coins — and any future one), claims the first blank row directly
+below the last row that already has an id, inside the same lock that writes
+it — the same read-before-create pattern `createAllSheetRow()` established
+for All. **Never a plain append to the end of the table**: every real table
+the app writes to can carry trailing blank rows (`All`/`Photos`/`Receipts`
+all do), and appending past them is exactly the bug `createAllSheetRow()`'s
+own fix was written to close (see "Phase 2 promote: duplicate-row bug").
+- **Audited 27 Oct 2026, on `claude/receipts-never-overwrite`: every
+  row-creating write path in the app already does this.** `addTableRow()` —
+  the only Graph primitive that can literally append — has exactly two call
+  sites in the whole file: `createAllSheetRow()` (All) and `writeRecordRow()`
+  (the shared helper behind both `writePhotoRow()` and `writeReceiptRow()`,
+  i.e. Photos and Receipts), and both already scan for a claimable blank row
+  first, falling back to append-and-verify only when none exists. There is
+  no plain-append path left anywhere to fix.
+- **"Staging" has no row-creating write path at all** — a coin or Set draft
+  is a JSON file in a OneDrive folder (`coinDraftFolder()`/`setDraftFolder()`),
+  never an Excel row, so this rule has nothing to apply to there directly;
+  its eventual Receipts/Photos/All row, written once at promotion, is
+  covered by the same rule as any other write to those tables (confirmed:
+  `recordPromotedCoinRecords()`'s own Receipts write goes through the same
+  `writeRecordRow()`).
+- **DB_Sets and DB_Coins are never written by the app at all** (Copilot/
+  manual-managed reference tables, read-only) — nothing to audit there
+  either, but named in the rule so a future write to them starts right.
+  Same for Containers, Albums, Wishlist, every Lookup_* table and the Sets
+  tab — checked directly (no table-name constant or write call exists for
+  any of them).
+- A future sheet the app starts writing (a real ParkingLot write, say —
+  today's is a placeholder toast, nothing is written) follows this rule from
+  its first commit: reuse `writeRecordRow()` (or `createAllSheetRow()`'s own
+  shape if the sheet has columns a general write must never touch, the way
+  All's two live formula columns can't be) rather than reaching for
+  `addTableRow()` directly.
 
 ## Regression suites are COMMITTED (locked in — supersedes the scratchpad convention)
 `verify_*.js` suites live in **`tests/`, in the repo**, and are run with
