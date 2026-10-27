@@ -4,6 +4,28 @@ Personal coin collection app for Ray Ayres ("Salty"). Static site on GitHub Page
 no backend server. Talks directly to OneDrive (Ray's personal Microsoft account) via
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
+## Current state (rewritten at the end of every task; read this first)
+- main: last code commit `928d7a9` (photos wait for Save, merged 27 Oct
+  2026); main's head is the docs commit that last rewrote this block (see
+  `git log -1`). LIVE runs: not known here. `928d7a9` is NOT deployed until
+  Ray runs the deploy workflow for `main`; the splash then reads
+  "Build {N} · {D Mon} · {main's head short hash}".
+- Baseline: 4029 passed, 0 failed, 0 page errors, 77 suites (run on
+  `928d7a9`, 27 Oct 2026).
+- Open branch: none. `claude/photos-wait-for-save` (tip `928d7a9`) is merged
+  and stays on origin as history.
+- Next task: not chosen yet; waiting on Ray. Backlog after it, as queued (Ray
+  to confirm the order): (t) receipts never overwrite, (s) "Keep the old
+  photo?" on Replace, (e) C4 Add Set / Wishlist chooser, then (q), (r), (p).
+  Data fixes outside the app: (u) duplicate PhotoIDs. Note only: (v).
+- Open questions for Ray: Q1 the order of the backlog above; Q2 check LIVE's
+  Photos tab for duplicate PhotoIDs (u) soon after deploying `main`.
+- Not verified on a real device: Graph honouring
+  `@microsoft.graph.conflictBehavior=fail` on a real upload (the
+  no-overwrite guard); a real Holder Replace on TEST with `928d7a9`; the
+  Tap to label re-focus raising the keyboard; device Back on Samsung
+  Internet and the installed app. Details: "Photos wait for Save".
+
 ## Standard end-of-work pattern (standing rule, Oct 2026) — read this first
 **1. With every branch, before reporting it done.** The branch's last commit
 adds or updates its section in this file: what it does, the function and
@@ -35,6 +57,23 @@ questions as Q1/Q2... each with the recommendation in brackets, and the
 "CLAUDE.md updated in <commit>" / "no CLAUDE.md change needed because ..."
 line inside the block. At most one short sentence outside it. Don't wait to
 be asked for the copy-paste version.
+
+**4. Keep "Current state" current (standing rule, Ray, 27 Oct 2026).** At the
+end of EVERY task, before the report, rewrite (do not append to) the "Current
+state" block at the very top of this file, under 25 lines: main's hash and
+what LIVE runs (hash, if known); the baseline (passed / failed / page errors /
+suites) and the commit it ran on; the open branch, if any (name, tip, held or
+merged, what is waiting, e.g. Ray's tablet test); the next task and the
+backlog letters after it, in order; open questions waiting for Ray; anything
+unverified on a real device. A commit cannot name its own hash, so the block
+names the last code commit and says main's head is the docs commit that
+rewrote it; the report gives the exact head. **A session may end at any
+time: never leave work only in the conversation.** Anything a new session
+would need goes in this file before the report. New sessions may start from
+a short primer such as "Read CLAUDE.md, starting with Current state. Report
+the model and effort line, main's hash and whether origin matches, then wait
+for the task" (any wording, possibly with the task included): answer exactly
+that, then wait.
 
 **Docs-only commits** (this file only, no code) may go straight to `main` with
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
