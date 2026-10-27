@@ -131,7 +131,10 @@ the bar takes 24px; LIVE is unchanged. `verify_album_book_layout.js` F1–F8
 measure with the bar hidden for that reason. (b) Going LIVE turns on every
 writer against the real workbook at once; the deferred bugs (silent file
 overwrite on slab/reference/receipt captures, the receipt re-capture message,
-extra-column blanking on Photos/Receipts row replace) are still unfixed.
+extra-column blanking on Photos/Receipts row replace) are still unfixed on
+`main`. *(The photo overwrite and the Photos-row replace blanking are fixed on
+`claude/photos-wait-for-save`, held: see "Replace never overwrites a photo
+file" and C1's in-place Replace. Receipts are not.)*
 (c) The Staging ID-reader fix was dropped: Ray moved his hand-made Staging
 folders into a separate "Manual Staging" folder, so Staging holds only the
 app's own folders and `_Docket`.
@@ -442,11 +445,15 @@ Mint Mark display and Tap to label are fixed in round 2, held for his
 retest** (see "Round 2 after Ray's tablet test of `0a0cbd1`"). **His retest
 of `6eaef11` passed everything except Tap to label (field focused, no
 keyboard); round 3 re-focuses the field, held for his retest** (see "Round
-3 after Ray's tablet retest of `6eaef11`").
+3 after Ray's tablet retest of `6eaef11`"). **His tablet test of `826e2d4`
+found a Replace writing over the old photo file (a must-fix before merge,
+on main too) and a duplicate PhotoID; both fixed, held for his retest** (see
+"Replace never overwrites a photo file; PhotoIDs minted inside the lock").
 Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
 (35), `tests/verify_leave_guard.js` (37), `tests/verify_device_back_everywhere.js`
 (49 since round 2), `tests/verify_ogp_open_ended.js` (40),
-`tests/verify_tablet_retest_0a0cbd1.js` (17 since round 3).
+`tests/verify_tablet_retest_0a0cbd1.js` (17 since round 3),
+`tests/verify_replace_never_overwrites.js` (35).
 - **The rule (C1).** On a saved record (an owned coin or Set, write layer on:
   `photoCommitTargetId`) Add, Replace, Recrop, Crop from another photo and ✕
   are held in memory and written only by Save Changes (Edit Coin, Edit Set)
@@ -494,6 +501,8 @@ Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
   (claim a blank row); detach still blanks the whole row on purpose. Label
   writes stay single-cell (`writePhotoLabel`). The replaced file stays on disk
   (the later `_Replaced` folder item would move it after the row write).
+  *(Not true for fixed-name types until 27 Oct 2026: their Replace uploaded
+  over the old file. Fixed: see "Replace never overwrites a photo file".)*
 - **Repeatable filenames** are chosen at Save: a pick's provisional name no
   longer counts in `nextFreeRepeatableFilename` / `coinPhotoNameKnown`, so a
   discarded pick never uses up a number.
@@ -781,9 +790,13 @@ writes).
   the old side (O5c); Add Set's picker offering Package (O11b); no OGP
   PhotoType (15). Two controls first crashed the suite part-way; O4/O5/O7
   are null-safe now so they fail by name.
-- **Not verified:** any real device; whether the real workbook has any
-  OGP_Obverse/OGP_Reverse rows (the 05 Sep upload listed none); a real
-  Package upload to `_Testing`.
+- **Not verified:** any real device; a real Package upload to `_Testing`.
+- **Correction (Ray, 27 Oct 2026): old-style rows DO exist.** The "no
+  OGP_Obverse/OGP_Reverse rows" assumption (from the 05 Sep upload) is
+  wrong: on TEST, AY-00463 has OGP_Obverse and OGP_Reverse rows dated 22 Oct
+  (probably an Add Set promotion, which still records the whole-set photo as
+  OGP_Obverse), beside a new OGP row. Nothing changes: the read mapping
+  above stays until C4 (backlog q).
 - `npm test` on C3: 3961 passed, 0 failed, 0 page errors, 75 suites (3921 +
   40; every rewritten suite keeps its count).
 
@@ -969,6 +982,114 @@ build (backlog r), and hide a Set's Fun Fact until it has a real source.
   76 suites (3989 + 5 new T2 checks).
 - **Not verified:** any real device; whether the keyboard really comes up
   on the tablet; Samsung Internet; the installed app.
+
+### Replace never overwrites a photo file; PhotoIDs minted inside the lock (same branch, HELD for Ray's retest)
+Ray's tablet test of `826e2d4` (27 Oct 2026). **Must-fix before merge:**
+AY-00724's Holder back was replaced; row PH-00038 kept Filename
+`AY-00724_slab_reverse.jpg` (DateAdded 3 Oct, correctly kept) and the new
+picture was uploaded OVER the old file in TEST's CoinPhotos.
+- **Also on main / LIVE, not new on this branch.** Every fixed-name type
+  (Obverse, Reverse, Holder front/back, a Set's whole-set and sub-group
+  pairs, the old Package pair) uploaded under its one convention name with a
+  plain PUT (Graph's default is replace), so Replace and Recrop wrote over
+  the previous `{ID}_slab_reverse.jpg` / `_obverse_cropped.jpg` /
+  `_obverse_original.jpg`. On main this happened on capture; here at Save.
+  It is the "silent file overwrite on slab/reference/receipt captures" item
+  in "Known effects, accepted". Numbered types were already safe
+  (`nextFreeRepeatableFilename`), and Crop from another photo
+  (`freeFlipCropFilename`, `_cropped_02`).
+- **Fix 1, names chosen at Save for fixed-name types too**
+  (`freeSingleFilenames`, called from `commitGalleryPhoto`): the plain name
+  when it's free, else `_02`, `_03`… (`{ID}_slab_reverse_02.jpg`); a flip
+  source's crop and original take ONE number
+  (`_obverse_cropped_02.jpg` + `_obverse_original_02.jpg`). "Free" is the
+  existing `coinPhotoNameIsFree` (no Photos row, no gallery entry, no file
+  in CoinPhotos), so a stray file with no row is never written over either.
+  The row's Filename/OriginalFilename cells are then patched as before
+  (`replaceFileCells`); the old file stays in CoinPhotos untouched.
+- **Fix 2, the upload itself refuses to overwrite** (`NO_OVERWRITE`,
+  `uploadFile(path, blob, opts)` / `uploadBytes`): the real client adds
+  `?@microsoft.graph.conflictBehavior=fail`, so a name taken between the
+  check and the upload fails with 409 (`uploadError`, `err.conflict`)
+  instead of replacing. The photo stays "Not saved — tap Save again", its
+  name is cleared (`filenameResolved = false`), and the next Save picks a
+  free one. The mock client honours the option too.
+- **Recrop from the original** (`adjustStoredPhoto` when `src.fromRaw`, and
+  the in-session Recrop of a saved photo): the original is already in
+  CoinPhotos, so the new entry carries `rawStored` and the row keeps pointing
+  at that file; only the new crop is uploaded (no second copy, nothing
+  written over). A Recrop from the saved photo (no original on file) uploads
+  the source bytes as a new free `_original_NN`, as before minus the
+  overwrite.
+- **Every upload path, checked** (what each does now):
+  - Save on Edit Coin / Edit Set / Manage Photos (`commitGalleryPhoto`):
+    free names + `NO_OVERWRITE`.
+  - Add Coin's new draft (`uploadCoinDraftPhotos`, a fresh Staging folder):
+    `NO_OVERWRITE`.
+  - Staging-draft edit (`uploadStagingEditFiles` / `stagingEditNamesFor`): a
+    fixed-name Replace used to overwrite the draft's own file in place; now
+    it takes `_02` (crop and original together), uploads with
+    `NO_OVERWRITE` (a file that already landed on an earlier attempt isn't
+    re-sent, `entry.stagingLanded`), and the old file is deleted only after
+    coin.json lists the new one (`finishStagingEditFiles`, unchanged).
+  - Promotion moves, coin and Set (`moveFileWithoutOverwrite`, shared): a
+    destination already holding the SAME bytes is the copy from an
+    interrupted earlier run, so the move finishes; anything else there is
+    refused ("nothing overwritten, source kept"); an empty destination is
+    copied with `NO_OVERWRITE`. Before, a file at the destination was simply
+    written over.
+  - Crop from another photo: already free-named; now also `NO_OVERWRITE`.
+  - **Not changed, reported:** receipts (`commitReceiptCapture`: a new
+    filename not on the Receipts tab still uploads with replace, and a
+    photographed re-capture `{ID}_receipt.pdf` that IS on the tab skips the
+    upload, keeping the old file), Add Set (`uploadDraftPhoto`: fixed child
+    names; a second Pause re-uploads over its own Staging file by design),
+    Staging-edit receipts, and JSON drafts (`uploadJson`, rewritten on
+    purpose).
+- **Numbered names read back:** `rawNameForCropped` / `croppedNameForRaw`
+  pair `_cropped_02` with `_original_02` (used by `storedRawFilenameFor`,
+  `stagingPhotoGroups`, `recordPromotedCoinRecords`);
+  `stagingPhotoTypeFromFilename` accepts `_02` on fixed-name types.
+- **PH-00129 on two rows (AY-00212 Slab_Obverse and Slab_Reverse, 18 Oct,
+  before this branch): the app wrote both, and the cause is fixed.**
+  `writePhotoRow` minted the id (`nextPhotoId`) BEFORE `writeRecordRow` took
+  the Photos table's lock. On main a pick commits at once, so a Holder front
+  and back picked back to back both read the same highest id; the lock then
+  gave them different rows. Reproduced by the control below (both got
+  PH-00041). Now: the id is minted INSIDE the lock (`writeRecordRow`'s
+  `mintId`), and never at or below one this session already gave out
+  (`lastMintedIds`, per graph client), because a column read straight after
+  a write can lag. Receipts the same (`writeReceiptRow(…, null)` mints inside
+  the lock; promotion and `commitReceiptCapture` no longer mint first). On
+  this branch a Save commits photos one at a time, so the race couldn't
+  recur within one Save; the lagging read could. Main and LIVE still have
+  it. The workbook row is Ray's to fix; nothing here writes it.
+- **Tests:** `verify_replace_never_overwrites.js` (35, new): R1/R2 Holder
+  back `_02` then `_03`, old bytes and DateAdded kept; R3 Obverse pair `_02`;
+  R4 Recrop from the original reuses it; R5 a stray file never written over,
+  a free slot takes the plain names; R6 a 409 refuses, keeps the photo
+  pending, the next Save lands under a new name; R7 every photo upload asks
+  for no-overwrite; R8 promotion moves; R9/R10 Staging names and pairing; I1
+  PhotoIDs and ReceiptIDs concurrent and with a lagging read. **Tests changed
+  to follow the design, not weakened:** `verify_photos_wait_for_save` W7
+  (the failing original is now `_obverse_original_02.jpg`),
+  `verify_staging_edit_photos` P11-P14 (a Staging Replace writes a new `_02`
+  pair and never uploads over the old names; P11 used to assert the
+  overwrite).
+- **Negative controls** (real app.html, restored by checksum, each failing
+  by name): replace with the same name, no-overwrite left on (11: R1a/c/d,
+  R2a/b, R3a/c, R4b/c, R5a, R6c — the upload is refused, so the old file
+  survives but the photo doesn't save); the same name AND overwrite allowed
+  (15, adds R1b/R3b: the old file overwritten, R6a/b, R7a); Staging plain
+  names (R9a/b); promotion overwriting (R8a); no session floor (I1b); the
+  id minted outside the lock with no floor, i.e. the old code (I1a/b/c,
+  PH-00041 twice). Minting outside the lock WITH the floor passes: the two
+  protections each prevent the concurrent case on their own.
+- `npm test` on `8d9be8e`: 4029 passed, 0 failed, 0 page errors, 77 suites
+  (3994 + 35 new; the rewritten W7 and P11-P14 keep their counts).
+- **Not verified:** any real device; that Graph's simple upload honours
+  `conflictBehavior=fail` (documented for PUT …/content, not tried live);
+  a real Holder Replace on TEST.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`
@@ -1885,7 +2006,8 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   first. The All columns themselves stay as history (never cleared).
 - (q) After C4 (Ray's Q2, 26 Oct): once C4 moves Add Set onto the open-ended
   Package list, and a workbook check shows no OGP_Obverse / OGP_Reverse
-  Photos rows remain, retire the old-style OGP read mapping (`PACKAGE_TYPES`'
+  Photos rows remain (some DO exist on TEST today — AY-00463, 22 Oct — so
+  they need moving to OGP first, or the mapping stays), retire the old-style OGP read mapping (`PACKAGE_TYPES`'
   `ogp_obverse`/`ogp_reverse`, `packageEntriesInOrder`'s Front/Back order,
   `packageDisplayLabel`, `packageSide` on Replace, `setFlipPhotoUrl`'s
   OGP_Reverse lookup).
