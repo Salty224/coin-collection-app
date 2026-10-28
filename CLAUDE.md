@@ -5,28 +5,25 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main: last code commit `928d7a9` (photos wait for Save); main's head is the
-  docs commit that last rewrote this block (`git log -1`). LIVE runs
-  `928d7a9`'s code: deployed by Ray 27 Oct 2026, splash shows `d08c82e`, no
-  TEST bar.
-- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites (run on
-  `claude/receipts-never-overwrite`, 28 Oct 2026; main alone is 4029 / 77).
-- Open branch: `claude/receipts-never-overwrite`, cut from main at `02f2613`.
-  (t) receipts never overwrite is BUILT, HELD for Ray's tablet RETEST against
-  a Staging draft (the fix for the Staging edit deleting the old receipt and
-  the wrong "nothing changed" toast) — not merged, not deployed.
-  `claude/photos-wait-for-save` (tip `928d7a9`) is merged and kept on origin.
-- Next task: Ray's retest of the Staging receipt replace. Then, in Ray's
-  order (27 Oct): (g) value fallback + Set Variety line + album star rule;
-  (r) Edit Set saving, then split out child coins, then partial sales; (e)
-  C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?";
-  (p) retire the All-sheet fallback, then (q) the old OGP mapping. (u) is a
-  data fix outside the app; (v) is a note only.
-- Waiting on Ray: that retest; his decision on two bugs found on `main`, not
-  fixed (see the receipts section): detail screen shows a stale receipt after
-  an Edit Coin receipt save (LIVE_RECEIPTS never updated), and Edit Coin's
-  receipt slot never shows the stored receipt. Also he checks LIVE's Photos
-  tab for duplicate PhotoIDs (u) before any Replace on LIVE.
+- main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct
+  2026 by fast-forward of `claude/receipts-never-overwrite`); main's head is
+  the docs commit that last rewrote this block (`git log -1`). LIVE still
+  runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`):
+  NOT deployed by this merge. Ray runs the deploy workflow for `main`.
+- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites (run on the
+  branch before the merge, 28 Oct 2026; the merge is a fast-forward).
+- Open branch: none. `claude/receipts-never-overwrite` and
+  `claude/photos-wait-for-save` are merged and kept on origin.
+- Next task, in Ray's order (27 Oct): (g) value fallback + Set Variety line
+  + album star rule; (r) Edit Set saving, then split out child coins, then
+  partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s)
+  "Keep the old photo?"; (p) retire the All-sheet fallback, then (q) the
+  old OGP mapping. New backlog from 28 Oct: (w) Staging photo replace
+  should keep the old file; (x) Edit Coin receipts like Add Coin; (y)
+  Staging edit receipt slot on the shared chooser. (u) is a data fix
+  outside the app; (v) is a note only.
+- Waiting on Ray: deploy of `main` to LIVE (his call); he checks LIVE's
+  Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
 - Not verified on a real device: Samsung Internet in a browser tab; Graph's
   `@microsoft.graph.conflictBehavior=fail` (409) on a real upload.
 
@@ -83,12 +80,11 @@ that, then wait.
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
 go-ahead.
 
-**Baseline:** last code commit on `main` is `928d7a9` (photos wait for Save,
-the leave guard, device Back on every screen, open-ended Package / OGP, Replace
-never overwrites a photo file, PhotoIDs minted inside the lock; merged 27 Oct
-2026 by fast-forward of `claude/photos-wait-for-save`; later commits are
-docs-only); `npm test` = 4029 passed, 0 failed, 0 page errors, 77 suites (run
-on the merged `main`, 27 Oct 2026). **Not deployed by the merge**: LIVE gets it
+**Baseline:** last code commit on `main` is `f14cb97` (receipts never
+overwrite, on top of `928d7a9`'s photos-wait-for-save work; merged 28 Oct 2026
+by fast-forward of `claude/receipts-never-overwrite`; later commits are
+docs-only); `npm test` = 4088 passed, 0 failed, 0 page errors, 78 suites (run
+on the branch, 28 Oct 2026). **Not deployed by the merge**: LIVE gets it
 only when Ray runs the deploy workflow for `main`.
 
 ## The build decides its data target (Oct 2026) — read this first
@@ -1149,7 +1145,8 @@ picture was uploaded OVER the old file in TEST's CoinPhotos.
   both the old file and the new `_02` file are in `_Testing/CoinPhotos`.
   The 409 path itself is still unverified live.)*
 
-## Receipts never overwrite (Oct 2026, held on `claude/receipts-never-overwrite`, HELD for Ray's tablet test)
+## Receipts never overwrite (Oct 2026, merged to main 28 Oct 2026 by fast-forward, built on `claude/receipts-never-overwrite`)
+**Merged on Ray's go-ahead (28 Oct 2026)** after his tablet retest of `e4cfa79` passed (Staging replace keeps every old file; toast says the original was kept). Last fix before merge `f14cb97`: the Staging-edit Save changes toast capitalises its first word ("Receipt saved to Staging (the old file is kept there)."; P22b follows). The branch stays on origin. The "held" wording below records the state while it was tested.
 Backlog (t), Ray's own Q1 on the "Replace never overwrites a photo file" fix
 above. Same `NO_OVERWRITE` / free-name approach, extended to the one place
 receipts still worked the old, unsafe way.
@@ -2221,7 +2218,8 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   row pointing at a missing file. Guard against a cached old picture
   showing under the reused name (the session photo cache is keyed by
   filename). Plan first; until then Replace keeps today's free `_02` names.
-- (t) Receipts never overwrite (Ray, 27 Oct, his Q1 on the Replace fix), its
+- (t) *(Done: merged to main 28 Oct 2026, see "Receipts never overwrite".)*
+  Receipts never overwrite (Ray, 27 Oct, his Q1 on the Replace fix), its
   own small branch. Today `commitReceiptCapture` uploads a new filename not
   on the Receipts tab with replace, and a photographed re-capture
   `{ID}_receipt.pdf` that IS on the tab skips the upload and keeps the old
@@ -2231,6 +2229,22 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   LIVE's Photos tab for duplicate PhotoIDs: `main` / LIVE could mint them
   (id minted before the table lock, no session floor) until the 27 Oct
   merge. Nothing in the app writes this fix.
+- (w) Staging photo replace deletes the old file (Ray, 28 Oct; tests
+  `verify_staging_edit_photos` P11-P14 assert the deletion today:
+  `finishStagingEditFiles` deletes a superseded fixed-name photo after
+  coin.json is written). It should KEEP the old file, like receipts now do;
+  only ✕ plus its confirmation deletes. Backlog only, not built.
+- (x) Edit Coin receipts should match Add Coin (Ray, 28 Oct, his Q1/Q2 from
+  the receipts retest, both already on `main` before the 28 Oct merge): the
+  receipt slot moves into Purchase Details, waits for Save like photos do,
+  shows the stored receipt (`prepareReceiptSlotForRecord()` only clears the
+  slot today), and the coin's detail screen refreshes after a receipt save
+  (`LIVE_RECEIPTS` is fetched once per session and `commitReceiptCapture()`
+  never updates it; photos have `syncStoredPhotoIndexUpsert`, receipts have
+  no equivalent). Backlog only, not built.
+- (y) The Staging-edit receipt slot needs the shared chooser (Ray, 28 Oct):
+  it still has the old camera / gallery / ✕ icons, with no preview, no
+  Replace and no Files button. Backlog only, not built.
 - (v) Note only, no action (Ray, 27 Oct): on LIVE, a Replace or Recrop of a
   fixed-name photo before the 27 Oct merge uploaded over the old file
   (`{ID}_slab_reverse.jpg`, `_obverse_cropped.jpg`, `_obverse_original.jpg`
