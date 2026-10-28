@@ -1,6 +1,7 @@
 # Reference: BROWSE_DETAIL (moved out of CLAUDE.md)
 
 Read this file when: touching the Browse detail page, the Edit Coin / Edit Set layout, Overview and accordions, Spotlight, Specifications, sharing, Set child linkage, or the Value floor and formatCurrency.
+Rules that stayed in CLAUDE.md (not in this file): "Belongs to: Set membership from OriginSetID only" and "Set attach / detach: the real OriginSetID write layer" (continuation in docs/HISTORY.md).
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ### Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, merged to main)

@@ -1,6 +1,7 @@
 # Reference: FORMER_HOLDINGS (moved out of CLAUDE.md)
 
 Read this file when: touching Former Holdings, Purge, or the Show Purged toggle.
+Rules that stayed in CLAUDE.md: the design head of "Former Holdings sub-catalog + Purge"; its continuation is in this file.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 #### (continued) Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`, landed via rebase; the code is on `main`)

@@ -1,6 +1,7 @@
 # Reference: PHOTOS (moved out of CLAUDE.md)
 
 Read this file when: touching photos, crop, receipts, the image chooser, Manage Photos, photo labels, Replace, Save-wait behaviour, or reference images.
+Rules that stayed in CLAUDE.md (not in this file): "Photos wait for Save" (C1-C3, "C2: the leave guard", "Replace never overwrites a photo file"), "Receipts never overwrite", "Photo / receipt write layer", "Receipt photos auto-convert to PDF", and the chooser rule E2 (under "Rules extracted from moved sections"). The continuations of the Save-wait, leave guard, Replace, Receipts and write-layer sections are in docs/HISTORY.md.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ## Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)

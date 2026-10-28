@@ -1,6 +1,7 @@
 # Reference: DOCKET_STAGING (moved out of CLAUDE.md)
 
 Read this file when: touching the Docket, the Needs Attention hub, Staging Review, or their Re-check / Force Add / Dismiss buttons.
+Rules that stayed in CLAUDE.md (not in this file): "Phase 2 promote: duplicate-row bug" (continuation in docs/HISTORY.md), "Item 5 — Force Add's orphan blank row", "CollectionID-reservation system — Promotion / Rejection", and "docket.json handling".
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ### Needs Attention hub (BUILT and merged to main). Supersedes the old flat

@@ -1,6 +1,7 @@
 # Reference: ADD_SET (moved out of CLAUDE.md)
 
 Read this file when: touching Add Set (Step 1/2, Set drafts, sub-groups, Set promotion).
+Rules that stayed in CLAUDE.md: the design head of "Add Set + real write layer"; its continuation is in this file.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 #### (continued) Add Set + real write layer (BUILT and merged to main)

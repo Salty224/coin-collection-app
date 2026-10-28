@@ -1,6 +1,7 @@
 # Reference: ADD_COIN (moved out of CLAUDE.md)
 
 Read this file when: touching the Add Coin or Edit Coin forms, the Identification section (Grader, PCGS label, Mint Item Number, GSID), denomination or Finish dropdowns, CACBean, Value fields, or Staging-draft editing.
+Rules that stayed in CLAUDE.md (not in this file): "Add Coin write layer — Phase 1" and "Browse Edit real write layer" (their continuations are in docs/HISTORY.md), and "Add Coin Phase 2 + live-device retest batch".
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`)

@@ -1,6 +1,7 @@
 # Reference: NAV_DASHBOARD (moved out of CLAUDE.md)
 
 Read this file when: touching the Dashboard cabinet, drawers, Back and Close Drawer, device Back / the history guard, the splash screen, or startup gating.
+Rules that stayed in CLAUDE.md (not in this file): "Startup connection, docket.json, and the no-demo-data rule" (startup timings, Retry, Docket fast-fail).
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ### Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest; merged to main 27 Oct 2026)
