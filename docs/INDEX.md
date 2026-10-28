@@ -1,0 +1,138 @@
+# Index of headings moved out of CLAUDE.md
+
+One line per moved heading: the heading, its new file, and its line range in CLAUDE.md as it was at commit `21bcd95` (17,286 lines). Back to [CLAUDE.md](../CLAUDE.md).
+
+Headings that stayed in CLAUDE.md are not listed. A SPLIT heading stays in CLAUDE.md with its design part; the line shown is where its continuation went.
+
+- The old "Current state" block (original lines 7-29) -> [docs/HISTORY.md](HISTORY.md), first section.
+- Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 184-475
+- Photos wait for Save (Oct 2026, merged to main 27 Oct 2026 by fast-forward to `928d7a9`, built on `claude/photos-wait-for-save`) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 577-598
+- C2: the leave guard (built on the same branch, HELD for Ray's device test; merged to main 27 Oct 2026) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 664-687
+- C2 follow-ups (same branch, commit `7b4471e`, HELD for Ray's tablet test; merged to main 27 Oct 2026) -> [docs/HISTORY.md](HISTORY.md), original lines 688-775
+- C3: open-ended Package / OGP (same branch, HELD for Ray's tablet test; merged to main 27 Oct 2026) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 776-850
+- Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest; merged to main 27 Oct 2026) -> [docs/ref/NAV_DASHBOARD.md](ref/NAV_DASHBOARD.md), original lines 851-976
+- Round 3 after Ray's tablet retest of `6eaef11` (same branch, HELD for his retest; merged to main 27 Oct 2026) -> [docs/HISTORY.md](HISTORY.md), original lines 977-1037
+- Replace never overwrites a photo file; PhotoIDs minted inside the lock (same branch, HELD for Ray's retest; merged to main 27 Oct 2026) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 1119-1147
+- Receipts never overwrite (Oct 2026, merged to main 28 Oct 2026 by fast-forward, built on `claude/receipts-never-overwrite`) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 1197-1264
+- Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 1265-1578
+- Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 1579-1795
+- Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 1796-1828
+- Catalog: Finish tag on list rows + Finish filter (Oct 2026, merged to main, built on `claude/catalog-finish-filter-and-list-tag`, tip `4f6577b`) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 1829-1858
+- Editing a Staging draft: photos, receipt and research note (Phase B) (Oct 2026, merged to main at `44b7a3d`, built on `claude/staging-edit-photos-phase-b`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 1859-1934
+- Add Coin: 📁 Files button + photo guard (Oct 2026, merged to main at `0a86551`, built on `claude/add-coin-files-picker-button`) -> [docs/HISTORY.md](HISTORY.md), original lines 1935-1980
+- Ledger, spot prices, Wishlist, albums: Oct 2026 work (all merged to main, a06b976) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 1981-1984
+- Wishlist "in work" (`tests/verify_wishlist_in_work.js`) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 1985-1989
+- Ledger: value by metal (`tests/verify_ledger_value_by_metal.js`) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 1990-1998
+- Ledger: spot prices (`tests/verify_ledger_spot_prices.js`) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 1999-2003
+- Ledger: "Update prices" panel (`tests/verify_spot_price_update.js`) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 2004-2039
+- Albums: page flip can no longer get stuck (`tests/verify_album_book_flip.js`) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 2040-2051
+- Albums: "Best of" view (`tests/verify_album_best_of.js`) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 2052-2098
+- History: Current status as of 2026-09-05 (superseded, kept for the record) -> [docs/HISTORY.md](HISTORY.md), original lines 2254-2262
+- Coin detail, Finish and flip-card text (04 Oct 2026) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 2387-2430
+- Receipt PDFs: pdf.js on demand (Oct 2026) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 2431-2466
+- Crop from an uploaded photo (Oct 2026, merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 2467-2502
+- Add Coin field layout (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 3273-3413
+- Coin-flip corner labels (locked in) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 3414-3533
+- Saved-coin flip corners: Variety + Designation added (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 3534-3576
+- Horizontal hairline on the coin-disc — root cause found and fixed (BUILT, merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 3577-3617
+- Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 3618-3634
+- Browse detail: CollectionID display above Overview (BUILT, merged to main — superseded placement, see the header-row consolidation follow-up below) -> [docs/HISTORY.md](HISTORY.md), original lines 3635-3645
+- Browse Edit save toast: field count excludes admin-only columns (BUILT, merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 3646-3766
+- Tap-to-flip (superseded — see "Coin-flip interaction redesign" below) -> [docs/HISTORY.md](HISTORY.md), original lines 3767-3776
+- Coin-flip interaction redesign (locked in) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 3777-3876
+- Photo Gallery, two-stage crop pipeline & Manage Photos (BUILT and merged to main on Ray's real-device sign-off; built on `claude/photo-gallery-crop`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 3877-4144
+- Photo touchpoint consolidation (BUILT and merged to main) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 4145-4369
+- Detail/Edit accordion redesign (BUILT and merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 4370-4728
+- Browse detail view (locked in) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 4729-4955
+- Carried forward — not yet built (empty — all three Browse issues are done) -> [docs/HISTORY.md](HISTORY.md), original lines 4956-4982
+- Browse: Grid/List toggle (locked in) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 4983-5009
+- Browse filters (locked in, superseded by "Browse: navigation restructure" below) -> [docs/HISTORY.md](HISTORY.md), original lines 5010-5033
+- Browse: navigation restructure (locked in, supersedes "Browse filters" above) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5034-5143
+- Medal tab (locked in, supersedes the Medal chip mentioned above) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5144-5188
+- Rolls tab: list view + sort control (locked in, supersedes the coin-stack visual below) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5189-5262
+- Metal filter (locked in, pill set superseded below — mechanics still apply) -> [docs/HISTORY.md](HISTORY.md), original lines 5263-5297
+- Metal filter: expanded to 7 categories (locked in, supersedes the pill set above) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5298-5336
+- Year filter (locked in — Coins, Rolls, Sets; not Albums) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5337-5385
+- Browse filters: reset on external entry (locked in) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5386-5424
+- Sets tab: list-mode cards now show Year (BUILT and merged to main) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5425-5471
+- Sets tab: completeness checklist (locked in) -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 5472-5578
+- Grade picker (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 5579-5592
+- Description auto-fill (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 5593-5599
+- DB_Coins soft match (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 5600-5615
+- Add Set + real write layer (BUILT and merged to main) -> continuation (rest of the section) in [docs/ref/ADD_SET.md](ref/ADD_SET.md), original lines 5870-6175
+- Grader dropdown + grader-agnostic cert linking (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 6176-6236
+- PCGS Label Auto-Populate (locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 6237-6273
+- ANACS/ICG/CAC label format (deferred, not started) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 6274-6287
+- Grading Help button (framework only, locked in) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 6288-6309
+- Needs Attention hub (BUILT and merged to main). Supersedes the old flat -> [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md), original lines 6310-6460
+- Docket research queue: durable + resolvable (BUILT and merged to main) -> [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md), original lines 6461-6743
+- Needs Attention queue (superseded by the hub above — kept for history) -> [docs/HISTORY.md](HISTORY.md), original lines 6744-6752
+- Stats & Value (locked in) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 6753-6762
+- Matcher hardening: Designation in dbCoinsCandidatesFor() (BUILT and merged to main) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 6810-6987
+- Browse Edit real write layer (BUILT and merged to main) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 7175-7502
+- Add Coin write layer — Phase 1 (BUILT and merged to main) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 7715-7763
+- Add Coin Phase 1: live-run bug-fix pass (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 7764-7977
+- Add Coin Phase 1: second live-run retest pass (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 7978-8120
+- Add Coin Phase 1: batch 3 (BUILT and merged to main) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 8121-8337
+- Add Coin Phase 1: gold/bullion denomination codes (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 8338-8462
+- Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 8463-8581
+- Add Coin Phase 1: batch 4 (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 8582-8653
+- Add Coin Phase 1: batch 6 (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 8654-8703
+- Add Coin Phase 1: batch 7 (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 8704-8748
+- Docket: "Other / Requires Photos" read FAKE_COINS in a live session (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 8749-8813
+- Docket: three collapsible sections (BUILT and merged to main) -> [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md), original lines 8814-8908
+- Add Coin: accordion restructure (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 8909-9004
+- U.S. Mint Item Number: naming standardized across DB_Coins/DB_Sets (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 9005-9055
+- Add Coin: Identification section — Mint Item Number + GSID matching (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 9056-9169
+- Add Coin Identification: a matched ID now carries Category too (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 9170-9229
+- Staging Review: workbook + per-coin folder links (BUILT and merged to main) -> [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md), original lines 9230-9289
+- Docket: Research row tags (BUILT and merged to main) -> [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md), original lines 9290-9338
+- Composition: a real matcher input + flip-card display (BUILT and merged to main) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 9339-9546
+- CACBean UI, Value field rounding, composition corner restacked (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 9547-9699
+- CACBean visibility fix, read-only Overview row, $ on Purchase/Shipping, Catalog composition, collision-based sizing (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 9700-9852
+- TR corner (type/series name): graceful degradation, not destructive truncation (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 9853-9925
+- Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 9926-10041
+- Reverse face gets real content; Sets lose the flip card entirely (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 10042-10221
+- Phase 2 promote: duplicate-row bug (BUILT and merged to main) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 10576-10632
+- Editing a coin in Staging — Phase A (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 10633-10721
+- Workbook-alignment batch (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 10722-10865
+- Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 11066-11435
+- Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`, landed via rebase; the code is on `main`) -> continuation (rest of the section) in [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 11593-11620
+- Purge follow-up: independent crop/original selection, all unchecked by default (BUILT, same branch, merged to main) -> [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 11621-11732
+- Purge follow-up 2: a zero-photo coin can now reach Purged too (BUILT, same branch, merged to main) -> [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 11733-11803
+- Purge follow-up 3: one search box too many — "Open by CollectionID" retired for a "Show Purged" toggle (BUILT, same branch, merged to main) -> [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 11804-11884
+- Live Spotlight + a real Specifications source (BUILT and merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 11912-12066
+- Ledger/Stats: live-data read-path fix (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 12067-12135
+- Live-device retest batch 2 (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 12136-12284
+- Value / ValueSource / ValueDate on Add Coin -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 12374-12412
+- Catalog grid: Variety + Designation on the mini flip card (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 12413-12496
+- Live retest round 2 (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 12497-12582
+- Flip card: TL and BL are fitted (1787 Fugio Cent) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 12583-12629
+- Catalog grid: the SAME Fugio collision, one card size down (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 12630-12704
+- Status vocabulary simplification + Sell/Remove action (BUILT and merged to main) -> [docs/ref/LEDGER.md](ref/LEDGER.md), original lines 12705-12856
+- Real-Graph flags always on; WRITE_TARGET is the actual safety boundary (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 12908-13038
+- Docket: FAKE_NEEDS_QUEUE demo rows cleared (BUILT, Ray's explicit go-ahead) -> [docs/HISTORY.md](HISTORY.md), original lines 13039-13057
+- SMS finish indicator on the flip card (BUILT and merged to main) -> [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md), original lines 13058-13116
+- Set/child linkage: live-data path added (BUILT, display-only) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 13117-13209
+- Set attach / detach: the real OriginSetID write layer (BUILT and merged to main; built on `claude/add-coin-write-path-fs2rf8`, tip `3767eb4`, landed via rebase; the code is on `main`) -> continuation (rest of the section) in [docs/HISTORY.md](HISTORY.md), original lines 13317-13361
+- Cabinet navigation redesign (BUILT and merged to main; built on `claude/cabinet-navigation`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`) -> [docs/ref/NAV_DASHBOARD.md](ref/NAV_DASHBOARD.md), original lines 13374-14283
+- Initial splash screen (BUILT and merged to main — real data-readiness gating) -> [docs/ref/NAV_DASHBOARD.md](ref/NAV_DASHBOARD.md), original lines 14284-14390
+- Sharing (locked in) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 14391-14429
+- Albums: page-flip book (locked in, supersedes the device-tiered/deferred notes below) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 14430-14603
+- Littleton folder visual style (locked in) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 14604-14690
+- Live nav data (read-only) — BUILT and merged to main -> [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md), original lines 14691-14911
+- Albums: live-wiring, read-only (BUILT and merged to main) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 14912-15241
+- Albums book layout: cover sizing + page-flip clip fix (BUILT and merged to main) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 15242-15477
+- Albums: bounded image prefetch on open (BUILT and merged to main) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 15478-15585
+- Splash + Album prefetch: three live-device fixes (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 15586-15776
+- Splash: Docket badge gap closed; Value floored at face value + one shared currency formatter (BUILT and merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 15777-15939
+- Graph auth: a persistent silent failure now escalates to a real redirect (BUILT and merged to main) -> [docs/HISTORY.md](HISTORY.md), original lines 15940-16077
+- Splash: the Docket queue can no longer block the whole app (BUILT and merged to main) -> [docs/ref/NAV_DASHBOARD.md](ref/NAV_DASHBOARD.md), original lines 16078-16227
+- Albums: variety-label bug fix, rounded Mintage, "Included" for shared figures (BUILT and merged to main) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 16228-16361
+- Browse detail stepping: an Album-opened coin steps through its own slot order (BUILT and merged to main) -> [docs/ref/ALBUMS.md](ref/ALBUMS.md), original lines 16362-16413
+- Three confirmed bugs from Ray's Add Coin → Promote → Catalog/Ledger live-device test (BUILT and merged to main) -> [docs/ref/ADD_COIN.md](ref/ADD_COIN.md), original lines 16414-16582
+- Finish conflict on a single match, real direct-write for a clean match, visible Promote loading state (BUILT and merged to main) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 16583-16771
+- Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 16772-16946
+- Re-check applied the gate too; three note strings corrected (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 16947-17099
+- Series-level reference images (locked in — framework only, real assets still open) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 17100-17184
+- 17Jul2026 (chat session, reported after the CollectionID-reservation merge) -> [docs/HISTORY.md](HISTORY.md), original lines 17243-17281
