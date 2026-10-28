@@ -5,12 +5,13 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct 2026 by fast-forward); main's head is `21bcd95`, the docs commit that last rewrote the old block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by the receipts merge. Ray runs the deploy workflow for `main`.
-- Open branch: `claude/slim-claude-md` (docs-only, cut from `21bcd95`, pushed, NOT merged, held for Ray's review). It slims this file from 17,286 lines to a core of standing rules, state, backlog, architecture and write-layer design. Build history went to `docs/HISTORY.md`; area detail went to `docs/ref/*.md`; `docs/INDEX.md` maps every moved heading to its new file and old line range. No code changed.
-- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites (run on `claude/slim-claude-md`, 28 Oct 2026; docs-only, code identical to `f14cb97`).
+- main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct 2026 by fast-forward). The docs-only slimming of this file was merged 28 Oct 2026 by fast-forward of `claude/slim-claude-md` (first commit `a4737d7`); main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by either merge. Ray runs the deploy workflow for `main`.
+- Open branch: none. `claude/slim-claude-md`, `claude/receipts-never-overwrite` and `claude/photos-wait-for-save` are merged and kept on origin.
+- Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
+- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites (run on `claude/slim-claude-md` before the merge, 28 Oct 2026; docs-only, code identical to `f14cb97`).
 - Next task, in Ray's order (27 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping. New backlog from 28 Oct: (w) Staging photo replace should keep the old file; (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
-- Waiting on Ray: review and merge of `claude/slim-claude-md`; deploy of `main` to LIVE (his call); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
-- Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed.
+- Waiting on Ray: deploy of `main` to LIVE (his call); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
+- Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed. Also: pointers in kept text that name a section now in `docs/` (about 40, listed in the slimming report) were not edited; use `docs/INDEX.md`.
 - Not verified on a real device: Samsung Internet in a browser tab; Graph's `@microsoft.graph.conflictBehavior=fail` (409) on a real upload.
 
 ## Where to look (read the file BEFORE working in that area)
@@ -28,6 +29,7 @@ This file keeps what every session needs: standing rules, current state, backlog
 - When touching Former Holdings, Purge, or the Show Purged toggle: read [docs/ref/FORMER_HOLDINGS.md](docs/ref/FORMER_HOLDINGS.md) first.
 - When touching Ledger, Stats, spot prices, Status and Sell/Remove, or Wishlist: read [docs/ref/LEDGER.md](docs/ref/LEDGER.md) first.
 - To find where a heading from the old file went: [docs/INDEX.md](docs/INDEX.md).
+- Section names quoted elsewhere in this file ("see ...", "above", "below") may now live in a docs/ file: look the heading up in [docs/INDEX.md](docs/INDEX.md).
 - Only when you need the story behind a feature (test lists, negative controls, bug-fix rounds, superseded designs): [docs/HISTORY.md](docs/HISTORY.md).
 - When Ray runs a live pass: the checklists `docs/*_LIVE_RUN_CHECKLIST.md`.
 
@@ -110,25 +112,56 @@ E1: there is NO global `.hidden` rule in app.html. Source: [docs/ref/BROWSE_DETA
   regression assertion added. **Worth remembering for any future
   hide-by-class work in this file.**
 
-E2: the image chooser uses three separate inputs because Samsung Internet skips the native chooser. Source: [docs/ref/PHOTOS.md](docs/ref/PHOTOS.md), section "Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)" (original lines 1603-1607).
+E2: the image chooser uses three separate inputs because Samsung Internet skips the native chooser. Source: [docs/ref/PHOTOS.md](docs/ref/PHOTOS.md), section "Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)" (original lines 1599-1610).
+- **The chooser** (`#imageSourceChooser`, `openImageSourceChooser({ onFile,
+  guard, title })`, `closeImageSourceChooser()`): a bottom sheet on a phone,
+  a centred card at 700px and wider, z-index 205 (above the 200 sheets,
+  below the crop overlays at 210). Three SEPARATE shared inputs
   (`imageChooserCameraInput` image/* + capture=environment,
   `imageChooserLibraryInput` image/*, `imageChooserFilesInput`
   image/*,application/pdf = `FILES_PICKER_ACCEPT`, no capture): never one
   combined input, because Samsung Internet skips the native chooser. A
   source tap closes the sheet before the OS picker opens; the request rides
+  on the input (`_chooserRequest`) until its change event, so cancelling the
+  OS picker leaves the screen as it was. Cancel, a backdrop tap and Esc
+  close it. **No Android back-gesture handling in v1** (Ray's call).
 
-E3: reads and writes target the same workbook, always. Source: [docs/ref/BROWSE_CATALOG.md](docs/ref/BROWSE_CATALOG.md), section "Live nav data (read-only) — BUILT and merged to main" (original lines 14719-14722).
+E3: reads and writes target the same workbook, always. Source: [docs/ref/BROWSE_CATALOG.md](docs/ref/BROWSE_CATALOG.md), section "Live nav data (read-only) — BUILT and merged to main" (original lines 14712-14725).
+**Superseded, and this is the important part:** this used to read the **live
+production workbook** unconditionally, on the reasoning that "a read-only
+GET can't corrupt anything, so it doesn't need the `_Testing` copy
+convention." That was true while nothing wrote. Once the Browse Edit write
+layer landed, reading production while writing to the `_Testing` copy caused
+real, silent data loss on Ray's live pass — the Edit form pre-filled from
+one file and diffed against another, so an untouched field got submitted as
 a change. See "Browse Edit real write layer" → Bugs A/B for the full
 account. **Standing rule: reads and writes target the same workbook, always.
 Any new read path uses `writePaths().workbook`. Do not reintroduce a
 separate read target for "safety" — that split is what caused the bug.**
+(The Reference Images feature reading `CoinCollection/ReferenceImages/`
+directly is genuinely different and unaffected: it reads image FILES, not
+the workbook, and nothing writes those.)
 
-E4: test-quality trap: an assertion whose broken case also returns the passing value proves nothing. Source: [docs/HISTORY.md](docs/HISTORY.md), section "Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main)" (original lines 11217-11219).
+E4: test-quality trap: an assertion whose broken case also returns the passing value proves nothing. Source: [docs/HISTORY.md](docs/HISTORY.md), section "Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main)" (original lines 11212-11219).
+- **Two assertions were strengthened after a control failed to fire**:
+  `Q6`/`Q7` matched the FIRST Reference row, which is the OLD one when a
+  spurious row is added, so both passed against broken code; they now match
+  on the row carrying the new filename. And `Q9` was added to isolate
+  `writePhotoRow()`'s own Label fallback, which the JS-side caption
   carry-forward was masking. Same trap as `G3`/`F2` last round — assume it
   applies to any assertion whose broken case also returns the passing
   value.
 
-E5: anything that redraws the Album book mid-turn must go through the turn helpers. Source: [docs/ref/ALBUMS.md](docs/ref/ALBUMS.md), section "Albums: page flip can no longer get stuck (`tests/verify_album_book_flip.js`)" (original lines 2050-2050).
+E5: anything that redraws the Album book mid-turn must go through the turn helpers. Source: [docs/ref/ALBUMS.md](docs/ref/ALBUMS.md), section "Albums: page flip can no longer get stuck (`tests/verify_album_book_flip.js`)" (original lines 2041-2050).
+Ray's PC report: in spread mode (>=900 px) a flip snapped back and the
+arrows died, in every album opened afterwards too. Cause: a photo landing during
+the 0.65 s turn redrew the book at the old page, the turning leaf was removed,
+its `transitionend` never fired and `albumTurnInProgress` stayed true. Fix:
+- each turn has a token and finishes once, on the leaf's own `transform`
+  transitionend or a fallback timer (`ALBUM_TURN_FALLBACK_MS`);
+- `renderAlbumBook()` and `openAlbumAtPage()` call `cancelAlbumTurn()` first;
+- photo-arrival redraws skip while a turn is running (the turn's own finish
+  redraws with the photo cached).
 **Anything that redraws the book mid-turn must go through these, not around them.**
 
 E6: do not hand-tune a visual nudge for a font-rendering perception. Source: [docs/ref/NAV_DASHBOARD.md](docs/ref/NAV_DASHBOARD.md), section "Cabinet navigation redesign (BUILT and merged to main; built on `claude/cabinet-navigation`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`)" (original lines 13972-13976).
@@ -138,58 +171,110 @@ E6: do not hand-tune a visual nudge for a font-rendering perception. Source: [do
   engines that a guessed compensation can just as easily overcorrect on a
   different device, as it did here.
 
-E8: DESCRIPTION_GENERIC_TOKENS must stay tight; never add an identity-bearing word. Source: [docs/ref/MATCHER.md](docs/ref/MATCHER.md), section "Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`)" (original lines 16816-16820).
+E8: DESCRIPTION_GENERIC_TOKENS must stay tight; never add an identity-bearing word. Source: [docs/ref/MATCHER.md](docs/ref/MATCHER.md), section "Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`)" (original lines 16816-16822).
 - **`DESCRIPTION_GENERIC_TOKENS` is deliberately tight** and must stay so:
   every word added makes a false refusal likelier. It strips denomination
   nouns, the country and connectives, and pure-numeric tokens (Year is
   already the matcher's own base key). **Never add an identity-bearing word
   to it** — `EAGLE` stays (it is all that survives "Quarter Eagle"), and so
+  do `GOLD`/`SILVER`. Stripping `DOLLAR` is what stops "Trump Dollar"
+  agreeing with "American Silver Eagle Dollar" on that word alone.
 
-E9: every category hint is a phrase of two or more words; never collapse one to a single word. Source: [docs/ref/MATCHER.md](docs/ref/MATCHER.md), section "Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main)" (original lines 8525-8527).
+E9: every category hint is a phrase of two or more words; never collapse one to a single word. Source: [docs/ref/MATCHER.md](docs/ref/MATCHER.md), section "Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main)" (original lines 8516-8526).
+- **Two hints were themselves fixed by this pass, not just promoted**:
+  `"Palladium Eagle"` was a bare `["PALLADIUM"]` and `"Gold Buffalo"` was a
+  bare `["BUFFALO"]` — both single-word, both exactly the collision-risk
+  pattern this tier's own design rule warns against (`"Buffalo"` alone
+  would false-positive against every real Buffalo Nickel row). Fixed to
+  `["PALLADIUM EAGLE"]` (matching the confirmed real wording) and
+  `["AMERICAN BUFFALO"]` (a safer two-word phrase; Gold Buffalo itself
+  stays soft-only since no confirmed real Gold Buffalo row exists yet —
+  only the mislabeled silver anomaly above). **Every hint in this map is
   now a full two-word-or-longer phrase — never collapse one back to a
   single word.**
-- **A soft category's hint can still narrow on a coincidental match** — this
 
-E11: only the CERT part of a label may reach a cert-lookup URL. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Grader dropdown + grader-agnostic cert linking (locked in)" (original lines 6197-6198).
+E11: only the CERT part of a label may reach a cert-lookup URL. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Grader dropdown + grader-agnostic cert linking (locked in)" (original lines 6191-6200).
+3. Cert lookup is resolved via `Lookup_Graders[GradeSource].Cert Lookup Base
+   URL` — **grader-agnostic**, not hardcoded per service. Adding a new
+   confirmed grader to `Lookup_Graders` (a base URL) is the only change needed
+   to light up its lookup link; no code change per grading service. The link
+   only activates if that GradeSource actually has a base URL on file (today:
+   PCGS and NGC do, ANACS/ICG/CAC don't — see the research note). **Only the
    CERT portion of a decoded label is ever valid input to this resolver** —
    SPEC and GRADE must never reach a lookup URL; the resolver defensively
+   strips anything before a stray `/` as a second line of defense on top of
+   the parser already isolating CERT correctly.
 
-E12: Grading Help: hard copyright constraint. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Grading Help button (framework only, locked in)" (original lines 6302-6303).
+E12: Grading Help: hard copyright constraint. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Grading Help button (framework only, locked in)" (original lines 6302-6305).
 shows the plain "no grading guidance on file yet" message plus the links. **Hard copyright constraint**: this must never reproduce ANA's
 grading-guide text or PCGS's Photograde images — the modal only ever
+summarizes-and-links to their own public reference pages (PCGS PhotoGrade,
+NGC Grading Standards), the same hotlink-only posture as the rest of PCGS
 
-E13: Mint Mark "Other" never writes a persisted value. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9939-9941).
+E13: Mint Mark "Other" never writes a persisted value. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9939-9946).
 - **"Other" never writes a persisted MintMark value of its own** (Q2,
   confirmed) — its option value is a one-shot sentinel (`__OTHER_MINT__`),
   normalized straight back to `""` the instant the `change` handler fires,
+  BEFORE `refreshVarietyOptions()`/`checkDbCoinsMatch()`/`updateFlipLabels()` *(removed 23 Oct 2026, commit 6 `c6f0ba0`)*
+  or any other reader of `#mintMark.value` runs. It's purely a UI trigger
+  for the one-time lookup below; the draft's MintMark stays blank, exactly
+  like an ordinary Philadelphia coin — verified directly (a saved draft
+  through this path carries `mint: ""`).
 
-E14: the full-name Mint column must never replace MintMark in the primary join key. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9950-9952).
+E14: the full-name Mint column must never replace MintMark in the primary join key. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9947-9953).
+- **`mapWorkbookRowToDbCoin()` now reads `DB_Coins.Mint` into a new
+  `mintFull` field**, kept completely separate from `mint` (the abbreviation
+  the base matcher's join key already uses). This is a NEW, narrow lookup —
   used only by `handleMintMarkOtherApply()` — and does not touch the
   existing hard constraint that the full-name `Mint` column must never
   substitute into the primary MintMark join key; `dbCoinsCandidatesFor()`
+  itself is completely unchanged.
 
-E15: Edit Coin never auto-fills over curated identity fields. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Workbook-alignment batch (BUILT and merged to main)" (original lines 10770-10773).
+E15: Edit Coin never auto-fills over curated identity fields. Source: [docs/ref/ADD_COIN.md](docs/ref/ADD_COIN.md), section "Workbook-alignment batch (BUILT and merged to main)" (original lines 10769-10775).
+- **Deliberately narrower than Add Coin's.** Add Coin fills a whole new
   coin's identity from the matched row because there is nothing to lose. Edit
   Coin must not: Description/Variety/Finish/Denomination/Year on an existing
   row are curated, and this form's standing rule is that it never auto-fills
   over them. So the only field it writes is Mint Mark — which the shared
+  sentinel has already normalized to blank — and the visible outcome is a
+  banner plus a catalog link.
 
-E17: setId and originSetId are different relationships; never cross-wire them. Source: [docs/ref/BROWSE_DETAIL.md](docs/ref/BROWSE_DETAIL.md), section "Browse detail view (locked in)" (original lines 4880-4882).
+E17: setId and originSetId are different relationships; never cross-wire them. Source: [docs/ref/BROWSE_DETAIL.md](docs/ref/BROWSE_DETAIL.md), section "Browse detail view (locked in)" (original lines 4880-4892).
 - **Child linkage — `originSetId`, a NEW field kept fully separate from
   Issue-3's `setId`.** These are two different relationships and must never
   cross-wire: `setId` (S-XXYY-TT-##) is Issue-3's "an individual owned coin
+  *belongs to* this Set" chip linkage (`resolveCoinSetLink()` *(removed Oct 2026)*, matched against
+  a bundle's own `setId`; that chip no longer exists, and SetID is now treated as the
+  issue catalog, not membership); `originSetId` (demo `OS-YYYY-XXX-##`) is "these
+  child coins are physically *inside* this Set bundle." A parent bundle and
+  all its children share one `originSetId`. **The `-Set`/`-A`/`-B` CollectionID
+  suffix pattern (see "ID schemes") stays the human-readable provenance
+  lineage but is NOT the code join key** — the join is the explicit
+  `originSetId` field, deliberately, to avoid brittle CollectionID-string
+  parsing. Children have `originSetId` but no `setId`, so they never trigger
+  the Issue-3 "belongs to" chip.
 
-E19: a blank mint mark is a double dash in real CoinIDs. Source: [docs/ref/ALBUMS.md](docs/ref/ALBUMS.md), section "Albums: live-wiring, read-only (BUILT and merged to main)" (original lines 14931-14934).
+E19: a blank mint mark is a double dash in real CoinIDs. Source: [docs/ref/ALBUMS.md](docs/ref/ALBUMS.md), section "Albums: live-wiring, read-only (BUILT and merged to main)" (original lines 14929-14940).
+- **`denom` is derived from a slot's own CoinID, never from DB_Sets.FaceValue**
+  (confirmed inconsistent across real rows by Ray) — `denomFromCoinId()`
   takes a CoinID's third dash-delimited segment
   (`C-YYYY-MINT-DENOM-##`). **CRITICAL, and worth remembering**: the real
   workbook encodes a blank mint mark as a double dash (`C-1909--1C-03`)
   while `FAKE_ALBUMS`' own mock data uses a literal `"M"` placeholder
+  (`C-1909-M-1C-01`) — both conventions parse identically under plain
+  index-based splitting (mint mark is always segment 2, denom always
+  segment 3, regardless of what sits in segment 2), so `denomFromCoinId()`
+  never needs to special-case either one. It is also never used to derive a
+  mint mark — that's always its own real column (`Albums.MintMark`), read
+  directly.
 
-E21: the coin's own display images are Obverse / Reverse; Front / Back is only for the Holder. Source: [docs/ref/PHOTOS.md](docs/ref/PHOTOS.md), section "Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)" (original lines 233-236).
+E21: the coin's own display images are Obverse / Reverse; Front / Back is only for the Holder. Source: [docs/ref/PHOTOS.md](docs/ref/PHOTOS.md), section "Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)" (original lines 233-238).
   footer). **Rule (Ray, 22 Oct, T1): the coin's own display images are
   Obverse / Reverse; Front / Back is only for the Holder** (and for the
   other non-coin pairs: Package, whole set, sub-group). The coin pair's
   slots read "Obverse"/"Reverse" (`managePairBlock` picks by `flipSource`).
+  Commit 1 first shipped "🪙 Front & back" and "Front (obverse)"/"Back
+  (reverse)"; corrected after T1.
 
 ## The build decides its data target (Oct 2026) — read this first
 **Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
