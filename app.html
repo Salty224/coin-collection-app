@@ -31660,6 +31660,7 @@
     if (removedPhotos) parts.push(removedPhotos + " photo" + (removedPhotos === 1 ? "" : "s") + " removed");
     if (files.receiptRemoved) parts.push("receipt removed");
     let text = parts.length ? parts.join(", ") + "." : "Photos and receipt are unchanged.";
+    text = text.charAt(0).toUpperCase() + text.slice(1);
     if (del.failed.length) {
       text += " " + del.failed.length + " old file" + (del.failed.length === 1 ? "" : "s") +
         " couldn't be deleted from Staging (" + del.failed.join(", ") + ") — harmless, and no longer part of the draft.";

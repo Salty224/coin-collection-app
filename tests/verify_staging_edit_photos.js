@@ -604,8 +604,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   ok(P.p8.receiptPhoto === ID + "_receipt_02.pdf" && /new receipt/.test(P.p8.content) && P.p8.oldStillThere === true,
     "P22 a receipt picked during an edit lands under a free name AND the old file stays on disk " +
     "(coin.json just points at the new one): " + JSON.stringify(P.p8));
-  ok(/receipt saved to Staging/.test(P.p8.toast) && !/unchanged/.test(P.p8.toast),
-    "P22b the Save changes toast says the receipt was saved, not 'unchanged': " + JSON.stringify(P.p8.toast));
+  ok(/Receipt saved to Staging/.test(P.p8.toast) && !/unchanged/.test(P.p8.toast),
+    "P22b the Save changes toast says the receipt was saved (first word capitalised), not 'unchanged': " + JSON.stringify(P.p8.toast));
   ok(P.p23.first === ID + "_receipt_02.pdf" && P.p23.second === ID + "_receipt_03.pdf" &&
     /first/.test(P.p23.plain) && /second/.test(P.p23.r02) && /third/.test(P.p23.r03),
     "P23 two replaces in a row leave all three receipt files in the folder, coin.json on the newest: " + JSON.stringify(P.p23));
