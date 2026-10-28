@@ -9,25 +9,26 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
   docs commit that last rewrote this block (`git log -1`). LIVE runs
   `928d7a9`'s code: deployed by Ray 27 Oct 2026, splash shows `d08c82e`, no
   TEST bar.
-- Baseline: 4029 passed, 0 failed, 0 page errors, 77 suites (run on
-  `928d7a9`, 27 Oct 2026).
+- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites (run on
+  `claude/receipts-never-overwrite`, 28 Oct 2026; main alone is 4029 / 77).
 - Open branch: `claude/receipts-never-overwrite`, cut from main at `02f2613`.
-  (t) receipts never overwrite is BUILT, HELD for Ray's tablet test against
-  `_Testing` — not merged, not deployed. `claude/photos-wait-for-save` (tip
-  `928d7a9`) is merged and kept on origin as history.
-- Next task: Ray's tablet test of `claude/receipts-never-overwrite`. Then,
-  in Ray's order (27 Oct): (g) value fallback + Set Variety line + album
-  star rule; (r) Edit Set saving, then split out child coins, then partial
-  sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the
-  old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP
-  mapping. (u) is a data fix outside the app; (v) is a note only.
-- Waiting on Ray: his tablet test of `claude/receipts-never-overwrite` (see
-  the branch report); he also checks LIVE's Photos tab for duplicate
-  PhotoIDs (u) on a computer before any Replace on LIVE. No questions open.
-- Not verified on a real device: Samsung Internet in a browser tab (Back,
-  leave guard, Tap to label); Graph's `@microsoft.graph.conflictBehavior=fail`
-  actually firing (409) on a real upload, on this branch's receipt
-  free-naming included.
+  (t) receipts never overwrite is BUILT, HELD for Ray's tablet RETEST against
+  a Staging draft (the fix for the Staging edit deleting the old receipt and
+  the wrong "nothing changed" toast) — not merged, not deployed.
+  `claude/photos-wait-for-save` (tip `928d7a9`) is merged and kept on origin.
+- Next task: Ray's retest of the Staging receipt replace. Then, in Ray's
+  order (27 Oct): (g) value fallback + Set Variety line + album star rule;
+  (r) Edit Set saving, then split out child coins, then partial sales; (e)
+  C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?";
+  (p) retire the All-sheet fallback, then (q) the old OGP mapping. (u) is a
+  data fix outside the app; (v) is a note only.
+- Waiting on Ray: that retest; his decision on two bugs found on `main`, not
+  fixed (see the receipts section): detail screen shows a stale receipt after
+  an Edit Coin receipt save (LIVE_RECEIPTS never updated), and Edit Coin's
+  receipt slot never shows the stored receipt. Also he checks LIVE's Photos
+  tab for duplicate PhotoIDs (u) before any Replace on LIVE.
+- Not verified on a real device: Samsung Internet in a browser tab; Graph's
+  `@microsoft.graph.conflictBehavior=fail` (409) on a real upload.
 
 ## Standard end-of-work pattern (standing rule, Oct 2026) — read this first
 **1. With every branch, before reporting it done.** The branch's last commit
@@ -1224,9 +1225,45 @@ receipts still worked the old, unsafe way.
   ReceiptID pointing at two different files.
 - `npm test` on the branch: 4086 passed, 0 failed, 0 page errors, 78 suites
   (4029 + 57 new; every other suite's count unchanged).
-- **Not verified:** any real device; any real OneDrive session; that a real
-  Replace's old file and new free-named file both actually show up correctly
-  in `_Testing/CoinReceipts`/a Staging draft folder.
+- **Fix after Ray's tablet test of `8b6dcdd` (28 Oct 2026): a Staging draft
+  edit DELETED the replaced receipt.** `uploadStagingEditFiles()` correctly
+  wrote `_receipt_02.pdf`, but `mergeStagingEditFiles()` then listed the old
+  receipt name in `dropped` (it was in `hydratedFiles` and no longer the
+  draft's `receiptPhoto`) and `finishStagingEditFiles()` deleted it; the next
+  replace found the plain name free again, hence the alternation and "always
+  exactly 1 file". K1-K5 only tested the upload step, so they missed it. Now
+  a replaced receipt (`receipt.stagingUploaded`) is left out of `dropped`:
+  coin.json points at the new name, every earlier file stays on disk (a third
+  replace gives `_03`). Only ✕ on the receipt (`receiptRemoved`, confirmed
+  first) still deletes its file. **Left as is, for Ray to decide:** a
+  replaced Staging PHOTO (fixed-name types) still has its superseded file
+  deleted after coin.json is written (staging-edit-photos P11-P14, backlog
+  (s) "Keep the old photo?").
+- **Same fix: the Save changes toast said "Photos and receipt are
+  unchanged" after a receipt change.** The summary was built after
+  `resetAddCoinAfterSave()`, which clears `receiptFiles`, so it never saw the
+  receipt. `mergeStagingEditFiles()` now returns `receiptSaved` /
+  `receiptOldKept` and `stagingEditFilesSummary()` reads those: "receipt saved
+  to Staging (the old file is kept there)".
+- Tests: `verify_staging_edit_photos` P22 now asserts the old file stays,
+  new P22b (toast) and P23 (two replaces in a row leave three files,
+  coin.json on `_03`). Negative control: the old code fails exactly P22,
+  P22b, P23. `npm test`: 4088 passed, 0 failed, 0 page errors, 78 suites.
+- **Not verified:** any real device; any real OneDrive session. *(28 Oct
+  2026, Ray's tablet: the Edit Coin / `_Testing` paths worked as designed:
+  shared SecVol.pdf got a new RC-00036 for coin A, coin B untouched;
+  re-photographing AY-00003 kept RC-00037 and wrote `_receipt_02.pdf`, old
+  file kept; rows landed at 119-121.)*
+- **Found in the same test, ALREADY ON `main` (identical code at `928d7a9`),
+  not fixed here:** (1) after a receipt saves in Edit Coin the coin's detail
+  screen keeps the old receipt (or none) until restart: `LIVE_RECEIPTS` is
+  fetched once per session and `commitReceiptCapture()` never updates it
+  (photos have `syncStoredPhotoIndexUpsert`, receipts have no equivalent);
+  (2) Edit Coin's receipt slot shows no receipt even after restart:
+  `prepareReceiptSlotForRecord()` only clears the slot and nothing ever paints
+  the stored receipt into it. Both need their own small branch.
+- **Noted, not built:** the Staging-edit receipt slot still has the old
+  camera/gallery/✕ icons: no preview, no Replace, no Files button.
 
 ## Photo labels save with Save Changes (Oct 2026, merged to main 24 Oct 2026 by fast-forward, built on `claude/photo-label-save-changes`)
 **Merged on Ray's go-ahead (24 Oct 2026)** after his tablet test of `dac32fe`

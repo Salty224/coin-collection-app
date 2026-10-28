@@ -506,7 +506,35 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       const saved = await mock.getJson(__draftPath(id));
       const v = await mock.getFileBytes(folder + "/" + saved.receiptPhoto);
       const oldStillThere = !!(await mock.getItemMeta(folder + "/" + id + "_receipt.pdf"));
-      out.p8 = { receiptPhoto: saved.receiptPhoto, content: v instanceof Blob ? await v.text() : String(v), oldStillThere };
+      const t1 = document.getElementById("toast").textContent;
+      out.p8 = { receiptPhoto: saved.receiptPhoto, content: v instanceof Blob ? await v.text() : String(v), oldStillThere, toast: t1 };
+      __teardown();
+    }
+
+    // P23: a SECOND replace in a row. Nothing is ever deleted: after two
+    // replaces the folder holds all three receipts, coin.json points at the
+    // newest, and the old bytes are untouched (Ray, 28 Oct 2026: the first
+    // build deleted the superseded file, alternating _02 and the plain name).
+    {
+      const mock = await __setup();
+      __setLiveDbCoinsForTest(catalog);
+      await mock.uploadFile(folder + "/" + id + "_receipt.pdf", new Blob(["%PDF-first"], { type: "application/pdf" }));
+      await openEdit(mock, Object.assign({}, base));
+      __ph.pick(document.getElementById("receiptLibraryInput"), new File(["%PDF-1.4 second"], "b.pdf", { type: "application/pdf" }));
+      await __ph.waitFor(() => !!receiptFiles["receiptPreview"]);
+      await __saveEdit();
+      const s1 = await mock.getJson(__draftPath(id));
+      await openEdit(mock, Object.assign({}, s1));
+      __ph.pick(document.getElementById("receiptLibraryInput"), new File(["%PDF-1.4 third"], "c.pdf", { type: "application/pdf" }));
+      await __ph.waitFor(() => !!receiptFiles["receiptPreview"]);
+      await __saveEdit();
+      const s2 = await mock.getJson(__draftPath(id));
+      const txt = async (n) => { const b = await mock.getFileBytes(folder + "/" + n); return b ? (b instanceof Blob ? await b.text() : String(b)) : null; };
+      out.p23 = {
+        first: s1.receiptPhoto, second: s2.receiptPhoto,
+        plain: await txt(id + "_receipt.pdf"), r02: await txt(id + "_receipt_02.pdf"), r03: await txt(id + "_receipt_03.pdf"),
+        toast: document.getElementById("toast").textContent
+      };
       __teardown();
     }
     return out;
@@ -573,9 +601,14 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
     "P20 the edit is refused once the coin was written to the All sheet (allRowWritten): " + JSON.stringify(P.p7a));
   ok(P.p7b.opened === false && /already left Staging/.test(P.p7b.toast) && P.p7.binding === null,
     "P21 -- and once its files have left Staging (filesMovedOnPromotion): " + JSON.stringify(P.p7b));
-  ok(P.p8.receiptPhoto === ID + "_receipt_02.pdf" && /new receipt/.test(P.p8.content) && !P.p8.oldStillThere,
-    "P22 a receipt picked during an edit lands under a free name (never overwriting the old file in place), " +
-    "and the superseded name is cleaned up once coin.json no longer lists it: " + JSON.stringify(P.p8));
+  ok(P.p8.receiptPhoto === ID + "_receipt_02.pdf" && /new receipt/.test(P.p8.content) && P.p8.oldStillThere === true,
+    "P22 a receipt picked during an edit lands under a free name AND the old file stays on disk " +
+    "(coin.json just points at the new one): " + JSON.stringify(P.p8));
+  ok(/receipt saved to Staging/.test(P.p8.toast) && !/unchanged/.test(P.p8.toast),
+    "P22b the Save changes toast says the receipt was saved, not 'unchanged': " + JSON.stringify(P.p8.toast));
+  ok(P.p23.first === ID + "_receipt_02.pdf" && P.p23.second === ID + "_receipt_03.pdf" &&
+    /first/.test(P.p23.plain) && /second/.test(P.p23.r02) && /third/.test(P.p23.r03),
+    "P23 two replaces in a row leave all three receipt files in the folder, coin.json on the newest: " + JSON.stringify(P.p23));
 
   // ---------- Q. Phase B2: remove ----------
   const Q = await page.evaluate(async ({ base, catalog, id }) => {

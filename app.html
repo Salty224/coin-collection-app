@@ -31552,11 +31552,9 @@
       // capture, never another coin's document. `taken` already includes
       // whatever the folder actually holds (stagingTakenNames()'s own
       // listChildren() call), so a prior receipt under the plain name is
-      // correctly seen as unavailable; mergeStagingEditFiles()/
-      // finishStagingEditFiles() delete it afterward, the same way a
-      // replaced fixed-name photo's old file is cleaned up once coin.json
-      // no longer lists it — the old bytes are never overwritten in place,
-      // only superseded once the new name is safely recorded.
+      // correctly seen as unavailable. The old file is KEPT on disk:
+      // coin.json just points at the new name (mergeStagingEditFiles()
+      // leaves a replaced receipt out of `dropped`).
       if (!taken) taken = await stagingTakenNames(collectionId, await readCoinDraft(collectionId));
       let name = null;
       for (let i = 1; i <= FREE_NAME_MAX_TRIES; i++) {
@@ -31620,10 +31618,17 @@
     let receiptPhoto = fresh.receiptPhoto || "";
     if (receipt && receipt.stagingUploaded) receiptPhoto = receipt.stagingName;
     else if (editDraftFiles && editDraftFiles.receiptRemoved) receiptPhoto = "";
-    const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto);
+    // A receipt that was REPLACED keeps its old file on disk (never-overwrite,
+    // Ray 28 Oct 2026): coin.json simply points at the new name. Only a
+    // receipt taken off the draft with ✕ (receiptRemoved, confirmed first)
+    // has its file deleted.
+    const receiptReplaced = !!(receipt && receipt.stagingUploaded);
+    const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto &&
+      !(receiptReplaced && n === (fresh.receiptPhoto || (editDraftFiles && editDraftFiles.receiptPhoto) || "")));
     const removedPhotoCount = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.removedCount || 0 : 0;
     const receiptRemoved = !!(editDraftFiles && editDraftFiles.receiptRemoved && !receiptPhoto);
-    return { photos, receiptPhoto, dropped, added, keptCount: kept.length, removedPhotoCount, receiptRemoved };
+    return { photos, receiptPhoto, dropped, added, keptCount: kept.length, removedPhotoCount, receiptRemoved,
+             receiptSaved: receiptReplaced, receiptOldKept: receiptReplaced && !!(fresh.receiptPhoto) && fresh.receiptPhoto !== receiptPhoto };
   }
 
   // After coin.json is written — never before: coin.json must never list a
@@ -31646,8 +31651,10 @@
     const parts = [];
     const addedPhotos = files.added.filter(a => a.caption !== "original").length;
     if (addedPhotos) parts.push(addedPhotos + " photo" + (addedPhotos === 1 ? "" : "s") + " saved to Staging");
-    const receipt = receiptFiles["receiptPreview"];
-    if (receipt && receipt.stagingUploaded) parts.push("receipt saved to Staging");
+    // Read from `files`, not receiptFiles: the toast is built after the form
+    // has been reset, which clears receiptFiles (that made a changed receipt
+    // read "Photos and receipt are unchanged").
+    if (files.receiptSaved) parts.push(files.receiptOldKept ? "receipt saved to Staging (the old file is kept there)" : "receipt saved to Staging");
     const del = files.deleteResult || { deleted: [], failed: [] };
     const removedPhotos = files.removedPhotoCount || 0;
     if (removedPhotos) parts.push(removedPhotos + " photo" + (removedPhotos === 1 ? "" : "s") + " removed");
