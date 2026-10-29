@@ -26306,19 +26306,38 @@
   // ✕ on a saved record's editing screen (photos wait for Save, Oct 2026).
   // Nothing is written now: a saved photo is marked to come off at Save
   // (hidden until then; Discard brings it back), and a pick that was never
-  // saved simply goes. A pick that replaced a saved photo takes that photo
-  // with it, since the slot is what the user is clearing. `rerender` repaints.
+  // saved simply goes. A pick that replaced a saved photo is undone, see
+  // below (it used to take the saved photo with it). `rerender` repaints.
+  //
+  // ✕ on a pick that REPLACED a saved photo is an UNDO (Ray, 29 Oct 2026,
+  // reversing "takes that photo with it"): the pick goes, the previous photo
+  // comes back in its slot exactly as if the Replace never happened, and
+  // nothing is deleted. Removing the old photo too is a separate ✕ on it.
+  // This covers Replace, Recrop and Crop from another photo, since all three
+  // go through replaceGalleryEntryAndCommit (pendingReplaces).
+  function confirmUndoReplaceDialog(noun, onYes) {
+    showWriteGuard({
+      title: "Put the previous photo back?",
+      bodyHtml: "<p>This " + noun + " replaced the one that was here. Removing it puts the previous photo back " +
+        "in its place, as if you had never replaced it. <b>Nothing is deleted.</b></p>" +
+        "<p>To delete the previous photo as well, tap ✕ on it afterwards.</p>",
+      buttons: [{ label: "Cancel", primary: true }, { label: "Put it back", onClick: onYes }]
+    });
+  }
+
   function confirmRemovePendingPhoto(targetId, entry, rerender) {
     const def = galleryTypeDef(entry && entry.type);
     const list = galleryFor(targetId);
     const underneath = entry.pendingSave ? (entry.pendingReplaces || null) : entry;
     const removesSaved = !!(underneath && !underneath.legacyOnly);
     const legacyKeeps = removesSaved && !!legacyFallbackFilenameFor(targetId, entry.type);
+    const isUndo = !!(entry.pendingSave && entry.pendingReplaces);
     const finish = () => {
       const at = list.indexOf(entry);
       if (entry.pendingSave) {
         revokePendingUrls(entry, underneath);
-        if (underneath && at !== -1) { list[at] = underneath; underneath.pendingRemove = removesSaved; }
+        // Undo: the previous photo is simply back, not marked for removal.
+        if (underneath && at !== -1) { list[at] = underneath; underneath.pendingRemove = false; }
         else if (at !== -1) list.splice(at, 1);
       } else {
         entry.pendingRemove = true;
@@ -26328,6 +26347,7 @@
     };
     // "This Reference photo …" (Ray's wording, C2).
     const noun = escapeHtmlText(!def ? "photo" : (/photo$|certificate$/i.test(def.label) ? def.label : def.label + " photo"));
+    if (isUndo) { confirmUndoReplaceDialog(noun, finish); return; }
     const body = removesSaved
       ? "<p>This " + noun + " will be removed when you tap <b>Save</b>. Until then nothing changes, " +
         "and Discard brings it back. The photo file itself is never deleted.</p>" +
@@ -26569,6 +26589,10 @@
     if (oldEntry) {
       const was = oldEntry.stagingStored ? (oldEntry.stagingFiles || []) : (oldEntry.stagingReplaces || []);
       if (was.length) newEntry.stagingReplaces = was.slice();
+      // The ORIGINAL stored entry, through a chain of picks, so ✕ on the pick
+      // can put it back (an undo, nothing deleted).
+      const orig = oldEntry.stagingStored ? oldEntry : oldEntry.stagingReplacedEntry;
+      if (orig) newEntry.stagingReplacedEntry = orig;
     }
     if (at >= 0) list[at] = newEntry;
     else addGalleryEntry(targetId, newEntry);
@@ -26590,7 +26614,21 @@
       if (draft && draft.onRemove) draft.onRemove(entry);
       if (onRemoved) onRemoved();
     };
-    if (entry && (entry.stagingStored || (entry.stagingReplaces && entry.stagingReplaces.length))) {
+    if (entry && entry.stagingReplacedEntry) {
+      // ✕ on a pick that replaced a stored photo: undo it (Ray, 29 Oct 2026).
+      // The original comes back in the pick's slot; nothing is deleted and
+      // the removed-photo count is untouched. ✕ on the restored photo is the
+      // ordinary stored-photo remove below.
+      confirmUndoReplaceDialog(escapeHtmlText(label), () => {
+        const list = galleryFor(targetId);
+        const at = list.indexOf(entry);
+        if (at !== -1) list[at] = entry.stagingReplacedEntry;
+        else list.push(entry.stagingReplacedEntry);
+        if (onRemoved) onRemoved();
+      });
+      return;
+    }
+    if (entry && entry.stagingStored) {
       showWriteGuard({
         title: "Remove photo?",
         bodyHtml: "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this draft?</p>" +
@@ -31762,7 +31800,7 @@
     }
     renderManagePhotosInto("addCoinPhotoSections", ctx, { draft: {
       onRemove: (entry) => {
-        if (entry && (entry.stagingStored || (entry.stagingReplaces && entry.stagingReplaces.length)) && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
+        if (entry && entry.stagingStored && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
         updateStagingEditRemoveButtons();
       }
     } });

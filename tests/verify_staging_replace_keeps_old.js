@@ -311,16 +311,76 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       out.g = { listed: await listed(mock), folder: await jpgs(mock) };
       __teardown();
     }
-    // H: Replace, then X on the pick.
+    // H: Replace, then X on the pick is an UNDO (Ray, 29 Oct 2026): the
+    // original stored photo comes back, nothing is deleted or uploaded.
     {
       const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
       await openEdit(mock, Object.assign({}, base, { photos: obvPair }), obvFiles);
+      const b = [await bytes(mock, O), await bytes(mock, OR)];
+      const obvEntry = () => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+      const original = obvEntry();
       out.hPicked = await __ph.slotPick("obverse", "#33f");
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      out.hTitle = (document.getElementById("writeGuardTitle") || {}).textContent || "";
       out.hBody = guardText();
-      clickGuard("Remove");
+      clickGuard("Put it back");
+      await __ph.sleep(80);
+      out.hRestored = obvEntry() === original && original.stagingStored === true;
+      out.hShown = !!(__ph.slot(/Obverse &/, 0) && __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]'));
       await __saveEdit();
-      out.h = { listed: await listed(mock), folder: await jpgs(mock), toast: toast() };
+      out.h = { listed: await listed(mock), folder: await jpgs(mock), toast: toast(),
+        same: (await bytes(mock, O)) === b[0] && (await bytes(mock, OR)) === b[1] };
+      __teardown();
+    }
+    // H2: X on the restored original is the ordinary stored-photo remove.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: obvPair }), obvFiles);
+      await __ph.slotPick("obverse", "#33f");
+      __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      clickGuard("Put it back"); await __ph.sleep(80);
+      __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      out.h2Body = guardText();
+      clickGuard("Remove");
+      out.h2Before = await jpgs(mock);
+      await __saveEdit();
+      out.h2 = { listed: await listed(mock), folder: await jpgs(mock) };
+      __teardown();
+    }
+    // H3: Replace, Recrop, Replace, then X restores the ORIGINAL stored photo.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: obvPair }), obvFiles);
+      const obvEntry = () => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+      const original = obvEntry();
+      out.h3a = await replaceObv("#33f");
+      out.h3b = await recrop();
+      out.h3c = await replaceObv("#f93");
+      __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      clickGuard("Put it back"); await __ph.sleep(80);
+      out.h3Restored = obvEntry() === original;
+      await __saveEdit();
+      out.h3 = { listed: await listed(mock), folder: await jpgs(mock) };
+      __teardown();
+    }
+    // H4: crop from another photo into Obverse counts as a Replace; X undoes it.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: obvPair.concat([{ type: "slab_obverse", filename: id + "_slab_obverse.jpg", caption: "" }]) }),
+        Object.assign({ [id + "_slab_obverse.jpg"]: "#55c" }, obvFiles));
+      const obvEntry = () => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+      const original = obvEntry();
+      const src = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "slab_obverse");
+      const blob = await __ph.jpeg("#c3c");
+      saveDraftCropFromUpload(ADDCOIN_GALLERY_ID, "obverse", src,
+        { type: "obverse", blob, url: URL.createObjectURL(blob), rawUrl: null, rawFilename: null, caption: "", filename: "x.jpg" }, () => {});
+      renderAddCoinPhotos(); await __ph.sleep(60);
+      out.h4IsReplace = !!(obvEntry().stagingReplacedEntry === original);
+      __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      clickGuard("Put it back"); await __ph.sleep(80);
+      out.h4Restored = obvEntry() === original;
+      await __saveEdit();
+      out.h4 = { listed: await listed(mock), folder: await jpgs(mock) };
       __teardown();
     }
     // I: Replace, leave without saving.
@@ -446,9 +506,17 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
   ok(/Remove photo\?|Remove/.test(R.gBody) && /its file is deleted from Staging then/.test(R.gBody) &&
      J(R.gBefore) === J([O, OR].sort()) && R.g.listed.length === 0 && R.g.folder.length === 0,
     "G X on a stored photo: the dialog says its file is deleted, nothing is deleted before Save, both files go on Save: " + J([R.gBody, R.gBefore, R.g]));
-  ok(R.hPicked && /its file is deleted from Staging then/.test(R.hBody) && !/hasn't been saved yet/.test(R.hBody) &&
-     R.h.listed.length === 0 && R.h.folder.length === 0,
-    "H Replace then X on the pick: stored-photo wording, and the old files are deleted on Save: " + J([R.hBody, R.h]));
+  ok(R.hPicked && /Put the previous photo back\?/.test(R.hTitle) && /Nothing is deleted/.test(R.hBody) &&
+     !/removed|deleted from Staging/.test(R.hBody) && R.hRestored && R.hShown &&
+     J(R.h.listed) === J([O, OR].sort()) && J(R.h.folder) === J([O, OR].sort()) && R.h.same,
+    "H Replace then X on the pick UNDOES it: the original is back in its slot, nothing deleted or uploaded, coin.json unchanged: " + J([R.hTitle, R.hBody, R.hRestored, R.h]));
+  ok(/its file is deleted from Staging then/.test(R.h2Body) && J(R.h2Before) === J([O, OR].sort()) &&
+     R.h2.listed.length === 0 && R.h2.folder.length === 0,
+    "H2 X on the restored original is the ordinary remove: stored-photo wording, both files deleted on Save only: " + J([R.h2Body, R.h2Before, R.h2]));
+  ok(R.h3a && R.h3b && R.h3c && R.h3Restored && J(R.h3.listed) === J([O, OR].sort()) && J(R.h3.folder) === J([O, OR].sort()),
+    "H3 Replace + Recrop + Replace then X restores the ORIGINAL stored photo, nothing uploaded: " + J([R.h3a, R.h3b, R.h3c, R.h3Restored, R.h3]));
+  ok(R.h4IsReplace && R.h4Restored && J(R.h4.listed) === J([ID + "_slab_obverse.jpg", O, OR].sort()) && R.h4.folder.length === 3,
+    "H4 Crop from another photo into Obverse counts as a Replace, and X undoes it: " + J([R.h4IsReplace, R.h4Restored, R.h4]));
   ok(R.iPicked && R.i.same && J(R.i.folder) === J([O, OR].sort()),
     "I Replace then leave without Save: coin.json and the folder are unchanged: " + J(R.i));
   ok(R.jPicked && R.j.same && J(R.j.folder) === J([O, OR].sort()),

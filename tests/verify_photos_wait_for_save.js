@@ -589,6 +589,122 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
     W13.left === false && /changed 1 photo on AY-00099/.test(W13.asked) && W13.pendingWhileAsking === 1 &&
     W13.view === "view-dashboard" && W13.writes === 0 && W13.pending === 0 && W13.refs === 1, W13);
 
+  // ---------- W15 ✕ on a pick that replaced a saved photo is an UNDO ---------
+  // (Ray, 29 Oct 2026, reversing "takes that photo with it".) The pick goes,
+  // the previous photo is back in its slot, nothing is deleted or written;
+  // ✕ on the restored photo is then the ordinary remove.
+  const W15 = await page.evaluate(async () => {
+    const W = __ws; W.install();
+    const out = {};
+    const obvSlot = (host) => W.slotFor(host, /Obverse/, "Obverse") || W.slotFor(host, /Obverse/, "Front");
+    let host = await W.openEditCoin();
+    const obv = () => galleryFor("AY-00099").find(e => e.type === "obverse");
+    const saved = obv();
+    out.hasSlot = !!obvSlot(host);
+    W.graphCalls = 0;
+    // a) Replace the saved Obverse, then ✕ the pick.
+    out.rep1 = await W.addVia(obvSlot(host).querySelector('[data-act="replace"]'));
+    await W.sleep(120); host = W.editHost();
+    out.pickIsPending = !!(obv() && obv().pendingSave && obv().pendingReplaces === saved);
+    obvSlot(host).querySelector('[data-act="remove"]').click();
+    out.dialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Put it back");
+    await W.sleep(100); host = W.editHost();
+    out.restored = obv() === saved && !saved.pendingRemove && !saved.pendingSave;
+    out.shownAgain = !!W.thumb(host, "AY-00099_obverse_cropped.jpg") || !!(obvSlot(host) && obvSlot(host).querySelector(".sg-photo-img, .gc-img"));
+    out.pending = pendingPhotoCount("AY-00099");
+    out.writes = W.graphCalls;
+    // b) Replace twice (second Replace of the pick), then ✕: the ORIGINAL saved photo.
+    await W.addVia(obvSlot(host).querySelector('[data-act="replace"]')); await W.sleep(100); host = W.editHost();
+    await W.addVia(obvSlot(host).querySelector('[data-act="replace"]')); await W.sleep(100); host = W.editHost();
+    out.chainPoints = !!(obv().pendingReplaces === saved);
+    obvSlot(host).querySelector('[data-act="remove"]').click();
+    W.clickGuard("Put it back"); await W.sleep(100); host = W.editHost();
+    out.chainRestored = obv() === saved && !saved.pendingRemove;
+    // c) ✕ on the restored saved photo is the ordinary stored-photo remove.
+    obvSlot(host).querySelector('[data-act="remove"]').click();
+    out.plainDialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Remove"); await W.sleep(100);
+    out.plainMarked = saved.pendingRemove === true;
+    // d) ✕ on a never-saved Add keeps its own wording and just goes.
+    discardUnsavedPhotoEdits("AY-00099");
+    const refBody = W.section(W.editHost(), /Reference/);
+    const plus = [...refBody.querySelectorAll("button")].find(b => /Add|＋|\+/.test(b.getAttribute("aria-label") || b.textContent));
+    await W.addVia(plus); await W.sleep(100); host = W.editHost();
+    const pickThumb = [...W.section(host, /Reference/).querySelectorAll(".gc-thumb")].find(t => /Not saved yet/.test(t.textContent));
+    pickThumb.querySelector(".gc-remove").click();
+    out.addDialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Remove"); await W.sleep(80);
+    out.addGone = !galleryFor("AY-00099").some(e => e.type === "reference" && e.pendingSave);
+    // e) Crop from another photo into Obverse counts as a Replace.
+    discardUnsavedPhotoEdits("AY-00099");
+    host = W.editHost();
+    const b = await W.jpeg();
+    const blob = b.slice(0, b.size, "image/jpeg");
+    saveCropFromUpload("AY-00099", "obverse", { storedFilename: "AY-00099_reference_01.jpg", type: "reference" },
+      { type: "obverse", blob, url: "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", rawUrl: null, rawFilename: null, caption: "", filename: "x.jpg" }, () => {});
+    await W.sleep(100);
+    out.cropIsReplace = !!(obv().pendingSave && obv().pendingReplaces === saved);
+    renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(W.coin), { showSetChildren: false });
+    host = W.editHost();
+    obvSlot(host).querySelector('[data-act="remove"]').click();
+    out.cropDialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Put it back"); await W.sleep(80);
+    out.cropUndone = obv() === saved && !saved.pendingRemove;
+    discardUnsavedPhotoEdits("AY-00099"); navigate("dashboard");
+    return out;
+  });
+  ok("W15 ✕ on a Replace pick (Edit Coin) puts the saved photo back, nothing pending, ZERO writes",
+    W15.hasSlot && W15.rep1 && W15.pickIsPending && W15.restored && W15.pending === 0 && W15.writes === 0, W15);
+  ok("W15b the dialog says it puts the previous photo back and deletes nothing",
+    /Put the previous photo back\?/.test(W15.dialog) && /previous photo back/.test(W15.dialog) && /Nothing is deleted/.test(W15.dialog) &&
+    !/removed when you tap Save/.test(W15.dialog), W15);
+  ok("W15c Replace twice then ✕ restores the ORIGINAL saved photo", W15.chainPoints && W15.chainRestored, W15);
+  ok("W15d ✕ on the restored saved photo is the ordinary remove (marked, stored-photo wording)",
+    W15.plainMarked && /will be removed when you tap Save/.test(W15.plainDialog), W15);
+  ok("W15e ✕ on a never-saved Add keeps its own wording and just goes",
+    /hasn't been saved yet/.test(W15.addDialog) && W15.addGone, W15);
+  ok("W15f Crop from another photo into Obverse counts as a Replace, and ✕ on it undoes it",
+    W15.cropIsReplace && /Nothing is deleted/.test(W15.cropDialog) && W15.cropUndone, W15);
+
+  // W16: Edit Set and Manage Photos behave the same.
+  const W16 = await page.evaluate(async () => {
+    const W = __ws; W.install();
+    const out = {};
+    // Edit Set: Replace the COA page, ✕ the pick.
+    let host = W.openEditSet();
+    const coa = () => galleryFor("AY-00090").find(e => e.type === "coa");
+    const savedCoa = coa();
+    out.rep = await W.addVia(W.replaceOn(W.thumb(host, "AY-00090_coa_01.jpg")));
+    await W.sleep(120); host = W.editSetHost ? W.editSetHost() : W.openAll("editSetPhotosSections");
+    out.isReplace = !!(coa().pendingSave && coa().pendingReplaces === savedCoa);
+    W.graphCalls = 0;
+    const pickThumb = [...host.querySelectorAll(".gc-thumb")].find(t => /Not saved yet/.test(t.textContent));
+    pickThumb.querySelector(".gc-remove").click();
+    out.setDialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Put it back"); await W.sleep(100);
+    out.setRestored = coa() === savedCoa && !savedCoa.pendingRemove && pendingPhotoCount("AY-00090") === 0 && W.graphCalls === 0;
+    discardUnsavedPhotoEdits("AY-00090"); navigate("dashboard");
+    // Manage Photos on the coin: Replace the Other photo, ✕ the pick.
+    W.install();
+    host = W.openManageCoin();
+    const other = () => galleryFor("AY-00099").find(e => e.type === "other");
+    const savedOther = other();
+    out.mpRep = await W.addVia(W.replaceOn(W.thumb(host, "AY-00099_other_01.jpg")));
+    await W.sleep(120); host = W.openAll("managePhotosSections");
+    const pt = [...host.querySelectorAll(".gc-thumb")].find(t => /Not saved yet/.test(t.textContent));
+    pt.querySelector(".gc-remove").click();
+    out.mpDialog = W.guardOpen() ? W.guardText() : "";
+    W.clickGuard("Put it back"); await W.sleep(100);
+    out.mpRestored = other() === savedOther && !savedOther.pendingRemove && pendingPhotoCount("AY-00099") === 0;
+    discardUnsavedPhotoEdits("AY-00099"); navigate("dashboard");
+    return out;
+  });
+  ok("W16 Edit Set: ✕ on a Replace pick puts the saved photo back, nothing written",
+    W16.rep && W16.isReplace && /Nothing is deleted/.test(W16.setDialog) && W16.setRestored, W16);
+  ok("W16b Manage Photos: ✕ on a Replace pick puts the saved photo back",
+    W16.mpRep && /Nothing is deleted/.test(W16.mpDialog) && W16.mpRestored, W16);
+
   // ---------- W14 layout of the pending states -----------------------------
   for (const vp of [{ width: 360, height: 800 }, { width: 412, height: 915 }, { width: 1024, height: 768 }]) {
     await page.setViewportSize(vp);
