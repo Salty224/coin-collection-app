@@ -22238,7 +22238,7 @@
       title: "Reject " + collectionId + "?",
       bodyHtml: real
         ? "<p>This permanently deletes " + escapeHtmlText(collectionId) + "'s Staging draft, " +
-          "including any captured photos or receipt. This cannot be undone.</p>"
+          "including any captured photos or receipt, and any older files kept after a Replace. This cannot be undone.</p>"
         : "<p>This removes " + escapeHtmlText(collectionId) + " from Staging. Placeholder-only in this mockup — " +
           "nothing is written to OneDrive.</p>",
       buttons: [
@@ -26561,6 +26561,15 @@
     const list = galleryFor(targetId);
     const at = oldEntry ? list.indexOf(oldEntry) : -1;
     if (oldEntry && !newEntry.caption && oldEntry.caption) newEntry.caption = oldEntry.caption;
+    // Staging-draft edit: a Replace / Recrop / crop-from-another keeps the
+    // replaced photo's FILES (Ray, 29 Oct 2026, backlog w). Remember which
+    // stored files this entry stands in for, through a chain of picks, so
+    // Save changes leaves them on disk instead of treating them as removed.
+    // A no-op in Add Coin's new draft, where nothing is stagingStored.
+    if (oldEntry) {
+      const was = oldEntry.stagingStored ? (oldEntry.stagingFiles || []) : (oldEntry.stagingReplaces || []);
+      if (was.length) newEntry.stagingReplaces = was.slice();
+    }
     if (at >= 0) list[at] = newEntry;
     else addGalleryEntry(targetId, newEntry);
     if (done) done(newEntry);
@@ -26581,7 +26590,7 @@
       if (draft && draft.onRemove) draft.onRemove(entry);
       if (onRemoved) onRemoved();
     };
-    if (entry && entry.stagingStored) {
+    if (entry && (entry.stagingStored || (entry.stagingReplaces && entry.stagingReplaces.length))) {
       showWriteGuard({
         title: "Remove photo?",
         bodyHtml: "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this draft?</p>" +
@@ -31482,9 +31491,9 @@
     // A fixed-name type takes the plain name when it's free, else _02,
     // _03… (crop and original sharing the number). A Replace used to reuse
     // the plain name and so wrote over the draft's earlier photo; now the
-    // earlier file is simply no longer listed and is deleted only AFTER
-    // coin.json is written (finishStagingEditFiles), as for any Replace
-    // that lands under another name.
+    // earlier file is simply no longer listed and STAYS in the folder (Ray,
+    // 29 Oct 2026: a Staging Replace keeps every old file, like receipts;
+    // only ✕ after its confirm deletes, via finishStagingEditFiles).
     const n = galleryFilenameFor(collectionId, entry.type, 0, entry.subGroupId);
     const wantRaw = !!(n.raw && entry.rawUrl);
     const stem = (s) => s.slice(0, s.length - GALLERY_FILE_EXT.length);
@@ -31605,6 +31614,16 @@
       if (e.stagingNames.raw) added.push({ type: e.type, filename: e.stagingNames.raw, caption: "original" });
     });
     const addedNames = new Set(added.map(a => a.filename));
+    // Files a Replace / Recrop / crop-from-another stood in for: coin.json
+    // stops listing them but they STAY in Staging (never-overwrite, Ray 29
+    // Oct 2026). A pick that was then ✕'d is not on the form, so its
+    // replaced files are not here and fall into `dropped` below.
+    const replacedFiles = new Set();
+    let photosReplaced = 0;
+    list.filter(e => e.stagingUploaded && !e.stagingStored && e.stagingReplaces && e.stagingReplaces.length).forEach(e => {
+      photosReplaced++;
+      e.stagingReplaces.forEach(f => replacedFiles.add(f));
+    });
     const kept = (fresh.photos || []).filter(p => {
       const n = coinDraftPhotoFilename(p);
       if (addedNames.has(n)) return false;          // overwritten in place; listed once, below
@@ -31623,18 +31642,19 @@
     // receipt taken off the draft with ✕ (receiptRemoved, confirmed first)
     // has its file deleted.
     const receiptReplaced = !!(receipt && receipt.stagingUploaded);
-    const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto &&
+    const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto && !replacedFiles.has(n) &&
       !(receiptReplaced && n === (fresh.receiptPhoto || (editDraftFiles && editDraftFiles.receiptPhoto) || "")));
     const removedPhotoCount = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.removedCount || 0 : 0;
     const receiptRemoved = !!(editDraftFiles && editDraftFiles.receiptRemoved && !receiptPhoto);
-    return { photos, receiptPhoto, dropped, added, keptCount: kept.length, removedPhotoCount, receiptRemoved,
+    return { photos, receiptPhoto, dropped, added, photosReplaced, keptCount: kept.length, removedPhotoCount, receiptRemoved,
              receiptSaved: receiptReplaced, receiptOldKept: receiptReplaced && !!(fresh.receiptPhoto) && fresh.receiptPhoto !== receiptPhoto };
   }
 
   // After coin.json is written — never before: coin.json must never list a
   // file that has gone. Deletes every file this edit loaded that coin.json no
-  // longer lists (a removed photo with its _original, or one replaced under
-  // another name). A failed delete leaves a harmless orphan in Staging and a
+  // longer lists AND that was taken off with ✕ (a removed photo with its
+  // _original). A file a Replace / Recrop / crop-from-another stood in for is
+  // never in files.dropped: it is kept (mergeStagingEditFiles). A failed delete leaves a harmless orphan in Staging and a
   // correct coin.json (Reject still removes the whole folder later).
   async function finishStagingEditFiles(collectionId, files) {
     const folder = coinDraftFolder(collectionId);
@@ -31650,7 +31670,13 @@
   function stagingEditFilesSummary(files) {
     const parts = [];
     const addedPhotos = files.added.filter(a => a.caption !== "original").length;
-    if (addedPhotos) parts.push(addedPhotos + " photo" + (addedPhotos === 1 ? "" : "s") + " saved to Staging");
+    if (addedPhotos) {
+      const rep = Math.min(files.photosReplaced || 0, addedPhotos);
+      let tail = "";
+      if (rep && rep === addedPhotos) tail = rep === 1 ? " (the old file is kept there)" : " (the old files are kept there)";
+      else if (rep) tail = " (" + rep + " replaced; " + (rep === 1 ? "its old file is" : "their old files are") + " kept there)";
+      parts.push(addedPhotos + " photo" + (addedPhotos === 1 ? "" : "s") + " saved to Staging" + tail);
+    }
     // Read from `files`, not receiptFiles: the toast is built after the form
     // has been reset, which clears receiptFiles (that made a changed receipt
     // read "Photos and receipt are unchanged").
@@ -31736,7 +31762,7 @@
     }
     renderManagePhotosInto("addCoinPhotoSections", ctx, { draft: {
       onRemove: (entry) => {
-        if (entry && entry.stagingStored && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
+        if (entry && (entry.stagingStored || (entry.stagingReplaces && entry.stagingReplaces.length)) && editDraftFiles) editDraftFiles.removedCount = (editDraftFiles.removedCount || 0) + 1;
         updateStagingEditRemoveButtons();
       }
     } });

@@ -382,6 +382,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         putPaths: putPaths.filter(n => /\.jpg$/.test(n)).sort(),
         newCrop: await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped_02.jpg"),
         cropBefore, rawBefore,
+        cropAfter: await __ph.bytesOf(mock, folder + "/" + id + "_obverse_cropped.jpg"),
+        rawAfter: await __ph.bytesOf(mock, folder + "/" + id + "_obverse_original.jpg"),
         jpgsInFolder: names.filter(n => /\.jpg$/.test(n)).sort()
       };
       saved.status = "Promoted";
@@ -392,6 +394,8 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
         allOk: moved.allOk,
         obverseMoves: moved.moves.filter(m => /_obverse_cropped_02\.jpg$/.test(m.dest)).length,
         inCoinPhotos: !!(await mock.getItemMeta(p.coinPhotos + "/" + id + "_obverse_cropped_02.jpg")),
+        oldStayedInStaging: !!(await mock.getItemMeta(folder + "/" + id + "_obverse_cropped.jpg")) &&
+          !(await mock.getItemMeta(p.coinPhotos + "/" + id + "_obverse_cropped.jpg")),
         rows: rows.map(r => [r[2], r[4], r[7]]),
         flag: (await mock.getJson(__draftPath(id))).filesMovedOnPromotion
       };
@@ -569,16 +573,18 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   const obv = (P.p4.photos || []).map(coinDraftName => coinDraftName && coinDraftName.filename);
   // Superseded (27 Oct 2026): a Replace used to overwrite the draft's own
   // obverse files in place. It now writes a new _02 pair and never uploads
-  // over a name already in use; the old pair is deleted only after coin.json
-  // lists the new one (finishStagingEditFiles).
+  // over a name already in use. Superseded again (29 Oct 2026, backlog w):
+  // the old pair is no longer deleted either; coin.json stops listing it and
+  // it stays in the folder, byte-identical.
   ok(P.p4picked && JSON.stringify(P.p4.putPaths) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]) &&
      P.p4.newCrop && P.p4.newCrop !== P.p4.cropBefore,
     "P11 replacing the obverse writes a new _02 crop and _original in Staging, never over the old names: " + JSON.stringify(P.p4));
   ok(JSON.stringify(obv.sort()) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]) &&
-     JSON.stringify(P.p4.jpgsInFolder) === JSON.stringify([ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]),
-    "P12 -- coin.json lists one obverse pair, and the folder holds no second copy: " + JSON.stringify([obv, P.p4.jpgsInFolder]));
-  ok(P.p4.promote.allOk && P.p4.promote.obverseMoves === 1 && P.p4.promote.inCoinPhotos,
-    "P13 promotion moves exactly one obverse into CoinPhotos: " + JSON.stringify(P.p4.promote));
+     JSON.stringify(P.p4.jpgsInFolder) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_cropped_02.jpg", ID + "_obverse_original.jpg", ID + "_obverse_original_02.jpg"]) &&
+     P.p4.cropAfter === P.p4.cropBefore && P.p4.rawAfter === P.p4.rawBefore,
+    "P12 -- coin.json lists one obverse pair; the folder keeps the old pair untouched beside the new one: " + JSON.stringify([obv, P.p4.jpgsInFolder]));
+  ok(P.p4.promote.allOk && P.p4.promote.obverseMoves === 1 && P.p4.promote.inCoinPhotos && P.p4.promote.oldStayedInStaging,
+    "P13 promotion moves exactly one obverse into CoinPhotos; the kept old one stays in Staging: " + JSON.stringify(P.p4.promote));
   ok(JSON.stringify(P.p4.promote.rows) === JSON.stringify([["Obverse", ID + "_obverse_cropped_02.jpg", ID + "_obverse_original_02.jpg"]]) &&
      P.p4.promote.flag === true,
     "P14 -- with one Photos row (the original on it) and filesMovedOnPromotion set: " + JSON.stringify(P.p4.promote));
@@ -794,9 +800,10 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
   ok(/couldn't be deleted from Staging/.test(Q.q3.toast), "Q8 -- and the toast says the old file couldn't be deleted");
   ok(Q.q4shown && Q.q4.receiptPhoto === "" && Q.q4.gone,
     "Q9 removing the receipt clears receiptPhoto and deletes the file: " + JSON.stringify(Q.q4));
+  // Superseded (29 Oct 2026, backlog w): the old file is KEPT, not deleted.
   ok(Q.q5picked && JSON.stringify(Q.q5.names) === JSON.stringify([ID + "_obverse_cropped.jpg", ID + "_obverse_original.jpg"]) &&
-     Q.q5.oldGone,
-    "Q10 replacing a photo stored under another name lists the new pair and deletes the old file: " + JSON.stringify(Q.q5));
+     !Q.q5.oldGone,
+    "Q10 replacing a photo stored under another name lists the new pair and KEEPS the old file in Staging: " + JSON.stringify(Q.q5));
   ok(Q.q6picked && Q.q6.every(d => d === "none") && Q.q6gallery && /hasn't been saved yet/.test(Q.q6x.body),
     "Q11 a fresh Add Coin shows no receipt ✕ and no Staging states, and a photo's ✕ says nothing is written: " + JSON.stringify([Q.q6, Q.q6x]));
 
