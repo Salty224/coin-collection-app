@@ -6,9 +6,9 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 
 ## Current state (rewritten at the end of every task; read this first)
 - main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct 2026 by fast-forward). Since then docs only: the slimming of this file (`claude/slim-claude-md`, first commit `a4737d7`) and a "Where to look" wording fix (28 Oct 2026, fast-forward to main) that adds a "Rules that stayed in CLAUDE.md" line to 7 bullets and to line 4 of the same 7 `docs/ref/` files. Main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since. Ray runs the deploy workflow for `main`.
-- Open branch: `ccr-06105bea-fexby9` (session branch, pushed), code commit `7b56955`: backlog (w), Staging photo replace keeps the old file. HELD for Ray's tablet test, not merged, not deployed. The three earlier merged branches and `claude/slim-claude-md` are still on origin (deleting the latter was blocked by 403; Ray will delete it).
+- Open branch: `ccr-06105bea-fexby9` (session branch, pushed): backlog (w) Staging photo replace keeps the old file (code `7b56955`), plus Ray's Q3 change: ✕ on a Replace pick is an undo, owned records and Staging (code `4589b46`, see "✕ on a Replace pick is an undo"). HELD for Ray's tablet test, not merged, not deployed. The three earlier merged branches and `claude/slim-claude-md` are still on origin (deleting the latter was blocked by 403; Ray will delete it).
 - Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
-- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites on `f14cb97` (28 Oct). On `7b56955` (branch, 29 Oct): 4106 passed, 0 failed, 0 page errors, 79 suites (new suite `verify_staging_replace_keeps_old` 18).
+- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites on `f14cb97` (28 Oct). On `7b56955` (29 Oct): 4106 / 0 / 0 / 79 suites. On `4589b46` (the undo change): totals PENDING, the follow-up docs commit fills them. Targeted: `verify_photos_wait_for_save` 43/43, `verify_staging_replace_keeps_old` 21/21.
 - Next task, in Ray's order (27 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping. Backlog from 28 Oct: (w) is built, held (see Open branch); (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
 - Waiting on Ray: deploy of `main` to LIVE (his call); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
 - Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed. Also: pointers in kept text that name a section now in `docs/` (about 40, listed in the slimming report) were not edited; use `docs/INDEX.md`.
@@ -98,7 +98,7 @@ go-ahead.
 overwrite, on top of `928d7a9`'s photos-wait-for-save work; merged 28 Oct 2026
 by fast-forward of `claude/receipts-never-overwrite`; later commits are
 docs-only); `npm test` = 4088 passed, 0 failed, 0 page errors, 78 suites (run
-on the branch, 28 Oct 2026; on `ccr-06105bea-fexby9` `7b56955`, held: 4106 / 0 / 0 / 79). **Not deployed by the merge**: LIVE gets it
+on the branch, 28 Oct 2026; on `ccr-06105bea-fexby9`, held: 4106 / 0 / 0 / 79 at `7b56955`, totals for `4589b46` pending). **Not deployed by the merge**: LIVE gets it
 only when Ray runs the deploy workflow for `main`.
 
 ## Session working rules (standing rules, added 28 Oct 2026)
@@ -421,7 +421,8 @@ Branch cut from `main` `34dc28b`. Suites: `tests/verify_photos_wait_for_save.js`
   for a saved record): a saved photo is marked `pendingRemove` and hidden, but
   stays IN the list, because taken out the next redraw would hydrate it back
   from the Photos index. A pick that was never saved just goes; a pick that
-  replaced a saved photo takes that photo with it. A legacyOnly photo still
+  replaced a saved photo is UNDONE (29 Oct 2026, was "takes that photo with
+  it"): see "✕ on a Replace pick is an undo" below. A legacyOnly photo still
   gets the old "can't remove this one" dialog. Hidden from the screen via
   `visibleGalleryFor`, `manageCount`, the pair slot lookup, the open-ended
   loop and `cropSourceEntriesFor`.
@@ -673,6 +674,28 @@ receipts still worked the old, unsafe way.
   the next blank row, never appending). No code change was needed here —
   only the explicit, Receipts-specific test coverage, which didn't exist
   before (only Photos' had its own row-number assertion).
+## ✕ on a Replace pick is an undo (29 Oct 2026, same branch `ccr-06105bea-fexby9`, HELD for Ray's tablet test)
+Ray's change to Q3, everywhere photos are edited. ✕ on a pick that REPLACED a
+saved/stored photo removes the pick and puts the previous photo back in its
+slot, as if the Replace never happened. Nothing is deleted, uploaded or written.
+To delete the old photo too, ✕ on it is a separate step. Plain ✕ on a stored
+photo and ✕ on a never-saved Add are unchanged.
+- **Owned records** (Edit Coin, Edit Set, Manage Photos): `confirmRemovePendingPhoto`
+  — a pick with `pendingReplaces` (set by `replaceGalleryEntryAndCommit` /
+  `placePendingAdd`, so Replace, Recrop and Crop from another photo all
+  count) restores `pendingReplaces` with `pendingRemove = false` (it used to
+  be marked to come off at Save). Replace twice then ✕ restores the ORIGINAL
+  saved photo (`pendingReplaces` already points past an unsaved pick).
+- **Staging draft edit:** see the next section.
+- **Dialog** (`confirmUndoReplaceDialog`, shared): title "Put the previous photo
+  back?"; body "This {photo} replaced the one that was here. Removing it puts
+  the previous photo back in its place, as if you had never replaced it.
+  Nothing is deleted. To delete the previous photo as well, tap ✕ on it
+  afterwards."; buttons Cancel / Put it back.
+- Tests: `verify_photos_wait_for_save` W15-W16b (8 new; 43 total). Negative
+  control with the undo removed: W15, W15b, W15c, W15f, W16, W16b fail (6).
+- Not verified on a real device.
+
 ## Staging photo replace keeps the old file (Oct 2026, built on `ccr-06105bea-fexby9`, code `7b56955`, HELD for Ray's tablet test)
 Backlog (w), Ray 28 Oct 2026. The Staging-draft edit (draft mode) only; owned
 records (C1, "Replace never overwrites a photo file") are untouched.
@@ -687,9 +710,13 @@ records (C1, "Replace never overwrites a photo file") are untouched.
   stay in the folder, unlisted, so the next edit shows one slot and the free-name
   scan (`stagingTakenNames`) never reuses them. Names were already free
   (`stagingEditNamesFor`, `NO_OVERWRITE`): unchanged.
-- **✕ on a pick that replaced a stored photo** uses the stored-photo dialog
-  and deletes the old files on Save (`confirmRemoveDraftPhoto`, `onRemove`
-  count), as owned records do.
+- **✕ on a pick that replaced a stored photo is an UNDO** (Ray, 29 Oct 2026,
+  reversing the first build, which deleted the old files): the pick goes and
+  the ORIGINAL stored entry comes back in its slot, through a chain of picks
+  (`newEntry.stagingReplacedEntry`, set in `draftPlaceGalleryEntry`).
+  Nothing is deleted or uploaded and coin.json is unchanged. ✕ on the
+  restored photo is the ordinary stored-photo remove (deleted at Save
+  changes). Crop from another photo into Obverse/Reverse counts as a Replace.
 - **Promotion:** moves only what coin.json lists; kept old files stay in the
   Staging folder (no new field). A future Docket file cleanup can compute
   candidates as folder children minus coin.json's photos, receipt and itself.
@@ -698,9 +725,10 @@ records (C1, "Replace never overwrites a photo file") are untouched.
   (reusing the old original would break the name pairing in
   `stagingPhotoGroups` / `recordPromotedCoinRecords`); Add Set's
   `uploadDraftPhoto`; (y) the Staging receipt slot.
-- Tests: `verify_staging_replace_keeps_old` (18, A-M); `verify_staging_edit_photos`
-  P12, P13, Q10 follow the design. Negative control: with the keep exclusion
-  removed, A-F, M, P12, P13 and Q10 fail and the ✕ cases still pass.
+- Tests: `verify_staging_replace_keeps_old` (21, A-M plus H2-H4);
+  `verify_staging_edit_photos` P12, P13, Q10 follow the design. Negative
+  controls: with the keep exclusion removed, A-F, M, P12, P13 and Q10 fail and
+  the ✕ cases still pass; with the undo removed, H-H4 fail (4).
 - Not verified on a real device. Crop from another photo is tested through
   `saveDraftCropFromUpload()` directly, not the crop UI.
 ## Current status (Oct 2026) — read this first
