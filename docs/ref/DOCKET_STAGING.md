@@ -589,12 +589,21 @@ check its uploaded photos without hunting for it by hand).
   tablet) — the workbook link sits directly under the interim banner,
   each row's folder link sits inline with its other detail lines, no
   overflow at either width.
-- **Not verified: any real device, any real OneDrive session** — same
-  standing caveat as every round in this feature; this is a new Graph
-  read path (`getFolderWebUrl`) and needs a live click-through to confirm
-  it actually lands on the coin's own Staging subfolder in an editable
-  OneDrive session, same "needs a real click-through" caveat the workbook
-  link itself already carries.
+- **Verified on real devices (Ray, 29 Oct 2026): the per-coin Staging folder
+  link opens the coin's own folder.** PC: opens the correct folder in the
+  browser. Tablet: the OneDrive app declines the link, then hands off to the
+  browser, which opens the correct folder. An earlier report that it landed
+  on the OneDrive home page (onedrive.live.com) on both devices turned out
+  to be a stale OneDrive sign-in, not the app: the retry of the same link
+  worked. No code was changed. The link is Graph's own `webUrl` for the
+  folder (`getFolderWebUrl()`, the same GET `getWorkbookWebUrl()` does), not
+  a hand-built URL. If it ever lands on the home page again, check the
+  OneDrive sign-in in that browser first. Ray also reported the "Open
+  workbook in Excel" link working on both devices, including the tablet's
+  OneDrive-app-to-browser handoff.
+- **Still not verified on a real device:** everything else in this section
+  that is not a link click-through (the page layout was checked in
+  screenshots only, and the headless suite uses a mock URL).
 
 
 ### Docket: Research row tags (BUILT and merged to main)
