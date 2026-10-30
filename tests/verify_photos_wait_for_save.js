@@ -206,7 +206,8 @@ async function setup(page) {
       },
       editOpen() { return document.getElementById("browseEditView").style.display !== "none"; },
       editSetOpen() { return document.getElementById("browseEditSetView").style.display !== "none"; },
-      async save() { document.getElementById("browseEditSaveBtn").click(); await this.waitFor(() => !document.getElementById("browseEditSaveBtn").disabled, 3000); await sleep(150); },
+      // Done when the Save has run and released its lock (the button itself may stay dimmed once nothing is left to save, task z).
+      async save() { document.getElementById("browseEditSaveBtn").click(); await sleep(60); await this.waitFor(() => !editSaveInFlight, 3000); await sleep(150); },
       async waitFor(fn, ms) { const end = Date.now() + (ms || 3000); while (Date.now() < end) { if (fn()) return true; await sleep(30); } return !!fn(); },
       async jpeg() {
         const c = document.createElement("canvas"); c.width = 300; c.height = 300;

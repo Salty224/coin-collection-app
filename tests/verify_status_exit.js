@@ -124,6 +124,12 @@ module.exports = defineSuite("status-exit", async ({ ok, openApp, PHONE }) => {
     await new Promise(r => setTimeout(r, 250));
     const statusAfterUnrelatedSave = mock._grids.All[1][headers.indexOf("Status")];
 
+    // The Save above left for the detail page (and a Save with nothing
+    // changed writes nothing since task z), so the form is opened again, as a
+    // person would, for the next change.
+    showBrowseDetail(coin);
+    showBrowseEditView(coin);
+    await loadBrowseEditSnapshot(coin);
     // NOW genuinely touch Status -- pick Sold -- and save for real.
     document.getElementById("browseEditStatus").value = "Sold";
     document.getElementById("browseEditStatus").dispatchEvent(new Event("change", { bubbles: true }));
@@ -257,6 +263,12 @@ module.exports = defineSuite("status-exit", async ({ ok, openApp, PHONE }) => {
       platform: mock._grids.All[1][headers.indexOf("Platform")]
     };
 
+    // The Save above left for the detail page (and a Save with nothing
+    // changed writes nothing since task z), so the form is opened again, as a
+    // person would, for the next change.
+    showBrowseDetail(coin);
+    showBrowseEditView(coin);
+    await loadBrowseEditSnapshot(coin);
     // Now revert to Owned and save again -- the exit block hides, but the
     // four fields must NOT be cleared (Ray's explicit call: preserve
     // history, don't auto-clear).

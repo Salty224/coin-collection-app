@@ -243,7 +243,12 @@ module.exports = defineSuite("cacbean-and-value-rounding", async ({ ok, openApp,
     const gridAfterFirstSave = mock._grids.All[1][headers.indexOf("CACBean")];
 
     // Clear to blank and save again — "" must actually be WRITTEN, not
-    // skipped because it looks falsy.
+    // skipped because it looks falsy. (The first Save left for the detail
+    // page, and a Save with nothing changed writes nothing since task z, so
+    // the form is opened again, as a person would, and Gold is cleared on it.)
+    showBrowseDetail(coin);
+    showBrowseEditView(coin);
+    await loadBrowseEditSnapshot(coin);
     document.getElementById("browseEditCacGold").checked = false;
     document.getElementById("browseEditCacGold").dispatchEvent(new Event("change", { bubbles: true }));
     document.getElementById("browseEditSaveBtn").click();

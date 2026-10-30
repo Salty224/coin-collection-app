@@ -2830,6 +2830,14 @@
   .placeholder-note {
     text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; font-style: italic;
   }
+  /* Task (z), Save only when something changed: a clean form's Save stays
+     visible but dimmed, with a one-line reason under it. Scoped classes
+     (there is no global .hidden rule in this file). */
+  .save-btn.is-clean { opacity: 0.45; cursor: default; }
+  .save-clean-hint {
+    display: none; text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 8px;
+  }
+  .save-clean-hint.show { display: block; }
 
   /* ---------- Toast ---------- */
   .toast {
@@ -3542,6 +3550,7 @@
           </div>
 
           <button class="save-btn" id="browseEditSaveBtn">Save Changes</button>
+          <div class="save-clean-hint" id="browseEditSaveHint">No changes to save.</div>
           <div class="placeholder-note" id="browseEditSaveNote">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
 
@@ -3752,6 +3761,7 @@
           </div>
 
           <button class="save-btn" id="browseEditSetSaveBtn">Save Changes</button>
+          <div class="save-clean-hint" id="editSetSaveHint">No changes to save.</div>
           <div class="placeholder-note" id="editSetSaveNote">Session-only — edits update this browser's in-memory copy so you can see them round-trip, but nothing is written to OneDrive and everything resets on reload.</div>
         </div>
       </section>
@@ -4462,6 +4472,7 @@
           </div>
           <button class="save-btn" id="saveToDatabaseBtn" style="display:none;">Save to Database</button>
           <button class="save-btn" id="saveToStagingBtn" style="background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border);">Save to Staging</button>
+          <div class="save-clean-hint" id="stagingEditSaveHint">No changes to save.</div>
           <div class="placeholder-note" id="addCoinMockNote">Layout preview only — no OneDrive write happens yet; Staging/CollectionID reservation is simulated in-memory for this mockup.</div>
         </div>
       </section>
@@ -17515,6 +17526,89 @@
     try { fn(); } finally { browseEditApplyingProgrammatically = prev; }
   }
 
+  // ------------------------------------------------------------------
+  // SAVE ONLY WHEN SOMETHING CHANGED (task z, Oct 2026). A field counts as
+  // changed only when its value NOW differs from the value the form was
+  // loaded with, so typing something and putting it back makes the form
+  // clean again. Compared in the shape Save would write (trimmed text,
+  // numbers as numbers), never as raw box text. browseEditTouchedFields is
+  // kept for what it already does (conflict re-base, the Status-only-if-
+  // touched write rule) and now also gates this compare: a field the user
+  // never touched can never be dirty, whatever the app does to the box.
+  // ------------------------------------------------------------------
+  const FORM_NUMERIC_KEYS = ["Year", "Value", "Cost", "Shipping", "SalePrice", "ValueDate", "PurchaseDate", "SaleDate"];
+  // Two form values are the same when they trim to the same text, or both are
+  // numbers of the same size (1, "1" and 1.00). Text is never compared as a
+  // number: a cert number "00123" is not "123".
+  function formValuesEqual(numeric, a, b) {
+    const t = v => (v === null || v === undefined) ? "" : String(v).trim();
+    const x = t(a), y = t(b);
+    if (x === y) return true;
+    if (numeric && x !== "" && y !== "") {
+      const nx = Number(x), ny = Number(y);
+      if (Number.isFinite(nx) && Number.isFinite(ny)) return nx === ny;
+    }
+    return false;
+  }
+  let browseEditBaseline = null; // the form as loaded: { WriteKey: value }
+  // Every field as Save would write it, Status always included and
+  // StorageLocation read from its box even while that box is hidden.
+  function browseEditFormValues() {
+    if (!currentBrowseCoin) return {};
+    const out = Object.assign({}, readBrowseEditForm().workbook);
+    out.Status = document.getElementById("browseEditStatus").value;
+    out.StorageLocation = document.getElementById("browseEditStorageLocation").value.trim();
+    return out;
+  }
+  function captureBrowseEditBaseline() { browseEditBaseline = browseEditFormValues(); }
+  // The live row's value for a key, in the shape browseEditFormValues() gives.
+  function browseEditSnapshotBaselineValue(key, values) {
+    if (key === "Status") return statusSelectDisplayValue(values.Status);
+    if (key === "Value") return roundToCents(values.Value);
+    return values[key];
+  }
+  // The live row just landed in the form (first read, or after a conflict):
+  // an untouched field's baseline is what is on screen now; a touched
+  // field's is the row's own value, which is what Save will compare against.
+  function rebaselineBrowseEditFromSnapshot(values) {
+    const now = browseEditFormValues();
+    const base = browseEditBaseline || {};
+    Object.keys(now).forEach(k => {
+      base[k] = conflictFieldIsUserEdited(k) && values ? browseEditSnapshotBaselineValue(k, values) : now[k];
+    });
+    browseEditBaseline = base;
+  }
+  // Write keys of the fields that differ from the loaded form. Without a
+  // baseline (not captured yet) it falls back to every touched box.
+  function browseEditDirtyKeys() {
+    if (!browseEditBaseline) return Array.from(browseEditTouchedFields);
+    const now = browseEditFormValues();
+    const storageHidden = document.getElementById("browseEditStorageLocation").classList.contains("hidden");
+    return Object.keys(CONFLICT_FIELD_TO_INPUT).filter(k =>
+      conflictFieldIsUserEdited(k) &&
+      !(k === "StorageLocation" && storageHidden) &&
+      !formValuesEqual(FORM_NUMERIC_KEYS.indexOf(k) !== -1, browseEditBaseline[k], now[k]));
+  }
+
+  // Gifted fills a blank Sale Price with 0. If the user then moves Status
+  // off Gifted without typing in that box, the 0 was the app's, so it goes
+  // back to blank (the loaded value, since it only fills a blank).
+  const giftedPriceAutoFilled = {};
+  function applyGiftedSalePrice(status, priceId) {
+    const priceEl = document.getElementById(priceId);
+    if (!priceEl) return;
+    if (status === "Gifted") {
+      if (priceEl.value.trim() === "") { priceEl.value = "0"; giftedPriceAutoFilled[priceId] = true; }
+    } else if (giftedPriceAutoFilled[priceId] && priceEl.value === "0") {
+      priceEl.value = "";
+      giftedPriceAutoFilled[priceId] = false;
+    }
+  }
+  function wireGiftedSalePriceTyping(priceId) {
+    const el = document.getElementById(priceId);
+    if (el) el.addEventListener("input", () => { giftedPriceAutoFilled[priceId] = false; });
+  }
+
   // Loads that baseline, then re-syncs the two fields that depend on it:
   // Notes (prefilled from the row's real Remarks) and the Storage Location
   // mode (which needs the Containers lookup). Async and non-blocking — the
@@ -17659,6 +17753,8 @@
     };
     document.getElementById("browseEditFunFact").textContent = catalogFunFactFor(catalogShape);
     applyEditCoinCatalogNotes(catalogNotesFor(catalogShape));
+    rebaselineBrowseEditFromSnapshot(values);
+    refreshEditSaveState();
   }
 
   // Copies the live workbook row onto the in-memory record every screen
@@ -17866,6 +17962,9 @@
     document.getElementById("browseEditContainer").value = coin.container || "";
     applyStorageLocationMode(coin);
     applySaveNote();
+    giftedPriceAutoFilled["browseEditSalePrice"] = false;
+    captureBrowseEditBaseline(); // the form as loaded; the live row re-bases it when it lands
+    refreshEditSaveState();
   }
 
   // The note under Save has to tell the truth about which of the two save
@@ -18023,6 +18122,8 @@
     // field changed (the toast only claims a session-only update when one
     // did).
     editSetOpenedFields = editSetFieldValues();
+    giftedPriceAutoFilled["editSetSalePrice"] = false;
+    refreshEditSaveState();
   }
 
   // Every editable Edit Set field, as the form holds it now. Compared with
@@ -18037,17 +18138,22 @@
     EDIT_SET_FIELD_IDS.forEach(id => { const el = document.getElementById(id); out[id] = el ? String(el.value).trim() : ""; });
     return out;
   }
+  // Numbers compare as numbers (1 and 1.00 are the same), text as trimmed text.
+  const EDIT_SET_NUMERIC_IDS = ["editSetYearField", "editSetValue", "editSetCost", "editSetSalePrice", "editSetShippingCost"];
+  function editSetChangedIds() {
+    if (!editSetOpenedFields) return [];
+    const now = editSetFieldValues();
+    return EDIT_SET_FIELD_IDS.filter(id =>
+      !formValuesEqual(EDIT_SET_NUMERIC_IDS.indexOf(id) !== -1, editSetOpenedFields[id], now[id]));
+  }
   function editSetFieldsChanged() {
     if (!editSetOpenedFields) return true; // nothing to compare with: say what we did
-    const now = editSetFieldValues();
-    return EDIT_SET_FIELD_IDS.some(id => now[id] !== editSetOpenedFields[id]);
+    return editSetChangedIds().length > 0;
   }
   // How many Set fields differ from the form as opened (Ray's Q4: the leave
   // warning counts them, though they are session-only).
   function editSetChangedFieldCount() {
-    if (!editSetOpenedFields) return 0;
-    const now = editSetFieldValues();
-    return EDIT_SET_FIELD_IDS.filter(id => now[id] !== editSetOpenedFields[id]).length;
+    return editSetChangedIds().length;
   }
 
   // (returnToEditSetView() lived here. It existed so that drilling from Edit
@@ -18313,14 +18419,13 @@
       applyStatusDependentVisibility("browseEditExitFieldsRow", e.target.value);
       // Gifted defaults Sale Price to 0 (a token payment can still be
       // recorded) — only when the field is genuinely blank, so switching
-      // to Gifted never clobbers a price the user already typed, and
-      // switching AWAY from Gifted never touches whatever's there either
-      // (exit fields are never auto-cleared — see this row's own comment).
-      const priceEl = document.getElementById("browseEditSalePrice");
-      if (e.target.value === "Gifted" && priceEl.value.trim() === "") {
-        priceEl.value = "0";
-      }
+      // to Gifted never clobbers a price the user already typed. Moving
+      // AWAY from Gifted takes back only a 0 the app put there itself
+      // (task z); anything the user typed stays (exit fields are never
+      // auto-cleared otherwise — see this row's own comment).
+      applyGiftedSalePrice(e.target.value, "browseEditSalePrice");
     });
+    wireGiftedSalePriceTyping("browseEditSalePrice");
 
     // "— none (Other) —" is a one-shot trigger, never a stored value:
     // normalize it back to "" BEFORE anything else can read the field, then
@@ -18378,6 +18483,7 @@
         // unsaved field.
         if (e.target && e.target.type === "file") return;
         if (e.target && e.target.id) browseEditTouchedFields.add(e.target.id);
+        refreshEditSaveState();
       });
     });
 
@@ -18390,6 +18496,9 @@
 
     document.getElementById("browseEditSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
+      // Nothing differs from the loaded form: no write at all (no
+      // LastModified stamp, no Reviewed blanking).
+      if (!unsavedEditsForView()) { showToast(SAVE_CLEAN_TEXT); refreshEditSaveState(); return; }
       const coin = currentBrowseCoin;
       const form = readBrowseEditForm();
 
@@ -18749,6 +18858,7 @@
         showBrowseDetail(coin);
       } else {
         browseEditTouchedFields.clear(); // the fields are saved; only labels remain
+        captureBrowseEditBaseline();
       }
       return;
     }
@@ -18797,10 +18907,14 @@
     populateStatusSelect(document.getElementById("editSetStatus"));
     document.getElementById("editSetStatus").addEventListener("change", (e) => {
       applyStatusDependentVisibility("editSetExitFieldsRow", e.target.value);
-      const priceEl = document.getElementById("editSetSalePrice");
-      if (e.target.value === "Gifted" && priceEl.value.trim() === "") {
-        priceEl.value = "0";
-      }
+      applyGiftedSalePrice(e.target.value, "editSetSalePrice"); // task z: takes back only the app's own 0
+    });
+    wireGiftedSalePriceTyping("editSetSalePrice");
+    ["input", "change"].forEach(evt => {
+      document.getElementById("browseEditSetView").addEventListener(evt, e => {
+        if (e.target && e.target.type === "file") return;
+        refreshEditSaveState();
+      });
     });
 
     wireStaticAccordionToggle("editSetOverviewHeader", "editSetOverviewBody");
@@ -18856,6 +18970,8 @@
 
     document.getElementById("browseEditSetSaveBtn").addEventListener("click", () => {
       if (!currentBrowseCoin) return;
+      // Nothing differs from the form as opened: nothing to save.
+      if (!unsavedEditsForView()) { showToast(SAVE_CLEAN_TEXT); refreshEditSaveState(); return; }
       const coin = currentBrowseCoin;
       const fieldsChanged = editSetFieldsChanged();
       applyEditsToRecord(coin, {
@@ -18910,6 +19026,7 @@
         if (fieldsChanged) showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + labelMsg + failText);
         else showToast(labelText || "No changes to save.");
         editSetOpenedFields = editSetFieldValues();
+        refreshEditSaveState();
         if (photoEditsAllSaved(pres)) showBrowseDetail(coin);
       })();
     });
@@ -25376,7 +25493,7 @@
     let id = "", discard = () => {};
     if (screen === "editcoin" || screen === "editset") {
       id = currentBrowseCoin ? currentBrowseCoin.id : "";
-      c.fields = screen === "editcoin" ? browseEditTouchedFields.size : editSetChangedFieldCount();
+      c.fields = screen === "editcoin" ? browseEditDirtyKeys().length : editSetChangedFieldCount();
       c.labels = unsavedPhotoLabelCount(id);
       c.photos = pendingPhotoCount(id);
       discard = () => {
@@ -25391,7 +25508,8 @@
       discard = () => discardUnsavedPhotoEdits(id);
     } else {
       id = editingCoinDraftId || "";
-      c.fields = addCoinTouchedFields.size;
+      c.fields = addCoinDirtyFieldIds().length;
+      c.labels = addCoinStagingLabelCount();
       c.photos = addCoinUnsavedPhotoCount();
       c.receipts = addCoinUnsavedReceipt() ? 1 : 0;
       discard = () => { resetAddCoinForm(); clearCoinDraftEditContext(); };
@@ -25428,14 +25546,89 @@
   // count (isTrusted), file inputs aside (photos and the receipt are counted
   // from what they left behind).
   const addCoinTouchedFields = new Set();
+  // Task z: a touched box counts only while it differs from what it held
+  // when the user first got to it (their first focus, tap or key press), so
+  // typing and putting it back is clean again. Captured in the capture phase,
+  // before the user's change reaches the box. A touched box with no capture
+  // (it can't happen through the screen) counts, as it did before.
+  const addCoinBaseline = {};
+  function addCoinControlValue(el) {
+    return (el.type === "checkbox" || el.type === "radio") ? (el.checked ? "1" : "0") : String(el.value);
+  }
+  function addCoinCaptureBaseline(target) {
+    let el = target;
+    if (el && el.closest && !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+      const label = el.closest("label");
+      el = label && label.control ? label.control : null;
+    }
+    if (!el || !el.id || el.type === "file" || !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+    if (!(el.id in addCoinBaseline)) addCoinBaseline[el.id] = addCoinControlValue(el);
+  }
+  function clearAddCoinBaseline() { Object.keys(addCoinBaseline).forEach(k => delete addCoinBaseline[k]); }
+  function addCoinDirtyFieldIds() {
+    return Array.from(addCoinTouchedFields).filter(id => {
+      const el = document.getElementById(id);
+      if (!el || !(id in addCoinBaseline)) return true;
+      return !formValuesEqual(el.type === "number", addCoinBaseline[id], addCoinControlValue(el));
+    });
+  }
+  // Photos not yet in the draft (a new coin's picks, a Staging edit's
+  // replacements) plus stored photos taken off. "Taken off" is worked out
+  // from what the edit loaded, not counted: a loaded photo is gone when it
+  // is neither on the form nor the photo a pick stands in for.
+  function addCoinRemovedStoredCount() {
+    if (!editDraftFiles || !editDraftFiles.loadedEntries) return 0;
+    const list = galleryStore[ADDCOIN_GALLERY_ID] || [];
+    const standingIn = new Set(list.map(e => e.stagingReplacedEntry).filter(Boolean));
+    return editDraftFiles.loadedEntries.filter(e => list.indexOf(e) === -1 && !standingIn.has(e)).length;
+  }
   function addCoinUnsavedPhotoCount() {
     const picks = (galleryStore[ADDCOIN_GALLERY_ID] || []).filter(e => !e.stagingStored).length;
-    const removed = editDraftFiles && editDraftFiles.removedCount ? editDraftFiles.removedCount : 0;
-    return picks + removed;
+    return picks + addCoinRemovedStoredCount();
   }
+  // A label changed on a photo already in the Staging draft (task z; it was
+  // not counted at all before).
+  function addCoinStagingLabelCount() {
+    if (!editingCoinDraftId || !editDraftFiles) return 0;
+    return (galleryStore[ADDCOIN_GALLERY_ID] || []).filter(e => e.stagingStored &&
+      String(e.caption || "").trim() !== String(e.stagingBaseCaption || "").trim()).length;
+  }
+  // A receipt picked, or the draft's stored receipt taken off. Taking off a
+  // receipt the draft never had is not a change.
   function addCoinUnsavedReceipt() {
     const r = receiptFiles["receiptPreview"];
-    return !!(r && r.blob) || !!(editDraftFiles && editDraftFiles.receiptRemoved);
+    return !!(r && r.blob) || !!(editDraftFiles && editDraftFiles.receiptRemoved && editDraftFiles.receiptPhoto);
+  }
+
+  // ------------------------------------------------------------------
+  // SAVE STATE (task z). The Save button of Edit Coin, Edit Set and the
+  // Staging-draft edit is dimmed with "No changes to save." while the form
+  // matches what was loaded. It is only a view: the leave guard and the
+  // click handlers ask unsavedEditsForView() afresh every time. A new
+  // coin's Save (Add Coin) and Manage Photos' Save (hidden when clean) are
+  // not touched here.
+  // ------------------------------------------------------------------
+  const SAVE_CLEAN_TEXT = "No changes to save.";
+  function applySaveCleanState(btnId, hintId, clean) {
+    const btn = document.getElementById(btnId), hint = document.getElementById(hintId);
+    if (!btn) return;
+    // A Save in progress owns its button.
+    if (editSaveInFlight || btn.querySelector(".btn-spin-disc")) return;
+    btn.classList.toggle("is-clean", clean);
+    btn.disabled = clean;
+    if (hint) hint.classList.toggle("show", clean);
+  }
+  function refreshEditSaveState() {
+    let screen = null;
+    try { screen = activeEditScreen(); } catch (e) { return; } // not ready (startup)
+    if (!screen) return;
+    const clean = !unsavedEditsForView();
+    if (screen === "editcoin") applySaveCleanState("browseEditSaveBtn", "browseEditSaveHint", clean);
+    else if (screen === "editset") applySaveCleanState("browseEditSetSaveBtn", "editSetSaveHint", clean);
+    else if (screen === "addcoin") {
+      // Only a Staging-draft edit dims; a new coin's Save stays enabled.
+      applySaveCleanState("saveToStagingBtn", "stagingEditSaveHint", !!editingCoinDraftId && clean);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -25520,7 +25713,7 @@
   }
   // Called after every screen change (setNavBack runs on each one). Adds
   // an entry only when none of ours is on top.
-  function syncLeaveGuard() { armLeaveGuard(); }
+  function syncLeaveGuard() { armLeaveGuard(); refreshEditSaveState(); }
   let leaveGuardSyncQueued = false;
   function queueLeaveGuardSync() {
     if (leaveGuardSyncQueued) return;
@@ -25692,6 +25885,7 @@
     if (text === String(entry.caption || "")) return false;
     entry.caption = text;
     if (!draft) refreshManagePhotosSaveLabelsBtn();
+    refreshEditSaveState(); // a Staging draft's label edit counts too
     paintPhotoLabelState(entry);
     return true;
   }
@@ -25705,6 +25899,7 @@
     let id = null;
     try { id = managePhotosCtx && managePhotosCtx.id; } catch (e) { /* not declared yet (startup) */ }
     btn.style.display = (id && (unsavedPhotoLabelCount(id) || pendingPhotoCount(id))) ? "" : "none";
+    refreshEditSaveState(); // the other editing screens' Save follows the same photo changes
   }
   async function saveManagePhotos() {
     const ctx = managePhotosCtx;
@@ -25751,6 +25946,7 @@
     finally {
       editSaveInFlight = false;
       document.body.classList.remove("edit-save-locked");
+      refreshEditSaveState(); // the buttons were restored inside the lock
     }
   }
   // Progress on a Save button, with the spinning coin. setProgress(null)
@@ -26766,6 +26962,7 @@
     if (at >= 0) list[at] = newEntry;
     else addGalleryEntry(targetId, newEntry);
     if (done) done(newEntry);
+    refreshEditSaveState();
     return newEntry;
   }
 
@@ -26782,6 +26979,7 @@
       if (at !== -1) list.splice(at, 1);
       if (draft && draft.onRemove) draft.onRemove(entry);
       if (onRemoved) onRemoved();
+      refreshEditSaveState();
     };
     if (entry && entry.stagingReplacedEntry) {
       // ✕ on a pick that replaced a stored photo: undo it (Ray, 29 Oct 2026).
@@ -26794,6 +26992,7 @@
         if (at !== -1) list[at] = entry.stagingReplacedEntry;
         else list.push(entry.stagingReplacedEntry);
         if (onRemoved) onRemoved();
+        refreshEditSaveState();
       });
       return;
     }
@@ -29024,6 +29223,7 @@
         receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf", sourceWasPdf: true };
         showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
         commitReceiptForSlot(previewId);
+        refreshEditSaveState();
       } else {
         // Receipt photo — plain rectangular live preview, no crop adjuster,
         // but still needs EXIF orientation applied explicitly (a raw blob
@@ -29039,6 +29239,7 @@
         try {
           receiptFiles[previewId] = await prepareReceiptFile(file);
           commitReceiptForSlot(previewId);
+          refreshEditSaveState();
         } catch (e) {
           console.warn("Receipt PDF wrap failed for " + previewId + ":", e);
           delete receiptFiles[previewId];
@@ -30811,6 +31012,13 @@
   // distinguishable at reconciliation, and the toast says plainly which one
   // happened, rather than implying a workbook write that didn't occur.
   function saveAddCoinForm(destination) {
+    // A Staging-draft edit with nothing changed writes nothing: no upload,
+    // no coin.json rewrite, no editedDate (task z).
+    if (editingCoinDraftId && !unsavedEditsForView()) {
+      showToast(SAVE_CLEAN_TEXT);
+      refreshEditSaveState();
+      return;
+    }
     resolveAddCoinCatalogMatch(
       (match) => { completeAddCoinSave(destination, match); },
       () => { showToast("Save cancelled — nothing was written, and your entry is still here."); }
@@ -30957,6 +31165,7 @@
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
+      refreshEditSaveState();
     }
   }
 
@@ -31155,6 +31364,7 @@
   // top of it exactly as before.
   function resetAddCoinForm() {
     addCoinTouchedFields.clear();
+    clearAddCoinBaseline();
     // --- Album / Wishlist deep-link banners. Hides them ONLY — does not
     // touch the albumContext/wishlistContext module variables themselves.
     // Those variables are set by a slot/Wishlist-item click BEFORE
@@ -31306,6 +31516,10 @@
     if (banner) banner.classList.add("hidden");
     const staging = document.getElementById("saveToStagingBtn");
     if (staging) staging.textContent = "Save to Staging";
+    // Back to a new coin's Save: never dimmed.
+    if (staging) { staging.classList.remove("is-clean"); staging.disabled = false; }
+    const stagingHint = document.getElementById("stagingEditSaveHint");
+    if (stagingHint) stagingHint.classList.remove("show");
     renderAddCoinPhotos();
   }
 
@@ -31503,7 +31717,9 @@
     updateSaveConfidenceUI();
     setNavBack(() => navigate("staging"));
     // Last, so the form is already usable while the files come back.
+    refreshEditSaveState();
     await loadStagingEditFiles(draft);
+    refreshEditSaveState();
     return true;
   }
 
@@ -31634,12 +31850,14 @@
         type: g.type, url: null, rawUrl: null, circleUrl: null, blob: null,
         caption: g.caption, filename: g.cropped, rawFilename: g.raw || null,
         stored: true, stagingStored: true, storedFilename: g.cropped,
-        stagingFiles: [g.cropped, g.raw].filter(Boolean)
+        stagingFiles: [g.cropped, g.raw].filter(Boolean),
+        stagingBaseCaption: g.caption || "" // the label as loaded (task z)
       };
       entry.stagingFiles.forEach(f => editDraftFiles.hydratedFiles.add(f));
       addGalleryEntry(ADDCOIN_GALLERY_ID, entry);
       return entry;
     });
+    editDraftFiles.loadedEntries = entries; // what "taken off" is measured against (task z)
     if (draft.receiptPhoto) {
       editDraftFiles.hydratedFiles.add(draft.receiptPhoto);
       showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", draft.receiptPhoto + " (in Staging)");
@@ -31950,11 +32168,14 @@
   }
 
   function removeStagingEditReceipt() {
-    if (editDraftFiles) editDraftFiles.receiptRemoved = true;
+    // Only a receipt the draft really holds comes off at Save; ✕ on a pick
+    // when the draft had none just drops the pick (task z).
+    if (editDraftFiles && editDraftFiles.receiptPhoto) editDraftFiles.receiptRemoved = true;
     delete receiptFiles["receiptPreview"];
     resetReceiptSlot("receiptPreview", "receiptPlaceholder");
     showReceiptUploadState("receiptPreview", "", false, null);
     updateStagingEditRemoveButtons();
+    refreshEditSaveState();
   }
 
   // ✕ on the receipt shows only while editing a Staging draft, and only
@@ -32012,9 +32233,16 @@
     ["input", "change"].forEach(evt => {
       document.getElementById("view-addcoin").addEventListener(evt, e => {
         const t = e.target;
-        if (!e.isTrusted || !t || !t.id || t.type === "file") return;
-        addCoinTouchedFields.add(t.id);
+        if (e.isTrusted && t && t.id && t.type !== "file") addCoinTouchedFields.add(t.id);
+        refreshEditSaveState();
       });
+    });
+    // Task z: remember what a box held before the user's first touch of it
+    // (capture phase, so before their change lands).
+    ["focusin", "pointerdown", "touchstart", "keydown", "beforeinput", "compositionstart"].forEach(evt => {
+      document.getElementById("view-addcoin").addEventListener(evt, e => {
+        if (e.isTrusted) addCoinCaptureBaseline(e.target);
+      }, true);
     });
     // Photos are Edit Coin's own section in draft mode (renderAddCoinPhotos);
     // the receipt keeps its own slot.
