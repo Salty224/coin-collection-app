@@ -381,10 +381,10 @@ module.exports = defineSuite("album-best-of", async ({ ok, openApp }) => {
   ok(H.key.star === "★" && !H.key.semi && H.key.last && H.key.label === "1916★",
     `H1 KEY DATE: filled ★ at the end of the date label (${JSON.stringify(H.key)})`);
   ok(H.semi.star === "☆" && H.semi.semi && H.semi.last, `H2 SEMI-KEY DATE: outline ☆ (${JSON.stringify(H.semi)})`);
-  ok(H.upper.star === "★" && H.semiShort.star === "☆" && H.other.star === "★",
-    `H3 "KEY" is filled, "Semi-Key" is outline, any other non-blank value keeps a filled star (${H.upper.star} ${H.semiShort.star} ${H.other.star}; kinds ${H.kinds.join(",")})`);
-  ok([H.key, H.semi, H.upper, H.semiShort, H.other].every(x => x.ring && !x.inDisc) && !H.none.star && !H.none.ring,
-    "H4 the star is no longer on the disc corner; the gold ring on key-date slots is unchanged; a plain slot has neither");
+  ok(H.upper.star === "★" && H.semiShort.star === "☆" && H.other.star === null,
+    `H3 "KEY" is filled, "Semi-Key" is outline, any other non-blank value ("Better Date") gets NO star since task (g) (${H.upper.star} ${H.semiShort.star} ${H.other.star}; kinds ${H.kinds.join(",")})`);
+  ok([H.key, H.semi, H.upper, H.semiShort].every(x => x.ring && !x.inDisc) && !H.other.star && !H.other.ring && !H.none.star && !H.none.ring,
+    "H4 the star is no longer on the disc corner; the gold ring follows the star (a slot with no star has no ring); a plain slot has neither");
 
   // ---------- I. legend ----------
   const I = await page.evaluate(async () => {

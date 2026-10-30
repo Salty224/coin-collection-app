@@ -847,6 +847,9 @@
   /* ---------- Stats & Value ---------- */
   .stat-tile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .stat-tile { padding: 16px; }
+  .stat-tile-wide { grid-column: 1 / -1; }
+  .stat-face-line { font-size: 12px; color: var(--text-muted); margin: 8px 2px 0; }
+  .stat-face-line.hidden { display: none; }
   .stat-label { font-size: 12px; color: var(--text-muted); }
   .stat-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--gold-bright); }
   .stat-value.negative { color: var(--danger); }
@@ -858,7 +861,9 @@
   .stat-row:last-child { border-bottom: none; }
   .stat-row-label { width: 66px; flex-shrink: 0; font-size: 13px; font-weight: 600; }
   .stat-row-bar-track { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden; }
-  .stat-row-bar-fill { height: 100%; background: var(--gold); border-radius: 2px; }
+  .stat-row-bar-track { display: flex; }
+  .stat-row-bar-fill { height: 100%; background: var(--gold); border-radius: 2px; flex-shrink: 0; }
+  .stat-row-bar-fill.melt { background: var(--gold); opacity: 0.4; }
   .stat-row-value {
     width: 96px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--text-muted);
     font-variant-numeric: tabular-nums;
@@ -1086,6 +1091,8 @@
   .coin-grid.list-view .coin-card .value { flex-shrink: 0; }
 
   .set-card-progress { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
+  .set-card-variety { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .coin-card .value.no-value, .value.no-value { font-style: italic; font-weight: normal; opacity: 0.7; }
 
   .filter-row {
     display: flex;
@@ -2912,7 +2919,7 @@
       <div class="album-best-of-help hidden" id="albumBestOfHelp" role="dialog" aria-label="Album markers">
         <div><span class="abh-sym abh-up">▲</span> Owned coin better than the one in the album</div>
         <div><span class="abh-sym abh-fill">◆</span> Owned coin that is not in the album</div>
-        <div><span class="abh-sym abh-star">★</span> Key date</div>
+        <div><span class="abh-sym abh-star">★</span> Key date or key variety</div>
         <div><span class="abh-sym abh-star">☆</span> Semi-key date</div>
       </div>
       <button type="button" class="home-btn" id="navHomeBtn" aria-label="Close Drawer">Close Drawer</button>
@@ -4606,14 +4613,22 @@
             <div class="stat-value" id="statTotalSpent"></div>
           </div>
           <div class="case stat-tile">
-            <div class="stat-label">Est. value</div>
+            <div class="stat-label">Valued total</div>
             <div class="stat-value" id="statTotalValue"></div>
+            <div class="stat-sub" id="statValuedSub"></div>
           </div>
           <div class="case stat-tile">
-            <div class="stat-label">Net gain/loss</div>
+            <div class="stat-label">Melt total</div>
+            <div class="stat-value" id="statTotalMelt"></div>
+            <div class="stat-sub" id="statMeltSub"></div>
+          </div>
+          <div class="case stat-tile stat-tile-wide">
+            <div class="stat-label">Net gain/loss (valued coins)</div>
             <div class="stat-value" id="statNetGain"></div>
+            <div class="stat-sub" id="statNetSub"></div>
           </div>
         </div>
+        <p class="stat-face-line hidden" id="statFaceLine"></p>
 
         <div class="section-label">By Denomination</div>
         <div class="case" style="padding:4px 16px;" id="statsBreakdown"></div>
@@ -6405,18 +6420,15 @@
       container: String(colVal(row, "Container")),
       variety: String(colVal(row, "Variety")),
       cost: Number(colVal(row, "Cost")) || 0,
-      // Confirmed against the real workbook: Value first, SpotValue as
-      // fallback (SpotValue's formula is "not live yet" per CLAUDE.md, so
-      // it's often blank — Value is the real populated column today). There
-      // is no EstValue column — dropped from the candidate list; it was a
-      // guess that turned out wrong.
-      value: Number(colVal(row, "Value", "SpotValue")) || 0,
-      // Ledger's value-by-metal view keeps the two apart (Ray, Oct 2026):
+      // Recorded value only (All.Value; 0 when blank). It used to fall back
+      // to SpotValue, which made melt look like value on about a dozen
+      // screens (task (g), Oct 2026). Every display now goes through
+      // coinValueFigure(), which says whether a figure is a recorded value,
+      // melt or face. A blank Value is "no recorded value", never melt.
+      value: Number(colVal(row, "Value")) || 0,
       // recordedValue is All.Value ONLY and meltValue is All.SpotValue ONLY,
-      // each null when its cell is blank. A blank Value is "no recorded
-      // value", never melt. `value` above (with its SpotValue fallback) is
-      // deliberately left as-is — the coin page and the existing totals
-      // still read it.
+      // each null when its cell is blank. meltValue is the workbook's own
+      // SpotValue formula exactly as read: the app never calculates melt.
       recordedValue: specNum(colVal(row, "Value")),
       meltValue: specNum(colVal(row, "SpotValue")),
       // Value floor (Value-display cleanup task) — NOT confirmed against the
@@ -6619,30 +6631,27 @@
     return set;
   }
 
-  // Raw DB_Coins rows -> a Set of CoinIDs whose KeyDate cell is populated at
-  // all, feeding the album slot key-date star badge (already built, only
-  // ever exercised by FAKE_ALBUMS' own hand-set `keyDate: true` flags).
-  // DB_Coins.KeyDate's confirmed real values are "Key Date"/"Semi-Key
-  // Date" plus a few inconsistently-cased variants ("Semi-Key"/"KEY") — the
-  // column has no other populated meaning, so ANY non-blank value is
-  // treated as key-date-ish rather than matching against an exact string
-  // list, which would only be one future data-entry casing variant away
-  // from silently missing a real key date. Key vs. Semi-Key is
-  // deliberately NOT distinguished here — the existing badge is one boolean
-  // with no visual variant for it today (Ray's explicit scope call).
-  // SUPERSEDED (Best-of follow-up, Ray): Key and Semi-Key ARE now told
-  // apart — filled star for Key Date, outline star for Semi-Key Date. Any
-  // non-blank value still counts as a key date (so a new casing variant can't
-  // silently drop one); keyDateKindOf() says which star it gets.
+  // Raw DB_Coins rows -> CoinID -> "key" | "semi", feeding the album slot
+  // star badge and gold ring. DB_Coins.KeyDate values on 30 Oct 2026: Key
+  // Date, Semi-Key Date, One-Year Design, One-Year Dual Date, Key Variety.
+  // SUPERSEDED (task (g)): "any non-blank value counts" is gone; only Key
+  // Date / Key Variety (filled) and Semi-Key Date (outline) get a star, see
+  // keyDateKindOf().
   function keyDateKindOf(value) {
     const t = String(value == null ? "" : value).toLowerCase().replace(/[^a-z]/g, "");
     if (!t) return null;
     if (t.startsWith("semikey")) return "semi";
-    if (t === "key" || t === "keydate") return "key";
-    return "other"; // any other non-blank value: filled star, as before
+    if (t === "key" || t === "keydate" || t === "keyvariety") return "key";
+    // Star rule (task (g), Ray 30 Oct 2026): filled = Key Date and Key
+    // Variety, outline = Semi-Key Date, NO star for anything else ("One-Year
+    // Design", "One-Year Dual Date", an unknown wording). Real values on 30
+    // Oct: Key Date 41, Semi-Key Date 56, One-Year Design 29, One-Year Dual
+    // Date 6, Key Variety 2. Matching stays normalised (letters only, lower
+    // case) so a casing variant of a known value still counts.
+    return null;
   }
-  // CoinID -> "key" | "semi" | "other" (a Map, so .has() still answers
-  // "is this a key date" for every existing caller).
+  // CoinID -> "key" | "semi" (a Map, so .has() still answers "does this
+  // coin get a star" for every existing caller).
   function buildAlbumKeyDateIndex(dbCoinsRows) {
     const map = new Map();
     (dbCoinsRows || []).forEach(row => {
@@ -14257,11 +14266,11 @@
       // accessible equivalent), so a fact that only ever appeared in a corner
       // would otherwise be invisible to a screen reader.
       const srComposition = preciousMetalCompositionFor(coin);
-      const srDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
+      const srFigure = coinValueFigure(coin);
       srEl.textContent = coin.year + (coin.mint ? "-" + coin.mint : "") + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
         (srComposition ? ", composition " + srComposition : "") +
-        (srDisplayValue ? ", value " + formatCurrency(srDisplayValue) : "") +
+        valueSentenceText(srFigure) +
         " (" + coin.id + ")" +
         (coinFlaggedCombinedPhoto(coin) ? " — combined obverse/reverse photo, not yet cropped" : "");
     }
@@ -15195,7 +15204,7 @@
           <div class="meta"><span class="year-mint">${yearMint}</span> · <span class="card-id">${coin.id}</span></div>
         </div>
         ${coin.grade ? `<span class="grade-badge">${coin.grade}</span>` : ""}
-        <div class="value">${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
+        <div class="value${compactValueText(coin) ? "" : " no-value"}">${compactValueText(coin) || "No value"}</div>
       `;
       card.addEventListener("click", () => {
         browseDetailBackHandler = showBrowseGrid;
@@ -15280,7 +15289,8 @@
         <div class="album-card-icon">📦</div>
         <div class="album-card-info">
           <div class="album-card-name">${escapeHtmlText(detailTitleText(coin))}</div>
-          <div class="set-card-progress">${coin.category || "Set"} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
+          <div class="set-card-progress">${[coin.category || "Set", compactValueText(coin)].filter(Boolean).join(" · ")}</div>
+          <div class="set-card-variety">Variety: ${escapeHtmlText(setVarietyText(coin))}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -15315,7 +15325,7 @@
         <div class="album-card-icon">🪙</div>
         <div class="album-card-info">
           <div class="album-card-name">${coin.name}</div>
-          <div class="roll-card-meta">${yearMint} · ${coin.denom || ""} · ${formatCurrency(valueWithFaceFloor(coin.value, coin.faceValue))}</div>
+          <div class="roll-card-meta">${[yearMint, coin.denom || "", compactValueText(coin)].filter(Boolean).join(" · ")}</div>
         </div>
         <span class="chevron">›</span>
       `;
@@ -15574,7 +15584,7 @@
     if (rollsSortKey === "year-desc") sorted.sort((a, b) => compareRollYear(a, b, "desc"));
     else if (rollsSortKey === "year-asc") sorted.sort((a, b) => compareRollYear(a, b, "asc"));
     else if (rollsSortKey === "denom") sorted.sort((a, b) => STATS_DENOM_ORDER.indexOf(a.denom) - STATS_DENOM_ORDER.indexOf(b.denom));
-    else if (rollsSortKey === "value-desc") sorted.sort((a, b) => b.value - a.value);
+    else if (rollsSortKey === "value-desc") sorted.sort((a, b) => coinValueFigure(b).amount - coinValueFigure(a).amount);
     else if (rollsSortKey === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
     return sorted;
   }
@@ -16105,10 +16115,11 @@
       if (!currentBrowseCoin) return;
       const coin = currentBrowseCoin;
       const yearMint = coin.year + (coin.mint ? "-" + coin.mint : "");
-      const shareDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
+      const shareFigure = coinValueFigure(coin);
+      const shareMeltDate = shareFigure.basis === "melt" ? meltSpotDateSerial(coin) : null;
       const text = yearMint + " " + coin.name +
         (coin.grade ? ", grade " + coin.grade : "") +
-        (shareDisplayValue ? ", value " + formatCurrency(shareDisplayValue) : "") +
+        valueSentenceText(shareFigure, shareMeltDate) +
         " (" + coin.id + ")";
       shareContent({ title: coin.name, text, mailtoSubject: "Coin: " + coin.name });
     });
@@ -16448,6 +16459,19 @@
         }
       });
     }
+
+    // A melt figure carries its spot-price date (Ref_SpotPrices LastUpdated).
+    // Those rows are otherwise read only when the Ledger opens, so read them
+    // once here and re-render when they arrive (task (g)).
+    if (coinValueFigure(coin).basis === "melt" && meltSpotDateSerial(coin) == null) {
+      const pending = ensureSpotPricesForMeltLabels();
+      if (pending) pending.then(() => {
+        if (currentBrowseCoin && currentBrowseCoin.id === coin.id &&
+            document.getElementById("browseDetailView").style.display !== "none") {
+          renderBrowseDetailPanel(coin);
+        }
+      });
+    }
   }
 
   // (renderSetChildFlips() lived here — the child mini-flip grid for a
@@ -16777,6 +16801,7 @@
     const finishText = String(coin.finish || "").trim();
     if (isSet) {
       if (coin.name) overviewRows.push(["Description", coin.name]);
+      overviewRows.push(["Variety", escapeHtmlText(setVarietyText(coin))]);
       if (finishText) overviewRows.push(["Finish", escapeHtmlText(finishText)]);
     } else {
       if (coin.denom) overviewRows.push(["Denomination", coin.denom]);
@@ -16805,14 +16830,21 @@
     // computed once so the presence guard and the displayed figure can
     // never disagree, e.g. a coin with a blank stored Value but a real
     // FaceValue now correctly shows the row rather than staying hidden.
-    const overviewDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
-    if (overviewDisplayValue) overviewRows.push(["Value", formatCurrency(overviewDisplayValue)]);
+    const overviewFigure = coinValueFigure(coin);
+    if (overviewFigure.basis === "melt") {
+      const meltDate = meltSpotDateSerial(coin);
+      overviewRows.push(["Melt value", formatCurrency(overviewFigure.amount) + (meltDate != null ? " · spot " + excelSerialToISODate(meltDate) : "")]);
+    } else if (overviewFigure.basis === "face") {
+      overviewRows.push(["Face value", formatCurrency(overviewFigure.amount)]);
+    } else if (overviewFigure.basis === "valued") {
+      overviewRows.push(["Value", formatCurrency(overviewFigure.amount)]);
+    }
     // Value provenance, read-only here (editable in Edit Coin). Folded into
     // the Value row's own line when both are present, so a figure never sits
     // on screen with no indication of where it came from — the gap that made
     // this worth wiring at all. Each hides independently when blank, same
     // rule as every other row in this section.
-    const valueProv = [coin.valueSource, coin.valueDate].filter(Boolean).join(" · ");
+    const valueProv = overviewFigure.basis === "valued" ? [coin.valueSource, coin.valueDate].filter(Boolean).join(" · ") : "";
     if (valueProv) overviewRows.push(["Value source", valueProv]);
     // Ownership status + exit details — applies to both a coin and a Set
     // (a bundle can be sold/gifted/etc. same as any other owned row), so
@@ -17407,8 +17439,7 @@
     row.className = "case album-card";
     row.style.cssText = "cursor:pointer; margin-top:8px;";
     const identity = [yearMintText(child), child.denom, child.variety].filter(Boolean).join(" · ");
-    const childDisplayValue = valueWithFaceFloor(child.value, child.faceValue);
-    const facts = [child.grade, childDisplayValue ? formatCurrency(childDisplayValue) : ""].filter(Boolean).join(" · ");
+    const facts = [child.grade, compactValueText(child)].filter(Boolean).join(" · ");
     row.innerHTML = `
       <div class="album-card-icon">🪙</div>
       <div class="album-card-info">
@@ -17750,7 +17781,7 @@
     applyCacBeanToCheckboxes("browseEditCacGreen", "browseEditCacGold", coin.cacBean);
     // Rounded — see roundToCents()'s own comment; coin.value can carry the
     // same unrounded computed precision the live snapshot re-base does.
-    document.getElementById("browseEditValue").value = roundToCents(coin.value);
+    document.getElementById("browseEditValue").value = roundToCents(editPrefillRecordedValue(coin));
     document.getElementById("browseEditValueSource").value = coin.valueSource || "";
     document.getElementById("browseEditValueDate").value = coin.valueDate || "";
 
@@ -17936,7 +17967,7 @@
     document.getElementById("editSetYearField").value = coin.year != null ? coin.year : "";
     document.getElementById("editSetDescription").value = coin.name || "";
     // Rounded — see roundToCents()'s own comment (browseEditValue's site).
-    document.getElementById("editSetValue").value = roundToCents(coin.value);
+    document.getElementById("editSetValue").value = roundToCents(editPrefillRecordedValue(coin));
     setSelectValuePreservingUnknown(document.getElementById("editSetStatus"), statusSelectDisplayValue(coin.status));
     document.getElementById("editSetSaleDate").value = coin.saleDate || "";
     document.getElementById("editSetBuyer").value = coin.buyer || "";
@@ -18120,6 +18151,13 @@
   // stringifies the exact float. null/undefined/"" and a non-finite value
   // pass through as "" (blank), same "nothing to show" convention every
   // other populate-from-workbook helper here already uses.
+  // The Value box on Edit Coin / Edit Set opens with the RECORDED value only
+  // (All.Value). A blank Value stays blank: melt (All.SpotValue) must never
+  // pre-fill it, or a Save would record melt as the coin's value (task (g)).
+  function editPrefillRecordedValue(coin) {
+    if (coin && ("recordedValue" in coin)) return coin.recordedValue;
+    return coin ? coin.value : null;
+  }
   function roundToCents(v) {
     if (v === null || v === undefined || v === "") return "";
     const n = Number(v);
@@ -18166,6 +18204,82 @@
     const v = Number(value) || 0;
     const fv = Number(faceValue);
     return (Number.isFinite(fv) && fv > 0) ? Math.max(v, fv) : v;
+  }
+
+  // ------------------------------------------------------------------
+  // Where a coin's displayed figure comes from (task (g), display only).
+  // basis:
+  //   "valued" - All.Value is recorded (a recorded 0 counts). The amount is
+  //              floored at face and the basis stays "valued" even when the
+  //              floor lifted it (Ray: a coin is never worth less than face).
+  //   "melt"   - no recorded Value and All.SpotValue > 0. SpotValue is the
+  //              workbook's own formula; the app never calculates melt. The
+  //              face floor still applies to the amount.
+  //   "face"   - no recorded Value and no melt > 0, but a face value: the
+  //              amount is the face value.
+  //   "none"   - nothing to show (amount 0).
+  // Demo rows carry neither recordedValue nor meltValue, so their `value`
+  // counts as a recorded value.
+  // ------------------------------------------------------------------
+  function coinValueFigure(coin) {
+    const c = coin || {};
+    const fv = Number(c.faceValue);
+    const face = (Number.isFinite(fv) && fv > 0) ? fv : 0;
+    const live = "recordedValue" in c || "meltValue" in c;
+    let recorded = null;
+    if (live) recorded = (c.recordedValue == null || !Number.isFinite(Number(c.recordedValue))) ? null : Number(c.recordedValue);
+    else if (c.value != null && c.value !== "" && Number.isFinite(Number(c.value))) recorded = Number(c.value);
+    if (recorded != null) return { amount: Math.max(recorded, face), basis: "valued" };
+    const melt = c.meltValue == null ? null : Number(c.meltValue);
+    if (melt != null && Number.isFinite(melt) && melt > 0) return { amount: Math.max(melt, face), basis: "melt" };
+    if (face > 0) return { amount: face, basis: "face" };
+    return { amount: 0, basis: "none" };
+  }
+  // ", value $12.40" / ", melt value $12.40 (spot prices 2026-10-28)" /
+  // ", face value $0.01" for the screen-reader line and the share text.
+  function valueSentenceText(fig, meltDateSerial) {
+    if (!fig || fig.basis === "none") return "";
+    const amt = formatCurrency(fig.amount);
+    if (fig.basis === "melt") return ", melt value " + amt + (meltDateSerial != null ? " (spot prices " + excelSerialToISODate(meltDateSerial) + ")" : "");
+    if (fig.basis === "face") return ", face value " + amt;
+    return ", value " + amt;
+  }
+  // The Variety line on a Set (card and page): All.Variety, "Standard" when blank.
+  function setVarietyText(coin) {
+    return String((coin && coin.variety) || "").trim() || "Standard";
+  }
+  // "$12.40", "$12.40 melt", "$0.01 face", or "" when there is nothing.
+  function compactValueText(coin) {
+    const f = coinValueFigure(coin);
+    if (f.basis === "none") return "";
+    return formatCurrency(f.amount) + (f.basis === "melt" ? " melt" : f.basis === "face" ? " face" : "");
+  }
+  // Melt date label: the OLDEST Ref_SpotPrices LastUpdated among the metals
+  // the coin contains (specs oz > 0; all six when it has no specs). The only
+  // thing read from Ref_SpotPrices here is the date, never a price. Null
+  // while the rows are not loaded or any needed metal has no date.
+  function meltSpotDateSerial(coin) {
+    if (!Array.isArray(spotPriceRows)) return null;
+    const rows = spotPriceRowsForDisplay(spotPriceRows);
+    if (!rows.length) return null;
+    const specs = (coin && coin.specs) || {};
+    const held = FINE_OZ_METALS.filter(([, key]) => typeof specs[key] === "number" && specs[key] > 0).map(([m]) => m);
+    const need = held.length ? held : SPOT_PRICE_METAL_ORDER;
+    const dates = [];
+    for (const m of need) {
+      const r = rows.find(x => x.metal === m);
+      if (!r) continue;
+      if (r.dateSerial == null) return null;
+      dates.push(r.dateSerial);
+    }
+    return dates.length ? Math.min(...dates) : null;
+  }
+  // Read the spot-price rows once so a melt label can show its date outside
+  // the Ledger; a no-op once loaded, loading, or when not signed in live.
+  function ensureSpotPricesForMeltLabels() {
+    if (spotPriceRows || spotPriceFetchPromise || spotPriceStatus === "missing" || spotPriceStatus === "failed") return null;
+    if (liveDataMode() !== "live") return null;
+    return loadSpotPrices();
   }
 
   function initBrowseEdit() {
@@ -19980,10 +20094,10 @@
   }
 
   // The key-date star, as an accent at the end of the date label. Filled for
-  // Key Date (and any other non-blank KeyDate value); outline for Semi-Key.
+  // Key Date and Key Variety; outline for Semi-Key.
   function keyDateStarHtml(slot) {
     const semi = slot.keyDateKind === "semi";
-    return `<span class="key-date-badge${semi ? " key-date-semi" : ""}" title="${semi ? "Semi-key date" : "Key date"}">${semi ? "☆" : "★"}</span>`;
+    return `<span class="key-date-badge${semi ? " key-date-semi" : ""}" title="${semi ? "Semi-key date" : "Key date or key variety"}">${semi ? "☆" : "★"}</span>`;
   }
   function renderSlotCell(slot, side, album) {
     // The coin this slot SHOWS: the album's own (FilledBy) unless the Best-of
@@ -22369,6 +22483,7 @@
   function renderSpotPrices() {
     renderSpotPricesList();
     renderSpotPriceUpdateArea();
+    refreshLedgerValueTiles();
   }
   function renderSpotPricesList() {
     const el = document.getElementById("statsSpotPrices");
@@ -23062,44 +23177,44 @@
     const coins = owned.filter(c => c.denom !== "Medal");
     const medals = owned.filter(c => c.denom === "Medal");
     const totalSpent = owned.reduce((sum, c) => sum + (c.cost || 0), 0);
-    // Value-display cleanup task: floored per-coin BEFORE summing, same
-    // valueWithFaceFloor() every other Value display now uses — a no-op
-    // for any coin whose faceValue never resolved, so this is never a
-    // change in practice until that field actually carries real data.
-    // Cost (totalSpent above) is a different concept (what was paid, not
-    // what it's worth) and is deliberately never floored.
-    const totalValue = owned.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
-    const net = totalValue - totalSpent;
-
     document.getElementById("statTotalItems").textContent = owned.length.toLocaleString();
     document.getElementById("statItemsSub").textContent = coins.length + " coins, " + medals.length + " medals";
     document.getElementById("statTotalSpent").textContent = formatCurrency(totalSpent);
-    document.getElementById("statTotalValue").textContent = formatCurrency(totalValue);
+    // Valued, melt and face-only are kept apart (task (g)); see
+    // renderLedgerValueTiles(). Cost is never floored.
+    renderLedgerValueTiles(owned);
 
-    const netEl = document.getElementById("statNetGain");
-    netEl.textContent = (net >= 0 ? "+" : "−") + formatCurrency(Math.abs(net));
-    netEl.classList.toggle("negative", net < 0);
-
-    // Same per-coin floor applied here — the breakdown bars must agree
-    // with totalValue above, not silently disagree with it because only
-    // one of the two summed the raw, unfloored figure.
-    const maxDenomValue = Math.max(...STATS_DENOM_ORDER.map(denom =>
-      coins.filter(c => c.denom === denom).reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0)
-    ), 1);
+    // Per denomination: the valued total, then the melt-only total, as a
+    // two-tone bar (valued solid, melt lighter). Face-only coins are in
+    // neither, the same rule as the tiles above.
+    const denomFigures = denom => {
+      let valued = 0, melt = 0;
+      coins.filter(c => c.denom === denom).forEach(c => {
+        const f = coinValueFigure(c);
+        if (f.basis === "valued") valued += f.amount;
+        else if (f.basis === "melt") melt += f.amount;
+      });
+      return { valued, melt };
+    };
+    const maxDenomValue = Math.max(...STATS_DENOM_ORDER.map(denom => {
+      const t = denomFigures(denom);
+      return t.valued + t.melt;
+    }), 1);
 
     const breakdown = document.getElementById("statsBreakdown");
     breakdown.innerHTML = "";
     STATS_DENOM_ORDER.forEach(denom => {
       const group = coins.filter(c => c.denom === denom);
       if (!group.length) return;
-      const groupValue = group.reduce((sum, c) => sum + valueWithFaceFloor(c.value, c.faceValue), 0);
-      const pct = Math.round((groupValue / maxDenomValue) * 100);
+      const t = denomFigures(denom);
+      const valuedPct = Math.round((t.valued / maxDenomValue) * 100);
+      const meltPct = Math.round((t.melt / maxDenomValue) * 100);
       const row = document.createElement("div");
       row.className = "stat-row";
       row.innerHTML = `
         <div class="stat-row-label">${DENOM_LABELS[denom]}</div>
-        <div class="stat-row-bar-track"><div class="stat-row-bar-fill" style="width:${pct}%"></div></div>
-        <div class="stat-row-value">${group.length} · ${formatCurrency(groupValue)}</div>
+        <div class="stat-row-bar-track"><div class="stat-row-bar-fill" style="width:${valuedPct}%"></div><div class="stat-row-bar-fill melt" style="width:${meltPct}%"></div></div>
+        <div class="stat-row-value">${group.length} · <span class="denom-valued">${formatCurrency(t.valued)}</span>${t.melt > 0 ? ` + <span class="denom-melt">${formatCurrency(t.melt)} melt</span>` : ""}</div>
       `;
       breakdown.appendChild(row);
     });
@@ -23107,6 +23222,58 @@
     renderLedgerMetalViews(coins);
     renderLedgerCoinSearch();
     renderFormerHoldings();
+  }
+
+  // Ledger value tiles (task (g)): the Valued total, the Melt total and Net
+  // gain/loss are separate, each with its coin count.
+  //  - Valued: coins with a recorded All.Value, each at max(Value, face).
+  //  - Melt: coins with NO recorded Value and SpotValue > 0 (the workbook's
+  //    own figure, never calculated here).
+  //  - Net: Valued minus the cost of those SAME coins; melt and face-only
+  //    coins are not in it.
+  //  - Face only: no Value and no melt; shown as a count and their face sum,
+  //    in neither total nor Net.
+  function ledgerValueTotals(owned) {
+    const t = { valued: { n: 0, amount: 0, cost: 0 }, melt: { n: 0, amount: 0, coins: [] },
+      face: { n: 0, amount: 0 }, none: { n: 0 } };
+    owned.forEach(c => {
+      const f = coinValueFigure(c);
+      if (f.basis === "valued") { t.valued.n++; t.valued.amount += f.amount; t.valued.cost += (c.cost || 0); }
+      else if (f.basis === "melt") { t.melt.n++; t.melt.amount += f.amount; t.melt.coins.push(c); }
+      else if (f.basis === "face") { t.face.n++; t.face.amount += f.amount; }
+      else t.none.n++;
+    });
+    return t;
+  }
+  function renderLedgerValueTiles(owned) {
+    const el = id => document.getElementById(id);
+    if (!el("statTotalValue")) return;
+    const t = ledgerValueTotals(owned);
+    const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+    el("statTotalValue").textContent = formatCurrency(t.valued.amount);
+    el("statValuedSub").textContent = plural(t.valued.n, "coin", "coins") + " with a recorded value";
+    el("statTotalMelt").textContent = formatCurrency(t.melt.amount);
+    let meltSub = plural(t.melt.n, "coin", "coins") + " with melt only";
+    const dates = t.melt.coins.map(meltSpotDateSerial);
+    if (dates.length && dates.every(d => d != null)) meltSub += " · oldest spot price " + excelSerialToISODate(Math.min(...dates));
+    el("statMeltSub").textContent = meltSub;
+    const net = t.valued.amount - t.valued.cost;
+    const netEl = el("statNetGain");
+    netEl.textContent = (net >= 0 ? "+" : "−") + formatCurrency(Math.abs(net));
+    netEl.classList.toggle("negative", net < 0);
+    el("statNetSub").textContent = plural(t.valued.n, "coin", "coins") + ", cost " + formatCurrency(t.valued.cost);
+    const faceEl = el("statFaceLine");
+    const bits = [];
+    if (t.face.n) bits.push(plural(t.face.n, "coin", "coins") + " at face only · " + formatCurrency(t.face.amount));
+    if (t.none.n) bits.push(plural(t.none.n, "coin", "coins") + " with no value or face value");
+    faceEl.textContent = bits.join(" · ");
+    faceEl.classList.toggle("hidden", !bits.length);
+  }
+  // Re-draw the tiles when the spot-price rows arrive (their dates fill in
+  // the Melt tile's subtitle).
+  function refreshLedgerValueTiles() {
+    if (!LIVE_COINS || !document.getElementById("statTotalValue")) return;
+    renderLedgerValueTiles(activeCoins().filter(c => !isExitStatus(c.status)));
   }
 
   // Ledger: value by metal + fine ounces held (Ray, Oct 2026). Coin set:
@@ -23180,7 +23347,7 @@
         <div class="stat-row-label">${escapeHtmlText(b.metal)}</div>
         <div class="stat-row-value metal-row-figures">
           <span class="metal-count">${b.count} ${b.count === 1 ? "coin" : "coins"}</span> ·
-          <span class="metal-recorded">Recorded ${b.recordedBlank === b.count ? "—" : formatCurrency(b.recorded)}</span>${blankNote(b.recordedBlank)} ·
+          <span class="metal-recorded">Valued ${b.recordedBlank === b.count ? "—" : formatCurrency(b.recorded)}</span>${blankNote(b.recordedBlank)} ·
           <span class="metal-melt">Melt ${b.meltBlank === b.count ? "—" : formatCurrency(b.melt)}</span>${blankNote(b.meltBlank)}
         </div>
       `;
@@ -23226,13 +23393,13 @@
       const row = document.createElement("div");
       row.className = "case wish-item";
       row.style.cursor = "pointer";
-      const searchDisplayValue = valueWithFaceFloor(coin.value, coin.faceValue);
+      const searchDisplayValue = compactValueText(coin);
       row.innerHTML = `
         <div>
           <div class="wish-desc">${coin.id}${coin.name ? " — " + escapeHtmlText(coin.name) : ""}</div>
           <div class="wish-notes">${escapeHtmlText(yearMintText(coin))}${coin.denom ? " · " + escapeHtmlText(coin.denom) : ""}</div>
         </div>
-        <div class="wish-price">${searchDisplayValue ? formatCurrency(searchDisplayValue) : ""}</div>
+        <div class="wish-price">${escapeHtmlText(searchDisplayValue)}</div>
       `;
       row.addEventListener("click", () => openLedgerCoin(coin));
       container.appendChild(row);

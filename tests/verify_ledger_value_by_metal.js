@@ -24,7 +24,7 @@ module.exports = defineSuite("ledger-value-by-metal", async ({ ok, openApp, PHON
   ok(A.both.recordedValue === 30 && A.both.meltValue === 25, "A1 Value and SpotValue map to recordedValue / meltValue");
   ok(A.blankValue.recordedValue === null, `A2 a blank Value maps to recordedValue null, not SpotValue (got ${A.blankValue.recordedValue})`);
   ok(A.blankValue.meltValue === 66.16, "A3 meltValue is SpotValue on its own");
-  ok(A.blankValue.value === 66.16, "A4 coin.value still falls back to SpotValue (left unchanged, Ray's call)");
+  ok(A.blankValue.value === 0, "A4 (task (g)) coin.value no longer falls back to SpotValue: a blank Value is 0 here and melt is only meltValue");
   ok(A.neither.recordedValue === null && A.neither.meltValue === null, "A5 both blank map to null, not 0");
   ok(A.zero.recordedValue === 0, "A6 a real 0 Value stays a recorded 0 (not blank)");
 
@@ -74,10 +74,10 @@ module.exports = defineSuite("ledger-value-by-metal", async ({ ok, openApp, PHON
   const row = m => B.rows.find(r => r.metal === m) || {};
   ok(B.rows.map(r => r.metal).join(",") === "Gold,Silver,Other", `B1 buckets in metal order: Gold, Silver, Other (got ${B.rows.map(r => r.metal).join(",")})`);
   ok(row("Silver").count === "2 coins", `B2 mixed-metal coin counted once, in its main bucket (Silver count ${row("Silver").count})`);
-  ok(row("Silver").recorded === "Recorded $42.00" && row("Silver").melt === "Melt $31.00", `B3 Silver recorded/melt summed separately (${row("Silver").recorded} / ${row("Silver").melt})`);
-  ok(row("Other").count === "1 coin" && row("Other").recorded === "Recorded $5.00", "B4 no-metal coin lands in Other with its recorded value");
+  ok(row("Silver").recorded === "Valued $42.00" && row("Silver").melt === "Melt $31.00", `B3 Silver recorded/melt summed separately (${row("Silver").recorded} / ${row("Silver").melt})`);
+  ok(row("Other").count === "1 coin" && row("Other").recorded === "Valued $5.00", "B4 no-metal coin lands in Other with its recorded value");
   ok(row("Other").melt === "Melt —" && /\(1 blank\)/.test(row("Other").text), "B5 a blank SpotValue shows as no melt value, with a blank count");
-  ok(row("Gold").recorded === "Recorded —", `B6 BLANK VALUE IS NOT COUNTED AS RECORDED VALUE (Gold shows "${row("Gold").recorded}")`);
+  ok(row("Gold").recorded === "Valued —", `B6 BLANK VALUE IS NOT COUNTED AS RECORDED VALUE (Gold shows "${row("Gold").recorded}")`);
   ok(row("Gold").melt === "Melt $2,000.00", "B7 the same coin's melt still shows under Melt");
   ok(!B.rows.some(r => /\$999|\$777/.test(r.text)), "B8 exited and medal rows excluded");
   const oz = m => (B.oz.find(r => r.metal === m) || {}).text;
@@ -118,7 +118,7 @@ module.exports = defineSuite("ledger-value-by-metal", async ({ ok, openApp, PHON
     __setLiveCoinsForTest(null); __setLiveDataModeForTest(null); navigate("dashboard");
     return { denom, total };
   });
-  ok(D.denom === "1 · $66.16" && D.total === "$66.16", `D1 existing By Denomination / Est. value still read coin.value unchanged (${D.denom}, ${D.total})`);
+  ok(D.denom === "1 · $0.00 + $66.16 melt" && D.total === "$0.00", `D1 (task (g)) a melt-only coin is in the Melt part of By Denomination and NOT in the Valued total (${D.denom}, ${D.total})`);
   // ---------- E. gold bullion denominations join the metal views ----------
   // By Denomination lists only STATS_DENOM_ORDER, which has no $5/$10/$25/
   // $50/$100. The metal views now count any owned non-medal coin with metal
@@ -154,7 +154,7 @@ module.exports = defineSuite("ledger-value-by-metal", async ({ ok, openApp, PHON
   });
   const eRow = m => E.metal.find(r => r.metal === m) || {};
   ok(eRow("Gold").count === "2 coins", `E1 GOLD BULLION IN BY METAL: $50 Gold Eagle and $5 gold coin counted under Gold (count ${eRow("Gold").count || "none"})`);
-  ok(eRow("Gold").recorded === "Recorded $3,500.00" && eRow("Gold").melt === "Melt $3,350.00", `E2 Gold recorded/melt include both bullion coins (${eRow("Gold").recorded} / ${eRow("Gold").melt})`);
+  ok(eRow("Gold").recorded === "Valued $3,500.00" && eRow("Gold").melt === "Melt $3,350.00", `E2 Gold recorded/melt include both bullion coins (${eRow("Gold").recorded} / ${eRow("Gold").melt})`);
   const eOz = Object.fromEntries(E.oz);
   ok(eOz.Gold === "1.2419 oz", `E3 GOLD BULLION IN FINE OUNCES: bullion gold ounces counted (Gold ${eOz.Gold || "none"})`);
   ok(eRow("Silver").count === "1 coin" && eOz.Silver === "0.7734 oz", "E4 Set bundle excluded from By Metal and Fine Ounces (Silver is the $1 alone)");
