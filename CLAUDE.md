@@ -6,9 +6,9 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 
 ## Current state (rewritten at the end of every task; read this first)
 - main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct 2026 by fast-forward). Since then docs only: the slimming of this file (`claude/slim-claude-md`, first commit `a4737d7`) and a "Where to look" wording fix (28 Oct 2026, fast-forward to main) that adds a "Rules that stayed in CLAUDE.md" line to 7 bullets and to line 4 of the same 7 `docs/ref/` files. Main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since. Ray runs the deploy workflow for `main`.
-- Open branch: `ccr-06105bea-fexby9` (session branch, pushed): backlog (w) Staging photo replace keeps the old file (code `7b56955`), plus Ray's Q3 change: ✕ on a Replace pick is an undo, owned records and Staging (code `4589b46`, see "✕ on a Replace pick is an undo"). HELD for Ray's tablet test, not merged, not deployed. The three earlier merged branches and `claude/slim-claude-md` are still on origin (deleting the latter was blocked by 403; Ray will delete it).
+- Open branch: `ccr-06105bea-fexby9` (session branch, pushed): backlog (w) Staging photo replace keeps the old file (`7b56955`), Ray's Q3 undo change (`4589b46`), and the failed-save cleanup fix found in his tablet retest (30 Oct, see "A failed Staging-edit save cleans up its own half-pair"; code `960634d`). HELD for Ray's tablet test, not merged, not deployed. The three earlier merged branches and `claude/slim-claude-md` are still on origin (deleting the latter was blocked by 403; Ray will delete it).
 - Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
-- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites on `f14cb97` (28 Oct). On `7b56955` (29 Oct): 4106 / 0 / 0 / 79 suites. On `4589b46` (the undo change, 29 Oct): 4117 passed, 0 failed, 0 page errors, 79 suites.
+- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites on `f14cb97` (28 Oct). On `7b56955` (29 Oct): 4106 / 0 / 0 / 79 suites. On `4589b46` (the undo change, 29 Oct): 4117 / 0 / 0 / 79 suites. On `960634d` (failed-save cleanup, 30 Oct): totals PENDING, the follow-up docs commit fills them. Targeted: `verify_staging_replace_keeps_old` 29/29.
 - Next task, in Ray's order (27 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping. Backlog from 28 Oct: (w) is built, held (see Open branch); (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
 - Waiting on Ray: deploy of `main` to LIVE (his call); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
 - Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed. Also: pointers in kept text that name a section now in `docs/` (about 40, listed in the slimming report) were not edited; use `docs/INDEX.md`.
@@ -98,7 +98,7 @@ go-ahead.
 overwrite, on top of `928d7a9`'s photos-wait-for-save work; merged 28 Oct 2026
 by fast-forward of `claude/receipts-never-overwrite`; later commits are
 docs-only); `npm test` = 4088 passed, 0 failed, 0 page errors, 78 suites (run
-on the branch, 28 Oct 2026; on `ccr-06105bea-fexby9`, held: 4117 / 0 / 0 / 79 at `4589b46`). **Not deployed by the merge**: LIVE gets it
+on the branch, 28 Oct 2026; on `ccr-06105bea-fexby9`, held: 4117 / 0 / 0 / 79 at `4589b46`; totals for `960634d` pending). **Not deployed by the merge**: LIVE gets it
 only when Ray runs the deploy workflow for `main`.
 
 ## Session working rules (standing rules, added 28 Oct 2026)
@@ -731,6 +731,33 @@ records (C1, "Replace never overwrites a photo file") are untouched.
   the ✕ cases still pass; with the undo removed, H-H4 fail (4).
 - Not verified on a real device. Crop from another photo is tested through
   `saveDraftCropFromUpload()` directly, not the crop UI.
+### A failed Staging-edit save cleans up its own half-pair (30 Oct 2026, same branch, code `960634d`, HELD for Ray's tablet test)
+Ray's tablet retest on `5d23349`, draft AY-00756. An Add's first Save wrote
+`obverse_cropped_04`, then `obverse_original_04` was refused (409: OneDrive can
+refuse a recently deleted name even though a lookup says it is free). Ray
+re-saved: the retry took `_05` for both and wrote the crop again, leaving an
+orphan `cropped_04`, `cropped_05`, `original_05`, and no `original_04`.
+Cause: `uploadStagingEditFiles()` cleared the chosen names on a conflict but
+left the half that had already landed. **Undo + Save was NOT at fault**
+(reproduced: it uploads and deletes nothing).
+- **Rule:** when a Staging-edit save fails partway, the failing entry's own
+  landed files (`entry.stagingLanded`, uploaded by this attempt) are deleted
+  before the failure is reported, so the re-save writes a matching pair. Only
+  that entry's own files: never one already in the folder, never another
+  entry's (a Reference that landed earlier in the same attempt stays and is
+  not re-sent). The pick is still in memory, nothing is lost. No auto-retry.
+- A cleanup delete that fails leaves a harmless orphan and the failure toast
+  says so in one clause ("N partly uploaded file(s) couldn't be cleaned up
+  from Staging (names) — harmless, and not part of the draft").
+- A name OneDrive refused is remembered (`entry.stagingBadNames`) and skipped
+  when the names are re-chosen, so the re-save takes the next number rather
+  than hitting the same refusal again.
+- Tests: `verify_staging_replace_keeps_old` N1-N4 (8 new; 29 total): the exact
+  409-on-original_04 sequence, cleanup scope, a failed cleanup, and Add, Save,
+  reopen, Replace, X, Put it back, Save uploading nothing. Negative control
+  (the pre-fix app): N1, N1c, N1d, N2, N2b, N3 fail (6); N4 passes both ways,
+  as the diagnosis said it would.
+- Not verified on a real device.
 ## Current status (Oct 2026) — read this first
 - `main` is the source of truth for everything in this file. Every branch
   section that once read "HELD" has since been merged (each header now says
