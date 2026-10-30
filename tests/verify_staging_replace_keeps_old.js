@@ -533,4 +533,147 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
     "L the Reject dialog names the kept files, and Reject removes the whole folder: " + J([R.lBody, R.lGone]));
   ok(R.m.allOk && J(R.m.moved) === J([O2, OR2, ID + "_receipt.pdf"].sort()) && R.m.oldInStaging && R.m.oldNotInCoinPhotos && R.m.newInCoinPhotos,
     "M promotion moves only the listed files (and the receipt); the kept old pair stays in Staging: " + J(R.m));
+
+  // ---------- N. A save that fails partway cleans up its own half-pair ----------
+  // Tablet retest, AY-00756 (30 Oct 2026): the first Save of an Add wrote
+  // cropped_04, then original_04 was refused (409); Ray re-saved, and the
+  // retry took _05 for both and wrote the crop again, leaving an orphan
+  // cropped_04 and no original_04. Now a failure deletes only the files THIS
+  // entry uploaded, so the re-save writes a matching pair.
+  const N = await page.evaluate(async ({ base, catalog, id }) => {
+    const out = {};
+    const folder = writePaths().stagingBase + "/" + id;
+    const openEdit = async (mock, draft, files) => {
+      for (const [name, color] of Object.entries(files || {})) await mock.uploadFile(folder + "/" + name, await __ph.jpeg(color));
+      await mock.uploadJson(__draftPath(id), draft);
+      await beginCoinDraftEdit(id);
+      const b = document.getElementById("addCoinPhotosBody");
+      if (b.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+      await __ph.sleep(80);
+    };
+    const clickGuard = (label) => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === label); if (b) b.click(); return !!b; };
+    const jpgs = async (mock) => (await mock.listChildren(folder)).filter(n => /\.jpg$/.test(n)).sort();
+    const bytes = (mock, n) => __ph.bytesOf(mock, folder + "/" + n);
+    const toast = () => document.getElementById("toast").textContent;
+    const old = {};
+    ["", "_02", "_03"].forEach(t => { old[id + "_obverse_cropped" + t + ".jpg"] = "#a33"; old[id + "_obverse_original" + t + ".jpg"] = "#3a3"; });
+    const oldNames = Object.keys(old).sort();
+    // A mock that refuses original_04 once with a 409, and records puts/deletes.
+    const spy = (mock, opts) => {
+      const log = { puts: [], dels: [] };
+      const ru = mock.uploadFile, rd = mock.deleteItem;
+      let tripped = false;
+      mock.uploadFile = (p, f, o) => {
+        const n = String(p).split("/").pop();
+        log.puts.push(n);
+        if (opts.conflictOn && !tripped && opts.conflictOn.test(n)) { tripped = true; const e = new Error("nameAlreadyExists"); e.conflict = true; return Promise.reject(e); }
+        return ru.call(mock, p, f, o);
+      };
+      mock.deleteItem = (p) => {
+        const n = String(p).split("/").pop(); log.dels.push(n);
+        if (opts.failDelete && opts.failDelete.test(n)) return Promise.reject(new Error("locked"));
+        return rd.call(mock, p);
+      };
+      return log;
+    };
+    const pairNum = (names, kind) => {
+      const m = names.map(n => new RegExp("_obverse_" + kind + "(?:_(\\d+))?\\.jpg$").exec(n)).filter(Boolean).map(x => x[1] || "01");
+      return m;
+    };
+
+    // N1: the exact H2 sequence.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: [] }), old);
+      const log = spy(mock, { conflictOn: /_obverse_original_04\.jpg$/ });
+      out.n1add = await __ph.slotPick("obverse", "#33f");
+      const json0 = JSON.stringify(await mock.getJson(__draftPath(id)));
+      await __saveEdit();                           // fails: 409 on original_04 after cropped_04 landed
+      out.n1mid = { folder: await jpgs(mock), jsonSame: JSON.stringify(await mock.getJson(__draftPath(id))) === json0,
+        stillHasPick: galleryFor(ADDCOIN_GALLERY_ID).some(e => e.blob && !e.stagingStored), toast: toast() };
+      await __saveEdit();                           // re-save
+      const names = await jpgs(mock);
+      const saved = (await mock.getJson(__draftPath(id))).photos.map(coinDraftPhotoFilename).sort();
+      out.n1 = { folder: names, saved, newFiles: names.filter(n => oldNames.indexOf(n) === -1), log };
+      __teardown();
+    }
+    // N2: cleanup touches only this entry's files. A pre-existing listed Holder
+    // photo, the unlisted older pairs, and a Reference that SUCCEEDED earlier in
+    // the same failed attempt are all left alone.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: [{ type: "slab_obverse", filename: id + "_slab_obverse.jpg", caption: "" }] }),
+        Object.assign({ [id + "_slab_obverse.jpg"]: "#55c" }, old));
+      const before = {};
+      for (const n of Object.keys(old).concat([id + "_slab_obverse.jpg"])) before[n] = await bytes(mock, n);
+      const log = spy(mock, { conflictOn: /_obverse_original_04\.jpg$/ });
+      out.n2ref = await __ph.galleryPick(/Reference/, "#aa3");
+      out.n2obv = await __ph.slotPick("obverse", "#33f");
+      await __saveEdit();                           // reference lands, obverse pair fails
+      const mid = await jpgs(mock);
+      out.n2mid = { dels: log.dels.slice(), hasRef: mid.indexOf(id + "_reference_01.jpg") !== -1 };
+      let untouched = true;
+      for (const n of Object.keys(before)) if ((await bytes(mock, n)) !== before[n]) untouched = false;
+      out.n2untouched = untouched;
+      await __saveEdit();
+      const names = await jpgs(mock);
+      const saved = (await mock.getJson(__draftPath(id))).photos.map(coinDraftPhotoFilename).sort();
+      out.n2 = { refCount: names.filter(n => /_reference_/.test(n)).length, savedRef: saved.filter(n => /_reference_/.test(n)),
+        obvNew: names.filter(n => /_obverse_/.test(n) && !old[n]) };
+      __teardown();
+    }
+    // N3: a cleanup delete that fails leaves the orphan and says so.
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: [] }), old);
+      spy(mock, { conflictOn: /_obverse_original_04\.jpg$/, failDelete: /_obverse_cropped_04\.jpg$/ });
+      await __ph.slotPick("obverse", "#33f");
+      await __saveEdit();
+      out.n3 = { folder: await jpgs(mock), toast: toast() };
+      __teardown();
+    }
+    // N4: undo + Save uploads and deletes nothing (Ray's sequence: Add, Save,
+    // reopen, Replace, X, Put it back, Save).
+    {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      await openEdit(mock, Object.assign({}, base, { photos: [] }), old);
+      await __ph.slotPick("obverse", "#33f");
+      await __saveEdit();
+      const s1 = await mock.getJson(__draftPath(id));
+      const after1 = await jpgs(mock);
+      await beginCoinDraftEdit(id);
+      const b = document.getElementById("addCoinPhotosBody");
+      if (b.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+      await __ph.sleep(100);
+      const log = spy(mock, {});
+      await __ph.slotPick("obverse", "#f93");
+      __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
+      clickGuard("Put it back"); await __ph.sleep(80);
+      await __saveEdit();
+      out.n4 = { puts: log.puts.filter(n => /\.jpg$/.test(n)), dels: log.dels, folderSame: JSON.stringify(await jpgs(mock)) === JSON.stringify(after1),
+        photosSame: JSON.stringify((await mock.getJson(__draftPath(id))).photos) === JSON.stringify(s1.photos) };
+      __teardown();
+    }
+    return out;
+  }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
+
+  const NN = (names, kind) => names.map(n => new RegExp("_obverse_" + kind + "(?:_(\\d+))?\\.jpg$").exec(n)).filter(Boolean).map(x => x[1] || "01");
+  const oldSet = [0, 1, 2, 3, 4, 5].length; // six older files
+  ok(N.n1add && J(N.n1mid.folder.filter(n => /_04|_05/.test(n))) === J([]) && N.n1mid.jsonSame && N.n1mid.stillHasPick,
+    "N1 the first Save fails on original_04 AFTER cropped_04 landed: cropped_04 is cleaned up, coin.json is unchanged, the pick is still on the form: " + J(N.n1mid));
+  ok(/Couldn't save 1 file/.test(N.n1mid.toast) && !/couldn't be cleaned up/.test(N.n1mid.toast),
+    "N1b the failure toast is the usual one, with no clean-up clause when the clean-up worked: " + N.n1mid.toast);
+  ok(N.n1.newFiles.length === 2 && J(NN(N.n1.newFiles, "cropped")) === J(NN(N.n1.newFiles, "original")) &&
+     J(N.n1.saved) === J(N.n1.newFiles.slice().sort()),
+    "N1c the re-save writes a MATCHING pair (same number), exactly two new files, no stray crop, and coin.json lists that pair: " + J(N.n1));
+  ok(N.n1.log.puts.indexOf(ID + "_obverse_cropped_04.jpg") !== -1 && N.n1.newFiles.every(n => !/_04\.jpg$/.test(n)),
+    "N1d the refused name original_04 is skipped on the re-save (the next number is used), however 'free' a lookup says it is: " + J(N.n1.newFiles));
+  ok(N.n2ref && N.n2obv && J(N.n2mid.dels) === J([ID + "_obverse_cropped_04.jpg"]) && N.n2mid.hasRef && N.n2untouched,
+    "N2 clean-up deletes ONLY the failed entry's own file (cropped_04): the Reference that landed earlier in the same attempt, the listed Holder photo and the older pairs are untouched: " + J([N.n2mid, N.n2untouched]));
+  ok(N.n2.refCount === 1 && N.n2.savedRef.length === 1 && NN(N.n2.obvNew, "cropped").length === 1 && J(NN(N.n2.obvNew, "cropped")) === J(NN(N.n2.obvNew, "original")),
+    "N2b the re-save does not upload the Reference again, and writes a matching obverse pair: " + J(N.n2));
+  ok(N.n3.folder.indexOf(ID + "_obverse_cropped_04.jpg") !== -1 && /couldn't be cleaned up from Staging \(AY-00754_obverse_cropped_04\.jpg\)/.test(N.n3.toast),
+    "N3 a clean-up delete that fails leaves the orphan and the toast says so in one clause: " + J(N.n3));
+  ok(N.n4.puts.length === 0 && N.n4.dels.length === 0 && N.n4.folderSame && N.n4.photosSame,
+    "N4 Add, Save, reopen, Replace, X, Put it back, Save: nothing uploaded, nothing deleted, folder and coin.json unchanged: " + J(N.n4));
 }, module);

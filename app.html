@@ -30826,9 +30826,13 @@
     const uploadFailures = await uploadStagingEditFiles(collectionId);
     if (uploadFailures.length) {
       renderStagingEditUploadStates();
+      const orphanNote = (uploadFailures.orphans && uploadFailures.orphans.length)
+        ? " " + uploadFailures.orphans.length + " partly uploaded file" + (uploadFailures.orphans.length === 1 ? "" : "s") +
+          " couldn't be cleaned up from Staging (" + uploadFailures.orphans.join(", ") + ") — harmless, and not part of the draft."
+        : "";
       showToast("Couldn't save " + uploadFailures.length + " file" + (uploadFailures.length === 1 ? "" : "s") +
         " to Staging (" + uploadFailures.join(", ") + "). Nothing was recorded — everything is still here. " +
-        "Tap ↻ or Save changes to try again.");
+        "Tap ↻ or Save changes to try again." + orphanNote);
       return;
     }
     // Re-read right before the one write, so a change made elsewhere since
@@ -31559,6 +31563,10 @@
       try {
         if (!entry.stagingNames) {
           if (!taken) taken = await stagingTakenNames(collectionId, await readCoinDraft(collectionId));
+          // A name OneDrive refused (409) on an earlier attempt is skipped,
+          // even if a lookup says it is free (a recently deleted name can
+          // still be refused), so the re-save takes the next number.
+          (entry.stagingBadNames || []).forEach(n => taken.add(n));
           entry.stagingNames = await stagingEditNamesFor(collectionId, entry, taken);
           taken.add(entry.stagingNames.cropped);
           if (entry.stagingNames.raw) taken.add(entry.stagingNames.raw);
@@ -31570,7 +31578,10 @@
         const put = async (name, blob) => {
           if (entry.stagingLanded[name]) return;
           try { await graph().uploadFile(folder + "/" + name, blob, NO_OVERWRITE); }
-          catch (e) { if (e && e.conflict) entry.stagingNames = null; throw e; }
+          catch (e) {
+            if (e && e.conflict) (entry.stagingBadNames = entry.stagingBadNames || []).push(name);
+            throw e;
+          }
           entry.stagingLanded[name] = true;
         };
         await put(entry.stagingNames.cropped, entry.blob);
@@ -31583,6 +31594,19 @@
       } catch (e) {
         entry.uploadError = String(e && e.message ? e.message : e);
         failed.push(entry.stagingNames ? entry.stagingNames.cropped : (galleryTypeDef(entry.type) || {}).label || entry.type);
+        // A failure partway (say a 409 on the original after the crop landed)
+        // leaves half a pair no coin.json will ever list. Delete only what
+        // THIS entry uploaded (stagingLanded: never a file that was in the
+        // folder before, never another entry's), so the re-save writes a
+        // matching pair. The pick is still in memory, nothing is lost. A
+        // delete that fails leaves a harmless orphan, named in the toast.
+        // The names are re-chosen on the re-save.
+        const landed = Object.keys(entry.stagingLanded || {}).filter(n => entry.stagingLanded[n]);
+        for (const n of landed) {
+          try { await graph().deleteItem(folder + "/" + n); delete entry.stagingLanded[n]; }
+          catch (delErr) { (failed.orphans = failed.orphans || []).push(n); }
+        }
+        entry.stagingNames = null;
       } finally {
         entry.uploadPending = false;
       }
