@@ -18212,11 +18212,13 @@
   //   "valued" - All.Value is recorded (a recorded 0 counts). The amount is
   //              floored at face and the basis stays "valued" even when the
   //              floor lifted it (Ray: a coin is never worth less than face).
-  //   "melt"   - no recorded Value and All.SpotValue > 0. SpotValue is the
-  //              workbook's own formula; the app never calculates melt. The
-  //              face floor still applies to the amount.
-  //   "face"   - no recorded Value and no melt > 0, but a face value: the
-  //              amount is the face value.
+  //   "melt"   - no recorded Value and All.SpotValue > 0 AND at or above face
+  //              (melt equal to face stays "melt"). SpotValue is the
+  //              workbook's own formula; the app never calculates melt, and
+  //              the amount is SpotValue exactly as read.
+  //   "face"   - no recorded Value and no usable melt: SpotValue blank, 0, or
+  //              above 0 but BELOW face (Ray, 30 Oct 2026: melt below face
+  //              is face, not melt). The amount is the face value.
   //   "none"   - nothing to show (amount 0).
   // Demo rows carry neither recordedValue nor meltValue, so their `value`
   // counts as a recorded value.
@@ -18231,7 +18233,7 @@
     else if (c.value != null && c.value !== "" && Number.isFinite(Number(c.value))) recorded = Number(c.value);
     if (recorded != null) return { amount: Math.max(recorded, face), basis: "valued" };
     const melt = c.meltValue == null ? null : Number(c.meltValue);
-    if (melt != null && Number.isFinite(melt) && melt > 0) return { amount: Math.max(melt, face), basis: "melt" };
+    if (melt != null && Number.isFinite(melt) && melt > 0 && melt >= face) return { amount: melt, basis: "melt" };
     if (face > 0) return { amount: face, basis: "face" };
     return { amount: 0, basis: "none" };
   }

@@ -34,10 +34,15 @@ value on about twelve screens (`coin.value` = Value, falling back to SpotValue).
   - `"valued"`: a recorded `All.Value` (a recorded 0 counts). Amount = max(Value, face),
     and the basis STAYS "valued" when the floor lifts it (Ray: a coin is never worth less
     than face).
-  - `"melt"`: no recorded Value and `meltValue > 0`. `meltValue` is the workbook's own
-    `All.SpotValue` formula exactly as read; **the app never calculates melt**. The face
-    floor still applies to the amount (zinc cents melt below face).
-  - `"face"`: no recorded Value and no melt > 0, but a face value (SpotValue = 0 is NOT melt).
+  - `"melt"`: no recorded Value and `meltValue > 0` and `meltValue >= face` (melt equal to
+    face stays "melt"). `meltValue` is the workbook's own `All.SpotValue` formula exactly as
+    read; **the app never calculates melt**, and the amount is `meltValue` unchanged.
+  - `"face"`: no recorded Value and no usable melt, but a face value: SpotValue blank, 0, or
+    above 0 but BELOW face (Ray, 30 Oct 2026, a later change in the same task: melt below
+    face is face, not melt; 94 owned coins on 30 Oct, mostly cents, melt about $0.83 against
+    face about $3.82). Such a coin shows "$0.01 face" / "Face value" with no spot date, is on
+    the face-only Ledger line, and is NOT in the Melt total, its count, or Net. The Melt tile
+    therefore holds only coins whose melt is at or above face.
   - `"none"`: nothing.
   - Demo rows carry neither `recordedValue` nor `meltValue`, so their `value` counts as valued.
   - `coin.value` itself (`mapWorkbookRowToCoin`) is now recorded-only (0 when blank), so a call

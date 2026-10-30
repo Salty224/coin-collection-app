@@ -3059,8 +3059,9 @@ docs/ref/ALBUMS.md (star rule). Plan first (27-30 Oct), then Ray's answers: One-
 Date get no star; Net on valued coins only; compact tiles carry no date; "Recorded" becomes
 "Valued"; a recorded Value below face stays "valued" at the face amount; face-only coins are a
 separate line, in no total. Changed from the plan: face-only coins are NOT counted in the Valued
-or Melt totals (Q3 rewritten by Ray), and the face floor also applies to a melt amount while it
-stays basis "melt". New suite `tests/verify_value_fallback_melt.js` (57); changed on purpose:
+or Melt totals (Q3 rewritten by Ray), and the face floor first also applied to a melt amount while it
+stayed basis "melt"; Ray then changed that (30 Oct, same branch): melt above 0 but below face is
+basis "face", melt equal to face stays "melt". New suite `tests/verify_value_fallback_melt.js` (57 at first, 70 after the below-face change); changed on purpose:
 `verify_ledger_value_by_metal` (A4, B3, B4, B6, D1, E2), `verify_album_best_of` (H3, H4). Negative
 controls (SpotValue fallback and melt-as-valued restored: 24 fail; "other gets a star" restored:
-J3, K1 fail).
+J3, K1 fail; the below-face change: "floor but keep the melt label" restored, 8 fail).

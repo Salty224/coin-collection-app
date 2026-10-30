@@ -35,6 +35,11 @@ module.exports = defineSuite("value-fallback-melt", async ({ check, selfCheck, o
       recordedZero: f({ Value: 0, SpotValue: 5 }),
       belowFace: f({ Value: 0.004, SpotValue: 5, FaceValue: 0.01 }),
       meltBelowFace: f({ Value: "", SpotValue: 0.003, FaceValue: 0.01 }),
+      meltEqualFace: f({ Value: "", SpotValue: 0.01, FaceValue: 0.01 }),
+      meltAboveFace: f({ Value: "", SpotValue: 0.011, FaceValue: 0.01 }),
+      meltBelowFaceDime: f({ Value: "", SpotValue: 0.09, FaceValue: 0.1 }),
+      meltNoFace: f({ Value: "", SpotValue: 0.003 }),
+      meltBelowFaceRaw: __mk("AY-3", { Value: "", SpotValue: 0.003, FaceValue: 0.01 }).meltValue,
       demo: coinValueFigure({ id: "AY-D", value: 850 }),
       demoBlank: coinValueFigure({ id: "AY-D2" }),
       mappedValue: __mk("AY-2", { Value: "", SpotValue: 66.16 }).value
@@ -48,7 +53,11 @@ module.exports = defineSuite("value-fallback-melt", async ({ check, selfCheck, o
   ok("A6 neither Value nor melt, with face -> face at the face amount", A.neitherFace.basis === "face" && A.neitherFace.amount === 0.25, A.neitherFace);
   ok("A7 a recorded 0 is still a recorded value (valued), not melt", A.recordedZero.basis === "valued" && A.recordedZero.amount === 0, A.recordedZero);
   ok("A8 recorded Value below face stays 'valued' and is floored to face", A.belowFace.basis === "valued" && A.belowFace.amount === 0.01, A.belowFace);
-  ok("A9 melt below face is floored to face but stays basis melt", A.meltBelowFace.basis === "melt" && A.meltBelowFace.amount === 0.01, A.meltBelowFace);
+  ok("A9 melt above 0 but BELOW face is basis face at the face amount (Ray, 30 Oct), not melt", A.meltBelowFace.basis === "face" && A.meltBelowFace.amount === 0.01 && A.meltBelowFaceDime.basis === "face" && A.meltBelowFaceDime.amount === 0.1, { c: A.meltBelowFace, d: A.meltBelowFaceDime });
+  ok("A9b melt EQUAL to face stays melt, amount = SpotValue", A.meltEqualFace.basis === "melt" && A.meltEqualFace.amount === 0.01, A.meltEqualFace);
+  ok("A9c melt just above face stays melt at the unrounded SpotValue (no floor, nothing calculated)", A.meltAboveFace.basis === "melt" && A.meltAboveFace.amount === 0.011, A.meltAboveFace);
+  ok("A9d melt above 0 with NO face value is still melt", A.meltNoFace.basis === "melt" && A.meltNoFace.amount === 0.003, A.meltNoFace);
+  ok("A9e meltValue itself is still exactly All.SpotValue for a below-face coin", A.meltBelowFaceRaw === 0.003, A.meltBelowFaceRaw);
   ok("A10 a demo row (no recordedValue/meltValue) counts its value as valued", A.demo.basis === "valued" && A.demo.amount === 850, A.demo);
   ok("A11 a demo row with nothing is none", A.demoBlank.basis === "none", A.demoBlank);
   ok("A12 coin.value no longer falls back to SpotValue (0 on a melt-only row)", A.mappedValue === 0, A.mappedValue);
@@ -294,6 +303,58 @@ module.exports = defineSuite("value-fallback-melt", async ({ check, selfCheck, o
     return sortRollRows([b, a, c]).map(x => x.id);
   });
   ok("I1 Rolls value-desc orders by the displayed amount (melt 500 sits between 900 and 100)", I.join() === "AY-I3,AY-I1,AY-I2", I);
+
+  // ---------- M. melt below face is face (Ray, 30 Oct 2026) ----------
+  const M = await page.evaluate(async () => {
+    const out = {};
+    const belowCent = __mk("AY-M1", { Denomination: "1C", Value: "", SpotValue: 0.008, FaceValue: 0.01, Cost: 1, Year: 1990, Description: "Zinc Cent" });
+    const belowDime = __mk("AY-M2", { Denomination: "10C", Value: "", SpotValue: 0.09, FaceValue: 0.1, Cost: 2, Year: 1990, Description: "Clad Dime" });
+    const meltQuarter = __mk("AY-M3", { Denomination: "25C", Value: "", SpotValue: 4.2, FaceValue: 0.25, Cost: 3, Year: 1964, Description: "Silver Quarter" });
+    const equalCent = __mk("AY-M4", { Denomination: "1C", Value: "", SpotValue: 0.01, FaceValue: 0.01, Cost: 1, Year: 1991, Description: "Equal Cent" });
+    const valuedDollar = __mk("AY-M5", { Denomination: "$1", Value: 10, Cost: 6, Year: 1990, Description: "Valued Dollar" });
+    const coins = [belowCent, belowDime, meltQuarter, equalCent, valuedDollar];
+    coins[2].specs = { silverOz: 0.18 };
+    __setLiveCoinsForTest(coins);
+    __setLiveDataModeForTest("live");
+    out.compact = coins.map(c => compactValueText(c));
+    // detail of a below-face coin: Face value row, no melt row, no spot date, no Ref_SpotPrices read
+    window.__reqsM = [];
+    const realFetch = window.fetch;
+    window.getLiveNavToken = async () => "test-token";
+    window.fetch = async (url) => { window.__reqsM.push(String(url)); return new Response("{}", { status: 404 }); };
+    __resetSpotPricesForTest();
+    const rows = () => [...document.querySelectorAll("#detailAccordions .detail-row")].map(r => __txt(r.querySelector(".detail-label")) + " " + __txt(r.querySelector(".detail-value")));
+    showBrowseDetail(belowCent);
+    await new Promise(r => setTimeout(r, 300));
+    out.belowRows = rows().filter(t => /^(Value|Melt value|Face value)/.test(t));
+    out.belowSR = __txt(document.getElementById("browseDetailSR"));
+    let shared = null; window.shareContent = o => { shared = o.text; };
+    document.getElementById("browseDetailShareBtn").click(); out.belowShare = shared;
+    out.spotReads = window.__reqsM.filter(u => u.includes("Ref_SpotPrices")).length;
+    window.fetch = realFetch;
+    // equal-to-face coin keeps the melt label
+    __setSpotPriceRowsForTest([{ Metal: "Copper", PricePerTroyOz: 4, LastUpdated: excelSerialFromISODate("2026-10-20"), Source: "t" }]);
+    showBrowseDetail(equalCent);
+    out.equalRows = rows().filter(t => /^(Value|Melt value|Face value)/.test(t));
+    // Ledger
+    __setSpotPriceRowsForTest(["Gold", "Silver", "Platinum", "Palladium", "Copper", "Nickel"].map(m => ({ Metal: m, PricePerTroyOz: 10, LastUpdated: excelSerialFromISODate("2026-10-28"), Source: "t" })));
+    navigate("stats");
+    const t = id => __txt(document.getElementById(id));
+    out.led = { valued: t("statTotalValue"), valuedSub: t("statValuedSub"), melt: t("statTotalMelt"), meltSub: t("statMeltSub"), net: t("statNetGain"), netSub: t("statNetSub"), face: t("statFaceLine"),
+      cents: (() => { const r = [...document.querySelectorAll("#statsBreakdown .stat-row")].find(x => /Cent/i.test(x.textContent)); return r && __txt(r.querySelector(".stat-row-value")); })() };
+    __setLiveCoinsForTest(null); __setLiveDataModeForTest(null); __resetSpotPricesForTest(); navigate("dashboard");
+    return out;
+  });
+  ok("M1 compact figures: below-face melt reads '$0.01 face' / '$0.10 face'; melt at face and above stay 'melt'",
+    M.compact[0] === "$0.01 face" && M.compact[1] === "$0.10 face" && M.compact[2] === "$4.20 melt" && M.compact[3] === "$0.01 melt" && M.compact[4] === "$10.00", M.compact);
+  ok("M2 detail Overview for a below-face coin: 'Face value' only, no Melt value row, no spot date", M.belowRows.length === 1 && M.belowRows[0] === "Face value $0.01", M.belowRows);
+  ok("M3 screen-reader line and share text say 'face value' (no melt, no spot date)", /, face value \$0\.01 \(AY-M1\)/.test(M.belowSR) && / face value \$0\.01/.test(M.belowShare) && !/melt|spot/.test(M.belowSR + M.belowShare), { sr: M.belowSR, share: M.belowShare });
+  ok("M4 a below-face coin never triggers the Ref_SpotPrices read (no date to show)", M.spotReads === 0, M.spotReads);
+  ok("M5 melt equal to face keeps the 'Melt value' row with its spot date", M.equalRows.length === 1 && M.equalRows[0] === "Melt value $0.01 · spot 2026-10-20", M.equalRows);
+  ok("M6 Ledger: Melt total and count hold only melt at or above face (4.20 + 0.01, 2 coins)", M.led.melt === "$4.21" && /^2 coins with melt only/.test(M.led.meltSub), M.led);
+  ok("M7 Ledger: below-face coins are on the face-only line (0.01 + 0.10), not in Melt", M.led.face === "2 coins at face only · $0.11", M.led);
+  ok("M8 Ledger: Net is on valued coins only (10 - 6) and ignores melt and face-only coins", M.led.valued === "$10.00" && M.led.net === "+$4.00" && M.led.netSub === "1 coin, cost $6.00", M.led);
+  ok("M9 By Denomination: a below-face cent adds nothing to melt; the at-face cent is the only melt in Cents", M.led.cents === "2 · $0.00 + $0.01 melt", M.led.cents);
 
   // ---------- J. star rule ----------
   const J = await page.evaluate(() => {
