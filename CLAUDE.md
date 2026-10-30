@@ -5,14 +5,14 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main: last code commit `f14cb97` (receipts never overwrite, merged 28 Oct 2026 by fast-forward). Since then docs only: the slimming of this file (`claude/slim-claude-md`, first commit `a4737d7`) and a "Where to look" wording fix (28 Oct 2026, fast-forward to main) that adds a "Rules that stayed in CLAUDE.md" line to 7 bullets and to line 4 of the same 7 `docs/ref/` files. Main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since. Ray runs the deploy workflow for `main`.
-- Open branch: `ccr-06105bea-fexby9` (session branch, pushed): backlog (w) Staging photo replace keeps the old file (`7b56955`), Ray's Q3 undo change (`4589b46`), and the failed-save cleanup fix found in his tablet retest (30 Oct, see "A failed Staging-edit save cleans up its own half-pair"; code `960634d`). HELD for Ray's tablet test, not merged, not deployed. The three earlier merged branches and `claude/slim-claude-md` are still on origin (deleting the latter was blocked by 403; Ray will delete it).
+- main: last code commit `960634d` (Staging photo replace keeps the old file `7b56955`, ✕ on a Replace pick is an undo `4589b46`, failed-save cleanup `960634d`; merged 30 Oct 2026 by fast-forward of `ccr-06105bea-fexby9`, with docs-only commits after it). Main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since, including this one. Ray runs the deploy workflow for `main`.
+- Open branch: none. `ccr-06105bea-fexby9` was merged and deleted locally (origin deletion: see the merge report). `claude/slim-claude-md`, `claude/receipts-never-overwrite` and `claude/photos-wait-for-save` are merged and still on origin; deleting `claude/slim-claude-md` was blocked by HTTP 403 from the session's git proxy, so Ray will delete those.
 - Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
-- Baseline: 4088 passed, 0 failed, 0 page errors, 78 suites on `f14cb97` (28 Oct). On `7b56955` (29 Oct): 4106 / 0 / 0 / 79 suites. On `4589b46` (the undo change, 29 Oct): 4117 / 0 / 0 / 79 suites. On `960634d` (failed-save cleanup, 30 Oct): 4125 passed, 0 failed, 0 page errors, 79 suites (one earlier full run showed 4 failures in `verify_crop_from_upload` C3a/C3/C7/C9, a timing flake under load: 48/48 alone twice and clean on the rerun).
-- Next task, in Ray's order (27 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (s) "Keep the old photo?"; (p) retire the All-sheet fallback, then (q) the old OGP mapping. Backlog from 28 Oct: (w) is built, held (see Open branch); (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
-- Waiting on Ray: deploy of `main` to LIVE (his call); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE.
+- Baseline: 4125 passed, 0 failed, 0 page errors, 79 suites (30 Oct 2026, on `960634d`; code on main is identical, later commits are docs-only). One earlier full run showed 4 failures in `verify_crop_from_upload` (C3a/C3/C7/C9): a timing flake under load, 48/48 alone twice and clean on the rerun.
+- Next task, in Ray's order (27 Oct, updated 30 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (p) retire the All-sheet fallback, then (q) the old OGP mapping. New backlog from 30 Oct, to be planned as their own tasks: (z) Save changes only when something changed; (aa) Keep or Delete prompt on every Replace ((s) is folded into it). Older: (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
+- Waiting on Ray: deploy of `main` to LIVE (his call; the Staging-edit changes above are TEST-only until he runs the workflow); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE; he may delete the leftover `cropped_04` file on AY-00756 by hand.
 - Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed. Also: pointers in kept text that name a section now in `docs/` (about 40, listed in the slimming report) were not edited; use `docs/INDEX.md`.
-- Not verified on a real device: Samsung Internet in a browser tab; Graph's `@microsoft.graph.conflictBehavior=fail` (409) on a real upload.
+- Not verified on a real device: Samsung Internet in a browser tab; Graph's `@microsoft.graph.conflictBehavior=fail` (409) on a real upload (the AY-00756 retest hit one on the tablet, so it is now seen in real use, but not yet re-tested after the cleanup fix); the Staging folder link is verified on PC and tablet (29 Oct).
 
 ## Where to look (read the file BEFORE working in that area)
 This file keeps what every session needs: standing rules, current state, backlog, and the architecture and write-layer design. Everything else is in `docs/`, linked by plain path (not @-imports), so nothing loads unless you read it. Line numbers in `docs/INDEX.md` and in the "Source:" pointers below refer to this file as it was at commit `21bcd95`.
@@ -98,7 +98,7 @@ go-ahead.
 overwrite, on top of `928d7a9`'s photos-wait-for-save work; merged 28 Oct 2026
 by fast-forward of `claude/receipts-never-overwrite`; later commits are
 docs-only); `npm test` = 4088 passed, 0 failed, 0 page errors, 78 suites (run
-on the branch, 28 Oct 2026; on `ccr-06105bea-fexby9`, held: 4125 / 0 / 0 / 79 at `960634d`). **Not deployed by the merge**: LIVE gets it
+on the branch, 28 Oct 2026; 4125 / 0 / 0 / 79 at `960634d`, merged 30 Oct 2026). **Not deployed by the merge**: LIVE gets it
 only when Ray runs the deploy workflow for `main`.
 
 ## Session working rules (standing rules, added 28 Oct 2026)
@@ -674,7 +674,7 @@ receipts still worked the old, unsafe way.
   the next blank row, never appending). No code change was needed here —
   only the explicit, Receipts-specific test coverage, which didn't exist
   before (only Photos' had its own row-number assertion).
-## ✕ on a Replace pick is an undo (29 Oct 2026, same branch `ccr-06105bea-fexby9`, HELD for Ray's tablet test)
+## ✕ on a Replace pick is an undo (29 Oct 2026, merged to main 30 Oct 2026 by fast-forward, built on `ccr-06105bea-fexby9`)
 Ray's change to Q3, everywhere photos are edited. ✕ on a pick that REPLACED a
 saved/stored photo removes the pick and puts the previous photo back in its
 slot, as if the Replace never happened. Nothing is deleted, uploaded or written.
@@ -696,7 +696,7 @@ photo and ✕ on a never-saved Add are unchanged.
   control with the undo removed: W15, W15b, W15c, W15f, W16, W16b fail (6).
 - Not verified on a real device.
 
-## Staging photo replace keeps the old file (Oct 2026, built on `ccr-06105bea-fexby9`, code `7b56955`, HELD for Ray's tablet test)
+## Staging photo replace keeps the old file (Oct 2026, merged to main 30 Oct 2026 by fast-forward, built on `ccr-06105bea-fexby9`, code `7b56955`)
 Backlog (w), Ray 28 Oct 2026. The Staging-draft edit (draft mode) only; owned
 records (C1, "Replace never overwrites a photo file") are untouched.
 - **Rule: a Replace, Recrop or Crop from another photo in a Staging draft
@@ -731,7 +731,7 @@ records (C1, "Replace never overwrites a photo file") are untouched.
   the ✕ cases still pass; with the undo removed, H-H4 fail (4).
 - Not verified on a real device. Crop from another photo is tested through
   `saveDraftCropFromUpload()` directly, not the crop UI.
-### A failed Staging-edit save cleans up its own half-pair (30 Oct 2026, same branch, code `960634d`, HELD for Ray's tablet test)
+### A failed Staging-edit save cleans up its own half-pair (30 Oct 2026, merged to main 30 Oct 2026 with the section above, code `960634d`)
 Ray's tablet retest on `5d23349`, draft AY-00756. An Add's first Save wrote
 `obverse_cropped_04`, then `obverse_original_04` was refused (409: OneDrive can
 refuse a recently deleted name even though a lookup says it is free). Ray
@@ -768,7 +768,7 @@ left the half that had already landed. **Undo + Save was NOT at fault**
 - The live site writes the REAL workbook once Ray deploys `main` through the
   workflow (see "The build decides its data target"). Nothing reaches the
   live site until he runs it.
-- Baseline: see the line at the top of this file.
+- Baseline: 4125 passed, 0 failed, 0 page errors, 79 suites (30 Oct 2026, on `960634d`; code on main is identical, later commits are docs-only). One earlier full run showed 4 failures in `verify_crop_from_upload` (C3a/C3/C7/C9): a timing flake under load, 48/48 alone twice and clean on the rerun.
 - Still open, by choice: the `AllCoins` table's ref runs ~987 rows past its
   data (left as-is); a real Graph workbook session ("option 3") stays in
   reserve for read-after-write lag; the deferred write bugs listed under
@@ -868,7 +868,8 @@ left the half that had already landed. **Undo + Save was NOT at fault**
   yes to these labels, built in this build. A Set's Fun Fact display is
   hidden entirely (Set page and Edit Set, demo data included) until a real
   source exists.**
-- (s) "Keep the old photo?" on Replace of a fixed-name slot (Ray, 27 Oct;
+- (s) *(Folded into (aa) below, Ray 30 Oct 2026: do not plan it separately.)*
+  "Keep the old photo?" on Replace of a fixed-name slot (Ray, 27 Oct;
   replaces the earlier `_Replaced` folder item). Applies to Obverse, Reverse,
   Holder front/back and a Set's whole-set / sub-group pairs. On Replace the
   user picks Keep as Reference / Keep as Other / Don't keep; like every
@@ -891,8 +892,7 @@ left the half that had already landed. **Undo + Save was NOT at fault**
   LIVE's Photos tab for duplicate PhotoIDs: `main` / LIVE could mint them
   (id minted before the table lock, no session floor) until the 27 Oct
   merge. Nothing in the app writes this fix.
-- (w) *(Done on `ccr-06105bea-fexby9`, code `7b56955`, held for Ray's tablet
-  test; see "Staging photo replace keeps the old file".)* Staging photo
+- (w) *(Done: merged to main 30 Oct 2026, code `7b56955` plus the undo `4589b46` and the failed-save cleanup `960634d`; see "Staging photo replace keeps the old file".)* Staging photo
   replace used to delete the old file; it now keeps it, like receipts.
 - (x) Edit Coin receipts should match Add Coin (Ray, 28 Oct, his Q1/Q2 from
   the receipts retest, both already on `main` before the 28 Oct merge): the
@@ -905,6 +905,30 @@ left the half that had already landed. **Undo + Save was NOT at fault**
 - (y) The Staging-edit receipt slot needs the shared chooser (Ray, 28 Oct):
   it still has the old camera / gallery / ✕ icons, with no preview, no
   Replace and no Files button. Backlog only, not built.
+- (z) Save changes only when something changed (Ray, 30 Oct 2026, found in
+  his tablet retest). Save is enabled after a Replace even when an undo
+  (✕ -> "Put it back") has returned the form to exactly its loaded state, and
+  the leave guard (the "Discard unsaved edits?" dialog) likely still counts
+  that Replace too. Fix both together: Save, and the leave guard, should
+  count only real differences from what was loaded. Applies to every edit
+  form: Edit Coin, Edit Set, Manage Photos and the Staging-draft edit.
+  Backlog only, not built.
+- (aa) Keep or Delete prompt on every Replace (Ray, 30 Oct 2026; agreed
+  design, to be planned later as ONE task; (s) is folded into it). Not built.
+  - Scope: every Replace of a photo or a receipt, owned records and Staging
+    drafts alike. The user chooses Keep or Delete for the old file.
+  - Kept files go to ONE "Replaced" folder (not left beside the live files).
+    Cleaning that folder up is done by the user through the OneDrive folder
+    link (the Staging Review link pattern, verified on PC and tablet).
+  - Staging folders: delete the draft's whole Staging folder as the very LAST
+    step of a fully successful promotion, and add a clause saying so to the
+    Promote dialog. Check Force Add separately: it writes a row without a
+    CoinID and keeps the card, so it may need a different rule.
+  - Check whether `_Docket` / `docket.json` is still used before relying on
+    the Staging folder layout in this task.
+  - One-time cleanup of the old promoted Staging folders already on OneDrive
+    (the ones left behind by every promotion so far).
+  - Plan first, questions first; it touches Replace, promotion and cleanup.
 - (v) Note only, no action (Ray, 27 Oct): on LIVE, a Replace or Recrop of a
   fixed-name photo before the 27 Oct merge uploaded over the old file
   (`{ID}_slab_reverse.jpg`, `_obverse_cropped.jpg`, `_obverse_original.jpg`
