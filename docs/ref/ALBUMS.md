@@ -55,10 +55,19 @@ from 5 rows to 4). The bar stays 60 px and one line at 360 px.
   never touches page-turn state) listing ▲, ◆, filled ★ = Key date, outline
   ☆ = Semi-key date. No tooltips are relied on (tablets have no hover).
 - **Key-date star moved** from the disc corner to the end of the date label
-  (affects Best-of off too): filled ★ for Key Date and any other non-blank
-  KeyDate value, outline ☆ for Semi-Key (`keyDateKindOf()`;
-  `buildAlbumKeyDateIndex` now returns CoinID -> "key" | "semi" | "other").
-  Gold ring unchanged.
+  (affects Best-of off too): filled ★ for Key Date, outline ☆ for Semi-Key
+  (`keyDateKindOf()`; `buildAlbumKeyDateIndex` returns CoinID -> "key" | "semi").
+  **Star rule changed in task (g), 30 Oct 2026 (Ray):** filled = Key Date and Key
+  Variety, outline = Semi-Key Date, NO star for anything else. The old "any other
+  non-blank KeyDate value gets a filled star" rule is gone ("other" is no longer a
+  kind). Real `DB_Coins.KeyDate` values on 30 Oct: Key Date 41, Semi-Key Date 56,
+  One-Year Design 29, One-Year Dual Date 6, Key Variety 2, rest blank; One-Year
+  Design and One-Year Dual Date therefore lose their star. Matching stays
+  normalised (letters only, lower case: "key", "keydate", "keyvariety" filled,
+  anything starting "semikey" outline). The gold ring follows the star, because
+  the slot's `keyDate` flag is true only for key / semi. The "?" legend reads
+  "Key date or key variety" / "Semi-key date". Tests: `verify_value_fallback_melt` J, K;
+  `verify_album_best_of` H3, H4. Not checked against the real workbook beyond the counts above.
 
 **Test baseline after this work (main a06b976):** `npm test` = 2900 passed,
 0 failed, 0 page errors, 64 suites.
@@ -449,6 +458,8 @@ still doesn't cover Albums; that stays a separate, later task.
   same way composition/specs are already joined from DB_Coins elsewhere in
   `ensureLiveNavDataFetch()`; `buildLiveAlbums()` gained a fourth
   `dbCoinsRows` parameter to thread it through.
+  - *(Superseded by task (g), 30 Oct 2026: only Key Date / Key Variety / Semi-Key
+    Date get a star now; see the star rule near the top of this file.)*
   - **Any non-blank value counts, not an exact-match list.** Confirmed real
     values are `"Key Date"`/`"Semi-Key Date"` plus casing variants
     (`"Semi-Key"`/`"KEY"`) — rather than hardcoding those four strings (one

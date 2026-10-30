@@ -3053,4 +3053,14 @@ whole app" below for the confirmed regression and its fix.
   upload was needed yet — one is recommended once Copilot's current task
   list is confirmed complete.
 
-
+## Value fallback: melt is labelled (task (g), built 30 Oct 2026 on `claude/value-fallback-melt-label`)
+One-paragraph story; the rules are in docs/ref/LEDGER.md ("Value fallback: melt is labelled") and
+docs/ref/ALBUMS.md (star rule). Plan first (27-30 Oct), then Ray's answers: One-Year Design / Dual
+Date get no star; Net on valued coins only; compact tiles carry no date; "Recorded" becomes
+"Valued"; a recorded Value below face stays "valued" at the face amount; face-only coins are a
+separate line, in no total. Changed from the plan: face-only coins are NOT counted in the Valued
+or Melt totals (Q3 rewritten by Ray), and the face floor also applies to a melt amount while it
+stays basis "melt". New suite `tests/verify_value_fallback_melt.js` (57); changed on purpose:
+`verify_ledger_value_by_metal` (A4, B3, B4, B6, D1, E2), `verify_album_best_of` (H3, H4). Negative
+controls (SpotValue fallback and melt-as-valued restored: 24 fail; "other gets a star" restored:
+J3, K1 fail).

@@ -15,13 +15,70 @@ button is hidden; the nav entry stays. Display only.
 
 
 ### Ledger: value by metal (`tests/verify_ledger_value_by_metal.js`)
-- Recorded value = `All.Value` ONLY (`coin.recordedValue`); melt = `All.SpotValue`
+- Valued = `All.Value` ONLY (`coin.recordedValue`); melt = `All.SpotValue`
   ONLY (`coin.meltValue`); each null when blank. A blank Value is "no recorded
-  value", never melt. `coin.value` (Value, falling back to SpotValue) is left
-  as it was for the coin page and the older totals.
+  value", never melt. *(Since task (g), 30 Oct 2026: `coin.value` no longer
+  falls back to SpotValue, and the By Metal label "Recorded" reads "Valued".
+  See "Value fallback: melt is labelled" below.)*
 - Each coin's whole value goes in its main metal bucket ("Other" for none);
   fine ounces come from DB_Coins via the CoinID specs join. Owned coins only.
   Gold bullion denominations are included.
+
+
+### Value fallback: melt is labelled (task (g), 30 Oct 2026, `tests/verify_value_fallback_melt.js`)
+Display only; nothing here writes to the workbook. Built on `claude/value-fallback-melt-label`
+(Ray's plan answers, 30 Oct). A blank `All.Value` used to show `All.SpotValue` as if it were
+value on about twelve screens (`coin.value` = Value, falling back to SpotValue).
+- **`coinValueFigure(coin)`** is the one place that decides what a coin's figure is:
+  `{ amount, basis }`.
+  - `"valued"`: a recorded `All.Value` (a recorded 0 counts). Amount = max(Value, face),
+    and the basis STAYS "valued" when the floor lifts it (Ray: a coin is never worth less
+    than face).
+  - `"melt"`: no recorded Value and `meltValue > 0`. `meltValue` is the workbook's own
+    `All.SpotValue` formula exactly as read; **the app never calculates melt**. The face
+    floor still applies to the amount (zinc cents melt below face).
+  - `"face"`: no recorded Value and no melt > 0, but a face value (SpotValue = 0 is NOT melt).
+  - `"none"`: nothing.
+  - Demo rows carry neither `recordedValue` nor `meltValue`, so their `value` counts as valued.
+  - `coin.value` itself (`mapWorkbookRowToCoin`) is now recorded-only (0 when blank), so a call
+    site that was missed can never show melt as value.
+- **Wording** (`compactValueText`): "$12.40" / "$12.40 melt" / "$0.01 face"; nothing at all for
+  "none", except the Catalog grid card, which shows italic "No value" (`.no-value`) instead of
+  "$0.00". Compact surfaces carry no date: Catalog grid card, Sets card, Rolls card, Set child
+  rows (`buildSetChildRow`), Ledger Find a Coin. Detail Overview: label "Melt value", figure
+  "$12.40 · spot 2026-10-28" (just "$12.40" until the date is known); "Face value" for face;
+  "Value" for valued. The "Value source" row shows only for valued. Share text and the
+  screen-reader line say "melt value" (`valueSentenceText`); the share text adds
+  "(spot prices <date>)", the screen-reader line does not.
+- **Spot date** (`meltSpotDateSerial`): the OLDEST `Ref_SpotPrices.LastUpdated` among the metals
+  the coin holds (`specs` oz > 0; all six when it has no specs); null while the rows are not
+  loaded or a needed metal has no date. Only the DATE is read from Ref_SpotPrices, never a price
+  (test C5 changes a price and asserts the melt figure does not move). The rows used to load only
+  when the Ledger opened; the detail page now calls `ensureSpotPricesForMeltLabels()` for a melt
+  coin and re-renders when they land (D1). `renderSpotPrices()` also calls
+  `refreshLedgerValueTiles()` so the Melt tile fills its date when the rows arrive late (F1).
+- **Ledger tiles** (`ledgerValueTotals`, `renderLedgerValueTiles`): Valued total (id
+  `statTotalValue`) with "N coins with a recorded value"; Melt total (`statTotalMelt`) with "M
+  coins with melt only · oldest spot price <date>"; Net gain/loss "(valued coins)" = Valued minus
+  the cost of those SAME coins ("N coins, cost $X"); Total spent still counts every owned coin.
+  Face-only coins are in neither total nor Net: a line (`statFaceLine`) says "27 coins at face
+  only · $53.79" (live count and sum), plus "N coins with no value or face value" for basis
+  "none" (e.g. a Set with no figure). By Denomination rows: "n · $valued + $melt melt" with a
+  two-tone bar (valued solid, melt lighter). By Metal: "Recorded" renamed "Valued"; its figures
+  are unchanged (they compare the two columns coin by coin).
+- **Edit forms**: the Value box on Edit Coin and Edit Set now opens with the recorded value only
+  (`editPrefillRecordedValue`); a melt-only coin opens blank. Edit Set has no snapshot, so the old
+  prefill would have let backlog (r)'s "save all fields" write melt into `All.Value`.
+- Rolls "value-desc" sort uses the figure's amount.
+- **Set Variety line** (`setVarietyText`): `All.Variety` on a Set row, "Standard" when blank or
+  whitespace; Sets only. Sets card third line "Variety: Standard"; Set detail Overview "Variety"
+  row after Description. Display only: "Standard" is never written. Edit Set still has no Variety
+  input (that belongs to backlog (r)).
+- Not verified on a real device or against the real workbook (only the 30 Oct counts Ray gave:
+  346 blank Values among 624 owned rows, 319 with SpotValue > 0 about $14,016, 27 with neither,
+  $53.79 face, $18,395 cost).
+- Still true, not fixed: Stats counts a Set plus its children, so a Set's figure and its
+  children's can both be in the totals.
 
 
 ### Ledger: spot prices (`tests/verify_ledger_spot_prices.js`)

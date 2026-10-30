@@ -6,10 +6,10 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 
 ## Current state (rewritten at the end of every task; read this first)
 - main: last code commit `960634d` (Staging photo replace keeps the old file `7b56955`, ✕ on a Replace pick is an undo `4589b46`, failed-save cleanup `960634d`; merged 30 Oct 2026 by fast-forward of `ccr-06105bea-fexby9`, with docs-only commits after it). Main's head is the docs commit that last rewrote this block (`git log -1`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since, including this one. Ray runs the deploy workflow for `main`.
-- Open branch: none. `ccr-06105bea-fexby9` (tip `f55e338` = main's merge head) is merged and deleted LOCALLY; deleting it on origin was attempted 30 Oct 2026 and failed (`git push origin --delete`: "unexpected disconnect while reading sideband packet", the session's git proxy again), so it is still on origin for Ray to delete. `claude/slim-claude-md`, `claude/receipts-never-overwrite` and `claude/photos-wait-for-save` are also merged and still on origin (the first was blocked by HTTP 403 on 28 Oct).
+- Open branch: `claude/value-fallback-melt-label` (task (g), built 30 Oct 2026 from main `0bc280a`; code commit `f0c9a7b`, docs commit after it; pushed to origin; HELD for Ray's merge go-ahead, NOT merged, NOT deployed). Display only. Targeted suites pass (new `verify_value_fallback_melt` 57; `verify_ledger_value_by_metal` 29 and `verify_album_best_of` 55 updated on purpose). Full-run totals: see Baseline. Older branches still on origin for Ray to delete: `ccr-06105bea-fexby9` (deleting it failed 30 Oct, git proxy), `claude/slim-claude-md`, `claude/receipts-never-overwrite`, `claude/photos-wait-for-save`.
 - Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
-- Baseline: 4125 passed, 0 failed, 0 page errors, 79 suites (30 Oct 2026, on `960634d`; code on main is identical, later commits are docs-only). One earlier full run showed 4 failures in `verify_crop_from_upload` (C3a/C3/C7/C9): a timing flake under load, 48/48 alone twice and clean on the rerun.
-- Next task, in Ray's order (27 Oct, updated 30 Oct): (g) value fallback + Set Variety line + album star rule; (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (p) retire the All-sheet fallback, then (q) the old OGP mapping. New backlog from 30 Oct, to be planned as their own tasks: (z) Save changes only when something changed; (aa) Keep or Delete prompt on every Replace ((s) is folded into it). Older: (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
+- Baseline: main is 4125 passed, 0 failed, 0 page errors, 79 suites (30 Oct 2026, on `960634d`). On the (g) branch the full `npm test` total is PENDING (it was still running when this was written; the next commit on the branch fills it in). Expected 4125 + 57 = 4182 passed, 80 suites.
+- Next task, in Ray's order: merge decision on (g); then (r) Edit Set saving, then split out child coins, then partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (p) retire the All-sheet fallback, then (q) the old OGP mapping. Backlog from 30 Oct: (z) Save changes only when something changed; (aa) Keep or Delete prompt on every Replace ((s) folded in). Older: (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
 - Waiting on Ray: deploy of `main` to LIVE (his call; the Staging-edit changes above are TEST-only until he runs the workflow); he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE; he may delete the leftover `cropped_04` file on AY-00756 by hand.
 - Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`. `git branch -a` on 28 Oct 2026 shows no such branch (only `main` and `claude/modest-johnson-ywojkx` locally and on origin), and `loadPdfjs()` is in `app.html`. Treat the pdf.js work as landed. Also: pointers in kept text that name a section now in `docs/` (about 40, listed in the slimming report) were not edited; use `docs/INDEX.md`.
 - Not verified on a real device: Samsung Internet in a browser tab; Graph's `@microsoft.graph.conflictBehavior=fail` (409) on a real upload (the AY-00756 retest hit one on the tablet, so it is now seen in real use, but not yet re-tested after the cleanup fix); the Staging folder link is verified on PC and tablet (29 Oct).
@@ -792,18 +792,12 @@ left the half that had already landed. **Undo + Save was NOT at fault**
   HEIC picked through Files is unverified on a real phone.
 - (f) The Catalog Finish filter groups (`CATALOG_FINISH_GROUPS`) are fixed in
   code; the app does not load `Lookup_Finishes`.
-- (g) Value fallback: `coin.value` shows the melt figure (`All.SpotValue`)
-  when `All.Value` is blank (about 12 screens). 20 Oct workbook: 347 of 620
-  owned rows have a blank Value, 320 of them with a melt figure, about
-  $14,560. **Decided (Ray, 27 Oct), display-only, 2nd in the queue after
-  (t):** (1) a melt-derived figure is labelled "melt" with the spot-price
-  date (`Ref_SpotPrices` LastUpdated); (2) totals show valued and melt
-  separately; (3) a Variety line on Set cards and Set pages, default
-  "Standard" when blank; (4) album star rule: filled star = Key Date or Key
-  Variety, outline star = Semi-Key, no star otherwise (today any other
-  non-blank KeyDate value also gets a filled star: `keyDateKindOf`,
-  `buildAlbumKeyDateIndex`; check the real `DB_Coins.KeyDate` values for
-  "Key Variety" wording first). Plan first.
+- (g) *(Done: built 30 Oct 2026 on `claude/value-fallback-melt-label`, HELD for Ray's
+  merge go-ahead; see docs/ref/LEDGER.md "Value fallback: melt is labelled" and the star
+  rule in docs/ref/ALBUMS.md.)* Melt is labelled "melt" with the spot-price date on
+  detail, share and Ledger; the Ledger keeps Valued, Melt and face-only apart; Sets get a
+  Variety line (default "Standard"); album star: filled = Key Date / Key Variety, outline
+  = Semi-Key Date, none otherwise. Display only.
 - (h) Graded/reholdered coins: capture design (cost basis, grader, cert,
   slab photos, location). Questions-first.
 - (i) The in-app image viewer's back gesture is unverified on a real
