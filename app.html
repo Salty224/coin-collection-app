@@ -2220,6 +2220,10 @@
     font-size: 24px; color: var(--text-muted); overflow: hidden;
   }
   /* Coin-page thumbnails are real buttons (keyboard + screen reader); strip the UA button chrome. */
+  /* Receipt slot on Edit Coin / Edit Set: the receipt on file, then the pick. */
+  .receipt-stored { font-size: 11px; color: var(--text-muted); margin: 8px 0 6px; line-height: 1.3; word-break: break-all; }
+  .receipt-stored.is-replaced { opacity: 0.7; }
+  .receipt-stored-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; word-break: break-all; text-align: left; }
   .detail-receipt-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; text-align: right; word-break: break-all; }
   button.gc-thumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
   .gc-thumb .gc-type { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.2; }
@@ -3441,9 +3445,11 @@
                   <div class="photo-box" style="margin-top:10px; max-width:220px;">
                     <div class="placeholder-icon" id="browseEditReceiptPlaceholder">🧾</div>
                     <img id="browseEditReceiptPreview">
+                    <div class="receipt-stored" id="browseEditReceiptStored">No receipt on file</div>
                     <div class="photo-btns">
                       <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                       <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                      <button type="button" id="browseEditReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
                     <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
@@ -3647,9 +3653,11 @@
                   <div class="photo-box" style="margin-top:10px; max-width:220px;">
                     <div class="placeholder-icon" id="editSetReceiptPlaceholder">🧾</div>
                     <img id="editSetReceiptPreview">
+                    <div class="receipt-stored" id="editSetReceiptStored">No receipt on file</div>
                     <div class="photo-btns">
                       <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                       <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
+                      <button type="button" id="editSetReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
                     <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
@@ -5998,14 +6006,26 @@
     return !!v && /\.[A-Za-z0-9]{2,5}$/.test(v);
   }
 
+  // The Receipts tab wins WHENEVER a row exists for the coin (task x, Ray 31
+  // Oct 2026): every coin with a Receipts row also carries the same name in
+  // the old All.Receipt column, but the app never rewrites that column, so
+  // after a Replace the two differ and the Receipts row is the true one.
+  // All.Receipt is only the fallback for a coin with no Receipts row at all
+  // (`legacy: true`); a "Binder" placeholder there is never a file.
   function storedReceiptFor(coin) {
     if (!coin || !coin.id) return null;
     const hit = LIVE_RECEIPTS && LIVE_RECEIPTS[coin.id];
-    if (hit && looksLikeReceiptFilename(hit.filename)) return hit;
+    if (hit && hit.filename) return hit;
     if (looksLikeReceiptFilename(coin.receiptFile)) {
-      return { receiptId: "", filename: String(coin.receiptFile).trim() };
+      return { receiptId: "", filename: String(coin.receiptFile).trim(), legacy: true };
     }
     return null;
+  }
+  // Keeps the session's Receipts index in step with a receipt this app just
+  // wrote (it is fetched once per session; photos have the same sync).
+  function syncStoredReceiptIndexUpsert(collectionId, row) {
+    if (!LIVE_RECEIPTS) LIVE_RECEIPTS = {};
+    LIVE_RECEIPTS[collectionId] = { receiptId: row.receiptId || "", filename: row.filename };
   }
 
   // A receipt's own OneDrive webUrl, resolved lazily and cached per session
@@ -18393,6 +18413,7 @@
 
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
+    document.getElementById("browseEditReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("browseEditReceiptPreview"));
 
     // One toggle per section accordion, plus the nested Receipt pill inside
     // Photos. Wired once — these are static markup, so their IDs are stable
@@ -18904,6 +18925,7 @@
   // exists for either form yet.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
+    document.getElementById("editSetReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("editSetReceiptPreview"));
 
     populateStatusSelect(document.getElementById("editSetStatus"));
     document.getElementById("editSetStatus").addEventListener("change", (e) => {
@@ -24246,11 +24268,12 @@
   // ==================================================================
   // COMMIT A CAPTURED RECEIPT
   // ==================================================================
-  // Which slots commit for real, and against which record. Edit Coin and
-  // Edit Set register theirs when they open; every other receipt slot (Add
-  // Coin's, which rides its own Staging draft; Wishlist's and Batch
-  // Receipt's, which have no CollectionID to key a row on at all) is absent
-  // from this registry and behaves exactly as it did before.
+  // Which slots are bound to a saved record, and which one. Edit Coin and
+  // Edit Set register theirs when they open; a pick there is HELD until Save
+  // (pendingReceipts, below) and written by savePendingReceipt(). Every other
+  // receipt slot (Add Coin's, which rides its own Staging draft; Wishlist's
+  // and Batch Receipt's, which have no CollectionID to key a row on at all)
+  // is absent from this registry and behaves exactly as it did before.
   const receiptCommitTargets = {};
   function registerReceiptCommitTarget(previewId, getCollectionId) {
     receiptCommitTargets[previewId] = getCollectionId;
@@ -24300,34 +24323,73 @@
   // a promotion move), not by the filename alone. A byte-fetch failure is
   // treated as "different" — a spurious extra file is cheap and visible;
   // silently reusing the wrong ReceiptID is not.
-  async function commitReceiptCapture(collectionId, prepared) {
+  //
+  // Task x (receipts wait for Save) adds three things, all for the Save path:
+  //   - a coin with MORE THAN ONE Receipts row is refused before anything is
+  //     uploaded (err.multiRow): writeReceiptRow replaces the first row but
+  //     the app shows the last, so this app will not guess which to change;
+  //   - when the same document is already on file under this coin's own row
+  //     (same ReceiptID and filename), the row is NOT rewritten
+  //     (res.unchanged): DateAdded stays as it was;
+  //   - opts.onUploaded(filename) fires the moment the file has landed, and a
+  //     retry passes it back as opts.landedName: if that file still holds the
+  //     same bytes it is used as is, so "file landed, row write failed" does
+  //     not leave a second copy behind.
+  async function commitReceiptCapture(collectionId, prepared, opts) {
+    opts = opts || {};
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
-    const thisRow = rows.find(r => r.CollectionID === collectionId);
+    const own = rows.filter(r => r.CollectionID === collectionId);
+    if (own.length > 1) {
+      const err = new Error(collectionId + " has " + own.length + " rows on the Receipts tab, so this app won't guess which one to change. Fix it in Excel.");
+      err.multiRow = true;
+      throw err;
+    }
+    const thisRow = own[0];
     const candidate = storedReceiptFilename(collectionId, prepared);
     const sameNameRow = rows.find(r => r.Filename && r.Filename.toLowerCase() === candidate.toLowerCase());
 
-    let storedBytes = null;
-    try { storedBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + candidate); }
-    catch (e) { storedBytes = null; }
-    let sameDoc = false;
-    if (storedBytes != null) {
-      try { sameDoc = await sameFileBytes(storedBytes, prepared.blob); } catch (e) { sameDoc = false; }
+    // A retry whose file already landed under its own chosen name.
+    let landed = false;
+    let filename = candidate;
+    if (opts.landedName) {
+      let bytes = null;
+      try { bytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + opts.landedName); }
+      catch (e) { bytes = null; }
+      if (bytes != null) {
+        try { landed = await sameFileBytes(bytes, prepared.blob); } catch (e) { landed = false; }
+      }
+      if (landed) filename = opts.landedName;
     }
 
-    let filename = candidate;
-    const reused = !!(sameNameRow && sameDoc);
-    if (!reused && (sameNameRow || storedBytes != null)) {
-      // A row claims this name, or a file already sits there with no row
-      // behind it (an untraceable leftover) — either way, never write
-      // over it.
-      filename = await freeReceiptFilename(candidate, rows);
+    let reused = false;
+    if (!landed) {
+      let storedBytes = null;
+      try { storedBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + candidate); }
+      catch (e) { storedBytes = null; }
+      let sameDoc = false;
+      if (storedBytes != null) {
+        try { sameDoc = await sameFileBytes(storedBytes, prepared.blob); } catch (e) { sameDoc = false; }
+      }
+      reused = !!(sameNameRow && sameDoc);
+      if (!reused && (sameNameRow || storedBytes != null)) {
+        // A row claims this name, or a file already sits there with no row
+        // behind it (an untraceable leftover) — either way, never write
+        // over it.
+        filename = await freeReceiptFilename(candidate, rows);
+      }
     }
 
     let receiptId;
     if (reused) {
       receiptId = sameNameRow.ReceiptID;
+      if (thisRow && thisRow.ReceiptID === receiptId && String(thisRow.Filename).toLowerCase() === filename.toLowerCase()) {
+        return { receiptId, row: thisRow.__row, replaced: false, filename, reused: true, unchanged: true };
+      }
     } else {
-      await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
+      if (!landed) {
+        await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
+        if (opts.onUploaded) opts.onUploaded(filename);
+      }
       // Keep this coin's own existing id across the replace — UNLESS some
       // other coin's row still shares it, in which case following it onto
       // this coin's new file would leave it pointing at two different
@@ -24373,11 +24435,108 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // RECEIPTS WAIT FOR SAVE (task x, Oct 2026, claude/receipts-wait-for-save)
+  // ------------------------------------------------------------------
+  // On Edit Coin and Edit Set a receipt pick used to upload and write its
+  // Receipts row at once. It is now held in memory like a photo and written
+  // only by Save Changes (savePendingReceipt, the last step of
+  // savePhotosAndLabels); Discard and leaving the screen drop it; the leave
+  // guard and the dimmed Save count it (pendingReceiptCount). Add Coin's
+  // slot (its own Staging draft), Wishlist and Batch Receipt are untouched:
+  // they are not registered in receiptCommitTargets.
+  //   pendingReceipts[CollectionID] = {
+  //     previewId, prepared (the PDF to store), pdf, previewSrc,
+  //     replaces: the stored receipt this pick stands in for ({receiptId,
+  //       filename, legacy}) or null; kept PAST an unsaved pick,
+  //     landedName: the file a failed Save already uploaded (a retry
+  //       reuses it instead of uploading a second copy),
+  //     saving, error, refused }
+  // There is no way to REMOVE a stored receipt here (Ray, 31 Oct 2026: that
+  // waits for a later receipts-and-photos workbook alignment task). The ✕ on
+  // the slot appears only on a pending pick: over a stored receipt it is an
+  // undo, with nothing stored it drops the pick.
+  const pendingReceipts = {};
+  const RECEIPT_EDIT_SLOTS = {
+    browseEditReceiptPreview: { placeholder: "browseEditReceiptPlaceholder", stored: "browseEditReceiptStored", remove: "browseEditReceiptRemoveBtn" },
+    editSetReceiptPreview: { placeholder: "editSetReceiptPlaceholder", stored: "editSetReceiptStored", remove: "editSetReceiptRemoveBtn" }
+  };
+  function receiptSlotRecordId(previewId) {
+    const get = receiptCommitTargets[previewId];
+    return get ? get() : null;
+  }
+  function receiptRecordFor(collectionId) {
+    if (currentBrowseCoin && currentBrowseCoin.id === collectionId) return currentBrowseCoin;
+    return activeCoins().find(c => c.id === collectionId) || null;
+  }
+  // The receipt on file for a record, as the slot and the detail page show
+  // it (the Receipts row, else the old All.Receipt file), or null.
+  function storedReceiptSnapshot(collectionId) {
+    const coin = receiptRecordFor(collectionId);
+    const r = coin ? storedReceiptFor(coin) : null;
+    return r ? { receiptId: r.receiptId || "", filename: r.filename, legacy: !!r.legacy } : null;
+  }
+  function pendingReceiptFor(collectionId) {
+    const p = collectionId ? pendingReceipts[collectionId] : null;
+    return p && photoCommitTargetId(collectionId) ? p : null;
+  }
+  function pendingReceiptCount(collectionId) { return pendingReceiptFor(collectionId) ? 1 : 0; }
+
+  // Draws a slot from the state: the receipt on file, the pending pick if
+  // there is one, its status line, and the ✕.
+  function repaintReceiptSlot(previewId) {
+    const slot = RECEIPT_EDIT_SLOTS[previewId];
+    const preview = document.getElementById(previewId);
+    if (!slot || !preview) return;
+    const id = receiptSlotRecordId(previewId);
+    const p = id ? pendingReceiptFor(id) : null;
+    const stored = id ? storedReceiptSnapshot(id) : null;
+    const storedEl = document.getElementById(slot.stored);
+    if (storedEl) {
+      storedEl.textContent = "";
+      storedEl.classList.toggle("is-replaced", !!(p && stored));
+      if (stored) {
+        storedEl.appendChild(document.createTextNode(p ? "On file (replaced when you save): " : "On file: "));
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "receipt-stored-btn";
+        btn.textContent = stored.filename;
+        btn.addEventListener("click", () => {
+          const coin = receiptRecordFor(id);
+          if (coin) openReceiptInViewer(coin, stored.filename);
+        });
+        storedEl.appendChild(btn);
+      } else {
+        storedEl.appendChild(document.createTextNode("No receipt on file"));
+      }
+    }
+    if (p) {
+      if (p.pdf) showReceiptPdfIndicator(previewId, slot.placeholder, p.prepared.filename);
+      else showReceiptImagePreview(previewId, slot.placeholder, p.previewSrc);
+      if (p.saving) showReceiptUploadState(previewId, "Saving…", false, null);
+      else if (p.error) showReceiptUploadState(previewId, p.refused ? "Not changed — see the message." : DRAFT_NOT_SAVED_TEXT, true, null);
+      else showReceiptUploadState(previewId, PENDING_NOT_SAVED_TEXT + ": tap Save Changes to save it." +
+        (stored ? " It replaces the receipt on file." : ""), false, null);
+    } else {
+      resetReceiptSlot(previewId, slot.placeholder);
+      showReceiptUploadState(previewId, "", false, null);
+    }
+    const rm = document.getElementById(slot.remove);
+    if (rm) rm.style.display = (p && !p.saving) ? "" : "none";
+  }
+  function repaintReceiptSlotsFor(collectionId) {
+    Object.keys(RECEIPT_EDIT_SLOTS).forEach(pid => {
+      if (receiptSlotRecordId(pid) === collectionId) repaintReceiptSlot(pid);
+    });
+  }
+
   // Binds a receipt slot to a record and clears whatever the previous
-  // record left in it — preview, prepared file, and any upload-state note.
+  // record left in it — preview, prepared file, any pending pick, and the
+  // status line — then shows the receipt on file.
   function prepareReceiptSlotForRecord(previewId, placeholderId, collectionId) {
     delete receiptFiles[previewId];
     registerReceiptCommitTarget(previewId, () => collectionId);
+    delete pendingReceipts[collectionId]; // a fresh form shows what is on the sheet
     const preview = document.getElementById(previewId);
     if (preview) {
       preview.style.display = "none";
@@ -24387,29 +24546,104 @@
     const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
     if (placeholder) placeholder.style.display = "";
     showReceiptUploadState(previewId, "", false, null);
+    repaintReceiptSlot(previewId);
   }
 
-  function commitReceiptForSlot(previewId) {
-    const getId = receiptCommitTargets[previewId];
+  // A receipt just picked on an Edit Coin / Edit Set slot (receiptFiles holds
+  // the prepared PDF and the preview is already showing). Returns true when
+  // the slot is one of those, so the caller never commits it. Nothing is
+  // uploaded or written here.
+  function holdPendingReceipt(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    if (!id) return false;
     const prepared = receiptFiles[previewId];
-    if (!getId || !prepared || !prepared.blob) return Promise.resolve(null);
-    const collectionId = getId();
-    if (!collectionId || !addCoinWriteEnabled()) return Promise.resolve(null);
-    showReceiptUploadState(previewId, "Saving…", false, null);
-    return commitReceiptCapture(collectionId, prepared).then(res => {
-      showReceiptUploadState(previewId, res.reused
-        ? "Saved — matched the receipt already on file (" + res.receiptId + ")."
-        : "Saved " + res.filename + " to OneDrive.", false, null);
-      showToast(res.reused
-        ? "Attached " + collectionId + " to the existing receipt " + res.receiptId + "."
-        : "Saved " + res.filename + " to OneDrive.");
-      return res;
-    }).catch(e => {
-      const msg = String(e && e.message ? e.message : e);
-      showReceiptUploadState(previewId, "Not saved — tap retry.", true, () => commitReceiptForSlot(previewId));
-      showToast("Couldn't save the receipt — it's still attached here. (" + msg + ")");
-      return null;
+    // Write layer off / not an owned record: as before, the prepared file
+    // just sits in receiptFiles and nothing is written or counted.
+    if (!prepared || !prepared.blob || !photoCommitTargetId(id)) return true;
+    delete receiptFiles[previewId];
+    const preview = document.getElementById(previewId);
+    const prev = pendingReceipts[id];
+    pendingReceipts[id] = {
+      previewId, prepared,
+      pdf: !!prepared.sourceWasPdf,
+      previewSrc: prepared.sourceWasPdf ? "" : (preview ? preview.src : ""),
+      replaces: prev ? prev.replaces : storedReceiptSnapshot(id),
+      landedName: "", saving: false, error: "", refused: false
+    };
+    repaintReceiptSlot(previewId);
+    return true;
+  }
+
+  // ✕ on a pending pick. Over a stored receipt it is an UNDO (Ray's rule for
+  // every Replace): the pick goes and the receipt on file is back as it was.
+  function confirmRemovePendingReceipt(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    const p = id ? pendingReceiptFor(id) : null;
+    if (!p || p.saving) return;
+    const finish = () => {
+      delete pendingReceipts[id];
+      repaintReceiptSlotsFor(id);
+      refreshEditSaveState();
+    };
+    if (p.replaces) {
+      showWriteGuard({
+        title: "Put the previous receipt back?",
+        bodyHtml: "<p>This receipt replaced the one that was here. Removing it puts the previous receipt back, " +
+          "as if you had never replaced it. <b>Nothing is deleted.</b></p>",
+        buttons: [{ label: "Cancel", primary: true }, { label: "Put it back", onClick: finish }]
+      });
+      return;
+    }
+    showWriteGuard({
+      title: "Remove receipt?",
+      bodyHtml: "<p>This receipt hasn't been saved yet, so taking it off writes nothing.</p>",
+      buttons: [{ label: "Cancel" }, { label: "Remove", primary: true, onClick: finish }]
     });
+  }
+
+  // Throws away a pending receipt (one record, or all without a target).
+  function discardPendingReceipts(targetId) {
+    const ids = targetId ? [targetId] : Object.keys(pendingReceipts);
+    ids.forEach(id => {
+      if (!pendingReceipts[id]) return;
+      delete pendingReceipts[id];
+      repaintReceiptSlotsFor(id);
+    });
+  }
+
+  // Writes the pending receipt for one record: the last step of a Save.
+  // Returns { saved, added, replaced, attached, unchanged, failed, refused,
+  // error, receiptId, filename }; a failure leaves the pick pending.
+  async function savePendingReceipt(targetId, setProgress) {
+    const out = { saved: 0, added: 0, replaced: 0, attached: 0, unchanged: 0, failed: 0, refused: false, error: "" };
+    const p = pendingReceiptFor(targetId);
+    if (!p) return out;
+    if (setProgress) setProgress("Saving receipt…");
+    p.saving = true; p.error = ""; p.refused = false;
+    repaintReceiptSlotsFor(targetId);
+    try {
+      const res = await commitReceiptCapture(targetId, p.prepared, {
+        landedName: p.landedName,
+        onUploaded: (name) => { p.landedName = name; }
+      });
+      out.receiptId = res.receiptId; out.filename = res.filename;
+      if (res.unchanged) out.unchanged = 1;
+      else {
+        out.saved = 1;
+        if (res.reused) out.attached = 1;
+        else if (p.replaces) out.replaced = 1;
+        else out.added = 1;
+        syncStoredReceiptIndexUpsert(targetId, { receiptId: res.receiptId, filename: res.filename });
+      }
+      delete pendingReceipts[targetId];
+    } catch (e) {
+      p.saving = false;
+      p.error = String(e && e.message ? e.message : e);
+      p.refused = !!(e && e.multiRow);
+      out.failed = 1; out.refused = p.refused; out.error = p.error;
+    }
+    repaintReceiptSlotsFor(targetId);
+    return out;
   }
 
   // Shared preview-state helpers for a Receipt slot's photo-box — either
@@ -25497,6 +25731,7 @@
       c.fields = screen === "editcoin" ? browseEditDirtyKeys().length : editSetChangedFieldCount();
       c.labels = unsavedPhotoLabelCount(id);
       c.photos = pendingPhotoCount(id);
+      c.receipts = pendingReceiptCount(id);
       discard = () => {
         if (screen === "editcoin") browseEditTouchedFields.clear();
         else editSetOpenedFields = editSetFieldValues();
@@ -26039,6 +26274,7 @@
   }
   // Photos first (that can bring a replaced photo back), then labels.
   function discardUnsavedPhotoEdits(targetId) {
+    discardPendingReceipts(targetId); // before the photos: their refresh then sees it gone
     discardPendingPhotos(targetId);
     discardPhotoLabels(targetId);
   }
@@ -26109,7 +26345,8 @@
     return out;
   }
 
-  // Photos, then labels (one cell each). Returns { photos, labels }.
+  // Photos, then labels (one cell each), then the receipt (task x).
+  // Returns { photos, labels, receipt }.
   async function savePhotosAndLabels(targetId, setProgress) {
     const photos = await savePendingPhotos(targetId, setProgress);
     let labels = null;
@@ -26117,12 +26354,15 @@
       if (setProgress) setProgress("Saving labels…");
       labels = await savePhotoLabels(targetId);
     }
+    // The receipt goes last: one upload and one row, independent of the
+    // photos and labels (a failure of either does not stop the other).
+    const receipt = pendingReceiptCount(targetId) ? await savePendingReceipt(targetId, setProgress) : null;
     repaintPhotoHost(targetId);
     refreshManagePhotosSaveLabelsBtn();
-    return { photos, labels };
+    return { photos, labels, receipt };
   }
   function photoEditsPending(targetId) {
-    return !!(pendingPhotoCount(targetId) || unsavedPhotoLabelCount(targetId));
+    return !!(pendingPhotoCount(targetId) || unsavedPhotoLabelCount(targetId) || pendingReceiptCount(targetId));
   }
   // "2 photos added, 1 replaced, 1 removed, 1 label" — what really landed.
   function photoSaveSummaryText(res) {
@@ -26134,6 +26374,8 @@
     if (p.replaced) parts.push((parts.length ? "" : n(p.replaced, "photo") + " ") + (parts.length ? p.replaced + " replaced" : "replaced"));
     if (p.removed) parts.push((parts.length ? p.removed + " removed" : n(p.removed, "photo") + " removed"));
     if (res.labels && res.labels.saved) parts.push(n(res.labels.saved, "label"));
+    const r = res.receipt;
+    if (r && r.saved) parts.push(r.attached ? "receipt attached (" + r.receiptId + ")" : r.replaced ? "receipt replaced" : "receipt added");
     return parts.join(", ");
   }
   // The failure half of a save message; empty when everything landed.
@@ -26153,23 +26395,32 @@
       t += photoLabelResultText(res.labels).replace(/Tap Save Changes/g, "Tap " + saveWord)
         .replace(/Tap ↻ on the photo, then Save Changes\./g, "Tap " + saveWord + " again.");
     }
+    const r = res.receipt;
+    if (r && r.failed) {
+      t += r.refused
+        ? " Receipt not changed: " + r.error
+        : " Receipt not saved (" + r.error + ") — it's still on screen. Tap " + saveWord + " again.";
+    }
     return t;
   }
   // Only labels landed: keeps the labels-only wording ("— 1 label updated.").
   function photoSaveOnlyLabels(res) {
     const p = (res && res.photos) || {};
-    return !!(res && res.labels && res.labels.saved && !p.added && !p.replaced && !p.removed);
+    return !!(res && res.labels && res.labels.saved && !p.added && !p.replaced && !p.removed && !(res.receipt && res.receipt.saved));
   }
   // "Saved AY-00099 — 1 photo added." / "… — 1 label updated." Empty when
   // nothing landed. One wording for every editing screen (Ray, C2).
   function photoSaveHeadline(recordId, res) {
     const what = photoSaveSummaryText(res);
+    // Only a receipt that was already on file: nothing was written.
+    if (!what && res && res.receipt && res.receipt.unchanged) return recordId + ": that receipt is already on file, nothing to change.";
     return what ? "Saved " + recordId + " — " + what + (photoSaveOnlyLabels(res) ? " updated." : ".") : "";
   }
   function photoEditsAllSaved(res) {
     if (!res) return true;
     const p = res.photos || {};
-    return !(p.failed && p.failed.length) && !(p.failedRemovals && p.failedRemovals.length) && photoLabelsAllSaved(res.labels);
+    return !(p.failed && p.failed.length) && !(p.failedRemovals && p.failedRemovals.length) && photoLabelsAllSaved(res.labels) &&
+      !(res.receipt && res.receipt.failed);
   }
 
   // Fetches the thumbnails for whichever hydrated entries don't have one
@@ -29231,7 +29482,7 @@
         // Already a PDF — passes through unchanged, no image preview to show.
         receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf", sourceWasPdf: true };
         showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
-        commitReceiptForSlot(previewId);
+        holdPendingReceipt(previewId); // Edit Coin / Edit Set: held until Save (task x)
         refreshEditSaveState();
       } else {
         // Receipt photo — plain rectangular live preview, no crop adjuster,
@@ -29247,11 +29498,12 @@
         // wrap failure must never break the preview that already succeeded.
         try {
           receiptFiles[previewId] = await prepareReceiptFile(file);
-          commitReceiptForSlot(previewId);
+          holdPendingReceipt(previewId); // Edit Coin / Edit Set: held until Save (task x)
           refreshEditSaveState();
         } catch (e) {
           console.warn("Receipt PDF wrap failed for " + previewId + ":", e);
           delete receiptFiles[previewId];
+          repaintReceiptSlot(previewId); // an Edit Coin / Edit Set slot goes back to what it held (no-op elsewhere)
         }
       }
     }
