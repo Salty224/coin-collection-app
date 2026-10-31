@@ -295,6 +295,18 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
     W.cs = () => W.state("browseEditSaveBtn", "browseEditSaveHint");
     W.ss = () => W.state("browseEditSetSaveBtn", "editSetSaveHint");
     W.setv = (id, v, evt) => { const n = document.getElementById(id); n.value = v; n.dispatchEvent(new Event(evt || "input", { bubbles: true })); };
+    // The Year picker as a person uses it: the calendar button, a decade, a year.
+    W.pickYear = async (y) => {
+      document.getElementById("yearPickBtn").click();
+      const decade = [...document.querySelectorAll("#yearPickerDecades button")].find(b => b.textContent === (Math.floor(y / 10) * 10) + "s");
+      if (!decade) return false;
+      decade.click();
+      const yb = [...document.querySelectorAll("#yearPickerYearGrid button")].find(b => b.textContent === String(y));
+      if (!yb) return false;
+      yb.click();
+      await W.sleep(40);
+      return true;
+    };
     W.isClean = (s) => s.disabled && s.dim && s.hint && s.counts === null;
     W.isDirty = (s) => !s.disabled && !s.dim && !s.hint && s.counts !== null;
   });
@@ -756,6 +768,91 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
   ok("G7 a failed half-pair save leaves the pick in memory and the form dirty (Save enabled, 1 photo)",
     G.failedPick && __d(G.failed) && G.failed.counts.photos === 1, [G.failed, G.failedPick]);
 
+  // ---------- G8  refreshEditSaveState() call sites on the Staging edit, one at a time ----------
+  // Each case forces the Save button into the WRONG look, triggers exactly one event and checks that event
+  // set it right. The delegated input/change listener is stopped where it would otherwise do the job.
+  const G8 = await page.evaluate(async ({ base, catalog, id }) => {
+    const out = {};
+    const folder = writePaths().stagingBase + "/" + id;
+    const btn = () => document.getElementById("saveToStagingBtn");
+    const dimmed = () => btn().disabled && btn().classList.contains("is-clean");
+    const lit = () => !btn().disabled && !btn().classList.contains("is-clean");
+    const forceClean = () => { btn().disabled = true; btn().classList.add("is-clean"); };
+    const forceDirty = () => { btn().disabled = false; btn().classList.remove("is-clean"); };
+    const openEdit = async (draft, files) => {
+      const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
+      for (const [name, color] of Object.entries(files || {})) await mock.uploadFile(folder + "/" + name, await __ph.jpeg(color));
+      await mock.uploadJson(__draftPath(id), draft);
+      await beginCoinDraftEdit(id);
+      const b = document.getElementById("addCoinPhotosBody");
+      if (b.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
+      await __ph.sleep(120);
+      return mock;
+    };
+    const endEdit = () => { clearCoinDraftEditContext(); resetAddCoinForm(); navigateNow("dashboard"); __teardown(); };
+    const clickGuard = (label) => { const x = [...document.querySelectorAll("#writeGuardBtns button")].find(y => y.textContent.trim() === label); if (x) x.click(); return !!x; };
+    const obvPair = [{ type: "obverse", filename: id + "_obverse_cropped.jpg", caption: "" }, { type: "obverse", filename: id + "_obverse_original.jpg", caption: "original" }];
+    const obvFiles = { [id + "_obverse_cropped.jpg"]: "#a33", [id + "_obverse_original.jpg"]: "#3a3" };
+    const base2 = Object.assign({}, base, { photos: obvPair, receiptPhoto: "" });
+
+    // a pick placed in draft mode (draftPlaceGalleryEntry, no redraw)
+    await openEdit(base2, obvFiles);
+    forceClean();
+    draftPlaceGalleryEntry(ADDCOIN_GALLERY_ID, null, { type: "reference", blob: new Blob(["x"]), url: "blob:null/none", caption: "", filename: id + "_reference_01.jpg" }, undefined);
+    out.place = { lit: lit(), photos: (unsavedEditsForView() || { counts: {} }).counts.photos };
+    endEdit();
+
+    // ✕ on a stored photo (finish path, no redraw)
+    await openEdit(base2, obvFiles);
+    forceClean();
+    const stored = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+    confirmRemoveDraftPhoto(ADDCOIN_GALLERY_ID, stored, {}, undefined);
+    out.removeAsked = clickGuard("Remove");
+    out.remove = { lit: lit(), photos: (unsavedEditsForView() || { counts: {} }).counts.photos };
+    endEdit();
+
+    // Put it back (undo path, no redraw): a Replace pick, then undo
+    await openEdit(base2, obvFiles);
+    const original = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+    draftPlaceGalleryEntry(ADDCOIN_GALLERY_ID, original, { type: "obverse", blob: new Blob(["y"]), url: "blob:null/none", caption: "", filename: id + "_obverse_cropped_02.jpg" }, undefined);
+    forceDirty(); // the form still shows the Replace as a change
+    const pick = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
+    confirmRemoveDraftPhoto(ADDCOIN_GALLERY_ID, pick, {}, undefined);
+    out.undoAsked = clickGuard("Put it back");
+    out.undo = { dimmed: dimmed(), back: galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse") === original };
+    endEdit();
+
+    // a clean Save click re-sets the button (the click handler's own refresh)
+    await openEdit(base2, obvFiles);
+    forceDirty();
+    document.getElementById("toast").textContent = "";
+    saveAddCoinForm("staging"); await __ph.sleep(60);
+    out.cleanClick = { dimmed: dimmed(), toast: document.getElementById("toast").textContent };
+    endEdit();
+
+    // receipts picked through the real slot: a PDF (sync branch) and a photo (async branch)
+    await openEdit(base2, obvFiles);
+    forceClean();
+    const lib = document.getElementById("receiptLibraryInput");
+    lib.addEventListener("change", e => e.stopPropagation()); // keep the delegated listener out of it
+    const pickFile = (file) => { const dt = new DataTransfer(); dt.items.add(file); lib.files = dt.files; lib.dispatchEvent(new Event("change", { bubbles: true })); };
+    pickFile(new File([new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52])], "r.pdf", { type: "application/pdf" }));
+    await __ph.sleep(150);
+    out.pdf = { lit: lit(), receipts: (unsavedEditsForView() || { counts: {} }).counts.receipts };
+    delete receiptFiles["receiptPreview"]; forceClean();
+    pickFile(await __ph.file("#2a6"));
+    await __ph.sleep(600);
+    out.img = { lit: lit(), receipts: (unsavedEditsForView() || { counts: {} }).counts.receipts };
+    endEdit();
+    return out;
+  }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
+  ok("G8a draftPlaceGalleryEntry: a pick placed with no redraw lights Save (site 26973)", G8.place.lit && G8.place.photos === 1, G8.place);
+  ok("G8b ✕ on a stored photo with no redraw lights Save (confirmRemoveDraftPhoto finish)", G8.removeAsked && G8.remove.lit && G8.remove.photos === 1, G8);
+  ok("G8c Put it back with no redraw dims Save and restores the stored photo (confirmRemoveDraftPhoto undo)", G8.undoAsked && G8.undo.dimmed && G8.undo.back, G8);
+  ok("G8d a Save click on a clean Staging edit re-dims a button that had drifted (the click handler's own refresh)", G8.cleanClick.dimmed && G8.cleanClick.toast === "No changes to save.", G8.cleanClick);
+  ok("G8e a receipt PDF picked through the slot lights Save by itself (sync branch)", G8.pdf.lit && G8.pdf.receipts === 1, G8.pdf);
+  ok("G8f a receipt photo picked through the slot lights Save by itself (async branch)", G8.img.lit && G8.img.receipts === 1, G8.img);
+
   // ---------- H  Staging draft: text field typed and put back (trusted typing) ----
   await page.evaluate(async ({ base, catalog, id }) => {
     const mock = await __setup(); __setLiveDbCoinsForTest(catalog);
@@ -763,6 +860,20 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
     await beginCoinDraftEdit(id); await __ph.sleep(80);
   }, { base: BASE_DRAFT, catalog: CATALOG, id: ID });
   const H0 = await page.evaluate(() => unsavedEditsForView() === null && document.getElementById("saveToStagingBtn").disabled);
+  // The Year picker on a Staging edit (run first, before the Year box has ever been focused, so only the picker can have marked it): picking a different year is a change, picking the loaded year back is clean.
+  const H2b = await page.evaluate(async () => {
+    const W = __ws; const out = {};
+    const b = document.getElementById("saveToStagingBtn");
+    out.picked = await W.pickYear(1939);
+    const u = unsavedEditsForView(); out.yearValue = document.getElementById("year").value;
+    out.dirty = { fields: u && u.counts.fields, dis: b.disabled, dim: b.classList.contains("is-clean") };
+    out.back = await W.pickYear(1938);
+    out.clean = { clean: unsavedEditsForView() === null, dis: b.disabled, dim: b.classList.contains("is-clean") };
+    return out;
+  });
+  ok("H3 Staging edit: a year chosen through the Year picker is a change (Save enabled, 1 field); picking the loaded year back is clean",
+    H2b.picked && H2b.yearValue === "1939" && H2b.dirty.fields === 1 && !H2b.dirty.dis && !H2b.dirty.dim &&
+    H2b.back && H2b.clean.clean && H2b.clean.dis && H2b.clean.dim, H2b);
   await page.fill("#year", "1939");
   const H1 = await page.evaluate(() => { const b = document.getElementById("saveToStagingBtn"); const u = unsavedEditsForView(); return { fields: u && u.counts.fields, dis: b.disabled }; });
   await page.fill("#year", "1938");
@@ -776,5 +887,154 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
     __teardown();
     return out;
   });
-  ok("H2 after the edit ends the Staging Save button is a normal enabled Save again (no dim, no hint)", !H3.dis && !H3.dim && !H3.hint, H3);
+  ok("H4 after the edit ends the Staging Save button is a normal enabled Save again (no dim, no hint)", !H3.dis && !H3.dim && !H3.hint, H3);
+
+  // ---------- I  Add Coin, a new coin: the Year picker counts ---------------------
+  await fresh();
+  await page.evaluate(() => { __ws.install(); navigate("addcoin"); });
+  const I = await page.evaluate(async () => {
+    const W = __ws; const out = {};
+    out.start = unsavedEditsForView() === null;
+    out.picked = await W.pickYear(1916);
+    const u = unsavedEditsForView();
+    out.after = { year: document.getElementById("year").value, fields: u && u.counts.fields, text: u && u.text };
+    // The guard asks before leaving.
+    document.getElementById("navHomeBtn").click(); await W.sleep(60);
+    const d = document.getElementById("writeGuardOverlay"); out.asked = !d.classList.contains("hidden") && /1 field on this new coin/.test(document.getElementById("writeGuardBody").textContent);
+    const keep = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent === "Keep editing");
+    if (keep) keep.click();
+    await W.sleep(40);
+    if (document.querySelector(".view.active").id !== "view-addcoin") navigate("addcoin"); // (only when the guard failed to ask)
+    return out;
+  });
+  await page.fill("#year", "");
+  const I2 = await page.evaluate(() => unsavedEditsForView() === null);
+  ok("I1 a year chosen through the Year picker on a new coin counts for the leave guard (\"1 field on this new coin\"), and clearing it is clean again",
+    I.start && I.picked && I.after.year === "1916" && I.after.fields === 1 && I.asked && I2, [I, I2]);
+
+  // ---------- J  Every deep link into Add Coin: prefilled is clean until the user changes something
+  const J = await page.evaluate(async () => {
+    const W = __ws; const out = {};
+    const L = () => ({ clean: unsavedEditsForView() === null, year: document.getElementById("year").value, denom: document.getElementById("denomination").value });
+    // 1. Album empty slot (the want-cell tap)
+    W.install();
+    albumContext = { albumName: "Test Album", coinId: "C-1916-D-10C-01", slotLabel: "1916-D", denom: "10C", year: 1916, mintMark: "D", description: "Mercury Dime", variety: "" };
+    navigate("addcoin"); applyAlbumContext();
+    out.album = L();
+    // 2. Wishlist "Found it"
+    W.install();
+    wishlistContext = { desc: "1916-D Mercury", denom: "10C", year: 1916, mint: "D", variety: "" };
+    navigate("addcoin"); applyWishlistContext();
+    out.wish = L();
+    // 3. Navigation (Add Coin from Acquisitions / the drawer): a blank form
+    W.install(); navigate("addcoin");
+    out.nav = L();
+    // 4. An ID lookup filling the form (PCGS label / item number / GSID path)
+    applyDbCoinsRowToForm({ year: 1921, mint: "D", description: "Mercury Dime", denom: "10C", variety: "" });
+    out.lookup = L();
+    // 5. The Year picker on a prefilled form: picking the SAME year is clean
+    W.install();
+    albumContext = { albumName: "Test Album", coinId: "C-1916-D-10C-01", slotLabel: "1916-D", denom: "10C", year: 1916, mintMark: "D", description: "Mercury Dime", variety: "" };
+    navigate("addcoin"); applyAlbumContext();
+    await W.pickYear(1916);
+    out.pickSame = L();
+    await W.pickYear(1917);
+    const u = unsavedEditsForView(); out.pickOther = { year: document.getElementById("year").value, fields: u && u.counts.fields };
+    W.install(); albumContext = null; wishlistContext = null;
+    return out;
+  });
+  ok("J1 a deep link from an Album slot prefills Year / Denomination and is clean for the leave guard", J.album.year === "1916" && J.album.denom === "10C" && J.album.clean, J.album);
+  ok("J2 a deep link from a Wishlist item (Found it) prefills and is clean for the leave guard", J.wish.year === "1916" && J.wish.denom === "10C" && J.wish.clean, J.wish);
+  ok("J3 a plain navigation to Add Coin is a blank, clean form", J.nav.year === "" && J.nav.clean, J.nav);
+  ok("J4 an ID lookup filling the form (applyDbCoinsRowToForm) does not count as an edit", J.lookup.year === "1921" && J.lookup.clean, J.lookup);
+  ok("J5 on a prefilled form the Year picker choosing the same year is clean; a different year counts", J.pickSame.clean && J.pickOther.year === "1917" && J.pickOther.fields === 1, [J.pickSame, J.pickOther]);
+  // A prefilled form: typing over the prefill is a change, typing the prefill back is clean.
+  await page.evaluate(() => { __ws.install();
+    albumContext = { albumName: "Test Album", coinId: "C-1916-D-10C-01", slotLabel: "1916-D", denom: "10C", year: 1916, mintMark: "D", description: "Mercury Dime", variety: "" };
+    navigate("addcoin"); applyAlbumContext(); });
+  await page.fill("#year", "1999");
+  const J6a = await page.evaluate(() => { const u = unsavedEditsForView(); return u && u.counts.fields; });
+  await page.fill("#year", "1916");
+  const J6b = await page.evaluate(() => unsavedEditsForView() === null);
+  ok("J6 on an Album deep-link form, typing over the prefilled Year is a change (1 field) and typing the prefill back is clean", J6a === 1 && J6b, [J6a, J6b]);
+  await page.evaluate(() => { albumContext = null; __ws.install(); });
+
+  // ---------- K  The Sets-checklist deep link into Add Set keeps Name and Year (22 Jul) -----
+  // Add Set has no leave guard and no (z) change; the protection is addSetNameTouched / addSetYearTouched,
+  // set by applyAddSetContext() so a product code entered afterwards cannot override them.
+  await fresh();
+  await page.evaluate(() => {
+    __ws.install();
+    LIVE_DB_SETS = [{ name: "2021 United States Mint Silver Proof Set", year: 2021, itemNumber: "TST-CODE-1", productOption: "", productCode: "", lineage: "Proof Set" }];
+  });
+  // (a) control: with NO deep link, a matching product code fills Name and Year.
+  await page.evaluate(() => { navigate("addset"); });
+  await page.fill("#addSetProductCode", "TST-CODE-1");
+  const K0 = await page.evaluate(() => ({ name: document.getElementById("addSetName").value, year: document.getElementById("addSetYear").value }));
+  // (b) the checklist deep link, then the same product code.
+  await page.evaluate(() => {
+    setChecklistContext = { year: 2019, lineage: "Proof Set", setId: "S-2019-PS-01", name: "2019 United States Mint Proof Set" };
+    navigate("addset"); applyAddSetContext();
+  });
+  const K1 = await page.evaluate(() => ({ name: document.getElementById("addSetName").value, year: document.getElementById("addSetYear").value,
+    touched: [addSetNameTouched, addSetYearTouched], addCoinGuard: activeEditScreen() }));
+  await page.fill("#addSetProductCode", "TST-CODE-1");
+  const K2 = await page.evaluate(() => ({ name: document.getElementById("addSetName").value, year: document.getElementById("addSetYear").value,
+    note: document.getElementById("addSetMatchNote").textContent }));
+  ok("K1 control: with no deep link, a matching product code fills Add Set's Name and Year (so the protection below is what is being tested)",
+    /Silver Proof Set/.test(K0.name) && K0.year === "2021", K0);
+  ok("K2 the Sets-checklist deep link prefills Name and Year and marks both touched; Add Set is not a leave-guard screen",
+    /Proof Set/.test(K1.name) && K1.year === "2019" && K1.touched[0] === true && K1.touched[1] === true && K1.addCoinGuard === null, K1);
+  ok("K3 a product code entered after the deep link matches the catalog but does NOT overwrite Name or Year",
+    /Matched DB_Sets/.test(K2.note) && K2.name === K1.name && K2.year === "2019", [K1, K2]);
+  await page.evaluate(() => { LIVE_DB_SETS = null; setChecklistContext = null; });
+
+  // ---------- L  refreshEditSaveState() call sites on Edit Coin / Edit Set / the lock, one at a time ----------
+  await fresh();
+  const L = await page.evaluate(async () => {
+    const W = __ws; const out = {};
+    const cbtn = () => document.getElementById("browseEditSaveBtn");
+    const sbtn = () => document.getElementById("browseEditSetSaveBtn");
+    const dim = (b) => b.disabled && b.classList.contains("is-clean");
+    const forceDirty = (b) => { b.disabled = false; b.classList.remove("is-clean"); };
+    // the live row landing (applySnapshotToEditFormInner)
+    W.install(); await W.openEditCoin();
+    forceDirty(cbtn());
+    applySnapshotToEditForm(browseEditSnapshot.values, W.coin);
+    out.snapshot = dim(cbtn());
+    // a clean Save click re-dims a drifted Edit Coin button
+    forceDirty(cbtn()); W.clearToast(); cbtn().click(); await W.sleep(60);
+    out.coinClick = { dim: dim(cbtn()), toast: W.toast() };
+    // a screen change re-evaluates the button (syncLeaveGuard through setNavBack)
+    forceDirty(cbtn());
+    setNavBack(() => leaveBrowseEditGuarded()); await W.sleep(30);
+    out.navBack = dim(cbtn());
+    // releasing the Save lock re-evaluates it
+    forceDirty(cbtn());
+    await withEditSaveLock(async () => {});
+    out.lock = dim(cbtn());
+    // Edit Set: a clean Save click re-dims
+    W.install(); await W.openEditSet();
+    forceDirty(sbtn()); W.clearToast(); sbtn().click(); await W.sleep(60);
+    out.setClick = { dim: dim(sbtn()), toast: W.toast() };
+    // Edit Set: reopening ANOTHER record after leaving a dirty form re-bases and dims at once (checked in the same tick)
+    W.install(); await W.openEditSet();
+    W.setv("editSetDescription", "changed"); // enabled
+    out.setDirty = !sbtn().disabled;
+    showBrowseEditSetView(W.coin);           // a different record; no screen change in between
+    out.setReopen = dim(sbtn());
+    // Edit Set: a field-only Save leaves the form clean (the refresh after the save)
+    W.install(); await W.openEditSet();
+    W.setv("editSetDescription", "1957 Proof Set (edited)");
+    sbtn().click(); await W.sleep(250);
+    out.setSaved = { clean: sbtn().classList.contains("is-clean") && sbtn().disabled, view: document.querySelector(".view.active").id };
+    return out;
+  });
+  ok("L1 the live row landing in the form re-evaluates a drifted Save button (applySnapshotToEditFormInner)", L.snapshot, L);
+  ok("L2 a Save click on a clean Edit Coin re-dims a drifted button and toasts \"No changes to save.\"", L.coinClick.dim && L.coinClick.toast === "No changes to save.", L.coinClick);
+  ok("L3 a screen change (setNavBack -> syncLeaveGuard) re-evaluates the button", L.navBack, L);
+  ok("L4 releasing the Save lock (withEditSaveLock) re-evaluates the button", L.lock, L);
+  ok("L5 a Save click on a clean Edit Set re-dims a drifted button and toasts \"No changes to save.\"", L.setClick.dim && L.setClick.toast === "No changes to save.", L.setClick);
+  ok("L6 opening Edit Set on another record after leaving a dirty one dims Save in the same tick (end of showBrowseEditSetView)", L.setDirty && L.setReopen, L);
+  ok("L7 a field-only Edit Set Save leaves its button clean (the refresh after the save)", L.setSaved.clean, L.setSaved);
 }, module);

@@ -17964,7 +17964,8 @@
     applySaveNote();
     giftedPriceAutoFilled["browseEditSalePrice"] = false;
     captureBrowseEditBaseline(); // the form as loaded; the live row re-bases it when it lands
-    refreshEditSaveState();
+    // No refreshEditSaveState() here: the touched set was cleared above, so the form is clean
+    // whatever the baseline was, and the photo section's render (above) has already said so.
   }
 
   // The note under Save has to tell the truth about which of the two save
@@ -25565,6 +25566,14 @@
     if (!(el.id in addCoinBaseline)) addCoinBaseline[el.id] = addCoinControlValue(el);
   }
   function clearAddCoinBaseline() { Object.keys(addCoinBaseline).forEach(k => delete addCoinBaseline[k]); }
+  // A box the app fills on the user's own tap (the Year picker) never fires a
+  // trusted input event, so it would not count as an edit. This records it as
+  // one: the box's value before the change is the baseline, and the box is
+  // marked touched. Call it BEFORE the value is set, and only from a user action.
+  function markAddCoinUserEdit(el) {
+    addCoinCaptureBaseline(el);
+    if (el && el.id) addCoinTouchedFields.add(el.id);
+  }
   function addCoinDirtyFieldIds() {
     return Array.from(addCoinTouchedFields).filter(id => {
       const el = document.getElementById(id);
@@ -31165,7 +31174,6 @@
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalHtml;
-      refreshEditSaveState();
     }
   }
 
@@ -31716,10 +31724,9 @@
     // before the binding existed, so it took the capture-mode branch.
     updateSaveConfidenceUI();
     setNavBack(() => navigate("staging"));
-    // Last, so the form is already usable while the files come back.
-    refreshEditSaveState();
+    // Last, so the form is already usable while the files come back. (The Save button
+    // follows: the photo section's render inside loadStagingEditFiles refreshes it.)
     await loadStagingEditFiles(draft);
-    refreshEditSaveState();
     return true;
   }
 
@@ -32487,6 +32494,7 @@
 
   function selectYear(y) {
     const input = document.getElementById("year");
+    markAddCoinUserEdit(input); // picking a year is the user's edit (task z)
     input.value = y;
     input.dispatchEvent(new Event("input", { bubbles: true }));
     document.getElementById("yearPicker").classList.add("hidden");
