@@ -221,7 +221,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
   ok(G.uploadsAfterFirst === 1 && G.uploadsAfterSecond === 1,
     "G3 and performs no second upload of byte-identical bytes");
   ok(G.second.row !== G.first.row, "G4 but each coin still gets its own row");
-  ok(G.photo.filename === "AY-00602_receipt.pdf", "G5 a photographed receipt keeps the {ID}_receipt.pdf convention");
+  ok(G.photo.filename === G.photo.receiptId + "_receipt.pdf", "G5 a photographed receipt with no seller or date is named for its ReceiptID (Build 2 file naming)");
   ok(G.photo.receiptId === "RC-00003", "G6 and gets its own id");
   ok(G.replace.replaced === true && G.rowsFor600 === 1, "G7 re-attaching replaces THIS coin's row rather than adding a second");
 

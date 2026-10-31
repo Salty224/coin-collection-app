@@ -24422,11 +24422,59 @@
   // A PHOTOGRAPHED receipt is inherently per-coin (and a camera's own file
   // name is meaningless — "image.jpg"), so it keeps the documented
   // {CollectionID}_receipt.pdf convention.
-  function storedReceiptFilename(collectionId, prepared) {
+  function storedReceiptFilename(collectionId, prepared, naming) {
     if (prepared && prepared.sourceWasPdf && prepared.filename) {
       return prepared.filename.replace(/[\\/:*?"<>|]/g, "_");
     }
+    // Build 2 file naming (Ray, 31 Oct 2026): a photographed or camera
+    // receipt has no usable name of its own. It is named from the seller and
+    // the purchase date, the way the hand-made files are
+    // (CharlestonCoinExchange_2026-10-02_receipt.pdf), and from the
+    // ReceiptID when either is missing. Never from the coin it was picked
+    // on: after "Replace on all N coins" that name looked like one coin's.
+    naming = naming || {};
+    const byPurchase = receiptSellerDateName(naming.seller, naming.purchaseDate);
+    if (byPurchase) return byPurchase;
+    if (naming.receiptId) return receiptIdFallbackName(naming.receiptId);
     return collectionId + "_receipt.pdf";
+  }
+
+  // The naming helpers are pure and live apart from the commit flow so that
+  // Batch Receipt, when it is built, can name its file the same way (it will
+  // save once under seller + date and keep that name when a coin later links
+  // to it). Not used by Add Coin / Staging / Add Set, which keep
+  // {CollectionID}_receipt.pdf until Batch Receipt exists.
+  //
+  // Seller to a filename part: accents dropped, every character that is not a
+  // letter or digit removed (spaces and punctuation), each word's own
+  // capitals kept as typed ("Charleston Coin Exchange" ->
+  // CharlestonCoinExchange), at most RECEIPT_SELLER_MAX_CHARS long. "" when
+  // nothing is left, which counts as a missing seller.
+  const RECEIPT_SELLER_MAX_CHARS = 40;
+  function cleanSellerForFilename(seller) {
+    let t = String(seller == null ? "" : seller);
+    try { t = t.normalize("NFD"); } catch (e) { /* old engine: keep as is */ }
+    t = t.replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]/g, "");
+    return t.slice(0, RECEIPT_SELLER_MAX_CHARS);
+  }
+  // A real calendar date in the form YYYY-MM-DD, else "".
+  function receiptPurchaseDatePart(isoDate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate == null ? "" : isoDate).trim());
+    if (!m) return "";
+    const y = +m[1], mo = +m[2], d = +m[3];
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return "";
+    return m[0];
+  }
+  // "Seller_YYYY-MM-DD_receipt.pdf" when both are present, else "".
+  function receiptSellerDateName(seller, isoDate) {
+    const s = cleanSellerForFilename(seller);
+    const d = receiptPurchaseDatePart(isoDate);
+    return s && d ? s + "_" + d + "_receipt.pdf" : "";
+  }
+  // The fallback when the seller or the date is missing.
+  function receiptIdFallbackName(receiptId) {
+    return String(receiptId) + "_receipt.pdf";
   }
 
   // Uploads and writes or replaces this coin's Receipts row. Never
@@ -24511,9 +24559,6 @@
     opts = opts || {};
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const thisRow = ownReceiptRowOrRefuse(rows, collectionId);
-    const candidate = storedReceiptFilename(collectionId, prepared);
-    const sameNameRow = rows.find(r => r.Filename && !isBinderReceiptName(r.Filename) &&
-      r.Filename.toLowerCase() === candidate.toLowerCase());
 
     // "Replace on all N coins": only while this coin's own receipt is a scan
     // whose ReceiptID other coins' (non-Binder) rows still carry.
@@ -24524,10 +24569,56 @@
       : [];
     const allMode = sharers.length > 0;
 
+    // The name of a new file (Build 2 file naming). A picked PDF with its own
+    // name keeps it; otherwise seller + purchase date, else the ReceiptID.
+    // The ReceiptID is needed BEFORE the upload only for that last fallback:
+    // the id this receipt will end up with is the one it already has (every
+    // row on the receipt under "Replace on all", or this coin's own unshared
+    // row), else a new one minted NOW, inside the table's lock, and remembered
+    // by the caller (opts.onMinted / opts.mintedReceiptId) so a retry reuses
+    // it. A failed Save can leave a gap in the numbering; that is accepted.
+    // nextRecordId()'s per-session floor keeps a later mint from handing the
+    // same number out while this row is still unwritten (PH-00129).
+    const ownNameKept = !!(prepared && prepared.sourceWasPdf && prepared.filename);
+    const byPurchase = receiptSellerDateName(opts.seller, opts.purchaseDate);
+    const idNamed = !ownNameKept && !byPurchase;
+    let preId = "";
+    if (idNamed) {
+      if (allMode) preId = keepId;
+      else if (thisRow && thisRow.ReceiptID && !receiptIdUsedByOtherCoin(rows, thisRow.ReceiptID, collectionId)) preId = thisRow.ReceiptID;
+      else if (opts.mintedReceiptId) preId = opts.mintedReceiptId;
+      else {
+        preId = await withRecordRowLock(RECEIPTS_TABLE_NAME, nextReceiptId);
+        if (opts.onMinted) opts.onMinted(preId);
+      }
+    }
+    let candidate = storedReceiptFilename(collectionId, prepared, {
+      seller: opts.seller, purchaseDate: opts.purchaseDate, receiptId: preId
+    });
+    let sameNameRow = rows.find(r => r.Filename && !isBinderReceiptName(r.Filename) &&
+      r.Filename.toLowerCase() === candidate.toLowerCase());
+
+    // Re-picking what this coin already has on file stays "already on file",
+    // whatever the stored file is called: an old {CollectionID}_receipt.pdf
+    // name, or a seller or date edited since it was named (Ray, Q5). Only when
+    // the stored file is not already the candidate (that case is the byte
+    // check just below).
+    let ownFileSame = false;
+    if (thisRow && thisRow.Filename && !isBinderReceiptName(thisRow.Filename) &&
+        thisRow.Filename.toLowerCase() !== candidate.toLowerCase()) {
+      let ownBytes = null;
+      try { ownBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + thisRow.Filename); }
+      catch (e) { ownBytes = null; }
+      if (ownBytes != null) {
+        try { ownFileSame = await sameFileBytes(ownBytes, prepared.blob); } catch (e) { ownFileSame = false; }
+      }
+      if (ownFileSame) { candidate = thisRow.Filename; sameNameRow = thisRow; }
+    }
+
     // A retry whose file already landed under its own chosen name.
     let landed = false;
     let filename = candidate;
-    if (opts.landedName) {
+    if (opts.landedName && !ownFileSame) {
       let bytes = null;
       try { bytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + opts.landedName); }
       catch (e) { bytes = null; }
@@ -24539,7 +24630,9 @@
 
     let reused = false;
     let adopted = false;
-    if (!landed) {
+    if (ownFileSame) {
+      reused = true;
+    } else if (!landed) {
       let storedBytes = null;
       try { storedBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + candidate); }
       catch (e) { storedBytes = null; }
@@ -24578,7 +24671,9 @@
         await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
         if (opts.onUploaded) opts.onUploaded(filename);
       }
-      if (allMode) {
+      if (idNamed) {
+        receiptId = preId; // the file is named for this id: the row must carry it
+      } else if (allMode) {
         receiptId = keepId; // every row on the receipt keeps its id
       } else if (adopted) {
         receiptId = null; // a file nothing claimed gets a new id (minted in the lock)
@@ -24860,7 +24955,7 @@
       previewSrc: prepared.sourceWasPdf ? "" : (preview ? preview.src : ""),
       replaces: prev ? prev.replaces : storedReceiptSnapshot(id),
       afterRemoval: !!(prev && (prev.remove || prev.afterRemoval)),
-      scope: "", scopeCoins: 0,
+      scope: "", scopeCoins: 0, mintedReceiptId: "",
       landedName: "", saving: false, error: "", refused: false
     };
     repaintReceiptSlot(previewId);
@@ -25043,6 +25138,20 @@
     });
   }
 
+  // The seller and purchase date a new receipt file is named from. Edit Coin:
+  // the form's own fields (the coin row, with any edit to them, was written
+  // earlier in the same Save). Edit Set: the coin record's workbook values,
+  // because Edit Set's own fields are session-only and never reach the
+  // workbook (Ray, Q4).
+  function receiptNameInputsFor(collectionId) {
+    if (activeEditScreen() === "editcoin" && currentBrowseCoin && currentBrowseCoin.id === collectionId) {
+      const val = (id) => { const el = document.getElementById(id); return el ? el.value : ""; };
+      return { seller: val("browseEditVendor"), purchaseDate: val("browseEditPurchaseDate") };
+    }
+    const rec = receiptRecordFor(collectionId);
+    return { seller: rec ? rec.vendor : "", purchaseDate: rec ? rec.purchaseDate : "" };
+  }
+
   // Writes the pending receipt for one record: the last step of a Save.
   // Returns { saved, added, replaced, attached, unchanged, failed, refused,
   // error, receiptId, filename }; a failure leaves the pick pending.
@@ -25061,6 +25170,11 @@
         : await commitReceiptCapture(targetId, p.prepared, {
             landedName: p.landedName,
             scope: p.scope,
+            // The name is built NOW, at Save, from the seller and purchase date
+            // as they stand (they may have been edited since the pick).
+            ...receiptNameInputsFor(targetId),
+            mintedReceiptId: p.mintedReceiptId,
+            onMinted: (id) => { p.mintedReceiptId = id; },
             onUploaded: (name) => { p.landedName = name; }
           });
       if (p.binder) out.binder = true;
@@ -29358,12 +29472,15 @@
     loadPdfjs().catch(e => console.warn("pdf.js preload failed:", e && e.message));
   }
 
-  // The app names every receipt it builds itself {CollectionID}_receipt.pdf,
-  // so a PDF with any other name came from somewhere else (a seller's
-  // invoice printed from a website). A picked PDF filed under that name
-  // simply doesn't get the early start — opening it still loads pdf.js.
+  // The app names the receipts it builds itself {CollectionID}_receipt.pdf or,
+  // since the Build 2 file naming, {ReceiptID}_receipt.pdf, so a PDF with any
+  // other name came from somewhere else (a seller's invoice printed from a
+  // website). A picked PDF filed under that name simply doesn't get the early
+  // start — opening it still loads pdf.js. The new Seller_YYYY-MM-DD_receipt.pdf
+  // names cannot be told apart from a hand-made seller file, so they are
+  // deliberately NOT matched here: they just get the (harmless) early start.
   function receiptFilenameLooksAppMade(filename) {
-    return /^AY-\d{5}(-[A-Za-z]+)?_receipt\.pdf$/i.test(String(filename || ""));
+    return /^(AY-\d{5}(-[A-Za-z]+)?_receipt|RC-\d{5}_receipt(_\d{2})?)\.pdf$/i.test(String(filename || ""));
   }
   function receiptMayNeedPdfjs(filename) {
     return /\.pdf$/i.test(String(filename || "")) && !receiptFilenameLooksAppMade(filename);
