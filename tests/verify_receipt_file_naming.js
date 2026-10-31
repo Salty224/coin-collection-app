@@ -167,7 +167,8 @@ module.exports = defineSuite("receipt-file-naming", async ({ check, selfCheck, o
 
   // ---------- N1: the pure helpers -----------------------------------------
   const N1 = await page.evaluate(() => ({
-    clean: ["Charleston Coin Exchange", "Finders Keepers", "Joe's Coins & Co.", "Café Müller", "  ", "!!!", "eBay seller", "x".repeat(60)]
+    clean: ["Charleston Coin Exchange", "Finders Keepers", "Joe's Coins & Co.", "Café Müller", "  ", "!!!", "eBay seller", "x".repeat(60),
+      "finders keepers", "heritage AUCTIONS", "FINDERS keepers", "élan coins", "Élan coins", "  spaced   out  ", "joe's coins & co.", "coin-shop"]
       .map(cleanSellerForFilename),
     dates: ["2026-10-02", "2026-02-30", "10/02/2026", "", "2026-1-2", null].map(receiptPurchaseDatePart),
     full: receiptSellerDateName("Charleston Coin Exchange", "2026-10-02"),
@@ -178,8 +179,10 @@ module.exports = defineSuite("receipt-file-naming", async ({ check, selfCheck, o
     pdfOwn: storedReceiptFilename("AY-00001", { sourceWasPdf: true, filename: "scan0001.pdf" }, { seller: "Finders Keepers", purchaseDate: "2026-06-27", receiptId: "RC-00012" }),
     appMade: ["RC-00012_receipt.pdf", "RC-00012_receipt_02.pdf", "AY-00099_receipt.pdf", "CharlestonCoinExchange_2026-10-02_receipt.pdf", "scan0001.pdf"].map(receiptFilenameLooksAppMade)
   }));
-  ok("N1a seller cleaning: capitals kept, spaces / punctuation removed, accents dropped, empty stays empty, capped at 40",
-    JSON.stringify(N1.clean) === JSON.stringify(["CharlestonCoinExchange", "FindersKeepers", "JoesCoinsCo", "CafeMuller", "", "", "eBayseller", "x".repeat(40)]), N1.clean);
+  ok("N1a seller cleaning: first letter of each word capitalised, the rest of the word as typed, spaces / punctuation removed, accents dropped, empty stays empty, capped at 40",
+    JSON.stringify(N1.clean.slice(0, 8)) === JSON.stringify(["CharlestonCoinExchange", "FindersKeepers", "JoesCoinsCo", "CafeMuller", "", "", "EBaySeller", "X" + "x".repeat(39)]), N1.clean);
+  ok("N1a2 all-lowercase words are capitalised; mixed case already present is kept ('AUCTIONS', 'FINDERS' are not lowercased); a word starting with an accent is capitalised after the accent is dropped; extra spaces and punctuation vanish",
+    JSON.stringify(N1.clean.slice(8)) === JSON.stringify(["FindersKeepers", "HeritageAUCTIONS", "FINDERSKeepers", "ElanCoins", "ElanCoins", "SpacedOut", "JoesCoinsCo", "Coinshop"]), N1.clean.slice(8));
   ok("N1b only a real YYYY-MM-DD date counts", JSON.stringify(N1.dates) === JSON.stringify(["2026-10-02", "", "", "", "", ""]), N1.dates);
   ok("N1c Seller_Date name when both are present; empty when either is missing",
     N1.full === "CharlestonCoinExchange_2026-10-02_receipt.pdf" && N1.noSeller === "" && N1.noDate === "", N1);

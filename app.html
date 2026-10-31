@@ -24445,17 +24445,22 @@
   // to it). Not used by Add Coin / Staging / Add Set, which keep
   // {CollectionID}_receipt.pdf until Batch Receipt exists.
   //
-  // Seller to a filename part: accents dropped, every character that is not a
-  // letter or digit removed (spaces and punctuation), each word's own
-  // capitals kept as typed ("Charleston Coin Exchange" ->
-  // CharlestonCoinExchange), at most RECEIPT_SELLER_MAX_CHARS long. "" when
-  // nothing is left, which counts as a missing seller.
+  // Seller to a filename part (Ray, 31 Oct 2026): accents dropped, the text
+  // split into words at whitespace, every character that is not a letter or
+  // digit removed from each word (punctuation: "Joe's" -> "Joes"), the FIRST
+  // letter of each word capitalised and the rest of the word left exactly as
+  // typed, the words joined with no separator: "finders keepers" ->
+  // FindersKeepers, "Charleston Coin Exchange" -> CharlestonCoinExchange,
+  // "eBay" -> EBay (the rest of a word is never lowercased). At most
+  // RECEIPT_SELLER_MAX_CHARS long. "" when nothing is left, which counts as a
+  // missing seller.
   const RECEIPT_SELLER_MAX_CHARS = 40;
   function cleanSellerForFilename(seller) {
     let t = String(seller == null ? "" : seller);
     try { t = t.normalize("NFD"); } catch (e) { /* old engine: keep as is */ }
-    t = t.replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]/g, "");
-    return t.slice(0, RECEIPT_SELLER_MAX_CHARS);
+    t = t.replace(/[\u0300-\u036f]/g, "");
+    const words = t.split(/\s+/).map(w => w.replace(/[^A-Za-z0-9]/g, "")).filter(Boolean);
+    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("").slice(0, RECEIPT_SELLER_MAX_CHARS);
   }
   // A real calendar date in the form YYYY-MM-DD, else "".
   function receiptPurchaseDatePart(isoDate) {
