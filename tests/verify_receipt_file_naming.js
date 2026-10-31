@@ -1,25 +1,28 @@
-// Receipts and photos alignment, Build 2: file naming for NEW receipt files
-// (Ray, 31 Oct 2026), claude/receipt-remove-and-shared-replace.
+// Receipts and photos alignment, Build 2: file naming for NEW receipt files,
+// the INTERIM rule (Ray, 31 Oct 2026), claude/receipt-remove-and-shared-replace.
 //
-// RULE. A photographed / camera receipt (no usable name) is named
-// {Seller}_{YYYY-MM-DD}_receipt.pdf from the seller and purchase date, and
-// {ReceiptID}_receipt.pdf when either is missing. Never from the coin. A picked
-// PDF with its own name keeps it. Existing files are never renamed. Edit Coin
-// and Edit Set only (Add Coin / Staging / Add Set are untouched).
+// RULE (Edit Coin and Edit Set only, until Batch Receipt is built). A picked PDF
+// keeps its own name. A camera or gallery photo whose receipt ends up on TWO OR
+// MORE coins at once ("Replace on all N coins") is named {ReceiptID}_receipt.pdf.
+// Every other photo, "This coin only" on a shared receipt included, is
+// {CollectionID}_receipt.pdf. Seller and purchase date play NO part in the slot
+// flow (their helpers are kept, tested and unused, for Batch Receipt). Files
+// already in the folder are never renamed; collisions are as before (same bytes
+// = reuse / "already on file", different bytes = the next _NN). A single-coin
+// receipt mints its ReceiptID inside the table lock after the upload (no early
+// mint, so a failed upload leaves no gap).
 //
 //   SELF the shared check helper's must-fail self-check
-//   N1  the pure helpers (seller cleaning, date, name, app-made test)
-//   N2  Edit Coin photo -> Seller_Date name; the name uses the values at SAVE
-//   N3  fallback to the ReceiptID: neither / seller only / date only; the id is
-//       minted BEFORE the upload; a failed Save keeps it; a competing mint never
-//       hands the same number out (PH-00129)
-//   N4  Edit Set uses the coin RECORD's seller and date, not its session-only form
-//   N5  re-picking what is already on file stays "already on file", whatever
-//       the stored file is called and whatever the seller / date now say
-//   N6  _02 under the new name; attach to another coin's identical file; an
-//       unclaimed identical file is adopted (new ReceiptID)
-//   N7  a picked PDF keeps its own name (generic names too); old files are never
-//       renamed; Replace on all N coins names the file for this coin's seller/date
+//   N1  the pure helpers (seller cleaning, date, seller+date name, the interim
+//       storedReceiptFilename, the app-made test)
+//   N2  one coin, a coin WITH seller and date: {CollectionID}_receipt.pdf; the
+//       seller and date, even edited before Save, change nothing
+//   N3  one coin without seller or date; "This coin only" on a shared receipt
+//   N4  Replace on all N coins: {ReceiptID}_receipt.pdf on every row, id kept
+//   N5  a picked PDF keeps its name in every case
+//   N6  re-picking what is stored stays "already on file"; collisions as before
+//   N7  no early mint: a failed upload leaves no numbering gap, a competing
+//       mint never repeats a number
 
 const { defineSuite } = require("./harness");
 
@@ -174,9 +177,9 @@ module.exports = defineSuite("receipt-file-naming", async ({ check, selfCheck, o
     full: receiptSellerDateName("Charleston Coin Exchange", "2026-10-02"),
     noSeller: receiptSellerDateName("  !! ", "2026-10-02"), noDate: receiptSellerDateName("Heritage", ""),
     byId: receiptIdFallbackName("RC-00012"),
-    photoName: storedReceiptFilename("AY-00001", { sourceWasPdf: false, filename: "image.jpg" }, { seller: "Finders Keepers", purchaseDate: "2026-06-27" }),
-    photoFallback: storedReceiptFilename("AY-00001", { sourceWasPdf: false, filename: "image.jpg" }, { seller: "", purchaseDate: "2026-06-27", receiptId: "RC-00012" }),
-    pdfOwn: storedReceiptFilename("AY-00001", { sourceWasPdf: true, filename: "scan0001.pdf" }, { seller: "Finders Keepers", purchaseDate: "2026-06-27", receiptId: "RC-00012" }),
+    photoSingle: storedReceiptFilename("AY-00001", { sourceWasPdf: false, filename: "image.jpg" }, { seller: "Finders Keepers", purchaseDate: "2026-06-27" }),
+    photoMulti: storedReceiptFilename("AY-00001", { sourceWasPdf: false, filename: "image.jpg" }, { receiptId: "RC-00012" }),
+    pdfOwn: storedReceiptFilename("AY-00001", { sourceWasPdf: true, filename: "scan0001.pdf" }, { receiptId: "RC-00012" }),
     appMade: ["RC-00012_receipt.pdf", "RC-00012_receipt_02.pdf", "AY-00099_receipt.pdf", "CharlestonCoinExchange_2026-10-02_receipt.pdf", "scan0001.pdf"].map(receiptFilenameLooksAppMade)
   }));
   ok("N1a seller cleaning: first letter of each word capitalised, the rest of the word as typed, spaces / punctuation removed, accents dropped, empty stays empty, capped at 40",
@@ -187,180 +190,175 @@ module.exports = defineSuite("receipt-file-naming", async ({ check, selfCheck, o
   ok("N1c Seller_Date name when both are present; empty when either is missing",
     N1.full === "CharlestonCoinExchange_2026-10-02_receipt.pdf" && N1.noSeller === "" && N1.noDate === "", N1);
   ok("N1d the ReceiptID fallback name", N1.byId === "RC-00012_receipt.pdf", N1.byId);
-  ok("N1e storedReceiptFilename: seller+date wins for a photo, the ReceiptID when one is missing, a picked PDF keeps its own name",
-    N1.photoName === "FindersKeepers_2026-06-27_receipt.pdf" && N1.photoFallback === "RC-00012_receipt.pdf" && N1.pdfOwn === "scan0001.pdf", N1);
+  ok("N1e storedReceiptFilename (interim rule): a photo is {CollectionID}_receipt.pdf even when a seller and date are passed; with a ReceiptID (several coins) it is {ReceiptID}_receipt.pdf; a picked PDF keeps its own name",
+    N1.photoSingle === "AY-00001_receipt.pdf" && N1.photoMulti === "RC-00012_receipt.pdf" && N1.pdfOwn === "scan0001.pdf", N1);
   ok("N1f RC-nnnnn_receipt.pdf counts as app-made (no early pdf.js load), a seller+date name does not",
     JSON.stringify(N1.appMade) === JSON.stringify([true, true, true, false, false]), N1.appMade);
 
-  // ---------- N2: Edit Coin, seller + date --------------------------------
+  // ---------- N2: one coin, with a seller and date ----------------------
   const N2 = await page.evaluate(async () => {
     const W = __fn; await W.install(); await W.openEditCoin(W.fresh);
     const out = {};
     out.formValues = { v: document.getElementById("browseEditVendor").value, d: document.getElementById("browseEditPurchaseDate").value };
     await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0001.jpg"));
-    W.events = []; W.uploads = [];
-    await W.save("browseEdit");
-    const row = W.rcRow("AY-00092");
-    out.save = { uploads: W.uploads.slice(), row: row && row.slice(), toast: W.toast() };
-    // edited between pick and Save: the name uses the values at SAVE
-    await W.install(); await W.openEditCoin(W.fresh);
-    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0002.jpg"));
+    // the seller and date are edited before Save: they must change nothing
     W.setv("browseEditVendor", "Heritage Auctions"); W.setv("browseEditPurchaseDate", "2026-09-01");
     W.events = []; W.uploads = [];
     await W.save("browseEdit");
-    const row2 = W.rcRow("AY-00092");
-    out.edited = { uploads: W.uploads.slice(), row: row2 && row2.slice(), coinRowSaved: W.events.indexOf("patch:All") !== -1 };
+    const row = W.rcRow("AY-00092");
+    out.save = { uploads: W.uploads.slice(), row: row && row.slice(), coinRowSaved: W.events.indexOf("patch:All") !== -1, minted: pendingReceipts["AY-00092"] };
     return out;
   });
-  ok("N2a the form shows the coin's seller and date (the test starts from real values)", N2.formValues.v === "Finders Keepers" && N2.formValues.d === "2026-07-04", N2.formValues);
-  ok("N2b a photographed receipt is named from the seller and purchase date: one upload, the row names the same file, a new ReceiptID, never the coin's id",
-    N2.save.uploads.join() === "FindersKeepers_2026-07-04_receipt.pdf" && N2.save.row[2] === "FindersKeepers_2026-07-04_receipt.pdf" &&
-    /^RC-\d{5}$/.test(N2.save.row[0]) && !/AY-/.test(N2.save.row[2]), N2.save);
-  ok("N2c the name is built at SAVE from the edited form: Heritage Auctions on 2026-09-01, and the coin row is saved in the same Save",
-    N2.edited.uploads.join() === "HeritageAuctions_2026-09-01_receipt.pdf" && N2.edited.row[2] === "HeritageAuctions_2026-09-01_receipt.pdf" && N2.edited.coinRowSaved, N2.edited);
+  ok("N2a the coin has a seller and a date (the test starts from real values)", N2.formValues.v === "Finders Keepers" && N2.formValues.d === "2026-07-04", N2.formValues);
+  ok("N2b a photo on ONE coin is named {CollectionID}_receipt.pdf, never from the seller and date (edited or not); one upload, the row names it, a new ReceiptID",
+    N2.save.uploads.join() === "AY-00092_receipt.pdf" && N2.save.row[2] === "AY-00092_receipt.pdf" && /^RC-\d{5}$/.test(N2.save.row[0]) && N2.save.coinRowSaved, N2.save);
 
-  // ---------- N3: fallback to the ReceiptID, minted before the upload -----
+  // ---------- N3: one coin, no seller / date; This coin only -------------
   const N3 = await page.evaluate(async () => {
     const W = __fn; const out = {};
-    for (const [key, coin] of [["neither", W.plain], ["sellerOnly", W.vOnly], ["dateOnly", W.dOnly]]) {
-      await W.install(); await W.openEditCoin(coin);
-      await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0003.jpg"));
-      W.events = []; W.uploads = [];
-      await W.save("browseEdit");
-      const row = W.rcRow(coin.id);
-      out[key] = { uploads: W.uploads.slice(), row: row && row.slice(), uploadBeforeRow: W.events.indexOf("upload:" + (row && row[2])) !== -1 &&
-        W.events.indexOf("upload:" + (row && row[2])) < W.events.lastIndexOf("patch:Receipts") };
-    }
-    // the next id is max+1 of the column: RC-00031 is the highest seeded
-    out.expectedId = "RC-00032";
-    return out;
-  });
-  const idNamed = (r) => r.row && r.row[2] === r.row[0] + "_receipt.pdf" && r.uploads.join() === r.row[2];
-  ok("N3a neither seller nor date: the file is named for its ReceiptID (and the row carries that id), not for the coin", idNamed(N3.neither) && N3.neither.row[0] === N3.expectedId, N3.neither);
-  ok("N3b seller only: the ReceiptID name", idNamed(N3.sellerOnly), N3.sellerOnly);
-  ok("N3c date only: the ReceiptID name", idNamed(N3.dateOnly), N3.dateOnly);
-  ok("N3d the file is uploaded before its row is written", N3.neither.uploadBeforeRow && N3.sellerOnly.uploadBeforeRow && N3.dateOnly.uploadBeforeRow, N3);
-
-  const N3b = await page.evaluate(async () => {
-    const W = __fn; await W.install(); await W.openEditCoin(W.plain);
-    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0004.jpg"));
-    W.failUploadOnce = true; W.uploads = [];
-    await W.save("browseEdit");
-    const minted = pendingReceipts["AY-00098"] && pendingReceipts["AY-00098"].mintedReceiptId;
-    const failToast = W.toast();
-    const rowAfterFail = W.rcRow("AY-00098");
-    // another receipt is written meanwhile (a Binder for a different coin): it must NOT get the number the failed Save pre-minted
-    const other = await commitBinderReceipt("AY-00070");
-    W.lastOtherId = other.receiptId;
+    await W.install(); await W.openEditCoin(W.plain);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0002.jpg"));
     W.uploads = [];
     await W.save("browseEdit");
-    const row = W.rcRow("AY-00098");
-    const ids = W.rcGrid().slice(1).map(r => r[0]).filter(Boolean);
-    return { minted, failToast, rowAfterFail, other: other.receiptId, row: row && row.slice(), uploads: W.uploads.slice(),
-      mintedCount: ids.filter(v => v === minted).length, otherCount: ids.filter(v => v === W.lastOtherId).length, pending: pendingReceiptCount("AY-00098") };
-  });
-  ok("N3e a failed upload keeps the pre-minted ReceiptID on the pending pick and writes no row", /^RC-\d{5}$/.test(N3b.minted) && !N3b.rowAfterFail && /not saved|Receipt not saved/i.test(N3b.failToast), N3b);
-  ok("N3f a competing mint never hands out the same number (PH-00129 protection holds with a pre-minted id)", N3b.other !== N3b.minted && N3b.mintedCount === 1 && N3b.otherCount === 1, N3b);
-  ok("N3g the retry reuses the SAME id: the file is named for it and the row carries it", N3b.row && N3b.row[0] === N3b.minted && N3b.row[2] === N3b.minted + "_receipt.pdf" && N3b.uploads.join() === N3b.minted + "_receipt.pdf" && N3b.pending === 0, N3b);
-
-  // ---------- N4: Edit Set uses the coin record ---------------------------
-  const N4 = await page.evaluate(async () => {
-    const W = __fn; await W.install(); await W.openEditSet();
-    W.setv("editSetVendor", "Other Seller"); W.setv("editSetPurchaseDate", "2020-01-01"); // session-only form fields
-    await W.pickFile("editSet", W.file(W.jpegB, "IMG_0005.jpg"));
-    W.uploads = [];
-    await W.save("editSet");
-    const row = W.rcRow("AY-00090");
-    return { uploads: W.uploads.slice(), row: row && row.slice(), form: document.getElementById("editSetVendor").value };
-  });
-  ok("N4 Edit Set names the file from the record's workbook seller and date (Heritage Auctions, 2026-09-01), not from its session-only form",
-    N4.uploads.join() === "HeritageAuctions_2026-09-01_receipt.pdf" && N4.row[2] === "HeritageAuctions_2026-09-01_receipt.pdf", N4);
-
-  // ---------- N5: already on file stays already on file -------------------
-  const N5 = await page.evaluate(async () => {
-    const W = __fn; const out = {};
-    // (a) the stored file is an old AY-00093_receipt.pdf name; the same scan is picked again
-    await W.install(); await W.openEditCoin(W.old);
-    W.rcRow("AY-00093")[3] = 46123;
-    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0006.jpg"));
-    W.events = []; W.uploads = [];
-    await W.save("browseEdit");
-    out.old = { uploads: W.uploads.slice(), events: W.events.slice(), row: W.rcRow("AY-00093").slice(), toast: W.toast(),
-      oldFile: await W.fileText("AY-00093_receipt.pdf"), newName: await W.fileText("FindersKeepers_2026-06-27_receipt.pdf") };
-    // (b) saved under seller A, then the seller is edited and the same scan is picked again
-    await W.install(); await W.openEditCoin(W.cex);
-    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0007.jpg")); // wrap = the file another coin already has -> attaches
-    await W.save("browseEdit");
-    const firstRow = W.rcRow("AY-00099").slice();
-    await W.openEditCoin(W.cex);
-    W.setv("browseEditVendor", "Heritage Auctions");
-    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0008.jpg"));
-    W.events = []; W.uploads = [];
-    await W.save("browseEdit");
-    out.edited = { firstRow, row: W.rcRow("AY-00099").slice(), uploads: W.uploads.slice(), copy: await W.fileText("HeritageAuctions_2026-10-02_receipt.pdf"), rows: W.rcRows("AY-00099").length };
-    return out;
-  });
-  ok("N5a re-picking the same scan on a coin whose receipt is an OLD-style name stays 'already on file': nothing uploaded, no Receipts write, DateAdded kept",
-    N5.old.uploads.length === 0 && N5.old.events.filter(e => e === "patch:Receipts").length === 0 && N5.old.row[3] === 46123 && /already on file/.test(N5.old.toast), N5.old);
-  ok("N5b ...and the old file keeps its name (never renamed) and no new-named copy appears",
-    N5.old.row[2] === "AY-00093_receipt.pdf" && N5.old.oldFile === "present" && N5.old.newName === null, N5.old);
-  ok("N5c a seller edited between two picks of the same scan makes no second copy: nothing uploaded, still one row, still the first file",
-    N5.edited.uploads.length === 0 && N5.edited.copy === null && N5.edited.rows === 1 && N5.edited.row[2] === N5.edited.firstRow[2], N5.edited);
-
-  // ---------- N6: _02, attach, adopt under the new name -------------------
-  const N6 = await page.evaluate(async () => {
-    const W = __fn; const out = {};
-    // (a) different bytes under the same seller + date: _02, the other coin's file untouched
-    await W.install(); await W.openEditCoin(W.cex);
-    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0009.jpg"));
-    W.uploads = [];
-    await W.save("browseEdit");
-    out.diff = { uploads: W.uploads.slice(), row: W.rcRow("AY-00099").slice(), other: W.rcRow("AY-00079").slice() };
-    // (b) the identical scan another coin already filed under that name: attach, no upload, no _02
-    await W.install(); await W.openEditCoin(W.cex);
-    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0010.jpg"));
-    W.uploads = [];
-    await W.save("browseEdit");
-    out.same = { uploads: W.uploads.slice(), row: W.rcRow("AY-00099").slice(), toast: W.toast() };
-    // (c) an unclaimed file with the same bytes: adopted with a NEW ReceiptID, nothing uploaded
-    await W.install(); await W.openEditCoin(W.stray);
-    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0011.jpg"));
-    W.uploads = [];
-    await W.save("browseEdit");
-    out.adopt = { uploads: W.uploads.slice(), row: W.rcRow("AY-00094") && W.rcRow("AY-00094").slice(), twoCopy: await W.fileText("CharlestonCoinExchange_2026-11-05_receipt_02.pdf") };
-    return out;
-  });
-  ok("N6a different bytes under an existing seller+date name take _02; the other coin's file and row are untouched",
-    N6.diff.uploads.join() === "CharlestonCoinExchange_2026-10-02_receipt_02.pdf" && N6.diff.row[2] === "CharlestonCoinExchange_2026-10-02_receipt_02.pdf" &&
-    N6.diff.other[0] === "RC-00031" && N6.diff.other[2] === "CharlestonCoinExchange_2026-10-02_receipt.pdf", N6.diff);
-  ok("N6b the identical scan another coin filed under that name attaches to its ReceiptID: nothing uploaded, no _02",
-    N6.same.uploads.length === 0 && N6.same.row[0] === "RC-00031" && N6.same.row[2] === "CharlestonCoinExchange_2026-10-02_receipt.pdf" && /attached/.test(N6.same.toast), N6.same);
-  ok("N6c an unclaimed file with the same bytes is reused (no upload, no _02) and gets a NEW ReceiptID",
-    N6.adopt.uploads.length === 0 && N6.adopt.twoCopy === null && N6.adopt.row && N6.adopt.row[2] === "CharlestonCoinExchange_2026-11-05_receipt.pdf" &&
-    /^RC-\d{5}$/.test(N6.adopt.row[0]) && !["RC-00020", "RC-00030", "RC-00031"].includes(N6.adopt.row[0]), N6.adopt);
-
-  // ---------- N7: own PDF names, Replace on all ---------------------------
-  const N7 = await page.evaluate(async () => {
-    const W = __fn; const out = {};
-    await W.install(); await W.openEditCoin(W.cex);
-    await W.pickFile("browseEdit", new File(["PDFBYTES"], "scan0001.pdf", { type: "application/pdf" }));
-    W.uploads = [];
-    await W.save("browseEdit");
-    out.pdf = { uploads: W.uploads.slice(), row: W.rcRow("AY-00099").slice() };
-    // Replace on all N coins with a photo: named for THIS coin's seller and date
+    out.plain = { uploads: W.uploads.slice(), row: W.rcRow("AY-00098").slice() };
+    // "This coin only" on a shared receipt: still one coin, so the coin's name, with a NEW ReceiptID
     await W.install(); await W.openEditCoin(W.fk);
-    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0012.jpg"));
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0003.jpg"));
+    W.clickGuard("This coin only"); await W.sleep(40);
+    W.uploads = [];
+    await W.save("browseEdit");
+    out.thisOnly = { uploads: W.uploads.slice(), row: W.rcRow("AY-00080").slice(), others: [W.rcRow("AY-00081").slice(), W.rcRow("AY-00082").slice()], oldFile: await W.fileText("old_shared.pdf") };
+    return out;
+  });
+  ok("N3a a photo on a coin with no seller or date is {CollectionID}_receipt.pdf", N3.plain.uploads.join() === "AY-00098_receipt.pdf" && N3.plain.row[2] === "AY-00098_receipt.pdf", N3.plain);
+  ok("N3b 'This coin only' on a shared receipt: {CollectionID}_receipt.pdf and a NEW ReceiptID (not RC-00030); the other coins and the old file untouched",
+    N3.thisOnly.uploads.join() === "AY-00080_receipt.pdf" && N3.thisOnly.row[2] === "AY-00080_receipt.pdf" && N3.thisOnly.row[0] !== "RC-00030" && /^RC-\d{5}$/.test(N3.thisOnly.row[0]) &&
+    N3.thisOnly.others.every(r => r[0] === "RC-00030" && r[2] === "old_shared.pdf") && N3.thisOnly.oldFile === "present", N3.thisOnly);
+
+  // ---------- N4: Replace on all N coins ----------------------------------
+  const N4 = await page.evaluate(async () => {
+    const W = __fn; await W.install(); await W.openEditCoin(W.fk);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0004.jpg"));
     W.clickGuard("Replace on all 3 coins"); await W.sleep(40);
     const idsBefore = W.rcGrid().map(r => r[0]).join();
     W.uploads = [];
     await W.save("browseEdit");
-    out.all = { uploads: W.uploads.slice(), rows: [3, 4, 5].map(n => W.rcGrid()[n - 1].slice()), oldFile: await W.fileText("old_shared.pdf"),
+    return { uploads: W.uploads.slice(), rows: [3, 4, 5].map(n => W.rcGrid()[n - 1].slice()), oldFile: await W.fileText("old_shared.pdf"),
       idsSame: W.rcGrid().map(r => r[0]).join() === idsBefore, toast: W.toast() };
+  });
+  ok("N4a a photo replaced on all 3 coins is named {ReceiptID}_receipt.pdf: one upload, all three rows carry that name under RC-00030",
+    N4.uploads.join() === "RC-00030_receipt.pdf" && N4.rows.every(r => r[0] === "RC-00030" && r[2] === "RC-00030_receipt.pdf"), N4);
+  ok("N4b no ReceiptID is minted (the id already existed) and the old file is kept", N4.idsSame && N4.oldFile === "present" && /receipt replaced on 3 coins/.test(N4.toast), N4);
+
+  // ---------- N5: a picked PDF keeps its name in every case ---------------
+  const N5 = await page.evaluate(async () => {
+    const W = __fn; const out = {};
+    const pdf = () => new File(["PDFBYTES"], "scan0001.pdf", { type: "application/pdf" });
+    await W.install(); await W.openEditCoin(W.cex);                   // one coin, with seller + date
+    await W.pickFile("browseEdit", pdf());
+    W.uploads = []; await W.save("browseEdit");
+    out.single = { uploads: W.uploads.slice(), row: W.rcRow("AY-00099").slice() };
+    await W.install(); await W.openEditCoin(W.fk);                    // This coin only
+    await W.pickFile("browseEdit", pdf());
+    W.clickGuard("This coin only"); await W.sleep(40);
+    W.uploads = []; await W.save("browseEdit");
+    out.thisOnly = { uploads: W.uploads.slice(), row: W.rcRow("AY-00080").slice() };
+    await W.install(); await W.openEditCoin(W.fk);                    // Replace on all
+    await W.pickFile("browseEdit", pdf());
+    W.clickGuard("Replace on all 3 coins"); await W.sleep(40);
+    W.uploads = []; await W.save("browseEdit");
+    out.all = { uploads: W.uploads.slice(), rows: [3, 4, 5].map(n => W.rcGrid()[n - 1].slice()) };
     return out;
   });
-  ok("N7a a picked PDF keeps its own name even when the coin has a seller and date, and even a generic one (scan0001.pdf)",
-    N7.pdf.uploads.join() === "scan0001.pdf" && N7.pdf.row[2] === "scan0001.pdf", N7.pdf);
-  ok("N7b Replace on all N coins with a photo: the new file is named FindersKeepers_2026-06-27_receipt.pdf and all three rows carry it under RC-00030; no id is minted; the old file stays",
-    N7.all.uploads.join() === "FindersKeepers_2026-06-27_receipt.pdf" && N7.all.rows.every(r => r[0] === "RC-00030" && r[2] === "FindersKeepers_2026-06-27_receipt.pdf") &&
-    N7.all.idsSame && N7.all.oldFile === "present", N7.all);
+  ok("N5a a picked PDF keeps its own name (even a generic one) on one coin, on 'This coin only' and on 'Replace on all'",
+    N5.single.uploads.join() === "scan0001.pdf" && N5.single.row[2] === "scan0001.pdf" &&
+    N5.thisOnly.uploads.join() === "scan0001.pdf" && N5.thisOnly.row[2] === "scan0001.pdf" &&
+    N5.all.uploads.join() === "scan0001.pdf" && N5.all.rows.every(r => r[0] === "RC-00030" && r[2] === "scan0001.pdf"), N5);
+
+  // ---------- N6: already on file; collisions as before --------------------
+  const N6 = await page.evaluate(async () => {
+    const W = __fn; const out = {};
+    // (a) an old-style stored file; the same scan picked again
+    await W.install(); await W.openEditCoin(W.old);
+    W.rcRow("AY-00093")[3] = 46123;
+    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0005.jpg"));
+    W.events = []; W.uploads = [];
+    await W.save("browseEdit");
+    out.old = { uploads: W.uploads.slice(), receiptPatches: W.events.filter(e => e === "patch:Receipts").length, row: W.rcRow("AY-00093").slice(), toast: W.toast() };
+    // (b) a photo saved on one coin, then the same photo picked again: already on file
+    await W.install(); await W.openEditCoin(W.fresh);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0006.jpg"));
+    await W.save("browseEdit");
+    const first = W.rcRow("AY-00092").slice();
+    await W.openEditCoin(W.fresh);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0007.jpg"));
+    W.events = []; W.uploads = [];
+    await W.save("browseEdit");
+    out.again = { first, row: W.rcRow("AY-00092").slice(), uploads: W.uploads.slice(), toast: W.toast(), rows: W.rcRows("AY-00092").length };
+    // (c) a DIFFERENT photo on that coin takes _02 (as before), the first file untouched
+    await W.openEditCoin(W.fresh);
+    await W.pickFile("browseEdit", W.file(W.jpegA, "IMG_0008.jpg"));
+    W.uploads = [];
+    await W.save("browseEdit");
+    out.diff = { uploads: W.uploads.slice(), row: W.rcRow("AY-00092").slice(), firstFile: await W.fileText("AY-00092_receipt.pdf") };
+    // (d) Replace on all, then the same photo again on all three: already on file
+    await W.install(); await W.openEditCoin(W.fk);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0009.jpg"));
+    W.clickGuard("Replace on all 3 coins"); await W.sleep(40);
+    await W.save("browseEdit");
+    await W.openEditCoin(W.fk);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0010.jpg"));
+    W.clickGuard("Replace on all 3 coins"); await W.sleep(40);
+    W.events = []; W.uploads = [];
+    await W.save("browseEdit");
+    out.allAgain = { uploads: W.uploads.slice(), receiptPatches: W.events.filter(e => e === "patch:Receipts").length, toast: W.toast() };
+    // (e) the stored file is RC-00030_receipt.pdf (a multi-coin name); the same photo picked as "This coin only":
+    //     the candidate would be AY-00080_receipt.pdf, but this coin's OWN stored file already holds those bytes
+    await W.openEditCoin(W.fk);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0011.jpg"));
+    W.clickGuard("This coin only"); await W.sleep(40);
+    W.events = []; W.uploads = [];
+    await W.save("browseEdit");
+    out.ownName = { uploads: W.uploads.slice(), receiptPatches: W.events.filter(e => e === "patch:Receipts").length, row: W.rcRow("AY-00080").slice(), toast: W.toast() };
+    // (f) a picked PDF with another name but the same bytes as the stored file
+    await W.install(); await W.openEditCoin(W.fk);
+    await W.pickFile("browseEdit", new File(["OLDSH"], "renamed_copy.pdf", { type: "application/pdf" }));
+    W.clickGuard("This coin only"); await W.sleep(40);
+    W.events = []; W.uploads = [];
+    await W.save("browseEdit");
+    out.pdfCopy = { uploads: W.uploads.slice(), receiptPatches: W.events.filter(e => e === "patch:Receipts").length, row: W.rcRow("AY-00080").slice(), toast: W.toast() };
+    return out;
+  });
+  ok("N6a re-picking the same scan on a coin whose stored file has an OLD name stays 'already on file': nothing uploaded, no Receipts write, DateAdded kept, name kept",
+    N6.old.uploads.length === 0 && N6.old.receiptPatches === 0 && N6.old.row[3] === 46123 && N6.old.row[2] === "AY-00093_receipt.pdf" && /already on file/.test(N6.old.toast), N6.old);
+  ok("N6b a photo saved on one coin and picked again stays 'already on file': nothing uploaded, still one row, the same file",
+    N6.again.uploads.length === 0 && /already on file/.test(N6.again.toast) && N6.again.rows === 1 && N6.again.row[2] === N6.again.first[2] && N6.again.first[2] === "AY-00092_receipt.pdf", N6.again);
+  ok("N6c a DIFFERENT photo on that coin takes _02 as before; the first file is untouched",
+    N6.diff.uploads.join() === "AY-00092_receipt_02.pdf" && N6.diff.row[2] === "AY-00092_receipt_02.pdf" && N6.diff.firstFile === "present", N6.diff);
+  ok("N6d the same photo again after 'Replace on all 3 coins' stays 'already on file': nothing uploaded, no Receipts write",
+    N6.allAgain.uploads.length === 0 && N6.allAgain.receiptPatches === 0 && /already on file/.test(N6.allAgain.toast), N6.allAgain);
+
+  ok("N6e a stored file with a DIFFERENT name (RC-00030_receipt.pdf) holding the same bytes: the same photo as 'This coin only' stays 'already on file': no upload, no Receipts write, the row keeps its file and id",
+    N6.ownName.uploads.length === 0 && N6.ownName.receiptPatches === 0 && N6.ownName.row[2] === "RC-00030_receipt.pdf" && N6.ownName.row[0] === "RC-00030" && /already on file/.test(N6.ownName.toast), N6.ownName);
+  ok("N6f a picked PDF with another name but the same bytes as the stored file: 'already on file', nothing uploaded, the stored name kept",
+    N6.pdfCopy.uploads.length === 0 && N6.pdfCopy.receiptPatches === 0 && N6.pdfCopy.row[2] === "old_shared.pdf" && /already on file/.test(N6.pdfCopy.toast), N6.pdfCopy);
+
+  // ---------- N7: no early mint --------------------------------------------
+  const N7 = await page.evaluate(async () => {
+    const W = __fn; await W.install(); await W.openEditCoin(W.plain);
+    await W.pickFile("browseEdit", W.file(W.jpegB, "IMG_0011.jpg"));
+    W.failUploadOnce = true; W.uploads = [];
+    await W.save("browseEdit");
+    const afterFail = { pending: pendingReceiptCount("AY-00098"), minted: pendingReceipts["AY-00098"] && pendingReceipts["AY-00098"].mintedReceiptId, row: W.rcRow("AY-00098") };
+    // a competing write mints meanwhile: the first free number, because the failed Save took none
+    const other = await commitBinderReceipt("AY-00070");
+    await W.save("browseEdit");
+    const row = W.rcRow("AY-00098");
+    const ids = W.rcGrid().slice(1).map(r => r[0]).filter(Boolean);
+    return { afterFail, other: other.receiptId, row: row && row.slice(), uploads: W.uploads.slice(),
+      otherCount: ids.filter(v => v === other.receiptId).length, rowCount: ids.filter(v => row && v === row[0]).length };
+  });
+  ok("N7a a failed upload keeps the pick, writes no row and reserves NO ReceiptID", N7.afterFail.pending === 1 && !N7.afterFail.minted && !N7.afterFail.row, N7.afterFail);
+  ok("N7b a competing mint meanwhile gets the first free number (RC-00032: the failed Save took none, so no gap), and the retry gets the next one: no number is used twice",
+    N7.other === "RC-00032" && N7.row && N7.row[0] === "RC-00033" && N7.row[2] === "AY-00098_receipt.pdf" && N7.otherCount === 1 && N7.rowCount === 1 && N7.uploads.join() === "AY-00098_receipt.pdf", N7);
 }, module);

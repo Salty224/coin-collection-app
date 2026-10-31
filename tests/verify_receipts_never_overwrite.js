@@ -173,7 +173,7 @@ module.exports = defineSuite("receipts-never-overwrite", async ({ openApp, check
     // Re-photographed: new bytes, the same per-coin fixed name convention.
     const second = await commitReceiptCapture("AY-00720",
       { blob: new Blob(["SECOND-PHOTO"]), filename: "image2.jpg", sourceWasPdf: false });
-    const oldBytes = await mock.getFileBytes(writePaths().coinReceipts + "/" + first.filename);
+    const oldBytes = await mock.getFileBytes(writePaths().coinReceipts + "/AY-00720_receipt.pdf");
     const newBytes = await mock.getFileBytes(writePaths().coinReceipts + "/" + second.filename);
     const g = mock._grids.Receipts;
     const out = {
@@ -186,17 +186,15 @@ module.exports = defineSuite("receipts-never-overwrite", async ({ openApp, check
     __setGraphClientForTest(null); __resetSheetHeaderMapsForTest(); __setAddCoinWriteEnabledForTest(null);
     return out;
   }, seed());
-  // Build 2 file naming: a photo with no seller or date on the coin is named
-  // for its ReceiptID, not for the coin (these assertions follow that rule).
-  ok("E1 the first capture lands at the plain ReceiptID-named file", E.first.filename === E.first.receiptId + "_receipt.pdf", E);
-  ok("E2 the replace does NOT reuse that name — a free one instead", E.second.filename === E.first.receiptId + "_receipt_02.pdf", E);
+  ok("E1 the first capture lands at the plain fixed name", E.first.filename === "AY-00720_receipt.pdf", E);
+  ok("E2 the replace does NOT reuse that name — a free one instead", E.second.filename === "AY-00720_receipt_02.pdf", E);
   ok("E3 the OLD file's bytes are completely untouched", E.oldFileIntact === true, E);
   ok("E4 the NEW file actually landed (the reported bug: a replace used to upload nothing at all)",
     E.newFileLanded === true, E);
   ok("E5 still exactly ONE row for this coin", E.rowsForCoin === 1, E);
   ok("E6 the row keeps the SAME ReceiptID across the replace — it really REPLACES what the row shows",
     E.second.receiptId === E.first.receiptId, E);
-  ok("E7 and now points at the new file", E.row[2] === E.first.receiptId + "_receipt_02.pdf" && E.row[0] === E.first.receiptId, E);
+  ok("E7 and now points at the new file", E.row[2] === "AY-00720_receipt_02.pdf" && E.row[0] === E.first.receiptId, E);
 
   // ---------- F. The shared-ReceiptID invariant --------------------------
   const F = await page.evaluate(async (s) => {
@@ -253,7 +251,7 @@ module.exports = defineSuite("receipts-never-overwrite", async ({ openApp, check
   ok("F5 a re-photograph of a fixed-name receipt that happens to share its id ALSO mints fresh",
     F.rePhotographed.receiptId !== "RC-00050" && !!F.rePhotographed.receiptId, F);
   ok("F6 that coin's own row is updated to the new file and the new id",
-    !!F.row740 && F.row740[2] === F.rePhotographed.receiptId + "_receipt.pdf" && F.row740[0] === F.rePhotographed.receiptId, F);
+    !!F.row740 && F.row740[2] === "AY-00740_receipt_02.pdf" && F.row740[0] === F.rePhotographed.receiptId, F);
   ok("F7 the OTHER coin sharing the old id is completely untouched — same id, same file",
     !!F.row741 && F.row741[0] === "RC-00050" && F.row741[2] === "AY-00741_receipt.pdf", F);
 
