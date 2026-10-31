@@ -5,12 +5,12 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main: last code commit `4c9aa10` (task (g), value fallback; merged 30 Oct 2026), with docs-only commits after it; main's head is the docs commit that last rewrote this block on main (`git log -1 main`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since. Ray runs the deploy workflow for `main`.
-- Open branch: `claude/save-only-when-changed` (cut from main `067f71f`; task (z), see "Save only when something changed"). HELD for Ray's tablet pass, not merged (cross-cutting UI across five screens). Its last commit is the docs commit that rewrote this block (`git log -1`). Merged but still on origin (Ray deletes them; the git proxy blocks deleting branches): `claude/value-fallback-melt-label`, `ccr-06105bea-fexby9`, `claude/slim-claude-md`, `claude/receipts-never-overwrite`, `claude/photos-wait-for-save`.
+- main: last code commit `014be60` (task (z), Save only when something changed; merged 31 Oct 2026 by fast-forward of `claude/save-only-when-changed`), with docs-only commits after it; main's head is the docs commit that last rewrote this block on main (`git log -1 main`). LIVE still runs `928d7a9`'s code (deployed by Ray 27 Oct 2026, splash `d08c82e`): NOT deployed by any merge since. Ray runs the deploy workflow for `main`.
+- Open branch: none. Merged but still on origin (Ray deletes them; the git proxy blocks deleting branches): `claude/save-only-when-changed` (tip `014be60` = the merge head), `claude/value-fallback-melt-label`, `ccr-06105bea-fexby9`, `claude/slim-claude-md`, `claude/receipts-never-overwrite`, `claude/photos-wait-for-save`.
 - Layout of this file since the slimming: standing rules, current state, backlog, architecture and write-layer design stay here; build history of merged work is in `docs/HISTORY.md`; area detail is in `docs/ref/*.md` (see "Where to look" below); `docs/INDEX.md` maps every moved heading to its new file and its old line range (CLAUDE.md at `21bcd95`).
-- Baseline: 4259 passed, 0 failed, 0 page errors, 81 suites (31 Oct 2026, full `npm test` on the tip of `claude/save-only-when-changed`; main itself is 4195 / 0 / 0 / 80 at `4c9aa10`).
-- Next task: not decided (Ray has not named one). Open backlog, no order implied: (r) Edit Set saving / split out child coins / partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (p) retire the All-sheet fallback, then (q) the old OGP mapping; (aa) Keep or Delete prompt on every Replace ((s) folded in); (ab) the (z) rule for Add Set Step 1 resume / child capture, Wishlist detail, Batch Receipt and the Ledger spot-price update when each is built; (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
-- Waiting on Ray: his tablet pass of (z) on the branch (Edit Coin, Edit Set, Manage Photos and Staging edit: change then undo, Save dimmed with "No changes to save.", a clean Save click, a label edit on a Staging photo), then his merge go-ahead; deploy of `main` to LIVE (his call; (g) and the Staging-edit changes are TEST-only until he runs the workflow); a look at the Ledger tiles, the Sets card Variety line and the melt / face labels after deploy; he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE; he may delete the leftover `cropped_04` file on AY-00756 by hand.
+- Baseline: 4259 passed, 0 failed, 0 page errors, 81 suites (31 Oct 2026, full `npm test` on `014be60`; main's code is identical, later commits are docs-only).
+- Next task: not decided (Ray has not named one). Open backlog, no order implied: (r) Edit Set saving / split out child coins / partial sales; (e) C4 Add Set / Wishlist onto the shared chooser; (p) retire the All-sheet fallback, then (q) the old OGP mapping; (aa) Keep or Delete prompt on every Replace ((s) folded in); (ac) Ledger By Denomination rows do not add up; (ad) Shipping in Total spent / Net; (ae) cert-number leading zeros, change vs write; (ab) the (z) rule for Add Set Step 1 resume / child capture, Wishlist detail, Batch Receipt and the Ledger spot-price update when each is built; (x) Edit Coin receipts like Add Coin; (y) Staging edit receipt slot on the shared chooser. (u) is a data fix outside the app; (v) is a note only.
+- Waiting on Ray: deploy of `main` to LIVE (his call; (g), (z) and the Staging-edit changes are TEST-only until he runs the workflow); a real-device look at (z) (Edit Coin, Edit Set, Manage Photos and Staging edit: change then undo, Save dimmed with "No changes to save.", a clean Save click, a label edit on a Staging photo, the Year picker); a look at the Ledger tiles, the Sets card Variety line and the melt / face labels after deploy; he checks LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE; he may delete the leftover `cropped_04` file on AY-00756 by hand.
 - Stale text, left unedited on purpose: the "Current status (Oct 2026)" section says `claude/in-app-pdf-viewer-options` is NOT an ancestor of `main`; treat the pdf.js work as landed (`loadPdfjs()` is in `app.html`). Pointers in kept text that name a section now in `docs/` (about 40) were not edited; use `docs/INDEX.md`.
 - Not verified on a real device: (z) (all of it: the dimmed Save, the undo flows, the Staging label count, the Year picker); Samsung Internet in a browser tab; Graph's `@microsoft.graph.conflictBehavior=fail` (409) on a real upload after the cleanup fix; task (g) on a real device or the real workbook.
 
@@ -758,7 +758,7 @@ left the half that had already landed. **Undo + Save was NOT at fault**
   (the pre-fix app): N1, N1c, N1d, N2, N2b, N3 fail (6); N4 passes both ways,
   as the diagnosis said it would.
 - Not verified on a real device.
-## Save only when something changed (task (z), built 30 Oct 2026 on `claude/save-only-when-changed`, HELD for Ray's tablet pass)
+## Save only when something changed (task (z), built 30 Oct 2026 on `claude/save-only-when-changed`, merged to main 31 Oct 2026 by fast-forward, code `014be60`)
 Backlog (z), Ray's answers Q1-Q7. Display and guard only: no write path changed.
 - **The rule: a form is dirty only while it differs from what it was loaded with**, compared in the shape Save would write (text trimmed, numbers as numbers: 1, "1" and 1.00 are the same; a cert number "00123" is text and stays text). Putting a value back makes the form clean again. `formValuesEqual(numeric, a, b)`, `FORM_NUMERIC_KEYS`.
 - **Edit Coin:** `browseEditBaseline` (the form as loaded, `captureBrowseEditBaseline()` at the end of `showBrowseEditViewInner`), re-based when the live row lands or after a conflict (`rebaselineBrowseEditFromSnapshot`: an untouched box's baseline is what is on screen, a touched box's is the row's value) and after a partly failed save. `browseEditDirtyKeys()` = fields that differ AND were touched (`browseEditTouchedFields`, kept for the conflict re-base and the Status-only-if-touched write rule). The touched gate means nothing the app does to a box can make it dirty. StorageLocation is left out while it is hidden (container-derived).
@@ -915,14 +915,13 @@ Backlog (z), Ray's answers Q1-Q7. Display and guard only: no write path changed.
 - (y) The Staging-edit receipt slot needs the shared chooser (Ray, 28 Oct):
   it still has the old camera / gallery / ✕ icons, with no preview, no
   Replace and no Files button. Backlog only, not built.
-- (z) *(Built 30 Oct 2026 on `claude/save-only-when-changed`, held for Ray's tablet pass; see "Save only when something changed".)* Save changes only when something changed (Ray, 30 Oct 2026, found in
+- (z) *(Done: built 30 Oct 2026 on `claude/save-only-when-changed`, merged to main 31 Oct 2026 by fast-forward, code `014be60`; see "Save only when something changed".)* Save changes only when something changed (Ray, 30 Oct 2026, found in
   his tablet retest). Save is enabled after a Replace even when an undo
   (✕ -> "Put it back") has returned the form to exactly its loaded state, and
   the leave guard (the "Discard unsaved edits?" dialog) likely still counts
   that Replace too. Fix both together: Save, and the leave guard, should
   count only real differences from what was loaded. Applies to every edit
   form: Edit Coin, Edit Set, Manage Photos and the Staging-draft edit.
-  Backlog only, not built.
 - (aa) Keep or Delete prompt on every Replace (Ray, 30 Oct 2026; agreed
   design, to be planned later as ONE task; (s) is folded into it). Not built.
   - Scope: every Replace of a photo or a receipt, owned records and Staging
@@ -940,6 +939,9 @@ Backlog (z), Ray's answers Q1-Q7. Display and guard only: no write path changed.
     (the ones left behind by every promotion so far).
   - Plan first, questions first; it touches Replace, promotion and cleanup.
 - (ab) The (z) rule applies to every form built or fleshed out later (Ray, 30 Oct 2026, Q7): Save enabled only when the form differs from what was loaded, plus a matching leave guard, with the `formValuesEqual` normalisation and the first-touch / loaded-baseline approach from "Save only when something changed". Not done for: Add Set Step 1 resume ("Save changes" on a resumed Set draft) and Add Set child capture (Save this coin / Pause), Wishlist detail ("Save Changes", a placeholder), Batch Receipt ("Save Receipt", a placeholder), and the Ledger spot-price update (Review / Confirm). Each follows the rule when it is built or fleshed out.
+- (ac) Ledger "By Denomination" lists only six denominations, so Sets (`Denomination = "Multiple"`), $2.50 and $20 gold, and Medals are missing and its rows do not add up to the Valued and Melt totals. Backlog only, not built.
+- (ad) Decide whether Total spent and Net on the Ledger should include Shipping; both use Cost only today. A decision first, then a change if wanted.
+- (ae) A cert-number (SerNo) edit that changes only leading zeros ("00123" vs "123") counts as a change in (z) (text compare), but the write layer's `cellsEqual` treats them as equal, so Save stamps LastModified / blanks Reviewed and writes nothing else. Make the two comparisons agree.
 - (v) Note only, no action (Ray, 27 Oct): on LIVE, a Replace or Recrop of a
   fixed-name photo before the 27 Oct merge uploaded over the old file
   (`{ID}_slab_reverse.jpg`, `_obverse_cropped.jpg`, `_obverse_original.jpg`
