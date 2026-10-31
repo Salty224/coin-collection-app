@@ -1459,7 +1459,7 @@ collection" is treated as a list/grid.
 - **Left deliberately untouched, per the task's own explicit boundary**:
   `renderLedgerExitHistory()` (still reads the raw, unfiltered `all` —
   it specifically wants exited coins); every direct single-coin
-  CollectionID lookup (`legacyStoredRowsFor`, `photoCommitTargetId`,
+  CollectionID lookup (`legacyStoredRowsFor` *(removed, alignment Build 1)*, `photoCommitTargetId`,
   the album filled-slot tap, `applyDocketResolution`, etc. — all still
   read `activeCoins()` raw, so a coin that's left the collection is still
   individually viewable, e.g. tapped into directly from Exit History);

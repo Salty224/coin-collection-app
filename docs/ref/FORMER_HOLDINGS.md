@@ -105,7 +105,7 @@ pre-selected.
   references) via a delegated `change` listener. The old "nothing selected"
   toast in the `onClick` handler stays as a defensive fallback, since a
   disabled button can't dispatch `click` at all under normal use.
-- **The legacy-only guard inside `purgeCoinPhotos()` is now genuinely
+- *(Superseded by the receipts and photos alignment, Build 1, Oct 2026: the legacy-only guard and the legacy "Nothing to purge" dialog are removed; a coin named only in the old All columns has no photo and takes the zero-photo path.)* **The legacy-only guard inside `purgeCoinPhotos()` is now genuinely
   unreachable from the real UI** — `fileRowsForPhotos()` already excludes
   legacy-only photos, so nothing the dialog builds can ever select one.
   The write-side guard is kept anyway as defence in depth (same posture as
@@ -162,7 +162,7 @@ moment the dialog opens — nothing in the normal delete-then-flag path ever
 runs for it, since there is nothing to delete, so without this fix it
 could never earn `Purged=Y` and would sit in Former Holdings permanently.
 
-- **`openPurgeDialog()`'s zero-purgeable branch now splits in two.** A
+- *(Superseded by the receipts and photos alignment, Build 1: the legacy branch is gone, so every zero-photo coin gets the Yes/Cancel dialog.)* **`openPurgeDialog()`'s zero-purgeable branch now splits in two.** A
   coin with `legacy.length > 0` keeps its exact, unchanged "Nothing to
   purge" OK-only dialog — that dead end is correct and deliberate (this
   app never writes the legacy flat columns, so deleting the file would

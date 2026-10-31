@@ -453,7 +453,7 @@ label saved on blur had no undo.
     `writePhotoRow` wrote; it now returns `label`) and by a label write.
   - The hydration fix: a redraw never puts the sheet label back over an
     unsaved one, and a cleared label stays cleared.
-  - legacyOnly photos get no label field (*since `13e931c` the label is
+  - legacyOnly photos get no label field *(Superseded by the receipts and photos alignment, Build 1, Oct 2026: the `legacyOnly` class and the old All-column fallback are gone; see CLAUDE.md.)* (*since `13e931c` the label is
     edited in the viewer; the line under the tile reads "Replace this photo
     to give it a label"*). Thumbs carry `data-file`.
 - **Tests.** One existing suite followed the Q4 change, not weakened:
@@ -519,7 +519,7 @@ label saved on blur had no undo.
     space. Cancel and Esc change nothing. `navigate()` closes it without
     applying (`closePhotoLabelEditor(false)`). A tile redrawn while it is
     open gets the text on the box now on screen (`photoLabelThumbs`). A
-    legacyOnly box (`.gc-caption-legacy`) never opens it. Draft mode too.
+    legacyOnly box (`.gc-caption-legacy`) never opens it *(Superseded by the receipts and photos alignment, Build 1, Oct 2026: the `legacyOnly` class and the old All-column fallback are gone; see CLAUDE.md.)*. Draft mode too.
   - **F3, stale text.** Manage Photos' footer said "Photos are held for this
     session only — no OneDrive write happens yet." It is now
     `#managePhotosNote`, set in `openManagePhotos`: an owned record (via
