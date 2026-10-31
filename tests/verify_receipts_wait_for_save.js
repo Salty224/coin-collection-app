@@ -665,12 +665,12 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
     await W.openEditCoin(W.binder);
     out.i5slot = W.slot("browseEdit").stored;
     showBrowseDetail(W.binder);
-    out.i5detail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Binder (not scanned)") !== -1 };
+    out.i5detail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Not scanned (paper receipt in binder)") !== -1 };
     __setStoredReceiptsForTest({ "AY-00093": { receiptId: "RC-00030", filename: "Binder" } });
     await W.openEditCoin(W.binder);
     out.i5rowSlot = W.slot("browseEdit").stored;
     showBrowseDetail(W.binder);
-    out.i5rowDetail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Binder (not scanned)") !== -1 };
+    out.i5rowDetail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Not scanned (paper receipt in binder)") !== -1 };
     return out;
   });
   ok("I1a a Receipts row beats a different name in All.Receipt: the SLOT shows the Receipts row", I.i1slot === "AY-00099_receipt.pdf", I.i1slot);
@@ -682,7 +682,7 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
   ok("I4b Save creates a Receipts row in the FIRST blank row with a new ReceiptID; the old file and All.Receipt are untouched", I.i4.idx === I.i4.firstBlank && /^RC-\d{5}$/.test(I.i4.row[0]) && I.i4.row[2] === "new98.pdf" && I.i4.legacyFile === "LEGACY98" && I.i4.allSheetFile === "legacy98.pdf", I.i4);
   ok("I4c the new Receipts row now WINS over All.Receipt on the detail page and in the slot on reopening", I.i4.detail === "new98.pdf" && I.i4slotAfter === "new98.pdf" && I.i4.idx2.filename === "new98.pdf", { d: I.i4.detail, s: I.i4slotAfter });
   ok("I5 'Binder' only in All.Receipt is not read (slot 'No receipt on file', no Binder line on the detail page)", I.i5slot === "No receipt on file" && I.i5detail.link === null && !I.i5detail.text, I.i5detail);
-  ok("I5b a Binder Receipts ROW is the paper receipt: the slot says so and the detail page says 'Binder (not scanned)' without a link", I.i5rowSlot === "Paper receipt in the binder (not scanned)" && I.i5rowDetail.link === null && I.i5rowDetail.text, [I.i5rowSlot, I.i5rowDetail]);
+  ok("I5b a Binder Receipts ROW is the paper receipt: the slot and the detail page say 'Not scanned (paper receipt in binder)', without a link", I.i5rowSlot === "Not scanned (paper receipt in binder)" && I.i5rowDetail.link === null && I.i5rowDetail.text, [I.i5rowSlot, I.i5rowDetail]);
 
   // ---------- J. other slots untouched ----------------------------------------
   const J = await page.evaluate(async () => {

@@ -340,9 +340,9 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   await openCoin("AY-90510");
   const C10 = await page.evaluate(() => {
     const html = document.getElementById("detailAccordions").innerHTML;
-    return { el: !!document.getElementById("detailReceiptLink"), notScanned: html.includes("Binder (not scanned)"), btn: /<button[^>]*>Binder/.test(html) };
+    return { el: !!document.getElementById("detailReceiptLink"), notScanned: html.includes("Not scanned (paper receipt in binder)"), btn: /<button[^>]*>(Binder|Not scanned)/.test(html) };
   });
-  ok(C10.el === false && C10.notScanned && !C10.btn, "C10 \"Binder (not scanned)\" stays plain, untappable text");
+  ok(C10.el === false && C10.notScanned && !C10.btn, "C10 \"Not scanned (paper receipt in binder)\" stays plain, untappable text");
 
   // ---------- D. Sets are deliberately unchanged ----------------------------
   await page.evaluate(() => __setStoredReceiptsForTest({ "AY-90520": { receiptId: "RC-S", filename: "photo.jpg" } }));

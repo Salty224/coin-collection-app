@@ -19,11 +19,12 @@
 //        legacy-only code is gone from app.html
 //   F    a coin's receipt is its FIRST Receipts row (index, slot, detail);
 //        2+ rows refused on Save and flagged on the Docket
-//   B    Binder rows: detail "Binder (not scanned)", slot "Paper receipt in
-//        the binder (not scanned)", never opened as a file, ignored by the
-//        filename checks; "Paper receipt in binder" on Edit Coin / Edit Set
-//        is a pending pick (guard, dimmed Save, Discard, undo) that Save
-//        turns into a Binder row with a NEW ReceiptID; a scan over a Binder
+//   B    Binder rows: detail and slot "Not scanned (paper receipt in
+//        binder)", never opened as a file, ignored by the filename checks;
+//        the "Not scanned, paper in binder" button shows ONLY while the slot
+//        has no receipt (hidden over a stored or pending scan and over a
+//        Binder); its pick is pending (guard, dimmed Save, Discard, ✕) and
+//        Save writes a Binder row with a NEW ReceiptID; a scan over a Binder
 //        row keeps its ReceiptID
 //   AC   Add Coin and the Staging-draft edit: the Binder option, coin.json's
 //        receiptBinder, "Replaces … when you save", ✕ undo, promotion writes
@@ -373,8 +374,10 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     out.detail = (document.getElementById("detailReceiptLink") || {}).textContent || null;
     await W.openEditCoin(W.two);
     out.slot = W.slot("browseEdit").stored;
-    // Save is refused for a 2+ row coin, the Binder option too.
-    pickBinderReceipt("browseEditReceiptPreview");
+    // Save is refused for a 2+ row coin (a scan pick; the Binder button is
+    // not offered over its stored scan, and commitBinderReceipt's own
+    // refusal is B14).
+    await W.pick("browseEdit", "new97.pdf", "NEW97");
     const before = JSON.stringify(W.rcGrid());
     await W.save("browseEdit");
     out.refusedToast = W.toast();
@@ -398,7 +401,7 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
      F.idx["AY-2"].binder === true && !F.idx[""]);
   ok("F2 a coin with two Receipts rows shows its FIRST row on the detail page and in the Edit slot (the row a Save would change): " + JSON.stringify([F.stored, F.detail, F.slot]),
     F.stored && F.stored.filename === "two_a.pdf" && F.detail === "two_a.pdf" && /two_a\.pdf/.test(F.slot));
-  ok("F3 a Save for a coin with 2+ Receipts rows is refused and writes nothing (Binder pick too): " + F.refusedToast,
+  ok("F3 a Save for a coin with 2+ Receipts rows is refused and writes nothing: " + F.refusedToast,
     /2 rows on the Receipts tab/.test(F.refusedToast) && F.unchanged);
   ok("F4 the Docket flags the 2+ row coin (only it), naming the coin, with no Dismiss: " + JSON.stringify([F.docket, F.docketDismiss, F.docketOthers]),
     F.docket && /AY-00097 has 2 rows on the Receipts tab/.test(F.docket) && F.docketDismiss === false && F.docketOthers === 1);
@@ -436,88 +439,103 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
   });
   ok("B1 a Binder row is Filename exactly 'Binder' (any case, trimmed, no extension): " + JSON.stringify(B1.names),
     JSON.stringify(B1.names) === JSON.stringify([true, true, true, false, false, false, false]));
-  ok("B2 the detail page shows 'Binder (not scanned)' as plain text, no viewer button or link: " + JSON.stringify([B1.stored, B1.detail, B1.detailBinder]),
-    B1.stored && B1.stored.binder === true && B1.detailBinder === "Binder (not scanned)" && !B1.detailLink);
-  ok("B3 the Edit slot says 'Paper receipt in the binder (not scanned)', nothing to tap, no ✕, and no Binder button (it is already that): " + JSON.stringify(B1.slot),
-    B1.slot.stored === "Paper receipt in the binder (not scanned)" && !B1.slot.storedBtn && !B1.slot.binderShown && !B1.slot.removeShown);
+  ok("B2 the detail page shows 'Not scanned (paper receipt in binder)' as plain text, no viewer button or link: " + JSON.stringify([B1.stored, B1.detail, B1.detailBinder]),
+    B1.stored && B1.stored.binder === true && B1.detailBinder === "Not scanned (paper receipt in binder)" && !B1.detailLink);
+  ok("B3 the Edit slot says 'Not scanned (paper receipt in binder)', nothing to tap, no ✕, and no Binder button (it is already that): " + JSON.stringify(B1.slot),
+    B1.slot.stored === "Not scanned (paper receipt in binder)" && !B1.slot.storedBtn && !B1.slot.binderShown && !B1.slot.removeShown);
   ok("B4 'Binder' is never opened or fetched as a file (viewer, bytes, OneDrive link): " + JSON.stringify([B1.viewer, B1.reads, B1.bytes, B1.url]),
     !B1.viewer && B1.reads.length === 0 && B1.bytes.attempted === false && B1.url === null);
   ok("B5 the filename checks ignore Binder rows (find by filename, used by another coin, free name) and still see real files: " + JSON.stringify([B1.findBinder, B1.usedByOther, B1.usedByOtherFile, B1.free]),
     B1.findBinder === null && B1.usedByOther === false && B1.usedByOtherFile === true && B1.free === true);
 
-  // Binder over a stored file on Edit Coin: pending, guarded, Save writes a Binder row.
+  // The Binder button shows ONLY while the slot has no receipt at all (Ray,
+  // device test of Build 1): hidden over a stored scan, a pending scan, a
+  // stored Binder and a pending Binder. Then the pick itself, on a coin with
+  // no receipt.
   const B2 = await page.evaluate(async () => {
-    const W = __ra; await W.install(); await W.openEditCoin();
+    const W = __ra; await W.install();
     const out = {};
+    // A stored scan: hidden, and the function refuses even if called.
+    await W.openEditCoin();
+    out.overStored = W.slot("browseEdit");
+    W.events = [];
+    document.getElementById("browseEditReceiptBinderBtn").click();
+    pickBinderReceipt("browseEditReceiptPreview");
+    await W.sleep(40);
+    out.overStoredAfter = { pending: pendingReceiptCount("AY-00099"), events: W.events.slice(), dim: W.dim("browseEdit") };
+    W.resetState();
+    // Nothing stored: shown; a pending scan hides it; ✕ shows it again.
+    await W.openEditCoin(W.none);
     out.open = W.slot("browseEdit"); out.openDim = W.dim("browseEdit");
+    await W.pick("browseEdit", "scan94.pdf", "SCAN94");
+    out.pendingScan = W.slot("browseEdit");
+    pickBinderReceipt("browseEditReceiptPreview"); await W.sleep(30);
+    out.pendingScanKept = pendingReceipts["AY-00094"] && !pendingReceipts["AY-00094"].binder;
+    document.getElementById("browseEditReceiptRemoveBtn").click(); W.clickGuard("Remove"); await W.sleep(40);
+    out.afterScanRemoved = W.slot("browseEdit");
+    // The Binder pick.
     W.events = [];
     document.getElementById("browseEditReceiptBinderBtn").click();
     await W.sleep(60);
     out.pick = W.slot("browseEdit"); out.dim = W.dim("browseEdit");
     out.events = W.events.slice();
     const u = unsavedEditsForView(); out.counts = u && u.counts; out.text = u && u.text;
-    // Undo
+    // ✕ drops it (nothing stored, so no undo dialog).
     document.getElementById("browseEditReceiptRemoveBtn").click();
-    out.undoDialog = W.guardText();
-    W.clickGuard("Put it back"); await W.sleep(60);
-    out.undone = { slot: W.slot("browseEdit"), dim: W.dim("browseEdit"), unsaved: unsavedEditsForView() };
-    // Binder again, Discard through the leave guard
+    out.removeDialog = W.guardText();
+    W.clickGuard("Remove"); await W.sleep(60);
+    out.removed = { slot: W.slot("browseEdit"), dim: W.dim("browseEdit"), unsaved: unsavedEditsForView() };
+    // Binder again, Discard
     document.getElementById("browseEditReceiptBinderBtn").click(); await W.sleep(40);
     discardUnsavedPhotoEdits(); await W.sleep(40);
-    out.discarded = { pending: pendingReceiptCount("AY-00099"), slot: W.slot("browseEdit") };
+    out.discarded = { pending: pendingReceiptCount("AY-00094"), slot: W.slot("browseEdit") };
     // Binder again and Save
     document.getElementById("browseEditReceiptBinderBtn").click(); await W.sleep(40);
     W.events = []; W.uploads = [];
     await W.save("browseEdit");
     out.toast = W.toast();
-    out.rows = W.rcRows("AY-00099");
-    out.otherShared = W.rcRows("AY-00095").concat(W.rcRows("AY-00051"));
+    out.rows = W.rcRows("AY-00094");
+    out.rowIndex = W.rcGrid().findIndex(r => r[1] === "AY-00094");
     out.uploads = W.uploads.slice();
-    out.fileStill = !!(await W.mock.getItemMeta(writePaths().coinReceipts + "/AY-00099_receipt.pdf"));
     out.after = W.slot("browseEdit");
-    out.index = LIVE_RECEIPTS["AY-00099"];
+    out.index = LIVE_RECEIPTS["AY-00094"];
     out.today = excelSerialToday();
     out.allPatched = W.events.filter(e => e === "patch:All").length;
     W.resetState();
     return out;
   });
-  ok("B6 the Binder button shows on a slot holding a file; Save starts dimmed",
-    B2.open.binderShown && B2.openDim.clean);
-  ok("B7 'Paper receipt in binder' is a pending pick: no Graph call, 'Not saved yet … replaces the receipt on file', the stored file shown as replaced, ✕ shown: " + JSON.stringify([B2.events, B2.pick]),
-    B2.events.length === 0 && /Not saved yet/.test(B2.pick.status) && /replaces the receipt on file/.test(B2.pick.status) &&
-     /On file \(replaced when you save\): AY-00099_receipt\.pdf/.test(B2.pick.stored) && /Paper receipt in binder/.test(B2.pick.placeholder) &&
-     B2.pick.removeShown && !B2.pick.binderShown);
+  ok("B6 the Binder button is HIDDEN over a stored scan, and pressing / calling it there does nothing: " + JSON.stringify([B2.overStored, B2.overStoredAfter]),
+    !B2.overStored.binderShown && B2.overStoredAfter.pending === 0 && B2.overStoredAfter.events.length === 0 && B2.overStoredAfter.dim.clean);
+  ok("B6b with no receipt on file it shows; a pending scan hides it (and the function refuses); ✕ on that scan brings it back: " + JSON.stringify([B2.open.binderShown, B2.pendingScan.binderShown, B2.pendingScanKept, B2.afterScanRemoved.binderShown]),
+    B2.open.binderShown && B2.openDim.clean && !B2.pendingScan.binderShown && B2.pendingScanKept && B2.afterScanRemoved.binderShown);
+  ok("B7 'Not scanned, paper in binder' is a pending pick: no Graph call, 'Not saved yet', the slot shows 'Not scanned (paper receipt in binder)', ✕ shown, the button hidden: " + JSON.stringify([B2.events, B2.pick]),
+    B2.events.length === 0 && /Not saved yet/.test(B2.pick.status) && !/replaces/.test(B2.pick.status) &&
+     /Not scanned \(paper receipt in binder\)/.test(B2.pick.placeholder) && B2.pick.removeShown && !B2.pick.binderShown);
   ok("B8 the dimmed Save and the leave guard count it ('1 receipt'): " + JSON.stringify([B2.dim, B2.counts, B2.text]),
     !B2.dim.clean && !B2.dim.disabled && B2.counts && B2.counts.receipts === 1 && /1 receipt/.test(B2.text || ""));
-  ok("B9 ✕ over the stored receipt is an undo, and the form is clean again: " + JSON.stringify(B2.undone),
-    /Put the previous receipt back/.test(B2.undoDialog) && B2.undone.dim.clean && !B2.undone.unsaved &&
-     /^On file: AY-00099_receipt\.pdf$/.test(B2.undone.slot.stored));
+  ok("B9 ✕ drops the pick (writes nothing) and the form is clean again, button back: " + JSON.stringify([B2.removeDialog, B2.removed]),
+    /hasn't been saved yet/.test(B2.removeDialog) && B2.removed.dim.clean && !B2.removed.unsaved && B2.removed.slot.binderShown);
   ok("B10 Discard drops a Binder pick",
-    B2.discarded.pending === 0 && /^On file: /.test(B2.discarded.slot.stored));
-  ok("B11 Save turns this coin's row into a Binder row with a NEW ReceiptID and today's DateAdded: " + JSON.stringify([B2.rows, B2.today]),
-    B2.rows.length === 1 && B2.rows[0][2] === "Binder" && B2.rows[0][0] !== "RC-00001" && /^RC-\d{5}$/.test(B2.rows[0][0]) &&
-     B2.rows[0][3] === B2.today);
-  ok("B12 no upload, the old file stays, the coin row is not written, other coins' rows untouched: " + JSON.stringify([B2.uploads, B2.fileStill, B2.allPatched]),
-    B2.uploads.length === 0 && B2.fileStill && B2.allPatched === 0 &&
-     B2.otherShared.every(r => r[0] === "RC-00002" && r[2] === "shared.pdf"));
-  ok("B13 the toast says so, and the slot and index show the Binder row at once: " + JSON.stringify([B2.toast, B2.index, B2.after.stored]),
-    /paper copy in the binder/.test(B2.toast) && B2.index && B2.index.binder && B2.after.stored === "Paper receipt in the binder (not scanned)");
+    B2.discarded.pending === 0 && B2.discarded.slot.binderShown);
+  ok("B11 Save writes a Binder row in the first blank row, a new ReceiptID, today's DateAdded: " + JSON.stringify([B2.rows, B2.rowIndex, B2.today]),
+    B2.rows.length === 1 && B2.rows[0][2] === "Binder" && /^RC-\d{5}$/.test(B2.rows[0][0]) && B2.rows[0][3] === B2.today && B2.rowIndex === 8);
+  ok("B12 no upload, and the coin row is not written: " + JSON.stringify([B2.uploads, B2.allPatched]),
+    B2.uploads.length === 0 && B2.allPatched === 0);
+  ok("B13 the toast says so, and the slot and index show the Binder row at once (button hidden): " + JSON.stringify([B2.toast, B2.index, B2.after]),
+    /paper copy in the binder/.test(B2.toast) && B2.index && B2.index.binder && B2.after.stored === "Not scanned (paper receipt in binder)" && !B2.after.binderShown);
 
-  // Binder on a coin with no receipt; Edit Set; already Binder; scan over Binder.
+  // Edit Set; commitBinderReceipt over a coin's own row; scan over a Binder row.
   const B3 = await page.evaluate(async () => {
     const W = __ra; await W.install();
     const out = {};
-    await W.openEditCoin(W.none);
-    document.getElementById("browseEditReceiptBinderBtn").click(); await W.sleep(40);
-    out.noneStatus = W.slot("browseEdit").status;
-    document.getElementById("browseEditReceiptRemoveBtn").click();
-    out.noneDialog = W.guardText(); W.clickGuard("Remove"); await W.sleep(40);
-    out.noneDropped = pendingReceiptCount("AY-00094");
-    document.getElementById("browseEditReceiptBinderBtn").click(); await W.sleep(40);
-    await W.save("browseEdit");
-    out.noneRows = W.rcRows("AY-00094");
-    out.noneRowIndex = W.rcGrid().findIndex(r => r[1] === "AY-00094");
-    W.resetState();
+    // commitBinderReceipt itself, on a coin whose own row names a file
+    // (unreachable from the screens now, kept correct): its row becomes a
+    // Binder row with a NEW id; other coins on its old id and the file stay.
+    const res = await commitBinderReceipt("AY-00095");
+    out.direct = { res, rows: W.rcRows("AY-00095"), other: W.rcRows("AY-00051"),
+      fileStill: !!(await W.mock.getItemMeta(writePaths().coinReceipts + "/shared.pdf")) };
+    out.directAgain = await commitBinderReceipt("AY-00095");
+    out.directRefused = await commitBinderReceipt("AY-00097").then(() => null, e => !!(e && e.multiRow));
     // Edit Set
     await W.openEditSet();
     out.setOpen = W.slot("editSet");
@@ -526,12 +544,15 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     await W.save("editSet");
     out.setRows = W.rcRows("AY-00090");
     W.resetState();
-    // Already Binder: a file pick then the Binder button is back to clean.
+    // Stored Binder: a scan picked over it says so; the button stays hidden;
+    // ✕ puts the Binder back.
     await W.openEditCoin(W.binder);
     await W.pick("browseEdit", "scan93.pdf", "SCAN93");
     out.scanPick = W.slot("browseEdit");
-    pickBinderReceipt("browseEditReceiptPreview"); await W.sleep(40);
-    out.backToBinder = { pending: pendingReceiptCount("AY-00093"), dim: W.dim("browseEdit") };
+    pickBinderReceipt("browseEditReceiptPreview"); await W.sleep(30);
+    out.scanKept = pendingReceipts["AY-00093"] && !pendingReceipts["AY-00093"].binder;
+    document.getElementById("browseEditReceiptRemoveBtn").click(); W.clickGuard("Put it back"); await W.sleep(40);
+    out.backToBinder = { pending: pendingReceiptCount("AY-00093"), dim: W.dim("browseEdit"), slot: W.slot("browseEdit") };
     // Scan over the Binder row keeps its ReceiptID (other coin's Binder row shares it).
     await W.pick("browseEdit", "scan93.pdf", "SCAN93");
     await W.save("browseEdit");
@@ -540,14 +561,15 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     W.resetState();
     return out;
   });
-  ok("B14 with nothing stored, ✕ on a Binder pick drops it (writes nothing): " + JSON.stringify([B3.noneStatus, B3.noneDialog]),
-    /Not saved yet/.test(B3.noneStatus) && /hasn't been saved yet/.test(B3.noneDialog) && B3.noneDropped === 0);
-  ok("B15 a coin with no receipt gets a Binder row in the first blank row: " + JSON.stringify([B3.noneRows, B3.noneRowIndex]),
-    B3.noneRows.length === 1 && B3.noneRows[0][2] === "Binder" && /^RC-\d{5}$/.test(B3.noneRows[0][0]) && B3.noneRowIndex === 8);
+  ok("B14 commitBinderReceipt over a coin's own file row: a Binder row with a NEW ReceiptID; the other coin on the old id and the file stay; a second call writes nothing; 2+ rows refused: " + JSON.stringify(B3.direct),
+    B3.direct.rows.length === 1 && B3.direct.rows[0][2] === "Binder" && B3.direct.rows[0][0] !== "RC-00002" &&
+     B3.direct.other.length === 1 && B3.direct.other[0][0] === "RC-00002" && B3.direct.other[0][2] === "shared.pdf" && B3.direct.fileStill &&
+     B3.directAgain.unchanged === true && B3.directRefused === true);
   ok("B16 Edit Set: the Binder option, counted, and saved as a Binder row: " + JSON.stringify(B3.setRows),
     B3.setOpen.binderShown && !B3.setDim.clean && B3.setRows.length === 1 && B3.setRows[0][2] === "Binder");
-  ok("B17 over a stored Binder row a file pick says it replaces the paper receipt; the Binder button then undoes it (clean): " + JSON.stringify([B3.scanPick.stored, B3.backToBinder]),
-    /replaced when you save\): Paper receipt in the binder/.test(B3.scanPick.stored) && B3.backToBinder.pending === 0 && B3.backToBinder.dim.clean);
+  ok("B17 over a stored Binder row a scan pick says it replaces the paper receipt, the button stays hidden, and ✕ puts the Binder back (clean): " + JSON.stringify([B3.scanPick, B3.scanKept, B3.backToBinder]),
+    /replaced when you save\): Not scanned \(paper receipt in binder\)/.test(B3.scanPick.stored) && !B3.scanPick.binderShown && B3.scanKept &&
+     B3.backToBinder.pending === 0 && B3.backToBinder.dim.clean && !B3.backToBinder.slot.binderShown);
   ok("B18 scanning over a Binder row keeps its ReceiptID (Q7) even though another coin's Binder row shares it; that row is untouched: " + JSON.stringify([B3.scanRows, B3.otherBinder]),
     B3.scanRows.length === 1 && B3.scanRows[0][0] === "RC-00009" && B3.scanRows[0][2] === "scan93.pdf" &&
      B3.otherBinder.length === 1 && B3.otherBinder[0][2] === "Binder");
@@ -608,7 +630,8 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     const W = __ra, A = __ac;
     const out = {};
     W.allPatchLog = []; // AC and AS together: Add Coin, the Staging edit, Add Set and their promotion records
-    // AC1 a new coin: Binder pick counts, file pick replaces it, ✕ drops it.
+    // AC1 a new coin: Binder pick counts; a file pick replaces it and hides
+    // the button (a scan is picked); ✕ drops the scan and the button is back.
     await A.setup();
     navigate("addcoin"); await W.sleep(60);
     out.newOpen = A.slot();
@@ -617,11 +640,11 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     out.newUnsaved = unsavedEditsForView();
     await A.pickPdf("seller.pdf");
     out.afterFile = { binder: addCoinBinderPick, slot: A.slot() };
-    document.getElementById("receiptBinderBtn").click(); await W.sleep(40);
+    document.getElementById("receiptBinderBtn").click(); pickAddCoinBinderReceipt(); await W.sleep(40);
     out.binderAgain = { binder: addCoinBinderPick, file: !!receiptFiles["receiptPreview"] };
     document.getElementById("receiptRemoveBtn").click();
     out.newRemoveDialog = W.guardText(); W.clickGuard("Remove"); await W.sleep(40);
-    out.newRemoved = { binder: addCoinBinderPick, unsaved: unsavedEditsForView() };
+    out.newRemoved = { binder: addCoinBinderPick, unsaved: unsavedEditsForView(), slot: A.slot() };
     // Discard (navigation resets the form)
     document.getElementById("receiptBinderBtn").click(); await W.sleep(20);
     resetAddCoinForm();
@@ -649,17 +672,18 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     }
     W.resetState();
 
-    // AC3 a Staging edit over a stored receipt file.
+    // AC3 a Staging edit over a stored receipt file: no Binder button (and
+    // the function refuses); ✕ takes the file off, then the button shows.
     {
       const m = await A.setup();
       await A.openEdit(m, Object.assign({}, base), [id + "_receipt.pdf"]);
       out.edOpen = A.slot();
+      document.getElementById("receiptBinderBtn").click(); pickAddCoinBinderReceipt(); await W.sleep(40);
+      out.edRefused = { binder: addCoinBinderPick, unsaved: unsavedEditsForView() };
+      document.getElementById("receiptRemoveBtn").click(); W.clickGuard("Remove"); await W.sleep(40);
+      out.edRemoved = A.slot();
       document.getElementById("receiptBinderBtn").click(); await W.sleep(40);
       out.edPick = A.slot(); out.edUnsaved = unsavedEditsForView();
-      document.getElementById("receiptRemoveBtn").click();
-      out.edUndoDialog = W.guardText(); W.clickGuard("Put it back"); await W.sleep(40);
-      out.edUndone = { slot: A.slot(), unsaved: unsavedEditsForView(), removed: editDraftFiles && editDraftFiles.receiptRemoved };
-      document.getElementById("receiptBinderBtn").click(); await W.sleep(40);
       await A.saveEdit(); await W.sleep(120);
       out.edSaved = await m.getJson(A.draftPath(id));
       out.edOldKept = !!(await m.getItemMeta(writePaths().stagingBase + "/" + id + "/" + id + "_receipt.pdf"));
@@ -689,34 +713,32 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     }
     return out;
   }, { base: BASE_DRAFT, id: DRAFT_ID });
-  ok("AC1 a new coin's receipt slot offers 'Paper receipt in binder' (no ✕ until something is picked)",
+  ok("AC1 a new coin's receipt slot offers 'Not scanned, paper in binder' (no ✕ until something is picked)",
     AC.newOpen.binderShown && !AC.newOpen.remove);
   ok("AC2 the Binder pick shows in the slot and the leave guard counts it: " + JSON.stringify([AC.newPick, AC.newUnsaved && AC.newUnsaved.counts]),
-    /Paper receipt in binder/.test(AC.newPick.placeholder) && !AC.newPick.binderShown && AC.newPick.remove &&
+    /Not scanned \(paper receipt in binder\)/.test(AC.newPick.placeholder) && !AC.newPick.binderShown && AC.newPick.remove &&
      AC.newUnsaved && AC.newUnsaved.counts && AC.newUnsaved.counts.receipts === 1);
-  ok("AC3 a file pick replaces a Binder pick, and the Binder button replaces a file pick: " + JSON.stringify([AC.afterFile, AC.binderAgain]),
-    AC.afterFile.binder === false && AC.afterFile.slot.binderShown && AC.binderAgain.binder && !AC.binderAgain.file);
-  ok("AC4 ✕ drops a pick on a new coin; resetting the form (Discard / navigation) drops a Binder pick: " + JSON.stringify([AC.newRemoved, AC.reset]),
-    /hasn't been saved yet/.test(AC.newRemoveDialog) && AC.newRemoved.binder === false && !AC.newRemoved.unsaved &&
+  ok("AC3 a file pick replaces a Binder pick and HIDES the button; the button / function then does nothing (the scan stays): " + JSON.stringify([AC.afterFile, AC.binderAgain]),
+    AC.afterFile.binder === false && !AC.afterFile.slot.binderShown && !AC.binderAgain.binder && AC.binderAgain.file);
+  ok("AC4 ✕ drops the scan on a new coin (button back); resetting the form (Discard / navigation) drops a Binder pick: " + JSON.stringify([AC.newRemoved, AC.reset]),
+    /hasn't been saved yet/.test(AC.newRemoveDialog) && AC.newRemoved.binder === false && !AC.newRemoved.unsaved && AC.newRemoved.slot.binderShown &&
      AC.reset.binder === false && AC.reset.slot.binderShown);
   ok("AC5 a new coin saved with the Binder pick: coin.json has receiptBinder true, no receipt file uploaded: " + JSON.stringify([AC.newDraft && { b: AC.newDraft.receiptBinder, p: AC.newDraft.receiptPhoto }, AC.newUploads]),
     AC.newDraft && AC.newDraft.receiptBinder === true && AC.newDraft.receiptPhoto === "" && AC.newUploads.length === 0);
   ok("AC6 promotion writes a Binder Receipts row (and a re-run writes nothing more): " + JSON.stringify([AC.promotedRows, AC.promotedRows2]),
     AC.promotedRows && AC.promotedRows.length === 1 && AC.promotedRows[0][2] === "Binder" && /^RC-\d{5}$/.test(AC.promotedRows[0][0]) &&
      AC.promotedRows2.length === 1 && AC.promotedRows2[0][0] === AC.promotedRows[0][0]);
-  ok("AC7 a Staging edit shows its stored receipt and offers the Binder option: " + JSON.stringify(AC.edOpen),
-    new RegExp(DRAFT_ID + "_receipt\\.pdf \\(in Staging\\)").test(AC.edOpen.placeholder) && AC.edOpen.binderShown && AC.edOpen.line === "");
-  ok("AC8 the Binder pick over it says 'Replaces … when you save' and is counted: " + JSON.stringify(AC.edPick),
-    new RegExp("Replaces " + DRAFT_ID + "_receipt\\.pdf when you save").test(AC.edPick.line) && AC.edUnsaved && AC.edUnsaved.counts.receipts === 1);
-  ok("AC9 ✕ over the stored receipt is an undo: the stored receipt is back and the form is clean (it used to take the stored receipt off too): " + JSON.stringify(AC.edUndone),
-    /Put the previous receipt back/.test(AC.edUndoDialog) && !AC.edUndone.unsaved && !AC.edUndone.removed &&
-     /in Staging/.test(AC.edUndone.slot.placeholder) && AC.edUndone.slot.line === "");
-  ok("AC10 Save changes writes receiptBinder into coin.json, and the old receipt file stays in Staging: " + JSON.stringify([AC.edSaved && { b: AC.edSaved.receiptBinder, p: AC.edSaved.receiptPhoto }, AC.edOldKept, AC.edToast]),
-    AC.edSaved && AC.edSaved.receiptBinder === true && AC.edSaved.receiptPhoto === "" && AC.edOldKept && /paper copy in the binder/.test(AC.edToast));
-  ok("AC11 a draft whose receipt is the binder shows it, with no Binder button, and opens clean: " + JSON.stringify(AC.bdOpen),
-    /Paper receipt in binder \(in Staging\)/.test(AC.bdOpen.placeholder) && !AC.bdOpen.binderShown && AC.bdOpen.remove && !AC.bdUnsaved);
+  ok("AC7 a Staging edit shows its stored receipt file and does NOT offer the Binder option (the function refuses too): " + JSON.stringify([AC.edOpen, AC.edRefused]),
+    new RegExp(DRAFT_ID + "_receipt\\.pdf \\(in Staging\\)").test(AC.edOpen.placeholder) && !AC.edOpen.binderShown && AC.edOpen.line === "" &&
+     AC.edRefused.binder === false && !AC.edRefused.unsaved);
+  ok("AC8 ✕ takes the stored file off; then the Binder button shows, and its pick is counted (no 'Replaces' line: nothing stored any more): " + JSON.stringify([AC.edRemoved, AC.edPick]),
+    AC.edRemoved.binderShown && AC.edPick.line === "" && !AC.edPick.binderShown && AC.edUnsaved && AC.edUnsaved.counts.receipts === 1);
+  ok("AC10 Save changes writes receiptBinder into coin.json, and the removed file is deleted as ✕ said: " + JSON.stringify([AC.edSaved && { b: AC.edSaved.receiptBinder, p: AC.edSaved.receiptPhoto }, AC.edOldKept, AC.edToast]),
+    AC.edSaved && AC.edSaved.receiptBinder === true && AC.edSaved.receiptPhoto === "" && !AC.edOldKept && /paper copy in the binder/.test(AC.edToast));
+  ok("AC11 a draft whose receipt is the binder shows 'Not scanned (paper receipt in binder)', with no Binder button, and opens clean: " + JSON.stringify(AC.bdOpen),
+    /^📒Not scanned \(paper receipt in binder\)$/.test(AC.bdOpen.placeholder) && !AC.bdOpen.binderShown && AC.bdOpen.remove && !AC.bdUnsaved);
   ok("AC12 a file picked over it says it replaces the paper receipt; ✕ puts the Binder back (clean): " + JSON.stringify([AC.bdPick, AC.bdUndone]),
-    /Replaces the paper receipt in the binder when you save/.test(AC.bdPick.line) && /Put the previous receipt back/.test(AC.bdUndoDialog) && !AC.bdUndone.unsaved);
+    /Replaces the paper receipt in the binder when you save/.test(AC.bdPick.line) && !AC.bdPick.binderShown && /Put the previous receipt back/.test(AC.bdUndoDialog) && !AC.bdUndone.unsaved);
   ok("AC13 ✕ with nothing picked takes the Binder off (a change); the Binder button puts it back (clean): " + JSON.stringify([AC.bdRemoved, AC.bdBack]),
     AC.bdRemoved.unsaved && AC.bdRemoved.slot.binderShown && !AC.bdBack.unsaved);
   ok("AC14 saving with the Binder taken off drops receiptBinder from coin.json: " + JSON.stringify(AC.bdSaved && { b: AC.bdSaved.receiptBinder, p: AC.bdSaved.receiptPhoto }),
@@ -756,20 +778,36 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     input.files = dt.files; input.dispatchEvent(new Event("change", { bubbles: true }));
     await W.sleep(80);
     out.afterFile = addSetReceiptBinder;
-    bb.click(); await W.sleep(20);
+    out.afterFileHidden = bb.classList.contains("hidden");
+    bb.click(); pickAddSetBinderReceipt(); await W.sleep(20);
+    out.afterFileRefused = { binder: addSetReceiptBinder, file: !!addSetPhotoFiles.receipt };
     addSetClearPhoto("receipt", "addSetReceiptPreview");
-    out.afterClear = addSetReceiptBinder;
+    out.afterClear = { binder: addSetReceiptBinder, shown: !bb.classList.contains("hidden") };
+    // Resuming a draft: a stored Binder shows the wording; a stored file hides the button.
+    if (d) {
+      resumeSetDraftAtStep1(Object.assign({}, d)); await W.sleep(60);
+      out.resumeBinder = { hidden: bb.classList.contains("hidden"),
+        note: document.getElementById("addSetReceiptPreview").closest(".photo-box").textContent };
+      resumeSetDraftAtStep1(Object.assign({}, d, { receiptPhoto: "receipt.pdf", receiptBinder: false })); await W.sleep(60);
+      out.resumeFile = { hidden: bb.classList.contains("hidden") };
+      bb.click(); pickAddSetBinderReceipt(); await W.sleep(20);
+      out.resumeFileRefused = addSetReceiptBinder;
+    }
     W.resetState();
     return out;
   });
-  ok("AS1 Add Set's receipt slot offers 'Paper receipt in binder', and shows the pick: " + JSON.stringify([AS.shown, AS.flag, AS.note]),
-    AS.shown && AS.flag && AS.hiddenAfter && /Paper receipt in binder/.test(AS.note));
+  ok("AS1 Add Set's receipt slot offers 'Not scanned, paper in binder', and shows the pick as 'Not scanned (paper receipt in binder)': " + JSON.stringify([AS.shown, AS.flag, AS.note]),
+    AS.shown && AS.flag && AS.hiddenAfter && /Not scanned \(paper receipt in binder\)/.test(AS.note));
   ok("AS2 the Set draft records receiptBinder, no receipt uploaded: " + JSON.stringify([AS.draft, AS.uploads]),
     AS.draft && AS.draft.receiptBinder === true && AS.draft.receiptPhoto === "" && AS.uploads.length === 0);
   ok("AS3 Set promotion writes a Binder Receipts row: " + JSON.stringify(AS.rows),
     AS.rows && AS.rows.length === 1 && AS.rows[0][2] === "Binder");
-  ok("AS4 a file pick, or clearing the slot, drops the Binder pick",
-    AS.afterFile === false && AS.afterClear === false);
+  ok("AS4 a file pick drops the Binder pick and hides the button (the function refuses while a scan is picked); clearing the slot brings it back: " + JSON.stringify([AS.afterFile, AS.afterFileHidden, AS.afterFileRefused, AS.afterClear]),
+    AS.afterFile === false && AS.afterFileHidden && AS.afterFileRefused.binder === false && AS.afterFileRefused.file &&
+     AS.afterClear.binder === false && AS.afterClear.shown);
+  ok("AS4b resuming a Set draft: a stored Binder shows the wording with no button; a stored receipt file hides the button (refused): " + JSON.stringify([AS.resumeBinder, AS.resumeFile, AS.resumeFileRefused]),
+    AS.resumeBinder && AS.resumeBinder.hidden && /Not scanned \(paper receipt in binder\)/.test(AS.resumeBinder.note) &&
+     AS.resumeFile.hidden && AS.resumeFileRefused === false);
   const acAsAll = await page.evaluate(() => __ra.allPatchLog.slice());
   ok("AS5 Add Coin, the Staging-draft edit, Add Set and their promotion records (Receipts / Photos rows) wrote nothing to the All sheet: " + JSON.stringify(acAsAll),
     acAsAll.length === 0);

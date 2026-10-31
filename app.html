@@ -2221,7 +2221,7 @@
   }
   /* Coin-page thumbnails are real buttons (keyboard + screen reader); strip the UA button chrome. */
   /* Receipt slot on Edit Coin / Edit Set: the receipt on file, then the pick. */
-  /* "Paper receipt in binder" — every receipt slot (receipts and photos alignment, Build 1). */
+  /* "Not scanned, paper in binder" — every receipt slot (receipts and photos alignment, Build 1). */
   .receipt-binder-btn { display: block; margin: 8px auto 0; padding: 5px 10px; font-size: 12px; background: transparent;
     color: var(--gold-bright); border: 1px solid var(--case-border); border-radius: 6px; cursor: pointer; }
   .receipt-binder-btn.hidden { display: none; }
@@ -3455,7 +3455,7 @@
                       <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                       <button type="button" id="browseEditReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
-                    <button type="button" class="receipt-binder-btn" id="browseEditReceiptBinderBtn">📒 Paper receipt in binder</button>
+                    <button type="button" class="receipt-binder-btn" id="browseEditReceiptBinderBtn">📒 Not scanned, paper in binder</button>
                     <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -3664,7 +3664,7 @@
                       <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                       <button type="button" id="editSetReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
-                    <button type="button" class="receipt-binder-btn" id="editSetReceiptBinderBtn">📒 Paper receipt in binder</button>
+                    <button type="button" class="receipt-binder-btn" id="editSetReceiptBinderBtn">📒 Not scanned, paper in binder</button>
                     <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -4427,7 +4427,7 @@
                   <button type="button" id="receiptRemoveBtn" style="display:none;" aria-label="Remove the receipt from the draft" title="Remove">✕</button>
                 </div>
                 <div class="receipt-stored" id="addCoinReceiptStored" style="display:none;"></div>
-                <button type="button" class="receipt-binder-btn" id="receiptBinderBtn">📒 Paper receipt in binder</button>
+                <button type="button" class="receipt-binder-btn" id="receiptBinderBtn">📒 Not scanned, paper in binder</button>
                 <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
               </div>
@@ -4916,7 +4916,7 @@
               <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
               <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
-            <button type="button" class="receipt-binder-btn" id="addSetReceiptBinderBtn">📒 Paper receipt in binder</button>
+            <button type="button" class="receipt-binder-btn" id="addSetReceiptBinderBtn">📒 Not scanned, paper in binder</button>
             <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
             <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
@@ -5950,10 +5950,15 @@
   function isBinderReceiptName(value) {
     return String(value == null ? "" : value).trim().toLowerCase() === "binder";
   }
-  const BINDER_RECEIPT_DETAIL_TEXT = "Binder (not scanned)";
-  const BINDER_RECEIPT_SLOT_TEXT = "Paper receipt in the binder (not scanned)";
-  const BINDER_RECEIPT_PICK_TEXT = "Paper receipt in binder";
-  // Add Coin / Staging-draft slot: "Paper receipt in binder" picked, not yet
+  // One wording everywhere a Binder receipt shows, stored or pending (Ray,
+  // device test of Build 1): the detail page, the Edit Coin / Edit Set slot,
+  // the Add Coin / Staging slot and Add Set. The button reads
+  // "📒 Not scanned, paper in binder".
+  const BINDER_RECEIPT_TEXT = "Not scanned (paper receipt in binder)";
+  const BINDER_RECEIPT_DETAIL_TEXT = BINDER_RECEIPT_TEXT;
+  const BINDER_RECEIPT_SLOT_TEXT = BINDER_RECEIPT_TEXT;
+  const BINDER_RECEIPT_PICK_TEXT = BINDER_RECEIPT_TEXT;
+  // Add Coin / Staging-draft slot: "Not scanned, paper in binder" picked, not yet
   // saved (see repaintAddCoinReceiptSlot). Declared here, ahead of every
   // reader, so nothing can touch it before it exists.
   let addCoinBinderPick = false;
@@ -10511,7 +10516,7 @@
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
       receiptPhoto: step1.receiptPhoto || "",
-      // "Paper receipt in binder" (no file): a Binder Receipts row at promotion.
+      // "Not scanned, paper in binder" (no file): a Binder Receipts row at promotion.
       receiptBinder: !step1.receiptPhoto && !!step1.receiptBinder,
       children: [],
       // In-progress, NOT-yet-confirmed child field values (Pause persists
@@ -11126,7 +11131,7 @@
         out.failed.push(draft.receiptPhoto);
       }
     } else if (draft.receiptBinder) {
-      // "Paper receipt in binder" on the draft: a Binder row (no file moved).
+      // "Not scanned, paper in binder" on the draft: a Binder row (no file moved).
       try { out.receipt = await commitBinderReceipt(id); }
       catch (err) { console.warn("Receipts Binder row failed for " + id + ":", err); out.failed.push("receipt (Binder)"); }
     }
@@ -11603,7 +11608,7 @@
         out.failed.push(filename);
       }
     } else if (draft.receiptBinder) {
-      // "Paper receipt in binder" on the Set draft: a Binder row, no file.
+      // "Not scanned, paper in binder" on the Set draft: a Binder row, no file.
       try { out.receipt = await commitBinderReceipt(id); }
       catch (err) { console.warn("Receipts Binder row failed for " + id + ":", err); out.failed.push("receipt (Binder)"); }
     }
@@ -17195,7 +17200,8 @@
     // synchronous.
     //
     // A Binder row is a paper receipt that hasn't been scanned: it shows as
-    // "Binder (not scanned)", plain text, never a link or a viewer button.
+    // "Not scanned (paper receipt in binder)", plain text, never a link or a
+    // viewer button.
     //
     // COINS (in-app viewer): the filename is a button that opens the receipt
     // full screen inside the app — the OneDrive link failed in the OneDrive
@@ -24460,7 +24466,7 @@
     return own[0];
   }
 
-  // "Paper receipt in binder" (receipts and photos alignment, Build 1): this
+  // "Not scanned, paper in binder" (receipts and photos alignment, Build 1): this
   // coin's receipt becomes a Binder row — Filename "Binder", a NEW ReceiptID,
   // today's DateAdded. Its own row is updated when it has one (the first
   // blank row is claimed otherwise); other coins on the old ReceiptID keep
@@ -24588,7 +24594,7 @@
   //     landedName: the file a failed Save already uploaded (a retry
   //       reuses it instead of uploading a second copy),
   //     saving, error, refused }
-  // A pending pick can also be "Paper receipt in binder" (binder: true,
+  // A pending pick can also be "Not scanned, paper in binder" (binder: true,
   // prepared: null): Save writes a Binder row instead of uploading a file
   // (receipts and photos alignment, Build 1).
   // There is no way to REMOVE a stored receipt here (Ray, 31 Oct 2026: that
@@ -24667,11 +24673,14 @@
     }
     const rm = document.getElementById(slot.remove);
     if (rm) rm.style.display = (p && !p.saving) ? "" : "none";
-    // "Paper receipt in binder" is offered unless it is already what the
-    // slot holds (picked, or on file with nothing picked) or a Save is running.
+    // The Binder button is offered only while the slot has no receipt at all:
+    // nothing on file and nothing picked (Ray, device test of Build 1). A
+    // stored or pending scan hides it (removing a wrong scan is Build 2's ✕),
+    // and so does a Binder already on file or picked.
     const bb = document.getElementById(slot.binder);
-    if (bb) bb.classList.toggle("hidden", !!((p && (p.binder || p.saving)) || (!p && stored && stored.binder)));
+    if (bb) bb.classList.toggle("hidden", !binderReceiptOffered(p, stored));
   }
+  function binderReceiptOffered(pending, stored) { return !pending && !stored; }
   function repaintReceiptSlotsFor(collectionId) {
     Object.keys(RECEIPT_EDIT_SLOTS).forEach(pid => {
       if (receiptSlotRecordId(pid) === collectionId) repaintReceiptSlot(pid);
@@ -24722,27 +24731,22 @@
     return true;
   }
 
-  // "Paper receipt in binder" on an Edit Coin / Edit Set slot: a pending pick
-  // like any other (waits for Save, counted by the leave guard, the dimmed
-  // Save and Discard; over a stored receipt it shows "replaced when you save"
-  // and ✕ is an undo). With a Binder row already on file it just undoes any
-  // pick, since the slot is then back to what was loaded.
+  // "Not scanned, paper in binder" on an Edit Coin / Edit Set slot: a pending
+  // pick like any other (waits for Save, counted by the leave guard, the
+  // dimmed Save and Discard; ✕ drops it). Offered only while the slot has no
+  // receipt on file and nothing picked (binderReceiptOffered); otherwise this
+  // does nothing, even if called directly.
   function pickBinderReceipt(previewId) {
     const id = receiptSlotRecordId(previewId);
     if (!id) return;
     if (!photoCommitTargetId(id)) { showToast("Receipts can't be saved in this build."); return; }
-    const prev = pendingReceipts[id];
-    if (prev && prev.saving) return;
-    const stored = prev ? prev.replaces : storedReceiptSnapshot(id);
+    if (!binderReceiptOffered(pendingReceipts[id], storedReceiptSnapshot(id))) return;
     delete receiptFiles[previewId];
-    if (stored && stored.binder) delete pendingReceipts[id];
-    else {
-      pendingReceipts[id] = {
-        previewId, prepared: null, binder: true, pdf: false, previewSrc: "",
-        replaces: stored || null,
-        landedName: "", saving: false, error: "", refused: false
-      };
-    }
+    pendingReceipts[id] = {
+      previewId, prepared: null, binder: true, pdf: false, previewSrc: "",
+      replaces: null,
+      landedName: "", saving: false, error: "", refused: false
+    };
     repaintReceiptSlotsFor(id);
     refreshEditSaveState();
   }
@@ -24834,7 +24838,7 @@
     clearReceiptPdfIndicator(previewId, placeholderId);
   }
 
-  // "Paper receipt in binder" picked: the same no-image indicator as a PDF,
+  // "Not scanned, paper in binder" picked: the same no-image indicator as a PDF,
   // with the binder icon and no filename.
   function showReceiptBinderIndicator(previewId, placeholderId) {
     showReceiptPdfIndicator(previewId, placeholderId, BINDER_RECEIPT_PICK_TEXT, { icon: "📒", plain: true });
@@ -31500,7 +31504,7 @@
       }
       draft.photos = photos.uploaded;
       draft.receiptPhoto = receiptName;
-      // "Paper receipt in binder": no file, a Binder Receipts row at promotion.
+      // "Not scanned, paper in binder": no file, a Binder Receipts row at promotion.
       if (!receiptName && addCoinBinderPick) draft.receiptBinder = true;
       if (photos.failed.length) {
         draft.researchNote = [draft.researchNote,
@@ -31635,7 +31639,7 @@
     });
     updated.photos = files.photos;
     updated.receiptPhoto = files.receiptPhoto;
-    // "Paper receipt in binder" (receipts and photos alignment, Build 1):
+    // "Not scanned, paper in binder" (receipts and photos alignment, Build 1):
     // recorded only when it is the draft's receipt; a file always wins.
     if (files.receiptBinder && !files.receiptPhoto) updated.receiptBinder = true;
     else delete updated.receiptBinder;
@@ -32489,9 +32493,10 @@
     // A receipt that was REPLACED keeps its old file on disk (never-overwrite,
     // Ray 28 Oct 2026): coin.json simply points at the new name. Only a
     // receipt taken off the draft with ✕ (receiptRemoved, confirmed first)
-    // has its file deleted. "Paper receipt in binder" replacing a stored
-    // file counts as a Replace: the old file stays in Staging.
-    const receiptReplaced = !!(receipt && receipt.stagingUploaded) || !!addCoinBinderPick;
+    // has its file deleted. "Not scanned, paper in binder" is only offered
+    // when the draft holds no receipt (or it was taken off with ✕, whose
+    // delete stands), so it never replaces a file.
+    const receiptReplaced = !!(receipt && receipt.stagingUploaded);
     const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto && !replacedFiles.has(n) &&
       !(receiptReplaced && n === (fresh.receiptPhoto || (editDraftFiles && editDraftFiles.receiptPhoto) || "")));
     const removedPhotoCount = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.removedCount || 0 : 0;
@@ -32584,9 +32589,9 @@
     refreshEditSaveState();
   }
 
-  // ---- Add Coin / Staging-draft receipt slot: "Paper receipt in binder" ----
+  // ---- Add Coin / Staging-draft receipt slot: "Not scanned, paper in binder" ----
   // (receipts and photos alignment, Build 1; the full chooser is backlog (y)).
-  // addCoinBinderPick: "Paper receipt in binder" picked and not yet saved. It
+  // addCoinBinderPick: "Not scanned, paper in binder" picked and not yet saved. It
   // waits for Save like a file pick: a new coin's draft records
   // receiptBinder: true (a Binder Receipts row is written at promotion); a
   // Staging edit writes it into coin.json. Counted by addCoinUnsavedReceipt
@@ -32611,7 +32616,7 @@
     const pick = addCoinReceiptPick();
     if (pick === "binder") showReceiptBinderIndicator("receiptPreview", "receiptPlaceholder");
     else if (!pick) {
-      if (stored === "binder") showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", BINDER_RECEIPT_PICK_TEXT + " (in Staging)", { icon: "📒", plain: true });
+      if (stored === "binder") showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", BINDER_RECEIPT_PICK_TEXT, { icon: "📒", plain: true });
       else if (stored) showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", stored + " (in Staging)");
       else if (document.getElementById("receiptPreview")) resetReceiptSlot("receiptPreview", "receiptPlaceholder");
     }
@@ -32621,10 +32626,13 @@
       line.style.display = show ? "" : "none";
       line.textContent = show ? "Replaces " + (stored === "binder" ? "the paper receipt in the binder" : stored) + " when you save." : "";
     }
+    // Offered only while the slot has no receipt at all: nothing stored in
+    // the draft (or it was taken off with ✕) and nothing picked.
     const bb = document.getElementById("receiptBinderBtn");
-    if (bb) bb.classList.toggle("hidden", pick === "binder" || (!pick && stored === "binder"));
+    if (bb) bb.classList.toggle("hidden", !!(pick || stored));
   }
   function pickAddCoinBinderReceipt() {
+    if (addCoinReceiptPick() || addCoinStoredReceipt()) return; // a receipt is already there
     delete receiptFiles["receiptPreview"];
     showReceiptUploadState("receiptPreview", "", false, null);
     if (editingCoinDraftId && editDraftFiles && !editDraftFiles.receiptPhoto && editDraftFiles.receiptBinder) {
@@ -33638,12 +33646,16 @@
 
   let currentSetDraft = null;                 // the draft being captured/resumed
   const addSetPhotoFiles = { whole: null, receipt: null, childObv: null, childRev: null };
-  // "Paper receipt in binder" picked on Add Set's receipt slot (receipts and
+  // "Not scanned, paper in binder" picked on Add Set's receipt slot (receipts and
   // photos alignment, Build 1). Saved into the Set draft as receiptBinder
   // (Save / Pause); a Binder Receipts row is written at promotion. No leave
   // guard here: Add Set is not a guarded screen (backlog (ab)).
   let addSetReceiptBinder = false;
   function pickAddSetBinderReceipt() {
+    // Offered only while the slot has no receipt: nothing picked, and no
+    // receipt already on a resumed draft.
+    const bb0 = document.getElementById("addSetReceiptBinderBtn");
+    if (addSetPhotoFiles.receipt || addSetReceiptBinder || (bb0 && bb0.classList.contains("hidden"))) return;
     addSetClearPhoto("receipt", "addSetReceiptPreview");
     addSetReceiptBinder = true;
     showReceiptBinderIndicator("addSetReceiptPreview", null);
@@ -33682,10 +33694,11 @@
     document.getElementById(libraryBtnId).addEventListener("click", () => lib.click());
     async function handle(file) {
       if (isReceipt) {
-        // A file picked here replaces a "Paper receipt in binder" pick.
+        // A file picked here replaces a Binder pick, and hides the Binder
+        // button (a scan is now picked).
         addSetReceiptBinder = false;
         const bb = document.getElementById("addSetReceiptBinderBtn");
-        if (bb) bb.classList.remove("hidden");
+        if (bb) bb.classList.add("hidden");
       }
       if (isReceipt && isPdfFile(file)) {
         const prepared = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf" };
@@ -34191,9 +34204,14 @@
 
     currentSetDraft = draft; // tells startSetCapture() to update this draft in place, not reserve a new ID
     // A draft whose receipt is the paper copy in the binder says so (no
-    // pick: saving again keeps it).
+    // pick: saving again keeps it). A draft that already has a receipt file
+    // hides the Binder button too.
+    if (draft.receiptPhoto) {
+      const bbf = document.getElementById("addSetReceiptBinderBtn");
+      if (bbf) bbf.classList.add("hidden");
+    }
     if (draft.receiptBinder && !draft.receiptPhoto) {
-      showReceiptPdfIndicator("addSetReceiptPreview", null, BINDER_RECEIPT_PICK_TEXT + " (in Staging)", { icon: "📒", plain: true });
+      showReceiptPdfIndicator("addSetReceiptPreview", null, BINDER_RECEIPT_PICK_TEXT, { icon: "📒", plain: true });
       const bb = document.getElementById("addSetReceiptBinderBtn");
       if (bb) bb.classList.add("hidden");
     }
@@ -34299,7 +34317,7 @@
         // was picked, which would otherwise blank out an existing photo).
         const wholeName = (await uploadDraftPhoto(collectionId, "whole", "set.jpg")) || resumingDraft.wholeSetPhoto;
         const newReceipt = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
-        // "Paper receipt in binder" picked now replaces the draft's receipt
+        // "Not scanned, paper in binder" picked now replaces the draft's receipt
         // (its old file stays in Staging); a new file replaces a Binder.
         const receiptName = addSetReceiptBinder ? "" : (newReceipt || resumingDraft.receiptPhoto);
         resumingDraft.setName = setName;

@@ -408,7 +408,7 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     return {
       withFile,
       binderLinkEl: !!el,
-      binderNotScanned: binderHtml.includes("not scanned"),
+      binderNotScanned: binderHtml.includes("Not scanned (paper receipt in binder)"),
       binderNoAnchor: !/Binder[^<]*<\/a>/.test(binderHtml)
     };
   });
