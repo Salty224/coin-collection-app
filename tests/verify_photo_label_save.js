@@ -34,7 +34,8 @@
 //   L10 draft mode unchanged
 //   L11 Edit Set Save Changes, Manage Photos coin and Set "Save labels"
 //       (shown only while a label is unsaved) and their Back + Discard
-//   L12 legacyOnly entry: read-only box with the Replace hint
+//   L12 the legacyOnly class is gone (receipts and photos alignment, Build 1):
+//       an entry still carrying the old flag is an ordinary stored photo
 //   LL  the red line's layout at 360x800, 412x915, 1024x768
 
 const { defineSuite } = require("./harness");
@@ -734,7 +735,10 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
       `L11-${name}c Back asks first; Discard restores the saved label and goes back: ` + JSON.stringify([R.dialog, R.wentBack, R.caption]));
   }
 
-  // ---------- L12 legacyOnly photo: no label field ------------------------
+  // ---------- L12 no legacyOnly class any more ------------------------------
+  // Receipts and photos alignment, Build 1: every stored photo has a Photos
+  // row, so the old "Replace this photo to give it a label" read-only state
+  // is gone. An entry still carrying the old flag is an ordinary photo.
   const I = await page.evaluate(async () => {
     const L = __lb; L.install();
     let host = await L.openEditCoin();
@@ -754,9 +758,9 @@ module.exports = defineSuite("photo-label-save", async ({ ok, openApp, PHONE }) 
     closeMediaViewer();
     return out;
   });
-  ok(I.found && I.legacy && I.text === "Replace this photo to give it a label" && I.legacyViewer && !I.legacyField &&
-      /Replace this photo to give it a label/.test(I.footer) && I.normalField,
-    "L12 a photo with no Photos row (legacyOnly) says \"Replace this photo to give it a label\" and its viewer has no label field: " + JSON.stringify(I));
+  ok(I.found && !I.legacy && I.text === "Tap to label" && I.legacyViewer && I.legacyField &&
+      !/Replace this photo to give it a label/.test(I.footer) && I.normalField,
+    "L12 the legacyOnly class is gone: an entry carrying the old flag gets the ordinary 'Tap to label' line and a label field: " + JSON.stringify(I));
 
   // ---------- LL layout of the red line -----------------------------------
   for (const [w, h] of [[360, 800], [412, 915], [1024, 768]]) {

@@ -350,37 +350,43 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
       obv: storedPhotoFilename({ id: "AY-00900" }, "obverse"),
       rev: storedPhotoFilename({ id: "AY-00900" }, "reverse")
     };
-    // Legacy fallback: a coin recorded only the OLD way (AY-00706's
-    // hand-entered flat columns) must not lose its photo.
-    const legacy = storedPhotoFilename(
-      { id: "AY-00706", obversePhotoFile: "AY-00706_slab_obverse.jpg", reversePhotoFile: "" }, "obverse");
+    // No All-column fallback any more (receipts and photos alignment,
+    // Build 1): a coin named only in All.Obverse / All.Receipt, mapped the
+    // way a live row is, has no photo and no receipt.
+    const oldWay = mapWorkbookRowToCoin({ CollectionID: "AY-00706", Denomination: "1C",
+      Obverse: "AY-00706_slab_obverse.jpg", Receipt: "GreatCollections_2026-07-05_receipt.pdf" });
+    const legacy = storedPhotoFilename(oldWay, "obverse");
     const missing = {
-      photosTabOnly: coinMissingPhoto({ id: "AY-00900", denom: "1C", hasObversePhoto: false, hasReversePhoto: false }),
-      legacyOnly: coinMissingPhoto({ id: "AY-00706", denom: "1C", hasObversePhoto: true, hasReversePhoto: false }),
-      genuinelyNone: coinMissingPhoto({ id: "AY-00901", denom: "1C", hasObversePhoto: false, hasReversePhoto: false })
+      photosTabOnly: coinMissingPhoto({ id: "AY-00900", denom: "1C" }),
+      legacyOnly: coinMissingPhoto(oldWay),
+      genuinelyNone: coinMissingPhoto({ id: "AY-00901", denom: "1C" })
     };
+    __setStoredReceiptsForTest({ "AY-00900": { receiptId: "RC-00009", filename: "AY-00900_receipt.pdf" },
+      "AY-00903": { receiptId: "RC-00010", filename: "Binder" } });
     const receipts = {
       fromTab: storedReceiptFor({ id: "AY-00900" }),
-      legacy: storedReceiptFor({ id: "AY-00902", receiptFile: "GreatCollections_2026-07-05_receipt.pdf" }),
-      binder: storedReceiptFor({ id: "AY-00903", receiptFile: "Binder" }),
-      none: storedReceiptFor({ id: "AY-00904", receiptFile: "" })
+      legacy: storedReceiptFor(oldWay),
+      binder: storedReceiptFor(mapWorkbookRowToCoin({ CollectionID: "AY-00904", Receipt: "Binder" })),
+      binderRow: storedReceiptFor({ id: "AY-00903" }),
+      none: storedReceiptFor({ id: "AY-00905" })
     };
-    const guard = ["Binder", "", "  ", "x.pdf", "AY-1_receipt.jpg", "no-extension"].map(looksLikeReceiptFilename);
+    const guard = ["Binder", "", "  ", "x.pdf", "AY-1_receipt.jpg", " binder "].map(isBinderReceiptName);
     __setStoredPhotosForTest(null); __setStoredReceiptsForTest(null);
     return { fromTab, legacy, missing, receipts, guard };
   });
   ok(L.fromTab.obv === "AY-00900_obverse_cropped.jpg", "L1 the Photos tab is the primary source for a coin's own photo");
-  ok(L.fromTab.rev === "", "L2 a side with no row and no legacy value resolves to nothing");
-  ok(L.legacy === "AY-00706_slab_obverse.jpg", "L3 the legacy flat column still works as a FALLBACK — nothing is lost by the repoint");
+  ok(L.fromTab.rev === "", "L2 a side with no row resolves to nothing");
+  ok(L.legacy === "", "L3 the old All.Obverse column is NOT a fallback any more (the Photos tab is the only record)");
   ok(L.missing.photosTabOnly === false, "L4 a Photos row alone is enough to count as 'has a photo'");
-  ok(L.missing.legacyOnly === false, "L5 so is the legacy flat column alone");
+  ok(L.missing.legacyOnly === true, "L5 the old All.Obverse column alone no longer counts");
   ok(L.missing.genuinelyNone === true, "L6 a coin with neither is still flagged in the Docket");
-  ok(L.receipts.fromTab && L.receipts.fromTab.receiptId === "RC-00009", "L7 the Receipts tab is the primary receipt source");
-  ok(L.receipts.legacy && L.receipts.legacy.filename === "GreatCollections_2026-07-05_receipt.pdf", "L8 with the legacy column as fallback");
-  ok(L.receipts.binder === null, '"L9 \\"Binder\\" is a not-yet-scanned placeholder, never treated as a filename"');
-  ok(L.receipts.none === null, "L10 a blank receipt column resolves to nothing");
-  ok(JSON.stringify(L.guard) === JSON.stringify([false, false, false, true, true, false]),
-    "L11 looksLikeReceiptFilename accepts only something with a real extension");
+  ok(L.receipts.fromTab && L.receipts.fromTab.receiptId === "RC-00009", "L7 the Receipts tab is the receipt source");
+  ok(L.receipts.legacy === null, "L8 the old All.Receipt column is not read");
+  ok(L.receipts.binder === null && L.receipts.binderRow && L.receipts.binderRow.binder === true,
+    "L9 'Binder' in All.Receipt is not read; a Binder Receipts row is the paper receipt (binder: true)");
+  ok(L.receipts.none === null, "L10 a coin with no Receipts row resolves to nothing");
+  ok(JSON.stringify(L.guard) === JSON.stringify([true, false, false, false, false, true]),
+    "L11 isBinderReceiptName accepts only 'Binder' (any case, trimmed)");
 
   // ---------- M. Browse detail shows the stored receipt ----------------
   const M = await page.evaluate(() => {
@@ -392,9 +398,11 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     const acc = document.getElementById("detailAccordions");
     const withFile = acc.innerHTML.includes("AY-00001_receipt.pdf");
     __setStoredReceiptsForTest(null);
-    // "Binder" must render as text, never as a link.
-    const binderCoin = Object.assign({}, FAKE_COINS.find(c => c.id === "AY-00003"), { receiptFile: "Binder" });
+    // "Binder" must render as text, never as a link (a Binder Receipts row).
+    const binderCoin = Object.assign({}, FAKE_COINS.find(c => c.id === "AY-00003"));
+    __setStoredReceiptsForTest({ "AY-00003": { receiptId: "RC-00011", filename: "Binder" } });
     showBrowseDetail(binderCoin);
+    __setStoredReceiptsForTest(null);
     const el = document.getElementById("detailReceiptLink");
     const binderHtml = document.getElementById("detailAccordions").innerHTML;
     return {
@@ -1065,19 +1073,22 @@ module.exports = defineSuite("photo-receipt-write", async ({ ok, openApp, PHONE,
     delete galleryStore[id]; delete galleryStore["AY-00099"];
     return out;
   }, seed());
-  ok(U.cardShowsLegacy === true, "U1 the flip card shows a legacy-column-only photo (it always did)");
-  ok(U.legacy.hasImg === true && U.legacy.entries === 1,
-    "U2 and Manage Photos now shows the SAME photo — the two read paths agree (this is the reported empty slot)");
-  ok(U.legacy.hasReplace === true && U.legacy.hasRemove === true,
-    "U3 with Replace and Remove available, which the empty slot had denied");
-  ok(U.legacy.legacyOnlyFlag === true, "U4 marked legacyOnly — it has no Photos row behind it");
-  ok(U.legacyGuard.shown === true && U.legacyGuard.buttons.length === 1,
-    "U5 removing a legacy-only photo says it can't be done rather than silently doing nothing");
-  ok(U.legacyKept === 1, "U6 and leaves it in place");
+  // Receipts and photos alignment, Build 1: the Photos tab is the ONLY
+  // record. A photo named only in the old All.Obverse column is not read by
+  // the card or by Manage Photos (the two read paths still agree, now on
+  // "nothing"); every real All filename already has a Photos row.
+  ok(U.cardShowsLegacy === false, "U1 the flip card no longer shows a photo named only in the old All.Obverse column");
+  ok(U.legacy.hasImg === false && U.legacy.entries === 0,
+    "U2 and Manage Photos shows nothing for it either — the two read paths agree");
+  ok(U.legacy.hasReplace === false && U.legacy.hasRemove === false,
+    "U3 the slot is an empty '+' (no Replace / Remove on a photo that isn't on the Photos tab)");
+  ok(U.legacy.legacyOnlyFlag === false, "U4 no legacyOnly entry exists any more");
+  ok(U.legacyGuard.shown === false, "U5 no 'can't remove this one' dialog");
+  ok(U.legacyKept === 0, "U6 and nothing was hydrated from the old column");
   ok(U.realGuard.shown === true && JSON.stringify(U.realGuard.buttons) === JSON.stringify(["Cancel", "Remove"]),
     "U7 Trash on a real photo CONFIRMS first — the missing dialog that caused the accidental tap");
-  ok(U.realGuard.warnsAboutLegacy === true,
-    "U8 and says up front when a legacy column will keep the photo showing anyway");
+  ok(U.realGuard.warnsAboutLegacy === false,
+    "U8 and no longer warns about the old All columns (they are not read, so a removed photo stays removed)");
   ok(U.afterCancel.entries === 1 && U.afterCancel.rowPresent === true,
     "U9 Cancel changes nothing — not the gallery, not the workbook");
   ok(U.heldUntilSave === true, "U9b Confirm writes nothing yet: the row stays until Save");

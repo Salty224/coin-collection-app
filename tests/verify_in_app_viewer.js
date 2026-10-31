@@ -25,7 +25,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
       id, name: "Test Coin " + id, obversePhotoFile: "", reversePhotoFile: "", receiptFile: "" }, extra || {});
     window.__COINS = [
       mk("AY-00001"),                                  // collides with a demo gallery key on purpose
-      mk("AY-90502", { reversePhotoFile: "AY-90502_reverse.jpg" }), // legacy column only
+      mk("AY-90502", { reversePhotoFile: "AY-90502_reverse.jpg" }), // old All.Reverse only: not read since Build 1 of the receipts/photos alignment
       mk("AY-90503"),                                  // no photos at all
       mk("AY-90510", { receiptFile: "Binder" }),
       Object.assign({}, FAKE_COINS.find(c => c.id === "AY-00018"), { id: "AY-90520", receiptFile: "" })
@@ -169,7 +169,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     const strip = document.getElementById("detailPhotoStrip");
     return strip ? [...strip.querySelectorAll(".gc-thumb")].map(t => t.dataset.photoType) : null;
   });
-  ok(JSON.stringify(A5) === JSON.stringify(["reverse"]), "A5 a reverse recorded only in the legacy All.Reverse column still shows");
+  ok(A5 === null || A5.length === 0, "A5 a reverse named only in the old All.Reverse column is not shown (the Photos tab is the only record): " + JSON.stringify(A5));
 
   await openCoin("AY-90503");
   const A6 = await page.evaluate(() => ({
@@ -335,7 +335,8 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   ok(/wasn't found/.test(C9.stageText), "C9 a receipt recorded but not in OneDrive says so");
   await clickSafe("#mediaViewerCloseBtn"); await wait(200);
 
-  await page.evaluate(() => __setStoredReceiptsForTest({}));
+  // A Binder Receipts ROW (All.Receipt "Binder" alone is not read any more).
+  await page.evaluate(() => __setStoredReceiptsForTest({ "AY-90510": { receiptId: "RC-00090", filename: "Binder" } }));
   await openCoin("AY-90510");
   const C10 = await page.evaluate(() => {
     const html = document.getElementById("detailAccordions").innerHTML;

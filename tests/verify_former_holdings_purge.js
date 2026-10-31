@@ -52,7 +52,9 @@ const RECEIPT_HEADERS = ["ReceiptID", "CollectionID", "Filename", "DateAdded"];
 // AY-90001  Sold coin, TWO photos, one of which retained an _original raw.
 // AY-90002  Gifted coin, ONE photo — the full-purge case.
 // AY-90004  Returned coin already fully purged (Purged="Y").
-// AY-90007  Sold coin whose only photo is LEGACY-ONLY (All.Obverse, no row).
+// AY-90007  Sold coin whose only photo is named in the old All.Obverse column,
+//           no Photos row. Since the receipts and photos alignment (Build 1)
+//           that is NOT a photo: the Photos tab is the only record.
 function seed() {
   const blank = n => new Array(n).fill("");
   return {
@@ -318,7 +320,7 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
       refFiles: (p1.find(p => p.galleryType === "reference") || {}).files,
       refLabel: purgePhotoLabel(p1.find(p => p.galleryType === "reference")),
       legacyCount: legacy.length,
-      legacyFlagged: legacy.every(p => p.legacyOnly),
+      legacyFlagged: legacy.some(p => "legacyOnly" in p),
       noneCount: none.length
     };
     __setLiveCoinsForTest(null); __setStoredPhotosForTest(null);
@@ -330,8 +332,11 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     "E2 a flip source offers BOTH its crop and its _original raw — the deliberate exception to 'never deleted'");
   ok(E.refFiles.length === 1, "E3 a photo with no retained raw offers exactly one file");
   ok(/Auction listing/.test(E.refLabel), "E4 a photo's own Label rides into its purge label");
-  ok(E.legacyCount === 1 && E.legacyFlagged,
-    "E5 a legacy-only photo (All.Obverse, no Photos row) is surfaced but flagged legacyOnly");
+  // Receipts and photos alignment, Build 1: the Photos tab is the only
+  // record, so a photo named only in the old All.Obverse column is not a
+  // photo at all here (every real All filename already has a Photos row).
+  ok(E.legacyCount === 0 && !E.legacyFlagged,
+    "E5 a photo named only in the old All.Obverse column (no Photos row) is not offered, and nothing is flagged legacyOnly");
   ok(E.noneCount === 0, "E6 a record with no stored photos offers nothing");
 
   // ---------- F. The dialog: independent selection, unchecked by
@@ -378,7 +383,8 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     out.legacyDialog = (purgeBtnFor("AY-90007").click(),
       document.getElementById("writeGuardTitle").textContent + "|" +
       document.getElementById("writeGuardBody").textContent);
-    [...document.querySelectorAll("#writeGuardBtns button")].find(b => b.textContent === "OK").click();
+    const closeBtn = [...document.querySelectorAll("#writeGuardBtns button")].find(b => b.textContent === "Cancel" || b.textContent === "OK");
+    if (closeBtn) closeBtn.click();
     return out;
   });
   ok(F.dialogOpen && /Purge photos for AY-90001/.test(F.title), "F1 Purge opens a dialog naming the coin");
@@ -397,8 +403,8 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(/cannot be undone/i.test(F.confirmBody), "F9 ... says plainly that it is permanent");
   ok(/receipts/i.test(F.confirmBody) && /unselected file/i.test(F.confirmBody),
     "F10 ... and states what is KEPT: the record, receipts, and the unselected file (the Obverse original)");
-  ok(/Nothing to purge/.test(F.legacyDialog) && /old \*?\*?All/.test(F.legacyDialog.replace(/\s+/g, " ")),
-    "F11 a legacy-only coin is refused with the reason, not silently offered");
+  ok(/^Mark AY-90007 purged\?/.test(F.legacyDialog) && !/old \*?\*?All/.test(F.legacyDialog),
+    "F11 a coin whose only photo is in the old All.Obverse column is a no-photo coin (the 'mark purged' dialog), with no mention of the All columns: " + F.legacyDialog);
 
   // ---------- G. Execution: independent crop/original deletion --------
   // AY-90001's Obverse photo is the exact case per-file checkboxes exist
@@ -574,17 +580,19 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
   ok(H.byId, "H7 ... but is STILL reachable by direct CollectionID lookup");
 
   // ---------- I. The boundaries that must never move ------------------
+  // Receipts and photos alignment, Build 1: there is no legacy-only photo
+  // any more. A coin named only in the old All.Obverse column has nothing to
+  // purge; a file row handed in by hand with no Photos row behind it is
+  // skipped by the row-must-exist rule, so its file is never deleted; and the
+  // All.Obverse cell is never written either way.
   const I = await page.evaluate(async () => {
     const mock = window.__setup();
-    // A legacy-only photo can never be purged, so its coin can never reach
-    // fully-purged. fileRowsForPhotos() itself already excludes legacy-only
-    // photos (there's nothing independently selectable about them) — so the
-    // only way to exercise purgeCoinPhotos()'s own write-side guard is to
-    // hand it a file-row that bypasses that filter directly, same
-    // defence-in-depth reasoning as before, adapted to the file-row shape.
-    const legacyPhoto = purgeablePhotosFor("AY-90007")[0];
-    const res = await purgeCoinPhotos("AY-90007", [{ photo: legacyPhoto, kind: "crop", file: legacyPhoto.filename }]);
+    const offered = purgeablePhotosFor("AY-90007").length;
+    const fake = { photoId: "", galleryType: "obverse", photoType: "Obverse", label: "",
+      filename: "AY-90007_obverse.jpg", originalFilename: "", files: ["AY-90007_obverse.jpg"] };
+    const res = await purgeCoinPhotos("AY-90007", [{ photo: fake, kind: "crop", file: fake.filename }]);
     const out = {
+      offered,
       deleted: res.deleted.length,
       skipped: res.skipped.length,
       skipReason: (res.skipped[0] || {}).reason,
@@ -596,21 +604,18 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     window.__teardown();
     return out;
   });
-  ok(I.deleted === 0 && I.skipped === 1, "I1 a legacy-only photo is skipped, never deleted");
-  // I1 alone does NOT prove the explicit legacyOnly guard exists: removing
-  // it still yields deleted=0/skipped=1, because a legacy-only photo has no
-  // Photos row and the row-must-exist rule catches it a step later. (That is
-  // real defence in depth, not redundancy — but it means the outcome can't
-  // discriminate.) The REASON can, so it is what this asserts. Verified by
-  // negative control: deleting the guard flips this one assertion and only
-  // this one.
-  ok(/old All-sheet columns/.test(I.skipReason || ""),
-    "I1b ... skipped by the EXPLICIT legacy-only guard, not incidentally by the row-must-exist rule: " + I.skipReason);
-  ok(I.fileKept, "I2 ... its file survives, so All.Obverse can't be left pointing at nothing");
+  ok(I.offered === 0 && I.deleted === 0 && I.skipped === 1,
+    "I1 a coin named only in All.Obverse offers nothing, and a hand-made file row for it is skipped, never deleted");
+  ok(/Photos row was already gone/.test(I.skipReason || ""),
+    "I1b ... skipped by the row-must-exist rule (no Photos row behind it): " + I.skipReason);
+  ok(I.fileKept, "I2 ... its file survives");
   ok(I.allObverseUntouched === "AY-90007_obverse.jpg",
     "I3 ... and the never-written All.Obverse column is genuinely untouched");
-  ok(I.purgedCell === "" && I.stillListed,
-    "I4 such a coin can never reach fully-purged, and stays in Former Holdings");
+  // The coin has no Photos rows at all, so after the pass it IS fully
+  // purged (the same end state the zero-photo "Mark purged" path gives; the
+  // old All.Obverse name no longer holds it back).
+  ok(I.purgedCell === "Y" && !I.stillListed,
+    "I4 with no Photos rows left the coin ends fully purged (the old All.Obverse name does not hold it back): " + JSON.stringify([I.purgedCell, I.stillListed]));
 
   // ---------- J. Failure handling, idempotence, locking ---------------
   const J = await page.evaluate(async () => {
@@ -775,15 +780,15 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
       stillListed: formerHoldings().map(c => c.id).indexOf("AY-90005") !== -1
     };
 
-    // The legacy-only coin (AY-90007, has a photo this app just can't act
-    // on) must be completely unaffected by this change — still its own
-    // unchanged OK-only dead end, never offered the new Yes/Cancel choice.
+    // AY-90007 (its only photo named in the old All.Obverse column, no
+    // Photos row) is now just another no-photo coin: the same Yes/Cancel
+    // dialog (receipts and photos alignment, Build 1). Cancelled here.
     purgeBtnFor("AY-90007").click();
     const legacyDialog = {
       title: document.getElementById("writeGuardTitle").textContent,
       buttonLabels: [...document.querySelectorAll("#writeGuardBtns button")].map(b => b.textContent)
     };
-    clickIfFound(/^OK$/);
+    if (!clickIfFound(/^Cancel$/)) clickIfFound(/^OK$/);
 
     // Now the real Yes path on AY-90005.
     purgeBtnFor("AY-90005").click();
@@ -811,9 +816,8 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     "Q3 ... offering a real Cancel/Yes choice, not a single OK: " + Q.dialog1.buttonLabels.join(","));
   ok(Q.afterCancel.purgedCell === "" && Q.afterCancel.stillListed,
     "Q4 Cancel writes nothing — Purged stays blank and the coin stays listed");
-  ok(/Nothing to purge/.test(Q.legacyDialog.title) && Q.legacyDialog.buttonLabels.join(",") === "OK",
-    "Q5 the LEGACY-ONLY coin (has a photo, just not one this app can act on) is completely unaffected — " +
-    "still its own unchanged OK-only dead end, never offered the new Yes/Cancel");
+  ok(/^Mark AY-90007 purged\?$/.test(Q.legacyDialog.title) && Q.legacyDialog.buttonLabels.indexOf("Cancel") !== -1,
+    "Q5 a coin whose only photo is named in the old All.Obverse column is now a no-photo coin: the same Yes/Cancel dialog (no 'Nothing to purge' dead end): " + Q.legacyDialog.title);
   ok(Q.purgedCell === "Y",
     "Q6 confirming Yes writes Purged=Y directly via the same audited writePurgedCell() path — no photo/file involved");
   ok(Q.lastModified, "Q7 ... LastModified is stamped, same as a normal full purge");

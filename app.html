@@ -2221,8 +2221,13 @@
   }
   /* Coin-page thumbnails are real buttons (keyboard + screen reader); strip the UA button chrome. */
   /* Receipt slot on Edit Coin / Edit Set: the receipt on file, then the pick. */
+  /* "Paper receipt in binder" — every receipt slot (receipts and photos alignment, Build 1). */
+  .receipt-binder-btn { display: block; margin: 8px auto 0; padding: 5px 10px; font-size: 12px; background: transparent;
+    color: var(--gold-bright); border: 1px solid var(--case-border); border-radius: 6px; cursor: pointer; }
+  .receipt-binder-btn.hidden { display: none; }
   .receipt-stored { font-size: 11px; color: var(--text-muted); margin: 8px 0 6px; line-height: 1.3; word-break: break-all; }
   .receipt-stored.is-replaced { opacity: 0.7; }
+  .receipt-stored.is-binder { word-break: normal; } /* plain words, not a filename */
   .receipt-stored-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; word-break: break-all; text-align: left; }
   .detail-receipt-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--gold); text-decoration: underline; cursor: pointer; text-align: right; word-break: break-all; }
   button.gc-thumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; }
@@ -2406,7 +2411,6 @@
     text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
   }
   .gc-thumb .gc-label-line.gc-label-empty { color: var(--text-muted); }
-  .gc-thumb .gc-label-line.gc-label-legacy { color: var(--text-muted); font-style: italic; cursor: default; }
   .gc-row-grid > button.gc-add-tile { width: var(--gc-row-h); }
   .gc-row-grid > button.gc-add-tile .gc-add-box { width: 100%; height: var(--gc-row-h); }
   button.gc-add-tile {
@@ -3451,6 +3455,7 @@
                       <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                       <button type="button" id="browseEditReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
+                    <button type="button" class="receipt-binder-btn" id="browseEditReceiptBinderBtn">📒 Paper receipt in binder</button>
                     <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -3659,6 +3664,7 @@
                       <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                       <button type="button" id="editSetReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
                     </div>
+                    <button type="button" class="receipt-binder-btn" id="editSetReceiptBinderBtn">📒 Paper receipt in binder</button>
                     <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -4420,6 +4426,8 @@
                   <button type="button" id="receiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
                   <button type="button" id="receiptRemoveBtn" style="display:none;" aria-label="Remove the receipt from the draft" title="Remove">✕</button>
                 </div>
+                <div class="receipt-stored" id="addCoinReceiptStored" style="display:none;"></div>
+                <button type="button" class="receipt-binder-btn" id="receiptBinderBtn">📒 Paper receipt in binder</button>
                 <input type="file" id="receiptCameraInput" accept="image/*" capture="environment">
                 <input type="file" id="receiptLibraryInput" accept="image/*,application/pdf">
               </div>
@@ -4908,6 +4916,7 @@
               <button type="button" id="addSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
               <button type="button" id="addSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
             </div>
+            <button type="button" class="receipt-binder-btn" id="addSetReceiptBinderBtn">📒 Paper receipt in binder</button>
             <input type="file" id="addSetReceiptCameraInput" accept="image/*" capture="environment">
             <input type="file" id="addSetReceiptLibraryInput" accept="image/*,application/pdf">
           </div>
@@ -5889,14 +5898,70 @@
   // ==================================================================
   // STORED PHOTOS / RECEIPTS — the read side
   // ==================================================================
-  // Photos and Receipts are indexed by CollectionID at fetch time and read
-  // from there; the legacy flat All columns are a FALLBACK ONLY, never
-  // written and never cleared by this app. Keeping the fallback is what
-  // stops a coin recorded only the old way (AY-00706's hand-entered
-  // Obverse/Reverse, say) from silently losing its photo the moment the
-  // read moves to the new tabs.
+  // THE PHOTOS AND RECEIPTS TABS ARE THE ONLY RECORD (receipts and photos
+  // alignment, Build 1, Oct 2026). The old flat All columns (Obverse,
+  // Reverse, Obverse_Original, Reverse_Original, Photo3, Photo4, OGPPhoto,
+  // Receipt) are NOT read for display any more, under any name: every
+  // filename in them already had a matching row (checked 31 Oct 2026), and
+  // reading them as a fallback made a removed photo come back on reload.
+  // After this build is LIVE, Copilot turns them into formulas that read the
+  // tabs and renames them (ALL_MEDIA_COLUMNS_NEW below). The app never writes
+  // any of them under either name (ALL_NEVER_WRITE_COLUMNS); the new-named
+  // ones are read ONLY to compare against the tabs (the Docket's drift rows,
+  // allMediaDriftFor()).
   let LIVE_PHOTOS = null;    // { [CollectionID]: [{ photoId, photoType, galleryType, subGroupId, filename, originalFilename, label }] }
-  let LIVE_RECEIPTS = null;  // { [CollectionID]: { receiptId, filename } }
+  let LIVE_RECEIPTS = null;  // { [CollectionID]: { receiptId, filename, binder, rowCount } } — the FIRST row per coin
+
+  // The All media columns, both generations. Old names: what the sheet has
+  // today. New names: what Copilot renames them to when it turns them into
+  // formulas over the Photos / Receipts tabs. Obverse, Reverse and Receipt
+  // keep their names. Never written under either name; skipped by the
+  // blank-row check (allSheetRowIsBlank) because a formula can show
+  // something on a blank row.
+  const ALL_MEDIA_COLUMNS_OLD = ["Obverse", "Reverse", "Obverse_Original", "Reverse_Original",
+    "Photo3", "Photo4", "OGPPhoto", "Receipt"];
+  const ALL_MEDIA_COLUMNS_NEW = ["Obverse", "Reverse", "Holder_Front", "Holder_Back",
+    "References", "COA_Photos", "OGP_Photos", "Other_Photos", "Receipt"];
+  const ALL_MEDIA_COLUMNS = ALL_MEDIA_COLUMNS_OLD.concat(
+    ALL_MEDIA_COLUMNS_NEW.filter(n => ALL_MEDIA_COLUMNS_OLD.indexOf(n) === -1));
+  // Present on All only after the rename; drift is not checked until one is.
+  const ALL_MEDIA_COLUMNS_NEW_ONLY = ALL_MEDIA_COLUMNS_NEW.filter(n => ALL_MEDIA_COLUMNS_OLD.indexOf(n) === -1);
+  // What each new-named column should hold, from the tabs. `first`: the
+  // first matching Photos row's Filename (table order); otherwise every
+  // matching Filename joined with "; " in table order. Receipt: the first
+  // Receipts row's Filename.
+  const ALL_MEDIA_DRIFT_RULES = [
+    { column: "Obverse", types: ["obverse"], first: true },
+    { column: "Reverse", types: ["reverse"], first: true },
+    { column: "Holder_Front", types: ["slab_obverse"], first: true },
+    { column: "Holder_Back", types: ["slab_reverse"], first: true },
+    { column: "References", types: ["reference"] },
+    { column: "COA_Photos", types: ["coa"] },
+    { column: "OGP_Photos", types: ["ogp", "ogp_obverse", "ogp_reverse"] },
+    { column: "Other_Photos", types: ["other"] },
+    { column: "Receipt", receipt: true }
+  ];
+
+  // A paper receipt that has not been scanned: a Receipts row whose Filename
+  // is exactly "Binder" (any case, no extension). It has its own ReceiptID
+  // but no file, so it is never opened, never fetched, and never counts in
+  // the filename checks (free name, find by filename, used by another coin).
+  const BINDER_RECEIPT_FILENAME = "Binder";
+  function isBinderReceiptName(value) {
+    return String(value == null ? "" : value).trim().toLowerCase() === "binder";
+  }
+  const BINDER_RECEIPT_DETAIL_TEXT = "Binder (not scanned)";
+  const BINDER_RECEIPT_SLOT_TEXT = "Paper receipt in the binder (not scanned)";
+  const BINDER_RECEIPT_PICK_TEXT = "Paper receipt in binder";
+  // Add Coin / Staging-draft slot: "Paper receipt in binder" picked, not yet
+  // saved (see repaintAddCoinReceiptSlot). Declared here, ahead of every
+  // reader, so nothing can touch it before it exists.
+  let addCoinBinderPick = false;
+
+  // Records whose photos or receipt this session changed. Their All media
+  // cells were read at load and are stale until the next load (Excel's
+  // formulas have already moved on), so they are left out of the drift check.
+  const mediaChangedThisSession = new Set();
 
   function buildPhotoIndex(rows) {
     const out = {};
@@ -5918,13 +5983,19 @@
     return out;
   }
 
+  // The FIRST Receipts row per coin wins — the same row writeReceiptRow()
+  // updates, so what is shown and what a Save changes can never differ (it
+  // used to be the LAST row here). rowCount counts every row the coin has;
+  // 2+ is refused on Save and flagged on the Docket.
   function buildReceiptIndex(rows) {
     const out = {};
     rows.forEach(row => {
       const id = String(colVal(row, "CollectionID") || "").trim();
+      if (!id) return;
+      if (out[id]) { out[id].rowCount++; return; }
       const filename = String(colVal(row, "Filename") || "").trim();
-      if (!id || !filename) return;
-      out[id] = { receiptId: String(colVal(row, "ReceiptID") || "").trim(), filename };
+      out[id] = { receiptId: String(colVal(row, "ReceiptID") || "").trim(), filename,
+                  binder: isBinderReceiptName(filename), rowCount: 1 };
     });
     return out;
   }
@@ -5933,20 +6004,13 @@
     return (LIVE_PHOTOS && LIVE_PHOTOS[collectionId]) || [];
   }
 
-  // The stored filename for one side of a coin, Photos tab first and the
-  // legacy flat column only as a fallback.
+  // The stored filename for one side of a coin: the Photos tab only.
   function storedPhotoFilename(coin, side) {
     if (!coin || !coin.id) return "";
     const want = side === "reverse" ? "reverse" : "obverse";
     const hit = storedPhotoRowsFor(coin.id).find(r => r.galleryType === want);
-    if (hit) return hit.filename;
-    const legacy = want === "reverse" ? coin.reversePhotoFile : coin.obversePhotoFile;
-    return legacy || "";
+    return hit ? hit.filename : "";
   }
-
-  // Whether a record has ANY stored photo — the presence signal
-  // coinMissingPhoto() needs, now reading the Photos tab first.
-  function hasStoredPhoto(coin, side) { return !!storedPhotoFilename(coin, side); }
 
   // ---- CoinPhotos image fetch --------------------------------------
   // Deliberately modelled on fetchReferenceImageBlob(): a single GET for
@@ -5997,35 +6061,71 @@
   }
 
   // ---- Receipts ----------------------------------------------------
-  // The 18 legacy All.Receipt rows that read "Binder" are a PLACEHOLDER
-  // meaning the paper receipt hasn't been scanned yet — not a file. Treating
-  // one as a filename would build a link that can only 404, so anything
-  // without a real file extension is rejected outright.
-  function looksLikeReceiptFilename(value) {
-    const v = String(value == null ? "" : value).trim();
-    return !!v && /\.[A-Za-z0-9]{2,5}$/.test(v);
-  }
-
-  // The Receipts tab wins WHENEVER a row exists for the coin (task x, Ray 31
-  // Oct 2026): every coin with a Receipts row also carries the same name in
-  // the old All.Receipt column, but the app never rewrites that column, so
-  // after a Replace the two differ and the Receipts row is the true one.
-  // All.Receipt is only the fallback for a coin with no Receipts row at all
-  // (`legacy: true`); a "Binder" placeholder there is never a file.
+  // The receipt on file for a record: the coin's FIRST Receipts row, or
+  // null. The old All.Receipt column is not read (receipts and photos
+  // alignment, Build 1). A Binder row comes back with `binder: true`: a paper
+  // receipt, not a file.
   function storedReceiptFor(coin) {
     if (!coin || !coin.id) return null;
     const hit = LIVE_RECEIPTS && LIVE_RECEIPTS[coin.id];
-    if (hit && hit.filename) return hit;
-    if (looksLikeReceiptFilename(coin.receiptFile)) {
-      return { receiptId: "", filename: String(coin.receiptFile).trim(), legacy: true };
+    if (!hit || !hit.filename) return null;
+    return { receiptId: hit.receiptId || "", filename: hit.filename, binder: isBinderReceiptName(hit.filename) };
+  }
+  // How many Receipts rows a coin has (0 when the tab hasn't loaded).
+  function storedReceiptRowCount(collectionId) {
+    const hit = LIVE_RECEIPTS && LIVE_RECEIPTS[collectionId];
+    return hit ? (hit.rowCount || 1) : 0;
+  }
+
+  // ---- Drift: All media columns vs the tabs ------------------------
+  // Once Copilot has turned the All media columns into formulas over the
+  // Photos / Receipts tabs and renamed them, each new-named cell should say
+  // exactly what the tabs say (ALL_MEDIA_DRIFT_RULES). A difference means a
+  // formula is wrong or stale, or someone typed into the column. Checked only
+  // once a new-only header (Holder_Front, References, …) is on All: before the
+  // rename, Obverse / Reverse / Receipt are still the old static cells and
+  // would all "differ". Old-named columns are ignored. Values are trimmed and
+  // compared ignoring case; an error value such as #N/A is a difference.
+  function allMediaColumnsRenamed() {
+    return activeCoins().some(c => c.mediaCells &&
+      ALL_MEDIA_COLUMNS_NEW_ONLY.some(n => Object.prototype.hasOwnProperty.call(c.mediaCells, n)));
+  }
+  function allMediaExpectedValue(coinId, rule) {
+    if (rule.receipt) {
+      const hit = LIVE_RECEIPTS && LIVE_RECEIPTS[coinId];
+      return hit ? (hit.filename || "") : "";
     }
-    return null;
+    const rows = storedPhotoRowsFor(coinId).filter(r => rule.types.indexOf(r.galleryType) !== -1);
+    if (rule.first) return rows.length ? (rows[0].filename || "") : "";
+    return rows.map(r => r.filename || "").filter(Boolean).join("; ");
+  }
+  // [{ column, allValue, sheetValue }] for one coin; empty when it matches,
+  // when the columns haven't been renamed yet, when the Photos / Receipts
+  // tabs haven't loaded, or when this session changed its photos / receipt
+  // (its All cells were read before that and are stale until a reload).
+  function allMediaDriftFor(coin, renamed) {
+    if (!coin || !coin.id || !coin.mediaCells) return [];
+    if (renamed === undefined ? !allMediaColumnsRenamed() : !renamed) return [];
+    if (!LIVE_PHOTOS || !LIVE_RECEIPTS) return [];
+    if (mediaChangedThisSession.has(coin.id)) return [];
+    const norm = v => String(v == null ? "" : v).trim();
+    const out = [];
+    ALL_MEDIA_DRIFT_RULES.forEach(rule => {
+      if (!Object.prototype.hasOwnProperty.call(coin.mediaCells, rule.column)) return;
+      const allValue = norm(coin.mediaCells[rule.column]);
+      const sheetValue = norm(allMediaExpectedValue(coin.id, rule));
+      if (allValue.toLowerCase() !== sheetValue.toLowerCase()) out.push({ column: rule.column, allValue, sheetValue });
+    });
+    return out;
   }
   // Keeps the session's Receipts index in step with a receipt this app just
   // wrote (it is fetched once per session; photos have the same sync).
   function syncStoredReceiptIndexUpsert(collectionId, row) {
     if (!LIVE_RECEIPTS) LIVE_RECEIPTS = {};
-    LIVE_RECEIPTS[collectionId] = { receiptId: row.receiptId || "", filename: row.filename };
+    const prev = LIVE_RECEIPTS[collectionId];
+    LIVE_RECEIPTS[collectionId] = { receiptId: row.receiptId || "", filename: row.filename,
+      binder: isBinderReceiptName(row.filename), rowCount: prev ? (prev.rowCount || 1) : 1 };
+    mediaChangedThisSession.add(collectionId);
   }
 
   // A receipt's own OneDrive webUrl, resolved lazily and cached per session
@@ -6035,7 +6135,7 @@
   // already uses for a reference image).
   const receiptWebUrlCache = {};
   function getCachedReceiptWebUrl(filename) {
-    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve(null);
+    if (!filename || isBinderReceiptName(filename) || !WRITE_LAYER_ENABLED) return Promise.resolve(null);
     if (Object.prototype.hasOwnProperty.call(receiptWebUrlCache, filename)) {
       return Promise.resolve(receiptWebUrlCache[filename]);
     }
@@ -6053,12 +6153,14 @@
   // hydration. Both are the same "local state and workbook disagree" defect
   // this whole area has now produced twice.
   function syncStoredPhotoIndexRemove(collectionId, photoType, subGroupId) {
+    mediaChangedThisSession.add(collectionId);
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
     const want = subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID ? subGroupId : "";
     LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r =>
       !(r.photoType === photoType && (r.subGroupId || "") === want));
   }
   function syncStoredPhotoIndexRemoveByFilename(collectionId, filename) {
+    mediaChangedThisSession.add(collectionId);
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
     LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.filename !== filename);
   }
@@ -6066,6 +6168,7 @@
   // the Filename-keyed one above, since a row mid-purge (one file already
   // independently cleared) can have a genuinely blank Filename.
   function syncStoredPhotoIndexRemoveByPhotoId(collectionId, photoId) {
+    mediaChangedThisSession.add(collectionId);
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
     LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].filter(r => r.photoId !== photoId);
   }
@@ -6075,12 +6178,14 @@
   // would still see the just-deleted file as present, same class of gap as
   // the two functions above.
   function syncStoredPhotoIndexClearField(collectionId, photoId, field) {
+    mediaChangedThisSession.add(collectionId);
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
     const key = field === "Filename" ? "filename" : "originalFilename";
     LIVE_PHOTOS[collectionId] = LIVE_PHOTOS[collectionId].map(r =>
       r.photoId === photoId ? Object.assign({}, r, { [key]: "" }) : r);
   }
   function syncStoredPhotoIndexUpsert(collectionId, row) {
+    mediaChangedThisSession.add(collectionId);
     if (!LIVE_PHOTOS) LIVE_PHOTOS = {};
     const list = LIVE_PHOTOS[collectionId] || (LIVE_PHOTOS[collectionId] = []);
     const at = list.findIndex(r => r.photoId && row.photoId && r.photoId === row.photoId);
@@ -6090,6 +6195,7 @@
   function __setCoinPhotoCacheForTest(filename, url) { coinPhotoCache[filename] = url; }
   function __setStoredPhotosForTest(index) { LIVE_PHOTOS = index; }
   function __setStoredReceiptsForTest(index) { LIVE_RECEIPTS = index; }
+  function __resetMediaChangedForTest() { mediaChangedThisSession.clear(); }
   function __resetCoinPhotoCacheForTest() {
     Object.keys(coinPhotoCache).forEach(k => delete coinPhotoCache[k]);
     Object.keys(coinPhotoFetchesInFlight).forEach(k => delete coinPhotoFetchesInFlight[k]);
@@ -6395,6 +6501,18 @@
     return "";
   }
 
+  // The new-named All media cells present on this row, as raw values (a
+  // formula's result, an error such as "#N/A" included). Keys only for the
+  // columns the sheet has: under the old names, or with the columns gone,
+  // the new-only ones are simply absent.
+  function allMediaCellsFromRow(row) {
+    const out = {};
+    ALL_MEDIA_COLUMNS_NEW.forEach(name => {
+      if (Object.prototype.hasOwnProperty.call(row, name)) out[name] = row[name];
+    });
+    return out;
+  }
+
   // Maps one raw All-sheet row into the same shape FAKE_COINS rows already
   // use, so every existing nav function (coinsTabBaseRows, browseFilterTest,
   // metalCategoryFor, browseSearchTest, sortCoinsTabRows, etc.) keeps
@@ -6475,25 +6593,13 @@
       // than a wrong number. Worth Ray's own confirmation before relying on
       // it further.
       faceValue: colVal(row, "FaceValue") === "" ? null : Number(colVal(row, "FaceValue")),
-      // No direct real-photo-presence column — approximated from whether
-      // the Obverse/Reverse filename cells are populated, per the documented
-      // "Obverse/Reverse hold whichever filename is currently displayed"
-      // convention. A coin whose photo exists but isn't yet reflected in
-      // these columns would read as "no photo" here — an accepted
-      // approximation, not a bug, same class of tradeoff as everywhere else
-      // in this app that infers presence from a filename field.
-      hasObversePhoto: !!colVal(row, "Obverse"),
-      hasReversePhoto: !!colVal(row, "Reverse"),
-      // The legacy flat photo/receipt columns, carried as real FILENAMES
-      // (they were only ever read as booleans before). They are the
-      // fallback the Photos/Receipts tabs read through — never written and
-      // never cleared by this app; see storedPhotoFilename()/
-      // storedReceiptFor(). All.Receipt in particular can hold the literal
-      // placeholder "Binder" on 18 real rows, which is why
-      // looksLikeReceiptFilename() guards it rather than trusting it.
-      obversePhotoFile: String(colVal(row, "Obverse") || ""),
-      reversePhotoFile: String(colVal(row, "Reverse") || ""),
-      receiptFile: String(colVal(row, "Receipt") || ""),
+      // The All media columns (photos and the receipt) are NOT read for
+      // display (receipts and photos alignment, Build 1): the Photos and
+      // Receipts tabs are the only record. Only the NEW-named columns are
+      // kept, as they are, for the Docket's drift check (allMediaDriftFor),
+      // and only the ones the sheet actually has: a missing column is simply
+      // absent here, never "".
+      mediaCells: allMediaCellsFromRow(row),
       // All.Error — a single free-text column (not separate Obverse-error/
       // Reverse-error fields), so a coin with two different errors on two
       // different sides has both descriptions in the one string, informally
@@ -8203,9 +8309,14 @@
   // included, so counting them would make no row ever look claimable.
   const ALL_NEVER_WRITE_FORMULA_COLUMNS = ["SpotValue", "Total"];
 
+  // The All media columns (ALL_MEDIA_COLUMNS: photos and the receipt, old
+  // AND new names) are never written either: the Photos and Receipts tabs are
+  // the record, and Copilot turns these columns into formulas over them
+  // (receipts and photos alignment, Build 1). A literal written there would
+  // destroy the formula, exactly like SpotValue / Total.
   const ALL_NEVER_WRITE_COLUMNS = [
     "SpotValue", "Total", "CollectionID", "CoinID", "SetID", "OriginSetID", "CertLink"
-  ];
+  ].concat(ALL_MEDIA_COLUMNS);
 
   // Identity fields, in the sense of "overwriting one of these on an
   // already-populated row is a claim that the record was previously
@@ -8855,7 +8966,10 @@
       writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
     const row = rows[0] || [];
     const skip = {};
-    ALL_NEVER_WRITE_FORMULA_COLUMNS.forEach(name => { if (map[name]) skip[map[name]] = true; });
+    // The media columns too (old and new names): once Copilot turns them
+    // into formulas over the Photos / Receipts tabs, a blank row can show a
+    // value there (or an error), and counting it would make no row claimable.
+    ALL_NEVER_WRITE_FORMULA_COLUMNS.concat(ALL_MEDIA_COLUMNS).forEach(name => { if (map[name]) skip[map[name]] = true; });
     return Object.keys(map).every(name => {
       const idx = map[name];
       if (skip[idx]) return true;
@@ -9686,16 +9800,12 @@
   // delete path itself re-reads the sheet per photo, which is what actually
   // guards against a concurrent change.
   //
-  // A LEGACY-ONLY photo — recorded solely in the old flat All.Obverse/
-  // All.Reverse columns, with no Photos row behind it (5 real rows are like
-  // this, AY-00706 among them) — is returned marked `legacyOnly` and is NOT
-  // purgeable. This app never writes those columns (a standing boundary),
-  // so deleting the file would leave the column pointing at bytes that no
-  // longer exist. Refusing is better than a dangling reference, and it means
-  // such a coin can't reach fully-purged until that's fixed workbook-side.
+  // The Photos tab is the only record (receipts and photos alignment,
+  // Build 1, Oct 2026): the old All photo columns are no longer read, so
+  // there is no "legacy-only" photo any more and nothing here is refused
+  // for being recorded the old way.
   function purgeablePhotosFor(collectionId) {
     const tabRows = storedPhotoRowsFor(collectionId);
-    const legacy = legacyStoredRowsFor(collectionId, tabRows);
     const out = [];
     tabRows.forEach(r => {
       const files = [];
@@ -9711,16 +9821,7 @@
         label: r.label || "",
         filename: r.filename,
         originalFilename: r.originalFilename || "",
-        files,
-        legacyOnly: false
-      });
-    });
-    legacy.forEach(r => {
-      out.push({
-        photoId: "", galleryType: r.galleryType || "", photoType: r.photoType || "",
-        label: r.label || "", filename: r.filename, originalFilename: "",
-        files: r.filename ? [r.filename] : [],
-        legacyOnly: true
+        files
       });
     });
     return out;
@@ -9741,13 +9842,12 @@
   // independently-selectable rows; a photo already down to one file (say,
   // an earlier partial purge already took the other) produces one. Pure and
   // takes the array directly (not a collectionId) so the caller can build
-  // `purgeable`/`legacy` from ONE purgeablePhotosFor() call and keep the
+  // `purgeable` from ONE purgeablePhotosFor() call and keep the
   // same object references — the write side groups selections back by
   // photo identity (photo.photoId), so those refs have to actually match.
   function fileRowsForPhotos(photos) {
     const rows = [];
     (photos || []).forEach(photo => {
-      if (photo.legacyOnly) return; // never independently selectable
       if (photo.filename) rows.push({ photo, kind: "crop", file: photo.filename });
       if (photo.originalFilename && photo.originalFilename !== photo.filename) {
         rows.push({ photo, kind: "original", file: photo.originalFilename });
@@ -9797,9 +9897,7 @@
   }
 
   // Writes All.Purged="Y" when, after this pass, the coin has no photos of
-  // any kind left — no Photos rows, and no legacy-only ones either (a
-  // legacy photo can't be purged, so a coin carrying one can never reach
-  // this state; that's the Q3 boundary, working as intended).
+  // any kind left (no Photos rows; the Photos tab is the only record).
   //
   // Derived HERE, at write time, from the state the purge actually left
   // behind — never re-derived on render. Returns what happened so the
@@ -9855,10 +9953,6 @@
       const groups = groupPurgeSelectionByPhoto(selected);
       for (const group of groups) {
         const photo = group.photo;
-        if (photo.legacyOnly) {
-          skipped.push({ photo, reason: "recorded only in the old All-sheet columns" });
-          continue;
-        }
         const removingWholeRow = group.kinds.size >= photo.files.length;
         const filesToDelete = [];
         if (group.kinds.has("crop") && photo.filename) {
@@ -9924,7 +10018,9 @@
   // the real data's own shape (FindersKeepers_2026-06-27_receipt.pdf).
   async function findExistingReceiptByFilename(filename) {
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
-    const hit = rows.find(r => r.Filename && r.Filename.toLowerCase() === String(filename).toLowerCase());
+    if (isBinderReceiptName(filename)) return null; // a paper receipt is never "the same file"
+    const hit = rows.find(r => r.Filename && !isBinderReceiptName(r.Filename) &&
+      r.Filename.toLowerCase() === String(filename).toLowerCase());
     return hit ? hit.ReceiptID : null;
   }
 
@@ -9959,8 +10055,12 @@
   // commitReceiptCapture() (several coins' own rows deliberately pointing at
   // one physical document); this is what tells that apart from "this is just
   // this coin's own row" before reusing an id across a replace.
+  // A Binder row is a paper receipt with no file, so it never counts here:
+  // a scan that replaces this coin's own Binder row keeps its ReceiptID
+  // even if other coins' Binder rows share it (Ray, Q7).
   function receiptIdUsedByOtherCoin(rows, receiptId, exceptCollectionId) {
-    return rows.some(r => r.ReceiptID === receiptId && r.CollectionID !== exceptCollectionId);
+    return rows.some(r => r.ReceiptID === receiptId && r.CollectionID !== exceptCollectionId &&
+      !isBinderReceiptName(r.Filename));
   }
 
   // A receipt filename free of both the Receipts table's own Filename column
@@ -9968,7 +10068,8 @@
   // shape coinPhotoNameIsFree() already uses for photos, so a stray file
   // with no row behind it is caught too, not just a row with no file.
   async function receiptFilenameIsFree(name, rows) {
-    if (rows.some(r => r.Filename && r.Filename.toLowerCase() === name.toLowerCase())) return false;
+    if (rows.some(r => r.Filename && !isBinderReceiptName(r.Filename) &&
+      r.Filename.toLowerCase() === name.toLowerCase())) return false;
     const meta = await graph().getItemMeta(writePaths().coinReceipts + "/" + name);
     return !meta;
   }
@@ -10410,6 +10511,8 @@
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
       receiptPhoto: step1.receiptPhoto || "",
+      // "Paper receipt in binder" (no file): a Binder Receipts row at promotion.
+      receiptBinder: !step1.receiptPhoto && !!step1.receiptBinder,
       children: [],
       // In-progress, NOT-yet-confirmed child field values (Pause persists
       // these so nothing typed is ever lost — see the Pause handler below).
@@ -11022,6 +11125,10 @@
         console.warn("Receipts row failed for " + draft.receiptPhoto + ":", err);
         out.failed.push(draft.receiptPhoto);
       }
+    } else if (draft.receiptBinder) {
+      // "Paper receipt in binder" on the draft: a Binder row (no file moved).
+      try { out.receipt = await commitBinderReceipt(id); }
+      catch (err) { console.warn("Receipts Binder row failed for " + id + ":", err); out.failed.push("receipt (Binder)"); }
     }
     return out;
   }
@@ -11495,6 +11602,10 @@
         console.warn("Receipts row failed for " + filename + ":", err);
         out.failed.push(filename);
       }
+    } else if (draft.receiptBinder) {
+      // "Paper receipt in binder" on the Set draft: a Binder row, no file.
+      try { out.receipt = await commitBinderReceipt(id); }
+      catch (err) { console.warn("Receipts Binder row failed for " + id + ":", err); out.failed.push("receipt (Binder)"); }
     }
     return out;
   }
@@ -14497,17 +14608,16 @@
   // photo, not a real obverse/reverse pair, so only its one flag is checked;
   // an ordinary coin or Roll needs BOTH missing to count (Q5a — either
   // photo present means it's not missing).
-  // Photos-tab first, legacy flat booleans as the fallback. A record with a
-  // real Photos row but a blank All.Obverse (every photo captured through
-  // the new write layer) must not read as "missing a photo" just because
-  // the retired column was never backfilled.
+  // The Photos tab only (receipts and photos alignment, Build 1): the old
+  // All.Obverse/Reverse columns are not read. hasObversePhoto /
+  // hasReversePhoto exist only on the offline demo rows (FAKE_COINS), which
+  // have no Photos tab; mapWorkbookRowToCoin() never sets them on a live coin.
   function coinMissingPhoto(coin) {
-    if (coin.denom === "Multiple") {
-      // A Set bundle has one representative photo — its own OGP/whole-set
-      // front, or the legacy flat column.
-      return !storedPhotoRowsFor(coin.id).length && !coin.hasObversePhoto;
-    }
     const rows = storedPhotoRowsFor(coin.id);
+    if (coin.denom === "Multiple") {
+      // A Set bundle has one representative photo — any of its own rows.
+      return !rows.length && !coin.hasObversePhoto;
+    }
     const hasObv = rows.some(r => r.galleryType === "obverse") || !!coin.hasObversePhoto;
     const hasRev = rows.some(r => r.galleryType === "reverse") || !!coin.hasReversePhoto;
     return !hasObv && !hasRev;
@@ -17078,36 +17188,28 @@
     if (shippingCost != null) purchaseRows.push(["Shipping", formatCurrency(shippingCost)]);
     if (vendor) purchaseRows.push(["Seller", vendor]);
     if (purchaseDate) purchaseRows.push(["Purchase Date", purchaseDate]);
-    // Receipt — the Receipts TAB first (falling back to the legacy flat
-    // All.Receipt column, and to the demo lookup with nothing real on file).
-    // Rendered as the filename immediately and upgraded to a real OneDrive
-    // link once that file's webUrl resolves, since this render is
-    // synchronous. The old version linked details.receipt straight into an
-    // href that had never resolved to anything (confirmed 404) — a real
-    // link in markup only.
+    // Receipt — the coin's FIRST Receipts row, and nothing else (the old
+    // All.Receipt column is not read: receipts and photos alignment, Build
+    // 1). Rendered as the filename immediately and upgraded to a real
+    // OneDrive link once that file's webUrl resolves, since this render is
+    // synchronous.
     //
-    // "Binder" and anything else without a file extension is NOT a filename
-    // — it is the placeholder meaning the paper receipt hasn't been scanned
-    // yet, on 18 real rows. looksLikeReceiptFilename() is what stops it
-    // becoming a link that can only ever break.
+    // A Binder row is a paper receipt that hasn't been scanned: it shows as
+    // "Binder (not scanned)", plain text, never a link or a viewer button.
     //
     // COINS (in-app viewer): the filename is a button that opens the receipt
     // full screen inside the app — the OneDrive link failed in the OneDrive
     // app. "Open in OneDrive" survives only inside that viewer. SETS keep the
     // filename-upgrading-to-a-link behaviour, per Ray's "coins only" scope.
-    const storedReceipt = storedReceiptFor(coin);
+    const storedReceiptAny = storedReceiptFor(coin);
+    const storedReceipt = storedReceiptAny && !storedReceiptAny.binder ? storedReceiptAny : null;
     if (storedReceipt) {
       const safeName = escapeHtmlText(storedReceipt.filename);
       purchaseRows.push(["Receipt", isSet
         ? `<span id="detailReceiptLink" data-receipt="${safeName}">${safeName}</span>`
         : `<button type="button" class="detail-receipt-btn" id="detailReceiptLink" data-receipt="${safeName}">${safeName}</button>`]);
-    } else {
-      // Nothing that resolves to a real file. A non-filename value is still
-      // worth showing — "Binder" means the paper receipt exists and hasn't
-      // been scanned — just never as a link.
-      const placeholder = [coin.receiptFile, details.receipt].map(v => String(v == null ? "" : v).trim())
-        .find(v => v && !looksLikeReceiptFilename(v));
-      if (placeholder) purchaseRows.push(["Receipt", escapeHtmlText(placeholder) + " (not scanned)"]);
+    } else if (storedReceiptAny && storedReceiptAny.binder) {
+      purchaseRows.push(["Receipt", `<span id="detailReceiptBinder">${escapeHtmlText(BINDER_RECEIPT_DETAIL_TEXT)}</span>`]);
     }
     if (purchaseRows.length) {
       appendAccordion(container, RECORD_SECTIONS.PURCHASE, detailRowsHtml(purchaseRows));
@@ -18414,6 +18516,7 @@
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
     document.getElementById("browseEditReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("browseEditReceiptPreview"));
+    document.getElementById("browseEditReceiptBinderBtn").addEventListener("click", () => pickBinderReceipt("browseEditReceiptPreview"));
 
     // One toggle per section accordion, plus the nested Receipt pill inside
     // Photos. Wired once — these are static markup, so their IDs are stable
@@ -18926,6 +19029,7 @@
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
     document.getElementById("editSetReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("editSetReceiptPreview"));
+    document.getElementById("editSetReceiptBinderBtn").addEventListener("click", () => pickBinderReceipt("editSetReceiptPreview"));
 
     populateStatusSelect(document.getElementById("editSetStatus"));
     document.getElementById("editSetStatus").addEventListener("change", (e) => {
@@ -21438,10 +21542,7 @@
     // fixed in the Phase 2 write-path work): this used to read FAKE_COINS
     // directly, so a live session's Docket always nagged about demo coins'
     // missing photos instead of the real collection's. coinMissingPhoto()
-    // itself was already correct (storedPhotoRowsFor() reads the real
-    // LIVE_PHOTOS index, and mapWorkbookRowToCoin() sets a live coin's own
-    // hasObversePhoto/hasReversePhoto from the real All.Obverse/Reverse
-    // columns) — only the array being iterated was wrong.
+    // reads the real LIVE_PHOTOS index (the Photos tab only).
     activeCoins().filter(c => !c.rollId && coinMissingPhoto(c) && !dismissedCoinPhotoGaps.has(c.id)).forEach(coin => {
       otherRows.push({
         html: `<div class="wish-desc">${coin.name}</div><div class="wish-notes">Missing photo — ${coin.id}</div>`,
@@ -21465,6 +21566,40 @@
         onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
       });
     });
+    // Receipts and photos alignment (Build 1). Two kinds of workbook problem,
+    // each fixed in Excel, so neither has a Dismiss: the row goes away once
+    // the workbook is right (on the next load). A tap opens the coin.
+    //   (a) a coin with 2+ Receipts rows — this app shows and changes only
+    //       the first, and refuses to Save a receipt for it;
+    //   (b) drift — a new-named All media column that disagrees with the
+    //       Photos / Receipts tabs (allMediaDriftFor), one row per column.
+    const openCoinFromDocket = coin => () => {
+      browseDetailBackHandler = () => navigate("needsdbcoins");
+      navigate("browse");
+      showBrowseDetail(coin);
+    };
+    const mediaRenamed = allMediaColumnsRenamed();
+    activeCoins().forEach(coin => {
+      const n = storedReceiptRowCount(coin.id);
+      if (n > 1) {
+        otherRows.push({
+          html: `<div class="wish-desc">${escapeHtmlText(coin.name || coin.id)}</div><div class="wish-notes docket-receipt-rows">` +
+            `${escapeHtmlText(coin.id)} has ${n} rows on the Receipts tab. This app shows and changes only the first, ` +
+            `so it won't save a receipt for this coin. Fix it in Excel (one purchase receipt per coin).</div>`,
+          onClick: openCoinFromDocket(coin)
+        });
+      }
+      allMediaDriftFor(coin, mediaRenamed).forEach(d => {
+        const say = v => v ? "“" + escapeHtmlText(v) + "”" : "blank";
+        otherRows.push({
+          html: `<div class="wish-desc">${escapeHtmlText(coin.name || coin.id)}</div><div class="wish-notes docket-media-drift">` +
+            `${escapeHtmlText(coin.id)} · All.${escapeHtmlText(d.column)} says ${say(d.allValue)}, but the ` +
+            `${d.column === "Receipt" ? "Receipts" : "Photos"} tab gives ${say(d.sheetValue)}.</div>`,
+          onClick: openCoinFromDocket(coin)
+        });
+      });
+    });
+
     // Same gap, Set-side — real/persisted dismissal since a draft already
     // has a live write layer (Q2). Checked on Draft + Complete drafts only;
     // a Promoted set is done and out of the app's concern.
@@ -23779,27 +23914,12 @@
       });
       return;
     }
-    const photos = purgeablePhotosFor(coin.id);
-    const purgeable = photos.filter(p => !p.legacyOnly);
-    const legacy = photos.filter(p => p.legacyOnly);
+    const purgeable = purgeablePhotosFor(coin.id);
 
     if (!purgeable.length) {
-      if (legacy.length) {
-        showWriteGuard({
-          title: "Nothing to purge",
-          bodyHtml: "<p><strong>" + escapeHtmlText(coin.id) + "</strong> has no photos this app can purge.</p>" +
-            "<p>Its " + legacy.length + " photo(s) are recorded only in the old <strong>All</strong> sheet " +
-            "columns, which this app never writes — deleting the files would leave those columns pointing " +
-            "at nothing. Fix that at the workbook level first.</p>",
-          buttons: [{ label: "OK" }]
-        });
-        return;
-      }
-      // Genuinely zero stored photos of any kind (not merely zero PURGEABLE
-      // ones — a legacy-only coin is handled above and stays a dead end by
-      // design). The normal delete-then-flag path has nothing to act on
-      // here, so without this a photo-less exited coin could never reach
-      // Purged and would sit in Former Holdings forever.
+      // Zero stored photos. The normal delete-then-flag path has nothing to
+      // act on here, so without this a photo-less exited coin could never
+      // reach Purged and would sit in Former Holdings forever.
       markPurgedWithNoPhotos(coin, originBtn);
       return;
     }
@@ -23825,17 +23945,10 @@
       return '<div style="margin-bottom:10px;"><strong>' + escapeHtmlText(purgePhotoLabel(p)) + '</strong>' + rowsHtml + '</div>';
     }).join("");
 
-    const legacyHtml = legacy.length
-      ? '<p style="margin-top:12px; opacity:0.6;"><strong>Can\'t be purged</strong><br>' +
-        '<span style="font-size:12px;">' + escapeHtmlText(legacy.map(p => p.filename).join(", ")) +
-        ' — recorded only in the old All-sheet columns, which this app never writes. ' +
-        'Deleting these would leave those columns pointing at missing files.</span></p>'
-      : "";
-
     showWriteGuard({
       title: "Purge photos for " + coin.id,
       bodyHtml: "<p>Nothing is selected. Check exactly the file(s) you want to permanently delete " +
-        "— a photo's crop and its original can be deleted independently.</p>" + groupsHtml + legacyHtml,
+        "— a photo's crop and its original can be deleted independently.</p>" + groupsHtml,
       buttons: [
         { label: "Cancel" },
         { label: "Continue", primary: true,
@@ -23852,7 +23965,7 @@
               showToast("Nothing selected — nothing was deleted.");
               return;
             }
-            confirmPurge(coin, chosen, fileRows.length, legacy.length, originBtn);
+            confirmPurge(coin, chosen, fileRows.length, originBtn);
           } }
       ]
     });
@@ -23884,16 +23997,15 @@
 
   // Stage 2. Names every checked file, states plainly that it is permanent,
   // and states what is being KEPT — the All row, the CollectionID, any
-  // receipts, any file left unchecked, and any legacy-only photo. A receipt
+  // receipts, and any file left unchecked. A receipt
   // is never touched under any circumstance: one receipt routinely covers
   // several coins, so deleting it from a single coin's action would destroy
   // another coin's record of its own purchase.
-  function confirmPurge(coin, chosen, totalFileCount, legacyCount, originBtn) {
+  function confirmPurge(coin, chosen, totalFileCount, originBtn) {
     const files = chosen.map(r => r.file);
     const keptFiles = totalFileCount - chosen.length;
     const keptBits = ["the coin's record (<strong>" + escapeHtmlText(coin.id) + "</strong>) and any receipts"];
     if (keptFiles > 0) keptBits.push(keptFiles + " unselected file(s)");
-    if (legacyCount > 0) keptBits.push(legacyCount + " photo(s) this app can't purge");
     showWriteGuard({
       title: "Permanently delete " + files.length + " file(s)?",
       bodyHtml:
@@ -24335,18 +24447,42 @@
   //     retry passes it back as opts.landedName: if that file still holds the
   //     same bytes it is used as is, so "file landed, row write failed" does
   //     not leave a second copy behind.
-  async function commitReceiptCapture(collectionId, prepared, opts) {
-    opts = opts || {};
-    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+  // This coin's own Receipts rows, refusing 2+ (one purchase receipt per
+  // coin for now: writeReceiptRow() would change the first and the app would
+  // be guessing). Shared by every Receipts write a Save makes.
+  function ownReceiptRowOrRefuse(rows, collectionId) {
     const own = rows.filter(r => r.CollectionID === collectionId);
     if (own.length > 1) {
       const err = new Error(collectionId + " has " + own.length + " rows on the Receipts tab, so this app won't guess which one to change. Fix it in Excel.");
       err.multiRow = true;
       throw err;
     }
-    const thisRow = own[0];
+    return own[0];
+  }
+
+  // "Paper receipt in binder" (receipts and photos alignment, Build 1): this
+  // coin's receipt becomes a Binder row — Filename "Binder", a NEW ReceiptID,
+  // today's DateAdded. Its own row is updated when it has one (the first
+  // blank row is claimed otherwise); other coins on the old ReceiptID keep
+  // their rows, and no file is touched. Already a Binder row: nothing written.
+  async function commitBinderReceipt(collectionId) {
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const thisRow = ownReceiptRowOrRefuse(rows, collectionId);
+    if (thisRow && isBinderReceiptName(thisRow.Filename)) {
+      return { receiptId: thisRow.ReceiptID, row: thisRow.__row, replaced: false,
+               filename: thisRow.Filename, binder: true, unchanged: true };
+    }
+    const res = await writeReceiptRow(collectionId, BINDER_RECEIPT_FILENAME, null);
+    return { ...res, filename: BINDER_RECEIPT_FILENAME, binder: true, reused: false };
+  }
+
+  async function commitReceiptCapture(collectionId, prepared, opts) {
+    opts = opts || {};
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const thisRow = ownReceiptRowOrRefuse(rows, collectionId);
     const candidate = storedReceiptFilename(collectionId, prepared);
-    const sameNameRow = rows.find(r => r.Filename && r.Filename.toLowerCase() === candidate.toLowerCase());
+    const sameNameRow = rows.find(r => r.Filename && !isBinderReceiptName(r.Filename) &&
+      r.Filename.toLowerCase() === candidate.toLowerCase());
 
     // A retry whose file already landed under its own chosen name.
     let landed = false;
@@ -24452,14 +24588,17 @@
   //     landedName: the file a failed Save already uploaded (a retry
   //       reuses it instead of uploading a second copy),
   //     saving, error, refused }
+  // A pending pick can also be "Paper receipt in binder" (binder: true,
+  // prepared: null): Save writes a Binder row instead of uploading a file
+  // (receipts and photos alignment, Build 1).
   // There is no way to REMOVE a stored receipt here (Ray, 31 Oct 2026: that
   // waits for a later receipts-and-photos workbook alignment task). The ✕ on
   // the slot appears only on a pending pick: over a stored receipt it is an
   // undo, with nothing stored it drops the pick.
   const pendingReceipts = {};
   const RECEIPT_EDIT_SLOTS = {
-    browseEditReceiptPreview: { placeholder: "browseEditReceiptPlaceholder", stored: "browseEditReceiptStored", remove: "browseEditReceiptRemoveBtn" },
-    editSetReceiptPreview: { placeholder: "editSetReceiptPlaceholder", stored: "editSetReceiptStored", remove: "editSetReceiptRemoveBtn" }
+    browseEditReceiptPreview: { placeholder: "browseEditReceiptPlaceholder", stored: "browseEditReceiptStored", remove: "browseEditReceiptRemoveBtn", binder: "browseEditReceiptBinderBtn" },
+    editSetReceiptPreview: { placeholder: "editSetReceiptPlaceholder", stored: "editSetReceiptStored", remove: "editSetReceiptRemoveBtn", binder: "editSetReceiptBinderBtn" }
   };
   function receiptSlotRecordId(previewId) {
     const get = receiptCommitTargets[previewId];
@@ -24470,11 +24609,11 @@
     return activeCoins().find(c => c.id === collectionId) || null;
   }
   // The receipt on file for a record, as the slot and the detail page show
-  // it (the Receipts row, else the old All.Receipt file), or null.
+  // it (the coin's first Receipts row; a Binder row has binder: true), or null.
   function storedReceiptSnapshot(collectionId) {
     const coin = receiptRecordFor(collectionId);
     const r = coin ? storedReceiptFor(coin) : null;
-    return r ? { receiptId: r.receiptId || "", filename: r.filename, legacy: !!r.legacy } : null;
+    return r ? { receiptId: r.receiptId || "", filename: r.filename, binder: !!r.binder } : null;
   }
   function pendingReceiptFor(collectionId) {
     const p = collectionId ? pendingReceipts[collectionId] : null;
@@ -24495,7 +24634,11 @@
     if (storedEl) {
       storedEl.textContent = "";
       storedEl.classList.toggle("is-replaced", !!(p && stored));
-      if (stored) {
+      storedEl.classList.toggle("is-binder", !!(stored && stored.binder));
+      if (stored && stored.binder) {
+        // A paper receipt: nothing to open.
+        storedEl.appendChild(document.createTextNode((p ? "On file (replaced when you save): " : "") + BINDER_RECEIPT_SLOT_TEXT));
+      } else if (stored) {
         storedEl.appendChild(document.createTextNode(p ? "On file (replaced when you save): " : "On file: "));
         const btn = document.createElement("button");
         btn.type = "button";
@@ -24511,7 +24654,8 @@
       }
     }
     if (p) {
-      if (p.pdf) showReceiptPdfIndicator(previewId, slot.placeholder, p.prepared.filename);
+      if (p.binder) showReceiptBinderIndicator(previewId, slot.placeholder);
+      else if (p.pdf) showReceiptPdfIndicator(previewId, slot.placeholder, p.prepared.filename);
       else showReceiptImagePreview(previewId, slot.placeholder, p.previewSrc);
       if (p.saving) showReceiptUploadState(previewId, "Saving…", false, null);
       else if (p.error) showReceiptUploadState(previewId, p.refused ? "Not changed — see the message." : DRAFT_NOT_SAVED_TEXT, true, null);
@@ -24523,6 +24667,10 @@
     }
     const rm = document.getElementById(slot.remove);
     if (rm) rm.style.display = (p && !p.saving) ? "" : "none";
+    // "Paper receipt in binder" is offered unless it is already what the
+    // slot holds (picked, or on file with nothing picked) or a Save is running.
+    const bb = document.getElementById(slot.binder);
+    if (bb) bb.classList.toggle("hidden", !!((p && (p.binder || p.saving)) || (!p && stored && stored.binder)));
   }
   function repaintReceiptSlotsFor(collectionId) {
     Object.keys(RECEIPT_EDIT_SLOTS).forEach(pid => {
@@ -24574,6 +24722,31 @@
     return true;
   }
 
+  // "Paper receipt in binder" on an Edit Coin / Edit Set slot: a pending pick
+  // like any other (waits for Save, counted by the leave guard, the dimmed
+  // Save and Discard; over a stored receipt it shows "replaced when you save"
+  // and ✕ is an undo). With a Binder row already on file it just undoes any
+  // pick, since the slot is then back to what was loaded.
+  function pickBinderReceipt(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    if (!id) return;
+    if (!photoCommitTargetId(id)) { showToast("Receipts can't be saved in this build."); return; }
+    const prev = pendingReceipts[id];
+    if (prev && prev.saving) return;
+    const stored = prev ? prev.replaces : storedReceiptSnapshot(id);
+    delete receiptFiles[previewId];
+    if (stored && stored.binder) delete pendingReceipts[id];
+    else {
+      pendingReceipts[id] = {
+        previewId, prepared: null, binder: true, pdf: false, previewSrc: "",
+        replaces: stored || null,
+        landedName: "", saving: false, error: "", refused: false
+      };
+    }
+    repaintReceiptSlotsFor(id);
+    refreshEditSaveState();
+  }
+
   // ✕ on a pending pick. Over a stored receipt it is an UNDO (Ray's rule for
   // every Replace): the pick goes and the receipt on file is back as it was.
   function confirmRemovePendingReceipt(previewId) {
@@ -24622,10 +24795,13 @@
     p.saving = true; p.error = ""; p.refused = false;
     repaintReceiptSlotsFor(targetId);
     try {
-      const res = await commitReceiptCapture(targetId, p.prepared, {
-        landedName: p.landedName,
-        onUploaded: (name) => { p.landedName = name; }
-      });
+      const res = p.binder
+        ? await commitBinderReceipt(targetId)
+        : await commitReceiptCapture(targetId, p.prepared, {
+            landedName: p.landedName,
+            onUploaded: (name) => { p.landedName = name; }
+          });
+      if (p.binder) out.binder = true;
       out.receiptId = res.receiptId; out.filename = res.filename;
       if (res.unchanged) out.unchanged = 1;
       else {
@@ -24658,14 +24834,22 @@
     clearReceiptPdfIndicator(previewId, placeholderId);
   }
 
-  function showReceiptPdfIndicator(previewId, placeholderId, filename) {
+  // "Paper receipt in binder" picked: the same no-image indicator as a PDF,
+  // with the binder icon and no filename.
+  function showReceiptBinderIndicator(previewId, placeholderId) {
+    showReceiptPdfIndicator(previewId, placeholderId, BINDER_RECEIPT_PICK_TEXT, { icon: "📒", plain: true });
+  }
+
+  function showReceiptPdfIndicator(previewId, placeholderId, filename, opts) {
+    opts = opts || {};
+    const icon = opts.icon || "📄";
     const preview = document.getElementById(previewId);
     preview.style.display = "none";
     preview.removeAttribute("src");
     const placeholder = placeholderId ? document.getElementById(placeholderId) : null;
     if (placeholder) {
       if (!placeholder.dataset.origIcon) placeholder.dataset.origIcon = placeholder.innerHTML;
-      placeholder.innerHTML = "📄<div style=\"font-size:10px; opacity:0.85; margin-top:2px; word-break:break-all;\">" + escapeHtmlText(filename) + "</div>";
+      placeholder.innerHTML = icon + "<div style=\"font-size:10px; opacity:0.85; margin-top:2px; word-break:break-all;\">" + escapeHtmlText(filename) + "</div>";
       placeholder.style.display = "";
     } else {
       // No dedicated placeholder element (Add Set's plain photo boxes) —
@@ -24680,7 +24864,7 @@
           note.style.cssText = "font-size:12px; color:var(--gold-bright); margin-bottom:6px;";
           preview.insertAdjacentElement("afterend", note);
         }
-        note.textContent = "📄 " + filename + " attached";
+        note.textContent = icon + " " + filename + (opts.plain ? "" : " attached");
         note.style.display = "";
       }
     }
@@ -25469,35 +25653,12 @@
   // never overwritten by hydration: it is either newer than the sheet, or
   // it is the thing currently being uploaded.
   //
-  // THE FLIP CARD AND THIS MUST RESOLVE PHOTOS THE SAME WAY. They did not,
-  // and that is the second half of the AY-00002 report: storedPhotoFilename()
-  // (the card, Albums) reads the Photos tab and FALLS BACK to the legacy flat
-  // All.Obverse/Reverse column, while this read the Photos tab only. For a
-  // coin recorded only the old way — AY-00002 is one of the five — the card
-  // showed the real photo while Manage Photos drew an empty "＋" slot with no
-  // Replace, no Adjust and no Remove. Reproduced exactly before fixing.
-  //
-  // A legacy-only entry is marked `legacyOnly` because it has no Photos row
-  // behind it: it can be Replaced (which writes a proper row, migrating the
-  // coin onto the tab) but not detached, since this app never writes the flat
-  // columns.
-  function legacyStoredRowsFor(collectionId, existing) {
-    const coin = activeCoins().find(c => c.id === collectionId);
-    if (!coin) return [];
-    const out = [];
-    [["obverse", coin.obversePhotoFile], ["reverse", coin.reversePhotoFile]].forEach(([type, filename]) => {
-      if (!filename) return;
-      if (existing.some(r => r.galleryType === type)) return; // a real row wins
-      out.push({ photoId: "", photoType: photoTypeForGalleryType(type), galleryType: type,
-                 subGroupId: "", filename: String(filename), originalFilename: "", label: "",
-                 legacyOnly: true });
-    });
-    return out;
-  }
-
+  // THE FLIP CARD AND THIS RESOLVE PHOTOS THE SAME WAY: both read the
+  // Photos tab only. The old flat All.Obverse/Reverse fallback (and its
+  // `legacyOnly` entries) is gone: the Photos tab is the only record
+  // (receipts and photos alignment, Build 1, Oct 2026).
   function hydrateStoredPhotos(collectionId) {
-    const tabRows = storedPhotoRowsFor(collectionId);
-    const rows = tabRows.concat(legacyStoredRowsFor(collectionId, tabRows));
+    const rows = storedPhotoRowsFor(collectionId);
     if (!rows.length) return [];
     const list = galleryFor(collectionId);
     const added = [];
@@ -25547,7 +25708,6 @@
         rawFilename: null,
         subGroupId: sg,
         stored: true,
-        legacyOnly: !!row.legacyOnly,
         storedFilename: row.filename,
         storedPhotoId: row.photoId || "",
         storedOriginalFilename: row.originalFilename || ""
@@ -25578,7 +25738,7 @@
   // Unsaved = waiting for Save. Also covers a photo with no row yet (still
   // saving, or its save failed) that already has text typed into its box.
   function photoLabelUnsaved(entry) {
-    if (!entry || entry.legacyOnly) return false;
+    if (!entry) return false;
     if (entry.savedLabel === undefined) {
       return !!String(entry.caption || "").trim() &&
         (!!entry.uploadPending || galleryEntryNeverSaved(entry));
@@ -25613,7 +25773,7 @@
       }
     } else if (line) line.remove();
     const labelLine = thumb.querySelector(".gc-label-line");
-    if (labelLine) paintPhotoLabelLine(labelLine, entry, labelLine.classList.contains("gc-label-legacy"));
+    if (labelLine) paintPhotoLabelLine(labelLine, entry);
   }
   function syncStoredPhotoIndexLabel(collectionId, photoId, label) {
     if (!LIVE_PHOTOS || !LIVE_PHOTOS[collectionId]) return;
@@ -25841,7 +26001,10 @@
   // receipt the draft never had is not a change.
   function addCoinUnsavedReceipt() {
     const r = receiptFiles["receiptPreview"];
-    return !!(r && r.blob) || !!(editDraftFiles && editDraftFiles.receiptRemoved && editDraftFiles.receiptPhoto);
+    // A Binder pick is never set over a stored Binder (pickAddCoinBinderReceipt
+    // just un-removes it), so a pick here is always a change.
+    return !!(r && r.blob) || !!addCoinBinderPick ||
+      !!(editDraftFiles && editDraftFiles.receiptRemoved && (editDraftFiles.receiptPhoto || editDraftFiles.receiptBinder));
   }
 
   // ------------------------------------------------------------------
@@ -26107,14 +26270,12 @@
   // did: Save Changes / Save labels write a saved photo's label, a draft's
   // Save writes a draft's, and Back / Discard treat it like any unsaved edit.
   const PHOTO_LABEL_EMPTY_TEXT = "Tap to label";
-  const PHOTO_LABEL_LEGACY_TEXT = "Replace this photo to give it a label";
-  function paintPhotoLabelLine(line, entry, legacy) {
+  function paintPhotoLabelLine(line, entry) {
     if (!line) return;
     const text = String(entry.caption || "") || packageDisplayLabel(entry);
-    line.classList.toggle("gc-label-legacy", !!legacy);
-    line.classList.toggle("gc-label-empty", !legacy && !text);
-    line.textContent = legacy ? PHOTO_LABEL_LEGACY_TEXT : (text || PHOTO_LABEL_EMPTY_TEXT);
-    line.title = legacy ? PHOTO_LABEL_LEGACY_TEXT : text;
+    line.classList.toggle("gc-label-empty", !text);
+    line.textContent = text || PHOTO_LABEL_EMPTY_TEXT;
+    line.title = text;
   }
   // Where the label will be saved, for the line under the viewer's field.
   function photoLabelSaveHint(hostEl) {
@@ -26334,7 +26495,7 @@
       const at = list.indexOf(entry);
       if (at !== -1) list.splice(at, 1);
       if (res && res.detached) out.removed++;
-      else if (entry.storedFilename && !entry.legacyOnly) {
+      else if (entry.storedFilename) {
         // No row was found: it is already gone from the sheet. Drop it from
         // the session index too, or the next redraw would hydrate it back.
         syncStoredPhotoIndexRemoveByFilename(commitId, entry.storedFilename);
@@ -26375,7 +26536,8 @@
     if (p.removed) parts.push((parts.length ? p.removed + " removed" : n(p.removed, "photo") + " removed"));
     if (res.labels && res.labels.saved) parts.push(n(res.labels.saved, "label"));
     const r = res.receipt;
-    if (r && r.saved) parts.push(r.attached ? "receipt attached (" + r.receiptId + ")" : r.replaced ? "receipt replaced" : "receipt added");
+    if (r && r.saved) parts.push(r.binder ? "receipt set to the paper copy in the binder (" + r.receiptId + ")"
+      : r.attached ? "receipt attached (" + r.receiptId + ")" : r.replaced ? "receipt replaced" : "receipt added");
     return parts.join(", ");
   }
   // The failure half of a save message; empty when everything landed.
@@ -26916,17 +27078,6 @@
   // only once the workbook row is actually detached. Removing locally and
   // firing the write off unawaited is what let the screen and the sheet
   // disagree — the same defect class as the stale index above.
-  // Whether the legacy flat All column would STILL point at a photo for this
-  // side once the Photos row is gone. When it would, removing the row does
-  // not make the photo disappear — the card and this screen both fall back
-  // to it — and saying so up front is better than the user removing it and
-  // watching it stay.
-  function legacyFallbackFilenameFor(collectionId, type) {
-    if (type !== "obverse" && type !== "reverse") return "";
-    const coin = activeCoins().find(c => c.id === collectionId);
-    if (!coin) return "";
-    return String((type === "reverse" ? coin.reversePhotoFile : coin.obversePhotoFile) || "");
-  }
 
   // ✕ on a saved record's editing screen (photos wait for Save, Oct 2026).
   // Nothing is written now: a saved photo is marked to come off at Save
@@ -26954,8 +27105,7 @@
     const def = galleryTypeDef(entry && entry.type);
     const list = galleryFor(targetId);
     const underneath = entry.pendingSave ? (entry.pendingReplaces || null) : entry;
-    const removesSaved = !!(underneath && !underneath.legacyOnly);
-    const legacyKeeps = removesSaved && !!legacyFallbackFilenameFor(targetId, entry.type);
+    const removesSaved = !!underneath;
     const isUndo = !!(entry.pendingSave && entry.pendingReplaces);
     const finish = () => {
       const at = list.indexOf(entry);
@@ -26975,10 +27125,7 @@
     if (isUndo) { confirmUndoReplaceDialog(noun, finish); return; }
     const body = removesSaved
       ? "<p>This " + noun + " will be removed when you tap <b>Save</b>. Until then nothing changes, " +
-        "and Discard brings it back. The photo file itself is never deleted.</p>" +
-        (legacyKeeps
-          ? "<p><strong>Note:</strong> this coin also has a photo recorded in the old <strong>All</strong> sheet columns, which this app never writes. Removing the Photos row won't make the photo disappear — it will keep showing from there.</p>"
-          : "")
+"and Discard brings it back. The photo file itself is never deleted.</p>"
       : "<p>This " + noun + " hasn't been saved yet, so taking it off writes nothing.</p>";
     showWriteGuard({
       title: "Remove photo?",
@@ -26990,26 +27137,16 @@
   function confirmRemoveGalleryPhoto(targetId, entry, onRemoved, rerender) {
     const def = galleryTypeDef(entry && entry.type);
     const label = (def && def.label) || "this photo";
-    if (entry && photoCommitTargetId(targetId) && (entry.pendingSave || !entry.legacyOnly)) {
+    if (entry && photoCommitTargetId(targetId)) {
       confirmRemovePendingPhoto(targetId, entry, rerender || onRemoved);
       return;
     }
-    const legacyOnly = !!(entry && entry.legacyOnly);
-    const legacyKeeps = !legacyOnly && !!legacyFallbackFilenameFor(targetId, entry && entry.type);
-    const body = legacyOnly
-      ? "<p>This photo is recorded in the old <strong>All</strong> sheet columns, which this app never writes — so it can't be removed from here.</p>" +
-        "<p>Use <strong>Replace</strong> instead: that writes a proper Photos row and moves the coin onto the Photos tab.</p>"
-      : "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this record?</p>" +
-        "<p>Its row on the <strong>Photos</strong> tab is detached. The stored file itself is never deleted, so nothing is lost — you can re-attach it by capturing again.</p>" +
-        (legacyKeeps
-          ? "<p><strong>Note:</strong> this coin also has a photo recorded in the old <strong>All</strong> sheet columns, which this app never writes. Removing the Photos row won't make the photo disappear — it will keep showing from there.</p>"
-          : "");
+    const body = "<p>Remove <strong>" + escapeHtmlText(label) + "</strong> from this record?</p>" +
+        "<p>Its row on the <strong>Photos</strong> tab is detached. The stored file itself is never deleted, so nothing is lost — you can re-attach it by capturing again.</p>";
     showWriteGuard({
-      title: legacyOnly ? "Can't remove this one" : "Remove photo?",
+      title: "Remove photo?",
       bodyHtml: body,
-      buttons: legacyOnly
-        ? [{ label: "OK" }]
-        : [
+      buttons: [
             { label: "Cancel" },
             { label: "Remove", primary: true, onClick: async () => {
                 if (entry && entry.uploadPending) showToast("Finishing the save first, then removing…");
@@ -27028,9 +27165,7 @@
                   return;
                 }
                 if (onRemoved) onRemoved();
-                showToast(legacyKeeps
-                  ? "Photos row detached. The photo still shows from the old All-sheet column, which this app doesn't write."
-                  : "Photos row detached. The stored file is untouched.");
+                showToast("Photos row detached. The stored file is untouched.");
               } }
           ]
     });
@@ -27881,10 +28016,6 @@
       thumb.className = "gc-thumb" + (chooserMode ? " gc-row-tile" : "");
       thumb.dataset.file = entry.storedFilename || entry.filename || "";
       const loadingStored = !!(entry.stored && !entry.url);
-      // An old-style photo (legacy All columns, no Photos row) has nowhere
-      // to keep a label until it is Replaced; its line says so, and the
-      // viewer shows no label field for it.
-      const legacyLabel = chooserMode && !draft && !!entry.legacyOnly;
       const failedOverlay = (entry.uploadError && !draft) ? (entry.pendingSave ? `<div class="gc-failed-dim" aria-hidden="true"></div>` :
         `<div class="gc-failed-dim" aria-hidden="true"></div>
         <button type="button" class="gc-retry" aria-label="Retry saving this photo" title="Retry upload">↻</button>`) : "";
@@ -27954,19 +28085,19 @@
         // discard or the viewer's Done repaints its label line in place.
         photoLabelThumbs.set(entry, thumb);
         const labelLine = thumb.querySelector(".gc-label-line");
-        paintPhotoLabelLine(labelLine, entry, legacyLabel);
+        paintPhotoLabelLine(labelLine, entry);
         const photoEl = thumb.querySelector(".gc-img");
         photoEl.setAttribute("role", "button");
         photoEl.setAttribute("tabindex", "0");
-        photoEl.setAttribute("aria-label", "View this " + photoNoun + " full screen" + (legacyLabel ? "" : " and edit its label"));
-        // The tap opens the full-screen viewer with a label field (none for
-        // an old-style photo). ✕ and ↻ inside the photo keep their own jobs.
+        photoEl.setAttribute("aria-label", "View this " + photoNoun + " full screen and edit its label");
+        // The tap opens the full-screen viewer with a label field.
+        // ✕ and ↻ inside the photo keep their own jobs.
         // focus: "Tap to label" (the line under the photo) opens it with
         // the label field already focused, keyboard up; a tap on the photo
         // just opens it (Ray's tablet test of 0a0cbd1).
         const openViewer = (focus) => openGalleryPhotoInViewer(entry, {
           title: def ? def.label : "Photo",
-          label: { draft, legacy: legacyLabel, hint: photoLabelSaveHint(thumb), title: "Label for this " + photoNoun, focus: !!focus }
+          label: { draft, hint: photoLabelSaveHint(thumb), title: "Label for this " + photoNoun, focus: !!focus }
         });
         photoEl.addEventListener("click", (e) => { if (e.target.closest("button")) return; openViewer(false); });
         photoEl.addEventListener("keydown", (e) => {
@@ -28706,8 +28837,7 @@
   // Coin, the Staging-draft edit), full screen, so it can be looked at
   // closely. opts.title: the bar text. opts.label: present for a Reference /
   // COA / Other photo — the viewer then shows a label field at the top
-  // ({ draft, legacy, hint, title }); a legacy photo gets no field, only the
-  // "Replace this photo to give it a label" note. Without opts.label the
+  // ({ draft, hint, title }). Without opts.label the
   // viewer is view only (a pair slot's photo). Nothing here writes.
   let mediaViewerLabelState = null;
   function openGalleryPhotoInViewer(entry, opts) {
@@ -28716,9 +28846,7 @@
     const typeLabel = def ? def.label : entry.type;
     const token = openMediaViewer(opts.title || typeLabel);
     const lab = opts.label || null;
-    if (lab && lab.legacy) {
-      setMediaViewerFooter(`<span>${escapeHtmlText(typeLabel)} — ${escapeHtmlText(PHOTO_LABEL_LEGACY_TEXT)}</span>`);
-    } else if (lab) {
+    if (lab) {
       setMediaViewerFooter(`<span>${escapeHtmlText(typeLabel)}</span>`);
       showMediaViewerLabel(entry, lab);
     } else {
@@ -28754,7 +28882,7 @@
   const receiptBytesInFlight = {};
 
   function ensureReceiptBytes(filename) {
-    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve({ attempted: false });
+    if (!filename || isBinderReceiptName(filename) || !WRITE_LAYER_ENABLED) return Promise.resolve({ attempted: false });
     if (Object.prototype.hasOwnProperty.call(receiptBytesCache, filename)) {
       return Promise.resolve({ attempted: true, bytes: receiptBytesCache[filename] });
     }
@@ -29252,6 +29380,8 @@
   }
 
   function openReceiptInViewer(coin, filename) {
+    // A Binder row is a paper receipt with no file: never opened or fetched.
+    if (!filename || isBinderReceiptName(filename)) return;
     const token = openMediaViewer("Receipt — " + detailTitleText(coin));
     const footer = document.getElementById("mediaViewerFooter");
     footer.innerHTML = `<span class="mv-receipt-name">${escapeHtmlText(filename)}</span><span id="mediaViewerOneDrive"></span>`;
@@ -29482,6 +29612,7 @@
         // Already a PDF — passes through unchanged, no image preview to show.
         receiptFiles[previewId] = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf", sourceWasPdf: true };
         showReceiptPdfIndicator(previewId, placeholderId, receiptFiles[previewId].filename);
+        if (previewId === "receiptPreview") addCoinReceiptFilePicked(); // replaces a Binder pick
         holdPendingReceipt(previewId); // Edit Coin / Edit Set: held until Save (task x)
         refreshEditSaveState();
       } else {
@@ -29498,6 +29629,7 @@
         // wrap failure must never break the preview that already succeeded.
         try {
           receiptFiles[previewId] = await prepareReceiptFile(file);
+          if (previewId === "receiptPreview") addCoinReceiptFilePicked(); // replaces a Binder pick
           holdPendingReceipt(previewId); // Edit Coin / Edit Set: held until Save (task x)
           refreshEditSaveState();
         } catch (e) {
@@ -31368,6 +31500,8 @@
       }
       draft.photos = photos.uploaded;
       draft.receiptPhoto = receiptName;
+      // "Paper receipt in binder": no file, a Binder Receipts row at promotion.
+      if (!receiptName && addCoinBinderPick) draft.receiptBinder = true;
       if (photos.failed.length) {
         draft.researchNote = [draft.researchNote,
           "Some captured files failed to upload at capture: " + photos.failed.join(", ") + "."]
@@ -31491,7 +31625,7 @@
     if (sameLink && existing.matchedHow) rebuilt.matchedHow = existing.matchedHow;
     rebuilt.researchNote = mergeEditResearchNote(existing.researchNote, rebuilt.researchNote,
       sameLink ? rebuilt.coinId : "");
-    const KEEP = ["status", "photos", "receiptPhoto", "createdDate", "savedVia",
+    const KEEP = ["status", "photos", "receiptPhoto", "receiptBinder", "createdDate", "savedVia",
                   "allRowWritten", "forceAdded", "filesMovedOnPromotion",
                   "promotedDate", "forceAddedDate", "dismissedReason", "readyDate"];
     const updated = Object.assign({}, existing, rebuilt);
@@ -31501,6 +31635,10 @@
     });
     updated.photos = files.photos;
     updated.receiptPhoto = files.receiptPhoto;
+    // "Paper receipt in binder" (receipts and photos alignment, Build 1):
+    // recorded only when it is the draft's receipt; a file always wins.
+    if (files.receiptBinder && !files.receiptPhoto) updated.receiptBinder = true;
+    else delete updated.receiptBinder;
     updated.editedDate = new Date().toISOString();
     await writeCoinDraft(updated);
     await finishStagingEditFiles(collectionId, files);
@@ -31712,6 +31850,8 @@
     resetReceiptSlot("receiptPreview", "receiptPlaceholder");
     delete galleryStore[ADDCOIN_GALLERY_ID];
     delete receiptFiles["receiptPreview"];
+    addCoinBinderPick = false;
+    repaintAddCoinReceiptSlot();
     renderAddCoinPhotos();
 
     // --- Value + provenance
@@ -32102,6 +32242,7 @@
     const parentId = String(draft.originSetId || "").trim();
     const parentRec = parentId ? activeCoins().find(c => c.id === parentId) : null;
     editDraftFiles = { id, hydratedFiles: new Set(), receiptPhoto: draft.receiptPhoto || "",
+      receiptBinder: !draft.receiptPhoto && !!draft.receiptBinder,
       parentSetId: parentId, parentSetName: parentRec ? parentRec.name : "" };
     const list = galleryFor(ADDCOIN_GALLERY_ID);
     const entries = groups.map(g => {
@@ -32117,10 +32258,8 @@
       return entry;
     });
     editDraftFiles.loadedEntries = entries; // what "taken off" is measured against (task z)
-    if (draft.receiptPhoto) {
-      editDraftFiles.hydratedFiles.add(draft.receiptPhoto);
-      showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", draft.receiptPhoto + " (in Staging)");
-    }
+    if (draft.receiptPhoto) editDraftFiles.hydratedFiles.add(draft.receiptPhoto);
+    repaintAddCoinReceiptSlot();
     const render = () => renderAddCoinPhotos();
     render();
     updateStagingEditRemoveButtons();
@@ -32343,19 +32482,24 @@
     const listed = new Set(photos.map(coinDraftPhotoFilename));
     const receipt = receiptFiles["receiptPreview"];
     let receiptPhoto = fresh.receiptPhoto || "";
-    if (receipt && receipt.stagingUploaded) receiptPhoto = receipt.stagingName;
-    else if (editDraftFiles && editDraftFiles.receiptRemoved) receiptPhoto = "";
+    let receiptBinder = !!fresh.receiptBinder && !receiptPhoto;
+    if (receipt && receipt.stagingUploaded) { receiptPhoto = receipt.stagingName; receiptBinder = false; }
+    else if (addCoinBinderPick) { receiptPhoto = ""; receiptBinder = true; }
+    else if (editDraftFiles && editDraftFiles.receiptRemoved) { receiptPhoto = ""; receiptBinder = false; }
     // A receipt that was REPLACED keeps its old file on disk (never-overwrite,
     // Ray 28 Oct 2026): coin.json simply points at the new name. Only a
     // receipt taken off the draft with ✕ (receiptRemoved, confirmed first)
-    // has its file deleted.
-    const receiptReplaced = !!(receipt && receipt.stagingUploaded);
+    // has its file deleted. "Paper receipt in binder" replacing a stored
+    // file counts as a Replace: the old file stays in Staging.
+    const receiptReplaced = !!(receipt && receipt.stagingUploaded) || !!addCoinBinderPick;
     const dropped = [...hydrated].filter(n => !listed.has(n) && n !== receiptPhoto && !replacedFiles.has(n) &&
       !(receiptReplaced && n === (fresh.receiptPhoto || (editDraftFiles && editDraftFiles.receiptPhoto) || "")));
     const removedPhotoCount = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.removedCount || 0 : 0;
-    const receiptRemoved = !!(editDraftFiles && editDraftFiles.receiptRemoved && !receiptPhoto);
-    return { photos, receiptPhoto, dropped, added, photosReplaced, keptCount: kept.length, removedPhotoCount, receiptRemoved,
-             receiptSaved: receiptReplaced, receiptOldKept: receiptReplaced && !!(fresh.receiptPhoto) && fresh.receiptPhoto !== receiptPhoto };
+    const receiptRemoved = !!(editDraftFiles && editDraftFiles.receiptRemoved && !receiptPhoto && !receiptBinder &&
+      (editDraftFiles.receiptPhoto || editDraftFiles.receiptBinder));
+    return { photos, receiptPhoto, receiptBinder, dropped, added, photosReplaced, keptCount: kept.length, removedPhotoCount, receiptRemoved,
+             receiptSaved: receiptReplaced, receiptSavedBinder: !!addCoinBinderPick,
+             receiptOldKept: receiptReplaced && !!(fresh.receiptPhoto) && fresh.receiptPhoto !== receiptPhoto };
   }
 
   // After coin.json is written — never before: coin.json must never list a
@@ -32388,7 +32532,8 @@
     // Read from `files`, not receiptFiles: the toast is built after the form
     // has been reset, which clears receiptFiles (that made a changed receipt
     // read "Photos and receipt are unchanged").
-    if (files.receiptSaved) parts.push(files.receiptOldKept ? "receipt saved to Staging (the old file is kept there)" : "receipt saved to Staging");
+    if (files.receiptSavedBinder) parts.push(files.receiptOldKept ? "receipt set to the paper copy in the binder (the old file is kept in Staging)" : "receipt set to the paper copy in the binder");
+    else if (files.receiptSaved) parts.push(files.receiptOldKept ? "receipt saved to Staging (the old file is kept there)" : "receipt saved to Staging");
     const del = files.deleteResult || { deleted: [], failed: [] };
     const removedPhotos = files.removedPhotoCount || 0;
     if (removedPhotos) parts.push(removedPhotos + " photo" + (removedPhotos === 1 ? "" : "s") + " removed");
@@ -32429,30 +32574,124 @@
   function removeStagingEditReceipt() {
     // Only a receipt the draft really holds comes off at Save; ✕ on a pick
     // when the draft had none just drops the pick (task z).
-    if (editDraftFiles && editDraftFiles.receiptPhoto) editDraftFiles.receiptRemoved = true;
+    if (editDraftFiles && (editDraftFiles.receiptPhoto || editDraftFiles.receiptBinder)) editDraftFiles.receiptRemoved = true;
     delete receiptFiles["receiptPreview"];
+    addCoinBinderPick = false;
     resetReceiptSlot("receiptPreview", "receiptPlaceholder");
     showReceiptUploadState("receiptPreview", "", false, null);
+    repaintAddCoinReceiptSlot();
     updateStagingEditRemoveButtons();
     refreshEditSaveState();
   }
 
-  // ✕ on the receipt shows only while editing a Staging draft, and only
-  // when there is a receipt to remove; a fresh capture never sees it. (A
-  // photo's ✕ is the photo section's own.)
-  function updateStagingEditRemoveButtons() {
-    const editing = !!(editingCoinDraftId && editDraftFiles);
-    const r = document.getElementById("receiptRemoveBtn");
-    if (r) {
-      const hasReceipt = editing && (!!receiptFiles["receiptPreview"] ||
-        (!!editDraftFiles.receiptPhoto && !editDraftFiles.receiptRemoved));
-      r.style.display = hasReceipt ? "" : "none";
+  // ---- Add Coin / Staging-draft receipt slot: "Paper receipt in binder" ----
+  // (receipts and photos alignment, Build 1; the full chooser is backlog (y)).
+  // addCoinBinderPick: "Paper receipt in binder" picked and not yet saved. It
+  // waits for Save like a file pick: a new coin's draft records
+  // receiptBinder: true (a Binder Receipts row is written at promotion); a
+  // Staging edit writes it into coin.json. Counted by addCoinUnsavedReceipt
+  // (the leave guard, the dimmed Save, Discard). Declared with the other
+  // receipt state near the top (addCoinBinderPick).
+  // What the draft being edited holds: "" (nothing, or taken off with ✕),
+  // "binder", or its receipt filename.
+  function addCoinStoredReceipt() {
+    if (!editingCoinDraftId || !editDraftFiles || editDraftFiles.receiptRemoved) return "";
+    if (editDraftFiles.receiptPhoto) return editDraftFiles.receiptPhoto;
+    return editDraftFiles.receiptBinder ? "binder" : "";
+  }
+  function addCoinReceiptPick() {
+    const r = receiptFiles["receiptPreview"];
+    return (r && r.blob) ? "file" : (addCoinBinderPick ? "binder" : "");
+  }
+  // Draws the parts of the slot this state owns: the Binder indicator (a
+  // file pick paints its own preview), the stored receipt when nothing is
+  // picked, the "Replaces … when you save" line, and the Binder button.
+  function repaintAddCoinReceiptSlot() {
+    const stored = addCoinStoredReceipt();
+    const pick = addCoinReceiptPick();
+    if (pick === "binder") showReceiptBinderIndicator("receiptPreview", "receiptPlaceholder");
+    else if (!pick) {
+      if (stored === "binder") showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", BINDER_RECEIPT_PICK_TEXT + " (in Staging)", { icon: "📒", plain: true });
+      else if (stored) showReceiptPdfIndicator("receiptPreview", "receiptPlaceholder", stored + " (in Staging)");
+      else if (document.getElementById("receiptPreview")) resetReceiptSlot("receiptPreview", "receiptPlaceholder");
     }
+    const line = document.getElementById("addCoinReceiptStored");
+    if (line) {
+      const show = !!(pick && stored);
+      line.style.display = show ? "" : "none";
+      line.textContent = show ? "Replaces " + (stored === "binder" ? "the paper receipt in the binder" : stored) + " when you save." : "";
+    }
+    const bb = document.getElementById("receiptBinderBtn");
+    if (bb) bb.classList.toggle("hidden", pick === "binder" || (!pick && stored === "binder"));
+  }
+  function pickAddCoinBinderReceipt() {
+    delete receiptFiles["receiptPreview"];
+    showReceiptUploadState("receiptPreview", "", false, null);
+    if (editingCoinDraftId && editDraftFiles && !editDraftFiles.receiptPhoto && editDraftFiles.receiptBinder) {
+      // The draft already says Binder: back to what was loaded.
+      addCoinBinderPick = false;
+      editDraftFiles.receiptRemoved = false;
+    } else {
+      addCoinBinderPick = true;
+    }
+    repaintAddCoinReceiptSlot();
+    updateStagingEditRemoveButtons();
+    refreshEditSaveState();
+  }
+  // A file picked into the slot replaces a Binder pick.
+  function addCoinReceiptFilePicked() {
+    addCoinBinderPick = false;
+    repaintAddCoinReceiptSlot();
+    updateStagingEditRemoveButtons();
+  }
+  // ✕ on the slot. A pick over the draft's stored receipt is an UNDO (the
+  // stored one is back, nothing deleted); a pick with nothing stored just
+  // goes; with no pick it takes the stored receipt off at Save, as before.
+  function onAddCoinReceiptRemoveClick() {
+    const pick = addCoinReceiptPick();
+    const stored = addCoinStoredReceipt();
+    const dropPick = () => {
+      delete receiptFiles["receiptPreview"];
+      addCoinBinderPick = false;
+      resetReceiptSlot("receiptPreview", "receiptPlaceholder");
+      showReceiptUploadState("receiptPreview", "", false, null);
+      repaintAddCoinReceiptSlot();
+      updateStagingEditRemoveButtons();
+      refreshEditSaveState();
+    };
+    if (pick && stored) {
+      showWriteGuard({
+        title: "Put the previous receipt back?",
+        bodyHtml: "<p>This receipt replaced the one that was here. Removing it puts the previous receipt back, " +
+          "as if you had never replaced it. <b>Nothing is deleted.</b></p>",
+        buttons: [{ label: "Cancel", primary: true }, { label: "Put it back", onClick: dropPick }]
+      });
+      return;
+    }
+    if (pick) {
+      showWriteGuard({
+        title: "Remove receipt?",
+        bodyHtml: "<p>This receipt hasn't been saved yet, so taking it off writes nothing.</p>",
+        buttons: [{ label: "Cancel" }, { label: "Remove", primary: true, onClick: dropPick }]
+      });
+      return;
+    }
+    confirmStagingRemove("the receipt", removeStagingEditReceipt);
+  }
+
+  // ✕ on the receipt shows while editing a Staging draft when there is a
+  // receipt to remove or a pick to undo, and on a new coin when a receipt
+  // has been picked. (A photo's ✕ is the photo section's own.)
+  function updateStagingEditRemoveButtons() {
+    const r = document.getElementById("receiptRemoveBtn");
+    if (r) r.style.display = (addCoinReceiptPick() || addCoinStoredReceipt()) ? "" : "none";
   }
 
   function wireStagingEditRemoveButtons() {
     const r = document.getElementById("receiptRemoveBtn");
-    if (r) r.addEventListener("click", () => confirmStagingRemove("the receipt", removeStagingEditReceipt));
+    if (r) r.addEventListener("click", onAddCoinReceiptRemoveClick);
+    const b = document.getElementById("receiptBinderBtn");
+    if (b) b.addEventListener("click", pickAddCoinBinderReceipt);
   }
 
   // Add Coin's photos: Edit Coin's own section (renderManagePhotosInto) in
@@ -33399,6 +33638,18 @@
 
   let currentSetDraft = null;                 // the draft being captured/resumed
   const addSetPhotoFiles = { whole: null, receipt: null, childObv: null, childRev: null };
+  // "Paper receipt in binder" picked on Add Set's receipt slot (receipts and
+  // photos alignment, Build 1). Saved into the Set draft as receiptBinder
+  // (Save / Pause); a Binder Receipts row is written at promotion. No leave
+  // guard here: Add Set is not a guarded screen (backlog (ab)).
+  let addSetReceiptBinder = false;
+  function pickAddSetBinderReceipt() {
+    addSetClearPhoto("receipt", "addSetReceiptPreview");
+    addSetReceiptBinder = true;
+    showReceiptBinderIndicator("addSetReceiptPreview", null);
+    const bb = document.getElementById("addSetReceiptBinderBtn");
+    if (bb) bb.classList.add("hidden");
+  }
   // Upload filename per key — only "receipt" varies (always ends up ".pdf",
   // see wireAddSetPhotoSlot's isReceipt branch); every other key keeps its
   // fixed ".jpg" name, assigned directly at the uploadDraftPhoto() call site.
@@ -33430,6 +33681,12 @@
     document.getElementById(cameraBtnId).addEventListener("click", () => cam.click());
     document.getElementById(libraryBtnId).addEventListener("click", () => lib.click());
     async function handle(file) {
+      if (isReceipt) {
+        // A file picked here replaces a "Paper receipt in binder" pick.
+        addSetReceiptBinder = false;
+        const bb = document.getElementById("addSetReceiptBinderBtn");
+        if (bb) bb.classList.remove("hidden");
+      }
       if (isReceipt && isPdfFile(file)) {
         const prepared = { blob: file, filename: (file.name || "receipt").replace(/\.[^.]+$/, "") + ".pdf" };
         addSetPhotoFiles[key] = prepared.blob;
@@ -33479,7 +33736,12 @@
 
   function addSetClearPhoto(key, previewId) {
     addSetPhotoFiles[key] = null;
-    if (key === "receipt") addSetPhotoFilenames.receipt = "receipt.pdf"; // back to default, no stale filename from a prior pick
+    if (key === "receipt") {
+      addSetPhotoFilenames.receipt = "receipt.pdf"; // back to default, no stale filename from a prior pick
+      addSetReceiptBinder = false;
+      const bb = document.getElementById("addSetReceiptBinderBtn");
+      if (bb) bb.classList.remove("hidden");
+    }
     const p = document.getElementById(previewId);
     p.src = ""; p.style.display = "none";
     clearReceiptPdfIndicator(previewId, null);
@@ -33520,6 +33782,7 @@
     // Set-documents accordion. "square" for the Step 2 per-coin
     // obverse/reverse, which are flip-card sources.
     wireAddSetPhotoSlot("receipt", "addSetReceiptPreview", "addSetReceiptCameraBtn", "addSetReceiptLibraryBtn", "addSetReceiptCameraInput", "addSetReceiptLibraryInput", true);
+    document.getElementById("addSetReceiptBinderBtn").addEventListener("click", pickAddSetBinderReceipt);
     wireAddSetPhotoSlot("childObv", "addSetChildObvPreview", "addSetChildObvCameraBtn", "addSetChildObvLibraryBtn", "addSetChildObvCameraInput", "addSetChildObvLibraryInput", false, "square");
     wireAddSetPhotoSlot("childRev", "addSetChildRevPreview", "addSetChildRevCameraBtn", "addSetChildRevLibraryBtn", "addSetChildRevCameraInput", "addSetChildRevLibraryInput", false, "square");
 
@@ -33927,6 +34190,13 @@
       "Resuming " + draft.collectionID + " — attach the missing whole-set photo below, then Save.";
 
     currentSetDraft = draft; // tells startSetCapture() to update this draft in place, not reserve a new ID
+    // A draft whose receipt is the paper copy in the binder says so (no
+    // pick: saving again keeps it).
+    if (draft.receiptBinder && !draft.receiptPhoto) {
+      showReceiptPdfIndicator("addSetReceiptPreview", null, BINDER_RECEIPT_PICK_TEXT + " (in Staging)", { icon: "📒", plain: true });
+      const bb = document.getElementById("addSetReceiptBinderBtn");
+      if (bb) bb.classList.add("hidden");
+    }
 
     // Re-render the gallery now that the widget targets this resumed draft's
     // own CollectionID (showAddSetStep1 rendered it against the temp key).
@@ -34028,13 +34298,18 @@
         // draft already had (uploadDraftPhoto returns "" when no new file
         // was picked, which would otherwise blank out an existing photo).
         const wholeName = (await uploadDraftPhoto(collectionId, "whole", "set.jpg")) || resumingDraft.wholeSetPhoto;
-        const receiptName = (await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt)) || resumingDraft.receiptPhoto;
+        const newReceipt = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
+        // "Paper receipt in binder" picked now replaces the draft's receipt
+        // (its old file stays in Staging); a new file replaces a Binder.
+        const receiptName = addSetReceiptBinder ? "" : (newReceipt || resumingDraft.receiptPhoto);
         resumingDraft.setName = setName;
         resumingDraft.productCode = productCode;
         resumingDraft.category = category;
         resumingDraft.year = yearValue;
         resumingDraft.wholeSetPhoto = wholeName;
         resumingDraft.receiptPhoto = receiptName;
+        if (addSetReceiptBinder) resumingDraft.receiptBinder = true;
+        else if (newReceipt) delete resumingDraft.receiptBinder;
         Object.assign(resumingDraft, readAddSetPurchaseStorage());
         await writeSetDraft(resumingDraft);
         currentSetDraft = resumingDraft;
@@ -34058,6 +34333,7 @@
         dbSetsMatch: matchDbSetsByProductCode(productCode),
         expectedChildCount: expected, subGroups,
         wholeSetPhoto: wholeName, receiptPhoto: receiptName,
+        receiptBinder: !receiptName && addSetReceiptBinder,
         year: yearValue,
         checklistSetId: ctx ? ctx.setId : "",
         checklistLineage: ctx ? ctx.lineage : "",

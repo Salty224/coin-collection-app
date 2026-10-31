@@ -30,8 +30,10 @@
 //   G   Edit Set: pick, Save (with and without a field change), Discard, undo
 //   H   each refreshEditSaveState() call this task added, in isolation
 //   I   the Receipts row wins over All.Receipt whenever it exists (slot and
-//       detail); a coin with only All.Receipt shows that file in the slot,
-//       and a pick creates a Receipts row that then wins; "Binder" is no file
+//       detail); since the receipts and photos alignment (Build 1) a coin
+//       with only All.Receipt shows NO receipt (the column is not read), a
+//       pick creates a Receipts row that then shows; "Binder" in All.Receipt
+//       is not read, a Binder Receipts row is the paper receipt
 //   J   Add Coin's receipt slot is untouched; write layer off -> nothing held
 //   M   layout at phone and tablet widths
 
@@ -621,7 +623,9 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
   ok("H3 Discard dims a drifted enabled Save (receipt discarded before the photo refresh)", H.discard.disabled && H.discard.clean, H.discard);
   ok("H4 after a Save whose receipt failed, Save stays enabled (the receipt is still unsaved)", !H.failedSave.disabled, H.failedSave);
 
-  // ---------- I. the Receipts row wins over All.Receipt ------------------------
+  // ---------- I. the Receipts row is the only record ---------------------------
+  // (Receipts and photos alignment, Build 1: All.Receipt is no longer read
+  // at all, not even as a fallback; I3, I4a and I5 follow that design.)
   const I = await page.evaluate(async () => {
     const W = __rs; await W.install();
     const out = {};
@@ -657,22 +661,28 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
     await W.openEditCoin(W.legacy);
     out.i4slotAfter = W.slot("browseEdit").storedBtn;
     navigateNow("dashboard");
-    // I5 "Binder" is no file
+    // I5 "Binder" only in All.Receipt is not read; a Binder ROW is the paper receipt
     await W.openEditCoin(W.binder);
     out.i5slot = W.slot("browseEdit").stored;
     showBrowseDetail(W.binder);
     out.i5detail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Binder (not scanned)") !== -1 };
+    __setStoredReceiptsForTest({ "AY-00093": { receiptId: "RC-00030", filename: "Binder" } });
+    await W.openEditCoin(W.binder);
+    out.i5rowSlot = W.slot("browseEdit").stored;
+    showBrowseDetail(W.binder);
+    out.i5rowDetail = { link: W.detailReceipt(), text: document.getElementById("browseDetailView").textContent.indexOf("Binder (not scanned)") !== -1 };
     return out;
   });
   ok("I1a a Receipts row beats a different name in All.Receipt: the SLOT shows the Receipts row", I.i1slot === "AY-00099_receipt.pdf", I.i1slot);
   ok("I1b ... and so does the DETAIL page", I.i1detail === "AY-00099_receipt.pdf", I.i1detail);
   ok("I2 a Receipts row wins whenever it exists (even a name without an extension)", I.i2 && I.i2.filename === "scan-no-ext" && !I.i2.legacy, I.i2);
-  ok("I3a a coin with only All.Receipt shows that file in the SLOT (tap opens the viewer) ...", I.i3slot === "legacy98.pdf" && I.i3snap && I.i3snap.legacy === true, { s: I.i3slot, n: I.i3snap });
-  ok("I3b ... and on the DETAIL page", I.i3detail === "legacy98.pdf", I.i3detail);
-  ok("I4a the pick over an All.Receipt-only receipt says it replaces the file on record", /Not saved yet/.test(I.i4status) && /replaces/i.test(I.i4status) && /replaced when you save/.test(I.i4stored), { s: I.i4status, t: I.i4stored });
+  ok("I3a a coin with only All.Receipt shows NO receipt in the SLOT (All.Receipt is not read)", I.i3slot === null && I.i3snap === null, { s: I.i3slot, n: I.i3snap });
+  ok("I3b ... nor on the DETAIL page", I.i3detail === null, I.i3detail);
+  ok("I4a a pick on that coin is a plain add (nothing on file to replace)", /Not saved yet/.test(I.i4status) && !/replaces/i.test(I.i4status) && I.i4stored === "No receipt on file", { s: I.i4status, t: I.i4stored });
   ok("I4b Save creates a Receipts row in the FIRST blank row with a new ReceiptID; the old file and All.Receipt are untouched", I.i4.idx === I.i4.firstBlank && /^RC-\d{5}$/.test(I.i4.row[0]) && I.i4.row[2] === "new98.pdf" && I.i4.legacyFile === "LEGACY98" && I.i4.allSheetFile === "legacy98.pdf", I.i4);
   ok("I4c the new Receipts row now WINS over All.Receipt on the detail page and in the slot on reopening", I.i4.detail === "new98.pdf" && I.i4slotAfter === "new98.pdf" && I.i4.idx2.filename === "new98.pdf", { d: I.i4.detail, s: I.i4slotAfter });
-  ok("I5 'Binder' is no file: the slot says 'No receipt on file' and the detail page says 'Binder (not scanned)' without a link", I.i5slot === "No receipt on file" && I.i5detail.link === null && I.i5detail.text, I.i5detail);
+  ok("I5 'Binder' only in All.Receipt is not read (slot 'No receipt on file', no Binder line on the detail page)", I.i5slot === "No receipt on file" && I.i5detail.link === null && !I.i5detail.text, I.i5detail);
+  ok("I5b a Binder Receipts ROW is the paper receipt: the slot says so and the detail page says 'Binder (not scanned)' without a link", I.i5rowSlot === "Paper receipt in the binder (not scanned)" && I.i5rowDetail.link === null && I.i5rowDetail.text, [I.i5rowSlot, I.i5rowDetail]);
 
   // ---------- J. other slots untouched ----------------------------------------
   const J = await page.evaluate(async () => {

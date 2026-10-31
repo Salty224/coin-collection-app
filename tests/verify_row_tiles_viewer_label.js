@@ -18,7 +18,8 @@
 //      Cancel / Esc / phone Back change nothing; Enter applies; the label
 //      line opens it too; ✕ and ↻ keep their jobs; a redraw while open;
 //      leaving the screen applies nothing; Discard restores; Save labels
-//      writes one cell; legacy photos get no field.
+//      writes one cell; (the legacy no-field state is gone since the
+//      receipts and photos alignment, Build 1).
 //   G  draft mode (Add Coin) and Edit Coin's Save Changes.
 //   P  a pair-slot photo opens the viewer VIEW ONLY; ✕ / Replace don't.
 //   C  the coin page's Photos strip (and a Set's page): same height, tops
@@ -457,7 +458,8 @@ module.exports = defineSuite("row-tiles-viewer-label", async ({ ok, openApp, PHO
     document.getElementById("managePhotosSaveLabelsBtn").click();
     await T.waitFor(() => T.mock._grids.Photos.find(r => r[0] === "PH-00002")[5] === "Heritage lot 4411", 3000);
     out.saved = { cell: T.mock._grids.Photos.find(r => r[0] === "PH-00002")[5], patches: T.patches.slice() };
-    // A legacy photo: the viewer has no field, and says how to label it
+    // The old legacyOnly flag no longer changes anything (receipts and photos
+    // alignment, Build 1): the viewer has its label field as usual.
     const leg = galleryFor("AY-00099").find(e => e.storedFilename === "AY-00099_reference_03.jpg");
     leg.legacyOnly = true; renderManagePhotos(); T.openAll("managePhotosSections");
     const legTile = T.thumb(host, "AY-00099_reference_03.jpg");
@@ -501,9 +503,9 @@ module.exports = defineSuite("row-tiles-viewer-label", async ({ ok, openApp, PHO
   ok(D.discard.caption === LONG && D.discard.line === LONG, "B11 Discard puts the saved label back: " + JSON.stringify(D.discard));
   ok(D.saved.cell === "Heritage lot 4411" && D.saved.patches.length === 1 && /^Photos!F(\d+)(:F\1)?$/.test(D.saved.patches[0]),
     "B12 Save labels then writes the edited label, one cell: " + JSON.stringify(D.saved));
-  ok(D.legacy.open && !D.legacy.field && /Replace this photo to give it a label/.test(D.legacy.footer) &&
-      D.legacy.line === "Replace this photo to give it a label" && /gc-label-legacy/.test(D.legacy.cls),
-    "B13 a legacy photo opens with no label field, and says to Replace it to give it a label: " + JSON.stringify(D.legacy));
+  ok(D.legacy.open && D.legacy.field && !/Replace this photo to give it a label/.test(D.legacy.footer) &&
+      D.legacy.line !== "Replace this photo to give it a label" && !/gc-label-legacy/.test(D.legacy.cls),
+    "B13 the legacyOnly class is gone: an entry carrying the old flag opens with the ordinary label field: " + JSON.stringify(D.legacy));
   ok(!D.retry.viewer, "B14 ↻ on a failed photo retries; it doesn't open the viewer");
   ok(D.coinPage.open && !D.coinPage.field, "B15 the coin page's viewer is view only (no label field): " + JSON.stringify(D.coinPage));
 

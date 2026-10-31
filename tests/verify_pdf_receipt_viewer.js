@@ -65,7 +65,14 @@ module.exports = defineSuite("pdf-receipt-viewer", async ({ ok, openApp, PHONE }
         mk("AY-90604", "Broken.pdf")
       ]);
       __setStoredPhotosForTest({});
-      __setStoredReceiptsForTest({});
+      // The receipts are Receipts rows: since the receipts and photos
+      // alignment (Build 1) the old All.Receipt column (receiptFile) is not read.
+      __setStoredReceiptsForTest({
+        "AY-90601": { receiptId: "RC-90601", filename: "Seller_invoice_3page.pdf" },
+        "AY-90602": { receiptId: "RC-90602", filename: "AY-90602_receipt.pdf" },
+        "AY-90603": { receiptId: "RC-90603", filename: "Seller_onepage.pdf" },
+        "AY-90604": { receiptId: "RC-90604", filename: "Broken.pdf" }
+      });
       const g = createMockGraphClient({});
       window.__WRITES = [];
       window.__SEEDING = true;
