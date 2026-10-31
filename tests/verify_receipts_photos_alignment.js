@@ -441,8 +441,8 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     JSON.stringify(B1.names) === JSON.stringify([true, true, true, false, false, false, false]));
   ok("B2 the detail page shows 'Not scanned (paper receipt in binder)' as plain text, no viewer button or link: " + JSON.stringify([B1.stored, B1.detail, B1.detailBinder]),
     B1.stored && B1.stored.binder === true && B1.detailBinder === "Not scanned (paper receipt in binder)" && !B1.detailLink);
-  ok("B3 the Edit slot says 'Not scanned (paper receipt in binder)', nothing to tap, no ✕, and no Binder button (it is already that): " + JSON.stringify(B1.slot),
-    B1.slot.stored === "Not scanned (paper receipt in binder)" && !B1.slot.storedBtn && !B1.slot.binderShown && !B1.slot.removeShown);
+  ok("B3 the Edit slot says 'Not scanned (paper receipt in binder)', nothing to tap, no Binder button (it is already that); the ✕ is the double-checked removal (Build 2): " + JSON.stringify(B1.slot),
+    B1.slot.stored === "Not scanned (paper receipt in binder)" && !B1.slot.storedBtn && !B1.slot.binderShown && B1.slot.removeShown);
   ok("B4 'Binder' is never opened or fetched as a file (viewer, bytes, OneDrive link): " + JSON.stringify([B1.viewer, B1.reads, B1.bytes, B1.url]),
     !B1.viewer && B1.reads.length === 0 && B1.bytes.attempted === false && B1.url === null);
   ok("B5 the filename checks ignore Binder rows (find by filename, used by another coin, free name) and still see real files: " + JSON.stringify([B1.findBinder, B1.usedByOther, B1.usedByOtherFile, B1.free]),

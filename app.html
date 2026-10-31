@@ -3453,9 +3453,10 @@
                     <div class="photo-btns">
                       <button type="button" id="browseEditReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                       <button type="button" id="browseEditReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                      <button type="button" id="browseEditReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
+                      <button type="button" id="browseEditReceiptRemoveBtn" style="display:none;" aria-label="Remove the receipt" title="Remove">✕</button>
                     </div>
                     <button type="button" class="receipt-binder-btn" id="browseEditReceiptBinderBtn">📒 Not scanned, paper in binder</button>
+                    <button type="button" class="receipt-binder-btn hidden" id="browseEditReceiptPutBackBtn">↩ Put it back</button>
                     <input type="file" id="browseEditReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="browseEditReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -3662,9 +3663,10 @@
                     <div class="photo-btns">
                       <button type="button" id="editSetReceiptCameraBtn" aria-label="Take photo with camera" title="Camera">📷</button>
                       <button type="button" id="editSetReceiptLibraryBtn" aria-label="Choose photo from library" title="Library">🖼️</button>
-                      <button type="button" id="editSetReceiptRemoveBtn" style="display:none;" aria-label="Take the picked receipt off" title="Take off">✕</button>
+                      <button type="button" id="editSetReceiptRemoveBtn" style="display:none;" aria-label="Remove the receipt" title="Remove">✕</button>
                     </div>
                     <button type="button" class="receipt-binder-btn" id="editSetReceiptBinderBtn">📒 Not scanned, paper in binder</button>
+                    <button type="button" class="receipt-binder-btn hidden" id="editSetReceiptPutBackBtn">↩ Put it back</button>
                     <input type="file" id="editSetReceiptCameraInput" accept="image/*" capture="environment">
                     <input type="file" id="editSetReceiptLibraryInput" accept="image/*,application/pdf">
                   </div>
@@ -6130,6 +6132,13 @@
     const prev = LIVE_RECEIPTS[collectionId];
     LIVE_RECEIPTS[collectionId] = { receiptId: row.receiptId || "", filename: row.filename,
       binder: isBinderReceiptName(row.filename), rowCount: prev ? (prev.rowCount || 1) : 1 };
+    mediaChangedThisSession.add(collectionId);
+  }
+
+  // A receipt taken off a coin (Build 2): its row is blank on the sheet, so
+  // the session index forgets it too.
+  function syncStoredReceiptIndexRemove(collectionId) {
+    if (LIVE_RECEIPTS) delete LIVE_RECEIPTS[collectionId];
     mediaChangedThisSession.add(collectionId);
   }
 
@@ -18521,7 +18530,8 @@
 
   function initBrowseEdit() {
     wireMockPhotoSlot("browseEditReceiptPreview", "browseEditReceiptPlaceholder", "browseEditReceiptCameraBtn", "browseEditReceiptLibraryBtn", "browseEditReceiptCameraInput", "browseEditReceiptLibraryInput");
-    document.getElementById("browseEditReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("browseEditReceiptPreview"));
+    document.getElementById("browseEditReceiptRemoveBtn").addEventListener("click", () => onReceiptRemoveClick("browseEditReceiptPreview"));
+    document.getElementById("browseEditReceiptPutBackBtn").addEventListener("click", () => putBackRemovedReceipt("browseEditReceiptPreview"));
     document.getElementById("browseEditReceiptBinderBtn").addEventListener("click", () => pickBinderReceipt("browseEditReceiptPreview"));
 
     // One toggle per section accordion, plus the nested Receipt pill inside
@@ -19034,7 +19044,8 @@
   // exists for either form yet.
   function initBrowseEditSet() {
     wireMockPhotoSlot("editSetReceiptPreview", "editSetReceiptPlaceholder", "editSetReceiptCameraBtn", "editSetReceiptLibraryBtn", "editSetReceiptCameraInput", "editSetReceiptLibraryInput");
-    document.getElementById("editSetReceiptRemoveBtn").addEventListener("click", () => confirmRemovePendingReceipt("editSetReceiptPreview"));
+    document.getElementById("editSetReceiptRemoveBtn").addEventListener("click", () => onReceiptRemoveClick("editSetReceiptPreview"));
+    document.getElementById("editSetReceiptPutBackBtn").addEventListener("click", () => putBackRemovedReceipt("editSetReceiptPreview"));
     document.getElementById("editSetReceiptBinderBtn").addEventListener("click", () => pickBinderReceipt("editSetReceiptPreview"));
 
     populateStatusSelect(document.getElementById("editSetStatus"));
@@ -24482,6 +24493,20 @@
     return { ...res, filename: BINDER_RECEIPT_FILENAME, binder: true, reused: false };
   }
 
+  // Build 2 (af) adds three things to this function:
+  //   - opts.scope === "all" ("Replace on all N coins"): when this coin's
+  //     stored receipt is shared (other coins' rows carry its ReceiptID), every
+  //     one of those rows gets the new Filename and today's DateAdded and KEEPS
+  //     the ReceiptID, even when the picked file is already in CoinReceipts
+  //     under another ReceiptID (no merge, no id rewrite: res.keptIdOver names
+  //     it). Anything else ("this coin only", or no choice) is the old rule: a
+  //     shared id is not followed onto this coin's new file, a fresh one is
+  //     minted. Rows of OTHER ReceiptIDs are never touched.
+  //   - the _02 fix: the candidate name already exists in CoinReceipts, no row
+  //     claims it, and its bytes equal the pick -> that file is reused
+  //     (res.adopted, nothing uploaded) with a new ReceiptID. Different bytes
+  //     still take the next free name.
+  //   - old files are never deleted.
   async function commitReceiptCapture(collectionId, prepared, opts) {
     opts = opts || {};
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
@@ -24489,6 +24514,15 @@
     const candidate = storedReceiptFilename(collectionId, prepared);
     const sameNameRow = rows.find(r => r.Filename && !isBinderReceiptName(r.Filename) &&
       r.Filename.toLowerCase() === candidate.toLowerCase());
+
+    // "Replace on all N coins": only while this coin's own receipt is a scan
+    // whose ReceiptID other coins' (non-Binder) rows still carry.
+    const keepId = (opts.scope === "all" && thisRow && thisRow.ReceiptID && !isBinderReceiptName(thisRow.Filename))
+      ? thisRow.ReceiptID : "";
+    const sharers = keepId
+      ? rows.filter(r => r.ReceiptID === keepId && r.CollectionID !== collectionId && !isBinderReceiptName(r.Filename))
+      : [];
+    const allMode = sharers.length > 0;
 
     // A retry whose file already landed under its own chosen name.
     let landed = false;
@@ -24504,6 +24538,7 @@
     }
 
     let reused = false;
+    let adopted = false;
     if (!landed) {
       let storedBytes = null;
       try { storedBytes = await graph().getFileBytes(writePaths().coinReceipts + "/" + candidate); }
@@ -24513,37 +24548,115 @@
         try { sameDoc = await sameFileBytes(storedBytes, prepared.blob); } catch (e) { sameDoc = false; }
       }
       reused = !!(sameNameRow && sameDoc);
-      if (!reused && (sameNameRow || storedBytes != null)) {
+      if (!reused && !sameNameRow && storedBytes != null && sameDoc) {
+        // The _02 fix: this exact file already sits in CoinReceipts and no row
+        // claims it. Use it as it is: no upload, no "_02" copy.
+        adopted = true;
+      } else if (!reused && (sameNameRow || storedBytes != null)) {
         // A row claims this name, or a file already sits there with no row
-        // behind it (an untraceable leftover) — either way, never write
-        // over it.
+        // behind it and different bytes — either way, never write over it.
         filename = await freeReceiptFilename(candidate, rows);
       }
     }
 
     let receiptId;
+    let keptIdOver = "";
     if (reused) {
-      receiptId = sameNameRow.ReceiptID;
-      if (thisRow && thisRow.ReceiptID === receiptId && String(thisRow.Filename).toLowerCase() === filename.toLowerCase()) {
+      if (allMode) {
+        receiptId = keepId;
+        if (sameNameRow.ReceiptID && sameNameRow.ReceiptID !== keepId) keptIdOver = sameNameRow.ReceiptID;
+      } else {
+        receiptId = sameNameRow.ReceiptID;
+      }
+      const lc = x => String(x).toLowerCase();
+      if (thisRow && thisRow.ReceiptID === receiptId && lc(thisRow.Filename) === lc(filename) &&
+          (!allMode || sharers.every(r => lc(r.Filename) === lc(filename)))) {
         return { receiptId, row: thisRow.__row, replaced: false, filename, reused: true, unchanged: true };
       }
     } else {
-      if (!landed) {
+      if (!landed && !adopted) {
         await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
         if (opts.onUploaded) opts.onUploaded(filename);
       }
-      // Keep this coin's own existing id across the replace — UNLESS some
-      // other coin's row still shares it, in which case following it onto
-      // this coin's new file would leave it pointing at two different
-      // documents. That other row (and its own file) is left untouched
-      // either way; only this coin's row ever changes here.
-      receiptId = (thisRow && thisRow.ReceiptID && !receiptIdUsedByOtherCoin(rows, thisRow.ReceiptID, collectionId))
-        ? thisRow.ReceiptID
-        : null; // null: writeReceiptRow mints a fresh one inside the table's lock
+      if (allMode) {
+        receiptId = keepId; // every row on the receipt keeps its id
+      } else if (adopted) {
+        receiptId = null; // a file nothing claimed gets a new id (minted in the lock)
+      } else {
+        // Keep this coin's own existing id across the replace — UNLESS some
+        // other coin's row still shares it, in which case following it onto
+        // this coin's new file would leave it pointing at two different
+        // documents. That other row (and its own file) is left untouched
+        // either way; only this coin's row ever changes here.
+        receiptId = (thisRow && thisRow.ReceiptID && !receiptIdUsedByOtherCoin(rows, thisRow.ReceiptID, collectionId))
+          ? thisRow.ReceiptID
+          : null; // null: writeReceiptRow mints a fresh one inside the table's lock
+      }
     }
 
     const res = await writeReceiptRow(collectionId, filename, receiptId);
-    return { ...res, filename, reused };
+    const out = { ...res, filename, reused, adopted };
+    if (allMode) {
+      // The other coins' rows: Filename and today's DateAdded, ReceiptID and
+      // CollectionID as they were. Only rows that carry keepId are patched.
+      const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+      const today = excelSerialToday();
+      for (const r of sharers) {
+        await patchRecordRow(RECEIPTS_SHEET_NAME, r.__row, map, buildPhotoRowPatch(r, map, { Filename: filename, DateAdded: today }));
+      }
+      const others = Array.from(new Set(sharers.map(r => r.CollectionID)));
+      out.scope = "all";
+      out.otherCoinIds = others;
+      out.coins = others.length + 1;
+      out.keptIdOver = keptIdOver;
+    }
+    return out;
+  }
+
+  // Build 2 (af): take this coin's stored receipt off. Re-reads the sheet,
+  // refuses a coin with 2+ rows, and blanks ONLY this coin's row (the row goes
+  // back to the blank-row pool, like detachPhotoRow). Other coins' rows on the
+  // same ReceiptID and the file in CoinReceipts are never touched, and no file
+  // is ever deleted. `expected` is the receipt the user saw and chose to
+  // remove; if the row now says something else, nothing is blanked.
+  async function commitReceiptRemoval(collectionId, expected) {
+    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+    const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+    const own = ownReceiptRowOrRefuse(rows, collectionId);
+    if (!own) {
+      return { removed: false, unchanged: true, alreadyGone: true,
+               receiptId: expected ? expected.receiptId : "", filename: expected ? expected.filename : "" };
+    }
+    const lc = x => String(x == null ? "" : x).toLowerCase();
+    if (expected && ((expected.receiptId && own.ReceiptID !== expected.receiptId) ||
+                     (expected.filename && lc(own.Filename) !== lc(expected.filename)))) {
+      const err = new Error(collectionId + "'s receipt in the workbook is now " + own.ReceiptID + " · " + own.Filename +
+        ", not the one you chose to remove. Reopen the form and look again.");
+      err.refused = true;
+      throw err;
+    }
+    await patchRecordRow(RECEIPTS_SHEET_NAME, own.__row, map, {});
+    return { removed: true, receiptId: own.ReceiptID, filename: own.Filename, row: own.__row,
+             binder: isBinderReceiptName(own.Filename) };
+  }
+
+  // How many OTHER coins carry `receiptId`: a fresh read of the Receipts tab,
+  // or the session index (approx: true) when the read fails. A blank id is on
+  // no one. `skipBinder` leaves Binder rows out (they are no file to share).
+  async function receiptSharingFor(collectionId, receiptId, opts) {
+    const skipBinder = !!(opts && opts.skipBinder);
+    if (!receiptId) return { others: 0, approx: false };
+    try {
+      const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+      const ids = new Set(rows.filter(r => r.ReceiptID === receiptId && r.CollectionID && r.CollectionID !== collectionId &&
+        !(skipBinder && isBinderReceiptName(r.Filename))).map(r => r.CollectionID));
+      return { others: ids.size, approx: false };
+    } catch (e) {
+      const idx = LIVE_RECEIPTS || {};
+      const n = Object.keys(idx).filter(k => k !== collectionId && idx[k].receiptId === receiptId &&
+        !(skipBinder && idx[k].binder)).length;
+      return { others: n, approx: true };
+    }
   }
 
   // Status line inside the receipt photo-box — the same "a failure has to be
@@ -24597,14 +24710,19 @@
   // A pending pick can also be "Not scanned, paper in binder" (binder: true,
   // prepared: null): Save writes a Binder row instead of uploading a file
   // (receipts and photos alignment, Build 1).
-  // There is no way to REMOVE a stored receipt here (Ray, 31 Oct 2026: that
-  // waits for a later receipts-and-photos workbook alignment task). The ✕ on
-  // the slot appears only on a pending pick: over a stored receipt it is an
-  // undo, with nothing stored it drops the pick.
+  // Build 2 (af): a stored receipt CAN be removed. ✕ on it asks (with the
+  // other-coins count), and a confirmed removal is a pending pick of its own
+  // (remove: true, prepared: null; replaces: the stored receipt) that waits
+  // for Save, is counted like any other and is undone by "Put it back". ✕ on
+  // a pending SCAN over a stored receipt is still an undo (back to the stored
+  // receipt, or back to the pending removal when the pick was made after one:
+  // afterRemoval), with nothing stored it drops the pick. A scan picked over a
+  // stored receipt other coins share asks "Replace on all N coins" / "This
+  // coin only" at pick time (scope "all" | "this", scopeCoins N).
   const pendingReceipts = {};
   const RECEIPT_EDIT_SLOTS = {
-    browseEditReceiptPreview: { placeholder: "browseEditReceiptPlaceholder", stored: "browseEditReceiptStored", remove: "browseEditReceiptRemoveBtn", binder: "browseEditReceiptBinderBtn" },
-    editSetReceiptPreview: { placeholder: "editSetReceiptPlaceholder", stored: "editSetReceiptStored", remove: "editSetReceiptRemoveBtn", binder: "editSetReceiptBinderBtn" }
+    browseEditReceiptPreview: { placeholder: "browseEditReceiptPlaceholder", stored: "browseEditReceiptStored", remove: "browseEditReceiptRemoveBtn", binder: "browseEditReceiptBinderBtn", putBack: "browseEditReceiptPutBackBtn" },
+    editSetReceiptPreview: { placeholder: "editSetReceiptPlaceholder", stored: "editSetReceiptStored", remove: "editSetReceiptRemoveBtn", binder: "editSetReceiptBinderBtn", putBack: "editSetReceiptPutBackBtn" }
   };
   function receiptSlotRecordId(previewId) {
     const get = receiptCommitTargets[previewId];
@@ -24637,15 +24755,17 @@
     const p = id ? pendingReceiptFor(id) : null;
     const stored = id ? storedReceiptSnapshot(id) : null;
     const storedEl = document.getElementById(slot.stored);
+    const removing = !!(p && p.remove);
     if (storedEl) {
       storedEl.textContent = "";
       storedEl.classList.toggle("is-replaced", !!(p && stored));
       storedEl.classList.toggle("is-binder", !!(stored && stored.binder));
+      const replacedPrefix = (p && !removing) ? "On file (replaced when you save): " : "On file: ";
       if (stored && stored.binder) {
         // A paper receipt: nothing to open.
-        storedEl.appendChild(document.createTextNode((p ? "On file (replaced when you save): " : "") + BINDER_RECEIPT_SLOT_TEXT));
+        storedEl.appendChild(document.createTextNode((p && !removing ? replacedPrefix : "") + BINDER_RECEIPT_SLOT_TEXT));
       } else if (stored) {
-        storedEl.appendChild(document.createTextNode(p ? "On file (replaced when you save): " : "On file: "));
+        storedEl.appendChild(document.createTextNode(replacedPrefix));
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "receipt-stored-btn";
@@ -24660,27 +24780,41 @@
       }
     }
     if (p) {
-      if (p.binder) showReceiptBinderIndicator(previewId, slot.placeholder);
+      if (p.remove) resetReceiptSlot(previewId, slot.placeholder);
+      else if (p.binder) showReceiptBinderIndicator(previewId, slot.placeholder);
       else if (p.pdf) showReceiptPdfIndicator(previewId, slot.placeholder, p.prepared.filename);
       else showReceiptImagePreview(previewId, slot.placeholder, p.previewSrc);
       if (p.saving) showReceiptUploadState(previewId, "Saving…", false, null);
       else if (p.error) showReceiptUploadState(previewId, p.refused ? "Not changed — see the message." : DRAFT_NOT_SAVED_TEXT, true, null);
+      else if (removing) showReceiptUploadState(previewId, RECEIPT_REMOVE_PENDING_TEXT, false, null);
       else showReceiptUploadState(previewId, PENDING_NOT_SAVED_TEXT + ": tap Save Changes to save it." +
-        (stored ? " It replaces the receipt on file." : ""), false, null);
+        (stored ? (p.scope === "all" && p.scopeCoins > 1 ? " It replaces the receipt on all " + p.scopeCoins + " coins."
+          : p.scope === "this" && p.scopeCoins > 1 ? " It replaces the receipt on this coin only."
+          : " It replaces the receipt on file.") : ""), false, null);
     } else {
       resetReceiptSlot(previewId, slot.placeholder);
       showReceiptUploadState(previewId, "", false, null);
     }
+    // ✕: on a pending scan / Binder pick (undo or drop), and on a stored
+    // receipt with nothing pending (a double-checked removal, Build 2). Not
+    // while the removal itself is pending: "Put it back" is the control then.
     const rm = document.getElementById(slot.remove);
-    if (rm) rm.style.display = (p && !p.saving) ? "" : "none";
+    const canRemoveStored = !!(id && stored && !p && photoCommitTargetId(id));
+    if (rm) rm.style.display = ((p && !p.saving && !removing) || canRemoveStored) ? "" : "none";
+    const pb = document.getElementById(slot.putBack);
+    if (pb) pb.classList.toggle("hidden", !(removing && !p.saving));
     // The Binder button is offered only while the slot has no receipt at all:
     // nothing on file and nothing picked (Ray, device test of Build 1). A
-    // stored or pending scan hides it (removing a wrong scan is Build 2's ✕),
-    // and so does a Binder already on file or picked.
+    // stored or pending scan hides it (remove the wrong scan first: its ✕),
+    // and so does a Binder already on file or picked. A pending removal
+    // leaves the slot empty, so the button is back.
     const bb = document.getElementById(slot.binder);
     if (bb) bb.classList.toggle("hidden", !binderReceiptOffered(p, stored));
   }
-  function binderReceiptOffered(pending, stored) { return !pending && !stored; }
+  function binderReceiptOffered(pending, stored) {
+    return (!pending && !stored) || !!(pending && pending.remove);
+  }
+  const RECEIPT_REMOVE_PENDING_TEXT = "Will be removed when you save.";
   function repaintReceiptSlotsFor(collectionId) {
     Object.keys(RECEIPT_EDIT_SLOTS).forEach(pid => {
       if (receiptSlotRecordId(pid) === collectionId) repaintReceiptSlot(pid);
@@ -24725,10 +24859,47 @@
       pdf: !!prepared.sourceWasPdf,
       previewSrc: prepared.sourceWasPdf ? "" : (preview ? preview.src : ""),
       replaces: prev ? prev.replaces : storedReceiptSnapshot(id),
+      afterRemoval: !!(prev && (prev.remove || prev.afterRemoval)),
+      scope: "", scopeCoins: 0,
       landedName: "", saving: false, error: "", refused: false
     };
     repaintReceiptSlot(previewId);
+    askSharedReceiptScope(id, prev);
     return true;
+  }
+
+  // A scan picked over a stored receipt that other coins share: ask, each
+  // time, whether it replaces the receipt on all of them or on this coin only
+  // (Build 2). N is a fresh read of the Receipts tab (the session index when
+  // the read fails, said so). Cancel drops the pick and goes back to what was
+  // there before it. No answer (the dialog replaced by another) = this coin
+  // only, which is the safe reading.
+  async function askSharedReceiptScope(id, prev) {
+    const p = pendingReceipts[id];
+    if (!p || p.binder || p.remove || !p.replaces || p.replaces.binder || !p.replaces.receiptId) return;
+    const sh = await receiptSharingFor(id, p.replaces.receiptId, { skipBinder: true });
+    if (pendingReceipts[id] !== p || !sh.others) return;
+    const n = sh.others + 1;
+    const choose = (scope) => () => {
+      if (pendingReceipts[id] !== p) return;
+      p.scope = scope; p.scopeCoins = n;
+      repaintReceiptSlotsFor(id);
+    };
+    showWriteGuard({
+      title: "Replace a shared receipt?",
+      bodyHtml: "<p>" + escapeHtmlText(p.replaces.receiptId) + " · " + escapeHtmlText(p.replaces.filename) +
+        " is on " + n + " coins." + (sh.approx ? " The count may be out of date: the workbook couldn't be read just now." : "") + "</p>",
+      buttons: [
+        { label: "Replace on all " + n + " coins", primary: true, onClick: choose("all") },
+        { label: "This coin only", onClick: choose("this") },
+        { label: "Cancel", onClick: () => {
+          if (pendingReceipts[id] !== p) return;
+          if (prev) pendingReceipts[id] = prev; else delete pendingReceipts[id];
+          repaintReceiptSlotsFor(id);
+          refreshEditSaveState();
+        } }
+      ]
+    });
   }
 
   // "Not scanned, paper in binder" on an Edit Coin / Edit Set slot: a pending
@@ -24740,11 +24911,24 @@
     const id = receiptSlotRecordId(previewId);
     if (!id) return;
     if (!photoCommitTargetId(id)) { showToast("Receipts can't be saved in this build."); return; }
-    if (!binderReceiptOffered(pendingReceipts[id], storedReceiptSnapshot(id))) return;
+    const prev = pendingReceipts[id];
+    const stored = storedReceiptSnapshot(id);
+    if (!binderReceiptOffered(prev, stored)) return;
     delete receiptFiles[previewId];
+    if (prev && prev.remove && stored && stored.binder) {
+      // The Binder receipt was set to be removed and the Binder is picked
+      // again: that is the same as not removing it. Nothing to save.
+      delete pendingReceipts[id];
+      repaintReceiptSlotsFor(id);
+      refreshEditSaveState();
+      return;
+    }
     pendingReceipts[id] = {
       previewId, prepared: null, binder: true, pdf: false, previewSrc: "",
-      replaces: null,
+      // After a pending removal of a scan the Binder replaces that scan.
+      replaces: prev && prev.remove ? prev.replaces : null,
+      afterRemoval: !!(prev && prev.remove),
+      scope: "", scopeCoins: 0,
       landedName: "", saving: false, error: "", refused: false
     };
     repaintReceiptSlotsFor(id);
@@ -24762,6 +24946,20 @@
       repaintReceiptSlotsFor(id);
       refreshEditSaveState();
     };
+    if (p.afterRemoval && p.replaces) {
+      // Picked after a removal: the ✕ goes back to the pending removal.
+      showWriteGuard({
+        title: "Take this pick off?",
+        bodyHtml: "<p>The receipt on file is still set to be removed when you save. Taking this pick off goes back to that. " +
+          "<b>Nothing is deleted.</b></p>",
+        buttons: [{ label: "Cancel", primary: true }, { label: "Take it off", onClick: () => {
+          pendingReceipts[id] = makeRemovalPending(previewId, p.replaces);
+          repaintReceiptSlotsFor(id);
+          refreshEditSaveState();
+        } }]
+      });
+      return;
+    }
     if (p.replaces) {
       showWriteGuard({
         title: "Put the previous receipt back?",
@@ -24776,6 +24974,63 @@
       bodyHtml: "<p>This receipt hasn't been saved yet, so taking it off writes nothing.</p>",
       buttons: [{ label: "Cancel" }, { label: "Remove", primary: true, onClick: finish }]
     });
+  }
+
+  function makeRemovalPending(previewId, stored) {
+    return { previewId, prepared: null, remove: true, pdf: false, previewSrc: "", replaces: stored,
+             afterRemoval: false, scope: "", scopeCoins: 0, landedName: "", saving: false, error: "", refused: false };
+  }
+  // The slot's ✕: undo / drop on a pending pick, else the double-check before
+  // a stored receipt is set to be removed.
+  function onReceiptRemoveClick(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    if (!id) return;
+    if (pendingReceiptFor(id)) confirmRemovePendingReceipt(previewId);
+    else confirmRemoveStoredReceipt(previewId);
+  }
+  let receiptRemoveAsking = false;
+  // ✕ on a STORED receipt (scan or Binder): always asks first. The other-coins
+  // count is a fresh read of the Receipts tab (the session index, said so, if
+  // that fails). Confirming only makes it pending; Save blanks this coin's row.
+  async function confirmRemoveStoredReceipt(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    if (!id || !photoCommitTargetId(id) || pendingReceiptFor(id) || receiptRemoveAsking) return;
+    const stored = storedReceiptSnapshot(id);
+    if (!stored) return;
+    receiptRemoveAsking = true;
+    let sh;
+    try { sh = await receiptSharingFor(id, stored.receiptId, {}); }
+    finally { receiptRemoveAsking = false; }
+    if (pendingReceiptFor(id) || receiptSlotRecordId(previewId) !== id) return;
+    const name = stored.binder ? BINDER_RECEIPT_TEXT : stored.filename;
+    const label = escapeHtmlText((stored.receiptId ? stored.receiptId + " · " : "") + name);
+    const k = sh.others;
+    const approx = sh.approx ? " The count may be out of date: the workbook couldn't be read just now." : "";
+    const fileClause = stored.binder ? "." : ", and the file isn't deleted.";
+    const body = k > 0
+      ? "<p>This receipt is on " + k + " other coin" + (k === 1 ? "" : "s") + ". " + label + "." + approx + "</p>" +
+        "<p>Remove it from this coin only? The other coins keep it" + fileClause + "</p>"
+      : "<p>" + label + "." + approx + "</p>" +
+        "<p>Remove it from this coin?" + (stored.binder ? "" : " The file isn't deleted.") + "</p>";
+    showWriteGuard({
+      title: "Remove this receipt from this coin?",
+      bodyHtml: body,
+      buttons: [{ label: "Cancel", primary: true }, { label: "Remove", onClick: () => {
+        if (pendingReceiptFor(id)) return;
+        pendingReceipts[id] = makeRemovalPending(previewId, stored);
+        repaintReceiptSlotsFor(id);
+        refreshEditSaveState();
+      } }]
+    });
+  }
+  // "Put it back": takes a pending removal off. Nothing was written.
+  function putBackRemovedReceipt(previewId) {
+    const id = receiptSlotRecordId(previewId);
+    const p = id ? pendingReceiptFor(id) : null;
+    if (!p || !p.remove || p.saving) return;
+    delete pendingReceipts[id];
+    repaintReceiptSlotsFor(id);
+    refreshEditSaveState();
   }
 
   // Throws away a pending receipt (one record, or all without a target).
@@ -24799,27 +25054,41 @@
     p.saving = true; p.error = ""; p.refused = false;
     repaintReceiptSlotsFor(targetId);
     try {
-      const res = p.binder
+      const res = p.remove
+        ? await commitReceiptRemoval(targetId, p.replaces)
+        : p.binder
         ? await commitBinderReceipt(targetId)
         : await commitReceiptCapture(targetId, p.prepared, {
             landedName: p.landedName,
+            scope: p.scope,
             onUploaded: (name) => { p.landedName = name; }
           });
       if (p.binder) out.binder = true;
       out.receiptId = res.receiptId; out.filename = res.filename;
-      if (res.unchanged) out.unchanged = 1;
+      if (res.alreadyGone) { out.unchanged = 1; out.alreadyGone = 1; syncStoredReceiptIndexRemove(targetId); }
+      else if (res.unchanged) out.unchanged = 1;
       else {
         out.saved = 1;
-        if (res.reused) out.attached = 1;
-        else if (p.replaces) out.replaced = 1;
-        else out.added = 1;
-        syncStoredReceiptIndexUpsert(targetId, { receiptId: res.receiptId, filename: res.filename });
+        if (res.removed) {
+          out.removed = 1;
+          syncStoredReceiptIndexRemove(targetId);
+        } else {
+          if (res.reused) out.attached = 1;
+          else if (p.replaces) out.replaced = 1;
+          else out.added = 1;
+          if (res.adopted) out.adopted = 1;
+          syncStoredReceiptIndexUpsert(targetId, { receiptId: res.receiptId, filename: res.filename });
+          if (res.scope === "all") {
+            out.coins = res.coins; out.keptIdOver = res.keptIdOver || "";
+            res.otherCoinIds.forEach(cid => syncStoredReceiptIndexUpsert(cid, { receiptId: res.receiptId, filename: res.filename }));
+          }
+        }
       }
       delete pendingReceipts[targetId];
     } catch (e) {
       p.saving = false;
       p.error = String(e && e.message ? e.message : e);
-      p.refused = !!(e && e.multiRow);
+      p.refused = !!(e && (e.multiRow || e.refused));
       out.failed = 1; out.refused = p.refused; out.error = p.error;
     }
     repaintReceiptSlotsFor(targetId);
@@ -26540,7 +26809,10 @@
     if (p.removed) parts.push((parts.length ? p.removed + " removed" : n(p.removed, "photo") + " removed"));
     if (res.labels && res.labels.saved) parts.push(n(res.labels.saved, "label"));
     const r = res.receipt;
-    if (r && r.saved) parts.push(r.binder ? "receipt set to the paper copy in the binder (" + r.receiptId + ")"
+    if (r && r.saved) parts.push(r.removed ? "receipt removed from this coin (" + r.receiptId + ")"
+      : r.binder ? "receipt set to the paper copy in the binder (" + r.receiptId + ")"
+      : r.coins > 1 ? "receipt replaced on " + r.coins + " coins (" + r.receiptId + ")" +
+        (r.keptIdOver ? ", " + r.receiptId + " kept; that file is also " + r.keptIdOver + "'s" : "")
       : r.attached ? "receipt attached (" + r.receiptId + ")" : r.replaced ? "receipt replaced" : "receipt added");
     return parts.join(", ");
   }
@@ -26579,6 +26851,7 @@
   function photoSaveHeadline(recordId, res) {
     const what = photoSaveSummaryText(res);
     // Only a receipt that was already on file: nothing was written.
+    if (!what && res && res.receipt && res.receipt.alreadyGone) return recordId + ": that receipt was already removed, nothing to change.";
     if (!what && res && res.receipt && res.receipt.unchanged) return recordId + ": that receipt is already on file, nothing to change.";
     return what ? "Saved " + recordId + " — " + what + (photoSaveOnlyLabels(res) ? " updated." : ".") : "";
   }

@@ -261,7 +261,7 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
     return out;
   });
   ok("A1 opening Edit Coin shows the receipt on file (tap-able name), not 'No receipt on file'", A.open.storedBtn === "AY-00099_receipt.pdf" && /On file:/.test(A.open.stored), A.open);
-  ok("A2 nothing picked: no ✕, Save dimmed, nothing unsaved", !A.open.removeShown && A.openDim.clean && A.openDim.disabled && A.openUnsaved === null, { o: A.open, d: A.openDim });
+  ok("A2 nothing picked: no status, Save dimmed, nothing unsaved (the ✕ on a stored receipt is the Build 2 removal)", A.open.removeShown && A.open.status === "" && A.openDim.clean && A.openDim.disabled && A.openUnsaved === null, { o: A.open, d: A.openDim });
   ok("A3 a pick makes ZERO Graph writes (no upload, no Receipts patch)", A.events.length === 0, A.events);
   ok("A4 the pick says 'Not saved yet' and that it replaces the receipt on file", /Not saved yet/.test(A.pick.status) && /replaces/i.test(A.pick.status) && !A.pick.statusFailed, A.pick);
   ok("A5 the ✕ shows on the pick and the stored line is muted ('replaced when you save')", A.pick.removeShown && A.pick.storedMuted && /replaced when you save/.test(A.pick.stored), A.pick);
@@ -415,9 +415,9 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
   ok("C1 Back with a pending receipt asks, and the dialog counts '1 receipt'", C.guardOpen && /Discard unsaved edits/.test(C.guardText) && /1 receipt/.test(C.guardText), C.guardText);
   ok("C2 Keep editing keeps the form and the pick", C.keptOpen && C.keptPending === 1, { o: C.keptOpen, p: C.keptPending });
   ok("C3 Discard leaves, drops the pick and writes nothing", C.left && C.pending === 0 && C.afterDiscardEvents.length === 0, { l: C.left, p: C.pending, e: C.afterDiscardEvents });
-  ok("C4 reopening shows the receipt on file again, no ✕, no status, Save dimmed", C.reopen.storedBtn === "AY-00099_receipt.pdf" && !C.reopen.removeShown && C.reopen.status === "" && C.reopenDim.disabled, { s: C.reopen, d: C.reopenDim });
+  ok("C4 reopening shows the receipt on file again, no status, Save dimmed", C.reopen.storedBtn === "AY-00099_receipt.pdf" && C.reopen.status === "" && C.reopenDim.disabled, { s: C.reopen, d: C.reopenDim });
   ok("C5 Close Drawer / navigate asks too; Discard drops the pick", C.navAsked && C.navPending === 0, { a: C.navAsked, p: C.navPending, v: C.navLeft });
-  ok("C6 opening another record drops the first one's pick; reopening it is clean", C.otherSlot.storedBtn === "shared.pdf" && !C.otherSlot.removeShown && C.firstPending === 0 && C.firstAgain.status === "" , { o: C.otherSlot, f: C.firstAgain, p: C.firstPending });
+  ok("C6 opening another record drops the first one's pick; reopening it is clean", C.otherSlot.storedBtn === "shared.pdf" && C.otherSlot.status === "" && C.firstPending === 0 && C.firstAgain.status === "" , { o: C.otherSlot, f: C.firstAgain, p: C.firstPending });
 
   // ---------- D. change then undo ends clean -------------------------------
   const D = await page.evaluate(async () => {
@@ -465,10 +465,10 @@ module.exports = defineSuite("receipts-wait-for-save", async ({ check, selfCheck
     out.fieldOnly = unsavedEditsForView().text;
     return out;
   });
-  ok("D1 a stored receipt has NO ✕ and no remove of any kind (only a pick can be taken off)", D.removeHiddenWithStored === true, D);
+  ok("D1 a stored receipt shows the ✕ (Build 2: it asks before removing; the removal itself is in verify_receipt_remove_shared_replace)", D.removeHiddenWithStored === false, D);
   ok("D2 ✕ on a pick over a stored receipt asks 'Put the previous receipt back?' and says nothing is deleted", D.undoDialog && /Put the previous receipt back\?/.test(D.undoDialog) && /Nothing is deleted/.test(D.undoDialog), D.undoDialog);
   ok("D3 Cancel keeps the pick", D.cancelKept === 1, D.cancelKept);
-  ok("D4 Put it back: the stored receipt is back as it was, no ✕, no status", D.slot.storedBtn === "AY-00099_receipt.pdf" && !D.slot.removeShown && D.slot.status === "" && !D.slot.storedMuted && D.pending === 0, D.slot);
+  ok("D4 Put it back: the stored receipt is back as it was, no status, the stored ✕ is back", D.slot.storedBtn === "AY-00099_receipt.pdf" && D.slot.removeShown && D.slot.status === "" && !D.slot.storedMuted && D.pending === 0, D.slot);
   ok("D5 and the form is CLEAN: Save dimmed, nothing unsaved, a Save click on the dimmed button writes nothing", D.dim.clean && D.dim.disabled && D.unsaved === null && D.cleanEvents.length === 0, { d: D.dim, u: D.unsaved, t: D.cleanToast, e: D.cleanEvents });
   ok("D6 leaving a form that was changed and undone does not ask", D.leftAtOnce, D.leftAtOnce);
   ok("D7 pick A then pick B keeps 'replaces' on the STORED receipt, not on A", D.twoPicks.name === "b99.pdf" && D.twoPicks.replaces === "AY-00099_receipt.pdf", D.twoPicks);
