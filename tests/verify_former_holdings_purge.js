@@ -947,4 +947,4 @@ module.exports = defineSuite("former-holdings-purge", async ({ ok, openApp, PHON
     ok(o.rows === 5, "O2 Former Holdings renders on " + name);
     await p.close();
   }
-});
+}, module);

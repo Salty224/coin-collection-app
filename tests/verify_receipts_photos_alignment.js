@@ -1018,4 +1018,4 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
   const allMedia = [...new Set(MEDIA_OLD.concat(MEDIA_NEW))];
   ok("W6 every media column, old and new names, is on ALL_NEVER_WRITE_COLUMNS and none is on the write allow-list",
     allMedia.every(n => neverList.never.indexOf(n) !== -1) && allMedia.every(n => neverList.writable.indexOf(n) === -1));
-});
+}, module);

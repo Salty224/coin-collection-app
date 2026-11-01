@@ -20,6 +20,7 @@ const { runSuite, printResult } = require("./harness");
   }
 
   const results = [];
+  const runStart = Date.now();
   for (const f of files) {
     const mod = require(path.join(__dirname, f));
     if (typeof mod.suite !== "function") {
@@ -30,8 +31,15 @@ const { runSuite, printResult } = require("./harness");
         failures: ["does not export { name, suite } — cannot be aggregated"] });
       continue;
     }
-    results.push(await runSuite(mod.name || f, mod.suite));
+    // Timing only: a duration is recorded and printed as each suite finishes.
+    // It changes no check and no suite behaviour.
+    const suiteStart = Date.now();
+    const r = await runSuite(mod.name || f, mod.suite);
+    r.seconds = (Date.now() - suiteStart) / 1000;
+    console.log(`  ${r.seconds.toFixed(1).padStart(7)}s  ${f}`);
+    results.push(r);
   }
+  const totalSeconds = (Date.now() - runStart) / 1000;
 
   console.log("");
   results.forEach(printResult);
@@ -41,5 +49,9 @@ const { runSuite, printResult } = require("./harness");
   const errs = results.reduce((n, r) => n + r.errors.length, 0);
   console.log("\n" + "-".repeat(58));
   console.log(`TOTAL: ${pass} passed, ${fail} failed, ${errs} page error(s), across ${results.length} suite(s)`);
+  console.log(`TIME: ${totalSeconds.toFixed(0)}s (${(totalSeconds / 60).toFixed(1)} min) wall; slowest 5:`);
+  results.filter(r => r.seconds !== undefined)
+    .sort((a, b) => b.seconds - a.seconds).slice(0, 5)
+    .forEach(r => console.log(`  ${r.seconds.toFixed(1).padStart(7)}s  ${r.name}`));
   process.exit(fail === 0 && errs === 0 ? 0 : 1);
 })();

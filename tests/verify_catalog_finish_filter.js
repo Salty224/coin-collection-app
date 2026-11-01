@@ -181,4 +181,4 @@ module.exports = defineSuite("catalog-finish-filter", async ({ ok, openApp, PHON
   }
 
   await page.close();
-});
+}, module);

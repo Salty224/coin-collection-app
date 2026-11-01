@@ -339,4 +339,4 @@ module.exports = defineSuite("replace-never-overwrites", async ({ openApp, check
     I1.r1 && I1.r2 && I1.r1 !== I1.r2 && I1.rcRows.indexOf(I1.r1) !== -1 && I1.rcRows.indexOf(I1.r2) !== -1, I1);
 
   await page.evaluate(() => { discardUnsavedPhotoEdits(); __setGraphClientForTest(null); });
-});
+}, module);
