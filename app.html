@@ -18035,7 +18035,7 @@
     fillEditLinkage("browseEditLinkageWrap", "browseEditLinkageChips", coin);
 
     // --- Photos: the one real photo-editing surface for this coin.
-    renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin));
+    renderManagePhotosInto("browseEditPhotosSections", buildManagePhotosCtx(coin), { guidedCrop: true });
     // The Receipt slot now writes for real, so it has to be bound to THIS
     // coin and cleared of the previous one's state. (Nothing ever reset
     // browseEditReceiptPreview between coins — harmless while Save was a
@@ -25252,6 +25252,7 @@
     const img = document.getElementById("photoAdjustImg");
     const circleEl = document.getElementById("photoAdjustCircle");
     const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
+    photoAdjustOnCancel = (callbackMode && optsOrPreviewId.onCancel) || null;
     // Shown BEFORE the size is read: a display:none element measures 0.
     overlay.classList.remove("hidden");
     // The guide's real VISIBLE diameter, not its CSS width. This file sets
@@ -25302,6 +25303,16 @@
   function closePhotoAdjust() {
     document.getElementById("photoAdjustOverlay").classList.add("hidden");
     photoAdjustState = null;
+  }
+  // Guided crop (Build A): a caller can ask to hear about a Cancel / device
+  // Back, so a chain of offers carries on (a cancelled crop = Skip). Only
+  // callback-mode callers that pass opts.onCancel are affected.
+  let photoAdjustOnCancel = null;
+  function cancelPhotoAdjust() {
+    const cb = photoAdjustOnCancel;
+    photoAdjustOnCancel = null;
+    closePhotoAdjust();
+    if (cb) cb();
   }
 
   // A 90°/270° quick-rotation swaps which of the image's own dimensions faces the
@@ -25382,7 +25393,7 @@
     document.getElementById("photoAdjustRotateLeftBtn").addEventListener("click", () => quickRotatePhotoAdjust(-90));
     document.getElementById("photoAdjustRotateRightBtn").addEventListener("click", () => quickRotatePhotoAdjust(90));
 
-    document.getElementById("photoAdjustCancelBtn").addEventListener("click", closePhotoAdjust);
+    document.getElementById("photoAdjustCancelBtn").addEventListener("click", cancelPhotoAdjust);
 
     document.getElementById("photoAdjustUseBtn").addEventListener("click", () => {
       const s = photoAdjustState;
@@ -25418,6 +25429,7 @@
         // and let the caller decide what to do with it — no DOM writes here.
         if (s.onComplete) {
           const cb = s.onComplete;
+          photoAdjustOnCancel = null;
           closePhotoAdjust();
           cb(blob);
           return;
@@ -25549,7 +25561,8 @@
       dispW: 0, dispH: 0, naturalW: baseCanvas.width, naturalH: baseCanvas.height,
       box: { left: 0, top: 0, right: 0, bottom: 0 },
       aspectLock, rotateQuick: 0, rotateFine: 0,
-      onComplete: opts.onComplete || null
+      onComplete: opts.onComplete || null,
+      onCancel: opts.onCancel || null
     };
     document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
     refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
@@ -25559,6 +25572,11 @@
   function closeBgCrop() {
     document.getElementById("bgCropOverlay").classList.add("hidden");
     bgCropState = null;
+  }
+  function cancelBgCrop() {
+    const cb = bgCropState && bgCropState.onCancel;
+    closeBgCrop();
+    if (cb) cb();
   }
 
   function renderBgCrop() {
@@ -25690,7 +25708,7 @@
       });
     });
 
-    document.getElementById("bgCropCancelBtn").addEventListener("click", closeBgCrop);
+    document.getElementById("bgCropCancelBtn").addEventListener("click", cancelBgCrop);
     document.getElementById("bgCropUseBtn").addEventListener("click", () => {
       const s = bgCropState;
       if (!s) return;
@@ -25741,9 +25759,11 @@
     // index among same-type entries, for repeatable-type filename uniqueness
     const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
     const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
+    const onCancel = (opts && opts.onCancel) || null;
     openBgCrop(file, {
       title: "Crop — " + def.label + ((opts && opts.titleSuffix) || ""),
       aspectLock: def.aspect === "square",
+      onCancel,
       onComplete: (rectBlob) => {
         const rectUrl = URL.createObjectURL(rectBlob);
         // FOR A FLIP SOURCE, STAGE 2'S OUTPUT IS THE STORED IMAGE.
@@ -25786,7 +25806,7 @@
         };
         if (def.flipSource) {
           // Stage 2: frame the flip-card circle from the clean rectangle.
-          openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob) });
+          openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob), onCancel });
         } else {
           finish(null);
         }
@@ -26599,8 +26619,8 @@
     if (open("writeGuardOverlay")) { backOutOfWriteGuard(); return; } // Ray's Q2: the dialog's Cancel
     if (open("imageSourceChooser")) { closeImageSourceChooser(); return; }
     // The crop tool open: Back cancels the crop (like its Cancel button).
-    if (open("bgCropOverlay")) { closeBgCrop(); return; }
-    if (open("photoAdjustOverlay")) { closePhotoAdjust(); return; }
+    if (open("bgCropOverlay")) { cancelBgCrop(); return; }
+    if (open("photoAdjustOverlay")) { cancelPhotoAdjust(); return; }
     const panel = BACK_CLOSES_PANELS.find(([id]) => open(id));
     if (panel) { panel[1](); return; }
     const view = document.querySelector(".view.active");
@@ -27112,9 +27132,13 @@
     // there is in CoinPhotos.
     if (draft) return galleryFor(collectionId).filter(e =>
       CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && (e.url || e.blob));
+    // Guided crop (Build A): a Holder / Reference / Other pick waiting for
+    // Save is a source too. Its bytes are in memory (entry.blob), so nothing
+    // is read from OneDrive; a failed Save leaves the blob in place, so it
+    // still counts. A ✕'d photo and one being saved right now do not.
     return galleryFor(collectionId).filter(e =>
-      CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && e.storedFilename &&
-      !e.uploadPending && !e.uploadError && !e.pendingRemove && !e.pendingSave);
+      CROP_SOURCE_TYPES.indexOf(e.type) !== -1 && !e.uploadPending && !e.pendingRemove &&
+      ((e.storedFilename && !e.uploadError && !e.pendingSave) || (e.pendingSave && e.blob)));
   }
 
   async function loadCropSourceBlob(src, draft) {
@@ -27123,6 +27147,7 @@
       if (src.blob) return src.blob;
       return src.url ? fetch(src.url).then(r => r.blob()) : null;
     }
+    if (src && src.pendingSave && src.blob) return src.blob; // a pick not saved yet
     if (!src || !src.storedFilename) return null;
     const url = await ensureCoinPhotoFetch(src.storedFilename);
     if (!url) return null;
@@ -27253,6 +27278,65 @@
     const def = galleryTypeDef(dest);
     showToast("Cropped into " + (dest === "reference" ? "a new Reference photo" : "the " + (def ? def.label : dest)) +
       ". It's saved with the coin. No original copy is kept for a crop from another photo, so a later Recrop works from this cropped image.");
+  }
+
+
+  // ---- GUIDED OBVERSE / REVERSE CROP (Build A, Ray 1 Nov 2026) ----------
+  // A Holder or Reference image added in this session offers to crop the
+  // coin's Obverse / Reverse out of itself, on Add Coin, the Staging-draft
+  // edit and Edit Coin (never Manage Photos, never Edit Set). Holder front
+  // offers the Obverse, Holder back the Reverse, a Reference the Obverse and
+  // then the Reverse from the same image. Every offer is Crop / Skip and
+  // stands alone (a cancelled crop counts as Skip). Crop opens the ordinary
+  // crop tool on the pending picture's own bytes; the result is a pending
+  // entry like any other (Save writes it, ✕ undoes a Replace), and no save
+  // happens in between. Holder types keep no untouched original (retainRaw is
+  // off), so the source is the holder as trimmed by its own crop. The offer
+  // is event-driven: it fires from the pick, never from a redraw, a Recrop or
+  // a Discard.
+  const GUIDED_CROP_SIDES = { slab_obverse: ["obverse"], slab_reverse: ["reverse"], reference: ["obverse", "reverse"] };
+  function guidedCropSidesFor(type) { return GUIDED_CROP_SIDES[type] || []; }
+
+  function offerGuidedCrops(targetId, srcEntry, render, draft) {
+    const sides = guidedCropSidesFor(srcEntry && srcEntry.type);
+    if (!sides.length) return;
+    const srcDef = galleryTypeDef(srcEntry.type);
+    const askAt = (i) => {
+      if (i >= sides.length) return;
+      const side = sides[i];
+      const next = () => askAt(i + 1);
+      // The pick may have been taken off again while an earlier offer was open.
+      if (galleryFor(targetId).indexOf(srcEntry) === -1) return;
+      const word = side === "obverse" ? "Obverse" : "Reverse";
+      const has = galleryFor(targetId).some(e => e.type === side && !e.pendingRemove);
+      showWriteGuard({
+        title: (has ? "Replace the " : "Crop the ") + word + " from this photo?",
+        bodyHtml: "<p>You just added a <b>" + escapeHtmlText(srcDef ? srcDef.label : "photo") + "</b>. " +
+          "The coin's " + word + " can be cropped out of it now.</p>" +
+          (has ? "<p>Your new crop replaces this coin's current " + word.toLowerCase() + " image. ✕ on the new one puts the previous one back. Nothing is deleted.</p>" : "") +
+          "<p>Nothing is written until you save." + (sides.length > 1 && i === 0 ? " The Reverse is offered next." : "") + "</p>",
+        buttons: [
+          { label: "Skip", onClick: next },
+          { label: "Crop", primary: true, onClick: () => runGuidedCrop(targetId, srcEntry, side, render, draft, next) }
+        ]
+      });
+    };
+    askAt(0);
+  }
+
+  async function runGuidedCrop(targetId, src, side, render, draft, next) {
+    let blob = null;
+    try { blob = await loadCropSourceBlob(src, draft); } catch (e) { blob = null; }
+    if (!blob) {
+      showToast("Couldn't load " + cropSourceName(src) + " to crop it.");
+      next();
+      return;
+    }
+    runCropPipeline(blob, side, targetId, (newEntry) => {
+      if (draft) saveDraftCropFromUpload(targetId, side, src, newEntry, render);
+      else saveCropFromUpload(targetId, side, src, newEntry, render);
+      next();
+    }, null, { titleSuffix: " (from " + ((galleryTypeDef(src.type) || {}).label || "photo") + ")", onCancel: next });
   }
 
   // SAVING. Two rules, both about never losing a file:
@@ -27892,6 +27976,7 @@
         if (draft) draftPlaceGalleryEntry(targetId, entry, newEntry, done);
         else if (entry) replaceGalleryEntryAndCommit(targetId, entry, newEntry, done);
         else addGalleryEntryAndCommit(targetId, newEntry, done);
+        if (opts.guided) offerGuidedCrops(targetId, newEntry, () => { if (onChange) onChange(newEntry, typeKey); }, draft);
       }, subGroupId);
     };
     if (chooserMode) {
@@ -28327,7 +28412,8 @@
         label: faces ? (i === 0 ? "Obverse" : "Reverse") : (i === 0 ? "Front" : "Back"),
         onChange: () => render(),
         chooser: !!(opts && opts.chooser),
-        draft: (opts && opts.draft) || null
+        draft: (opts && opts.draft) || null,
+        guided: !!(opts && opts.guided)
       }));
     });
     body.appendChild(pair);
@@ -28406,6 +28492,7 @@
           if (packageSideOf(entry)) newEntry.packageSide = packageSideOf(entry);
           if (draft) draftPlaceGalleryEntry(targetId, entry, newEntry, render);
           else replaceGalleryEntryAndCommit(targetId, entry, newEntry, render);
+          if (opts && opts.guided) offerGuidedCrops(targetId, newEntry, render, draft);
         });
       };
       if (chooserMode) {
@@ -28470,6 +28557,7 @@
       runCropPipeline(f, typeKey, targetId, (entry) => {
         if (draft) draftPlaceGalleryEntry(targetId, null, entry, render);
         else addGalleryEntryAndCommit(targetId, entry, render);
+        if (opts && opts.guided) offerGuidedCrops(targetId, entry, render, draft);
       });
     };
     if (chooserMode) {
@@ -28568,7 +28656,11 @@
       // Unified image chooser (Oct 2026), stages C1/C2: the coin branch
       // (Edit Coin and Manage Photos for a coin) and the Set branch below
       // both use the "+" / Replace chooser.
-      const pickOpts = { chooser: true, draft: draftMode };
+      // Guided crop (Build A): Add Coin / Staging edit (draft mode) and Edit
+      // Coin on an owned coin, which passes options.guidedCrop. Manage Photos
+      // does not, so it never gets the offers.
+      const pickOpts = { chooser: true, draft: draftMode,
+        guided: !!draftMode || !!(options.guidedCrop && photoCommitTargetId(id)) };
       // Only offered where a crop could actually be saved (a real, owned
       // coin with the photo write layer on) — otherwise it would be a dead
       // end. Coins only: Sets never reach this branch.
