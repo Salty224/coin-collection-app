@@ -17,7 +17,7 @@ Ray's design and his nine answers (Q1-Q9, all the suggested defaults), 1 Nov 202
 - **Independence (Q4).** A crop is its own picture: ✕, Replace or Discard of the holder after the crop leaves the crop pending (Discard of the whole record drops everything, as always). Replacing the holder offers again.
 - **Left alone on purpose:** Manage Photos and Edit Set; Obverse / Reverse / Other picks (no offer); the holder's raw (Q2 falls back to the trimmed holder); no remembering of Skip.
 - Tests: `tests/verify_guided_crop.js` (44 incl. the self-check pair): A offers by type and screen, A2 not on Manage Photos / Edit Set, B crop and Skip, cancel = Skip, C ✕ undo, D one Save (names, rows, distinct ids), failure and retry, E holder ✕ / Replace / Discard, F pending sources, G (z) clean, H Staging edit (Replace, one Save, a refused name, cleanup) and Add Coin new draft. Negative controls (each run, each failing): guided on every screen (A12, A13); owned filter left strict (F1, F2); pending source read from OneDrive (14 fail); crop-tool cancel not reported (B5); Obverse / Other picks offer too (A8, A9, A10); fixed crop name (D1, D2); draft crop ignoring the stored side (H2, H3); offer on redraw (A8-A10, B3).
-- Not verified on a real device.
+- Verified: Ray tested the branch on TEST on 1 Nov 2026 before merge; it worked as expected.
 
 ## Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)
 **Merged on Ray's go-ahead (23 Oct 2026).** T1 passed on `1e231f0`; T2 passed on
