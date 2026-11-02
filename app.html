@@ -1153,6 +1153,12 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 22px;
   }
+  /* Daily cover coin: the coin photo as a circle in the same 52 px box. */
+  .album-card .album-card-icon.has-cover {
+    border-radius: 50%;
+    background-size: cover; background-position: center; background-repeat: no-repeat;
+    font-size: 0;
+  }
   .album-card .album-card-info { flex: 1; min-width: 0; }
   .album-card .album-card-name { font-size: 15px; font-weight: 700; }
   .album-card .album-card-progress { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
@@ -19743,9 +19749,160 @@
     });
   }
 
+  // ---------- Albums list: random daily cover coin (card only) ----------
+  // Each album card shows the obverse of one owned coin that sits physically
+  // in the album. The pick is random but STABLE for the local calendar day:
+  // hash("AlbumID|YYYY-MM-DD") mod the candidate count, candidates in slot
+  // order. Same coin on every redraw, chip tap and restart that day; a new
+  // day gives a new hash. If the candidate set changes mid-day a different
+  // pick is fine. Display only: nothing is written anywhere.
+  //
+  // Candidates: ownedCoins() only (exited coins out), slot.filledBy only (no
+  // Best-of outside coins), and a Photos-tab Obverse row (storedPhotoFilename).
+  // None -> the generic icon stays.
+  //
+  // Images: Graph's "medium" thumbnail, in its own cache keyed filename+size
+  // (never coinPhotoCache, which holds full photos). A full photo already in
+  // coinPhotoCache is used instead (no request). Visible cards only
+  // (IntersectionObserver), at most ALBUM_COVER_MAX_IN_FLIGHT requests at a
+  // time. A failure (or a 404 with no thumbnail yet) keeps the icon and is
+  // not retried until the list is next opened; there is NO full-size fallback.
+  // The swap is in place and only if the card is still in the document,
+  // because renderAlbumsList() rebuilds the whole list on every chip tap and
+  // data arrival.
+  const ALBUM_COVER_THUMB_SIZE = "medium";
+  const ALBUM_COVER_MAX_IN_FLIGHT = 4;
+  let albumCoverDateOverride = null;           // test seam: "YYYY-MM-DD"
+  function __setAlbumCoverDateForTest(v) { albumCoverDateOverride = v || null; }
+  function albumCoverDateKey() {
+    if (albumCoverDateOverride) return albumCoverDateOverride;
+    const d = new Date(); // the local calendar day
+    const two = n => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate());
+  }
+  function albumCoverHash(str) { // FNV-1a, 32 bit: deterministic, no Math.random
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+  }
+  function albumCoverCandidates(album) {
+    const owned = new Map(ownedCoins().map(c => [c.id, c]));
+    const seen = new Set();
+    const out = [];
+    ((album && album.slots) || []).forEach(slot => {
+      const id = slot.filledBy;
+      if (!id || seen.has(id)) return;
+      const coin = owned.get(id);
+      if (!coin) return;
+      const filename = storedPhotoFilename(coin, "obverse");
+      if (!filename) return;
+      seen.add(id);
+      out.push({ coin, filename });
+    });
+    return out;
+  }
+  function pickAlbumCoverCoin(album, dateKey) {
+    const cands = albumCoverCandidates(album);
+    if (!cands.length) return null;
+    const key = String((album && (album.setId || album.name)) || "") + "|" + (dateKey || albumCoverDateKey());
+    return cands[albumCoverHash(key) % cands.length];
+  }
+
+  const albumCoverThumbCache = {};     // "filename|medium" -> blob URL (successes only)
+  const albumCoverWaiters = {};        // key -> [elements waiting for it]
+  const albumCoverFailedVisit = {};    // key -> list-visit number it failed in
+  const albumCoverQueue = [];          // keys waiting for a free slot
+  let albumCoverRunning = 0;
+  let albumCoverVisit = 0;             // bumped each time the list screen is opened
+  let albumCoverObserver = null;
+  function albumCoverKey(filename) { return filename + "|" + ALBUM_COVER_THUMB_SIZE; }
+  function __resetAlbumCoverForTest() {
+    Object.keys(albumCoverThumbCache).forEach(k => delete albumCoverThumbCache[k]);
+    Object.keys(albumCoverWaiters).forEach(k => delete albumCoverWaiters[k]);
+    Object.keys(albumCoverFailedVisit).forEach(k => delete albumCoverFailedVisit[k]);
+    albumCoverQueue.length = 0;
+  }
+
+  async function fetchAlbumCoverThumbBlob(filename) {
+    const token = await getWriteToken();
+    if (!token) return null;
+    const path = writePaths().coinPhotos + "/" + filename;
+    try {
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" + path.split("/").map(encodeURIComponent).join("/") +
+          ":/thumbnails/0/" + ALBUM_COVER_THUMB_SIZE + "/content",
+        { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) { console.warn("Album cover thumbnail failed:", filename, res.status); return null; }
+      return URL.createObjectURL(await res.blob());
+    } catch (e) {
+      console.warn("Album cover thumbnail error:", filename, e && e.message);
+      return null;
+    }
+  }
+  function applyAlbumCoverToIcon(iconEl, url) {
+    if (!iconEl || !url || !document.contains(iconEl)) return; // card was rebuilt: skip
+    iconEl.style.backgroundImage = 'url("' + url + '")';
+    iconEl.classList.add("has-cover");
+  }
+  function pumpAlbumCoverQueue() {
+    while (albumCoverRunning < ALBUM_COVER_MAX_IN_FLIGHT && albumCoverQueue.length) {
+      const key = albumCoverQueue.shift();
+      const filename = key.slice(0, key.lastIndexOf("|"));
+      albumCoverRunning++;
+      fetchAlbumCoverThumbBlob(filename).then(url => {
+        const waiters = albumCoverWaiters[key] || [];
+        delete albumCoverWaiters[key];
+        if (url) {
+          albumCoverThumbCache[key] = url;
+          waiters.forEach(el => applyAlbumCoverToIcon(el, url));
+        } else {
+          albumCoverFailedVisit[key] = albumCoverVisit; // retry on the next visit
+        }
+      }).catch(() => { delete albumCoverWaiters[key]; albumCoverFailedVisit[key] = albumCoverVisit; })
+        .finally(() => { albumCoverRunning--; pumpAlbumCoverQueue(); });
+    }
+  }
+  function requestAlbumCoverThumb(filename, iconEl) {
+    const key = albumCoverKey(filename);
+    const hit = albumCoverThumbCache[key];
+    if (hit) { applyAlbumCoverToIcon(iconEl, hit); return; }
+    if (albumCoverFailedVisit[key] === albumCoverVisit) return; // failed this visit
+    if (albumCoverWaiters[key]) { albumCoverWaiters[key].push(iconEl); return; } // already queued/in flight
+    albumCoverWaiters[key] = [iconEl];
+    albumCoverQueue.push(key);
+    pumpAlbumCoverQueue();
+  }
+  function attachAlbumCover(card, album) {
+    const pick = pickAlbumCoverCoin(album);
+    if (!pick) return; // generic icon stays
+    const iconEl = card.querySelector(".album-card-icon");
+    iconEl.dataset.coverCoin = pick.coin.id;
+    // A full photo already in memory: no request at all.
+    const full = coinPhotoCache[pick.filename];
+    if (full) { applyAlbumCoverToIcon(iconEl, full); return; }
+    const cached = albumCoverThumbCache[albumCoverKey(pick.filename)];
+    if (cached) { applyAlbumCoverToIcon(iconEl, cached); return; }
+    if (!WRITE_LAYER_ENABLED) return;
+    if (typeof IntersectionObserver === "undefined") { requestAlbumCoverThumb(pick.filename, iconEl); return; }
+    iconEl.dataset.coverFile = pick.filename;
+    albumCoverObserver.observe(iconEl);
+  }
+
   function renderAlbumsList() {
     const listContainer = document.getElementById("albumsListContainer");
     listContainer.innerHTML = "";
+    if (albumCoverObserver) albumCoverObserver.disconnect();
+    albumCoverObserver = (typeof IntersectionObserver === "undefined") ? null : new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        albumCoverObserver.unobserve(entry.target);
+        const file = entry.target.dataset.coverFile;
+        if (file) requestAlbumCoverThumb(file, entry.target);
+      });
+    }, { rootMargin: "100px" });
     // Live session with no real albums yet: say so, never fall back to demo
     // albums (activeAlbums() is empty here anyway).
     const albumsStatus = liveAlbumsStatus();
@@ -19785,6 +19942,7 @@
         `;
         card.addEventListener("click", () => showAlbumDetail(index));
         listContainer.appendChild(card);
+        attachAlbumCover(card, album);
       });
   }
 
@@ -19856,6 +20014,7 @@
     document.getElementById("albumBestOfBar").classList.add("hidden");
     setAlbumBestOfHelp(false);
     document.getElementById("albumsDetailView").style.display = "none";
+    albumCoverVisit++; // a failed cover thumbnail may retry on a new visit
     setNavBack(() => navigate("dashboard")); // albums list is the section root
     // Rendered fresh on every entry (not just once at init) — otherwise a
     // live fetch that already resolved during an earlier Catalog/Ledger
