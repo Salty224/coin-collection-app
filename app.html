@@ -1392,8 +1392,7 @@
     text-align: center;
     gap: 8px;
   }
-  .album-page-cover .cover-icon { font-size: 56px; }
-  .album-page-cover h3 { margin: 6px 0 0; font-size: 21px; color: var(--text); }
+  .album-page-cover h3 { margin: 0; font-size: 21px; color: var(--text); }
   .album-page-cover .cover-sub { font-size: 13px; color: var(--text-muted); }
 
   .album-page-history p {
@@ -20782,7 +20781,6 @@
       const filledCount = album.slots.filter(s => effectiveSlotCoinId(s)).length;
       return `
         <div class="case album-page album-page-cover${littletonClass}">
-          <div class="cover-icon">${album.icon}</div>
           <h3>${album.name}</h3>
           <div class="cover-sub">${filledCount} / ${album.slots.length} filled</div>
         </div>
