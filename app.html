@@ -2558,6 +2558,20 @@
     display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; align-items: center;
   }
   .media-viewer .mv-footer:empty { display: none; }
+  /* Next / previous bar (Build B): only for a Details photo sequence of 2 or
+     more. Sits above the caption so it never covers the photo. */
+  .media-viewer .mv-nav {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    padding: 6px 12px 2px; flex-shrink: 0;
+  }
+  .media-viewer .mv-nav.hidden { display: none; }
+  .media-viewer .mv-nav-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08);
+    color: #fff; font-size: 24px; line-height: 1; cursor: pointer;
+  }
+  .media-viewer .mv-nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .media-viewer .mv-counter { min-width: 64px; text-align: center; font-size: 13px; color: #d9d2c2; white-space: nowrap; }
   .media-viewer .mv-label { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.12); flex-shrink: 0; }
   .media-viewer .mv-label.hidden { display: none; }
   .media-viewer .mv-label-title { display: block; font-size: 12px; color: #a99f8b; margin-bottom: 6px; }
@@ -5265,6 +5279,12 @@
       </div>
     </div>
     <div class="mv-stage" id="mediaViewerStage"></div>
+    <!-- Next / previous (Build B): shown only for a Details photo sequence. -->
+    <div class="mv-nav hidden" id="mediaViewerNav">
+      <button type="button" class="mv-nav-btn" id="mediaViewerPrevBtn" aria-label="Previous photo">&#8249;</button>
+      <span class="mv-counter" id="mediaViewerCounter" aria-live="polite"></span>
+      <button type="button" class="mv-nav-btn" id="mediaViewerNextBtn" aria-label="Next photo">&#8250;</button>
+    </div>
     <div class="mv-footer" id="mediaViewerFooter"></div>
   </div>
 
@@ -17048,9 +17068,11 @@
     //
     // COINS (in-app viewer): every photo shows, obverse and reverse included,
     // the section opens by default whenever there is one, and each thumbnail
-    // opens THAT photo full screen in the view-only media viewer. SETS are
-    // deliberately unchanged — extras only, collapsed, opening the gallery
-    // panel — per Ray's "coins only" scope.
+    // opens THAT photo full screen in the view-only media viewer, with
+    // next/prev over the page's photos (Build B). SETS: extras only (no
+    // obverse/reverse), collapsed as before; since Build B their tiles open the
+    // same one-photo viewer with next/prev over the Set's OWN photos (never its
+    // child coins'), no longer the old photo-grid panel.
     hydrateStoredPhotos(coin.id);
     const galleryExtras = isSet
       ? galleryFor(coin.id).filter(e => e.type !== "obverse" && e.type !== "reverse")
@@ -17061,12 +17083,25 @@
     // Set's Photos rows itself). Shown only when the coin has a parent Set
     // that has COA photos.
     const coaParent = !isSet ? resolveChildParentSet(coin) : null;
+    // The viewer's next/prev list (Build B), in the order this page shows the
+    // photos: the strip, then (child coin) the parent Set's COA pages with
+    // their "from parent Set" footer. Built when a photo is tapped. Receipts
+    // are not gallery entries, so they can never be in it. A Set's list is its
+    // own photos only, never its child coins'.
+    const parentCoaLabel = (entry) => ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ");
+    const openDetailPhotoAt = (entry) => {
+      const items = galleryExtras.map(e => ({ entry: e }));
+      if (coaParent) {
+        galleryFor(coaParent.id).filter(e => e.type === "coa")
+          .forEach(e => items.push({ entry: e, label: parentCoaLabel(e) }));
+      }
+      openCoinPhotoSequence(coin, items, items.findIndex(it => it.entry === entry));
+    };
     const parentCoaHolder = document.createElement("div");
     parentCoaHolder.id = "detailParentCoa";
     const parentCoaCount = coaParent
       ? renderParentCoaReadThrough(parentCoaHolder, coaParent.id, coaParent.name,
-          { row: true, onOpen: (entry) => openCoinPhotoInViewer(coin, entry,
-              { label: ["COA — from parent Set", entry.caption].filter(Boolean).join(" — ") }) })
+          { row: true, onOpen: openDetailPhotoAt })
       : 0;
     const photosAcc = (galleryExtras.length || parentCoaCount)
       ? appendAccordion(container, RECORD_SECTIONS.PHOTOS, "", { open: !isSet }) : null;
@@ -17081,18 +17116,17 @@
       strip.style.cssText = "padding-top:10px;";
       galleryExtras.forEach(entry => {
         const def = galleryTypeDef(entry.type);
-        const thumb = document.createElement(isSet ? "div" : "button");
+        // Coins and Sets alike: a real button that opens the one-photo viewer
+        // with next/prev over this page's photos (a Set used to open the old
+        // photo-grid panel; Build B moved it here).
+        const thumb = document.createElement("button");
         thumb.className = "gc-thumb gc-row-tile";
         thumb.style.cursor = "pointer";
-        if (!isSet) {
-          thumb.type = "button";
-          thumb.dataset.photoType = entry.type;
-          thumb.setAttribute("aria-label", "View " + (def ? def.label : entry.type) + " full screen");
-        }
+        thumb.type = "button";
+        thumb.dataset.photoType = entry.type;
+        thumb.setAttribute("aria-label", "View " + (def ? def.label : entry.type) + " full screen");
         thumb.innerHTML = `${galleryThumbInner(entry, { row: true })}<div class="gc-type">${def ? def.label : entry.type}</div>`;
-        thumb.addEventListener("click", isSet
-          ? () => openGalleryViewer(coin.id, coin.name + " — photos")
-          : () => openCoinPhotoInViewer(coin, entry));
+        thumb.addEventListener("click", () => openDetailPhotoAt(entry));
         strip.appendChild(thumb);
         paintStoredThumbWhenReady(entry, thumb);
       });
@@ -29085,6 +29119,9 @@
   function openMediaViewer(title) {
     const overlay = document.getElementById("mediaViewerOverlay");
     hideMediaViewerLabel(); // a caller that wants the label field shows it after this
+    // Every open starts with NO photo sequence (a receipt, an edit-screen photo,
+    // a single photo). Only showMediaViewerAt() sets one, right after this call.
+    clearMediaViewerSequence();
     mediaViewerToken++;
     document.getElementById("mediaViewerTitle").textContent = title || "";
     destroyActivePdfViewer();
@@ -29230,6 +29267,7 @@
   }
 
   function hideMediaViewer() {
+    clearMediaViewerSequence();
     hideMediaViewerLabel();
     destroyActivePdfViewer();
     document.getElementById("mediaViewerStage").classList.remove("pdf-mode");
@@ -29274,6 +29312,116 @@
     const token = openMediaViewer(detailTitleText(coin));
     setMediaViewerFooter(`<span>${escapeHtmlText(label)}</span>`);
     return showEntryInMediaViewer(entry, label, token);
+  }
+
+  // ---- Next / previous in a Details photo sequence (Build B) --------
+  // A coin's or Set's Details page opens the viewer on one of its photos and
+  // hands it the whole list as shown on the page (items: [{ entry, label? }],
+  // label = a footer override such as a parent Set's COA). Receipts are never
+  // in it: they are not gallery entries and open through openReceiptInViewer,
+  // which starts with no sequence. A list of one behaves exactly like the
+  // single-photo viewer (no bar). Stops at both ends, never wraps. Stepping
+  // re-opens through openMediaViewer, which adds NO history entry while the
+  // viewer is open and bumps the token, so a slow earlier photo can't paint
+  // over the one now showing. Edit-screen viewers never get a sequence.
+  let mediaViewerSeq = null;
+  const MEDIA_VIEWER_SWIPE_MIN_PX = 50;
+  const MEDIA_VIEWER_SWIPE_HORIZONTAL_RATIO = 1.5;
+
+  function clearMediaViewerSequence() {
+    mediaViewerSeq = null;
+    updateMediaViewerNav();
+  }
+  function updateMediaViewerNav() {
+    const nav = document.getElementById("mediaViewerNav");
+    if (!nav) return;
+    const seq = mediaViewerSeq;
+    const multi = !!seq && seq.items.length > 1;
+    nav.classList.toggle("hidden", !multi);
+    if (!multi) return;
+    document.getElementById("mediaViewerCounter").textContent = (seq.index + 1) + " / " + seq.items.length;
+    document.getElementById("mediaViewerPrevBtn").disabled = seq.index <= 0;
+    document.getElementById("mediaViewerNextBtn").disabled = seq.index >= seq.items.length - 1;
+  }
+  function mediaViewerItemLabel(item) {
+    if (item.label) return item.label;
+    const def = galleryTypeDef(item.entry.type);
+    return [def ? def.label : item.entry.type, item.entry.caption].filter(Boolean).join(" — ");
+  }
+  function showMediaViewerAt(seq, index) {
+    const item = seq.items[index];
+    if (!item) return null;
+    const entry = item.entry;
+    const def = galleryTypeDef(entry.type);
+    const token = openMediaViewer(detailTitleText(seq.coin)); // clears any sequence...
+    seq.index = index;
+    mediaViewerSeq = seq;                                       // ...so it is set again here
+    updateMediaViewerNav();
+    setMediaViewerFooter(`<span>${escapeHtmlText(mediaViewerItemLabel(item))}</span>`);
+    showEntryInMediaViewer(entry, def ? def.label : entry.type, token);
+    // The photos either side, fetched ahead through the existing read path.
+    [index - 1, index + 1].forEach(i => {
+      const nb = seq.items[i] && seq.items[i].entry;
+      if (nb && !nb.url && nb.stored && nb.storedFilename) {
+        ensureCoinPhotoFetch(nb.storedFilename).then(url => { if (url && !nb.url) nb.url = url; });
+      }
+    });
+    return token;
+  }
+  // items: [{ entry, label? }]; startIndex: which one was tapped.
+  function openCoinPhotoSequence(coin, items, startIndex) {
+    if (!items || !items.length) return null;
+    const i = Math.min(Math.max(Number(startIndex) || 0, 0), items.length - 1);
+    return showMediaViewerAt({ coin, items: items.slice(), index: i }, i);
+  }
+  // Moves one photo. False at an end, or when there is no sequence.
+  function mediaViewerStep(delta) {
+    const seq = mediaViewerSeq;
+    if (!seq || !mediaViewerIsOpen()) return false;
+    const next = seq.index + delta;
+    if (next < 0 || next >= seq.items.length) return false;
+    showMediaViewerAt(seq, next);
+    return true;
+  }
+  function mediaViewerTargetIsEditable(t) {
+    if (!t || !t.tagName) return false;
+    const tag = t.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!t.isContentEditable;
+  }
+  function onMediaViewerArrowKey(e) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (!mediaViewerSeq || !mediaViewerIsOpen()) return;
+    if (mediaViewerTargetIsEditable(e.target) || mediaViewerTargetIsEditable(document.activeElement)) return;
+    if (document.getElementById("mediaViewerStage").classList.contains("pdf-mode")) return;
+    e.preventDefault();
+    mediaViewerStep(e.key === "ArrowRight" ? 1 : -1);
+  }
+  // Swipe: one finger, at least 50px, clearly horizontal, and the page not
+  // pinch-zoomed. Photos have no zoom or pan of their own today, so nothing
+  // else wants this gesture; if that ever changes this must become "only when
+  // the photo is not zoomed".
+  function wireMediaViewerSwipe(stage) {
+    let start = null;
+    stage.addEventListener("touchstart", (e) => {
+      start = (e.touches && e.touches.length === 1)
+        ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    }, { passive: true });
+    stage.addEventListener("touchcancel", () => { start = null; }, { passive: true });
+    stage.addEventListener("touchend", (e) => {
+      const s = start; start = null;
+      if (!s || !mediaViewerSeq || !mediaViewerIsOpen()) return;
+      if (e.touches && e.touches.length) return;
+      if (stage.classList.contains("pdf-mode")) return;
+      const vv = window.visualViewport;
+      if (vv && vv.scale > 1.01) return;
+      const t = e.changedTouches && e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (Math.abs(dx) < MEDIA_VIEWER_SWIPE_MIN_PX) return;
+      if (Math.abs(dx) < Math.abs(dy) * MEDIA_VIEWER_SWIPE_HORIZONTAL_RATIO) return;
+      mediaViewerStep(dx < 0 ? 1 : -1); // swipe left = next, right = previous
+    }, { passive: true });
   }
 
   // One photo from an edit screen (Edit Coin, Edit Set, Manage Photos, Add
@@ -29886,6 +30034,10 @@
     document.addEventListener("keydown", e => {
       if (e.key === "Escape" && mediaViewerIsOpen()) closeMediaViewer();
     });
+    document.addEventListener("keydown", onMediaViewerArrowKey);
+    document.getElementById("mediaViewerPrevBtn").addEventListener("click", () => mediaViewerStep(-1));
+    document.getElementById("mediaViewerNextBtn").addEventListener("click", () => mediaViewerStep(1));
+    wireMediaViewerSwipe(document.getElementById("mediaViewerStage"));
     window.addEventListener("popstate", () => {
       if (mediaViewerExpectPop) { mediaViewerExpectPop = false; return; }
       if (!mediaViewerIsOpen()) return;

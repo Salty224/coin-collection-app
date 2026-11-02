@@ -8,7 +8,8 @@
 //      back does NOT leave the page.
 // Display only: a Graph-write spy wraps every write method of the mock
 // client (and every non-GET fetch) for the whole suite and must stay at zero.
-// Coins only — a Set keeps its old strip, viewer panel and receipt link.
+// Build B (next/prev) moved a Set's Photos tiles onto this same viewer; a Set
+// keeps its collapsed strip and its receipt link (D1-D3).
 
 const { defineSuite, APP_URL } = require("./harness");
 
@@ -204,8 +205,10 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     };
   });
   ok(B4.inputs === 0 && B4.labelPanelHidden, "B4 the viewer shows no inputs (no capture, no file picker, no label field)");
-  ok(JSON.stringify(B4.buttonIds) === JSON.stringify(["mediaViewerCloseBtn"]) && B4.forbidden === false,
-    "B5 its only control is Close — no edit, delete, replace, adjust or capture");
+  // Build B: AY-00001 has 4 photos, so the viewer also shows the Previous / Next
+  // buttons; still nothing that edits, deletes, replaces or captures.
+  ok(JSON.stringify(B4.buttonIds) === JSON.stringify(["mediaViewerCloseBtn", "mediaViewerPrevBtn", "mediaViewerNextBtn"]) && B4.forbidden === false,
+    "B5 its only controls are Close and Previous / Next — no edit, delete, replace, adjust or capture");
 
   // Close button: closes, and gives the history entry back.
   await clickSafe("#mediaViewerCloseBtn");
@@ -344,7 +347,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
   });
   ok(C10.el === false && C10.notScanned && !C10.btn, "C10 \"Not scanned (paper receipt in binder)\" stays plain, untappable text");
 
-  // ---------- D. Sets are deliberately unchanged ----------------------------
+  // ---------- D. Sets keep their collapsed strip and receipt link; the tile opens this viewer (Build B) ----
   await page.evaluate(() => __setStoredReceiptsForTest({ "AY-90520": { receiptId: "RC-S", filename: "photo.jpg" } }));
   await openCoin("AY-90520");
   const D = await page.evaluate(() => {
@@ -353,7 +356,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     const receipt = document.getElementById("detailReceiptLink");
     return { open: header ? header.getAttribute("aria-expanded") : null, tag: thumb ? thumb.tagName : null, receiptTag: receipt ? receipt.tagName : null };
   });
-  ok(D.open === "false" && D.tag === "DIV", "D1 a Set's Photos section keeps its old collapsed strip");
+  ok(D.open === "false" && D.tag === "BUTTON", "D1 a Set's Photos section keeps its collapsed strip; its tiles are real buttons now");
   ok(D.receiptTag === "SPAN", "D2 a Set's receipt keeps its old filename-to-link behaviour");
   await page.evaluate(() => { document.querySelector("#detailPhotoStrip .gc-thumb").click(); });
   await wait(150);
@@ -361,7 +364,8 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     panel: !document.getElementById("galleryViewerOverlay").classList.contains("hidden"),
     viewer: !document.getElementById("mediaViewerOverlay").classList.contains("hidden")
   }));
-  ok(D3.panel === true && D3.viewer === false, "D3 a Set's thumbnail still opens openGalleryViewer(), not the new viewer");
+  ok(D3.panel === false && D3.viewer === true, "D3 a Set's thumbnail now opens the one-photo viewer, not the old openGalleryViewer() panel");
+  await page.evaluate(() => closeMediaViewer());
   await page.evaluate(() => closeGalleryViewer());
 
   // ---------- E. Display only ----------------------------------------------
