@@ -802,3 +802,10 @@ under Other per an existing note in `Lookup_MetalContent`, not a gap).
   re-verified from this environment.
 
 
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E3: reads and writes target the same workbook, always. Source: [docs/ref/BROWSE_CATALOG.md](BROWSE_CATALOG.md), section "Live nav data (read-only) — BUILT and merged to main" (original lines 14712-14725).

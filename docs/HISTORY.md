@@ -3102,3 +3102,79 @@ Moved from CLAUDE.md at the merge (rules stay there).
 - **Not verified on a real device or the real workbook:** all of it. Suggested TEST checks: (1) Edit Coin on a coin, change Value Date, Save: the cell is a real date in Excel (right-aligned, yyyy-mm-dd, a number under General); (2) type ISO text into a TEST date cell in Excel, reload: the Docket shows "Date stored as text", the detail page and Edit Coin show the date; Save any change on that coin and the cell becomes a real date, the row goes on reload; (3) a receipt Replace on all over a row whose DateAdded is text: the DateAdded becomes a real date; (4) Add Coin with a Value Date, promote: both dates real; (5) after 8 pm, promote or dismiss a draft: the Staging JSON date is today, not tomorrow. Added for `bfe52cc`: (6) Edit Coin, change any field, Save: All.LastModified shows today's date AND the local time (yyyy-mm-dd hh:mm); a second save a few minutes later shows the later time; ValueDate / PurchaseDate stay date-only; (7) a Manage Photos or receipt-only save does not change LastModified; (8) the Docket's "Date stored as text" row for an All date names both fixes; a Photos / Receipts one says "Fix it in Excel.".
 - Ray's TEST check of the head (Build after `bfe52cc`, 4 Nov 2026): Edit Coin dates, text-date Docket row and fix-on-save, Add Coin ValueDate, LastModified date + time on two saves, photo-only save leaves LastModified alone: all passed. Merged by fast-forward to `7b75c4e`.
 - Investigation during this branch (4 Nov 2026), not bugs of this branch: AY-00760's "blank ValueDate" was PurchaseDate (ValueDate was written); a partial-batch theory did not fit the _Testing layout (ValueDate AD, LastModified AZ). Recorded instead as backlog (al) write-safety and the next branch (Finish / Category required, draft cleanup).
+
+
+## Superseded: the "Current state" block as of `a7fcb20` (replaced in the (am) slimming, 4 Nov 2026)
+
+- main = `7b75c4e` (the date branch, merged 4 Nov 2026 by fast-forward on Ray's go-ahead) plus the docs commit that rewrote this block (`git log -1 main`). Last code commit on main `bfe52cc`. LIVE = `716a5e3` (per Ray, 4 Nov 2026) until Ray deploys main himself; a merge never deploys. **LIVE's commit is known only from Ray's screen or his word; never state it otherwise.**
+- No open feature branch. `claude/date-writes-real-dates` (merged, tip `7b75c4e`) stays on origin.
+- Baseline: full `npm test` at `bfe52cc` (4 Nov 2026; code on main is identical): 4681 passed, 0 failed, 0 page errors, 89 suites, 16.9 min wall; slowest: deploy-workflow 129 s, image-chooser 124 s, addcoin-shared-photos 57 s. `verify_crop_from_upload` is a known timing flake under load.
+- Next session, in order: (1) backlog (am), slim CLAUDE.md: plan first, then one docs-only commit to main; (2) the branch `claude/addcoin-finish-required-and-draft-cleanup`: decided, spec and tests in "NEXT BRANCH (decided by Ray 4 Nov 2026, NOT built)"; then (al) write-safety (F6, F2, F5, F1, 5.B-5.F), (an) test speed, (ao) device cache.
+- Other backlog, no order: Batch Receipt design (draft, nothing built); remove a shared receipt from ALL its coins; a general busy indicator; receipt photo cropping; standardising receipt file names; (ap) review items; (r), (e) then (q), (aa), (ac), (ad) with (ag), (ae), (ah), (ab), (x), (y); (u) a data fix outside the app; (v) a note only. (ai) LastModified date + time is DONE (date branch).
+- Waiting on Ray: his deploy of main to LIVE; his device check of the interim receipt file naming on TEST; a real-device look at (z); the Ledger tiles, Sets card Variety line and melt / face labels on LIVE; LIVE's Photos tab for duplicate PhotoIDs (u) before any Replace on LIVE; the leftover `cropped_04` on AY-00756 if he wants; deleting merged branches (the git proxy blocks deleting; never delete them here).
+- Branches on origin, merged and kept until Ray deletes them: `claude/date-writes-real-dates`, `claude/receipt-remove-and-shared-replace-w1cf1j`, `claude/receipts-photos-alignment`, `claude/receipts-wait-for-save`, `claude/guided-obverse-reverse-crop`, `claude/details-viewer-next-prev`, `claude/album-cover-coin`, `claude/test-suite-slowdown`, 51 older merged `claude/*`; `claude/album-cover-coin-ggs4pu` (no code) is on his delete list; 4 unmerged ones are superseded by design (see docs/ref/PHOTOS.md).
+- Workbook: see "Workbook facts from the coordinator's check (4 Nov 2026)". _Testing: All.ValueDate is AD, LastModified AZ (only GradeNum and Purged right of it). LIVE workbook pass DONE (Copilot, 31 Oct 2026): media columns are formulas at AK:AR. All.SpotValue has its formula in 1,552 of 1,555 rows.
+- Not verified on LIVE / a real device: the date branch on LIVE (TEST checks passed); the album cover coin on LIVE; Build B's Set Details tile, arrow keys on a desktop, the tablet layout; Build 1 and Build 2 on LIVE beyond their TEST checks; the interim receipt file naming; the drift rows against the real formulas; (z); Samsung Internet in a browser tab; Graph's conflictBehavior=fail (409) on a real upload.
+- Stale text, left unedited on purpose until (am): "Current status (Oct 2026)" says `claude/in-app-pdf-viewer-options` is not an ancestor of main; treat the pdf.js work as landed. About 40 pointers name sections now in `docs/`; use `docs/INDEX.md`.
+
+
+## Superseded: "Where to look" as of `a7fcb20` (rewritten in the (am) slimming, 4 Nov 2026)
+
+This file keeps what every session needs: standing rules, current state, backlog, and the architecture and write-layer design. Everything else is in `docs/`, linked by plain path (not @-imports), so nothing loads unless you read it. Line numbers in `docs/INDEX.md` and in the "Source:" pointers below refer to this file as it was at commit `21bcd95`.
+- When touching photos, crop, receipts, the image chooser, Manage Photos, photo labels, Replace, Save-wait behaviour, or reference images: read [docs/ref/PHOTOS.md](ref/PHOTOS.md) first.
+  Rules that stayed in CLAUDE.md: "Photos wait for Save" (C1-C3, "C2: the leave guard", "Replace never overwrites a photo file"), "Receipts never overwrite", "Receipts and photos alignment, Build 1" (the tabs are the only record; Binder rows), "Photo / receipt write layer", "Receipt photos auto-convert to PDF", and the chooser rule E2 (under "Rules extracted from moved sections"). The continuations of the Save-wait, leave guard, Replace, Receipts and write-layer sections are in docs/HISTORY.md.
+- When touching the Add Coin or Edit Coin forms, the Identification section (Grader, PCGS label, Mint Item Number, GSID), denomination or Finish dropdowns, CACBean, Value fields, or Staging-draft editing: read [docs/ref/ADD_COIN.md](ref/ADD_COIN.md) first.
+  Rules that stayed in CLAUDE.md: "Add Coin write layer — Phase 1" and "Browse Edit real write layer" (their continuations are in docs/HISTORY.md), and "Add Coin Phase 2 + live-device retest batch".
+- When touching Add Set (Step 1/2, Set drafts, sub-groups, Set promotion): read [docs/ref/ADD_SET.md](ref/ADD_SET.md) first.
+  Rules that stayed in CLAUDE.md: the design head of "Add Set + real write layer"; its continuation is in docs/ref/ADD_SET.md.
+- When touching dbCoinsCandidatesFor(), CoinID matching or re-link, Re-check, or the Description, Category, Composition, Designation or Finish tiers: read [docs/ref/MATCHER.md](ref/MATCHER.md) first.
+- When touching Catalog, the Sets tab or checklist, Rolls, Browse filters, or the live-nav-data read path: read [docs/ref/BROWSE_CATALOG.md](ref/BROWSE_CATALOG.md) first.
+- When touching the Browse detail page, the Edit Coin / Edit Set layout, Overview and accordions, Spotlight, Specifications, sharing, Set child linkage, or the Value floor and formatCurrency: read [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md) first.
+  Rules that stayed in CLAUDE.md: "Belongs to: Set membership from OriginSetID only" and "Set attach / detach: the real OriginSetID write layer" (continuation in docs/HISTORY.md).
+- When touching flip-card or mini-card corner labels, corner fitting, composition or variety text, SMS, or the reverse face: read [docs/ref/FLIP_CARD.md](ref/FLIP_CARD.md) first.
+- When touching Albums (list, page-flip book, slots, key dates, Mintage text, image prefetch, Best of view): read [docs/ref/ALBUMS.md](ref/ALBUMS.md) first.
+- When touching the Dashboard cabinet, drawers, Back and Close Drawer, device Back / the history guard, the splash screen, or startup gating: read [docs/ref/NAV_DASHBOARD.md](ref/NAV_DASHBOARD.md) first.
+  Rules that stayed in CLAUDE.md: "Startup connection, docket.json, and the no-demo-data rule" (startup timings, Retry, Docket fast-fail).
+- When touching the Docket, the Needs Attention hub, Staging Review, or their Re-check / Force Add / Dismiss buttons: read [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md) first.
+  Rules that stayed in CLAUDE.md: "Phase 2 promote: duplicate-row bug" (continuation in docs/HISTORY.md), "Item 5 — Force Add's orphan blank row", "CollectionID-reservation system — Promotion / Rejection", and "docket.json handling".
+- When touching Former Holdings, Purge, or the Show Purged toggle: read [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md) first.
+  Rules that stayed in CLAUDE.md: the design head of "Former Holdings sub-catalog + Purge"; its continuation is in docs/ref/FORMER_HOLDINGS.md.
+- When touching Ledger, Stats, spot prices, Status and Sell/Remove, or Wishlist: read [docs/ref/LEDGER.md](ref/LEDGER.md) first.
+- To find where a heading from the old file went: [docs/INDEX.md](INDEX.md).
+- Section names quoted elsewhere in this file ("see ...", "above", "below") may now live in a docs/ file: look the heading up in [docs/INDEX.md](INDEX.md).
+- Only when you need the story behind a feature (test lists, negative controls, bug-fix rounds, superseded designs): [docs/HISTORY.md](HISTORY.md).
+- When Ray runs a live pass: the checklists `docs/*_LIVE_RUN_CHECKLIST.md`.
+
+
+## Current status (Oct 2026) — read this first
+(Corrected 4 Nov 2026 in the (am) slimming: the claim that `claude/in-app-pdf-viewer-options` is not an ancestor of `main` is stale: that branch is not on origin, and `loadPdfjs()` plus `vendor/pdfjs/` are on `main`. Treat the pdf.js work as landed.)*
+- `main` is the source of truth for everything in this file. Every branch
+  section that once read "HELD" has since been merged (each header now says
+  so). The one exception: `claude/in-app-pdf-viewer-options` (Receipt PDFs,
+  pdf.js) is NOT an ancestor of `main`, though `loadPdfjs()` is present in
+  `main`'s `app.html`; how it landed is unverified (likely squashed or
+  cherry-picked). Check before treating that section as current.
+- The live site writes the REAL workbook once Ray deploys `main` through the
+  workflow (see "The build decides its data target"). Nothing reaches the
+  live site until he runs it.
+- Baseline: see "Current state" at the top of this file. `verify_crop_from_upload` (C3a/C3/C7/C9) is a known timing flake under load (passes alone).
+- Still open, by choice: the `AllCoins` table's ref runs ~987 rows past its
+  data (left as-is); a real Graph workbook session ("option 3") stays in
+  reserve for read-after-write lag; the deferred write bugs listed under
+  "Known effects, accepted" in "The build decides its data target".
+- Backlog: see "Open backlog (Oct 2026)" directly below.
+
+
+## "end session" means: update this file first (standing rule)
+**SUPERSEDED by "Standard end-of-work pattern" at the top of this file.** In
+particular, the docs fix now goes to `main` as one docs-only commit (not "the
+current branch"), and pending next steps / session notes are NOT written here:
+the coordinating Claude keeps those.
+
+
+## Rules extracted from moved sections (copies, kept here because they apply beyond one area)
+(Corrected 4 Nov 2026 in the (am) slimming: this old heading and its intro are history. The E-numbered rules themselves are live and were condensed to one line each in CLAUDE.md.)*
+
+Each excerpt is a line-for-line copy. The original still sits in the file named in its Source line; line numbers are CLAUDE.md at `21bcd95`.
+
+The rule statements E1-E21 themselves are live rules: each is now in CLAUDE.md as one line and its original header line sits at the end of the ref file named in its Source.

@@ -136,3 +136,62 @@ Headings that stayed in CLAUDE.md are not listed. A SPLIT heading stays in CLAUD
 - Re-check applied the gate too; three note strings corrected (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`) -> [docs/ref/MATCHER.md](ref/MATCHER.md), original lines 16947-17099
 - Series-level reference images (locked in — framework only, real assets still open) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 17100-17184
 - 17Jul2026 (chat session, reported after the CollectionID-reservation merge) -> [docs/HISTORY.md](HISTORY.md), original lines 17243-17281
+
+## Moved in the (am) slimming (4 Nov 2026): CLAUDE.md as it was at commit `a7fcb20` (3,721 lines)
+
+Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sections moved verbatim, heading text unchanged, so a heading quoted in app.html or in this repo is found by grep. The standing rules, build-decides-target, NEXT BRANCH, App structure and What NOT to build stayed in CLAUDE.md; the invariants, E-rules, Data model facts, Merged-work summaries and Open backlog lines there are new one-line condensations of the sections listed here.
+
+- Photos wait for Save (Oct 2026, merged to main 27 Oct 2026 by fast-forward to `928d7a9`, built on `claude/photos-wait-for-save`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 379-626
+- Receipts never overwrite (Oct 2026, merged to main 28 Oct 2026 by fast-forward, built on `claude/receipts-never-overwrite`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 627-676
+- ✕ on a Replace pick is an undo (29 Oct 2026, merged to main 30 Oct 2026 by fast-forward, built on `ccr-06105bea-fexby9`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 677-698
+- Staging photo replace keeps the old file (Oct 2026, merged to main 30 Oct 2026 by fast-forward, built on `ccr-06105bea-fexby9`, code `7b56955`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 699-760
+- Save only when something changed (task (z), built 30 Oct 2026 on `claude/save-only-when-changed`, merged to main 31 Oct 2026 by fast-forward, code `014be60`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 761-776
+- Receipts wait for Save (task x, built 31 Oct 2026 on `claude/receipts-wait-for-save`, code `939c1d3`, merged to main 31 Oct 2026 by fast-forward to `da1c19e` after Ray's 8 tablet checks on TEST passed) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 777-789
+- Receipts and photos alignment, Build 1 (merged to main 31 Oct 2026 by fast-forward to `6a21b60`, built on `claude/receipts-photos-alignment`, code `e38e921` + `62cb911`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 790-800
+- Receipts and photos alignment, Build 2 (built 31 Oct 2026 on `claude/receipt-remove-and-shared-replace-w1cf1j`, code `1795746` + interim naming `d56e295`, merged to main 31 Oct 2026 by fast-forward to `28e5d5d`; deployed to LIVE in `d61f1dd`) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 801-819
+- Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 3016-3215
+- Receipt photos auto-convert to PDF (locked in) -> [docs/ref/SAVE_AND_RECEIPTS.md](ref/SAVE_AND_RECEIPTS.md), original lines 1707-1785
+- Editing existing coins (bounded) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 2216-2262
+- Browse Edit real write layer (BUILT and merged to main) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 2263-2449
+- Phase 2 promote: duplicate-row bug (BUILT and merged to main) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 2924-3015
+- Item 5 — Force Add's orphan blank row (FIXED: claim, don't append) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 3426-3488
+- The AllCoins table is 987 rows longer than its data (workbook finding) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 3400-3425
+- New rows stamp a literal "Owned" at creation (BUILT and merged to main) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 3489-3539
+- Set attach / detach: the real OriginSetID write layer (BUILT and merged to main; built on `claude/add-coin-write-path-fs2rf8`, tip `3767eb4`, landed via rebase; the code is on `main`) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 3540-3646
+- New rows always claim a blank row (standing rule, Ray, 27 Oct 2026) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 1261-1297
+- Dates the app writes are real Excel dates (built 4 Nov 2026 on `claude/date-writes-real-dates`, code `9b0fb7a` + `bfe52cc`, merged to main 4 Nov 2026 by fast-forward to `7b75c4e` on Ray's go-ahead after his TEST checks passed) -> [docs/ref/WRITE_LAYER.md](ref/WRITE_LAYER.md), original lines 836-852
+- Add Coin: the core workflow -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 1926-1945
+- Post-save Albums matching (future requirement, not started — blocked on the write layer like everything else above) -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 1946-1961
+- Direct-write vs. Staging (locked in) -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 1962-1990
+- CollectionID-reservation system — Promotion / Rejection (locked in) -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 1991-2082
+- Add Coin write layer — Phase 1 (BUILT and merged to main) -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 2450-2661
+- Add Coin Phase 2 + live-device retest batch (BUILT and merged to main) -> [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md), original lines 2662-2923
+- Current live files -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1373-1391
+- Installable app (PWA) — locked in -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1392-1427
+- Azure / Entra config -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1428-1447
+- Auth: ONE shared MSAL instance (locked in — hard rule) -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1448-1515
+- Real Graph API reads (locked in — first real network/auth code in app.html) -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1516-1641
+- OneDrive folder structure -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1642-1706
+- Startup connection, docket.json, and the no-demo-data rule (04 Oct 2026) -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1068-1191
+- The build decides its data target: rollout order, testing notes, known effects (continuation) -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 351-378
+- Regression suites are COMMITTED (locked in — supersedes the scratchpad convention) -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 1298-1364
+- Quick-capture notes → ParkingLot -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 3373-3379
+- Batch receipt capture -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 3380-3386
+- External data sources — what's safe to hotlink vs. not -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), original lines 3387-3399
+- ID schemes (locked in) -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 1786-1822
+- Workbook naming conventions -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 1823-1830
+- Workbook sheets that matter -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 1831-1925
+- Workbook facts from the coordinator's check (4 Nov 2026; corrections to the 3 Nov review's Part 5) -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 869-873
+- Open backlog (Oct 2026) — recorded only, not built -> [docs/BACKLOG.md](BACKLOG.md), original lines 891-1067
+- Session log — carried-forward state (not app architecture, tracked here for continuity) -> [docs/BACKLOG.md](BACKLOG.md), original lines 3667-3716
+- Add Set + real write layer (BUILT and merged to main) -> [docs/ref/ADD_SET.md](ref/ADD_SET.md), original lines 2083-2215
+- Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`, landed via rebase; the code is on `main`) -> [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 3216-3372
+- Belongs to: Set membership from OriginSetID only (Oct 2026, merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 1192-1221
+- Guided Obverse / Reverse crop, Build A (built 1 Nov 2026 on `claude/guided-obverse-reverse-crop`, merged to main 1 Nov 2026 by fast-forward to `e0aa7a3`; deployed to LIVE in `d61f1dd`; 1400 px holder-crop limit accepted by Ray) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 820-827
+- Details photo viewer: next / previous, Build B (built 2 Nov 2026 on `claude/details-viewer-next-prev`, code `f48c729`, merged to main 2 Nov 2026 by fast-forward to `24d3e72`; deployed to LIVE in `d61f1dd`) -> [docs/ref/PHOTOS.md](ref/PHOTOS.md), original lines 828-835
+- Current state (old block, as of a7fcb20) -> [docs/HISTORY.md](HISTORY.md), original lines 7-18
+- Where to look (old block, as of a7fcb20) -> [docs/HISTORY.md](HISTORY.md), original lines 19-44
+- Current status (Oct 2026) — read this first -> [docs/HISTORY.md](HISTORY.md), original lines 874-890
+- "end session" means: update this file first (standing rule) -> [docs/HISTORY.md](HISTORY.md), original lines 1231-1236
+- Rules extracted from moved sections (intro lines) -> [docs/HISTORY.md](HISTORY.md), original lines 108-110
+- Rules E1-E21 (the 16 assigned ones): header lines are at the end of the ref file their Source names, under "Cross-area rules stated in CLAUDE.md"; the excerpts were already in those files.

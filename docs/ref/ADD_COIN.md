@@ -1,7 +1,7 @@
 # Reference: ADD_COIN (moved out of CLAUDE.md)
 
 Read this file when: touching the Add Coin or Edit Coin forms, the Identification section (Grader, PCGS label, Mint Item Number, GSID), denomination or Finish dropdowns, CACBean, Value fields, or Staging-draft editing.
-Rules that stayed in CLAUDE.md (not in this file): "Add Coin write layer — Phase 1" and "Browse Edit real write layer" (their continuations are in docs/HISTORY.md), and "Add Coin Phase 2 + live-device retest batch".
+Since the (am) slimming (4 Nov 2026) CLAUDE.md keeps only one-line summaries of the write layers: "Add Coin write layer — Phase 1", "Add Coin Phase 2 + live-device retest batch", "Phase 2 promote" and the reservation system are in [ADD_COIN_WRITE.md](ADD_COIN_WRITE.md) and [WRITE_LAYER.md](WRITE_LAYER.md) (continuations are in docs/HISTORY.md). The cross-area rules E11-E15 end this file.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ## Add Coin Error dropdown: real Lookup_Errors list (Oct 2026, merged to main, built on `claude/add-coin-error-dropdown-real-values`, tip `98edd7f`)
@@ -1525,3 +1525,18 @@ errors.
   column name first before assuming the mapping logic is wrong.
 
 
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E11: only the CERT part of a label may reach a cert-lookup URL. Source: [docs/ref/ADD_COIN.md](ADD_COIN.md), section "Grader dropdown + grader-agnostic cert linking (locked in)" (original lines 6191-6200).
+
+E12: Grading Help: hard copyright constraint. Source: [docs/ref/ADD_COIN.md](ADD_COIN.md), section "Grading Help button (framework only, locked in)" (original lines 6302-6305).
+
+E13: Mint Mark "Other" never writes a persisted value. Source: [docs/ref/ADD_COIN.md](ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9939-9946).
+
+E14: the full-name Mint column must never replace MintMark in the primary join key. Source: [docs/ref/ADD_COIN.md](ADD_COIN.md), section "Mint Mark "None (Other)": real DB_Coins.Mint disambiguation (BUILT and merged to main)" (original lines 9947-9953).
+
+E15: Edit Coin never auto-fills over curated identity fields. Source: [docs/ref/ADD_COIN.md](ADD_COIN.md), section "Workbook-alignment batch (BUILT and merged to main)" (original lines 10769-10775).

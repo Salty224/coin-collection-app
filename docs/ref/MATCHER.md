@@ -1249,3 +1249,12 @@ decision, not as an obvious extension.
 - **Not verified: any real device, any real OneDrive session.**
 
 
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E8: DESCRIPTION_GENERIC_TOKENS must stay tight; never add an identity-bearing word. Source: [docs/ref/MATCHER.md](MATCHER.md), section "Description consistency gate + Category lone-candidate fix (BUILT and merged to main; built on `claude/brave-wozniak-6fobpg`, tip `b6d82de`, landed via rebase; the code is on `main`)" (original lines 16816-16822).
+
+E9: every category hint is a phrase of two or more words; never collapse one to a single word. Source: [docs/ref/MATCHER.md](MATCHER.md), section "Add Coin Phase 1: Category narrows the DB_Coins matcher (BUILT and merged to main)" (original lines 8516-8526).

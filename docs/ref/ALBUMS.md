@@ -1214,3 +1214,12 @@ fix, not a coincidence of the demo data's own ordering.
 - **Not verified: any real device.**
 
 
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E5: anything that redraws the Album book mid-turn must go through the turn helpers. Source: [docs/ref/ALBUMS.md](ALBUMS.md), section "Albums: page flip can no longer get stuck (`tests/verify_album_book_flip.js`)" (original lines 2041-2050).
+
+E19: a blank mint mark is a double dash in real CoinIDs. Source: [docs/ref/ALBUMS.md](ALBUMS.md), section "Albums: live-wiring, read-only (BUILT and merged to main)" (original lines 14929-14940).

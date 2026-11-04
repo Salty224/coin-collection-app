@@ -1,7 +1,7 @@
 # Reference: NAV_DASHBOARD (moved out of CLAUDE.md)
 
 Read this file when: touching the Dashboard cabinet, drawers, Back and Close Drawer, device Back / the history guard, the splash screen, or startup gating.
-Rules that stayed in CLAUDE.md (not in this file): "Startup connection, docket.json, and the no-demo-data rule" (startup timings, Retry, Docket fast-fail).
+Since the (am) slimming (4 Nov 2026) "Startup connection, docket.json, and the no-demo-data rule" (startup timings, Retry, Docket fast-fail) is in [PLATFORM.md](PLATFORM.md). The cross-area rule E6 ends this file.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ### Round 2 after Ray's tablet test of `0a0cbd1` (same branch, HELD for his retest; merged to main 27 Oct 2026)
@@ -1301,3 +1301,10 @@ reach any other way.
   hypothesized mechanisms (hang vs. malformed content) it actually was.
 
 
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E6: do not hand-tune a visual nudge for a font-rendering perception. Source: [docs/ref/NAV_DASHBOARD.md](NAV_DASHBOARD.md), section "Cabinet navigation redesign (BUILT and merged to main; built on `claude/cabinet-navigation`, whose tip is not an ancestor of `main` — landed via rebase; the code is on `main`)" (original lines 13972-13976).

@@ -1,8 +1,142 @@
 # Reference: ADD_SET (moved out of CLAUDE.md)
 
 Read this file when: touching Add Set (Step 1/2, Set drafts, sub-groups, Set promotion).
-Rules that stayed in CLAUDE.md: the design head of "Add Set + real write layer"; its continuation is in this file.
+The design head of "Add Set + real write layer" now sits at the top of this file (moved from CLAUDE.md in the (am) slimming, 4 Nov 2026), followed by its continuation.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
+
+### Add Set + real write layer (BUILT and merged to main)
+The app's first real OneDrive **write** layer, plus a new **Add Set** capture
+flow that uses it and a durable **CollectionID reservation** module. Built to
+a 3-part spec; all 12 clarifying answers are baked in. Verified entirely
+headless via a mock Graph client (77 assertions); the real live-against-a-copy
+run is Ray's to execute (see the numbered checklist committed alongside,
+`docs/ADD_SET_LIVE_RUN_CHECKLIST.md`).
+**Merge status correction:** this was previously flagged in this file as
+"held on branch `claude/add-set-reservation`, NOT merged" — that was stale.
+It was actually merged to main in an earlier session, and every subsequent
+round of work (Needs Attention hub, Sets checklist, Medal tab, receipt-to-PDF,
+this Bug 3 fix, etc.) has been built directly on top of it in main.
+`claude/add-set-reservation` has no commits of its own that aren't already in
+main's history — **main is now the source of truth for all Add Set/write-layer
+work, full stop**; the branch name is kept here only as a historical pointer
+to where this feature originated, not as a place future work should land.
+
+**Two bugs found during Ray's live copy-workbook run, both fixed and
+re-verified headless (checklist itself passed — B8-B9/C12-C14/D16/E19-E20 all
+confirmed against real OneDrive data; these were refinements on top, not
+architecture changes):**
+- **Bug 1 — Pause used to discard whatever was typed but not yet formally
+  saved.** Fixed via a new `partialChild` field on the draft (distinct from a
+  real `children[]` entry — never counted as captured, never gets a
+  CollectionID). The Pause handler reads the current form fields
+  (`readChildFormValues()`, identity fields — see Bug 3 below for photos,
+  which are handled separately) and persists them before navigating away;
+  `renderChildStep()` restores them into the form on resume
+  (`restoreChildFormValues()`) and clears `partialChild` the moment it's
+  consumed, so a stale partial can't reappear after being shown once. A real
+  save (`addChildToSetDraft()`) always clears any leftover `partialChild`
+  too, since a formal save supersedes it. Pausing a genuinely blank form
+  leaves `partialChild` as `null` rather than persisting an empty object.
+  **Superseded in part by Bug 3 below**: this original fix explicitly
+  excluded photos ("in-memory Files can't round-trip through a JSON draft,
+  so they're deliberately not part of this") — that exclusion is what Bug 3
+  fixes; the text-field persistence described here is otherwise unchanged.
+- **Bug 2 — no way to correct `expectedChildCount` after Step 1, and hitting
+  it produced a nonsensical "Coin 4 of 3."** Fixed two ways: (a) an inline
+  "Expected count [Update]" control now sits on the child-capture screen
+  itself, editing the flat `expectedChildCount` for an ungrouped set or the
+  **currently-active sub-group's** own `expectedCount` for a sub-grouped one
+  (`adjustExpectedCount()` — mutates the actual object inside `draft.subGroups`,
+  not a copy, so the persisted write is correct); (b) once captured count
+  reaches or exceeds what's expected, the progress line stops trying to show
+  a fill-in-the-blank "Coin N of M" and instead reads "You've captured N
+  coins — add another, or mark this set complete?" — for a sub-grouped set
+  this triggers once **every** sub-group is full (`allSubGroupsFull()`), not
+  per-group, since there's no single sensible "next group" left to name at
+  that point. `currentSubGroupForNextChild()` now returns `null` (not a
+  last-group fallback) once all groups are full, which is what
+  `allSubGroupsFull()`'s equivalent condition relies on.
+- 20 new headless assertions cover both: unsaved-then-paused fields
+  surviving a resume and then being formally saved correctly, a blank pause
+  not leaving a junk partial, adjusting count mid-capture on both flat and
+  sub-grouped sets, and the graceful overflow message at exactly-met and
+  past-met counts for both set shapes.
+- **Bug 3 — a captured-but-not-yet-saved child photo didn't survive Pause.**
+  Found during review of the Bug 1 fix (photos were explicitly excluded from
+  `partialChild`), confirmed by design rather than a live reproduction, and
+  fixed the same session. A photo is now uploaded to this draft's real
+  Staging folder (`setDraftFolder()`, i.e. `CoinCollection/Staging/
+  {CollectionID}/` under whichever `WRITE_TARGET` is active — same `"copy"`
+  gating as every other Add Set write, unchanged) **the moment Pause is
+  tapped**, not deferred to a formal Save — using the exact same
+  `{childId}_obverse.jpg`/`_reverse.jpg` filenames `saveCurrentChild()`
+  itself uses, since `nextChildCollectionId()` is stable for as long as one
+  child-capture form stays open. Only the resulting **filename reference**
+  is written into `partialChild.photos` — never the photo bytes — keeping
+  the JSON draft small. `renderChildStep()` now also calls a new
+  `restorePartialChildPhotos()` on resume, which fetches those bytes back
+  from Staging and repopulates both the live preview and `addSetPhotoFiles`,
+  so `saveCurrentChild()`'s existing upload call transparently re-uses the
+  already-staged photo — no special-casing needed there, and Ray never has
+  to re-take a photo that already exists in Staging. Guarded against a race
+  where a fresh capture lands while the async restore is still in flight
+  (checked both before the fetch starts and again right after it resolves,
+  so the slower-to-arrive restored photo can never clobber a newer one Ray
+  just took). A second Pause correctly overwrites the Staging file if the
+  photo was re-taken, and falls back to the already-referenced filename
+  (rather than uploading blank) if resume's restore hasn't finished landing
+  yet when Ray pauses again. 23 new headless assertions (mock Graph client):
+  photo persists byte-for-byte across Pause → resume, the reference is
+  cleared once the child is formally saved (with the saved child's own
+  record carrying the same unchanged photo bytes) and correctly replaced if
+  the photo is re-taken instead, a Pause with no photo taken behaves exactly
+  as before (blank `photos.obverse`/`reverse`, nothing uploaded), a fully
+  empty Pause still stores `partialChild = null`, and the mid-restore race
+  guard. Verified working for sub-grouped sets too (a separate ad-hoc check,
+  not part of the saved suite files). The 6 existing suite files (77
+  assertions) re-run clean alongside — 105/105 total across everything run
+  this session, zero regressions.
+
+**Structured Year field + child-coin pre-fill (BUILT, locked in).** Add Set
+Step 1 had no structured Year — only free-text Set name/description — so
+child-coin capture had nothing to pre-fill from and Year had to be retyped
+by hand on every coin, even for a single-year set. Fixed per Ray's explicit
+scoping (not open for further design questions): every catalogued Mint
+product is tied to exactly one year; only a personal/custom grouping can
+span multiple years — so Year is a required **either/or**, never a third
+"blank" state.
+- **New Step 1 field**: a number input (`#addSetYear`) plus a `Various`
+  checkbox (`#addSetYearVarious`, reusing the existing `.grade-range-toggle`
+  class rather than inventing a new one). Checking Various disables and
+  blanks the number input, so the two states can't both hold a stale value.
+  `readAddSetYear()` returns a specific number, the literal string
+  `"Various"` (same convention the Rolls tab already uses for a mixed-date
+  roll's own `year` field — reused, not reinvented), or `null` if genuinely
+  neither was chosen — `startSetCapture()` blocks submission on `null` via
+  the same `showToast()` validation pattern as the existing "give the set a
+  name" check.
+- **`draft.year` is no longer checklist-only.** It already existed as a
+  draft field (populated only via the Sets-checklist deep-link, see that
+  section below) — now `startSetCapture()` always sources it from
+  `readAddSetYear()` regardless of entry path, so a checklist deep-link and
+  a plain Add Set entry both end up going through the same real form field.
+  `applyAddSetContext()` now pre-fills `#addSetYear` with the checklist
+  tile's year (always a specific number, Various left unchecked) instead of
+  passing it through a side-channel — genuinely simplifies that code path,
+  not just adds to it.
+- **Child pre-fill lives in `clearChildForm()`** (`prefillChildYear()`):
+  a freshly-opened child form (first coin, or right after a save) pre-fills
+  `#addSetChildYear` from `currentSetDraft.year` whenever that's a specific
+  number; `"Various"` or a missing/legacy value (a draft written before this
+  feature existed) leaves it blank, exactly as before. Applies identically
+  regardless of sub-groups — sub-groups split by mint mark, not year, and
+  this doesn't branch on `subGroups` at all. **Deliberately NOT applied**
+  when resuming a Paused `partialChild` — `restoreChildFormValues()` is
+  untouched, since a restored partial represents exactly what Ray had
+  already typed/cleared, which must win over the Step 1 default. Still just
+  a normal editable value either way — a per-coin override is respected and
+  isn't sticky (the next child gets the Step 1 pre-fill again, not the
+  override).
 
 #### (continued) Add Set + real write layer (BUILT and merged to main)
 
@@ -313,5 +447,3 @@ Year, Category — same order top to bottom now.
   live-nav-data; Ray's own audit of the real Description column ("confirmed
   clean, no messy edge cases") is what this was built against, not an
   independent re-verification from this environment.
-
-

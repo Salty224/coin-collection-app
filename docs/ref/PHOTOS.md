@@ -1,7 +1,7 @@
 # Reference: PHOTOS (moved out of CLAUDE.md)
 
 Read this file when: touching photos, crop, receipts, the image chooser, Manage Photos, photo labels, Replace, Save-wait behaviour, or reference images.
-Rules that stayed in CLAUDE.md (not in this file): "Photos wait for Save" (C1-C3, "C2: the leave guard", "Replace never overwrites a photo file"), "Receipts never overwrite", "Photo / receipt write layer", "Receipt photos auto-convert to PDF", and the chooser rule E2 (under "Rules extracted from moved sections"). The continuations of the Save-wait, leave guard, Replace, Receipts and write-layer sections are in docs/HISTORY.md.
+Since the (am) slimming (4 Nov 2026) the Save-wait, leave guard, Replace, receipts, alignment and Photos / Receipts tab write-ups are in [SAVE_AND_RECEIPTS.md](SAVE_AND_RECEIPTS.md); the rules blocks of Guided crop and the Details viewer end this file. The cross-area rules E2 and E21 end this file too.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ## Details photo viewer: next / previous, Build B (built 2 Nov 2026 on `claude/details-viewer-next-prev`, cut from main `9b4e21d`, merged to main 2 Nov 2026 by fast-forward to `24d3e72`; not deployed)
@@ -1627,3 +1627,30 @@ reference-image-second, then the bare placeholder third.
   actually exists in OneDrive, not on any code stub.
 
 
+
+
+## Guided Obverse / Reverse crop, Build A (built 1 Nov 2026 on `claude/guided-obverse-reverse-crop`, merged to main 1 Nov 2026 by fast-forward to `e0aa7a3`; deployed to LIVE in `d61f1dd`; 1400 px holder-crop limit accepted by Ray)
+Detail, function names and tests: docs/ref/PHOTOS.md "Guided Obverse / Reverse crop, Build A". Rules every session needs:
+- A Holder front / Holder back / Reference image added in a session (Replace included) offers "Crop the Obverse/Reverse from this photo?" (Crop / Skip; "Replace the ..." when the side exists). Holder front -> Obverse, Holder back -> Reverse, Reference -> Obverse then Reverse. Add Coin, the Staging-draft edit and Edit Coin only; **never Manage Photos or Edit Set** (`options.guidedCrop` is passed by Edit Coin alone; draft mode is always on).
+- The crop is an ordinary pending entry (nothing saved in between; one Save writes holder + crops; ✕ on a Replace crop is the existing undo). A cancelled crop tool counts as Skip. The offer fires from the pick only, never from a redraw, Recrop or Discard.
+- Source = the pending picture's own bytes (`entry.blob`, the holder as already trimmed: holders and references keep no raw, `retainRaw` false). Pending Holder / Reference / Other picks are also sources in "Crop from another photo" on an owned coin (`cropSourceEntriesFor`).
+- Crops are independent of the holder once taken (holder ✕ / Replace leaves them).
+- Verified: Ray tested the branch on TEST on 1 Nov 2026 before merge; it worked as expected. Deployed to LIVE in `d61f1dd` (per Ray, 2 Nov 2026); not checked on LIVE itself.
+
+
+## Details photo viewer: next / previous, Build B (built 2 Nov 2026 on `claude/details-viewer-next-prev`, code `f48c729`, merged to main 2 Nov 2026 by fast-forward to `24d3e72`; deployed to LIVE in `d61f1dd`)
+Detail, function names and tests: docs/ref/PHOTOS.md "Details photo viewer: next / previous, Build B". Rules every session needs:
+- The viewer opened from a coin's or Set's Details page steps through the page's photos in the order the page shows them (coin: Obverse, Reverse, Holder front/back, then the rest; child coin: then the parent Set's COA pages last; Set: its OWN photos only, never its child coins'). **Receipts are never in the list** (they are not gallery entries and open through `openReceiptInViewer`). Stops at both ends, never wraps. A list of one shows no controls.
+- Footer bar (`#mediaViewerNav`, "3 / 7"), swipe (one finger, 50px, clearly horizontal, page not pinch-zoomed) and arrow keys; no history entry per step (one Back closes it); each step bumps the token so a slow earlier photo cannot paint over the current one. `openMediaViewer` starts every open with NO sequence, so only `showMediaViewerAt` (via `openCoinPhotoSequence`) ever shows the bar.
+- A Set's Details tiles are now real buttons that open this viewer; the old grid panel (`openGalleryViewer`) is no longer reachable from Set Details (still used by Add Set step 2's parent-COA read-through).
+- Edit-screen viewers (Edit Coin, Edit Set, Manage Photos, Add Coin, Staging edit) have NO next/previous (Ray, Q7). If photo zoom/pan is ever added, swipe must become "only when not zoomed".
+- Verified: Ray's TEST check passed on 2 Nov 2026 (buttons, both ends, Back/X from any photo, different coins, swipe including ignored short/vertical drags, child coin ending on the parent Set's COA pages, no bar on a receipt). **Not checked on a device: the Set Details tile** (covered by suite section I only), arrow keys on a desktop, the tablet layout. Deployed to LIVE (`d61f1dd`, per Ray, 2 Nov 2026); not checked on LIVE itself.
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E2: the image chooser uses three separate inputs because Samsung Internet skips the native chooser. Source: [docs/ref/PHOTOS.md](PHOTOS.md), section "Unified image chooser — stages C1 + C2 (Oct 2026, merged to main 22 Oct 2026 by fast-forward to `38b0207`, built on `claude/unified-image-chooser`)" (original lines 1599-1610).
+
+E21: the coin's own display images are Obverse / Reverse; Front / Back is only for the Holder. Source: [docs/ref/PHOTOS.md](PHOTOS.md), section "Add Coin uses Edit Coin's photo section (Oct 2026, merged to main 23 Oct 2026 by fast-forward, built on `claude/addcoin-shared-photos`)" (original lines 233-238).

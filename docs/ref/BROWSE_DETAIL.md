@@ -1,7 +1,7 @@
 # Reference: BROWSE_DETAIL (moved out of CLAUDE.md)
 
 Read this file when: touching the Browse detail page, the Edit Coin / Edit Set layout, Overview and accordions, Spotlight, Specifications, sharing, Set child linkage, or the Value floor and formatCurrency.
-Rules that stayed in CLAUDE.md (not in this file): "Belongs to: Set membership from OriginSetID only" and "Set attach / detach: the real OriginSetID write layer" (continuation in docs/HISTORY.md).
+"Belongs to: Set membership from OriginSetID only" now ends this file (moved from CLAUDE.md in the (am) slimming, 4 Nov 2026); "Set attach / detach: the real OriginSetID write layer" is in [WRITE_LAYER.md](WRITE_LAYER.md) (continuation in docs/HISTORY.md). The cross-area rules E1 and E17 also end this file.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
 ### Browse detail: Fun Fact now live-DB_Coins-sourced (BUILT, merged to main)
@@ -1186,3 +1186,43 @@ gates.
   column name**, which this environment cannot confirm on its own.
 
 
+
+
+## Belongs to: Set membership from OriginSetID only (Oct 2026, merged to main)
+Built on `claude/belongs-to-origin-set-only` (`04ae654`..`79fdc97`), merged to
+`main`. Suite: `tests/verify_belongs_to_origin_set.js` (22).
+**Supersedes every mention of `resolveCoinSetLink()` *(removed Oct 2026)* / the SetID "belongs to"
+chip elsewhere in this file — that function is REMOVED.** Those mentions are
+tagged *(removed Oct 2026)* and are history only.
+- **Rule (Ray's):** `SetID` is the catalog id of the product a coin was issued
+  in, NOT membership. Membership comes only from the child's `OriginSetID`
+  (= the parent Set's CollectionID). Matching SetID produced three live bugs:
+  AY-00463-B showed its Set twice; standalone AY-00706 linked to AY-00463; and
+  twin owned Sets sharing a SetID (AY-00463/AY-00741, AY-00611/AY-00711)
+  linked to each other.
+- **Now:** at most ONE Set chip, from OriginSetID (`resolveChildParentSet`).
+  A Set row never gets a Set chip from SetID.
+- **Plain-text remark, not a link** (`setIssueRemarkFor`, `.linkage-remark`):
+  a coin (not a Set) whose SetID names a set it isn't in shows "Issued in
+  <set> (purchased separately)". Skipped when the SetID kind (`setIdKind`,
+  read from the `S-YYYY-XX-##` prefix) is **AL** (album) or **AS** (assembled
+  set), and when the OriginSetID parent carries that same SetID. Name comes
+  from DB_Sets, then an owned Set row, else the SetID itself
+  (`setNameForSetId`). A coin can have the chip AND the remark (in one Set,
+  issued in another).
+- Same renderer (`renderLinkageChipsInto`) on Browse detail, Edit Coin and
+  Edit Set.
+- **Unchanged:** the Sets completeness checklist still finds ownership by
+  SetID (`ownedSetForSetId`) — out of scope.
+- **Known, not fixed (out of scope):** a sold child still lists under its
+  parent's Contents; Stats counts a Set plus its children; the checklist opens
+  only the first of twin Sets sharing a SetID.
+
+
+## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
+
+CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
+
+E1: there is NO global `.hidden` rule in app.html. Source: [docs/ref/BROWSE_DETAIL.md](BROWSE_DETAIL.md), section "Detail/Edit accordion redesign (BUILT and merged to main)" (original lines 4526-4533).
+
+E17: setId and originSetId are different relationships; never cross-wire them. Source: [docs/ref/BROWSE_DETAIL.md](BROWSE_DETAIL.md), section "Browse detail view (locked in)" (original lines 4880-4892).
