@@ -82,7 +82,8 @@ const TABLET = { width: 1024, height: 768 };
 //                          one true check that must pass. A suite whose check
 //                          is wired wrong fails here by name instead of
 //                          passing everything (it happened twice).
-//   openApp(viewport)    — a fresh page with app.html loaded and settled
+//   openApp(viewport, opts) — a fresh page with app.html loaded and settled;
+//                          opts: { timezoneId, fixedTime } (see openApp)
 //   PHONE / TABLET       — the two standard viewports
 // Page and console errors are collected automatically and reported as
 // failures, so a suite cannot pass while the page is throwing.
@@ -119,8 +120,14 @@ async function runSuite(name, fn) {
           "SELF-CHECK: a deliberately false check must fail, and it did not (" + JSON.stringify(hits) + "): this suite's check is wired wrong");
         checkFn("SELF-CHECK must pass", true, null);
       },
-      async openApp(viewport) {
-        const page = await browser.newPage({ viewport: viewport || PHONE });
+      // opts (test-only): timezoneId (e.g. "America/New_York") emulates the
+      // device's time zone; fixedTime (a Date, ms or ISO string) fixes
+      // Date.now() / new Date() while timers keep running (page.clock).
+      async openApp(viewport, opts) {
+        const o = opts || {};
+        const page = await browser.newPage(Object.assign({ viewport: viewport || PHONE },
+          o.timezoneId ? { timezoneId: o.timezoneId } : {}));
+        if (o.fixedTime !== undefined) await page.clock.setFixedTime(o.fixedTime);
         page.on("pageerror", e => result.errors.push(String(e)));
         page.on("console", m => {
           if (m.type() === "error" && !IGNORED_ERROR.test(m.text())) result.errors.push(m.text());

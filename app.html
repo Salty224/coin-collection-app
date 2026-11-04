@@ -5938,6 +5938,21 @@
   // allMediaDriftFor()).
   let LIVE_PHOTOS = null;    // { [CollectionID]: [{ photoId, photoType, galleryType, subGroupId, filename, originalFilename, label }] }
   let LIVE_RECEIPTS = null;  // { [CollectionID]: { receiptId, filename, binder, rowCount } } — the FIRST row per coin
+  // Photos / Receipts rows whose DateAdded holds TEXT, by CollectionID:
+  // { Photos: { [id]: [{ rowId, column, text }] }, Receipts: { ... } }.
+  // Built with the indexes below; read by the Docket's "Date stored as text".
+  const LIVE_TAB_TEXT_DATES = { Photos: {}, Receipts: {} };
+  function buildTabTextDates(rows, idColumn) {
+    const out = {};
+    (rows || []).forEach(row => {
+      const id = String(colVal(row, "CollectionID") || "").trim();
+      if (!id) return;
+      textDateCellsFromRow(row, ["DateAdded"]).forEach(t => {
+        (out[id] || (out[id] = [])).push({ rowId: String(colVal(row, idColumn) || "").trim(), column: t.column, text: t.text });
+      });
+    });
+    return out;
+  }
 
   // The All media columns, both generations. Old names: what the sheet has
   // today. New names: what Copilot renames them to when it turns them into
@@ -6135,6 +6150,27 @@
   // when the columns haven't been renamed yet, when the Photos / Receipts
   // tabs haven't loaded, or when this session changed its photos / receipt
   // (its All cells were read before that and are stale until a reload).
+  // The Docket's "Date stored as text" rows for one coin: its All date cells,
+  // then its Photos / Receipts DateAdded cells, that hold text. No Dismiss:
+  // a row goes away once the cell holds a real date (next load). Tab rows are
+  // skipped for a coin whose photos / receipt this session rewrote (a row
+  // rewrite turns readable text into a real date; the index is stale until
+  // a reload), as the drift rows are.
+  function textDateRowsFor(coin) {
+    if (!coin || !coin.id) return [];
+    const out = [];
+    (coin.textDates || []).forEach(t => out.push({
+      where: coin.id + " · All." + t.column, text: t.text, reads: workbookDateToISO(t.text) }));
+    if (!mediaChangedThisSession.has(coin.id)) {
+      ["Photos", "Receipts"].forEach(sheet => {
+        ((LIVE_TAB_TEXT_DATES[sheet] || {})[coin.id] || []).forEach(t => out.push({
+          where: sheet + " " + (t.rowId || "row") + " (" + coin.id + ") · " + t.column,
+          text: t.text, reads: workbookDateToISO(t.text) }));
+      });
+    }
+    return out;
+  }
+
   function allMediaDriftFor(coin, renamed) {
     if (!coin || !coin.id || !coin.mediaCells) return [];
     if (renamed === undefined ? !allMediaColumnsRenamed() : !renamed) return [];
@@ -6557,6 +6593,16 @@
   // metalCategoryFor, browseSearchTest, sortCoinsTabRows, etc.) keeps
   // working completely unchanged against either source — the row SHAPE is
   // the contract, not which array it came from.
+  // [{ column, text }] for each listed date column whose cell holds text.
+  function textDateCellsFromRow(row, columns) {
+    const out = [];
+    (columns || []).forEach(column => {
+      const v = row ? row[column] : undefined;
+      if (isTextDateCell(v)) out.push({ column, text: v.trim() });
+    });
+    return out;
+  }
+
   function mapWorkbookRowToCoin(row) {
     const yearRaw = colVal(row, "Year");
     const yearNum = Number(yearRaw);
@@ -6662,8 +6708,7 @@
       // Dates come back from Graph as raw Excel serials; convert to ISO so
       // every consumer reads one shape regardless of source (the demo
       // lookup and the Add Coin draft both store ISO already).
-      purchaseDate: colVal(row, "PurchaseDate") === ""
-        ? "" : excelSerialToISODate(Number(colVal(row, "PurchaseDate"))),
+      purchaseDate: workbookDateToISO(colVal(row, "PurchaseDate")),
       // All.Remarks — the only free-text column on All, and the one Add Coin
       // writes on promotion and Edit Coin's "Notes" field writes on save.
       // Never read back before this round, so a coin promoted WITH remarks
@@ -6679,8 +6724,7 @@
       // corrupted by ISO/Zulu text pasted in as a string, so it only ever
       // moves through the Excel-serial path.
       valueSource: String(colVal(row, "ValueSource")),
-      valueDate: colVal(row, "ValueDate") === ""
-        ? "" : excelSerialToISODate(Number(colVal(row, "ValueDate"))),
+      valueDate: workbookDateToISO(colVal(row, "ValueDate")),
       // Ownership status. Blank means Owned (Lookup_Statuses' own
       // description says so) — read back verbatim either way, never
       // coerced to the literal string here; the Status <select>'s own
@@ -6696,11 +6740,13 @@
       purged: String(colVal(row, "Purged")),
       // The four columns behind an exit status, reused generically across
       // Sold/Gifted/Returned/Spent rather than as Sold-only fields.
-      saleDate: colVal(row, "SaleDate") === ""
-        ? "" : excelSerialToISODate(Number(colVal(row, "SaleDate"))),
+      saleDate: workbookDateToISO(colVal(row, "SaleDate")),
       salePrice: colVal(row, "SalePrice") === "" ? null : Number(colVal(row, "SalePrice")),
       buyer: String(colVal(row, "Buyer")),
-      platform: String(colVal(row, "Platform"))
+      platform: String(colVal(row, "Platform")),
+      // All date cells that hold TEXT instead of a real date, for the
+      // Docket's "Date stored as text" row: [{ column, text }].
+      textDates: textDateCellsFromRow(row, WORKBOOK_DATE_COLUMNS.All)
     };
   }
 
@@ -7129,8 +7175,8 @@
   // absent, so whatever was already loaded for it stays exactly as it was.
   function applyLiveNavOptionalRows(got) {
     Object.keys(got).forEach(sheet => { liveNavOptionalRows[sheet] = got[sheet]; });
-    if (got.Photos) LIVE_PHOTOS = buildPhotoIndex(got.Photos);
-    if (got.Receipts) LIVE_RECEIPTS = buildReceiptIndex(got.Receipts);
+    if (got.Photos) { LIVE_PHOTOS = buildPhotoIndex(got.Photos); LIVE_TAB_TEXT_DATES.Photos = buildTabTextDates(got.Photos, "PhotoID"); }
+    if (got.Receipts) { LIVE_RECEIPTS = buildReceiptIndex(got.Receipts); LIVE_TAB_TEXT_DATES.Receipts = buildTabTextDates(got.Receipts, "ReceiptID"); }
     // Albums is rebuilt when either it or the Wishlist (its "want" flags)
     // newly arrives, from the latest raw rows of both. A Wishlist still
     // missing degrades exactly like an empty sheet (no want matches).
@@ -7923,6 +7969,7 @@
     // it can only be stamped if every data write before it succeeded.
     async patchWorkbookRanges(workbookPath, sheet, edits) {
       if (!edits.length) return { written: 0 };
+      assertNoTextDatesInEdits(sheet, edits);
       const token = await getWriteToken();
       if (!token) throw new Error("Write layer unavailable.");
       const base = "/me/drive/root:/" + graphEncodePath(workbookPath) +
@@ -8175,6 +8222,7 @@
         return Promise.resolve(g.map(row => (row[c] === undefined ? null : row[c])));
       },
       patchWorkbookRanges(workbookPath, sheet, edits) {
+        try { assertNoTextDatesInEdits(sheet, edits); } catch (e) { return Promise.reject(e); }
         const g = grids[sheet] || (grids[sheet] = []);
         edits.forEach(e => {
           const a = parseA1(e.address);
@@ -8539,8 +8587,107 @@
   // Today in the USER's local calendar, not UTC — "last app touch" should
   // match the day Ray actually did it, not a day that rolls over at 7pm.
   function excelSerialToday() {
-    const now = new Date();
-    return excelSerialFromYMD(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    return workbookDateToday();
+  }
+
+  // --- Dates the app writes: ONE rule (branch date-writes-real-dates) -----
+  // Every date the app writes into the workbook goes through toWorkbookDate()
+  // at the write choke points (buildRowCellEdits, patchRecordRow /
+  // writeRecordRow, the LastModified stamps, the spot-price writer), is sent
+  // as a whole Excel SERIAL NUMBER (never a "yyyy-mm-dd" string, which Excel
+  // parses by locale and keeps as text in a "@" cell), and carries the
+  // yyyy-mm-dd numberFormat in the same request. patchWorkbookRanges() also
+  // refuses any Date object or ISO date-time string outright. The day is
+  // always the user's LOCAL calendar day: "2026-10-27T04:00:00.000Z" (local
+  // midnight 27 Oct in New York, the shape Copilot / Office Scripts writes)
+  // is 27 Oct, not whatever its UTC prefix says.
+  const WORKBOOK_DATE_COLUMNS = {
+    All: ["PurchaseDate", "ValueDate", "SaleDate", "LastModified"],
+    Photos: ["DateAdded"],
+    Receipts: ["DateAdded"],
+    Ref_SpotPrices: ["LastUpdated"]
+  };
+  function isWorkbookDateColumn(sheet, column) {
+    return (WORKBOOK_DATE_COLUMNS[sheet] || []).indexOf(column) !== -1;
+  }
+  // A whole ISO date-time: "2026-10-27T04:00:00.000Z", "...T04:00", "...+02:00".
+  const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+  function localDaySerial(d) {
+    return excelSerialFromYMD(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  }
+  function workbookDateToday() { return localDaySerial(new Date()); }
+  // Today's LOCAL day as "YYYY-MM-DD" (Staging / Docket JSON dates; they used
+  // to take toISOString().slice(0, 10), the UTC day, a day ahead after 8 pm
+  // in New York).
+  function localISODateToday() { return excelSerialToISODate(workbookDateToday()); }
+  // Any date the app is about to write -> a whole Excel serial, or "" for
+  // blank (null / undefined / ""). Accepts a serial (number, or digits as
+  // text), "YYYY-MM-DD" (optionally followed by a space and a time: the
+  // date part is the local day), an ISO date-time or a Date object (the
+  // local calendar day of that instant). Anything else THROWS, so a Save
+  // refuses with a message rather than writing text into a date cell.
+  function toWorkbookDate(v) {
+    if (v === undefined || v === null) return "";
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) throw new Error("Not a date: an invalid Date.");
+      return localDaySerial(v);
+    }
+    if (typeof v === "number") {
+      if (!Number.isFinite(v) || v < 1) throw new Error("Not a date: " + v + ".");
+      return Math.floor(v);
+    }
+    const s = String(v).trim();
+    if (!s) return "";
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = Number(s);
+      if (n < 1) throw new Error("Not a date: \"" + s + "\".");
+      return Math.floor(n);
+    }
+    let m = /^(\d{4})-(\d{2})-(\d{2})(?: \d{1,2}:\d{2}(:\d{2})?)?$/.exec(s);
+    if (m) {
+      const y = +m[1], mo = +m[2], d = +m[3];
+      const dt = new Date(Date.UTC(y, mo - 1, d));
+      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
+        throw new Error("Not a date: \"" + s + "\".");
+      }
+      return excelSerialFromYMD(y, mo, d);
+    }
+    if (ISO_DATE_TIME_RE.test(s)) {
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) return localDaySerial(dt);
+    }
+    throw new Error("Not a date: \"" + s + "\".");
+  }
+  // The read side: whatever a date cell holds (a serial, ISO text, a
+  // "YYYY-MM-DD" string) -> "YYYY-MM-DD", or "" for blank / unreadable.
+  // Never throws.
+  function workbookDateToISO(v) {
+    try {
+      const n = toWorkbookDate(v);
+      return n === "" ? "" : excelSerialToISODate(n);
+    } catch (e) { return ""; }
+  }
+  // A date cell that holds TEXT (anything Graph returns as a string that is
+  // not blank) rather than a real date. Graph returns a real date as a number.
+  function isTextDateCell(v) {
+    return typeof v === "string" && v.trim() !== "";
+  }
+  // The final refusal in patchWorkbookRanges (real and mock clients): no
+  // Date object and no ISO date-time string may reach a cell, in ANY column.
+  // Throws naming the sheet and cell; nothing in the batch is written.
+  function assertNoTextDatesInEdits(sheet, edits) {
+    (edits || []).forEach(e => {
+      const start = /^\$?([A-Z]+)\$?(\d+)/.exec(String(e.address || "").split(":")[0].replace(/^.*!/, ""));
+      (e.values || []).forEach((row, r) => (row || []).forEach((v, c) => {
+        const bad = v instanceof Date || (typeof v === "string" && ISO_DATE_TIME_RE.test(v.trim()));
+        if (!bad) return;
+        const cell = start
+          ? columnIndexToLetters(columnLettersToIndex(start[1]) + c) + (Number(start[2]) + r)
+          : e.address;
+        throw new Error("Refused to write a date as text: " + sheet + "!" + cell + " would get " +
+          (v instanceof Date ? "a Date object" : "\"" + v + "\"") + ". Nothing was written.");
+      }));
+    });
   }
 
   // --- Column-position resolution ------------------------------------
@@ -8548,6 +8695,11 @@
   // save would otherwise re-read it.
   let allHeaderMap = null; // { headerName: 1-based column index }
 
+  function columnLettersToIndex(letters) { // "A" -> 1, "AA" -> 27 (inverse of columnIndexToLetters)
+    let n = 0;
+    for (const ch of String(letters).toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  }
   function columnIndexToLetters(index) { // 1-based -> "A", "Z", "AA", "AW"
     let s = "", n = index;
     while (n > 0) {
@@ -8723,7 +8875,12 @@
       if (ALL_NEVER_WRITE_COLUMNS.indexOf(name) !== -1) return; // suspenders
       const idx = map[name];
       if (!idx) return;
-      cells.push({ name, index: idx, value: changedValues[name] });
+      // Date columns: a whole serial number, whatever the caller handed in
+      // (a serial, "YYYY-MM-DD", ISO text, a Date). Junk throws, so the
+      // Save fails with a message instead of writing text.
+      const value = isWorkbookDateColumn(ALL_SHEET_NAME, name)
+        ? toWorkbookDate(changedValues[name]) : changedValues[name];
+      cells.push({ name, index: idx, value });
     });
     cells.sort((a, b) => a.index - b.index);
 
@@ -8732,7 +8889,7 @@
     // ValueDate/SaleDate join the date columns as of their own rounds — each
     // is a real date column and must carry the same explicit date-only
     // format, or it renders as a bare serial number.
-    const isDateCol = n => n === "PurchaseDate" || n === "LastModified" || n === "ValueDate" || n === "SaleDate";
+    const isDateCol = n => isWorkbookDateColumn(ALL_SHEET_NAME, n);
     cells.forEach(cell => {
       // A date cell needs its own numberFormat, so it never merges into a
       // run with non-date neighbours (a range PATCH applies one format to
@@ -9575,19 +9732,34 @@
     const indices = Object.keys(map).map(k => map[k]);
     const width = Math.max.apply(null, indices);
     const row = new Array(width).fill("");
+    // Date columns (DateAdded) are written as a whole serial number with the
+    // date format in the same request. A value already on the row that is
+    // TEXT and not readable as a date (re-sent by a row rewrite such as
+    // "Replace on all") is kept exactly as it was: never blanked, never
+    // guessed. It shows on the Docket ("Date stored as text").
+    const dateValues = {};
     Object.keys(map).forEach(name => {
+      if (!isWorkbookDateColumn(sheetName, name)) return;
       const v = values[name];
+      try { dateValues[name] = { value: toWorkbookDate(v), real: true }; }
+      catch (e) {
+        if (typeof v !== "string") throw e;
+        dateValues[name] = { value: v, real: false };
+      }
+    });
+    Object.keys(map).forEach(name => {
+      const v = dateValues[name] ? dateValues[name].value : values[name];
       row[map[name] - 1] = (v === undefined || v === null) ? "" : v;
     });
     const address = "A" + rowNumber + ":" + columnIndexToLetters(width) + rowNumber;
     await graph().patchWorkbookRanges(writePaths().workbook, sheetName, [{ address, values: [row] }]);
-    // DateAdded is a real date, never a timestamp and never ISO text — the
-    // same rule (and the same prior-corruption history) as every other date
-    // column this layer writes.
-    if (map.DateAdded) {
-      const a1 = columnIndexToLetters(map.DateAdded) + rowNumber;
+    // A date cell gets its value AND its yyyy-mm-dd format in one request,
+    // so it ends up a real date, never text and never a bare serial.
+    for (const name of Object.keys(dateValues)) {
+      if (!dateValues[name].real) continue;
+      const a1 = columnIndexToLetters(map[name]) + rowNumber;
       await graph().patchWorkbookRanges(writePaths().workbook, sheetName,
-        [{ address: a1 + ":" + a1, values: [[values.DateAdded == null ? "" : values.DateAdded]], numberFormat: [["yyyy-mm-dd"]] }]);
+        [{ address: a1 + ":" + a1, values: [[dateValues[name].value]], numberFormat: [[WORKBOOK_DATE_FORMAT]] }]);
     }
   }
 
@@ -9777,7 +9949,11 @@
   function buildPhotoRowPatch(hit, map, overrides) {
     const values = {};
     Object.keys(map).forEach(name => { values[name] = hit[name]; });
-    if (map.DateAdded) values.DateAdded = hit.DateAdded === "" ? "" : Number(hit.DateAdded);
+    // The row's own DateAdded goes back as it was read; patchRecordRow()
+    // turns a serial or ISO text into a real date and keeps unreadable text
+    // as it is. Number(text) used to give NaN (sent as JSON null), so a text
+    // DateAdded was dropped from the rewrite instead of kept or repaired.
+    if (map.DateAdded) values.DateAdded = hit.DateAdded == null ? "" : hit.DateAdded;
     Object.assign(values, overrides);
     return values;
   }
@@ -10297,8 +10473,11 @@
   // ("46234") in a message whose whole job is telling Ray what changed.
   function guardValueText(field, value) {
     if (normalizeCellForCompare(value) === "") return "(blank)";
-    if ((field === "PurchaseDate" || field === "LastModified") && typeof value === "number") {
-      return excelSerialToISODate(value);
+    // Every All date column (ValueDate and SaleDate used to show "46322"),
+    // serial or text alike.
+    if (isWorkbookDateColumn(ALL_SHEET_NAME, field)) {
+      const iso = workbookDateToISO(value);
+      if (iso) return typeof value === "number" ? iso : iso + " (stored as text: \"" + String(value) + "\")";
     }
     return String(value);
   }
@@ -11504,7 +11683,7 @@
       designation: fields.designation || "",
       gradeSource: fields.gradeSource || "",
       desc: fields.desc || "",
-      dateFlagged: fields.dateFlagged || new Date().toISOString().slice(0, 10),
+      dateFlagged: fields.dateFlagged || localISODateToday(),
       resolvedCoinId: "",
       resolvedDate: "",
       dismissedReason: "",
@@ -11561,7 +11740,7 @@
     return closeDocketEntry(entryId, {
       status: DOCKET_STATUS.RESOLVED,
       resolvedCoinId: coinId || "",
-      resolvedDate: new Date().toISOString().slice(0, 10)
+      resolvedDate: localISODateToday()
     });
   }
 
@@ -11569,7 +11748,7 @@
     return closeDocketEntry(entryId, {
       status: DOCKET_STATUS.DISMISSED,
       dismissedReason: reason || "",
-      dismissedDate: new Date().toISOString().slice(0, 10)
+      dismissedDate: localISODateToday()
     });
   }
 
@@ -17886,8 +18065,7 @@
     }
 
     set("browseEditValueSource", values.ValueSource);
-    set("browseEditValueDate", values.ValueDate == null || values.ValueDate === ""
-      ? "" : excelSerialToISODate(values.ValueDate));
+    set("browseEditValueDate", workbookDateToISO(values.ValueDate));
 
     // Status + exit details — same skip-if-touched rule as every other
     // field here. The visibility toggle re-runs afterward regardless of
@@ -17895,8 +18073,7 @@
     // on an unrelated field (e.g. Notes) still shows/hides the exit block
     // correctly for whatever Status is currently on screen.
     setSel("browseEditStatus", statusSelectDisplayValue(values.Status));
-    set("browseEditSaleDate", values.SaleDate == null || values.SaleDate === ""
-      ? "" : excelSerialToISODate(values.SaleDate));
+    set("browseEditSaleDate", workbookDateToISO(values.SaleDate));
     set("browseEditBuyer", values.Buyer);
     set("browseEditSalePrice", values.SalePrice);
     set("browseEditPlatform", values.Platform);
@@ -17907,8 +18084,7 @@
     set("browseEditVendor", values.Seller_Link);
     // Date columns come back as Excel serials; the <input type=date> needs
     // a plain ISO date string.
-    set("browseEditPurchaseDate", values.PurchaseDate == null || values.PurchaseDate === ""
-      ? "" : excelSerialToISODate(values.PurchaseDate));
+    set("browseEditPurchaseDate", workbookDateToISO(values.PurchaseDate));
 
     set("browseEditStorageLocation", values.StorageLocation);
     set("browseEditContainer", values.Container);
@@ -17972,15 +18148,12 @@
     // matching mapWorkbookRowToCoin()'s own shape.
     assign("shippingCost", num(values.Shipping));
     assign("vendor", str(values.Seller_Link));
-    assign("purchaseDate", values.PurchaseDate == null || values.PurchaseDate === ""
-      ? "" : excelSerialToISODate(values.PurchaseDate));
+    assign("purchaseDate", workbookDateToISO(values.PurchaseDate));
     assign("remarks", str(values.Remarks));
     assign("valueSource", str(values.ValueSource));
-    assign("valueDate", values.ValueDate == null || values.ValueDate === ""
-      ? "" : excelSerialToISODate(values.ValueDate));
+    assign("valueDate", workbookDateToISO(values.ValueDate));
     assign("status", str(values.Status));
-    assign("saleDate", values.SaleDate == null || values.SaleDate === ""
-      ? "" : excelSerialToISODate(values.SaleDate));
+    assign("saleDate", workbookDateToISO(values.SaleDate));
     assign("salePrice", num(values.SalePrice));
     assign("buyer", str(values.Buyer));
     assign("platform", str(values.Platform));
@@ -21774,13 +21947,15 @@
         onDismiss: () => { dismissedCoinPhotoGaps.add(coin.id); renderNeedsAttentionHub(); }
       });
     });
-    // Receipts and photos alignment (Build 1). Two kinds of workbook problem,
+    // Receipts and photos alignment (Build 1). Three kinds of workbook problem,
     // each fixed in Excel, so neither has a Dismiss: the row goes away once
     // the workbook is right (on the next load). A tap opens the coin.
     //   (a) a coin with 2+ Receipts rows — this app shows and changes only
     //       the first, and refuses to Save a receipt for it;
     //   (b) drift — a new-named All media column that disagrees with the
     //       Photos / Receipts tabs (allMediaDriftFor), one row per column.
+    //   (c) a date stored as text (textDateRowsFor): an All date column or a
+    //       Photos / Receipts DateAdded holding text, one row per cell.
     const openCoinFromDocket = coin => () => {
       browseDetailBackHandler = () => navigate("needsdbcoins");
       navigate("browse");
@@ -21797,6 +21972,14 @@
           onClick: openCoinFromDocket(coin)
         });
       }
+      textDateRowsFor(coin).forEach(t => {
+        otherRows.push({
+          html: `<div class="wish-desc">${escapeHtmlText(coin.name || coin.id)}</div><div class="wish-notes docket-text-date">` +
+            `Date stored as text: ${escapeHtmlText(t.where)} holds “${escapeHtmlText(t.text)}”, not a real date` +
+            `${t.reads ? " (reads as " + escapeHtmlText(t.reads) + ")" : ""}. Fix it in Excel.</div>`,
+          onClick: openCoinFromDocket(coin)
+        });
+      });
       allMediaDriftFor(coin, mediaRenamed).forEach(d => {
         const say = v => v ? "“" + escapeHtmlText(v) + "”" : "blank";
         otherRows.push({
@@ -22482,7 +22665,7 @@
       (result.coinId || "(no CoinID)") + ".");
     try {
       await finishCoinDraftWrite(result.draft, {
-        patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: new Date().toISOString().slice(0, 10) },
+        patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: localISODateToday() },
         movePhotos: true
       });
     } catch (e) {
@@ -22512,7 +22695,7 @@
       ") with no CoinID — still listed under research until a catalog match is found.");
     try {
       await finishCoinDraftWrite(result.draft, {
-        patch: { forceAdded: true, allRowWritten: true, forceAddedDate: new Date().toISOString().slice(0, 10) },
+        patch: { forceAdded: true, allRowWritten: true, forceAddedDate: localISODateToday() },
         movePhotos: true
       });
     } catch (e) {
@@ -22592,7 +22775,7 @@
         patch: {
           status: COIN_DRAFT_STATUS.PROMOTED,
           dismissedReason: reason,
-          dismissedDate: new Date().toISOString().slice(0, 10)
+          dismissedDate: localISODateToday()
         },
         movePhotos: false // already moved at Force Add time
       });
@@ -22797,7 +22980,7 @@
       if (wroteCell) {
         fresh.forceAdded = false;
         fresh.status = COIN_DRAFT_STATUS.PROMOTED;
-        fresh.promotedDate = new Date().toISOString().slice(0, 10);
+        fresh.promotedDate = localISODateToday();
       }
       await writeCoinDraft(fresh);
       showToast(draft.collectionID + " linked to " + (row.coinId || "(no CoinID)") +
@@ -22927,11 +23110,11 @@
 
   // LastUpdated as an Excel date serial (how this workbook stores dates) or,
   // defensively, ISO text. Returns a whole-day serial or null.
+  // ISO text (Copilot's "...T04:00:00.000Z") is the user's LOCAL day of that
+  // instant (workbookDateToISO), not its UTC prefix.
   function spotPriceDateSerial(v) {
-    if (v === "" || v == null) return null;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return Math.floor(n);
-    return excelSerialFromISODate(v);
+    const iso = workbookDateToISO(v);
+    return iso ? excelSerialFromISODate(iso) : null;
   }
   // Stale = LastUpdated more than SPOT_PRICE_STALE_DAYS before today (local
   // day). No date at all counts as stale — nothing says it's current.
@@ -23141,8 +23324,9 @@
     const isFormula = (r, c) => { const f = (formulas[r] || [])[c]; return typeof f === "string" && f.trim().startsWith("="); };
     // LastUpdated keeps the format its cells already have: this row's own,
     // else another metal row's non-General one, else yyyy-mm-dd.
-    const fmtAt = r => { const f = (formats[r] || [])[col.LastUpdated]; return f && f !== "General" ? f : null; };
-    const fallbackFmt = Object.values(rowOf).map(fmtAt).find(Boolean) || "yyyy-mm-dd";
+    // A Text ("@") format is never kept: it is what turns a date into text.
+    const fmtAt = r => { const f = (formats[r] || [])[col.LastUpdated]; return f && f !== "General" && f !== "@" ? f : null; };
+    const fallbackFmt = Object.values(rowOf).map(fmtAt).find(Boolean) || WORKBOOK_DATE_FORMAT;
     const edits = [];
     const already = [];
     for (const c of validated.changes) {
@@ -23157,7 +23341,7 @@
         newPrice: c.newPrice,
         cells: [
           { address: addr(r, col.PricePerTroyOz), values: [[c.newPrice]] },
-          { address: addr(r, col.LastUpdated), values: [[validated.dateSerial]], numberFormat: [[fmtAt(r) || fallbackFmt]] },
+          { address: addr(r, col.LastUpdated), values: [[toWorkbookDate(validated.dateSerial)]], numberFormat: [[fmtAt(r) || fallbackFmt]] },
           { address: addr(r, col.Source), values: [[validated.source]] }
         ],
         rowIndex: r
@@ -32450,7 +32634,7 @@
     } else {
       FAKE_STAGING.push({
         ...record,
-        stagedDate: new Date().toISOString().slice(0, 10),
+        stagedDate: localISODateToday(),
         remarks: document.getElementById("notesField") ? document.getElementById("notesField").value : ""
       });
       updateStagingBadge();
