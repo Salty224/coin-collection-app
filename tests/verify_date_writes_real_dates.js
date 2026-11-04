@@ -29,6 +29,8 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
     __setDocketWriteEnabledForTest(false);
     window.S = iso => excelSerialFromISODate(iso);
+    // LastModified at the fixed clock: 4 Nov 2026 23:30 LOCAL (a date-time serial).
+    window.LM_NOW = excelSerialFromISODate("2026-11-04") + (23 * 3600 + 30 * 60) / 86400;
     window.ALL_HEADERS = ["CollectionID", "CoinID", "Year", "MintMark", "Denomination", "Description", "Value",
       "ValueSource", "ValueDate", "Cost", "Shipping", "Seller_Link", "PurchaseDate", "Remarks", "Reviewed",
       "LastModified", "Status", "SaleDate", "SalePrice", "OriginSetID", "Purged", "Grade"];
@@ -204,7 +206,8 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     P1.s === await page.evaluate(() => S("2026-10-30")));
   ok("P1b ... and a text ValueDate on the row is repaired by any save that reads it (the form shows it as a date)",
     typeof P1.v === "number" && P1.written.indexOf("ValueDate") !== -1);
-  ok("P1c ... and LastModified is today's LOCAL day", P1.lm === await page.evaluate(() => S("2026-11-04")));
+  ok("P1c ... and LastModified is the LOCAL date AND time (4 Nov 23:30, while UTC is already 5 Nov): " + P1.lm,
+    P1.lm === await page.evaluate(() => LM_NOW));
 
   const P1F = await page.evaluate(async () => {
     const mock = useMock({ All: allGrid([{ CollectionID: "AY-00759" }]) });
@@ -219,8 +222,9 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     done();
     return out;
   });
-  ok("P1d every All date edit carries yyyy-mm-dd in the SAME request; Remarks gets none: " + JSON.stringify(P1F),
-    P1F.n === 2 && P1F.formats.every(f => f === "yyyy-mm-dd") && P1F.remarksFmt.every(x => x === false));
+  ok("P1d every All date edit carries its format in the SAME request (ValueDate yyyy-mm-dd, LastModified yyyy-mm-dd hh:mm); Remarks gets none: " + JSON.stringify(P1F),
+    P1F.n === 2 && JSON.stringify(P1F.formats) === JSON.stringify(["yyyy-mm-dd", "yyyy-mm-dd hh:mm"]) &&
+    P1F.remarksFmt.every(x => x === false));
 
   const P1J = await page.evaluate(async () => {
     const mock = useMock({ All: allGrid([{ CollectionID: "AY-00759", ValueDate: 46000 }]) });
@@ -244,9 +248,9 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     done();
     return out;
   });
-  ok("P2 promote / Force Add write PurchaseDate and ValueDate as serials, LastModified as today: " + JSON.stringify(P2),
+  ok("P2 promote / Force Add write PurchaseDate and ValueDate as whole-day serials, LastModified as the local date-time: " + JSON.stringify(P2),
     P2.ok && P2.p === await page.evaluate(() => S("2026-10-03")) && P2.v === await page.evaluate(() => S("2026-10-27")) &&
-    P2.lm === await page.evaluate(() => S("2026-11-04")));
+    P2.lm === await page.evaluate(() => LM_NOW));
 
   // P3 Set attach / detach and Purge stamp LastModified.
   const P3 = await page.evaluate(async () => {
@@ -262,8 +266,8 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     done();
     return out;
   });
-  ok("P3 Set attach/detach and Purge stamp LastModified as today's local serial with yyyy-mm-dd: " + JSON.stringify(P3),
-    P3.a === await page.evaluate(() => S("2026-11-04")) && P3.b === P3.a && P3.fmts.length === 2 && P3.fmts.every(f => f === "yyyy-mm-dd"));
+  ok("P3 Set attach/detach and Purge stamp LastModified as the local date-time with yyyy-mm-dd hh:mm: " + JSON.stringify(P3),
+    P3.a === await page.evaluate(() => LM_NOW) && P3.b === P3.a && P3.fmts.length === 2 && P3.fmts.every(f => f === "yyyy-mm-dd hh:mm"));
 
   // P4 / P5 new Photos and Receipts rows, P6 a Receipts row replaced in place.
   const P4 = await page.evaluate(async () => {
@@ -358,10 +362,52 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
   });
   ok("D1 the Docket lists each date stored as text: the All cell, a Photos and a Receipts DateAdded, and nothing for real dates: " + JSON.stringify(D.texts),
     D.texts.length === 3 &&
-    D.texts.some(t => /AY-00759 · All\.ValueDate holds “2026-10-27T04:00:00\.000Z”, not a real date \(reads as 2026-10-27\)/.test(t)) &&
+    D.texts.some(t => /AY-00759 · All\.ValueDate holds “2026-10-27T04:00:00\.000Z”, not a real date \(reads as 2026-10-27\)\. Fix it in Excel, or open the coin in Edit Coin and save any change: the app writes it back as a real date\./.test(t)) &&
     D.texts.some(t => /Photos PH-00090 \(AY-00760\) · DateAdded/.test(t)) &&
-    D.texts.some(t => /Receipts RC-00090 \(AY-00760\) · DateAdded holds “Oct 27”, not a real date\. Fix it in Excel/.test(t)));
+    D.texts.some(t => /Receipts RC-00090 \(AY-00760\) · DateAdded holds “Oct 27”, not a real date\. Fix it in Excel\.$/.test(t)));
   ok("D2 ... with no Dismiss", D.dismiss === false);
   ok("D3 ... and a tap opens the coin: " + D.opened, D.opened === "AY-00759");
   ok("D4 once the cells hold real dates the rows clear themselves: " + D.after, D.after === 0);
+
+  // ================= T8: LastModified is a local date-time =================
+  const T8 = await page.evaluate(async () => {
+    const t = v => { try { return toWorkbookDateTime(v); } catch (e) { return "THROW"; } };
+    const mock = useMock({ All: allGrid([{ CollectionID: "AY-00759" }]) });
+    const edits = await buildRowCellEdits(2, { LastModified: workbookDateTimeNow(), ValueDate: S("2026-10-27"),
+      PurchaseDate: S("2026-10-03"), SaleDate: S("2026-10-30") });
+    done();
+    const by = name => edits.find(e => e._columns.includes(name)) || {};
+    const fmt = name => by(name).numberFormat && by(name).numberFormat[0][0];
+    const val = name => by(name).values && by(name).values[0][by(name)._columns.indexOf(name)];
+    return {
+      now: workbookDateTimeNow(), want: LM_NOW,
+      lm: { v: val("LastModified"), f: fmt("LastModified"), alone: (by("LastModified")._columns || []).length === 1 },
+      others: ["ValueDate", "PurchaseDate", "SaleDate"].map(n => ({ n, v: val(n), whole: Number.isInteger(val(n)), f: fmt(n) })),
+      helper: { serial: t(46330.5), isoZ: t("2026-11-05T04:30:00.000Z"), ymd: t("2026-11-04"), blank: t(""), junk: t("soon"),
+        date: t(new Date(2026, 10, 4, 9, 15)) },
+      text: [excelSerialToISODateTime(LM_NOW), excelSerialToISODateTime(S("2026-11-04")), guardValueText("LastModified", LM_NOW),
+        guardValueText("ValueDate", S("2026-10-27"))]
+    };
+  });
+  ok("T8a workbookDateTimeNow() is the local day plus the local time (23:30 on 4 Nov in New York): " + JSON.stringify([T8.now, T8.want]),
+    T8.now === T8.want && !Number.isInteger(T8.now));
+  ok("T8b LastModified goes out as that date-time serial with yyyy-mm-dd hh:mm, in its own range: " + JSON.stringify(T8.lm),
+    T8.lm.v === T8.want && T8.lm.f === "yyyy-mm-dd hh:mm" && T8.lm.alone);
+  ok("T8c every other date column stays a whole day with yyyy-mm-dd: " + JSON.stringify(T8.others),
+    T8.others.every(o => o.whole && o.f === "yyyy-mm-dd"));
+  ok("T8d toWorkbookDateTime keeps a serial's time, gives an ISO-Z or Date its LOCAL time, a bare date is midnight, junk throws: " + JSON.stringify(T8.helper),
+    T8.helper.serial === 46330.5 && T8.helper.isoZ === T8.want && T8.helper.ymd === 46330 && T8.helper.blank === "" &&
+    T8.helper.junk === "THROW" && T8.helper.date === 46330 + (9 * 3600 + 15 * 60) / 86400);
+  ok("T8e reading back: '2026-11-04 23:30'; an old midnight value shows the date alone; the conflict dialog shows the time for LastModified only: " + JSON.stringify(T8.text),
+    JSON.stringify(T8.text) === JSON.stringify(["2026-11-04 23:30", "2026-11-04", "2026-11-04 23:30", "2026-10-27"]));
+
+  // ================= T9: the Docket wording =================================
+  const T9 = await page.evaluate(() => ({
+    all: textDateFixText({ allColumn: true }), tab: textDateFixText({}),
+    rows: textDateRowsFor(mapWorkbookRowToCoin({ CollectionID: "AY-00759", ValueDate: "2026-10-27T04:00:00.000Z" })).map(r => !!r.allColumn)
+  }));
+  ok("T9a an All date row says both fixes: " + T9.all,
+    T9.all === "Fix it in Excel, or open the coin in Edit Coin and save any change: the app writes it back as a real date.");
+  ok("T9b a Photos / Receipts DateAdded row says Excel only: " + T9.tab, T9.tab === "Fix it in Excel.");
+  ok("T9c the All row is marked as an All column", JSON.stringify(T9.rows) === "[true]");
 }, module);

@@ -6156,11 +6156,19 @@
   // skipped for a coin whose photos / receipt this session rewrote (a row
   // rewrite turns readable text into a real date; the index is stale until
   // a reload), as the drift rows are.
+  // How to fix a "Date stored as text" cell. An Edit Coin save rewrites the
+  // coin's All dates as real dates (it compares the whole form with the row);
+  // nothing in Edit Coin rewrites a Photos / Receipts DateAdded, so those say
+  // Excel only.
+  const TEXT_DATE_FIX_ALL = "Fix it in Excel, or open the coin in Edit Coin and save any change: the app writes it back as a real date.";
+  const TEXT_DATE_FIX_TAB = "Fix it in Excel.";
+  function textDateFixText(t) { return t && t.allColumn ? TEXT_DATE_FIX_ALL : TEXT_DATE_FIX_TAB; }
+
   function textDateRowsFor(coin) {
     if (!coin || !coin.id) return [];
     const out = [];
     (coin.textDates || []).forEach(t => out.push({
-      where: coin.id + " · All." + t.column, text: t.text, reads: workbookDateToISO(t.text) }));
+      where: coin.id + " · All." + t.column, text: t.text, reads: workbookDateToISO(t.text), allColumn: true }));
     if (!mediaChangedThisSession.has(coin.id)) {
       ["Photos", "Receipts"].forEach(sheet => {
         ((LIVE_TAB_TEXT_DATES[sheet] || {})[coin.id] || []).forEach(t => out.push({
@@ -8610,12 +8618,61 @@
   function isWorkbookDateColumn(sheet, column) {
     return (WORKBOOK_DATE_COLUMNS[sheet] || []).indexOf(column) !== -1;
   }
+  // The one date column that also records the TIME (Ray, 31 Oct 2026: several
+  // changes can happen in a day). Still listed in WORKBOOK_DATE_COLUMNS (so a
+  // text value is still read and flagged like any date), but WRITTEN as a
+  // local date-time serial (day + fraction of the day) with
+  // WORKBOOK_DATETIME_FORMAT. Every other date column stays a whole day.
+  const WORKBOOK_DATETIME_COLUMNS = { All: ["LastModified"] };
+  const WORKBOOK_DATETIME_FORMAT = "yyyy-mm-dd hh:mm";
+  function isWorkbookDateTimeColumn(sheet, column) {
+    return (WORKBOOK_DATETIME_COLUMNS[sheet] || []).indexOf(column) !== -1;
+  }
   // A whole ISO date-time: "2026-10-27T04:00:00.000Z", "...T04:00", "...+02:00".
   const ISO_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
   function localDaySerial(d) {
     return excelSerialFromYMD(d.getFullYear(), d.getMonth() + 1, d.getDate());
   }
   function workbookDateToday() { return localDaySerial(new Date()); }
+  // A local date-time as an Excel serial: the local day plus the local time
+  // as a fraction of a day (no time zone, the same local rule as every date).
+  function localDateTimeSerial(d) {
+    return localDaySerial(d) + (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds()) / 86400;
+  }
+  // Now, for LastModified: e.g. 23:30 local on 4 Nov 2026 = 46330.979166...
+  function workbookDateTimeNow() { return localDateTimeSerial(new Date()); }
+  // A serial -> "YYYY-MM-DD hh:mm" (the time part rounded to the minute;
+  // "YYYY-MM-DD" alone when it has no time part, e.g. an old midnight value).
+  function excelSerialToISODateTime(serial) {
+    const n = Number(serial);
+    if (!Number.isFinite(n)) return "";
+    let day = Math.floor(n), mins = Math.round((n - day) * 1440);
+    if (mins >= 1440) { day += 1; mins -= 1440; }
+    const pad = v => String(v).padStart(2, "0");
+    return excelSerialToISODate(day) + (mins ? " " + pad(Math.floor(mins / 60)) + ":" + pad(mins % 60) : "");
+  }
+  // The date-time counterpart of toWorkbookDate(): a serial keeps its time
+  // fraction; a Date or an ISO date-time keeps its LOCAL time; "YYYY-MM-DD"
+  // alone is midnight; blank -> ""; junk throws.
+  function toWorkbookDateTime(v) {
+    if (v === undefined || v === null) return "";
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) throw new Error("Not a date: an invalid Date.");
+      return localDateTimeSerial(v);
+    }
+    if (typeof v === "number") {
+      if (!Number.isFinite(v) || v < 1) throw new Error("Not a date: " + v + ".");
+      return v;
+    }
+    const s = String(v).trim();
+    if (!s) return "";
+    if (/^\d+(\.\d+)?$/.test(s)) return toWorkbookDateTime(Number(s));
+    if (ISO_DATE_TIME_RE.test(s)) {
+      const dt = new Date(s);
+      if (!isNaN(dt.getTime())) return localDateTimeSerial(dt);
+    }
+    return toWorkbookDate(s); // "YYYY-MM-DD" (midnight) or a throw
+  }
   // Today's LOCAL day as "YYYY-MM-DD" (Staging / Docket JSON dates; they used
   // to take toISOString().slice(0, 10), the UTC day, a day ahead after 8 pm
   // in New York).
@@ -8878,8 +8935,10 @@
       // Date columns: a whole serial number, whatever the caller handed in
       // (a serial, "YYYY-MM-DD", ISO text, a Date). Junk throws, so the
       // Save fails with a message instead of writing text.
-      const value = isWorkbookDateColumn(ALL_SHEET_NAME, name)
-        ? toWorkbookDate(changedValues[name]) : changedValues[name];
+      const value = isWorkbookDateTimeColumn(ALL_SHEET_NAME, name)
+        ? toWorkbookDateTime(changedValues[name])
+        : isWorkbookDateColumn(ALL_SHEET_NAME, name)
+          ? toWorkbookDate(changedValues[name]) : changedValues[name];
       cells.push({ name, index: idx, value });
     });
     cells.sort((a, b) => a.index - b.index);
@@ -8889,15 +8948,17 @@
     // ValueDate/SaleDate join the date columns as of their own rounds — each
     // is a real date column and must carry the same explicit date-only
     // format, or it renders as a bare serial number.
-    const isDateCol = n => isWorkbookDateColumn(ALL_SHEET_NAME, n);
+    // LastModified is the one date-TIME column (WORKBOOK_DATETIME_FORMAT).
+    const formatFor = n => isWorkbookDateTimeColumn(ALL_SHEET_NAME, n) ? WORKBOOK_DATETIME_FORMAT
+      : isWorkbookDateColumn(ALL_SHEET_NAME, n) ? WORKBOOK_DATE_FORMAT : null;
     cells.forEach(cell => {
       // A date cell needs its own numberFormat, so it never merges into a
-      // run with non-date neighbours (a range PATCH applies one format to
-      // the whole rectangle).
-      const breaks = !run || cell.index !== run.endIndex + 1 ||
-        isDateCol(cell.name) !== run.isDate;
+      // run with non-date neighbours, nor a date with a date-time (a range
+      // PATCH applies one format to the whole rectangle).
+      const fmt = formatFor(cell.name);
+      const breaks = !run || cell.index !== run.endIndex + 1 || fmt !== run.format;
       if (breaks) {
-        run = { startIndex: cell.index, endIndex: cell.index, values: [cell.value], isDate: isDateCol(cell.name), names: [cell.name] };
+        run = { startIndex: cell.index, endIndex: cell.index, values: [cell.value], format: fmt, names: [cell.name] };
         edits.push(run);
       } else {
         run.endIndex = cell.index;
@@ -8910,7 +8971,7 @@
       const address = columnIndexToLetters(run.startIndex) + rowNumber +
         (run.endIndex !== run.startIndex ? ":" + columnIndexToLetters(run.endIndex) + rowNumber : "");
       const edit = { address, values: [run.values], _columns: run.names };
-      if (run.isDate) edit.numberFormat = [run.values.map(() => WORKBOOK_DATE_FORMAT)];
+      if (run.format) edit.numberFormat = [run.values.map(() => run.format)];
       return edit;
     });
   }
@@ -8964,7 +9025,7 @@
     changed.Reviewed = "";
     // Stamped last so it lands only if every data write ahead of it
     // succeeded (patchWorkbookRanges chains with dependsOn).
-    changed.LastModified = excelSerialToday();
+    changed.LastModified = workbookDateTimeNow(); // date AND local time (WORKBOOK_DATETIME_COLUMNS)
 
     let edits;
     try {
@@ -9419,8 +9480,8 @@
     if (map.LastModified) {
       edits.push({
         address: columnIndexToLetters(map.LastModified) + rowNumber,
-        values: [[excelSerialToday()]],
-        numberFormat: [[WORKBOOK_DATE_FORMAT]]
+        values: [[workbookDateTimeNow()]],
+        numberFormat: [[WORKBOOK_DATETIME_FORMAT]]
       });
     }
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
@@ -9448,8 +9509,8 @@
     if (map.LastModified) {
       edits.push({
         address: columnIndexToLetters(map.LastModified) + rowNumber,
-        values: [[excelSerialToday()]],
-        numberFormat: [[WORKBOOK_DATE_FORMAT]]
+        values: [[workbookDateTimeNow()]],
+        numberFormat: [[WORKBOOK_DATETIME_FORMAT]]
       });
     }
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
@@ -10477,6 +10538,9 @@
     // serial or text alike.
     if (isWorkbookDateColumn(ALL_SHEET_NAME, field)) {
       const iso = workbookDateToISO(value);
+      if (iso && typeof value === "number" && isWorkbookDateTimeColumn(ALL_SHEET_NAME, field)) {
+        return excelSerialToISODateTime(value); // LastModified: "2026-11-04 14:32"
+      }
       if (iso) return typeof value === "number" ? iso : iso + " (stored as text: \"" + String(value) + "\")";
     }
     return String(value);
@@ -21976,7 +22040,7 @@
         otherRows.push({
           html: `<div class="wish-desc">${escapeHtmlText(coin.name || coin.id)}</div><div class="wish-notes docket-text-date">` +
             `Date stored as text: ${escapeHtmlText(t.where)} holds “${escapeHtmlText(t.text)}”, not a real date` +
-            `${t.reads ? " (reads as " + escapeHtmlText(t.reads) + ")" : ""}. Fix it in Excel.</div>`,
+            `${t.reads ? " (reads as " + escapeHtmlText(t.reads) + ")" : ""}. ${textDateFixText(t)}</div>`,
           onClick: openCoinFromDocket(coin)
         });
       });
