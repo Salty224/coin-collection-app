@@ -3223,3 +3223,13 @@ the coordinating Claude keeps those.
 Each excerpt is a line-for-line copy. The original still sits in the file named in its Source line; line numbers are CLAUDE.md at `21bcd95`.
 
 The rule statements E1-E21 themselves are live rules: each is now in CLAUDE.md as one line and its original header line sits at the end of the ref file named in its Source.
+
+## Write safety (al): build log (5 Nov 2026, held branch `claude/write-safety-al`)
+- Plan approved by Ray 5 Nov 2026 with answers Q1-Q10 (docs/BACKLOG.md (al)); recorded on main in `cb122a0`; the branch was cut from it.
+- Stage A `59b0aa5` (F6, A2, 5.B, 5.D, 5.C), Stage B `48db767` (F1, F5, F2), Stage C `b0e02d6` (F8, 5.E, 5.F). Each stage's affected suites were run green before its commit (Stage A and B: the 49 suites that drive the mock Graph client, plus graph-auth-escalation; Stage C: docket-sections, docket-row-tags, draft-cleanup, addcoin-identification, addcoin-error-list, retest-round2, staging-workbook-links, docket-missing-photos-live).
+- First run of Stage A: 9 suites failed. Eight were mocks missing FaceValue / Status, which the real All sheet has (before F6 those Promote writes were silently dropped); fixed by adding the columns, no assertion changed. The ninth (staging-replace-keeps-old E) was a parallel-load flake that passes alone. crop-from-upload failed its known 4 checks under parallel load once and passed alone.
+- F2 design fix during the build: the first version counted Reviewed as "saved" because the cell was already blank; changed so a column is saved only when Graph confirmed its range AND the re-read holds the value.
+- F8 test detail: drafts must use `COIN_DRAFT_STATUS.READY` ("Ready for reconciliation"), not the literal "Ready", or the Docket does not list them.
+- Negative controls (suite against main's app.html): 29 of 36 fail (16 Stage A, 7 Stage B, 6 Stage C); the full list is in docs/ref/WRITE_LAYER.md "Write safety (al)".
+- Gate: full `npm test` at `b0e02d6`: 4804 passed, 0 failed, 0 page errors, 92 suites, 16.0 min.
+- Ray's question answered during the build (no code change): the Finish gate checks only that a Finish is present; Lookup_Finishes is never read; the dropdown is a fixed list that includes Matte, and "Use Matte (from the catalog)" was confirmed by a probe. Recorded as (ar).
