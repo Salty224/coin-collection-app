@@ -9189,12 +9189,25 @@
   // every other write in this layer relies on. Called only from
   // performBrowseEditWrite(), only after the main save has already
   // succeeded, targeting the exact row number that save just resolved.
-  async function writeCoinIdCell(rowNumber, coinId) {
+  // `opts.stampLastModified` (Promote's CoinID link, 5 Nov 2026): the same single
+  // request also stamps LastModified, as writeOriginSetIdCell does (the app touched
+  // the row; Reviewed is NOT blanked, a link changes no attribute a human reviewed).
+  // Every other caller leaves it off: the Browse Edit re-link stamps LastModified
+  // through its own save.
+  async function writeCoinIdCell(rowNumber, coinId, opts) {
     const map = await ensureAllHeaderMap();
     const idx = map.CoinID;
     if (!idx) return; // column genuinely absent from this workbook — nothing to do
     const address = columnIndexToLetters(idx) + rowNumber;
-    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, [{ address, values: [[coinId]] }]);
+    const edits = [{ address, values: [[coinId]] }];
+    if (opts && opts.stampLastModified && map.LastModified) {
+      edits.push({
+        address: columnIndexToLetters(map.LastModified) + rowNumber,
+        values: [[workbookDateTimeNow()]],
+        numberFormat: [[WORKBOOK_DATETIME_FORMAT]]
+      });
+    }
+    await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
   }
 
   // --- Phase 2: creating a NEW All-sheet row ---------------------------
@@ -11572,18 +11585,22 @@
     return out;
   }
 
-  // THE ONE COMPARE for a row Promote finds already on the sheet (first look,
-  // second look, or the createAllSheetRow tripwire). Reads only; writes nothing.
-  // Same comparison as the conflict check (cellsEqual), and ONLY fields the draft
-  // would actually write count: a value on the sheet where the draft is blank was
-  // added by hand and stays, so it is never a difference. `differs` lists each
-  // differing field as { field, sheet, draft } for the message.
+  // THE ONE COMPARE for a row that is already on the sheet: used by Promote (first
+  // look, second look, createAllSheetRow tripwire) and by Mark as promoted. Reads
+  // only; writes nothing. Same comparison as the conflict check (cellsEqual).
+  // Only fields the draft would actually write count; each is one of:
+  //   equal      nothing to do;
+  //   fill       the sheet cell is BLANK where the draft has a value: safe to fill;
+  //   conflict   the sheet cell holds something DIFFERENT: never overwritten.
+  // A value on the sheet where the draft is blank was added by hand and is not even
+  // looked at. `fresh` is the row as read, handed on as the snapshot for the fill's
+  // own conflict check, so a row that moved in between blocks the write.
   //
-  // CoinID is handled apart from the field compare (Ray, 5 Nov 2026): a blank
-  // CoinID on the sheet against the draft's CoinID is EXPECTED (that link is the
-  // point of a Promote after Re-check), reported as `coinIdBlank`, not as a
-  // difference; two different non-blank CoinIDs are `coinIdClash`. A Force Add
-  // writes CoinID blank on purpose, so `force` skips both.
+  // CoinID is apart from the field compare: a blank CoinID on the sheet against the
+  // draft's CoinID is EXPECTED (the point of a Promote after Re-check), reported as
+  // `coinIdBlank`; two different non-blank CoinIDs are `coinIdClash`. `force` (a
+  // Force Add, which writes CoinID blank on purpose, and Mark as promoted, which
+  // never touches CoinID) skips both.
   async function allRowHoldsCoinDraft(rowNumber, draft, force) {
     const fresh = await readAllRowWritableValues(rowNumber);
     const values = coinDraftToAllValues(draft);
@@ -11593,16 +11610,26 @@
       if (typeof v === "number" && isWorkbookDateColumn(ALL_SHEET_NAME, name)) return excelSerialToISODate(v);
       return String(v);
     };
-    const differs = Object.keys(values)
-      .filter(k => normalizeCellForCompare(values[k]) !== "" && (k in fresh) && !cellsEqual(fresh[k], values[k]))
-      .map(k => ({ field: k, sheet: show(k, fresh[k]), draft: show(k, values[k]) }));
+    const fills = [], conflicts = [];
+    Object.keys(values).forEach(k => {
+      if (normalizeCellForCompare(values[k]) === "" || !(k in fresh)) return;
+      if (cellsEqual(fresh[k], values[k])) return;
+      if (normalizeCellForCompare(fresh[k]) === "") fills.push({ field: k, value: values[k], draft: show(k, values[k]) });
+      else conflicts.push({ field: k, sheet: show(k, fresh[k]), draft: show(k, values[k]) });
+    });
     const sheetCoinId = String(fresh.CoinID == null ? "" : fresh.CoinID).trim();
     const draftCoinId = force ? "" : String(draft.coinId || "").trim();
     return {
-      same: differs.length === 0, differs, sheetCoinId,
+      fresh, fills, conflicts, sheetCoinId,
       coinIdClash: !!(sheetCoinId && draftCoinId && sheetCoinId !== draftCoinId),
       coinIdBlank: !!(draftCoinId && !sheetCoinId)
     };
+  }
+  // The blank cells to fill, as the { column: value } map saveCoinRowToWorkbook takes.
+  function blankFillValues(held) {
+    const out = {};
+    held.fills.forEach(f => { out[f.field] = f.value; });
+    return out;
   }
 
   // The write. `opts.force` is the Force Add path: create the row with a
@@ -11688,15 +11715,21 @@
     }
 
     if (existing) {
-      // EXISTING ROWS ARE NEVER OVERWRITTEN (Ray, 5 Nov 2026: the adoption rule,
-      // then the same rule for a row found at the first look: F7). The row is
-      // compared with what the draft would write (allRowHoldsCoinDraft), before
-      // anything is written. Identical: nothing is written. A blank CoinID on
-      // the sheet with every other compared field matching: ONLY the CoinID is
-      // written (writeCoinIdCell, a narrow single-column audited write), then
-      // Promote finishes normally. Any other difference: nothing is written to
-      // All, the draft stays as it was (not Promoted, files not moved), and the
-      // message names each field. A different non-blank CoinID is refused.
+      // EXISTING ROWS ARE NEVER OVERWRITTEN (Ray, 5 Nov 2026: adoption, then the
+      // first look: F7; then F3: blank cells may be filled). The row is compared
+      // with what the draft would write (allRowHoldsCoinDraft) BEFORE anything is
+      // written:
+      //   - a cell that holds a DIFFERENT value: nothing is written to All, the
+      //     draft stays as it was (not Promoted, files not moved), and the message
+      //     names each such field. A different non-blank CoinID is refused too;
+      //   - only BLANK cells where the draft has a value (a keys-only row left by
+      //     a failed write, say): just those cells are written, in one
+      //     saveCoinRowToWorkbook call whose snapshot is the row as compared
+      //     (so a row that moved in between blocks it); it stamps LastModified
+      //     and blanks Reviewed like any app save;
+      //   - a blank CoinID on the sheet with the draft's CoinID: written last, by
+      //     writeCoinIdCell with LastModified stamped in the same request;
+      //   - identical: nothing is written. Then Promote finishes normally.
       let held;
       try { held = await allRowHoldsCoinDraft(rowNumber, draft, force); }
       catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
@@ -11704,18 +11737,25 @@
         return { ok: false, reason: "error", message: collectionId + " is already on the All sheet at row " + rowNumber +
           " with a different CoinID (" + held.sheetCoinId + ") — nothing written." };
       }
-      if (!held.same) {
-        return { ok: false, reason: "row-differs", rowNumber, differs: held.differs,
+      if (held.conflicts.length) {
+        return { ok: false, reason: "row-differs", rowNumber, differs: held.conflicts,
           message: collectionId + " is already on the All sheet (row " + rowNumber + ") but differs from the draft — nothing was written. " +
-            held.differs.map(d => d.field + ": on the sheet " + d.sheet + ", in the draft " + d.draft).join("; ") +
+            held.conflicts.map(d => d.field + ": on the sheet " + d.sheet + ", in the draft " + d.draft).join("; ") +
             ". Fix the row or the draft, or use Mark as promoted." };
       }
-      if (held.coinIdBlank) {
-        try { await writeCoinIdCell(rowNumber, draft.coinId); }
-        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
-        return { ok: true, rowNumber, written: ["CoinID"], coinId: draft.coinId, draft, adopted: true, linkedOnly: true };
+      const written = [];
+      if (held.fills.length) {
+        const res = await saveCoinRowToWorkbook(collectionId, blankFillValues(held), held.fresh, { gate: addCoinWriteEnabled });
+        if (!res.ok) return res;
+        held.fills.forEach(f => written.push(f.field));
       }
-      return { ok: true, rowNumber, written: [], coinId: force ? "" : (draft.coinId || ""), draft, adopted: true };
+      if (held.coinIdBlank) {
+        try { await writeCoinIdCell(rowNumber, draft.coinId, { stampLastModified: true }); }
+        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+        written.push("CoinID");
+      }
+      return { ok: true, rowNumber, written, coinId: force ? "" : (draft.coinId || ""), draft, adopted: true,
+        filled: held.fills.map(f => f.field), linkedOnly: written.length === 1 && written[0] === "CoinID" };
     }
 
     // snapshot === null: a fresh blank row has nothing to conflict with, so
@@ -22278,7 +22318,7 @@
       stagingRows.push({
         html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(yearMint + " · " + (d.description || d.denom || ""))}</div>` +
               `<div class="wish-notes docket-on-all-note">Already on the All sheet${rowNo ? " (row " + rowNo + ")" : ""}. ` +
-              `This draft was never closed; mark it as promoted to tidy it up (no row is written).</div>`,
+              `This draft was never closed; mark it as promoted to tidy it up (no row is written, blank cells are filled from the draft, nothing on the sheet is overwritten).</div>`,
         onMarkPromoted: () => markCoinDraftAlreadyPromoted(d.collectionID)
       });
     });
@@ -22754,7 +22794,7 @@
             '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
             '<div class="wish-desc">' + escapeHtmlText(label) + '</div>' +
             '<div class="wish-notes staging-on-all-note">Already on the All sheet' +
-              (row.sheetRow ? ' (row ' + row.sheetRow + ')' : '') + '. This draft was never closed. Mark it as promoted to tidy it up; no row is written.</div>' +
+              (row.sheetRow ? ' (row ' + row.sheetRow + ')' : '') + '. This draft was never closed. Mark it as promoted to tidy it up: no row is written, blank cells on the row are filled from the draft, and nothing on the sheet is overwritten.</div>' +
             '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
           '</div>' +
           '<div class="staging-actions"><button class="staging-btn promote staging-mark-promoted">Mark as promoted</button></div>';
@@ -23089,6 +23129,16 @@
   // (Reference, Other, COA ...), so when filesMovedOnPromotion is already set
   // or the Photos / Receipts tabs already hold rows for this coin, the move is
   // skipped (and the flag set, so the launch-time retry cannot re-record them).
+  //
+  // F3 (Ray, 5 Nov 2026): it runs the same compare as Promote
+  // (allRowHoldsCoinDraft) FIRST. Cells that are BLANK on the sheet where the
+  // draft has a value are filled (one saveCoinRowToWorkbook call, snapshot =
+  // the row as compared; it stamps LastModified), and only then is the draft
+  // closed: a draft is never closed over an empty or keys-only row, and a failed
+  // fill leaves it open. Cells that hold a DIFFERENT value keep the sheet's value
+  // (Ray chose the sheet by tapping) and the toast says which were kept. CoinID
+  // is not touched here (`force` skips its rules): Mark as promoted closes a
+  // draft, it does not link one.
   async function markCoinDraftAlreadyPromoted(collectionId) {
     try {
       const rowNumber = await findAllSheetRowNumber(collectionId);
@@ -23098,6 +23148,17 @@
       }
       const draft = await readCoinDraft(collectionId);
       if (!draft) throw new Error("Coin draft not found: " + collectionId);
+      const held = await allRowHoldsCoinDraft(rowNumber, draft, true);
+      if (held.fills.length) {
+        const res = await saveCoinRowToWorkbook(collectionId, blankFillValues(held), held.fresh, { gate: addCoinWriteEnabled });
+        if (!res.ok) {
+          const why = res.reason === "conflict"
+            ? "the row changed while this was running (" + res.conflicts.map(c => c.field).join(", ") + ")"
+            : (res.message || res.reason);
+          showToast("Couldn't fill " + collectionId + "'s blank cells, so its draft stays open: " + why + ".");
+          return false;
+        }
+      }
       let recorded = false, unknown = false;
       if (!draft.filesMovedOnPromotion) {
         try {
@@ -23115,6 +23176,8 @@
       const movePhotos = !draft.filesMovedOnPromotion && !recorded && !unknown;
       await finishCoinDraftWrite(draft, { patch, movePhotos });
       showToast(collectionId + " is on the All sheet (row " + rowNumber + ") — its draft is closed. No row was written." +
+        (held.fills.length ? " Filled its blank cells from the draft (" + held.fills.map(f => f.field).join(", ") + ")." : "") +
+        (held.conflicts.length ? " " + held.conflicts.map(c => "Kept the sheet's " + c.field + " (" + c.sheet + "); the draft had " + c.draft + ".").join(" ") : "") +
         (draft.filesMovedOnPromotion || recorded ? " Its photos were already recorded, so none were moved." : "") +
         (unknown ? " Couldn't check its photo records, so the photos were left to move at next launch." : ""));
       return true;
@@ -23150,6 +23213,9 @@
     // made a completed promote look like a no-op.
     showToast(result.linkedOnly
       ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — only its CoinID was written (" + result.coinId + "); its draft is now marked promoted."
+      : (result.adopted && result.filled && result.filled.length)
+      ? collectionId + " was already on the All sheet (row " + result.rowNumber + "): its blank cells were filled from the draft (" + result.filled.join(", ") + ")" +
+        (result.written.indexOf("CoinID") !== -1 ? " and its CoinID written" : "") + "; nothing else changed. Its draft is now marked promoted."
       : result.adopted
       ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — nothing written; its draft is now marked promoted."
       : collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +

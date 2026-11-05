@@ -144,12 +144,16 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     const base = () => writePaths().stagingBase;
     const coinRow = (id, coinId) => [id, coinId || "C-2026--1C-01", "1C", "Coin", 2026, "", "", "Lincoln Shield Cent", "Business Strike"];
     const mock = __setup({ sheets: {
-      All: [ALL_HEADERS_FOR_PAGE(), ["AY-00500", "C-OLD", "$1", "Coin", 1889, "CC"], coinRow("AY-00810"), coinRow("AY-00814")],
+      All: [ALL_HEADERS_FOR_PAGE(), ["AY-00500", "C-OLD", "$1", "Coin", 1889, "CC"]],
       Photos: [["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"]],
       Receipts: [["ReceiptID", "CollectionID", "Filename", "DateAdded"]]
     } });
-    await mock.uploadJson(base() + "/AY-00810/coin.json", __draftOf("AY-00810"));                       // leftover (Ready)
-    await mock.uploadJson(base() + "/AY-00814/coin.json", __draftOf("AY-00814", { status: "Draft — awaiting review", coinId: "" })); // leftover (Draft)
+    // The leftovers: a COMPLETE row on the sheet (a real promote wrote it, so it is identical to the draft; rows 3 and 4)
+    // and a draft that never reached Promoted.
+    await mock.uploadJson(base() + "/AY-00810/coin.json", __draftOf("AY-00810"));
+    await promoteCoinDraftToAllSheet("AY-00810");
+    await mock.uploadJson(base() + "/AY-00814/coin.json", __draftOf("AY-00814", { status: "Draft — awaiting review", coinId: "" }));
+    await promoteCoinDraftToAllSheet("AY-00814", { force: true });
     await mock.uploadJson(base() + "/AY-00811/coin.json", __draftOf("AY-00811"));                       // ordinary, not on All
     __setLiveCoinsForTest([{ id: "AY-00500" }, { id: "AY-00810" }, { id: "AY-00814" }]);
     const itemOf = (container, id) => [...document.querySelectorAll(container + " .wish-item")].find(x => x.textContent.indexOf(id) !== -1);
@@ -453,6 +457,7 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     {
       const mock = __setup(window.__seedFor);
       await forceAdded(mock, "AY-00901");
+      rowOf(mock, "AY-00901")[col("LastModified")] = 40000; // an old stamp, so the new one is observable (the Force Add stamped this same minute)
       await relinked(mock, "AY-00901");
       const before = rowOf(mock, "AY-00901").slice();
       const patches = spy(mock);
@@ -503,18 +508,6 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
       out.f5b = { ok: again.ok, written: again.written, unchanged: JSON.stringify(mock._grids.All) === before2 };
       __teardown();
     }
-    // f6) A keys-only row (the sheet blank where the draft has values) is a difference: nothing is written.
-    {
-      const mock = __setup(window.__seedFor);
-      const keysOnly = new Array(ALL_HEADERS_FOR_PAGE().length).fill("");
-      keysOnly[0] = "AY-00906"; keysOnly[1] = "C-2026--1C-01";
-      mock._grids.All.push(keysOnly);
-      await mock.uploadJson(base() + "/AY-00906/coin.json", __draftOf("AY-00906"));
-      const before = JSON.stringify(mock._grids.All);
-      const res = await promoteCoinDraftToAllSheet("AY-00906");
-      out.f6 = { ok: res.ok, reason: res.reason, message: res.message, unchanged: JSON.stringify(mock._grids.All) === before };
-      __teardown();
-    }
     return out;
   }).catch(e => ({ threw: String(e) }));
   ok("S-f1 NEGATIVE CONTROL (Ray's scratch run): Force Add, Cost edited to 99, Re-check links the CoinID, Promote: nothing is written, Cost stays 99, the CoinID cell stays blank, the draft stays open and not Promoted, files not moved: " + JSON.stringify(F.f1 && { ok: F.f1.ok, reason: F.f1.reason, cost: F.f1.cost, coinId: F.f1.coinId, patches: F.f1.patches, unchanged: F.f1.unchanged, status: F.f1.status, filesMoved: F.f1.filesMoved }),
@@ -523,9 +516,9 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
   ok("S-f1b -- the message names Cost with both values, does not list CoinID, and gives the way out: " + (F.f1 && F.f1.message),
     F.f1 && /Cost: on the sheet 99, in the draft 3/.test(F.f1.message) && !/CoinID:/.test(F.f1.message) &&
     /Fix the row or the draft, or use Mark as promoted\./.test(F.f1.message) && /Couldn.t promote AY-00900/.test(F.f1.toast));
-  ok("S-f2 an untouched Force Added row + Re-check + Promote writes ONLY the CoinID (one single-cell patch on the CoinID column, no LastModified stamp) and the draft is Promoted: " + JSON.stringify(F.f2),
-    F.f2 && F.f2.ok1 === true && JSON.stringify(F.f2.changed) === JSON.stringify(["CoinID"]) && F.f2.patches.length === 1 &&
-    /^All:B\d+$/.test(F.f2.patches[0]) && F.f2.lastModifiedSame === true && /Promoted/i.test(F.f2.status) && F.f2.allRowWritten === true &&
+  ok("S-f2 an untouched Force Added row + Re-check + Promote writes ONLY the CoinID and stamps LastModified, both in ONE request (the CoinID cell and the LastModified cell, nothing else), and the draft is Promoted: " + JSON.stringify(F.f2),
+    F.f2 && F.f2.ok1 === true && JSON.stringify(F.f2.changed) === JSON.stringify(["CoinID", "LastModified"]) && F.f2.patches.length === 1 &&
+    /^All:B\d+,Z\d+$/.test(F.f2.patches[0]) && F.f2.lastModifiedSame === false && /Promoted/i.test(F.f2.status) && F.f2.allRowWritten === true &&
     /only its CoinID was written/.test(F.f2.toast));
   ok("S-f3 a value added by hand where the draft is blank (Remarks, StorageLocation) is not a difference and is left alone; the CoinID is still linked: " + JSON.stringify(F.f3),
     F.f3 && F.f3.ok === true && JSON.stringify(F.f3.written) === JSON.stringify(["CoinID"]) && F.f3.remarks === "typed in Excel" &&
@@ -536,6 +529,134 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     F.f5 && F.f5.ok === false && /different CoinID/.test(F.f5.message) && F.f5.unchanged === true);
   ok("S-f5b a Force Add retry on an identical row writes nothing: " + JSON.stringify(F.f5b),
     F.f5b && F.f5b.ok === true && F.f5b.written.length === 0 && F.f5b.unchanged === true);
-  ok("S-f6 a keys-only row (blank where the draft has values) is a difference: nothing written, the fields are listed as '(blank)': " + JSON.stringify(F.f6 && { ok: F.f6.ok, reason: F.f6.reason, unchanged: F.f6.unchanged }),
-    F.f6 && F.f6.ok === false && F.f6.reason === "row-differs" && F.f6.unchanged === true && /on the sheet \(blank\), in the draft/.test(F.f6.message));
+
+  // ============ S-g. F3: blank cells are filled, never overwritten ============
+  // Ray, 5 Nov 2026: if the only differences are sheet cells that are BLANK where the draft has a value, Promote
+  // writes just those cells and finishes; any non-blank difference writes nothing. Mark as promoted runs the same
+  // compare, fills the blanks, keeps the sheet's values and says which it kept; a draft is never closed over an
+  // empty (keys-only) row. The CoinID link and the fill both stamp LastModified.
+  const G = await page.evaluate(async () => {
+    const out = {};
+    const base = () => writePaths().stagingBase;
+    const H = () => ALL_HEADERS_FOR_PAGE();
+    const col = (n) => H().indexOf(n);
+    const rowOf = (mock, id) => mock._grids.All.find(r => r[0] === id);
+    const keysOnly = (mock, id, coinId) => {                 // CollectionID + CoinID written, every data cell blank
+      const r = new Array(H().length).fill(""); r[0] = id; r[1] = coinId; mock._grids.All.push(r); return r;
+    };
+    const staleFor = (mock, n) => {
+      const real = mock.readTableColumn.bind(mock); let calls = 0;
+      mock.readTableColumn = async (...a) => {
+        const c = await real(...a);
+        if (a[2] === "CollectionID" && calls++ < n) return c.map((v, i) => (i > 0 && /^AY-009[1-9]/.test(String(v)) ? "" : v));
+        return c;
+      };
+    };
+    const spy = (mock) => { const p = []; const real = mock.patchWorkbookRanges.bind(mock); mock.patchWorkbookRanges = async (...a) => { p.push(a[2].map(e => e.address)); return real(...a); }; return p; };
+    const fresh = (mock) => __setup(window.__seedFor);
+    const complete = (mock, id) => { const r = rowOf(mock, id); return H().map((n, i) => ({ n, v: r[i] })).filter(x => ["Denomination","Category","Year","Description","Finish","Grade","GradeSource","Cost","PurchaseDate","Status"].indexOf(x.n) !== -1).every(x => x.v !== "" && x.v !== null && x.v !== undefined); };
+
+    // g1) NEGATIVE CONTROL: a keys-only row finishes via Promote (first look): the data cells are filled, the keys untouched.
+    {
+      const mock = __setup(window.__seedFor);
+      keysOnly(mock, "AY-00910", "C-2026--1C-01");
+      await mock.uploadJson(base() + "/AY-00910/coin.json", __draftOf("AY-00910"));
+      const patches = spy(mock);
+      const ok1 = await promoteCoinDraft("AY-00910");
+      const r = rowOf(mock, "AY-00910"); const d = await mock.getJson(base() + "/AY-00910/coin.json");
+      out.g1 = { ok1, complete: complete(mock, "AY-00910"), finish: r[col("Finish")], category: r[col("Category")], cost: r[col("Cost")],
+        coinId: r[col("CoinID")], lastModified: String(r[col("LastModified")] || ""), rows: mock._grids.All.filter(x => x[0] === "AY-00910").length,
+        status: d.status, toast: __toast() };
+      __teardown();
+    }
+    // g1b) ... and through the second look and the tripwire.
+    for (const [key, id, stale] of [["g1b", "AY-00911", 1], ["g1c", "AY-00912", 2]]) {
+      const mock = __setup(window.__seedFor);
+      keysOnly(mock, id, "C-2026--1C-01");
+      await mock.uploadJson(base() + "/" + id + "/coin.json", __draftOf(id));
+      staleFor(mock, stale);
+      const res = await promoteCoinDraftToAllSheet(id);
+      out[key] = { ok: res.ok, filled: res.filled, complete: complete(mock, id), rows: mock._grids.All.filter(x => x[0] === id).length };
+      __teardown();
+    }
+    // g2) NEGATIVE CONTROL: Mark as promoted fills a keys-only row too, and never closes a draft over an empty row.
+    {
+      const mock = __setup(window.__seedFor);
+      keysOnly(mock, "AY-00913", "C-2026--1C-01");
+      await mock.uploadJson(base() + "/AY-00913/coin.json", __draftOf("AY-00913"));
+      __setLiveCoinsForTest([{ id: "AY-00913" }]);
+      const ok1 = await markCoinDraftAlreadyPromoted("AY-00913");
+      const d = await mock.getJson(base() + "/AY-00913/coin.json");
+      out.g2 = { ok1, complete: complete(mock, "AY-00913"), status: d.status, toast: __toast(),
+        lastModified: String(rowOf(mock, "AY-00913")[col("LastModified")] || "") };
+      __teardown();
+    }
+    // g2b) the fill fails: the draft stays OPEN and the row stays as it was.
+    {
+      const mock = __setup(window.__seedFor);
+      keysOnly(mock, "AY-00914", "C-2026--1C-01");
+      await mock.uploadJson(base() + "/AY-00914/coin.json", __draftOf("AY-00914"));
+      __setLiveCoinsForTest([{ id: "AY-00914" }]);
+      const realPatch = mock.patchWorkbookRanges.bind(mock);
+      mock.patchWorkbookRanges = async () => { throw new Error("simulated write failure"); };
+      const ok1 = await markCoinDraftAlreadyPromoted("AY-00914");
+      mock.patchWorkbookRanges = realPatch;
+      const d = await mock.getJson(base() + "/AY-00914/coin.json");
+      out.g2b = { ok1, status: d.status, allRowWritten: d.allRowWritten, complete: complete(mock, "AY-00914"), toast: __toast() };
+      __teardown();
+    }
+    // g3) MIXED: one blank cell (Remarks) and one differing filled cell (Cost 99 vs 3).
+    {
+      const mock = __setup(window.__seedFor);
+      await mock.uploadJson(base() + "/AY-00915/coin.json", __draftOf("AY-00915", { remarks: "bought at a show" }));
+      // write the row from a draft WITHOUT remarks, then edit Cost by hand
+      await mock.uploadJson(base() + "/AY-00915/coin.json", __draftOf("AY-00915", { remarks: "" }));
+      await promoteCoinDraftToAllSheet("AY-00915");
+      rowOf(mock, "AY-00915")[col("Cost")] = 99;
+      const draftMixed = __draftOf("AY-00915", { remarks: "bought at a show" });
+      await mock.uploadJson(base() + "/AY-00915/coin.json", draftMixed);
+      const before = JSON.stringify(mock._grids.All);
+      const patches = spy(mock);
+      const res = await promoteCoinDraftToAllSheet("AY-00915");
+      const d1 = await mock.getJson(base() + "/AY-00915/coin.json");
+      out.g3 = { ok: res.ok, reason: res.reason, message: res.message, patches: patches.length, unchanged: JSON.stringify(mock._grids.All) === before, status: d1.status };
+      // Mark as promoted on the same row: fills Remarks, keeps Cost 99.
+      __setLiveCoinsForTest([{ id: "AY-00915" }]);
+      const ok1 = await markCoinDraftAlreadyPromoted("AY-00915");
+      const d2 = await mock.getJson(base() + "/AY-00915/coin.json");
+      const r = rowOf(mock, "AY-00915");
+      out.g3m = { ok1, remarks: r[col("Remarks")], cost: r[col("Cost")], status: d2.status, toast: __toast(), lastModified: String(r[col("LastModified")] || "") };
+      __teardown();
+    }
+    // g4) Promote with blank cells AND a blank CoinID: both written, LastModified stamped; a different filled value still refuses.
+    {
+      const mock = __setup(window.__seedFor);
+      keysOnly(mock, "AY-00916", "");                          // keys-only, CoinID blank too
+      await mock.uploadJson(base() + "/AY-00916/coin.json", __draftOf("AY-00916"));
+      const res = await promoteCoinDraftToAllSheet("AY-00916");
+      const r = rowOf(mock, "AY-00916");
+      out.g4 = { ok: res.ok, written: res.written, coinId: r[col("CoinID")], complete: complete(mock, "AY-00916") };
+      __teardown();
+    }
+    return out;
+  }).catch(e => ({ threw: String(e) }));
+  ok("S-g1 NEGATIVE CONTROL: a keys-only row (keys written, every data cell blank) FINISHES via Promote: the data cells are filled from the draft, the CoinID kept, LastModified stamped, one row, draft Promoted: " + JSON.stringify(G.g1),
+    G.g1 && G.g1.ok1 === true && G.g1.complete === true && G.g1.finish === "Business Strike" && G.g1.category === "Coin" && G.g1.cost === 3 &&
+    G.g1.coinId === "C-2026--1C-01" && G.g1.lastModified !== "" && G.g1.rows === 1 && /Promoted/i.test(G.g1.status) && /blank cells were filled/.test(G.g1.toast));
+  ok("S-g1b ... also when the row is found on the second look, and when it is named by the tripwire: " + JSON.stringify([G.g1b, G.g1c]),
+    G.g1b && G.g1b.ok === true && G.g1b.complete === true && G.g1b.rows === 1 && G.g1b.filled.length > 3 &&
+    G.g1c && G.g1c.ok === true && G.g1c.complete === true && G.g1c.rows === 1);
+  ok("S-g2 NEGATIVE CONTROL: Mark as promoted FILLS the keys-only row first and then closes the draft (never a closed draft over an empty row): " + JSON.stringify(G.g2),
+    G.g2 && G.g2.ok1 === true && G.g2.complete === true && /Promoted/i.test(G.g2.status) && /Filled its blank cells/.test(G.g2.toast) &&
+    /No row was written/.test(G.g2.toast) && G.g2.lastModified !== "");
+  ok("S-g2b if the fill fails, the draft stays OPEN and the row is left as it was: " + JSON.stringify(G.g2b),
+    G.g2b && G.g2b.ok1 === false && /Ready/.test(G.g2b.status) && G.g2b.allRowWritten === false && G.g2b.complete === false && /draft stays open/.test(G.g2b.toast));
+  ok("S-g3 MIXED (one blank cell, one differing filled cell): Promote refuses with NOTHING written, the draft open, and the message lists only the differing cell: " + JSON.stringify(G.g3),
+    G.g3 && G.g3.ok === false && G.g3.reason === "row-differs" && G.g3.patches === 0 && G.g3.unchanged === true && /Ready/.test(G.g3.status) &&
+    /Cost: on the sheet 99, in the draft 3/.test(G.g3.message) && !/Remarks:/.test(G.g3.message));
+  ok("S-g3b ... and Mark as promoted on the same row fills the blank (Remarks) and KEEPS the sheet's Cost (99), saying so: " + JSON.stringify(G.g3m),
+    G.g3m && G.g3m.ok1 === true && G.g3m.remarks === "bought at a show" && G.g3m.cost === 99 && /Promoted/i.test(G.g3m.status) &&
+    /Kept the sheet's Cost \(99\); the draft had 3\./.test(G.g3m.toast) && G.g3m.lastModified !== "");
+  ok("S-g4 a keys-only row with a blank CoinID too: Promote writes the data cells AND the CoinID: " + JSON.stringify(G.g4),
+    G.g4 && G.g4.ok === true && G.g4.written.indexOf("CoinID") !== -1 && G.g4.coinId === "C-2026--1C-01" && G.g4.complete === true);
 }, module);
