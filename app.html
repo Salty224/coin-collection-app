@@ -8068,9 +8068,18 @@
     // than merely intended.
     //
     // Graph offers no transactional multi-range workbook write, so this is
-    // one round trip and ordered, not atomic in the database sense. The
-    // ordering is what matters in practice: LastModified is queued last, so
-    // it can only be stamped if every data write before it succeeded.
+    // ordered, not atomic in the database sense. The ordering is what
+    // matters in practice: LastModified is queued last (al F1), so it can
+    // only be stamped if every data write before it succeeded.
+    //
+    // (al) F5: Graph takes at most 20 requests per $batch, so the edits go in
+    // chunks of GRAPH_BATCH_LIMIT, one POST after another, chained with
+    // dependsOn inside each; a failure anywhere stops every later request
+    // and every later chunk.
+    // (al) F2: a failure says exactly which ranges landed. It throws an error
+    // with code BATCH_WRITE_FAILED, `landed` (indexes of the edits Graph
+    // confirmed, in order), `failedAt` (the first edit that did not land)
+    // and `graphError` (Graph's own text, kept in the message).
     async patchWorkbookRanges(workbookPath, sheet, edits) {
       if (!edits.length) return { written: 0 };
       assertNoTextDatesInEdits(sheet, edits);
@@ -8078,28 +8087,42 @@
       if (!token) throw new Error("Write layer unavailable.");
       const base = "/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='";
-      const requests = edits.map((e, i) => {
-        const req = {
-          id: String(i + 1),
-          method: "PATCH",
-          url: base + encodeURIComponent(e.address) + "')",
-          headers: { "Content-Type": "application/json" },
-          body: e.numberFormat ? { values: e.values, numberFormat: e.numberFormat } : { values: e.values }
-        };
-        if (i > 0) req.dependsOn = [String(i)];
-        return req;
-      });
-      const res = await fetch("https://graph.microsoft.com/v1.0/$batch", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
-        body: JSON.stringify({ requests })
-      });
-      if (!res.ok) throw new Error("Batch write failed: " + res.status + " " + (await res.text()));
-      const data = await res.json();
-      const failed = (data.responses || []).filter(r => r.status >= 300);
-      if (failed.length) {
-        throw new Error("Batch write rejected " + failed.length + " of " + requests.length +
-          " range(s): " + failed.map(f => f.status + " " + JSON.stringify(f.body && f.body.error || {})).join("; "));
+      const landed = [];
+      for (let start = 0; start < edits.length; start += GRAPH_BATCH_LIMIT) {
+        const chunk = edits.slice(start, start + GRAPH_BATCH_LIMIT);
+        const requests = chunk.map((e, i) => {
+          const req = {
+            id: String(i + 1),
+            method: "PATCH",
+            url: base + encodeURIComponent(e.address) + "')",
+            headers: { "Content-Type": "application/json" },
+            body: e.numberFormat ? { values: e.values, numberFormat: e.numberFormat } : { values: e.values }
+          };
+          if (i > 0) req.dependsOn = [String(i)];
+          return req;
+        });
+        let res;
+        try {
+          res = await fetch("https://graph.microsoft.com/v1.0/$batch", {
+            method: "POST",
+            headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+            body: JSON.stringify({ requests })
+          });
+        } catch (e) {
+          throw batchWriteError(sheet, edits, landed, start, "no response (" + String(e && e.message || e) + ")");
+        }
+        if (!res.ok) throw batchWriteError(sheet, edits, landed, start, res.status + " " + (await res.text()));
+        const data = await res.json();
+        const byId = {};
+        (data.responses || []).forEach(r => { byId[String(r.id)] = r; });
+        for (let i = 0; i < chunk.length; i++) {
+          const r = byId[String(i + 1)];
+          if (r && r.status >= 200 && r.status < 300) { landed.push(start + i); continue; }
+          // The first request that did not land carries Graph's real error; the
+          // ones chained after it only say 424 (failed dependency).
+          throw batchWriteError(sheet, edits, landed, start + i,
+            r ? r.status + " " + JSON.stringify(r.body && r.body.error || {}) : "no response for this range");
+        }
       }
       return { written: edits.length };
     },
@@ -8854,6 +8877,25 @@
     });
   }
 
+  // (al) F5: Graph's limit on requests in one $batch.
+  const GRAPH_BATCH_LIMIT = 20;
+  // (al) F2: the error a part-landed (or not-landed) batch throws. Names the
+  // ranges (and, for All edits built by buildRowCellEdits, the columns) that
+  // landed and that did not, and keeps Graph's own text.
+  function batchWriteError(sheet, edits, landed, failedAt, graphError) {
+    const label = e => (e._columns && e._columns.length ? e._columns.join(", ") : sheet + "!" + e.address);
+    const done = landed.map(i => label(edits[i]));
+    const notDone = edits.map((e, i) => i).filter(i => landed.indexOf(i) === -1).map(i => label(edits[i]));
+    const err = new Error("Write to " + sheet + " stopped at " + label(edits[failedAt]) + ". " +
+      (done.length ? "Saved: " + done.join("; ") + ". " : "Nothing was saved. ") +
+      "NOT saved: " + notDone.join("; ") + ". Graph said: " + graphError);
+    err.code = "BATCH_WRITE_FAILED";
+    err.landed = landed.slice();
+    err.failedAt = failedAt;
+    err.graphError = graphError;
+    return err;
+  }
+
   // --- Column-position resolution ------------------------------------
   // (al) 5.B / 5.D: read from the TABLE's own header row (readTableHeaderRow),
   // not a fixed A1:BZ1, and re-read at the start of every write
@@ -9141,6 +9183,13 @@
       cells.push({ name, index: idx, value });
     });
     cells.sort((a, b) => a.index - b.index);
+    // (al) F1: LastModified is its own range and the LAST edit, whatever its
+    // column position (on _Testing Purged sits right of it at AZ), so it is
+    // stamped only after every data range ahead of it landed (the chain in
+    // patchWorkbookRanges stops at the first failure). Reviewed stays with
+    // the data (Ray, Q5).
+    const lastCells = cells.filter(c => c.name === "LastModified");
+    const dataCells = cells.filter(c => c.name !== "LastModified");
 
     const edits = [];
     let run = null;
@@ -9150,7 +9199,7 @@
     // LastModified is the one date-TIME column (WORKBOOK_DATETIME_FORMAT).
     const formatFor = n => isWorkbookDateTimeColumn(ALL_SHEET_NAME, n) ? WORKBOOK_DATETIME_FORMAT
       : isWorkbookDateColumn(ALL_SHEET_NAME, n) ? WORKBOOK_DATE_FORMAT : null;
-    cells.forEach(cell => {
+    dataCells.forEach(cell => {
       // A date cell needs its own numberFormat, so it never merges into a
       // run with non-date neighbours, nor a date with a date-time (a range
       // PATCH applies one format to the whole rectangle).
@@ -9165,6 +9214,9 @@
         run.names.push(cell.name);
       }
     });
+    lastCells.forEach(cell => {
+      edits.push({ startIndex: cell.index, endIndex: cell.index, values: [cell.value], format: formatFor(cell.name), names: [cell.name] });
+    });
 
     return edits.map(run => {
       const address = columnIndexToLetters(run.startIndex) + rowNumber +
@@ -9173,6 +9225,34 @@
       if (run.format) edit.numberFormat = [run.values.map(() => run.format)];
       return edit;
     });
+  }
+
+  // (al) F2: some ranges of a save landed and some did not. Nothing is
+  // blanked or rolled back (never blank a half-written row). A column counts
+  // as saved only when Graph confirmed its range AND the re-read row holds
+  // the value written (the re-read is the authority: a confirmed range that
+  // reads back different is reported NOT saved; a cell that merely already
+  // held the value, such as a blank Reviewed, was not written by this save).
+  // When the re-read fails, Graph's confirmations alone decide. `freshValues` lets Browse Edit adopt the row as its new
+  // snapshot, or its next Save would report a conflict on its own columns.
+  async function partialSaveResult(rowNumber, edits, e) {
+    let after = null;
+    try { after = (await readAllRowForWrite(rowNumber)).values; } catch (re) { after = null; }
+    const landed = [], notLanded = [];
+    edits.forEach((edit, i) => {
+      (edit._columns || []).forEach((name, k) => {
+        const confirmed = e.landed.indexOf(i) !== -1;
+        const wrote = confirmed && (!after || cellsEqual(after[name], edit.values[0][k]));
+        (wrote ? landed : notLanded).push(name);
+      });
+    });
+    return {
+      ok: false, reason: "partial", rowNumber, landed, notLanded, freshValues: after,
+      message: "only part of this save reached the workbook. Saved: " + (landed.join(", ") || "nothing") +
+        ". NOT saved: " + (notLanded.join(", ") || "nothing") + ". Nothing was undone" +
+        (after ? "" : " (the row couldn't be read back, so this list is from Graph's replies)") +
+        ". Graph said: " + (e.graphError || e.message)
+    };
   }
 
   // --- The save itself -------------------------------------------------
@@ -9249,6 +9329,7 @@
     try {
       await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
     } catch (e) {
+      if (e && Array.isArray(e.landed) && e.landed.length) return partialSaveResult(rowNumber, edits, e);
       return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
     return {
@@ -19800,6 +19881,10 @@
       });
       return;
     }
+    // (al) F2: part of the save landed. The row as it now is becomes the
+    // baseline (the user's own edits stay in the form), so the next Save
+    // writes only what did not land instead of reporting a false conflict.
+    if (result.reason === "partial" && result.freshValues) resolveConflictAndRebaseline(coin, result.freshValues);
     showToast("Couldn't save " + coin.id + ": " + result.message);
   }
 

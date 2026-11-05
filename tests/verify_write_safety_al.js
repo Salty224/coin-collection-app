@@ -270,4 +270,116 @@ module.exports = defineSuite("write-safety-al", async ({ check, selfCheck, openA
     C5.formula === "=Q2*2" && C5.value === 10 && C5.lm === "", C5);
   ok("5.C3 a narrow writer (Set link) refuses a formula in OriginSetID; formula and sheet intact",
     !!C5.linkErr && C5.linkErr.code === "FORMULA_COLUMN" && C5.oformula === "=\"AY-\"&A2" && C5.same, C5);
+
+  // ===================== Stage B: Graph-like $batch stub ===================
+  // The REAL client's patchWorkbookRanges, with fetch stubbed to behave like
+  // Graph's $batch: HTTP 400 above 20 requests; per request 200, or the
+  // failure a test asks for, then 424 (failed dependency) for every request
+  // chained after it. A request that "lands" is applied to the mock grid.
+  await page.evaluate(() => {
+    window.__wsBatch = (mock, failAtGlobal) => {
+      window.__wsPosts = [];
+      let seen = 0;
+      window.__wsRealFetch = window.__wsRealFetch || window.fetch;
+      window.__wsRealToken = window.__wsRealToken || window.getWriteToken;
+      window.getWriteToken = async () => "test-token";
+      window.fetch = async (url, opts) => {
+        if (!String(url).includes("$batch")) return window.__wsRealFetch(url, opts);
+        const body = JSON.parse(opts.body);
+        window.__wsPosts.push(body.requests.length);
+        if (body.requests.length > 20) {
+          return new Response(JSON.stringify({ error: { code: "BadRequest", message: "Batch request has more than 20 requests" } }), { status: 400 });
+        }
+        let failed = false;
+        const responses = body.requests.map(r => {
+          const g = seen++;
+          if (failed) return { id: r.id, status: 424, body: { error: { code: "FailedDependency" } } };
+          if (g === failAtGlobal) { failed = true; return { id: r.id, status: 500, body: { error: { code: "GeneralException", message: "MOCK-GRAPH-500" } } }; }
+          const m = /worksheets\('([^']*)'\)\/range\(address='([^']*)'\)/.exec(r.url);
+          mock.patchWorkbookRanges("wb", decodeURIComponent(m[1]), [{ address: decodeURIComponent(m[2]), values: r.body.values, numberFormat: r.body.numberFormat }]);
+          return { id: r.id, status: 200, body: {} };
+        });
+        return new Response(JSON.stringify({ responses }), { status: 200, headers: { "Content-Type": "application/json" } });
+      };
+      return new Proxy(mock, { get(t, k) { return k === "patchWorkbookRanges" ? RealGraphClient.patchWorkbookRanges.bind(RealGraphClient) : t[k]; } });
+    };
+    window.__wsBatchOff = () => {
+      if (window.__wsRealFetch) window.fetch = window.__wsRealFetch;
+      if (window.__wsRealToken) window.getWriteToken = window.__wsRealToken;
+    };
+  });
+
+  // ===================== Stage B: F1 =====================================
+  // Remarks sits RIGHT of LastModified here; the edits are captured.
+  const F1 = await page.evaluate(async (seed) => {
+    const mock = __wsSetup(seed);
+    const seenEdits = [];
+    __setGraphClientForTest(new Proxy(mock, { get(t, k) {
+      if (k === "patchWorkbookRanges") return (wb, sheet, edits) => { seenEdits.push(edits.map(e => ({ address: e.address, cols: e._columns }))); return t[k](wb, sheet, edits); };
+      return t[k];
+    } }));
+    const res = await saveCoinRowToWorkbook("AY-00001", { Remarks: "right of LastModified", Cost: 9 }, null);
+    const edits = seenEdits[0] || [];
+    const out = { res, edits, last: edits[edits.length - 1] };
+    __wsTeardown();
+    return out;
+  }, (() => { const h = ALL_HEADERS.filter(x => x !== "Remarks").concat(["Remarks"]); return allSeed({ headers: h }); })());
+  ok("F1 LastModified is the LAST edit of a save, alone in its range, even with Remarks to its right",
+    F1.res.ok && !!F1.last && JSON.stringify(F1.last.cols) === JSON.stringify(["LastModified"]) &&
+    F1.edits.some(e => (e.cols || []).includes("Remarks")), F1);
+
+  // ===================== Stage B: F5 =====================================
+  const F5 = await page.evaluate(async () => {
+    const headers = []; for (let i = 0; i < 25; i++) headers.push("H" + i);
+    const mock = createMockGraphClient({ sheets: { All: [headers, headers.map(() => "")] } });
+    const client = __wsBatch(mock, -1);
+    const edits = headers.map((h, i) => ({ address: columnIndexToLetters(i + 1) + "2", values: [["v" + i]] }));
+    let err = null;
+    try { await client.patchWorkbookRanges("wb", "All", edits); } catch (e) { err = e.message; }
+    const out = { err, posts: window.__wsPosts.slice(), row: mock._grids.All[1].slice() };
+    __wsBatchOff();
+    // A failure in chunk 1 (request 5) stops everything: no chunk 2 is sent.
+    const mock2 = createMockGraphClient({ sheets: { All: [headers, headers.map(() => "")] } });
+    const client2 = __wsBatch(mock2, 4);
+    let e2 = null;
+    try { await client2.patchWorkbookRanges("wb", "All", edits); } catch (e) { e2 = { code: e.code, landed: e.landed, failedAt: e.failedAt, message: e.message }; }
+    out.fail = { e2, posts: window.__wsPosts.slice(), row: mock2._grids.All[1].slice() };
+    __wsBatchOff();
+    return out;
+  });
+  ok("F5 25 edits go as two $batch POSTs of 20 and 5 (Graph refuses more than 20)",
+    !F5.err && JSON.stringify(F5.posts) === "[20,5]", F5);
+  ok("F5b ... and all 25 cells land, each in its own column",
+    F5.row.every((v, i) => v === "v" + i), F5.row);
+  ok("F5c a failure in the first chunk sends no second chunk; exactly the 4 ranges before it landed",
+    !!F5.fail.e2 && JSON.stringify(F5.fail.posts) === "[20]" && JSON.stringify(F5.fail.e2.landed) === "[0,1,2,3]" &&
+    F5.fail.e2.failedAt === 4 && F5.fail.row.slice(0, 4).every((v, i) => v === "v" + i) && F5.fail.row.slice(4).every(v => v === ""), F5.fail);
+
+  // ===================== Stage B: F2 =====================================
+  // Edits: Grade, Cost, Remarks, Reviewed, LastModified (F1). Cost fails.
+  const F2 = await page.evaluate(async (seed) => {
+    const mock = __wsSetup(seed);
+    __setGraphClientForTest(__wsBatch(mock, 1));
+    const snap = await readAllRowWritableValues(2);
+    const next = Object.assign({}, snap, { Grade: "MS-65", Cost: 9, Remarks: "new remark" });
+    const res = await saveCoinRowToWorkbook("AY-00001", next, snap);
+    const mid = { grade: __wsCol(mock, "Grade", 2), cost: __wsCol(mock, "Cost", 2), lm: __wsCol(mock, "LastModified", 2) };
+    __wsBatchOff();
+    // The next Save, from the snapshot the result hands back, with Graph healthy.
+    __setGraphClientForTest(__wsBatch(mock, -1));
+    const res2 = await saveCoinRowToWorkbook("AY-00001", next, res.freshValues || snap);
+    const end = { grade: __wsCol(mock, "Grade", 2), cost: __wsCol(mock, "Cost", 2), remarks: __wsCol(mock, "Remarks", 2), lm: __wsCol(mock, "LastModified", 2) };
+    __wsBatchOff();
+    __wsTeardown();
+    return { res, mid, res2, end };
+  }, allSeed());
+  ok("F2 a part-landed save returns reason partial: Grade landed; Cost, Remarks, Reviewed and LastModified did not",
+    !F2.res.ok && F2.res.reason === "partial" && JSON.stringify(F2.res.landed) === JSON.stringify(["Grade"]) &&
+    ["Cost", "Remarks", "Reviewed", "LastModified"].every(c => (F2.res.notLanded || []).includes(c)), F2.res);
+  ok("F2b the message names what did and did not land and keeps Graph's own error text",
+    /Saved: Grade/.test(F2.res.message || "") && /NOT saved: .*Cost/.test(F2.res.message || "") && /MOCK-GRAPH-500/.test(F2.res.message || ""), F2.res.message);
+  ok("F2c nothing was undone and LastModified was NOT stamped (Grade stays written, Cost unchanged)",
+    F2.mid.grade === "MS-65" && F2.mid.cost === 5 && F2.mid.lm === "", F2.mid);
+  ok("F2d the next Save from the returned snapshot is not a false conflict on its own columns; it writes the rest",
+    F2.res2.ok && F2.end.cost === 9 && F2.end.remarks === "new remark" && typeof F2.end.lm === "number", F2);
 }, module);
