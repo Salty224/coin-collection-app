@@ -559,7 +559,8 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
     const headers = ["CollectionID","CoinID","Year","MintMark","Description","Denomination","Variety",
       "Grade","GradeSource","Designation","SerNo","CACBean","Category","Finish","Error","Value",
       "ValueSource","ValueDate","Cost","Shipping","Total","SpotValue","Seller_Link","PurchaseDate",
-      "StorageLocation","Container","Remarks","Reviewed","LastModified"];
+      "StorageLocation","Container","Remarks","Reviewed","LastModified",
+      "Status","FaceValue"]; // (al F6): real All has both; Promote writes both
     const grid = [headers.slice()];
     const real = new Array(headers.length).fill(""); real[0] = "AY-08100";
     grid.push(real);

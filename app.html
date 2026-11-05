@@ -7999,6 +7999,20 @@
       const data = await res.json();
       return data.values || [];
     },
+    // (al) 5.D: a TABLE's own header row, with its sheet address, so column
+    // positions come from the table itself (no fixed A1:BZ1 / A1:Z1 width)
+    // and a table that has moved off row 1 can be noticed before any write.
+    // GET-only.
+    async readTableHeaderRow(workbookPath, tableName) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/tables('" + encodeURIComponent(tableName) + "')/headerRowRange?$select=address,values";
+      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Table header read " + tableName + " failed: " + res.status);
+      const data = await res.json();
+      return { address: data.address || "", values: (data.values && data.values[0]) || [] };
+    },
     // GET-only reads that also return each cell's formula and number format
     // (readWorkbookRange returns values only). Used by the spot-price update
     // to refuse a write onto a formula cell, to copy the existing LastUpdated
@@ -8301,6 +8315,17 @@
         if (!rows) return Promise.resolve({ address: sheet + "!A1", values: [[""]], formulas: [[""]], numberFormat: [["General"]] });
         const a = { r0: 0, c0: 0, r1: rows - 1, c1: cols - 1 };
         return Promise.resolve(Object.assign({ address: sheet + "!A1:" + columnIndexToLetters(cols) + rows }, detailFor(sheet, a)));
+      },
+      // Mirrors the real headerRowRange read. Mock tables are 1:1 with their
+      // sheet grid (header on row 1) unless seed.tableHeaderRows names another
+      // row for a sheet (a table moved down under a title row).
+      readTableHeaderRow(workbookPath, tableName) {
+        const sheet = tableName === "AllCoins" ? "All" : tableName;
+        const at = (seed && seed.tableHeaderRows && seed.tableHeaderRows[sheet]) || 1;
+        const g = grids[sheet] || [];
+        const row = (g[at - 1] || []).map(v => (v === undefined || v === null ? "" : v));
+        const width = Math.max(1, row.length);
+        return Promise.resolve({ address: sheet + "!A" + at + ":" + columnIndexToLetters(width) + at, values: row });
       },
       readTableColumn(workbookPath, tableName, columnName) {
         // Mock tables are 1:1 with their sheet grid; AllCoins -> "All".
@@ -8830,9 +8855,12 @@
   }
 
   // --- Column-position resolution ------------------------------------
-  // Cached per session: the header row never changes mid-session, and every
-  // save would otherwise re-read it.
-  let allHeaderMap = null; // { headerName: 1-based column index }
+  // (al) 5.B / 5.D: read from the TABLE's own header row (readTableHeaderRow),
+  // not a fixed A1:BZ1, and re-read at the start of every write
+  // (ensureAllHeaderMap({ fresh: true })): Copilot can insert, rename or move a
+  // column between two saves of one session, and a cached index would then
+  // point a write at the wrong column. Display-only reads keep the cache.
+  let allHeaderMap = null; // { headerName: 1-based SHEET column index }
 
   function columnLettersToIndex(letters) { // "A" -> 1, "AA" -> 27 (inverse of columnIndexToLetters)
     let n = 0;
@@ -8849,17 +8877,90 @@
     return s;
   }
 
-  async function ensureAllHeaderMap() {
-    if (allHeaderMap) return allHeaderMap;
-    const rows = await graph().readWorkbookRange(writePaths().workbook, ALL_SHEET_NAME, "A1:BZ1");
-    const header = rows[0] || [];
+  // { address, values } from readTableHeaderRow -> { name: sheet column }.
+  // Every row number in the write layer is "index in the table column + 1",
+  // which is only true while the table's header is sheet row 1, so a table
+  // whose header is anywhere else is refused here, before any write: a
+  // write would land on the wrong row. (A table that starts right of column
+  // A is fine: positions are offset by its first column.)
+  function headerMapFromTableHeader(sheetName, header) {
+    const addr = String(header && header.address || "").replace(/^.*!/, "").split(":")[0];
+    const m = /^\$?([A-Z]+)\$?(\d+)$/.exec(addr);
+    if (!m) throw new Error("Couldn't read where the " + sheetName + " table's header row is (\"" + (header && header.address) + "\") — nothing was written.");
+    if (Number(m[2]) !== 1) {
+      const err = new Error("The " + sheetName + " table's header row is on sheet row " + m[2] + ", not row 1, so this app would write to the wrong rows — nothing was written. Move the table back to row 1.");
+      err.code = "TABLE_HEADER_MOVED";
+      throw err;
+    }
+    const start = columnLettersToIndex(m[1]);
     const map = {};
-    header.forEach((name, i) => {
+    ((header && header.values) || []).forEach((name, i) => {
       const key = String(name == null ? "" : name).trim();
-      if (key && !(key in map)) map[key] = i + 1;
+      if (key && !(key in map)) map[key] = start + i;
     });
-    allHeaderMap = map;
     return map;
+  }
+
+  async function ensureAllHeaderMap(opts) {
+    if (allHeaderMap && !(opts && opts.fresh)) return allHeaderMap;
+    const header = await graph().readTableHeaderRow(writePaths().workbook, ALL_TABLE_NAME);
+    allHeaderMap = headerMapFromTableHeader(ALL_SHEET_NAME, header);
+    return allHeaderMap;
+  }
+
+  // --- (al) F6: a write never silently drops a column ---------------------
+  // A column the write needs but the header row does not have (a Copilot
+  // rename or delete) used to be skipped without a word, and the save
+  // reported success. Now the whole write is refused, naming the columns.
+  // Ray, Q1 (5 Nov 2026): refuse for any NON-BLANK value aimed at a missing
+  // column, and always for Reviewed and LastModified (every app save writes
+  // them, so a renamed one must not go unnoticed); a blank value aimed at a
+  // missing column loses nothing and is ignored. `optional` names columns a
+  // sheet may legitimately lack (PHOTOS_OPTIONAL_COLUMNS).
+  const ALL_ALWAYS_REQUIRED_COLUMNS = ["Reviewed", "LastModified"];
+  function isBlankWriteValue(v) { return v === undefined || v === null || String(v).trim() === ""; }
+  function missingWriteColumns(map, values, required, optional) {
+    const req = required || [], opt = optional || [];
+    return Object.keys(values || {}).filter(name =>
+      !map[name] && opt.indexOf(name) === -1 &&
+      (!isBlankWriteValue(values[name]) || req.indexOf(name) !== -1));
+  }
+  function missingColumnError(sheetName, names) {
+    const err = new Error("The " + sheetName + " sheet has no " + names.map(n => "\"" + n + "\"").join(", ") +
+      " column" + (names.length > 1 ? "s" : "") + " (renamed or deleted in the workbook?) — nothing was saved.");
+    err.code = "MISSING_COLUMN";
+    err.columns = names.slice();
+    return err;
+  }
+  function assertWriteColumns(sheetName, map, values, required, optional) {
+    const missing = missingWriteColumns(map, values, required, optional);
+    if (missing.length) throw missingColumnError(sheetName, missing);
+  }
+
+  // --- (al) 5.C: a write never lands on a formula cell -------------------
+  // ALL_NEVER_WRITE_COLUMNS keeps the known formula columns out of every
+  // write; this is the guard behind it, for a formula Copilot put into a
+  // column the app does write (a literal would destroy it, silently). Read
+  // through the GET-only detail read, which returns each cell's formula.
+  function isFormulaCell(f) { return typeof f === "string" && f.charAt(0) === "="; }
+  function formulaColumnError(sheetName, rowNumber, names) {
+    const err = new Error(sheetName + " row " + rowNumber + " has a formula in " + names.map(n => "\"" + n + "\"").join(", ") +
+      " — the app never writes over a formula, so nothing was saved.");
+    err.code = "FORMULA_COLUMN";
+    err.columns = names.slice();
+    return err;
+  }
+  // The narrow writers' check: their target cells on one row, one GET.
+  async function assertNoFormulaCells(sheetName, rowNumber, map, names) {
+    const cols = names.filter(n => map[n]);
+    if (!cols.length) return;
+    const idx = cols.map(n => map[n]);
+    const lo = Math.min.apply(null, idx), hi = Math.max.apply(null, idx);
+    const d = await graph().readWorkbookRangeDetail(writePaths().workbook, sheetName,
+      columnIndexToLetters(lo) + rowNumber + ":" + columnIndexToLetters(hi) + rowNumber);
+    const f = (d && d.formulas && d.formulas[0]) || [];
+    const hits = cols.filter(n => isFormulaCell(f[map[n] - lo]));
+    if (hits.length) throw formulaColumnError(sheetName, rowNumber, hits);
   }
   function __resetAllHeaderMapForTest() { allHeaderMap = null; } // test-only seam
 
@@ -8927,22 +9028,31 @@
   const ALL_CONTEXT_COLUMNS = ["CoinID"];
 
   async function readAllRowWritableValues(rowNumber) {
+    return (await readAllRowForWrite(rowNumber)).values;
+  }
+  // The same one-row read, through the GET-only detail read so it also
+  // returns each cell's formula (al 5.C): { values, formulas } where
+  // `formulas` names only the writable columns that hold a formula on this
+  // row. Still ONE request.
+  async function readAllRowForWrite(rowNumber) {
     const map = await ensureAllHeaderMap();
     const wanted = ALL_WRITABLE_COLUMNS.concat(ALL_CONTEXT_COLUMNS);
     const indices = wanted.map(c => map[c]).filter(Boolean);
-    if (!indices.length) return {};
+    if (!indices.length) return { values: {}, formulas: {} };
     const last = columnIndexToLetters(Math.max.apply(null, indices));
-    const rows = await graph().readWorkbookRange(
+    const d = await graph().readWorkbookRangeDetail(
       writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
-    const row = rows[0] || [];
-    const out = {};
+    const row = (d && d.values && d.values[0]) || [];
+    const frow = (d && d.formulas && d.formulas[0]) || [];
+    const out = {}, formulas = {};
     wanted.forEach(name => {
       const idx = map[name];
       if (!idx) return; // column genuinely absent from this workbook
       const raw = row[idx - 1];
       out[name] = raw === undefined ? null : raw;
+      if (isFormulaCell(frow[idx - 1])) formulas[name] = frow[idx - 1];
     });
-    return out;
+    return { values: out, formulas };
   }
 
   // --- Comparison / conflict detection --------------------------------
@@ -9008,12 +9118,19 @@
   // actively destructive here.
   async function buildRowCellEdits(rowNumber, changedValues) {
     const map = await ensureAllHeaderMap();
-    const cells = [];
+    const allowed = {};
     Object.keys(changedValues).forEach(name => {
       if (ALL_WRITABLE_COLUMNS.indexOf(name) === -1) return;   // belt: unlisted column can't reach a PATCH
       if (ALL_NEVER_WRITE_COLUMNS.indexOf(name) !== -1) return; // suspenders
+      allowed[name] = changedValues[name];
+    });
+    // (al) F6: a column this write needs but the header lacks refuses the
+    // whole write (it used to be skipped silently: `if (!idx) return`).
+    assertWriteColumns(ALL_SHEET_NAME, map, allowed, ALL_ALWAYS_REQUIRED_COLUMNS);
+    const cells = [];
+    Object.keys(allowed).forEach(name => {
       const idx = map[name];
-      if (!idx) return;
+      if (!idx) return; // a BLANK value for a column the sheet lacks: nothing to lose
       // Date columns: a whole serial number, whatever the caller handed in
       // (a serial, "YYYY-MM-DD", ISO text, a Date). Junk throws, so the
       // Save fails with a message instead of writing text.
@@ -9078,13 +9195,18 @@
     if (!gate()) {
       return { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
     }
-    let rowNumber, fresh;
+    let rowNumber, fresh, formulas;
     try {
+      // (al) 5.B: the header is re-read at the start of every save; the read,
+      // the checks and the write below all use this one map.
+      await ensureAllHeaderMap({ fresh: true });
       rowNumber = await findAllSheetRowNumber(collectionId);
       if (!rowNumber) {
         return { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." };
       }
-      fresh = await readAllRowWritableValues(rowNumber);
+      const read = await readAllRowForWrite(rowNumber);
+      fresh = read.values;
+      formulas = read.formulas;
     } catch (e) {
       return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
@@ -9109,9 +9231,22 @@
     // succeeded (patchWorkbookRanges chains with dependsOn).
     changed.LastModified = workbookDateTimeNow(); // date AND local time (WORKBOOK_DATETIME_COLUMNS)
 
+    // (al) 5.C: refuse the whole save if any cell it would write holds a
+    // formula on this row (formulas came with the row read above).
+    const onFormulas = Object.keys(changed).filter(name => formulas[name]);
+    if (onFormulas.length) {
+      const err = formulaColumnError(ALL_SHEET_NAME, rowNumber, onFormulas);
+      return { ok: false, reason: "formula-column", columns: err.columns, message: err.message };
+    }
+
     let edits;
     try {
       edits = await buildRowCellEdits(rowNumber, changed);
+    } catch (e) {
+      if (e && e.code === "MISSING_COLUMN") return { ok: false, reason: "missing-column", columns: e.columns, message: e.message };
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+    try {
       await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
     } catch (e) {
       return { ok: false, reason: "error", message: String(e && e.message || e) };
@@ -9195,12 +9330,19 @@
   // Every other caller leaves it off: the Browse Edit re-link stamps LastModified
   // through its own save.
   async function writeCoinIdCell(rowNumber, coinId, opts) {
-    const map = await ensureAllHeaderMap();
+    // (al) 5.B fresh header; F6: no CoinID column (or no LastModified when it
+    // is to be stamped) is refused, not skipped (it used to return silently,
+    // and Promote then reported a link it never wrote); 5.C formula check.
+    const map = await ensureAllHeaderMap({ fresh: true });
+    const stamp = !!(opts && opts.stampLastModified);
+    const need = stamp ? ["CoinID", "LastModified"] : ["CoinID"];
+    const missing = need.filter(n => !map[n]);
+    if (missing.length) throw missingColumnError(ALL_SHEET_NAME, missing);
+    await assertNoFormulaCells(ALL_SHEET_NAME, rowNumber, map, need);
     const idx = map.CoinID;
-    if (!idx) return; // column genuinely absent from this workbook — nothing to do
     const address = columnIndexToLetters(idx) + rowNumber;
     const edits = [{ address, values: [[coinId]] }];
-    if (opts && opts.stampLastModified && map.LastModified) {
+    if (stamp) {
       edits.push({
         address: columnIndexToLetters(map.LastModified) + rowNumber,
         values: [[workbookDateTimeNow()]],
@@ -9232,15 +9374,16 @@
   // is not part of a Set until something links it, and blank is the honest
   // representation of that.
   async function writeNewRowKeyCells(rowNumber, collectionId, coinId) {
-    const map = await ensureAllHeaderMap();
-    const edits = [];
-    if (map.CollectionID) {
-      edits.push({ address: columnIndexToLetters(map.CollectionID) + rowNumber, values: [[collectionId]] });
-    }
-    if (coinId && map.CoinID) {
+    // (al) F6: a missing key column is refused, never skipped; 5.B / 5.C.
+    const map = await ensureAllHeaderMap({ fresh: true });
+    const need = coinId ? ["CollectionID", "CoinID"] : ["CollectionID"];
+    const missing = need.filter(n => !map[n]);
+    if (missing.length) throw missingColumnError(ALL_SHEET_NAME, missing);
+    await assertNoFormulaCells(ALL_SHEET_NAME, rowNumber, map, need);
+    const edits = [{ address: columnIndexToLetters(map.CollectionID) + rowNumber, values: [[collectionId]] }];
+    if (coinId) {
       edits.push({ address: columnIndexToLetters(map.CoinID) + rowNumber, values: [[coinId]] });
     }
-    if (!edits.length) return;
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
   }
 
@@ -9405,6 +9548,11 @@
   // afterwards and it must be the row claimed.
   async function createAllSheetRow(collectionId, coinId) {
     return withAllRowCreationLock(async () => {
+      // (al) F6 / 5.B: the key columns must exist BEFORE a row is claimed or
+      // appended, so a missing one leaves the sheet exactly as it was.
+      const keyMap = await ensureAllHeaderMap({ fresh: true });
+      const keyMissing = (coinId ? ["CollectionID", "CoinID"] : ["CollectionID"]).filter(n => !keyMap[n]);
+      if (keyMissing.length) throw missingColumnError(ALL_SHEET_NAME, keyMissing);
       // Read FIRST, create nothing yet. This ordering is the fix: every
       // check below can now fail without having changed the sheet.
       let col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
@@ -9571,8 +9719,12 @@
   // eyeballed this coin's own attributes, and re-parenting it changes none
   // of them.
   async function writeOriginSetIdCell(rowNumber, originSetId) {
-    const map = await ensureAllHeaderMap();
+    // (al) 5.B fresh header; F6: LastModified must exist too (it used to be
+    // skipped silently); 5.C: neither cell may hold a formula.
+    const map = await ensureAllHeaderMap({ fresh: true });
     if (!map.OriginSetID) throw new Error("The All sheet has no OriginSetID column.");
+    if (!map.LastModified) throw missingColumnError(ALL_SHEET_NAME, ["LastModified"]);
+    await assertNoFormulaCells(ALL_SHEET_NAME, rowNumber, map, ["OriginSetID", "LastModified"]);
     const edits = [{
       address: columnIndexToLetters(map.OriginSetID) + rowNumber,
       values: [[originSetId]]
@@ -9600,8 +9752,12 @@
   // writeOriginSetIdCell(): Reviewed means a human has eyeballed this
   // coin's own attributes, and deleting its photos changes none of them.
   async function writePurgedCell(rowNumber, value) {
-    const map = await ensureAllHeaderMap();
+    // (al) 5.B fresh header; F6: LastModified must exist too (it used to be
+    // skipped silently); 5.C: neither cell may hold a formula.
+    const map = await ensureAllHeaderMap({ fresh: true });
     if (!map.Purged) throw new Error("The All sheet has no Purged column.");
+    if (!map.LastModified) throw missingColumnError(ALL_SHEET_NAME, ["LastModified"]);
+    await assertNoFormulaCells(ALL_SHEET_NAME, rowNumber, map, ["Purged", "LastModified"]);
     const edits = [{
       address: columnIndexToLetters(map.Purged) + rowNumber,
       values: [[value]]
@@ -9761,16 +9917,20 @@
   // (which is deliberately left alone — Browse Edit's every save depends on
   // it). Resolved from the sheet's own header row at run time so a
   // Copilot-side column insertion can't silently redirect a write.
+  // (al) 5.D / 5.B: read from the sheet's TABLE header row (same helper as
+  // All, no A1:Z1 cap), and re-read at the start of every write
+  // ({ fresh: true }); readRecordRows (display and lookups) keeps the cache.
   const sheetHeaderMaps = {};
-  async function ensureSheetHeaderMap(sheetName) {
-    if (sheetHeaderMaps[sheetName]) return sheetHeaderMaps[sheetName];
-    const rows = await graph().readWorkbookRange(writePaths().workbook, sheetName, "A1:Z1");
-    const header = rows[0] || [];
-    const map = {};
-    header.forEach((name, i) => {
-      const key = String(name == null ? "" : name).trim();
-      if (key && !(key in map)) map[key] = i + 1;
-    });
+  const SHEET_TABLE_NAMES = { [PHOTOS_SHEET_NAME]: PHOTOS_TABLE_NAME, [RECEIPTS_SHEET_NAME]: RECEIPTS_TABLE_NAME };
+  // Columns a sheet may legitimately lack (Ray, Q2, 5 Nov 2026): Photos has
+  // no OriginalFilename; writePhotoRow writes it only when the header has
+  // it, and the raw's name is derivable, so nothing is lost without it.
+  const PHOTOS_OPTIONAL_COLUMNS = ["OriginalFilename"];
+  const SHEET_OPTIONAL_COLUMNS = { [PHOTOS_SHEET_NAME]: PHOTOS_OPTIONAL_COLUMNS };
+  async function ensureSheetHeaderMap(sheetName, opts) {
+    if (sheetHeaderMaps[sheetName] && !(opts && opts.fresh)) return sheetHeaderMaps[sheetName];
+    const header = await graph().readTableHeaderRow(writePaths().workbook, SHEET_TABLE_NAMES[sheetName] || sheetName);
+    const map = headerMapFromTableHeader(sheetName, header);
     sheetHeaderMaps[sheetName] = map;
     return map;
   }
@@ -9858,7 +10018,7 @@
   // nextRecordId() for the duplicate it prevents.
   async function writeRecordRow(sheetName, tableName, idColumn, values, mintId) {
     return withRecordRowLock(tableName, async () => {
-      const map = await ensureSheetHeaderMap(sheetName);
+      const map = await ensureSheetHeaderMap(sheetName, { fresh: true });
       if (!map[idColumn]) throw new Error(sheetName + " sheet has no " + idColumn + " column.");
       if (mintId) values[idColumn] = await mintId();
       const col = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
@@ -9890,6 +10050,9 @@
   // create a row and to update one in place; passing {} blanks it, which is
   // how a detach works (see detachPhotoRow()).
   async function patchRecordRow(sheetName, rowNumber, map, values) {
+    // (al) F6: a non-blank value for a column this sheet lacks refuses the
+    // write (it used to be dropped silently), except a declared optional one.
+    assertWriteColumns(sheetName, map, values, [], SHEET_OPTIONAL_COLUMNS[sheetName] || []);
     const indices = Object.keys(map).map(k => map[k]);
     const width = Math.max.apply(null, indices);
     const row = new Array(width).fill("");
@@ -9984,7 +10147,7 @@
     const photoType = photoTypeForGalleryType(entry.type);
     if (!photoType) throw new Error("No PhotoType mapping for gallery type " + entry.type);
     const subGroupId = (def && def.tier === "subgroup") ? (entry.subGroupId || DEFAULT_SUBGROUP_ID) : "";
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const values = {
       PhotoID: "",
       CollectionID: collectionId,
@@ -10047,7 +10210,7 @@
   // (a formula would be flattened to its value). A single-cell PATCH can do
   // none of that: nothing but Label is touched, DateAdded included.
   async function writePhotoLabel(collectionId, photoId, label) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     if (!map.Label) throw new Error("The Photos tab has no Label column.");
     const hit = await findPhotoRowByPhotoId(photoId);
     if (!hit || hit.CollectionID !== collectionId) throw new Error("No Photos row " + photoId + " for " + collectionId + ".");
@@ -10067,7 +10230,7 @@
   async function detachPhotoRow(collectionId, galleryType, subGroupId) {
     const photoType = photoTypeForGalleryType(galleryType);
     const want = (subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID) ? subGroupId : "";
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
     const hit = rows.find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
                                (r.SubGroupID || "") === want);
@@ -10077,7 +10240,7 @@
   }
 
   async function detachPhotoRowByFilename(collectionId, filename) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
     const hit = rows.find(r => r.CollectionID === collectionId && r.Filename === filename);
     if (!hit) return { detached: false };
@@ -10125,7 +10288,7 @@
   // stays, since it still references the surviving file. Full removal
   // (detachPhotoRowByPhotoId, below) is for when nothing would be left.
   async function clearPhotoRowField(collectionId, photoId, field) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const hit = await findPhotoRowByPhotoId(photoId);
     if (!hit || hit.CollectionID !== collectionId) return { cleared: false };
     const values = buildPhotoRowPatch(hit, map, { [field]: "" });
@@ -10139,7 +10302,7 @@
   // already be blank (the "one file already gone, the other is what's being
   // purged now" case a prior partial purge on this same photo can produce).
   async function detachPhotoRowByPhotoId(collectionId, photoId) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const hit = await findPhotoRowByPhotoId(photoId);
     if (!hit || hit.CollectionID !== collectionId) return { detached: false };
     await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
@@ -10403,7 +10566,7 @@
   // `receiptId` null: a new id, minted inside the Receipts table's lock (see
   // nextRecordId() for the duplicate a mint outside the lock allowed).
   async function writeReceiptRow(collectionId, filename, receiptId) {
-    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const values = {
       ReceiptID: receiptId,
@@ -11673,6 +11836,29 @@
           message: collectionId + " needs " + missing.join(" and ") + " before it can be promoted — Edit the draft to set " +
             (missing.length > 1 ? "them" : "it") + ". (Force Add can still record it without.)" };
       }
+    }
+
+    // (al) F6, A2: every column this Promote would write must be on the
+    // header row BEFORE anything is looked up or created, so a missing one
+    // refuses with no row claimed (not a keys-only row left behind).
+    try {
+      const map = await ensureAllHeaderMap({ fresh: true });
+      const values = {};
+      const draftValues = coinDraftToAllValues(draft);
+      Object.keys(draftValues).forEach(name => {
+        if (ALL_WRITABLE_COLUMNS.indexOf(name) !== -1 && ALL_NEVER_WRITE_COLUMNS.indexOf(name) === -1) values[name] = draftValues[name];
+      });
+      values.Reviewed = "";
+      values.LastModified = "now";
+      values.CollectionID = collectionId;
+      if (!force && draft.coinId) values.CoinID = draft.coinId;
+      const missing = missingWriteColumns(map, values, ALL_ALWAYS_REQUIRED_COLUMNS);
+      if (missing.length) {
+        const err = missingColumnError(ALL_SHEET_NAME, missing);
+        return { ok: false, reason: "missing-column", columns: err.columns, message: collectionId + ": " + err.message };
+      }
+    } catch (e) {
+      return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
 
     // Already on the sheet? Then this draft was force-added earlier (or an earlier
@@ -25605,7 +25791,7 @@
     if (allMode) {
       // The other coins' rows: Filename and today's DateAdded, ReceiptID and
       // CollectionID as they were. Only rows that carry keepId are patched.
-      const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+      const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME, { fresh: true });
       const today = excelSerialToday();
       for (const r of sharers) {
         await patchRecordRow(RECEIPTS_SHEET_NAME, r.__row, map, buildPhotoRowPatch(r, map, { Filename: filename, DateAdded: today }));
@@ -25626,7 +25812,7 @@
   // is ever deleted. `expected` is the receipt the user saw and chose to
   // remove; if the row now says something else, nothing is blanked.
   async function commitReceiptRemoval(collectionId, expected) {
-    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME);
+    const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const own = ownReceiptRowOrRefuse(rows, collectionId);
     if (!own) {

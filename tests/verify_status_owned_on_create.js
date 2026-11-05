@@ -30,7 +30,10 @@ const ALL_HEADERS = [
   "Variety", "Description", "Finish", "Designation", "Grade", "GradeSource",
   "SerNo", "CACBean", "Cost", "Shipping", "Total", "Seller_Link",
   "PurchaseDate", "SpotValue", "Value", "StorageLocation", "Container",
-  "Remarks", "Reviewed", "LastModified", "Error", "Status"
+  "Remarks", "Reviewed", "LastModified", "Error", "Status",
+  // FaceValue (al F6): the real All sheet has it and Promote writes it; the
+  // mock lacked it, so the write was silently dropped before F6.
+  "FaceValue"
 ];
 
 function seedMock() {

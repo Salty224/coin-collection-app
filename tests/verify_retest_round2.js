@@ -8,7 +8,8 @@ const { defineSuite } = require("./harness");
 const HEADERS = ["CollectionID","CoinID","Year","MintMark","Description","Denomination","Variety",
   "Grade","GradeSource","Designation","SerNo","CACBean","Category","Finish","Error","Value",
   "ValueSource","ValueDate","Cost","Shipping","Total","SpotValue","Seller_Link","PurchaseDate",
-  "StorageLocation","Container","Remarks","Reviewed","LastModified"];
+  "StorageLocation","Container","Remarks","Reviewed","LastModified",
+  "Status","FaceValue"]; // (al F6): real All has both; Promote writes both
 
 module.exports = defineSuite("retest-round2", async ({ ok, openApp, PHONE, TABLET }) => {
   const page = await openApp(PHONE);

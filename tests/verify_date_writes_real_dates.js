@@ -33,7 +33,8 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     window.LM_NOW = excelSerialFromISODate("2026-11-04") + (23 * 3600 + 30 * 60) / 86400;
     window.ALL_HEADERS = ["CollectionID", "CoinID", "Year", "MintMark", "Denomination", "Description", "Value",
       "ValueSource", "ValueDate", "Cost", "Shipping", "Seller_Link", "PurchaseDate", "Remarks", "Reviewed",
-      "LastModified", "Status", "SaleDate", "SalePrice", "OriginSetID", "Purged", "Grade"];
+      "LastModified", "Status", "SaleDate", "SalePrice", "OriginSetID", "Purged", "Grade",
+      "FaceValue"]; // FaceValue (al F6): real All has it; Promote writes it
     window.allGrid = (rows) => [ALL_HEADERS.slice()].concat(rows.map(r => ALL_HEADERS.map(h => (h in r ? r[h] : ""))));
     window.col = h => ALL_HEADERS.indexOf(h);
     window.useMock = (sheets) => {

@@ -28,7 +28,10 @@ const ALL_HEADERS = [
   "Variety", "Description", "Finish", "Designation", "Grade", "GradeSource",
   "SerNo", "CACBean", "Cost", "Shipping", "Total", "Seller_Link",
   "PurchaseDate", "SpotValue", "Value", "StorageLocation", "Container",
-  "Remarks", "Reviewed", "LastModified", "Error", "Status"
+  "Remarks", "Reviewed", "LastModified", "Error", "Status",
+  // FaceValue (al F6): the real All sheet has it and Promote writes it; the
+  // mock lacked it, so the write was silently dropped before F6.
+  "FaceValue"
 ];
 const PHOTO_HEADERS = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"];
 const RECEIPT_HEADERS = ["ReceiptID", "CollectionID", "Filename", "DateAdded"];
