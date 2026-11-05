@@ -413,6 +413,12 @@ never a fabricated code.
 "bullion" (`BULLION_TIER_OPTIONS`, which now includes the classic gold
 tier too, not just the modern bullion programs — grouped together under
 one toggle since neither is an everyday circulating denomination).
+> **Correction, 5 Nov 2026** (coordinator's check of the live workbook, 4 Nov 2026): the parenthetical "matching how a
+> regular coin has no Category on the real workbook either" in the bullet below is out of date. `All.Category` is "Coin" on 359 rows,
+> "Coin" is in `Lookup_Categories`, and no All row has a blank Category. An everyday coin's Category is "Coin"
+> (`COIN_DEFAULT_CATEGORY`); Add Coin now has a Category dropdown and a "Coin" button, and Save to Database / Promote require one.
+> See "Finish / Category gate" in [ADD_COIN_WRITE.md](ADD_COIN_WRITE.md).
+
 - **Picking a bullion-tier option sets Denomination AND Category in one
   action** — the user never fills out two fields. Each `<option>`'s
   `value` is still the plain `denom` (so `#denomination`'s own value is

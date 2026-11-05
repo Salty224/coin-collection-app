@@ -195,3 +195,4 @@ Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sect
 - "end session" means: update this file first (standing rule) -> [docs/HISTORY.md](HISTORY.md), original lines 1231-1236
 - Rules extracted from moved sections (intro lines) -> [docs/HISTORY.md](HISTORY.md), original lines 108-110
 - Rules E1-E21 (the 16 assigned ones): header lines are at the end of the ref file their Source names, under "Cross-area rules stated in CLAUDE.md"; the excerpts were already in those files.
+- NEXT BRANCH (decided by Ray 4 Nov 2026) `claude/addcoin-finish-required-and-draft-cleanup`, moved 5 Nov 2026 when the branch was built -> [docs/HISTORY.md](HISTORY.md), section "Finish / Category required and draft cleanup" (the spec is quoted verbatim there; the code write-ups are in [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md) and [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md))
