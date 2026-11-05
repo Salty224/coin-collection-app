@@ -655,7 +655,7 @@ visually distinguish the row kinds within it.
 - **Not verified: any real device, any real OneDrive session** — same
   standing caveat as every round in this feature.
 
-### Staging drafts of coins already on the All sheet: "Mark as promoted" (BUILT on `claude/addcoin-finish-required-and-draft-cleanup`, 5 Nov 2026; held for TEST, NOT merged)
+### Staging drafts of coins already on the All sheet: "Mark as promoted" (BUILT on `claude/addcoin-finish-required-and-draft-cleanup`, 5 Nov 2026; merged to main 5 Nov 2026 by fast-forward to `7c3c82c` after Ray's TEST passed (all 7 checks))
 A coin can be on the All sheet while its coin.json never reached Promoted (the bookkeeping after the write failed: AY-00760). Staging Review and the Docket used to hide a draft only when its status was Promoted or `allRowWritten`.
 - `coinDraftStaleOnAll(draft)`: not Promoted, not `allRowWritten`, but its CollectionID is in the LOADED All rows (`LIVE_COINS`; never the demo array, so a demo coin cannot match a draft). Loaded rows are fetched once per session, so a row added after launch (for instance by Copilot) is not seen until reload; the actions that write re-read the sheet fresh.
 - Staging Review (`renderStagingList`) and the Docket's Staging section (`renderNeedsAttentionHub`) show such a draft once, as "Already on the All sheet (row N)", with ONE action, "Mark as promoted"; no Mark ready, Promote, Re-check, Force Add, Edit or Reject. N comes from one CollectionID column read (`allSheetRowNumbersFor`), made only when at least one draft matches. Never automatic: only Ray's tap.

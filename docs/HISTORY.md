@@ -3104,7 +3104,7 @@ Moved from CLAUDE.md at the merge (rules stay there).
 - Investigation during this branch (4 Nov 2026), not bugs of this branch: AY-00760's "blank ValueDate" was PurchaseDate (ValueDate was written); a partial-batch theory did not fit the _Testing layout (ValueDate AD, LastModified AZ). Recorded instead as backlog (al) write-safety and the next branch (Finish / Category required, draft cleanup).
 
 
-## Finish / Category required and draft cleanup (built 5 Nov 2026 on `claude/addcoin-finish-required-and-draft-cleanup`; held for Ray's TEST, NOT merged)
+## Finish / Category required and draft cleanup (built 5 Nov 2026 on `claude/addcoin-finish-required-and-draft-cleanup`; merged to main 5 Nov 2026 by fast-forward to `7c3c82c` after Ray's TEST passed (all 7 checks))
 Moved from CLAUDE.md: the spec as decided by Ray on 4 Nov 2026 (verbatim below), then what was built and how it was tested. Write-up of the code: docs/ref/ADD_COIN_WRITE.md ("Finish / Category gate and idempotent Promote") and docs/ref/DOCKET_STAGING.md ("Mark as promoted").
 
 ### The spec (verbatim from CLAUDE.md, "NEXT BRANCH")

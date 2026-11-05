@@ -635,7 +635,7 @@ assertion re-confirmed.
 - **Superseded: the Phase 2 write HAS since had a real `_Testing` run, and
   it found a duplicate-row bug.** See the section immediately below.
 
-## Finish / Category gate and idempotent Promote (BUILT on `claude/addcoin-finish-required-and-draft-cleanup`, 5 Nov 2026; held for Ray's TEST, NOT merged)
+## Finish / Category gate and idempotent Promote (BUILT on `claude/addcoin-finish-required-and-draft-cleanup`, 5 Nov 2026; merged to main 5 Nov 2026 by fast-forward to `7c3c82c` after Ray's TEST passed (all 7 checks))
 
 Why: AY-00760 (2026 Lincoln Shield Cent) reached the All sheet with Finish and Category blank although its one catalog row says Business Strike. A single matching row made the form "confident" while Finish was blank (`dbCoinsCandidatesFor()` skips the Finish tier for a blank Finish), and a live match fills only Description. DB_Coins has no Category column, so nothing could fill it.
 

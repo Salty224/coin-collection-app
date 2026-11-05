@@ -1,6 +1,6 @@
 # Code map: app.html, function -> line (generated)
 
-`app.html` is 36,349 lines. Generated from `1c8a19c` (the code commit of `claude/addcoin-finish-required-and-draft-cleanup` after the F3 change; a later docs-only commit on that branch does not move any line) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
+`app.html` is 36,349 lines. Generated from `7c3c82c` (main after the fast-forward merge of `claude/addcoin-finish-required-and-draft-cleanup`; `app.html` is identical in the docs commits after it) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
 
 The function lists are hand-chosen (the functions the docs/ref/ files mention most, grouped by area) and kept by name; the script only refreshes the numbers and the region list. A renamed function is reported as MISSING: fix its name in this file.
 
