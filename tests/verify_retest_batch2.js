@@ -570,6 +570,7 @@ module.exports = defineSuite("retest-batch2", async ({ ok, openApp, PHONE, TABLE
     await mock.uploadJson(base + "/AY-08101/coin.json", {
       type: "coin", version: 1, status: COIN_DRAFT_STATUS.READY, collectionID: "AY-08101",
       denom: "1C", year: "1943", mint: "S", variety: "", description: "Lincoln Wheat Steel",
+      finish: "Business Strike", category: "Coin", // Finish / Category gate (Nov 2026)
       grade: "MS-65", coinId: "C-Q", value: 850.5, valueSource: "Red Book 2027, p. 386",
       valueDate: "2026-07-05", photos: [], createdDate: new Date().toISOString()
     });

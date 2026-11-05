@@ -4288,6 +4288,23 @@
                 it just matches on a weaker key.
               </p>
 
+              <!-- Category (Finish / Category gate, Nov 2026). A dropdown filled
+                   from the workbook's Lookup_Categories (column A), plus a
+                   one-tap "Coin" button. Both are explicit choices; nothing is
+                   filled silently and the app never adds a value to the sheet.
+                   Required for Save to Database and Promote (not for Staging,
+                   not for Force Add). A bullion pick above sets its own
+                   Category and locks this control. -->
+              <label>Category</label>
+              <div id="addCoinCategoryRow" style="display:flex; gap:8px; align-items:center;">
+                <select id="addCoinCategory" style="flex:1;">
+                  <option value="">— not recorded —</option>
+                </select>
+                <button type="button" id="addCoinCategoryCoinBtn"
+                  style="flex:none; padding:10px 16px; border-radius:8px; background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); font:inherit; cursor:pointer;">Coin</button>
+              </div>
+              <p class="placeholder-note" id="addCoinCategoryNote" style="margin:4px 0 16px;"></p>
+
               <!-- The live catalog match-count indicator. Sits directly under
                    the identity fields that PRODUCE the match (Denomination
                    through Finish) rather than adrift near the save buttons,
@@ -4487,6 +4504,12 @@
             <span class="icon">⚠️</span>
             <span class="msg" id="saveNotConfidentMsg">This coin needs a closer look before it can be saved directly.</span>
           </div>
+          <!-- One-tap Finish fill from the single matched catalog row (Finish /
+               Category gate). An explicit tap, never a silent fill. Shown by
+               updateSaveConfidenceUI() only while the catalog row resolved and
+               the form's Finish is blank. -->
+          <button type="button" class="save-btn" id="addCoinUseCatalogFinishBtn"
+            style="display:none; background:var(--bg-elevated); color:var(--gold-bright); border:1px solid var(--case-border); margin:0 0 12px;"></button>
           <div class="banner pending-banner hidden" id="addCoinInterimBanner">
             <span class="icon">🚧</span>
             <span class="msg"><em>Save to Database</em> writes a real Staging draft first,
@@ -7135,6 +7158,17 @@
   // was tried and gave nothing usable, so the "not loaded" note shows.
   let LIVE_LOOKUP_ERRORS = null;
   let liveLookupErrorsLoadFailed = false;
+  // Add Coin's Category dropdown choices from the real Lookup_Categories sheet
+  // (column A, header excluded). READ-ONLY: the app never writes this sheet
+  // and never adds a value to it. null = not loaded this session;
+  // liveLookupCategoriesLoadFailed says a load was tried and gave nothing
+  // usable, so the "list unavailable" note shows.
+  let LIVE_LOOKUP_CATEGORIES = null;
+  let liveLookupCategoriesLoadFailed = false;
+  // The Category of an ordinary single coin (359 All rows carry it; it is in
+  // Lookup_Categories; no All row has a blank Category, coordinator's check
+  // 4 Nov 2026). The one place this literal lives.
+  const COIN_DEFAULT_CATEGORY = "Coin";
   let liveNavDataFetchPromise = null;
   // Bumped whenever a new fetch starts or Retry discards the current one. A
   // fetch whose generation is no longer current is superseded: when it
@@ -7157,8 +7191,8 @@
   // this session), and while any is still null the next
   // ensureLiveNavDataFetch() call refetches ONLY those, in the background.
   // Once all four have loaded, nothing extra is ever requested.
-  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors"];
-  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null };
+  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories"];
+  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null };
   // Raw DB_Sets/DB_Coins rows from the last successful core load — Albums is
   // built from raw rows (buildLiveAlbums()), so a late Albums or Wishlist
   // needs them to rebuild without refetching the core sheets.
@@ -7172,7 +7206,7 @@
     return LIVE_NAV_OPTIONAL_SHEETS.filter(sheet => liveNavOptionalRows[sheet] === null);
   }
   function __resetLiveNavOptionalForTest() { // test-only seam
-    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null };
+    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null };
     liveNavCoreRawRows = null;
     liveNavOptionalFetchPromise = null;
     liveNavOptionalGeneration++;
@@ -7206,6 +7240,34 @@
       liveLookupErrorsLoadFailed = !LIVE_LOOKUP_ERRORS;
       populateErrorOptions();
     }
+    // Lookup_Categories feeds Add Coin's Category dropdown (read only).
+    if (got.Lookup_Categories) {
+      LIVE_LOOKUP_CATEGORIES = buildLookupCategoryList(got.Lookup_Categories);
+      liveLookupCategoriesLoadFailed = !LIVE_LOOKUP_CATEGORIES;
+      refreshAddCoinCategoryUI();
+    }
+  }
+
+  // Lookup_Categories -> the Category dropdown's choices: COLUMN A, the header
+  // excluded (the sheet is read as header + rows, so column A is the first
+  // header's key, whatever its text). Names are trimmed; blanks, duplicates
+  // and "═" section dividers are dropped. Returns null when the sheet has no
+  // header at all (an empty read), which the caller treats as a failed load.
+  // An empty list from a sheet that has a header is a real (empty) answer.
+  function buildLookupCategoryList(rows) {
+    if (!Array.isArray(rows)) return null;
+    const seen = new Set();
+    const out = [];
+    rows.forEach(row => {
+      if (!row) return;
+      const keys = Object.keys(row);
+      if (!keys.length) return;
+      const name = String(row[keys[0]] == null ? "" : row[keys[0]]).trim();
+      if (!name || name.startsWith("\u2550") || seen.has(name)) return;
+      seen.add(name);
+      out.push(name);
+    });
+    return out;
   }
 
   // Lookup_Errors -> the Error dropdown's choices. Read by header ("Error
@@ -7253,6 +7315,7 @@
       // "still loading" to "couldn't load". liveAlbumsLoadFailed is already
       // set — the full fetch that left Albums missing set it.
       if (missing.includes("Lookup_Errors") && !got.Lookup_Errors && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+      if (missing.includes("Lookup_Categories") && !got.Lookup_Categories && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
       if (!Object.keys(got).length) { refreshAlbumsListIfShowing(); return false; }
       rerenderViewsAfterLiveNavData();
       return true;
@@ -7261,6 +7324,7 @@
         liveNavOptionalFetchPromise = null;
         refreshAlbumsListIfShowing();
         if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+        if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
       }
       console.warn("Live nav data: non-essential sheet refetch error:", err && err.message);
       return false;
@@ -7294,6 +7358,11 @@
   // before (or without) the real list — the dropdown then offers only
   // "— none —" and "Other", which is free text.
   function activeLookupErrors() { return LIVE_LOOKUP_ERRORS || (demoDataAllowed() ? FAKE_LOOKUP_ERRORS : []); }
+  // Category choices: the real Lookup_Categories list once loaded; a short
+  // demo list only in the offline mockup; nothing in a live session before
+  // (or without) the real list. The "Coin" button works either way.
+  const FAKE_LOOKUP_CATEGORIES = ["Coin", "Commemorative", "Proof Set", "Mint Set"];
+  function activeLookupCategories() { return LIVE_LOOKUP_CATEGORIES || (demoDataAllowed() ? FAKE_LOOKUP_CATEGORIES : []); }
 
   // (Re)fills Add Coin's Error dropdown from activeLookupErrors(). Called at
   // page load and again when Lookup_Errors arrives. Keeps the static
@@ -7320,6 +7389,11 @@
     }
     const note = document.getElementById("errorListNote");
     if (note) note.style.display = (!LIVE_LOOKUP_ERRORS && liveLookupErrorsLoadFailed && !demoDataAllowed()) ? "block" : "none";
+  }
+  function __setLiveLookupCategoriesForTest(list, failed) { // test-only seam
+    LIVE_LOOKUP_CATEGORIES = list || null;
+    liveLookupCategoriesLoadFailed = !!failed;
+    refreshAddCoinCategoryUI();
   }
   function __setLiveLookupErrorsForTest(list, failed) { // test-only seam
     LIVE_LOOKUP_ERRORS = list || null;
@@ -7586,14 +7660,19 @@
       // Lookup_Errors — Add Coin's Error dropdown. Optional, like the four
       // above: a failure never blocks startup, and the dropdown falls back
       // to none/Other with a note until a later refetch lands it.
-      fetchWorkbookSheetRows("Lookup_Errors")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows]) => {
+      fetchWorkbookSheetRows("Lookup_Errors"),
+      // Lookup_Categories — Add Coin's Category dropdown (read only). Optional
+      // like Lookup_Errors: a failure never blocks startup; the form shows a
+      // short "list unavailable" note and the Coin button still works.
+      fetchWorkbookSheetRows("Lookup_Categories")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]) => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
       liveNavDataFetchPromise = null;
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) {
         if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
         if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+        if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
         return false;
       }
       // A stray blank sheet row (no CollectionID) is never a real owned
@@ -7674,8 +7753,10 @@
       if (albumRows !== null) optionalGot.Albums = albumRows;
       if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
       if (lookupErrorRows !== null) optionalGot.Lookup_Errors = lookupErrorRows;
+      if (lookupCategoryRows !== null) optionalGot.Lookup_Categories = lookupCategoryRows;
       applyLiveNavOptionalRows(optionalGot);
       if (lookupErrorRows === null && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+      if (lookupCategoryRows === null && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
       liveAlbumsLoadFailed = !LIVE_ALBUMS;
       rerenderViewsAfterLiveNavData();
       return true;
@@ -7684,6 +7765,7 @@
       liveNavDataFetchPromise = null;
       if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
       if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+      if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
       // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
       // call catches its own errors and never rejects, so reaching this
       // catch means the PROCESSING block above (after every sheet already
@@ -9320,8 +9402,13 @@
       // behind — the old version's "a blank row was appended" caveat is gone.
       const already = collectionIdRowsInColumn(col, collectionId);
       if (already.length) {
-        throw new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
+        const err = new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
           " — nothing written, and nothing was added to the sheet.");
+        // Tagged so Promote can adopt a lone existing row instead of failing
+        // (draft cleanup S4). The message and the throw are unchanged.
+        err.code = "ALL_ROW_EXISTS";
+        err.rows = already;
+        throw err;
       }
 
       let targetRow = await findClaimableBlankRow(col);
@@ -11101,9 +11188,47 @@
   // Marks a coin draft ready for external reconciliation. PHASE 1 INTERIM —
   // this is what the Staging Review "Promote" action does until Phase 2's
   // direct-write path exists; it deliberately does NOT touch the All sheet.
+  // Is this CollectionID among the All rows the app has LOADED this session
+  // (LIVE_COINS, a real workbook read; never the demo array)? Used to notice a
+  // draft whose coin is already on the sheet but whose coin.json never reached
+  // Promoted (draft cleanup S2 / S3). Loaded rows only: a row added after
+  // launch is not seen until the next load, which is why the actions that
+  // WRITE (Promote, Mark as promoted) re-read the sheet fresh.
+  function coinOnLoadedAllSheet(collectionId) {
+    if (!LIVE_COINS || !collectionId) return false;
+    const want = String(collectionId).trim();
+    return LIVE_COINS.some(c => String(c && c.id || "").trim() === want);
+  }
+  // On the All sheet by the draft's own flags or by the loaded rows.
+  function coinDraftOnAllSheet(draft) {
+    return !!draft && (draft.status === COIN_DRAFT_STATUS.PROMOTED || !!draft.allRowWritten ||
+      coinOnLoadedAllSheet(draft.collectionID));
+  }
+  // A draft that is NOT marked written/promoted but whose coin is on the
+  // loaded All rows: the leftover that "Mark as promoted" closes.
+  function coinDraftStaleOnAll(draft) {
+    return !!draft && draft.status !== COIN_DRAFT_STATUS.PROMOTED && !draft.allRowWritten &&
+      coinOnLoadedAllSheet(draft.collectionID);
+  }
+  // CollectionID -> first sheet row, from ONE column read; only called when a
+  // draft matched the loaded rows. A failed read just leaves the row unknown.
+  async function allSheetRowNumbersFor(ids) {
+    const out = new Map();
+    if (!ids || !ids.length) return out;
+    try {
+      const col = await graph().readTableColumn(writePaths().workbook, ALL_TABLE_NAME, "CollectionID");
+      ids.forEach(id => { const r = collectionIdRowsInColumn(col, id); if (r.length) out.set(id, r[0]); });
+    } catch (e) { console.warn("Couldn't read the All sheet's CollectionID column:", e); }
+    return out;
+  }
+  const COIN_ON_ALL_HINT = " is already on the All sheet — use Mark as promoted (Staging Review or the Docket) to close its draft.";
+
   async function markCoinDraftReady(collectionId) {
     const draft = await readCoinDraft(collectionId);
     if (!draft) throw new Error("Coin draft not found: " + collectionId);
+    // S3: a coin on the All sheet must not be walked back to Ready by a stale
+    // read (that would overwrite Promoted). Stored flags first, then the loaded rows.
+    if (coinDraftOnAllSheet(draft)) throw new Error(collectionId + COIN_ON_ALL_HINT);
     draft.status = COIN_DRAFT_STATUS.READY;
     await writeCoinDraft(draft);
     return draft;
@@ -11128,6 +11253,7 @@
       throw new Error(collectionId + " is already on the All sheet — it can't go back to Draft. " +
         "Use Re-check to attach a CoinID, or Dismiss it, from Awaiting Copilot Research.");
     }
+    if (coinDraftOnAllSheet(draft)) throw new Error(collectionId + COIN_ON_ALL_HINT);
     draft.status = COIN_DRAFT_STATUS.DRAFT;
     await writeCoinDraft(draft);
     return draft;
@@ -11433,6 +11559,31 @@
     return out;
   }
 
+  // How long Promote waits before looking again for a row it did not see
+  // (draft cleanup S4). A constant with a test seam, so the suites need not wait.
+  let PROMOTE_RELOOK_MS = 1500;
+  function __setPromoteRelookMsForTest(ms) { PROMOTE_RELOOK_MS = ms; } // test-only seam
+
+  // Finish / Category gate for a stored draft: the names still missing.
+  function coinDraftPromoteGaps(draft) {
+    const out = [];
+    if (!draft || !String(draft.finish || "").trim()) out.push("Finish");
+    if (!draft || !String(draft.category || "").trim()) out.push("Category");
+    return out;
+  }
+
+  // Does the All row already hold every populated value this draft would
+  // write (same comparison as the conflict check)? Reads only; writes nothing.
+  async function allRowHoldsCoinDraft(rowNumber, draft) {
+    const fresh = await readAllRowWritableValues(rowNumber);
+    const values = coinDraftToAllValues(draft);
+    const differs = Object.keys(values).filter(k =>
+      normalizeCellForCompare(values[k]) !== "" && (k in fresh) && !cellsEqual(fresh[k], values[k]));
+    const sheetCoinId = String(fresh.CoinID == null ? "" : fresh.CoinID).trim();
+    const coinIdClash = !!(sheetCoinId && draft.coinId && sheetCoinId !== String(draft.coinId).trim());
+    return { same: differs.length === 0, differs, sheetCoinId, coinIdClash };
+  }
+
   // The write. `opts.force` is the Force Add path: create the row with a
   // deliberately BLANK CoinID rather than refusing, so a coin with a real
   // catalog gap can still be recorded and browsed, and have its CoinID
@@ -11462,16 +11613,76 @@
       return { ok: false, reason: "no-match", message: collectionId + " has no CoinID yet — use Re-check, or Force Add to write it unlinked." };
     }
 
+    // FINISH / CATEGORY GATE (G4). A non-force Promote needs the draft to
+    // carry a Finish AND a Category. Force Add is the one deliberate exception
+    // (a coin with a real catalog gap may be recorded with blanks). The
+    // Promote buttons say this before the tap; this is the belt for a stale
+    // render or a direct call.
+    if (!force) {
+      const missing = coinDraftPromoteGaps(draft);
+      if (missing.length) {
+        return { ok: false, reason: "needs-finish-category", missing,
+          message: collectionId + " needs " + missing.join(" and ") + " before it can be promoted — Edit the draft to set " +
+            (missing.length > 1 ? "them" : "it") + ". (Force Add can still record it without.)" };
+      }
+    }
+
     // Already on the sheet? Then this draft was force-added earlier and is
     // being promoted properly now — reuse the existing row rather than
     // creating a duplicate.
+    //
+    // IDEMPOTENT (draft cleanup S4). A row may be on the sheet that the first
+    // column read did not show: Graph's table column and worksheet range are
+    // different endpoints with no read-after-write guarantee, and Ray's second
+    // Promote error on AY-00760 ("already appears on the All sheet at row N")
+    // was exactly this. So: look once, wait about 1.5 s and look again before
+    // creating anything; and if createAllSheetRow's own tripwire still finds
+    // exactly one row with this id, adopt it rather than failing. A row found
+    // on the second look or adopted that already holds this draft's values
+    // needs no write at all: the draft is simply marked Promoted by the caller.
     let rowNumber;
+    let reLooked = false; // found on the second look, or adopted by the tripwire
     try {
       rowNumber = await findAllSheetRowNumber(collectionId);
-      if (!rowNumber) rowNumber = await createAllSheetRow(collectionId, force ? "" : (draft.coinId || ""));
-      else if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); // fill the key a Force Add left blank
+      if (rowNumber) {
+        if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); // fill the key a Force Add left blank
+      } else {
+        if (PROMOTE_RELOOK_MS > 0) await new Promise(r => setTimeout(r, PROMOTE_RELOOK_MS));
+        rowNumber = await findAllSheetRowNumber(collectionId);
+        if (rowNumber) {
+          reLooked = true;
+        } else {
+          try {
+            rowNumber = await createAllSheetRow(collectionId, force ? "" : (draft.coinId || ""));
+          } catch (e) {
+            if (e && e.code === "ALL_ROW_EXISTS" && Array.isArray(e.rows) && e.rows.length === 1) {
+              rowNumber = e.rows[0]; // exactly one row: it is this coin's
+              reLooked = true;
+            } else {
+              throw e;
+            }
+          }
+        }
+      }
     } catch (e) {
       return { ok: false, reason: "error", message: String(e && e.message || e) };
+    }
+
+    if (reLooked) {
+      let held;
+      try { held = await allRowHoldsCoinDraft(rowNumber, draft); }
+      catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+      if (held.coinIdClash && !force) {
+        return { ok: false, reason: "error", message: collectionId + " is already on the All sheet at row " + rowNumber +
+          " with a different CoinID (" + held.sheetCoinId + ") — nothing written." };
+      }
+      if (held.same) {
+        try { if (!force && draft.coinId && !held.sheetCoinId) await writeCoinIdCell(rowNumber, draft.coinId); }
+        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+        return { ok: true, rowNumber, written: [], coinId: force ? "" : (draft.coinId || ""), draft, adopted: true };
+      }
+      try { if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); }
+      catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
     }
 
     // snapshot === null: a fresh blank row has nothing to conflict with, so
@@ -13234,6 +13445,48 @@
   // Blank for every everyday/classic pick, exactly matching how a regular
   // coin has no Category on the real workbook either.
   let addCoinBullionCategory = "";
+  // The Category of an ordinary (non-bullion) coin, chosen by Ray from the
+  // Lookup_Categories dropdown or the "Coin" button (Finish / Category gate).
+  // NEVER fed to the DB_Coins matcher (addCoinIdentityShape reads only the
+  // bullion Category), so picking one cannot change which catalog row
+  // matches. A bullion pick and this can never both be set:
+  // addCoinCategoryValue() gives the bullion Category precedence and
+  // refreshAddCoinCategoryUI() clears this one whenever a bullion Category is set.
+  let addCoinPlainCategory = "";
+  function addCoinCategoryValue() { return addCoinBullionCategory || addCoinPlainCategory; }
+
+  // (Re)draws the Category control: options from Lookup_Categories, the
+  // current value shown (even if the list lacks it, so nothing is lost), the
+  // "Coin" button, and a short note. Bullion locks it. The list unavailable:
+  // the dropdown keeps only "— not recorded —", a note says so, and the Coin
+  // button still works. Never writes anything.
+  function refreshAddCoinCategoryUI() {
+    const sel = document.getElementById("addCoinCategory");
+    const btn = document.getElementById("addCoinCategoryCoinBtn");
+    const note = document.getElementById("addCoinCategoryNote");
+    if (!sel || !btn || !note) return;
+    if (addCoinBullionCategory) addCoinPlainCategory = "";
+    const bullion = !!addCoinBullionCategory;
+    const shown = addCoinCategoryValue();
+    const list = activeLookupCategories();
+    const sig = list.join("\u0001") + "\u0002" + shown;
+    if (sel.dataset.sig !== sig) {
+      [...sel.options].forEach(o => { if (o.value !== "") o.remove(); });
+      list.forEach(c => sel.add(new Option(c, c)));
+      if (shown && !list.includes(shown)) sel.add(new Option(shown, shown));
+      sel.dataset.sig = sig;
+    }
+    sel.value = shown;
+    sel.disabled = bullion;
+    const unavailable = !LIVE_LOOKUP_CATEGORIES && liveLookupCategoriesLoadFailed && !demoDataAllowed();
+    const coinMissing = !!LIVE_LOOKUP_CATEGORIES && !LIVE_LOOKUP_CATEGORIES.includes(COIN_DEFAULT_CATEGORY);
+    btn.disabled = bullion || coinMissing;
+    let text = "Required for Save to Database and Promote; Save to Staging never needs it.";
+    if (bullion) text = "Set by the Bullion pick above (" + addCoinBullionCategory + ").";
+    else if (unavailable) text = "Category list unavailable right now — the Coin button still works. " + text;
+    else if (coinMissing) text = "\u201c" + COIN_DEFAULT_CATEGORY + "\u201d isn't in Lookup_Categories, so the button is off. Pick a listed Category, or Save to Staging until it is added to the sheet.";
+    note.textContent = text;
+  }
 
   function populateAddCoinDenominationDropdown(era) {
     era = era || "classic";
@@ -21887,6 +22140,8 @@
     // decide on — it's waiting on Copilot — so it moves to Research.
     let stagedCoins = FAKE_STAGING;
     let stagedHandedOff = [];
+    let staleOnAllDrafts = [];
+    let staleOnAllRows = new Map();
     if (addCoinWriteEnabled()) {
       try { LIVE_COIN_DRAFTS = await listCoinDrafts(); } catch (e) { /* degrade to none, same as Sets above */ }
       const all = LIVE_COIN_DRAFTS || [];
@@ -21898,9 +22153,16 @@
       //   READY, no CoinID  -> RESEARCH, where it can be re-checked,
       //                        force-added, or dismissed.
       // A PROMOTED draft is finished and is listed nowhere.
-      stagedCoins = all.filter(d => d.status === COIN_DRAFT_STATUS.DRAFT ||
-        (d.status === COIN_DRAFT_STATUS.READY && d.coinId));
-      stagedHandedOff = all.filter(d => d.status === COIN_DRAFT_STATUS.READY && !d.coinId);
+      // S2: a leftover draft whose coin is already on the loaded All rows is
+      // listed once, in Staging, with Mark as promoted only (no Promote,
+      // Re-check, Force Add or Edit). Never acted on automatically.
+      const leftovers = all.filter(coinDraftStaleOnAll);
+      staleOnAllDrafts = leftovers;
+      staleOnAllRows = leftovers.length ? await allSheetRowNumbersFor(leftovers.map(d => d.collectionID)) : new Map();
+      const isLeftover = d => leftovers.includes(d);
+      stagedCoins = all.filter(d => !isLeftover(d) && (d.status === COIN_DRAFT_STATUS.DRAFT ||
+        (d.status === COIN_DRAFT_STATUS.READY && d.coinId)));
+      stagedHandedOff = all.filter(d => !isLeftover(d) && d.status === COIN_DRAFT_STATUS.READY && !d.coinId);
     }
 
     // Every in-Staging coin gets its OWN row now, not a single aggregate
@@ -21956,17 +22218,35 @@
       // CoinID has nothing left to decide — it is writable now, so Promote
       // is offered on the row itself rather than sending the user off to
       // Staging Review to find it.
-      const readyToPromote = c.status === COIN_DRAFT_STATUS.READY && !!c.coinId && !!c.collectionID;
+      const readyAndMatched = c.status === COIN_DRAFT_STATUS.READY && !!c.coinId && !!c.collectionID;
+      // Finish / Category gate (G4): a ready, matched draft without both
+      // offers Edit instead of Promote.
+      const promoteGaps = (readyAndMatched && c.collectionID) ? coinDraftPromoteGaps(c) : [];
+      const readyToPromote = readyAndMatched && !promoteGaps.length;
       stagingRows.push({
         html: `<div class="wish-desc">${label}</div><div class="wish-notes">${
-          readyToPromote ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — ready to write to the All sheet" : note
+          readyToPromote ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — ready to write to the All sheet"
+            : promoteGaps.length ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — needs " + promoteGaps.join(" and ") + " — Edit"
+            : note
         }</div>${researchNoteHtml}`,
+        onEdit: promoteGaps.length ? () => openEditForDocketRow(c.collectionID, c) : null,
         onClick: () => navigate("staging"),
         // Re-check only where there's actually something unresolved to
         // re-check, and only on a real durable draft (a mock row has
         // nothing to write a resolved CoinID back to).
         onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null,
         onPromote: readyToPromote ? () => promoteCoinDraft(c.collectionID) : null
+      });
+    });
+
+    staleOnAllDrafts.forEach(d => {
+      const yearMint = d.year + (d.mint ? "-" + d.mint : "");
+      const rowNo = staleOnAllRows.get(d.collectionID);
+      stagingRows.push({
+        html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(yearMint + " · " + (d.description || d.denom || ""))}</div>` +
+              `<div class="wish-notes docket-on-all-note">Already on the All sheet${rowNo ? " (row " + rowNo + ")" : ""}. ` +
+              `This draft was never closed; mark it as promoted to tidy it up (no row is written).</div>`,
+        onMarkPromoted: () => markCoinDraftAlreadyPromoted(d.collectionID)
       });
     });
 
@@ -22180,8 +22460,9 @@
         const row = document.createElement("div");
         row.className = "case wish-item";
         row.style.cursor = r.onClick ? "pointer" : "default";
-        const actions = (r.onRecheck || r.onDismiss || r.onPromote || r.onForceAdd || r.onEdit)
+        const actions = (r.onRecheck || r.onDismiss || r.onPromote || r.onForceAdd || r.onEdit || r.onMarkPromoted)
           ? `<div class="docket-row-actions">` +
+              (r.onMarkPromoted ? `<button type="button" class="staging-btn promote docket-markpromoted">Mark as promoted</button>` : "") +
               (r.onPromote ? `<button type="button" class="staging-btn promote docket-promote">Promote</button>` : "") +
               (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
               (r.onForceAdd ? `<button type="button" class="staging-btn docket-forceadd">Force Add</button>` : "") +
@@ -22226,6 +22507,7 @@
             runWithButtonPending(e.currentTarget, pendingLabel, () => handler(e.currentTarget));
           });
         };
+        if (r.onMarkPromoted) wireAction(".docket-markpromoted", r.onMarkPromoted, "Marking…");
         if (r.onPromote) wireAction(".docket-promote", r.onPromote, "Promoting…");
         if (r.onRecheck) wireAction(".docket-recheck", r.onRecheck, "Checking…");
         if (r.onForceAdd) wireAction(".docket-forceadd", r.onForceAdd, "Adding…");
@@ -22385,6 +22667,18 @@
       rows = LIVE_COIN_DRAFTS
         .filter(d => d.status !== COIN_DRAFT_STATUS.PROMOTED && !d.allRowWritten)
         .map(coinDraftToStagingRow);
+      // S2: a draft whose coin is already on the loaded All rows is a leftover
+      // (its bookkeeping never reached Promoted). It shows "Already on the All
+      // sheet (row N)" with ONE action, Mark as promoted. The sheet row comes
+      // from a single column read, made only when at least one draft matches.
+      const staleIds = rows.filter(r => coinDraftStaleOnAll(r._draft)).map(r => r.id);
+      if (staleIds.length) {
+        const rowNumbers = await allSheetRowNumbersFor(staleIds);
+        if (myToken !== stagingRenderToken) return;
+        rows.forEach(r => {
+          if (staleIds.includes(r.id)) { r.onAll = true; r.sheetRow = rowNumbers.get(r.id) || null; }
+        });
+      }
     } else {
       rows = FAKE_STAGING.map(r => Object.assign({}, r, { _mock: true }));
     }
@@ -22417,6 +22711,24 @@
     function buildStagingRowEl(row) {
       const yearMint = (row.year || "") + (row.mint ? "-" + row.mint : "");
       const label = [row.name, yearMint, row.variety].filter(Boolean).join(" · ");
+      if (row.onAll) {
+        // Already on the All sheet: no Mark ready, Promote, Edit or Reject,
+        // only the one action that closes the leftover draft.
+        const done = document.createElement("div");
+        done.className = "case wish-item";
+        done.innerHTML =
+          '<div>' +
+            '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
+            '<div class="wish-desc">' + escapeHtmlText(label) + '</div>' +
+            '<div class="wish-notes staging-on-all-note">Already on the All sheet' +
+              (row.sheetRow ? ' (row ' + row.sheetRow + ')' : '') + '. This draft was never closed. Mark it as promoted to tidy it up; no row is written.</div>' +
+            '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
+          '</div>' +
+          '<div class="staging-actions"><button class="staging-btn promote staging-mark-promoted">Mark as promoted</button></div>';
+        const b = done.querySelector(".staging-mark-promoted");
+        b.addEventListener("click", (e) => runWithButtonPending(e.currentTarget, "Marking…", () => markCoinDraftAlreadyPromoted(row.id)));
+        return done;
+      }
       const gradeLine = row.grade ? row.grade + (row.gradeSource ? " " + row.gradeSource : "") : "No grade recorded";
       const extra = row._mock ? "" : [
         row.status,
@@ -22449,10 +22761,14 @@
       // ready was pressed, rather than sending the user somewhere else to
       // find it. Revert stays available alongside it (marking ready a beat
       // too early is still an ordinary mistake) as a secondary action.
-      const readyToPromote = alreadyReady && !!row.coinId;
+      const promoteGaps = (alreadyReady && !!row.coinId && row._draft) ? coinDraftPromoteGaps(row._draft) : [];
+      const readyToPromote = alreadyReady && !!row.coinId && !promoteGaps.length;
       const primaryBtnHtml = readyToPromote
         ? '<button class="staging-btn promote staging-promote-row">Promote</button>' +
           '<button class="staging-btn staging-revert">Revert to Draft</button>'
+        : (alreadyReady && !!row.coinId)
+          // Finish / Category gate (G4): no Promote until the draft has both.
+          ? '<button class="staging-btn staging-revert">Revert to Draft</button>'
         : alreadyReady
           ? '<button class="staging-btn promote docket-recheck">Revert to Draft</button>'
           : '<button class="staging-btn promote">' + escapeHtmlText(promoteLabel) + '</button>';
@@ -22476,6 +22792,10 @@
         : '';
       const recheckBtnHtml = pendingCoinId
         ? '<button class="staging-btn staging-recheck">Re-check</button>'
+        : '';
+      const gapNoteHtml = promoteGaps.length
+        ? '<div class="wish-notes staging-pending-flag staging-gate-note">Needs ' + promoteGaps.join(" and ") +
+          ' — Edit. Promote stays off until the draft has both a Finish and a Category.</div>'
         : '';
       // Edit (Phase A): reopen this draft in Add Coin's own form rather than
       // leaving Mark Ready a one-way blind commit. Only on a REAL draft — a
@@ -22502,6 +22822,7 @@
           '<div class="wish-notes">' + escapeHtmlText(gradeLine) + '</div>' +
           (extra ? '<div class="wish-notes">' + escapeHtmlText(extra) + '</div>' : '') +
           pendingNoteHtml +
+          gapNoteHtml +
           folderLinkHtml +
           '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
         '</div>' +
@@ -22522,6 +22843,8 @@
       };
       if (readyToPromote) {
         wire(".staging-promote-row", "Promoting…", () => promoteCoinDraft(row.id));
+        wire(".staging-revert", "Reverting…", () => revertStagedCoinToDraft(row.id));
+      } else if (alreadyReady && !!row.coinId) {
         wire(".staging-revert", "Reverting…", () => revertStagedCoinToDraft(row.id));
       } else if (alreadyReady) {
         wire(".promote", "Reverting…", () => revertStagedCoinToDraft(row.id));
@@ -22546,8 +22869,8 @@
     // real path (a mock FAKE_STAGING row has no Ready status to begin with),
     // so the mock build simply never shows the second group.
     const newestFirst = rows.slice().reverse();
-    const needsDecision = newestFirst.filter(r => r._mock || r.status !== COIN_DRAFT_STATUS.READY);
-    const alreadyReadyRows = newestFirst.filter(r => !r._mock && r.status === COIN_DRAFT_STATUS.READY);
+    const needsDecision = newestFirst.filter(r => r._mock || r.onAll || r.status !== COIN_DRAFT_STATUS.READY);
+    const alreadyReadyRows = newestFirst.filter(r => !r._mock && !r.onAll && r.status === COIN_DRAFT_STATUS.READY);
 
     if (needsDecision.length && alreadyReadyRows.length) {
       const label = document.createElement("div");
@@ -22680,10 +23003,29 @@
     }
   }
 
+  // S1 (draft cleanup): the bookkeeping that follows a write to the All sheet
+  // must not be able to lose the fact that the row is there. The re-read of
+  // coin.json used to be unguarded: when it threw, the draft was never set to
+  // Promoted and stayed in Staging after its coin was already on the sheet
+  // (AY-00760). Now a failed re-read falls back to the in-memory draft, the
+  // Promoted / allRowWritten write comes FIRST and is retried once, and every
+  // step after it is best-effort.
+  let FINISH_WRITE_RETRY_MS = 800;
+  function __setFinishWriteRetryMsForTest(ms) { FINISH_WRITE_RETRY_MS = ms; } // test-only seam
   async function finishCoinDraftWrite(draft, opts) {
-    const fresh = await readCoinDraft(draft.collectionID) || draft;
+    let fresh;
+    try { fresh = (await readCoinDraft(draft.collectionID)) || draft; }
+    catch (e) {
+      console.warn("Couldn't re-read " + draft.collectionID + "'s draft; using the copy in memory:", e);
+      fresh = draft;
+    }
     Object.assign(fresh, opts.patch);
-    await writeCoinDraft(fresh);
+    try { await writeCoinDraft(fresh); }
+    catch (e) {
+      console.warn("Writing " + draft.collectionID + "'s draft status failed; retrying once:", e);
+      if (FINISH_WRITE_RETRY_MS > 0) await new Promise(r => setTimeout(r, FINISH_WRITE_RETRY_MS));
+      await writeCoinDraft(fresh); // a second failure throws to the caller, which reports it
+    }
     // Photos move immediately rather than waiting for the next launch —
     // the app itself is what promoted this coin, so it knows now. A
     // failure here leaves the sources intact and filesMovedOnPromotion
@@ -22696,10 +23038,58 @@
     // without this the coin is invisible in Catalog until a reload — and
     // its Metal/Denomination filters would be equally blind to it. Same
     // staleness class as item 4's filter bug, fixed at the source.
-    await refreshLiveCoinsAfterWrite();
+    try { await refreshLiveCoinsAfterWrite(); }
+    catch (e) { console.warn("Couldn't refresh the live coins after the write:", e); }
     await refreshCoinDraftCache();
-    renderNeedsAttentionHub();
-    if (document.getElementById("view-staging").classList.contains("active")) await renderStagingList();
+    try {
+      renderNeedsAttentionHub();
+      if (document.getElementById("view-staging").classList.contains("active")) await renderStagingList();
+    } catch (e) { console.warn("Couldn't redraw after the write:", e); }
+  }
+
+  // S2: close the leftover draft of a coin that is ALREADY on the All sheet.
+  // Only ever on Ray's tap (never automatic). Reads the sheet fresh first, so
+  // nothing changes if the row is not really there; writes NO All row. Marks
+  // the draft Promoted + allRowWritten and moves its photos as a Promote does,
+  // except where that could duplicate Photos rows: writePhotoRow rewrites an
+  // existing row for a single-slot type but ADDS a row for a repeatable type
+  // (Reference, Other, COA ...), so when filesMovedOnPromotion is already set
+  // or the Photos / Receipts tabs already hold rows for this coin, the move is
+  // skipped (and the flag set, so the launch-time retry cannot re-record them).
+  async function markCoinDraftAlreadyPromoted(collectionId) {
+    try {
+      const rowNumber = await findAllSheetRowNumber(collectionId);
+      if (!rowNumber) {
+        showToast(collectionId + " isn't on the All sheet (read just now) — nothing was changed.");
+        return false;
+      }
+      const draft = await readCoinDraft(collectionId);
+      if (!draft) throw new Error("Coin draft not found: " + collectionId);
+      let recorded = false, unknown = false;
+      if (!draft.filesMovedOnPromotion) {
+        try {
+          const photoRows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
+          const receiptRows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
+          recorded = photoRows.some(r => r.CollectionID === collectionId) ||
+            receiptRows.some(r => r.CollectionID === collectionId);
+        } catch (e) { unknown = true; console.warn("Couldn't check the Photos / Receipts tabs:", e); }
+      }
+      const patch = {
+        status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true,
+        promotedDate: localISODateToday(), markedPromotedByHand: true
+      };
+      if (recorded) patch.filesMovedOnPromotion = true;
+      const movePhotos = !draft.filesMovedOnPromotion && !recorded && !unknown;
+      await finishCoinDraftWrite(draft, { patch, movePhotos });
+      showToast(collectionId + " is on the All sheet (row " + rowNumber + ") — its draft is closed. No row was written." +
+        (draft.filesMovedOnPromotion || recorded ? " Its photos were already recorded, so none were moved." : "") +
+        (unknown ? " Couldn't check its photo records, so the photos were left to move at next launch." : ""));
+      return true;
+    } catch (e) {
+      console.error("Couldn't mark draft as promoted:", e);
+      showToast("Couldn't close " + collectionId + "'s draft: " + String(e && e.message || e));
+      return false;
+    }
   }
 
   // Promote: the real end-to-end write for a coin whose CoinID resolved
@@ -22725,8 +23115,10 @@
     // re-fetches every live sheet, which on the real workbook is easily ten
     // seconds of silence. Reporting success only at the end of that is what
     // made a completed promote look like a no-op.
-    showToast(collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
-      (result.coinId || "(no CoinID)") + ".");
+    showToast(result.adopted
+      ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — no row written; its draft is now marked promoted."
+      : collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
+        (result.coinId || "(no CoinID)") + ".");
     try {
       await finishCoinDraftWrite(result.draft, {
         patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: localISODateToday() },
@@ -32123,7 +32515,48 @@
   // longer applies: an uncatalogued coin isn't blocked, it takes the honest
   // route (Staging, then Force Add) instead of being told it can go straight
   // in. Ray approved this reversal explicitly.
+  //
+  // FINISH / CATEGORY GATE (Nov 2026, Ray). A catalog match alone no longer
+  // makes Save to Database available: the form must also carry a Finish AND a
+  // Category, because AY-00760 reached the All sheet with both blank (a single
+  // catalog row matched while Finish was blank, and nothing asked for either).
+  // addCoinMatchResolved() is the original catalog-resolution test, unchanged;
+  // isConfidentMatch() is that AND the two required fields. Save to Staging
+  // never needs either; Force Add is the one exception on the Promote side.
+  function addCoinDirectSaveGaps() {
+    return {
+      finish: !document.getElementById("finish").value,
+      category: !addCoinCategoryValue()
+    };
+  }
   function isConfidentMatch() {
+    if (!addCoinMatchResolved()) return false;
+    const gaps = addCoinDirectSaveGaps();
+    return !gaps.finish && !gaps.category;
+  }
+  // The single matched (or picked) catalog row's Finish, as written in the
+  // catalog, and the same value as the Finish dropdown offers it ("" when the
+  // row has none or the dropdown has no such option).
+  function addCoinCatalogFinish() {
+    const state = currentAddCoinMatchState();
+    const row = state && state.candidates && state.candidates.length === 1 ? state.candidates[0] : null;
+    const raw = row ? String(row.finish || "").trim() : "";
+    if (!raw) return { raw: "", option: "" };
+    const opt = [...document.getElementById("finish").options].find(o => o.value && normField(o.value) === normField(raw));
+    return { raw, option: opt ? opt.value : "" };
+  }
+  function addCoinGateMessage() {
+    const gaps = addCoinDirectSaveGaps();
+    const cat = addCoinCatalogFinish();
+    const parts = [];
+    if (gaps.finish) parts.push("a Finish");
+    if (gaps.category) parts.push("a Category");
+    let msg = "Pick " + parts.join(" and ") + " to save straight to the database" +
+      (gaps.finish && cat.raw ? " \u2014 the catalog entry says " + cat.raw : "") + ". Save to Staging stays available.";
+    if (gaps.category) msg += " If no Category in the list fits, Save to Staging until it is added to Lookup_Categories.";
+    return msg;
+  }
+  function addCoinMatchResolved() {
     const denom = document.getElementById("denomination").value;
     const year = document.getElementById("year").value.trim();
     if (!denom || !year) return false;
@@ -32159,8 +32592,10 @@
     // this depends only on the flag and never on form state.
     const mockNote = document.getElementById("addCoinMockNote");
     if (mockNote) mockNote.classList.toggle("hidden", addCoinWriteEnabled());
+    refreshAddCoinCategoryUI();
     const hasEnoughToEvaluate = document.getElementById("denomination").value && document.getElementById("year").value.trim();
     const confident = isConfidentMatch();
+    const useFinishBtn = document.getElementById("addCoinUseCatalogFinishBtn");
 
     // EDITING an existing draft has exactly one meaningful action: write the
     // changes back to the draft this form is bound to. The two-destination
@@ -32175,6 +32610,7 @@
       document.getElementById("saveConfidentBanner").classList.add("hidden");
       document.getElementById("saveNotConfidentBanner").classList.add("hidden");
       document.getElementById("saveToDatabaseBtn").style.display = "none";
+      if (useFinishBtn) useFinishBtn.style.display = "none";
       return;
     }
 
@@ -32203,7 +32639,11 @@
       // reverse) sends them to fix the wrong thing.
       const state = currentAddCoinMatchState();
       let msg;
-      if (!isVarietyRecognized()) {
+      if (addCoinMatchResolved()) {
+        // The catalog resolved cleanly; only the required Finish / Category
+        // are missing. Name what, and the catalog's own Finish.
+        msg = addCoinGateMessage();
+      } else if (!isVarietyRecognized()) {
         msg = "Variety \"" + document.getElementById("variety").value + "\" isn't a recognized option for this coin — " +
           "this needs a closer look before it can be saved directly. Save to Staging instead.";
       } else if (state.descriptionConflict) {
@@ -32237,6 +32677,15 @@
           "then Force Add it unlinked from the Docket.";
       }
       document.getElementById("saveNotConfidentMsg").textContent = msg;
+    }
+    // One-tap Finish from the catalog: only while the catalog resolved, the
+    // form's Finish is blank, and the catalog's Finish is a dropdown option.
+    if (useFinishBtn) {
+      const cat = addCoinCatalogFinish();
+      const show = !!(hasEnoughToEvaluate && addCoinMatchResolved() && addCoinDirectSaveGaps().finish && cat.option);
+      useFinishBtn.style.display = show ? "block" : "none";
+      useFinishBtn.textContent = show ? "Use " + cat.option + " (from the catalog)" : "";
+      useFinishBtn.dataset.finish = show ? cat.option : "";
     }
   }
 
@@ -32276,7 +32725,7 @@
       // workbook's own Category field, which is what actually
       // distinguishes these from an ordinary coin sharing the same plain
       // Denomination. Blank for every everyday coin, same as today.
-      category: addCoinBullionCategory,
+      category: addCoinCategoryValue(),
       year: document.getElementById("year").value.trim(),
       mint: document.getElementById("mintMark").value,
       variety: document.getElementById("variety").value,
@@ -32488,7 +32937,17 @@
       }
 
       const draft = buildCoinDraft(collectionId, form, match);
-      draft.savedVia = destination === "database" ? "direct" : "staging";
+      // G3, the save-time belt of the Finish / Category gate: a direct write to
+      // the All sheet needs a Finish AND a Category on the form being saved
+      // (the button is hidden without them, but a stale render or a forced call
+      // can still get here). Without them the coin goes to Staging with a
+      // message saying why; nothing is written to All.
+      const wantsDirect = destination === "database" && match.how !== "none" && addCoinWriteEnabled();
+      const gateMissing = [];
+      if (wantsDirect && !form.finish) gateMissing.push("Finish");
+      if (wantsDirect && !form.category) gateMissing.push("Category");
+      const gateBlocked = gateMissing.length > 0;
+      draft.savedVia = destination === "database" && !gateBlocked ? "direct" : "staging";
       await writeCoinDraft(draft);
 
       const photos = await uploadCoinDraftPhotos(collectionId);
@@ -32538,7 +32997,7 @@
       // still land here with a genuinely unresolved match, and that must
       // fall through to the ordinary Staging-only save below, not attempt
       // a promote with no CoinID.
-      if (destination === "database" && match.how !== "none" && addCoinWriteEnabled()) {
+      if (wantsDirect && !gateBlocked) {
         await promoteCoinDraft(collectionId);
         await refreshCoinDraftCache();
         return;
@@ -32553,6 +33012,9 @@
       showToast("Saved " + collectionId + " to Staging on OneDrive (" + WRITE_TARGET + ")" +
         (photos.uploaded.length ? " with " + photos.uploaded.length + " file" + (photos.uploaded.length === 1 ? "" : "s") : "") +
         (match.coinId ? " · CoinID " + match.coinId : " · CoinID pending research") +
+        (gateBlocked ? ". It was NOT written to the All sheet: " + gateMissing.join(" and ") + " " +
+          (gateMissing.length > 1 ? "are" : "is") + " needed first (Edit the draft to set " +
+          (gateMissing.length > 1 ? "them" : "it") + ")" : "") +
         ". Review it under Staging Review." +
         (photos.failed.length ? " " + photos.failed.length + " file(s) didn't upload — see the draft's research note." : ""));
     } catch (e) {
@@ -32802,6 +33264,8 @@
     document.getElementById("addCoinBullionToggle").checked = false;
     populateAddCoinDenominationDropdown("classic");
     addCoinBullionCategory = "";
+    addCoinPlainCategory = "";
+    refreshAddCoinCategoryUI();
     document.getElementById("denomination").value = "";
     document.getElementById("year").value = "";
     document.getElementById("mintMark").value = "";
@@ -32961,8 +33425,16 @@
     // so setting denomination before this would be undone. A bullion draft's
     // denom is a plain face value ($1, $50) shared with other types, so the
     // option is matched on denom AND category together.
-    addCoinBullionCategory = draft.category || "";
-    const isBullion = !!addCoinBullionCategory;
+    // A bullion Category only when a Bullion-tier option exists for this
+    // denom AND category; any other stored Category ("Coin", or a value picked
+    // from the Lookup_Categories dropdown) restores into the plain control, so
+    // it is never mistaken for a bullion pick.
+    const storedCategory = draft.category || "";
+    const isBullion = !!storedCategory && BULLION_TIER_OPTIONS.some(o =>
+      o.category === storedCategory && o.denom === (draft.denom || ""));
+    addCoinBullionCategory = isBullion ? storedCategory : "";
+    addCoinPlainCategory = isBullion ? "" : storedCategory;
+    refreshAddCoinCategoryUI();
     document.getElementById("addCoinBullionToggle").checked = isBullion;
     populateAddCoinDenominationDropdown(isBullion ? "bullion" : "classic");
     const denomSel = document.getElementById("denomination");
@@ -33167,6 +33639,10 @@
     }
     if (draft.filesMovedOnPromotion) {
       return id + "'s files have already left Staging — edit it from its own record, not from Staging.";
+    }
+    // S3: on the loaded All rows but never marked (a stale draft).
+    if (coinOnLoadedAllSheet(draft.collectionID)) {
+      return id + COIN_ON_ALL_HINT;
     }
     return "";
   }
@@ -33822,6 +34298,7 @@
     document.getElementById("denomination").addEventListener("change", (e) => {
       const selected = e.target.selectedOptions[0];
       addCoinBullionCategory = (selected && selected.dataset.category) || "";
+      refreshAddCoinCategoryUI();
       if (addCoinBullionCategory) {
         // A bullion-tier pick already fully identifies the coin (denom +
         // category together, exactly like the real workbook) — running
@@ -33857,6 +34334,32 @@
     // otherwise the banner would go on reporting a count derived from a
     // weaker key than the save will actually use.
     document.getElementById("finish").addEventListener("change", checkDbCoinsMatch);
+    // Category (Finish / Category gate). Both controls are explicit choices by
+    // the user. markAddCoinUserEdit() records the tap as an edit (a button tap
+    // is not an input event) so a Staging edit's Save and the leave guard see it.
+    document.getElementById("addCoinCategory").addEventListener("change", (e) => {
+      if (addCoinBullionCategory) { refreshAddCoinCategoryUI(); return; }
+      addCoinPlainCategory = e.target.value;
+      checkDbCoinsMatch();
+    });
+    document.getElementById("addCoinCategoryCoinBtn").addEventListener("click", () => {
+      if (addCoinBullionCategory) return;
+      const sel = document.getElementById("addCoinCategory");
+      markAddCoinUserEdit(sel);
+      addCoinPlainCategory = COIN_DEFAULT_CATEGORY;
+      refreshAddCoinCategoryUI();
+      checkDbCoinsMatch();
+      refreshEditSaveState();
+    });
+    document.getElementById("addCoinUseCatalogFinishBtn").addEventListener("click", (e) => {
+      const finishEl = document.getElementById("finish");
+      const value = e.currentTarget.dataset.finish;
+      if (!value || finishEl.value) return;
+      markAddCoinUserEdit(finishEl);
+      finishEl.value = value;
+      checkDbCoinsMatch();
+      refreshEditSaveState();
+    });
     document.getElementById("designation").addEventListener("input", checkDbCoinsMatch);
     document.getElementById("gradeSource").addEventListener("change", checkDbCoinsMatch);
     document.getElementById("addCoinMatchCancelBtn").addEventListener("click", () => {
@@ -33919,6 +34422,7 @@
     // override, same shape as Variety's override but no context-filtering.
     const errorSelect = document.getElementById("errorSelect");
     populateErrorOptions();
+    refreshAddCoinCategoryUI();
     errorSelect.addEventListener("change", (e) => {
       const otherInput = document.getElementById("errorOther");
       if (e.target.value === "__other__") {

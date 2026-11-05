@@ -93,7 +93,7 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     const base = writePaths().stagingBase;
     await mock.uploadJson(base + "/AY-00700/coin.json", {
       type: "coin", version: 1, collectionID: "AY-00700", status: COIN_DRAFT_STATUS.READY,
-      denom: "10C", category: "", year: "1916", mint: "D", variety: "", description: "Mercury Dime",
+      denom: "10C", category: "Coin", year: "1916", mint: "D", variety: "", description: "Mercury Dime",
       finish: "Business Strike", designation: "", grade: "VG-8", gradeSource: "PCGS",
       serNo: "12345678", cacBean: "Green", cost: 950, shippingCost: 12.5,
       purchaseDate: "2024-05-02", vendor: "Great Collections",
@@ -312,6 +312,8 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
     await mock.uploadJson(base + "/AY-00710/coin.json", {
       type: "coin", version: 1, collectionID: "AY-00710", status: COIN_DRAFT_STATUS.READY,
       denom: "10C", year: "1916", mint: "D", description: "Matched Dime",
+      // Finish / Category gate (Nov 2026): Promote is offered only with both.
+      finish: "Business Strike", category: "Coin",
       coinId: "C-1916-M-10C-01", photos: [], createdDate: new Date().toISOString()
     });
     await mock.uploadJson(base + "/AY-00711/coin.json", {

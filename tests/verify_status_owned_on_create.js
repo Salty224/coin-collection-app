@@ -57,7 +57,7 @@ module.exports = defineSuite("status-owned-on-create", async ({ ok, openApp, PHO
     const draft = {
       type: "coin", version: 1, collectionID: "AY-00801", status: "Ready",
       denom: "1C", year: "1943", mint: "S", variety: "", description: "Lincoln Wheat",
-      finish: "Business Strike", grade: "MS-66", gradeSource: "PCGS",
+      finish: "Business Strike", category: "Coin", grade: "MS-66", gradeSource: "PCGS",
       coinId: "C-1943-S-1C-01", allStatus: "Owned", photos: [],
       allRowWritten: false, forceAdded: false
     };
@@ -103,6 +103,7 @@ module.exports = defineSuite("status-owned-on-create", async ({ ok, openApp, PHO
     const draft = {
       type: "coin", version: 1, collectionID: "AY-00803", status: "Ready",
       denom: "10C", year: "1964", mint: "D", variety: "", description: "Roosevelt Dime",
+      finish: "Business Strike", category: "Coin", // Finish / Category gate (Nov 2026)
       allStatus: "Sold", coinId: "C-TEST", photos: [], allRowWritten: false, forceAdded: false
     };
     await mock.uploadJson(writePaths().stagingBase + "/AY-00803/coin.json", draft);
@@ -126,6 +127,7 @@ module.exports = defineSuite("status-owned-on-create", async ({ ok, openApp, PHO
     const draft = {
       type: "coin", version: 1, collectionID: "AY-00804", status: "Ready",
       denom: "25C", year: "2021", mint: "S", variety: "", description: "Washington Quarter",
+      finish: "Business Strike", category: "Coin", // Finish / Category gate (Nov 2026)
       coinId: "C-TEST-2", photos: [], allRowWritten: false, forceAdded: false
       // no allStatus at all
     };

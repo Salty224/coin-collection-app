@@ -132,6 +132,9 @@ module.exports = defineSuite("finish-conflict-and-direct-write", async ({ ok, op
       document.getElementById("year").value = y;
       document.getElementById("mintMark").value = m || "";
       document.getElementById("finish").value = finish || "";
+      // Finish / Category gate (Nov 2026): Save to Database also needs a
+      // Category. The Coin button is the explicit tap that records it.
+      document.getElementById("addCoinCategoryCoinBtn").click();
       document.getElementById("year").dispatchEvent(new Event("input"));
       checkDbCoinsMatch();
       return read();
@@ -188,6 +191,7 @@ module.exports = defineSuite("finish-conflict-and-direct-write", async ({ ok, op
     document.getElementById("year").value = "2025";
     document.getElementById("mintMark").value = "S";
     document.getElementById("finish").value = "Business Strike";
+    document.getElementById("addCoinCategoryCoinBtn").click(); // gate: Category is required for a direct save
     document.getElementById("purchasePrice").value = "3.50";
     checkDbCoinsMatch();
 

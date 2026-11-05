@@ -41,7 +41,7 @@ function seedMock() {
 const READY_DRAFT = {
   type: "coin", version: 1, collectionID: "AY-00706", status: "Ready",
   denom: "1C", year: "1943", mint: "S", variety: "", description: "Lincoln Wheat",
-  finish: "Business Strike", grade: "MS-66", gradeSource: "PCGS",
+  finish: "Business Strike", category: "Coin", grade: "MS-66", gradeSource: "PCGS", // category: Finish / Category gate (Nov 2026)
   coinId: "C-1943-S-1C-01", photos: [], allRowWritten: false, forceAdded: false
 };
 

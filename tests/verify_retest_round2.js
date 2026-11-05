@@ -164,7 +164,7 @@ module.exports = defineSuite("retest-round2", async ({ ok, openApp, PHONE, TABLE
       // mint "" to match the form, which is left on the blank/Philadelphia
       // option — a seeded "S" here matches nothing and tests the wrong thing.
       { denom: "1C", year: 1909, mint: "", variety: "", description: "Lincoln Wheat",
-        finish: "", designation: "", coinId: "C-ONE", pcgs: "", mintage: null, gsid: "" }
+        finish: "Business Strike", designation: "", coinId: "C-ONE", pcgs: "", mintage: null, gsid: "" }
     ]);
     const read = () => ({
       btn: getComputedStyle(document.getElementById("saveToDatabaseBtn")).display,
@@ -176,11 +176,18 @@ module.exports = defineSuite("retest-round2", async ({ ok, openApp, PHONE, TABLE
       document.getElementById("denomination").dispatchEvent(new Event("change"));
       document.getElementById("year").value = y;
       document.getElementById("year").dispatchEvent(new Event("input"));
+      // Finish / Category gate (Nov 2026): Save to Database also needs a
+      // Finish and a Category, both explicit choices.
+      document.getElementById("finish").value = "Business Strike";
+      document.getElementById("addCoinCategoryCoinBtn").click();
       checkDbCoinsMatch();
       return read();
     };
     const matched = fill("1909", "1C");
     const unmatched = fill("2030", "1C"); // no catalog row at all
+    // The Coin tap above counts as a user edit; discard it so the next scenario
+    // (which navigates away from Add Coin) is not stopped by the leave guard.
+    resetAddCoinForm();
     __setLiveDbCoinsForTest(null);
     return { matched, unmatched };
   });

@@ -63,6 +63,10 @@ const FILL = `(function (f) {
   set("mintMark", f.mint);
   set("variety", f.variety || "");
   set("finish", f.finish || "");
+  // Finish / Category gate (Nov 2026): a direct save also needs a Category.
+  // The Coin button is the explicit tap that records it; a scenario that
+  // wants a Finish passes one in the fixture.
+  document.getElementById("addCoinCategoryCoinBtn").click();
   set("description", f.description);
 })`;
 
@@ -763,7 +767,8 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
     require("path").join(__dirname, "..", "app.html"), "utf8");
   const O3 = {
     forceAddSites: (src.match(/onForceAdd:/g) || []).length,
-    gatedOnHandedOff: /stagedHandedOff = all\.filter\(d => d\.status === COIN_DRAFT_STATUS\.READY && !d\.coinId\)/.test(src),
+    // Draft cleanup S2 added the leftover exclusion in front; the pinned fact (READY and no CoinID) is unchanged.
+    gatedOnHandedOff: /stagedHandedOff = all\.filter\(d => !isLeftover\(d\) && d\.status === COIN_DRAFT_STATUS\.READY && !d\.coinId\)/.test(src),
     noneOnStagingReview: !/staging-forceadd/.test(src)
   };
   ok(O3.forceAddSites === 1, "O3 Force Add is wired at exactly one call site (the Docket's Research rows): " + O3.forceAddSites);
@@ -917,7 +922,9 @@ module.exports = defineSuite("description-conflict-gate", async ({ ok, openApp, 
   const Q6 = {
     promoteSites: (Qsrc.match(/onPromote:/g) || []).length,
     docketStagingPromoteGate:
-      /const readyToPromote = c\.status === COIN_DRAFT_STATUS\.READY && !!c\.coinId && !!c\.collectionID;/.test(Qsrc),
+      // Finish / Category gate: the READY + CoinID test is now readyAndMatched, and Promote additionally needs no gaps.
+      /const readyAndMatched = c\.status === COIN_DRAFT_STATUS\.READY && !!c\.coinId && !!c\.collectionID;/.test(Qsrc) &&
+      /const readyToPromote = readyAndMatched && !promoteGaps\.length;/.test(Qsrc),
     stagingReviewRecheckGate:
       /const pendingCoinId = !row\._mock && !alreadyReady && !row\.coinId;/.test(Qsrc)
   };

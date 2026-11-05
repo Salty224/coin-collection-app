@@ -72,7 +72,7 @@ const CATALOG = [
 const DRAFT_ID = "AY-00754";
 const BASE_DRAFT = {
   type: "coin", version: 1, collectionID: DRAFT_ID, status: "Draft",
-  denom: "5C", category: "", year: "1938", mint: "D", variety: "",
+  denom: "5C", category: "Coin", year: "1938", mint: "D", variety: "",
   description: "Buffalo Nickel", finish: "Business Strike", designation: "",
   errorDesc: "", grade: "PR-66", gradeSource: "PCGS", serNo: "44556677",
   cacBean: "", cost: 30, shippingCost: 5, purchaseDate: "2026-10-20",
@@ -941,7 +941,7 @@ module.exports = defineSuite("receipts-photos-alignment", async ({ check, selfCh
     // 2. Add Coin promotion and 3. Force Add (both claim blank rows).
     const base = writePaths().stagingBase;
     const draft = (id, coinId) => ({ type: "coin", version: 1, collectionID: id, status: COIN_DRAFT_STATUS.READY,
-      denom: "10C", category: "", year: "1916", mint: "D", variety: "", description: "Mercury Dime",
+      denom: "10C", category: "Coin", year: "1916", mint: "D", variety: "", description: "Mercury Dime",
       finish: "Business Strike", designation: "", grade: "VG-8", gradeSource: "PCGS", serNo: "123", cacBean: "",
       cost: 9, shippingCost: 1, purchaseDate: "2024-05-02", vendor: "GC", storageLocation: "Safe", container: "",
       remarks: "r", errorDesc: "", coinId, photos: [], receiptPhoto: "", receiptBinder: true,

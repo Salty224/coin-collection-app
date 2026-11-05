@@ -165,7 +165,7 @@ module.exports = defineSuite("promote-catalog-fixes", async ({ ok, openApp, PHON
     const draft = {
       type: "coin", version: 1, collectionID: "AY-00811", status: "Ready",
       denom: "1C", year: "1943", mint: "S", variety: "", description: "Lincoln Wheat Steel Cent",
-      finish: "Business Strike", grade: "AU-50", gradeSource: "Owner",
+      finish: "Business Strike", category: "Coin", grade: "AU-50", gradeSource: "Owner",
       coinId: "C-1943-S-1C-01", allStatus: "Owned", photos: [],
       // A real, low estimate — exactly the reported $0.00-ish symptom: an
       // Owner-estimated low-value coin with nothing to floor it before
@@ -208,6 +208,7 @@ module.exports = defineSuite("promote-catalog-fixes", async ({ ok, openApp, PHON
     const draft = {
       type: "coin", version: 1, collectionID: "AY-00812", status: "Ready",
       denom: "1C", year: "1944", mint: "", variety: "", description: "Lincoln Wheat",
+      finish: "Business Strike", category: "Coin", // Finish / Category gate (Nov 2026)
       coinId: "C-TEST-812", allStatus: "Owned", photos: [], value: 0,
       allRowWritten: false, forceAdded: false
     };

@@ -83,7 +83,7 @@ const TABLET = { width: 1024, height: 768 };
 //                          is wired wrong fails here by name instead of
 //                          passing everything (it happened twice).
 //   openApp(viewport, opts) — a fresh page with app.html loaded and settled;
-//                          opts: { timezoneId, fixedTime } (see openApp)
+//                          opts: { timezoneId, fixedTime, realPromoteRelook } (see openApp)
 //   PHONE / TABLET       — the two standard viewports
 // Page and console errors are collected automatically and reported as
 // failures, so a suite cannot pass while the page is throwing.
@@ -134,6 +134,13 @@ async function runSuite(name, fn) {
         });
         await page.goto(APP_URL, { waitUntil: "load" });
         await page.waitForTimeout(600); // let init + splash settle
+        // Promote waits ~1.5 s before looking again for a row it did not see
+        // (draft cleanup S4). Suites that sleep a fixed time around a Promote
+        // run with no wait; a suite that tests the wait itself passes
+        // { realPromoteRelook: true } and sets its own value.
+        if (!o.realPromoteRelook) {
+          await page.evaluate(() => { if (typeof __setPromoteRelookMsForTest === "function") __setPromoteRelookMsForTest(0); });
+        }
         return page;
       }
     };
