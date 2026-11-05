@@ -410,4 +410,132 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     D.d5 && D.d5.ok === false && /already appears on the All sheet at row \d+ and row \d+/.test(D.d5.message) && D.d5.unchanged === true);
   ok("S-d6 the look-again wait is real (600 ms set) and a zero setting skips it: " + JSON.stringify(D.d6),
     D.d6 && D.d6.ok === true && D.d6.slow >= 550 && D.d6.fast < D.d6.slow);
+
+  // ============ S-f. F7: a row found at the FIRST look is never overwritten either ============
+  // Ray, 5 Nov 2026: "only fields the draft would write count" (a hand-added value where the draft is blank is
+  // not a difference); a blank CoinID on the sheet is the expected link and is the ONLY thing written when every
+  // other compared field matches; any other difference writes nothing and leaves the draft open.
+  const F = await page.evaluate(async () => {
+    const out = {};
+    const base = () => writePaths().stagingBase;
+    const spy = (mock) => {
+      const patches = []; const real = mock.patchWorkbookRanges.bind(mock);
+      mock.patchWorkbookRanges = async (...a) => { patches.push({ sheet: a[1], addresses: a[2].map(e => e.address) }); return real(...a); };
+      return patches;
+    };
+    const rowOf = (mock, id) => mock._grids.All.find(r => r[0] === id);
+    const forceAdded = async (mock, id, extra) => {                        // Force Add: row on All, CoinID blank
+      await mock.uploadJson(base() + "/" + id + "/coin.json", __draftOf(id, Object.assign({ coinId: "" }, extra || {})));
+      await promoteCoinDraftToAllSheet(id, { force: true });
+    };
+    const relinked = (mock, id, extra) =>                                   // Re-check attached a CoinID
+      mock.uploadJson(base() + "/" + id + "/coin.json", __draftOf(id, Object.assign({ coinId: "C-2026--1C-01", allRowWritten: true, forceAdded: true }, extra || {})));
+    const H = () => ALL_HEADERS_FOR_PAGE();
+    const col = (n) => H().indexOf(n);
+
+    // f1) THE SCRATCH RUN as a negative control: Force Add, Cost edited to 99, Re-check links CoinID, Promote.
+    {
+      const mock = __setup(window.__seedFor);
+      await forceAdded(mock, "AY-00900");
+      rowOf(mock, "AY-00900")[col("Cost")] = 99;
+      await relinked(mock, "AY-00900");
+      const before = JSON.stringify(mock._grids.All);
+      const patches = spy(mock);
+      const res = await promoteCoinDraftToAllSheet("AY-00900");
+      const promoted = await promoteCoinDraft("AY-00900");
+      const d = await mock.getJson(base() + "/AY-00900/coin.json");
+      out.f1 = { ok: res.ok, reason: res.reason, message: res.message, promoted, cost: rowOf(mock, "AY-00900")[col("Cost")],
+        coinId: rowOf(mock, "AY-00900")[col("CoinID")], patches: patches.length, unchanged: JSON.stringify(mock._grids.All) === before,
+        status: d.status, filesMoved: d.filesMovedOnPromotion, toast: __toast() };
+      __teardown();
+    }
+    // f2) Force Added row untouched, Re-check, Promote: ONLY the CoinID is written; the draft is Promoted.
+    {
+      const mock = __setup(window.__seedFor);
+      await forceAdded(mock, "AY-00901");
+      await relinked(mock, "AY-00901");
+      const before = rowOf(mock, "AY-00901").slice();
+      const patches = spy(mock);
+      const ok1 = await promoteCoinDraft("AY-00901");
+      const after = rowOf(mock, "AY-00901");
+      const changed = before.map((v, i) => (String(v) !== String(after[i]) ? H()[i] : null)).filter(Boolean);
+      const d = await mock.getJson(base() + "/AY-00901/coin.json");
+      out.f2 = { ok1, changed, patches: patches.map(x => x.sheet + ":" + x.addresses.join(",")), lastModifiedSame: String(before[col("LastModified")]) === String(after[col("LastModified")]),
+        status: d.status, allRowWritten: d.allRowWritten, toast: __toast() };
+      __teardown();
+    }
+    // f3) A value added by hand where the draft is blank is not a difference and is not overwritten.
+    {
+      const mock = __setup(window.__seedFor);
+      await forceAdded(mock, "AY-00902", { remarks: "" });
+      rowOf(mock, "AY-00902")[col("Remarks")] = "typed in Excel";
+      rowOf(mock, "AY-00902")[col("StorageLocation")] = "Safe 2";
+      await relinked(mock, "AY-00902", { remarks: "", storageLocation: "" });
+      const patches = spy(mock);
+      const res = await promoteCoinDraftToAllSheet("AY-00902");
+      out.f3 = { ok: res.ok, written: res.written, remarks: rowOf(mock, "AY-00902")[col("Remarks")], storage: rowOf(mock, "AY-00902")[col("StorageLocation")],
+        coinId: rowOf(mock, "AY-00902")[col("CoinID")], patches: patches.length };
+      __teardown();
+    }
+    // f4) Fully identical (CoinID included): a retry after a failed bookkeeping step writes nothing and stamps nothing.
+    {
+      const mock = __setup(window.__seedFor);
+      await mock.uploadJson(base() + "/AY-00903/coin.json", __draftOf("AY-00903"));
+      await promoteCoinDraftToAllSheet("AY-00903");                          // the row; the draft "never reached Promoted"
+      const before = JSON.stringify(mock._grids.All);
+      const patches = spy(mock);
+      const res = await promoteCoinDraftToAllSheet("AY-00903");
+      out.f4 = { ok: res.ok, adopted: res.adopted, written: res.written, patches: patches.length, unchanged: JSON.stringify(mock._grids.All) === before };
+      __teardown();
+    }
+    // f5) A different non-blank CoinID is still refused at the first look; a Force Add retry on an identical row writes nothing.
+    {
+      const mock = __setup(window.__seedFor);
+      await mock.uploadJson(base() + "/AY-00904/coin.json", __draftOf("AY-00904"));
+      await promoteCoinDraftToAllSheet("AY-00904");
+      rowOf(mock, "AY-00904")[col("CoinID")] = "C-SOMETHING-ELSE";
+      const before = JSON.stringify(mock._grids.All);
+      const res = await promoteCoinDraftToAllSheet("AY-00904");
+      out.f5 = { ok: res.ok, message: res.message, unchanged: JSON.stringify(mock._grids.All) === before };
+      await forceAdded(mock, "AY-00905");
+      const before2 = JSON.stringify(mock._grids.All);
+      const again = await promoteCoinDraftToAllSheet("AY-00905", { force: true });
+      out.f5b = { ok: again.ok, written: again.written, unchanged: JSON.stringify(mock._grids.All) === before2 };
+      __teardown();
+    }
+    // f6) A keys-only row (the sheet blank where the draft has values) is a difference: nothing is written.
+    {
+      const mock = __setup(window.__seedFor);
+      const keysOnly = new Array(ALL_HEADERS_FOR_PAGE().length).fill("");
+      keysOnly[0] = "AY-00906"; keysOnly[1] = "C-2026--1C-01";
+      mock._grids.All.push(keysOnly);
+      await mock.uploadJson(base() + "/AY-00906/coin.json", __draftOf("AY-00906"));
+      const before = JSON.stringify(mock._grids.All);
+      const res = await promoteCoinDraftToAllSheet("AY-00906");
+      out.f6 = { ok: res.ok, reason: res.reason, message: res.message, unchanged: JSON.stringify(mock._grids.All) === before };
+      __teardown();
+    }
+    return out;
+  }).catch(e => ({ threw: String(e) }));
+  ok("S-f1 NEGATIVE CONTROL (Ray's scratch run): Force Add, Cost edited to 99, Re-check links the CoinID, Promote: nothing is written, Cost stays 99, the CoinID cell stays blank, the draft stays open and not Promoted, files not moved: " + JSON.stringify(F.f1 && { ok: F.f1.ok, reason: F.f1.reason, cost: F.f1.cost, coinId: F.f1.coinId, patches: F.f1.patches, unchanged: F.f1.unchanged, status: F.f1.status, filesMoved: F.f1.filesMoved }),
+    F.f1 && F.f1.ok === false && F.f1.reason === "row-differs" && F.f1.cost === 99 && !F.f1.coinId && F.f1.patches === 0 &&
+    F.f1.unchanged === true && /Ready/.test(F.f1.status) && F.f1.filesMoved === false && F.f1.promoted === false);
+  ok("S-f1b -- the message names Cost with both values, does not list CoinID, and gives the way out: " + (F.f1 && F.f1.message),
+    F.f1 && /Cost: on the sheet 99, in the draft 3/.test(F.f1.message) && !/CoinID:/.test(F.f1.message) &&
+    /Fix the row or the draft, or use Mark as promoted\./.test(F.f1.message) && /Couldn.t promote AY-00900/.test(F.f1.toast));
+  ok("S-f2 an untouched Force Added row + Re-check + Promote writes ONLY the CoinID (one single-cell patch on the CoinID column, no LastModified stamp) and the draft is Promoted: " + JSON.stringify(F.f2),
+    F.f2 && F.f2.ok1 === true && JSON.stringify(F.f2.changed) === JSON.stringify(["CoinID"]) && F.f2.patches.length === 1 &&
+    /^All:B\d+$/.test(F.f2.patches[0]) && F.f2.lastModifiedSame === true && /Promoted/i.test(F.f2.status) && F.f2.allRowWritten === true &&
+    /only its CoinID was written/.test(F.f2.toast));
+  ok("S-f3 a value added by hand where the draft is blank (Remarks, StorageLocation) is not a difference and is left alone; the CoinID is still linked: " + JSON.stringify(F.f3),
+    F.f3 && F.f3.ok === true && JSON.stringify(F.f3.written) === JSON.stringify(["CoinID"]) && F.f3.remarks === "typed in Excel" &&
+    F.f3.storage === "Safe 2" && F.f3.coinId === "C-2026--1C-01" && F.f3.patches === 1);
+  ok("S-f4 a fully identical row (CoinID included), the retry case: nothing written, no LastModified stamp: " + JSON.stringify(F.f4),
+    F.f4 && F.f4.ok === true && F.f4.adopted === true && F.f4.written.length === 0 && F.f4.patches === 0 && F.f4.unchanged === true);
+  ok("S-f5 a different non-blank CoinID is still refused at the first look: " + JSON.stringify(F.f5),
+    F.f5 && F.f5.ok === false && /different CoinID/.test(F.f5.message) && F.f5.unchanged === true);
+  ok("S-f5b a Force Add retry on an identical row writes nothing: " + JSON.stringify(F.f5b),
+    F.f5b && F.f5b.ok === true && F.f5b.written.length === 0 && F.f5b.unchanged === true);
+  ok("S-f6 a keys-only row (blank where the draft has values) is a difference: nothing written, the fields are listed as '(blank)': " + JSON.stringify(F.f6 && { ok: F.f6.ok, reason: F.f6.reason, unchanged: F.f6.unchanged }),
+    F.f6 && F.f6.ok === false && F.f6.reason === "row-differs" && F.f6.unchanged === true && /on the sheet \(blank\), in the draft/.test(F.f6.message));
 }, module);

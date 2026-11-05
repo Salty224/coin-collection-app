@@ -11572,12 +11572,18 @@
     return out;
   }
 
-  // Does the All row already hold every populated value this draft would
-  // write (same comparison as the conflict check)? Reads only; writes nothing.
-  // `differs` lists each field as { field, sheet, draft } for the message.
-  // CoinID is compared too (unless `force`, which writes it blank on purpose):
-  // two different non-blank CoinIDs are a clash (refused outright); a blank one
-  // on the sheet against the draft's CoinID is an ordinary difference.
+  // THE ONE COMPARE for a row Promote finds already on the sheet (first look,
+  // second look, or the createAllSheetRow tripwire). Reads only; writes nothing.
+  // Same comparison as the conflict check (cellsEqual), and ONLY fields the draft
+  // would actually write count: a value on the sheet where the draft is blank was
+  // added by hand and stays, so it is never a difference. `differs` lists each
+  // differing field as { field, sheet, draft } for the message.
+  //
+  // CoinID is handled apart from the field compare (Ray, 5 Nov 2026): a blank
+  // CoinID on the sheet against the draft's CoinID is EXPECTED (that link is the
+  // point of a Promote after Re-check), reported as `coinIdBlank`, not as a
+  // difference; two different non-blank CoinIDs are `coinIdClash`. A Force Add
+  // writes CoinID blank on purpose, so `force` skips both.
   async function allRowHoldsCoinDraft(rowNumber, draft, force) {
     const fresh = await readAllRowWritableValues(rowNumber);
     const values = coinDraftToAllValues(draft);
@@ -11592,9 +11598,11 @@
       .map(k => ({ field: k, sheet: show(k, fresh[k]), draft: show(k, values[k]) }));
     const sheetCoinId = String(fresh.CoinID == null ? "" : fresh.CoinID).trim();
     const draftCoinId = force ? "" : String(draft.coinId || "").trim();
-    const coinIdClash = !!(sheetCoinId && draftCoinId && sheetCoinId !== draftCoinId);
-    if (!coinIdClash && draftCoinId && !sheetCoinId) differs.push({ field: "CoinID", sheet: "(blank)", draft: draftCoinId });
-    return { same: differs.length === 0, differs, sheetCoinId, coinIdClash };
+    return {
+      same: differs.length === 0, differs, sheetCoinId,
+      coinIdClash: !!(sheetCoinId && draftCoinId && sheetCoinId !== draftCoinId),
+      coinIdBlank: !!(draftCoinId && !sheetCoinId)
+    };
   }
 
   // The write. `opts.force` is the Force Add path: create the row with a
@@ -11640,9 +11648,9 @@
       }
     }
 
-    // Already on the sheet? Then this draft was force-added earlier and is
-    // being promoted properly now — reuse the existing row rather than
-    // creating a duplicate.
+    // Already on the sheet? Then this draft was force-added earlier (or an earlier
+    // Promote got as far as the row): reuse the existing row rather than creating
+    // a duplicate, and NEVER overwrite it.
     //
     // IDEMPOTENT (draft cleanup S4). A row may be on the sheet that the first
     // column read did not show: Graph's table column and worksheet range are
@@ -11650,27 +11658,25 @@
     // Promote error on AY-00760 ("already appears on the All sheet at row N")
     // was exactly this. So: look once, wait about 1.5 s and look again before
     // creating anything; and if createAllSheetRow's own tripwire still finds
-    // exactly one row with this id, adopt it rather than failing. A row found
-    // on the second look or adopted that already holds this draft's values
-    // needs no write at all: the draft is simply marked Promoted by the caller.
+    // exactly one row with this id, use that row rather than failing.
     let rowNumber;
-    let reLooked = false; // found on the second look, or adopted by the tripwire
+    let existing = false; // the row was already on the sheet (any of the three ways)
     try {
       rowNumber = await findAllSheetRowNumber(collectionId);
       if (rowNumber) {
-        if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); // fill the key a Force Add left blank
+        existing = true;
       } else {
         if (PROMOTE_RELOOK_MS > 0) await new Promise(r => setTimeout(r, PROMOTE_RELOOK_MS));
         rowNumber = await findAllSheetRowNumber(collectionId);
         if (rowNumber) {
-          reLooked = true;
+          existing = true;
         } else {
           try {
             rowNumber = await createAllSheetRow(collectionId, force ? "" : (draft.coinId || ""));
           } catch (e) {
             if (e && e.code === "ALL_ROW_EXISTS" && Array.isArray(e.rows) && e.rows.length === 1) {
               rowNumber = e.rows[0]; // exactly one row: it is this coin's
-              reLooked = true;
+              existing = true;
             } else {
               throw e;
             }
@@ -11681,13 +11687,16 @@
       return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
 
-    if (reLooked) {
-      // ADOPTION NEVER OVERWRITES (Ray, 5 Nov 2026). A row that was already on the
-      // sheet when Promote looked for it is compared with the draft; Promote
-      // only ever finishes on an IDENTICAL row, and then writes nothing at all.
-      // Any difference means somebody (or an earlier run) put different values
-      // there: nothing is written to All, the draft stays exactly as it was
-      // (not Promoted, files not moved), and the message names each field.
+    if (existing) {
+      // EXISTING ROWS ARE NEVER OVERWRITTEN (Ray, 5 Nov 2026: the adoption rule,
+      // then the same rule for a row found at the first look: F7). The row is
+      // compared with what the draft would write (allRowHoldsCoinDraft), before
+      // anything is written. Identical: nothing is written. A blank CoinID on
+      // the sheet with every other compared field matching: ONLY the CoinID is
+      // written (writeCoinIdCell, a narrow single-column audited write), then
+      // Promote finishes normally. Any other difference: nothing is written to
+      // All, the draft stays as it was (not Promoted, files not moved), and the
+      // message names each field. A different non-blank CoinID is refused.
       let held;
       try { held = await allRowHoldsCoinDraft(rowNumber, draft, force); }
       catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
@@ -11700,6 +11709,11 @@
           message: collectionId + " is already on the All sheet (row " + rowNumber + ") but differs from the draft — nothing was written. " +
             held.differs.map(d => d.field + ": on the sheet " + d.sheet + ", in the draft " + d.draft).join("; ") +
             ". Fix the row or the draft, or use Mark as promoted." };
+      }
+      if (held.coinIdBlank) {
+        try { await writeCoinIdCell(rowNumber, draft.coinId); }
+        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+        return { ok: true, rowNumber, written: ["CoinID"], coinId: draft.coinId, draft, adopted: true, linkedOnly: true };
       }
       return { ok: true, rowNumber, written: [], coinId: force ? "" : (draft.coinId || ""), draft, adopted: true };
     }
@@ -23134,8 +23148,10 @@
     // re-fetches every live sheet, which on the real workbook is easily ten
     // seconds of silence. Reporting success only at the end of that is what
     // made a completed promote look like a no-op.
-    showToast(result.adopted
-      ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — no row written; its draft is now marked promoted."
+    showToast(result.linkedOnly
+      ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — only its CoinID was written (" + result.coinId + "); its draft is now marked promoted."
+      : result.adopted
+      ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — nothing written; its draft is now marked promoted."
       : collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
         (result.coinId || "(no CoinID)") + ".");
     try {
