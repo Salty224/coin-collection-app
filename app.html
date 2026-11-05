@@ -7123,7 +7123,8 @@
   function mapWorkbookRowToGrader(row) {
     return {
       code: String(colVal(row, "Grader")),
-      certBaseUrl: String(colVal(row, "Cert Lookup Base URL")),
+      // (al) 5.E: also the no-space spelling, should the header be tidied.
+      certBaseUrl: String(colVal(row, "Cert Lookup Base URL", "CertLookupBaseURL")),
       type: String(colVal(row, "Type"))
     };
   }
@@ -7281,12 +7282,14 @@
   // caller treats that the same as a failed load (none/Other only).
   function buildLookupErrorList(rows) {
     if (!Array.isArray(rows)) return null;
-    if (!rows.some(r => r && Object.prototype.hasOwnProperty.call(r, "Error Type"))) return null;
+    // (al) 5.E: "Error Type", or "ErrorType" should the header be tidied.
+    if (!rows.some(r => r && (Object.prototype.hasOwnProperty.call(r, "Error Type") ||
+      Object.prototype.hasOwnProperty.call(r, "ErrorType")))) return null;
     const hasCategory = rows.some(r => r && Object.prototype.hasOwnProperty.call(r, "Category"));
     const seen = new Set();
     const out = [];
     rows.forEach(row => {
-      const name = String(colVal(row, "Error Type")).trim();
+      const name = String(colVal(row, "Error Type", "ErrorType")).trim();
       const category = String(colVal(row, "Category")).trim();
       if (!name || (hasCategory && !category) || name.startsWith("\u2550")) return;
       if (seen.has(name)) return;
@@ -10776,7 +10779,10 @@
     if (containersFetchPromise) return containersFetchPromise;
     containersFetchPromise = (async () => {
       try {
-        const rows = await graph().readWorkbookRange(writePaths().workbook, "Containers", "A1:B200");
+        // (al) 5.F: the sheet's used range (GET-only), not a fixed A1:B200,
+        // so a container past row 200 or columns moved right are still read.
+        const detail = await graph().readUsedRangeDetail(writePaths().workbook, "Containers");
+        const rows = (detail && detail.values) || [];
         const header = (rows[0] || []).map(v => String(v == null ? "" : v).trim());
         const nameCol = header.indexOf("ContainerName");
         const locCol = header.indexOf("StorageLocation");
@@ -22579,7 +22585,16 @@
         // re-check, and only on a real durable draft (a mock row has
         // nothing to write a resolved CoinID back to).
         onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null,
-        onPromote: readyToPromote ? () => promoteCoinDraft(c.collectionID) : null
+        onPromote: readyToPromote ? () => promoteCoinDraft(c.collectionID) : null,
+        // (al) F8: a draft whose All row already exists (allRowWritten: a Force
+        // Added coin that Re-check later re-linked) is listed here with
+        // Promote; if Promote finds the row differs, its refusal says "or use
+        // Mark as promoted", so that button is offered here too. It runs the
+        // same markCoinDraftAlreadyPromoted as a leftover's card (fills blank
+        // cells, keeps the sheet's values, closes the draft; never overwrites).
+        // Staging Review does not list allRowWritten drafts at all.
+        onMarkPromoted: (c.allRowWritten && c.collectionID && c.status !== COIN_DRAFT_STATUS.PROMOTED)
+          ? () => markCoinDraftAlreadyPromoted(c.collectionID) : null
       });
     });
 

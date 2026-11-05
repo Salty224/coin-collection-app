@@ -72,7 +72,7 @@ module.exports = defineSuite("write-safety-al", async ({ check, selfCheck, openA
       return c === -1 ? undefined : (g[row - 1] || [])[c];
     };
     window.__wsDraft = (id, extra) => Object.assign({
-      type: "coin", version: 1, collectionID: id, status: "Ready",
+      type: "coin", version: 1, collectionID: id, status: COIN_DRAFT_STATUS.READY,
       denom: "1C", year: "1943", mint: "S", variety: "", description: "Lincoln Wheat",
       finish: "Business Strike", category: "Coin", grade: "MS-66", gradeSource: "PCGS",
       coinId: "C-1943-S-1C-01", allStatus: "Owned", photos: [],
@@ -382,4 +382,76 @@ module.exports = defineSuite("write-safety-al", async ({ check, selfCheck, openA
     F2.mid.grade === "MS-65" && F2.mid.cost === 5 && F2.mid.lm === "", F2.mid);
   ok("F2d the next Save from the returned snapshot is not a false conflict on its own columns; it writes the rest",
     F2.res2.ok && F2.end.cost === 9 && F2.end.remarks === "new remark" && typeof F2.end.lm === "number", F2);
+
+  // ===================== Stage C: F8 =====================================
+  // A Force Added draft that Re-check later re-linked: allRowWritten, READY,
+  // with a CoinID, so the Docket lists it with Promote. Its row differs from
+  // the draft (Grade), so Promote refuses and says "or use Mark as promoted";
+  // the button must now be there, and it must never overwrite the row.
+  const F8 = await page.evaluate(async (seed) => {
+    const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
+    const H = seed.sheets.All[0];
+    const row = H.map(h => ({ CollectionID: "AY-00840", CoinID: "C-1943-S-1C-01", Denomination: "1C", Year: 1943,
+      MintMark: "S", Description: "Lincoln Wheat", Finish: "Business Strike", Category: "Coin",
+      Grade: "MS-60", GradeSource: "PCGS", Status: "Owned", FaceValue: 0.01 })[h] ?? "");
+    seed.sheets.All.splice(2, 0, row);
+    seed.sheets.Photos = [["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded"]];
+    seed.sheets.Receipts = [["ReceiptID", "CollectionID", "Filename", "DateAdded"]];
+    const mock = __wsSetup(seed);
+    const base = writePaths().stagingBase;
+    await mock.uploadJson(base + "/AY-00840/coin.json", __wsDraft("AY-00840", { forceAdded: true, allRowWritten: true }));
+    const promote = await promoteCoinDraftToAllSheet("AY-00840");
+    navigate("needsdbcoins"); await renderNeedsAttentionHub(); await new Promise(r => setTimeout(r, 300));
+    const item = [...document.querySelectorAll("#docketStagingContainer .wish-item")].find(x => x.textContent.indexOf("AY-00840") !== -1);
+    const buttons = item ? [...item.querySelectorAll("button")].map(b => b.textContent.trim()) : null;
+    const gradeBefore = __wsCol(mock, "Grade", 3);
+    const btn = item && item.querySelector(".docket-markpromoted");
+    if (btn) { btn.click(); await new Promise(r => setTimeout(r, 1500)); }
+    const d = await mock.getJson(base + "/AY-00840/coin.json");
+    const out = { promote: { ok: promote.ok, reason: promote.reason, message: promote.message }, buttons,
+      gradeBefore, gradeAfter: __wsCol(mock, "Grade", 3), status: d.status };
+    __wsTeardown();
+    navigate("dashboard");
+    return out;
+  }, allSeed());
+  ok("F8 sanity: Promote refuses the differing row and points to Mark as promoted",
+    !F8.promote.ok && F8.promote.reason === "row-differs" && /Mark as promoted/.test(F8.promote.message || ""), F8.promote);
+  ok("F8b the Docket row for the re-linked Force Added draft shows Promote AND Mark as promoted",
+    Array.isArray(F8.buttons) && F8.buttons.includes("Promote") && F8.buttons.includes("Mark as promoted"), F8.buttons);
+  ok("F8c tapping Mark as promoted closes the draft and keeps the sheet's value (Grade MS-60, never overwritten)",
+    /Promoted/i.test(F8.status || "") && F8.gradeBefore === "MS-60" && F8.gradeAfter === "MS-60", F8);
+
+  // ===================== Stage C: 5.E ====================================
+  const E5 = await page.evaluate(() => ({
+    cert: mapWorkbookRowToGrader({ Grader: "PCGS", CertLookupBaseURL: "https://example.test/cert/", Type: "Service" }).certBaseUrl,
+    certSpaced: mapWorkbookRowToGrader({ Grader: "PCGS", "Cert Lookup Base URL": "https://example.test/old/", Type: "Service" }).certBaseUrl,
+    errs: buildLookupErrorList([{ ErrorType: "Clipped Planchet", Category: "Planchet" }, { ErrorType: "Off-Center Strike", Category: "Strike" }]),
+    errsSpaced: buildLookupErrorList([{ "Error Type": "Clipped Planchet", Category: "Planchet" }])
+  }));
+  ok("5.E Lookup_Graders' cert URL is read from a no-space CertLookupBaseURL header (and still from the spaced one)",
+    E5.cert === "https://example.test/cert/" && E5.certSpaced === "https://example.test/old/", E5);
+  ok("5.E2 Lookup_Errors is read from a no-space ErrorType header (and still from \"Error Type\")",
+    JSON.stringify(E5.errs) === JSON.stringify(["Clipped Planchet", "Off-Center Strike"]) &&
+    JSON.stringify(E5.errsSpaced) === JSON.stringify(["Clipped Planchet"]), E5);
+
+  // ===================== Stage C: 5.F ====================================
+  const F5c = await page.evaluate(async () => {
+    const run = async (rows) => {
+      __setGraphClientForTest(createMockGraphClient({ sheets: { Containers: rows } }));
+      __setBrowseEditWriteEnabledForTest(true);
+      __setContainersForTest(null);
+      const map = await ensureContainersFetch();
+      __setContainersForTest(null);
+      __setGraphClientForTest(null);
+      __setBrowseEditWriteEnabledForTest(null);
+      return map;
+    };
+    const tall = [["ContainerName", "StorageLocation"]];
+    for (let i = 1; i < 250; i++) tall.push(["Box " + i, i === 249 ? "Safe" : "Closet"]);
+    const moved = [["Notes", "Code", "ContainerName", "StorageLocation"], ["", "", "Album A", "Shelf 2"]];
+    const a = await run(tall), b = await run(moved);
+    return { past200: a && a["Box 249"], moved: b && b["Album A"] };
+  });
+  ok("5.F a container on sheet row 250 (past the old A1:B200) is read", F5c.past200 === "Safe", F5c);
+  ok("5.F2 Containers whose columns moved right (C:D) are read by header name", F5c.moved === "Shelf 2", F5c);
 }, module);
