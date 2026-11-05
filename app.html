@@ -11574,13 +11574,26 @@
 
   // Does the All row already hold every populated value this draft would
   // write (same comparison as the conflict check)? Reads only; writes nothing.
-  async function allRowHoldsCoinDraft(rowNumber, draft) {
+  // `differs` lists each field as { field, sheet, draft } for the message.
+  // CoinID is compared too (unless `force`, which writes it blank on purpose):
+  // two different non-blank CoinIDs are a clash (refused outright); a blank one
+  // on the sheet against the draft's CoinID is an ordinary difference.
+  async function allRowHoldsCoinDraft(rowNumber, draft, force) {
     const fresh = await readAllRowWritableValues(rowNumber);
     const values = coinDraftToAllValues(draft);
-    const differs = Object.keys(values).filter(k =>
-      normalizeCellForCompare(values[k]) !== "" && (k in fresh) && !cellsEqual(fresh[k], values[k]));
+    const show = (name, v) => {
+      if (v === null || v === undefined || String(v).trim() === "") return "(blank)";
+      if (typeof v === "number" && isWorkbookDateTimeColumn(ALL_SHEET_NAME, name)) return excelSerialToISODateTime(v);
+      if (typeof v === "number" && isWorkbookDateColumn(ALL_SHEET_NAME, name)) return excelSerialToISODate(v);
+      return String(v);
+    };
+    const differs = Object.keys(values)
+      .filter(k => normalizeCellForCompare(values[k]) !== "" && (k in fresh) && !cellsEqual(fresh[k], values[k]))
+      .map(k => ({ field: k, sheet: show(k, fresh[k]), draft: show(k, values[k]) }));
     const sheetCoinId = String(fresh.CoinID == null ? "" : fresh.CoinID).trim();
-    const coinIdClash = !!(sheetCoinId && draft.coinId && sheetCoinId !== String(draft.coinId).trim());
+    const draftCoinId = force ? "" : String(draft.coinId || "").trim();
+    const coinIdClash = !!(sheetCoinId && draftCoinId && sheetCoinId !== draftCoinId);
+    if (!coinIdClash && draftCoinId && !sheetCoinId) differs.push({ field: "CoinID", sheet: "(blank)", draft: draftCoinId });
     return { same: differs.length === 0, differs, sheetCoinId, coinIdClash };
   }
 
@@ -11669,20 +11682,26 @@
     }
 
     if (reLooked) {
+      // ADOPTION NEVER OVERWRITES (Ray, 5 Nov 2026). A row that was already on the
+      // sheet when Promote looked for it is compared with the draft; Promote
+      // only ever finishes on an IDENTICAL row, and then writes nothing at all.
+      // Any difference means somebody (or an earlier run) put different values
+      // there: nothing is written to All, the draft stays exactly as it was
+      // (not Promoted, files not moved), and the message names each field.
       let held;
-      try { held = await allRowHoldsCoinDraft(rowNumber, draft); }
+      try { held = await allRowHoldsCoinDraft(rowNumber, draft, force); }
       catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
-      if (held.coinIdClash && !force) {
+      if (held.coinIdClash) {
         return { ok: false, reason: "error", message: collectionId + " is already on the All sheet at row " + rowNumber +
           " with a different CoinID (" + held.sheetCoinId + ") — nothing written." };
       }
-      if (held.same) {
-        try { if (!force && draft.coinId && !held.sheetCoinId) await writeCoinIdCell(rowNumber, draft.coinId); }
-        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
-        return { ok: true, rowNumber, written: [], coinId: force ? "" : (draft.coinId || ""), draft, adopted: true };
+      if (!held.same) {
+        return { ok: false, reason: "row-differs", rowNumber, differs: held.differs,
+          message: collectionId + " is already on the All sheet (row " + rowNumber + ") but differs from the draft — nothing was written. " +
+            held.differs.map(d => d.field + ": on the sheet " + d.sheet + ", in the draft " + d.draft).join("; ") +
+            ". Fix the row or the draft, or use Mark as promoted." };
       }
-      try { if (!force && draft.coinId) await writeCoinIdCell(rowNumber, draft.coinId); }
-      catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+      return { ok: true, rowNumber, written: [], coinId: force ? "" : (draft.coinId || ""), draft, adopted: true };
     }
 
     // snapshot === null: a fresh blank row has nothing to conflict with, so

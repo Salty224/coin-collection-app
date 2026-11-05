@@ -321,19 +321,28 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
       out.d2 = await promoteTwice(mock, "AY-00841", 2);
       __teardown();
     }
-    // d3) the existing row does NOT hold the draft's values (edited since): Promote writes them, still one row.
-    {
+    // d3) NEGATIVE CONTROL: an adopted row that differs from the draft by ONE field (Cost) is never overwritten.
+    //     Found on the second look (d3) and named by the tripwire (d3b): no write to All, the draft stays as it
+    //     was (not Promoted, files not moved), and the message names the field with both values.
+    for (const [key, id, stale] of [["d3", "AY-00842", 1], ["d3b", "AY-00847", 2]]) {
       const mock = __setup(window.__seedFor);
       __setPromoteRelookMsForTest(0);
-      await mock.uploadJson(base() + "/AY-00842/coin.json", __draftOf("AY-00842"));
-      await promoteCoinDraftToAllSheet("AY-00842");
+      await mock.uploadJson(base() + "/" + id + "/coin.json", __draftOf(id, { photos: [{ type: "reference", filename: id + "_reference_01.jpg", caption: "" }] }));
+      await promoteCoinDraftToAllSheet(id);
       const H = mock._grids.All[0];
-      const r = mock._grids.All.find(x => x[0] === "AY-00842");
-      r[H.indexOf("Finish")] = "Proof";
-      await mock.uploadJson(base() + "/AY-00842/coin.json", __draftOf("AY-00842"));
-      staleFor(mock, 1);
-      const second = await promoteCoinDraftToAllSheet("AY-00842");
-      out.d3 = { ok: second.ok, adopted: !!second.adopted, written: second.written, finish: mock._grids.All.find(x => x[0] === "AY-00842")[H.indexOf("Finish")], rowCount: __idRows(mock, "AY-00842").length };
+      mock._grids.All.find(x => x[0] === id)[H.indexOf("Cost")] = 4; // a hand edit in Excel (the draft says 3)
+      await mock.uploadJson(base() + "/" + id + "/coin.json", __draftOf(id, { photos: [{ type: "reference", filename: id + "_reference_01.jpg", caption: "" }] }));
+      staleFor(mock, stale); // the first call below goes through adoption
+      const before = JSON.stringify(mock._grids.All);
+      const patches = []; const realPatch = mock.patchWorkbookRanges.bind(mock);
+      mock.patchWorkbookRanges = async (...a) => { patches.push(a[1]); return realPatch(...a); };
+      const res = await promoteCoinDraftToAllSheet(id);
+      staleFor(mock, stale); // ... and so does the second (each wrapper counts its own lagging reads)
+      const promoted = await promoteCoinDraft(id);              // the button path: toast, no bookkeeping
+      const d = await mock.getJson(base() + "/" + id + "/coin.json");
+      out[key] = { ok: res.ok, reason: res.reason, message: res.message, promoted, patches: patches.length,
+        unchanged: JSON.stringify(mock._grids.All) === before, status: d.status, allRowWritten: d.allRowWritten,
+        filesMoved: d.filesMovedOnPromotion, toast: __toast(), rowCount: __idRows(mock, id).length };
       __teardown();
     }
     // d4) the existing row carries a DIFFERENT CoinID: refused, nothing written.
@@ -386,8 +395,15 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     D.d1 && D.d1.first.ok === true && D.d1.second.ok === true && D.d1.second.adopted === true && D.d1.rowCount === 1 && D.d1.rowsSame === true);
   ok("S-d2 if both looks miss, the tripwire's lone row is adopted: " + JSON.stringify([D.d2 && D.d2.second, D.d2 && D.d2.rowCount]),
     D.d2 && D.d2.second.ok === true && D.d2.second.adopted === true && D.d2.rowCount === 1 && D.d2.rowsSame === true);
-  ok("S-d3 an adopted row that no longer holds the draft's values is written from the draft (one row): " + JSON.stringify(D.d3),
-    D.d3 && D.d3.ok === true && D.d3.adopted === false && D.d3.finish === "Business Strike" && D.d3.rowCount === 1);
+  for (const k of ["d3", "d3b"]) {
+    const X = D[k];
+    ok("S-" + k + " NEGATIVE CONTROL: an adopted row differing by one field (Cost) is NEVER overwritten: no write to All, the draft is not Promoted and its files are not moved: " + JSON.stringify(X && { ok: X.ok, reason: X.reason, patches: X.patches, unchanged: X.unchanged, status: X.status, allRowWritten: X.allRowWritten, filesMoved: X.filesMoved }),
+      X && X.ok === false && X.reason === "row-differs" && X.patches === 0 && X.unchanged === true &&
+      /^Ready/.test(X.status) && X.allRowWritten === false && X.filesMoved === false && X.promoted === false && X.rowCount === 1);
+    ok("S-" + k + " (message) -- the message names the field with both values and the way out: " + (X && X.message),
+      X && /Cost: on the sheet 4, in the draft 3/.test(X.message) && /Fix the row or the draft, or use Mark as promoted\./.test(X.message) &&
+      /Couldn.t promote AY-008/.test(X.toast));
+  }
   ok("S-d4 a row with a DIFFERENT CoinID is never adopted or overwritten: " + JSON.stringify(D.d4),
     D.d4 && D.d4.ok === false && /different CoinID/.test(D.d4.message) && D.d4.unchanged === true);
   ok("S-d5 two rows with the id stay a hard error, nothing written: " + JSON.stringify(D.d5),
