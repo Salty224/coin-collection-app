@@ -1,6 +1,6 @@
 # Code map: app.html, function -> line (generated)
 
-`app.html` is 36,655 lines. Generated from `9033fa5` (main after the fast-forward merge of `claude/write-safety-al`, 6 Nov 2026; `app.html` is identical to its last code commit `b0e02d6` and to the docs commits after it) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
+`app.html` is 36,655 lines. Generated from `1eefde8` (main after the fast-forward merge of `claude/test-speed-an`, 6 Nov 2026; `app.html` is identical to its last code commit `938f30f` and to the docs commits after it; the only change since `b0e02d6` is the ready flag in the INIT block, so no function moved) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
 
 The function lists are hand-chosen (the functions the docs/ref/ files mention most, grouped by area) and kept by name; the script only refreshes the numbers and the region list. A renamed function is reported as MISSING: fix its name in this file.
 
