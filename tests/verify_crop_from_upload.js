@@ -98,19 +98,27 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
         const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent === label);
         if (!b) return false; b.click(); return true;
       },
+      // Every wait below is on its condition with a 10 s ceiling (500 x 20 ms).
+      // The old fixed budgets (2 s for the crop overlay, 600 ms for the second
+      // stage, 3 s for settle) ran out under load. Nothing is asserted
+      // differently: the same stages are driven and the same results returned.
       async drive() {
-        for (let i = 0; i < 100 && !bgCropState; i++) await sleep(20);
+        for (let i = 0; i < 500 && !bgCropState; i++) await sleep(20);
         if (!bgCropState) return { stage1: false, stage2: false };
         document.getElementById("bgCropUseBtn").click();
+        // Stage 2 is decided in the same task that hides the crop overlay
+        // (flip sources only): wait for the crop overlay to go, then the
+        // adjuster overlay is either open or never will be.
+        for (let i = 0; i < 500 && bgCropState; i++) await sleep(20);
         let stage2 = false;
-        for (let i = 0; i < 30; i++) {
-          await sleep(20);
-          if (photoAdjustState) { stage2 = true; document.getElementById("photoAdjustUseBtn").click(); break; }
+        if (!document.getElementById("photoAdjustOverlay").classList.contains("hidden")) {
+          for (let i = 0; i < 500 && !photoAdjustState; i++) await sleep(20); // its image is still decoding
+          if (photoAdjustState) { stage2 = true; document.getElementById("photoAdjustUseBtn").click(); }
         }
         return { stage1: true, stage2 };
       },
       async settle(predicate) {
-        for (let i = 0; i < 150; i++) { if (predicate()) return true; await sleep(20); }
+        for (let i = 0; i < 500; i++) { if (predicate()) return true; await sleep(20); }
         return false;
       },
       // Tap a source tile, pick a destination, confirm if asked, crop.

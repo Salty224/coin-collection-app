@@ -36602,14 +36602,31 @@
   document.getElementById("docketOpenStagingBtn").addEventListener("click", () => navigate("staging"));
   wireStaticAccordionToggle("docketResearchHeader", "docketResearchBody");
   wireStaticAccordionToggle("docketOtherHeader", "docketOtherBody");
-  renderNeedsAttentionHub();
-  updateStagingBadge();
+  // TEST SEAM, "ready" flag (test-speed branch, Nov 2026): window.__appReady
+  // becomes true once EVERY startup promise launched below has settled, a
+  // rejected one included. Nothing in the app reads it and it changes nothing
+  // the user sees or does; the regression harness waits for it instead of a
+  // fixed 600 ms. trackStartup() hands the promise back untouched. It does NOT
+  // swallow a rejection: the signal is raised, then the reason is thrown again
+  // on the derived promise, so an unhandled startup rejection still surfaces
+  // as a page error exactly as it did before. The flag waits on
+  // Promise.allSettled, so it can never fire on the first rejection.
+  window.__appReady = false;
+  const startupSettled = [];
+  function trackStartup(p) {
+    startupSettled.push(new Promise(signal => {
+      Promise.resolve(p).then(signal, reason => { signal(); throw reason; });
+    }));
+    return p;
+  }
+  trackStartup(renderNeedsAttentionHub());
+  trackStartup(updateStagingBadge());
   // With the real write layer on, the badge's count lives in a cache that is
   // only filled when Staging Review is opened — so prime it once at launch,
   // fire-and-forget, the same way renderNeedsAttentionHub() already reads
   // Staging at init. Flag-gated, so a disabled build makes no Graph call.
-  if (addCoinWriteEnabled()) refreshCoinDraftCache();
-  updateInProgressSetsBadge();
+  if (addCoinWriteEnabled()) trackStartup(refreshCoinDraftCache());
+  trackStartup(updateInProgressSetsBadge());
   document.getElementById("ledgerSearchInput").addEventListener("input", renderLedgerCoinSearch);
   initFormerHoldingsFilters();
   document.getElementById("formerSearchInput").addEventListener("input", e => {
@@ -36623,11 +36640,14 @@
   // any externally-Promoted Set draft whose files haven't moved yet. Fully
   // guarded — with the write layer disabled it catches and no-ops, so it can
   // never break launch or fire an auth redirect on the live site.
-  processPromotedSetDrafts().catch(() => {});
+  trackStartup(processPromotedSetDrafts().catch(() => {}));
   // Coin-side equivalent — resumes a photo move that failed or was
   // interrupted after a promotion write. A no-op unless ENABLE_ADDCOIN_WRITE
   // is on and something is genuinely mid-move.
-  processPromotedCoinDrafts().catch(() => {});
+  trackStartup(processPromotedCoinDrafts().catch(() => {}));
+  // Every startup promise has now been launched; raise the flag when the last
+  // one settles.
+  Promise.allSettled(startupSettled).then(() => { window.__appReady = true; });
 </script>
 
 </body>

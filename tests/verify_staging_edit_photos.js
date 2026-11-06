@@ -80,7 +80,10 @@ module.exports = defineSuite("staging-edit-photos", async ({ ok, openApp, PHONE 
       async finishCrop(countBefore) {
         if (!(await this.waitFor(() => this.open("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
-        if (await this.waitFor(() => this.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+        // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+        await this.waitFor(() => !this.open("bgCropOverlay"), 10000);
+        if (this.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         return await this.waitFor(() => this.newCount() > countBefore);
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },

@@ -84,7 +84,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
         return await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
       },
       async file(color) { return new File([await this.jpeg(color)], "pick.jpg", { type: "image/jpeg" }); },
-      async waitFor(fn, ms) { const end = Date.now() + (ms || 4000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
+      async waitFor(fn, ms) { const end = Date.now() + (ms || 10000); /* 10 s ceiling on the condition (was 4 s, which ran out once under parallel load); a passing wait returns at once */ while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
       open(id) { const o = document.getElementById(id); return !!o && !o.classList.contains("hidden"); },
       pick(input, file) {
         const dt = new DataTransfer(); dt.items.add(file);
@@ -96,7 +96,10 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       async finishCrop(countBefore) {
         if (!(await this.waitFor(() => this.open("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
-        if (await this.waitFor(() => this.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+        // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+        await this.waitFor(() => !this.open("bgCropOverlay"), 10000);
+        if (this.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         return await this.waitFor(() => this.newCount() > countBefore);
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
@@ -195,7 +198,10 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       slot.querySelector('[data-act="adjust"]').click();
       if (!(await __ph.waitFor(() => __ph.open("bgCropOverlay") || __ph.open("photoAdjustOverlay")))) return false;
       if (__ph.open("bgCropOverlay")) document.getElementById("bgCropUseBtn").click();
-      if (await __ph.waitFor(() => __ph.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+      // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+      await __ph.waitFor(() => !__ph.open("bgCropOverlay"), 10000);
+      if (__ph.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await __ph.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse") !== was);
     };
     // Replace the obverse; done when the gallery holds a NEW obverse entry.
@@ -207,7 +213,10 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       __ph.pick(document.getElementById("imageChooserFilesInput"), await __ph.file(color));
       if (!(await __ph.waitFor(() => __ph.open("bgCropOverlay")))) return false;
       document.getElementById("bgCropUseBtn").click();
-      if (await __ph.waitFor(() => __ph.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+      // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+      await __ph.waitFor(() => !__ph.open("bgCropOverlay"), 10000);
+      if (__ph.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await __ph.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse") !== was);
     };
     const O = id + "_obverse_cropped.jpg", OR = id + "_obverse_original.jpg";

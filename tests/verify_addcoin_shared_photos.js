@@ -1061,7 +1061,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
       out.dest = { title: sp.guardTitle(), body: sp.guardBody(), buttons: sp.guardButtons() };
       sp.clickGuard("Obverse");
       if (await sp.waitFor(() => sp.overlayOpen("bgCropOverlay"))) document.getElementById("bgCropUseBtn").click();
-      if (await sp.waitFor(() => sp.overlayOpen("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+      // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+      await sp.waitFor(() => !sp.overlayOpen("bgCropOverlay"), 10000);
+      if (sp.overlayOpen("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       await sp.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).some(e => e.type === "obverse"));
       const obv = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse");
       out.obv = { has: !!obv, blob: !!(obv && obv.blob), raw: !!(obv && (obv.rawUrl || obv.rawFilename)),
@@ -1158,7 +1161,10 @@ module.exports = defineSuite("addcoin-shared-photos", async ({ ok, openApp, PHON
     const finishCrop = async (before) => {
       if (!(await waitFor(() => open("bgCropOverlay")))) return false;
       document.getElementById("bgCropUseBtn").click();
-      if (await waitFor(() => open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+      // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+      await waitFor(() => !open("bgCropOverlay"), 10000);
+      if (open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await waitFor(() => count() > before);
     };
     const GALLERY_LABEL = { slab_obverse: /Slab — front|Holder — front/, slab_reverse: /Slab — back|Holder — back/,

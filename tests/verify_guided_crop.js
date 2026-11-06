@@ -177,7 +177,10 @@ module.exports = defineSuite("guided-crop", async ({ openApp, check, selfCheck, 
       async finishCrop(flip) {
         if (!(await this.waitFor(() => open("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
-        if (flip && await this.waitFor(() => open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+        // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+        await this.waitFor(() => !open("bgCropOverlay"), 10000);
+        if (flip && open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         await sleep(80);
         return true;
       },

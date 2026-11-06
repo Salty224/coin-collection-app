@@ -70,6 +70,22 @@ function resolveChromium() {
 const PHONE = { width: 412, height: 915 };   // Ray's S25, the primary target
 const TABLET = { width: 1024, height: 768 };
 
+// The app raises window.__appReady once every startup promise launched in its
+// INIT block has settled (a rejected one included; app.html, "TEST SEAM, ready
+// flag"). openApp used to sleep a fixed 600 ms instead. If the flag is not up
+// in READY_TIMEOUT_MS the suite FAILS by name, never carries on silently.
+const READY_TIMEOUT_MS = 10000;
+async function waitForAppReady(page, record) {
+  try {
+    await page.waitForFunction(() => window.__appReady === true, null, { timeout: READY_TIMEOUT_MS });
+    return true;
+  } catch (e) {
+    record(false, "openApp: window.__appReady was not raised within " + (READY_TIMEOUT_MS / 1000) +
+      " s (a startup promise never settled): " + String(e && e.message || e).split("\n")[0]);
+    return false;
+  }
+}
+
 // Runs one suite and returns its result. `fn` receives a context with:
 //   ok(cond, label)      — record an assertion (the original, condition first)
 //   check(label, cond, data) — the SHARED check helper every new suite uses:
@@ -82,8 +98,10 @@ const TABLET = { width: 1024, height: 768 };
 //                          one true check that must pass. A suite whose check
 //                          is wired wrong fails here by name instead of
 //                          passing everything (it happened twice).
-//   openApp(viewport, opts) — a fresh page with app.html loaded and settled;
-//                          opts: { timezoneId, fixedTime, realPromoteRelook } (see openApp)
+//   openApp(viewport, opts) — a fresh page with app.html loaded and settled
+//                          (waits for window.__appReady);
+//                          opts: { timezoneId, fixedTime, realPromoteRelook, blank } (see openApp)
+//   appReady(page)       — wait for window.__appReady after your own goto
 //   PHONE / TABLET       — the two standard viewports
 // Page and console errors are collected automatically and reported as
 // failures, so a suite cannot pass while the page is throwing.
@@ -111,6 +129,9 @@ async function runSuite(name, fn) {
         record(!!cond, label + tail);
         return !!cond;
       },
+      // After a suite's own page.goto of the app: waits for window.__appReady
+      // (see waitForAppReady). A miss is a recorded suite failure.
+      appReady(page) { return waitForAppReady(page, record); },
       selfCheck(checkFn) {
         probe = [];
         try { checkFn("SELF-CHECK must fail", false, { deliberately: "false" }); }
@@ -123,6 +144,10 @@ async function runSuite(name, fn) {
       // opts (test-only): timezoneId (e.g. "America/New_York") emulates the
       // device's time zone; fixedTime (a Date, ms or ISO string) fixes
       // Date.now() / new Date() while timers keep running (page.clock).
+      // opts.blank: a page with the error collectors and the viewport but NO
+      // navigation, for a suite that loads the app itself (a stamped copy
+      // served at a made-up URL): it then loads the app once, not twice, and
+      // calls appReady(page) after its own goto.
       async openApp(viewport, opts) {
         const o = opts || {};
         const page = await browser.newPage(Object.assign({ viewport: viewport || PHONE },
@@ -132,8 +157,9 @@ async function runSuite(name, fn) {
         page.on("console", m => {
           if (m.type() === "error" && !IGNORED_ERROR.test(m.text())) result.errors.push(m.text());
         });
+        if (o.blank) return page;
         await page.goto(APP_URL, { waitUntil: "load" });
-        await page.waitForTimeout(600); // let init + splash settle
+        await waitForAppReady(page, record); // init + startup promises settled
         // Promote waits ~1.5 s before looking again for a row it did not see
         // (draft cleanup S4). Suites that sleep a fixed time around a Promote
         // run with no wait; a suite that tests the wait itself passes
@@ -177,4 +203,4 @@ function defineSuite(name, fn, callerModule) {
   return { name, suite: fn };
 }
 
-module.exports = { runSuite, printResult, defineSuite, resolveChromium, PHONE, TABLET, APP_URL };
+module.exports = { runSuite, printResult, defineSuite, resolveChromium, waitForAppReady, READY_TIMEOUT_MS, PHONE, TABLET, APP_URL };

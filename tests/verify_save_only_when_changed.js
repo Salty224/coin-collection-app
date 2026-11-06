@@ -592,7 +592,10 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
       async finishCrop(countBefore) {
         if (!(await this.waitFor(() => this.open("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
-        if (await this.waitFor(() => this.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+        // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+        await this.waitFor(() => !this.open("bgCropOverlay"), 10000);
+        if (this.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         return await this.waitFor(() => this.newCount() > countBefore);
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
@@ -692,7 +695,10 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
       __ph.pick(document.getElementById("imageChooserFilesInput"), await __ph.file(color));
       if (!(await __ph.waitFor(() => __ph.open("bgCropOverlay")))) return false;
       document.getElementById("bgCropUseBtn").click();
-      if (await __ph.waitFor(() => __ph.open("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+      // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+      // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+      await __ph.waitFor(() => !__ph.open("bgCropOverlay"), 10000);
+      if (__ph.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await __ph.waitFor(() => obvEntry() !== was);
     };
     // G1 open is clean; label edit counts and reverts

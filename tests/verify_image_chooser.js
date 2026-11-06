@@ -202,7 +202,10 @@ async function setup(page) {
       async finishCrop() {
         if (!(await this.waitFor(() => this.overlayOpen("bgCropOverlay")))) return false;
         document.getElementById("bgCropUseBtn").click();
-        if (await this.waitFor(() => this.overlayOpen("photoAdjustOverlay"), 1500)) document.getElementById("photoAdjustUseBtn").click();
+        // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
+        // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
+        await this.waitFor(() => !this.overlayOpen("bgCropOverlay"), 10000);
+        if (this.overlayOpen("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         if (this.autoSave && this.id && photoCommitTargetId(this.id)) {
           await sleep(60);
           await savePhotosAndLabels(this.id, null);
