@@ -1,6 +1,6 @@
 # TEST checklist: write safety (al), branch `claude/write-safety-al`
 
-Run on TEST (_Testing workbook): Actions -> "Deploy to GitHub Pages" -> branch `claude/write-safety-al`. The TEST bar must read `TEST · claude/write-safety-al`. Use a _Testing coin you don't mind editing. Put every Excel change back afterwards. Steps 2-4 are done WITHOUT reloading the app after the Excel change: that is what proves the header is re-read at every save (5.B).
+Run on TEST (_Testing workbook): Actions -> "Deploy to GitHub Pages" -> branch `claude/write-safety-al`. The TEST bar must read `TEST · claude/write-safety-al`. Use a _Testing coin you don't mind editing. Put every Excel change back afterwards. **Tip (from Ray's TEST, 6 Nov 2026):** commit each Excel change and wait for it to sync to OneDrive before testing. In step 2 the first saves went through because the header rename made in Excel on the phone had not uploaded yet; once it synced, the save was refused as designed (not a bug). Steps 2-4 are done WITHOUT reloading the app after the Excel change: that is what proves the header is re-read at every save (5.B).
 
 1. Normal saves still work (5.B / 5.D on the real Graph, F1). Edit Coin on one coin: change Remarks and Cost, Save. Expect: saved; in Excel, Remarks and Cost changed, LastModified is now (date and time), Reviewed blank, Purged untouched.
 2. Renamed column (F6). With the app open, rename the All header "Remarks" to "RemarksX" in Excel. In the app, Edit Coin on the same coin, change Remarks, Save. Expect: refused, with a toast saying the All sheet has no "Remarks" column and nothing was saved; in Excel the row is unchanged (LastModified did not move). Rename it back to "Remarks".
@@ -12,3 +12,5 @@ Run on TEST (_Testing workbook): Actions -> "Deploy to GitHub Pages" -> branch `
 8. Containers (5.F). Edit Coin on a coin with a Container: its storage location shows as before. Optional: add a container on Containers row 201 or below, reload, pick it: its location shows.
 9. Lookups (5.E, regression). A graded coin's cert link still opens; Add Coin's Error dropdown still lists the errors.
 10. Not testable by hand on real Graph: a batch of more than 20 ranges (F5) and a batch that fails partway (F2). These are covered by `tests/verify_write_safety_al.js` against a Graph-like stub.
+
+**Result (Ray, TEST on _Testing, 6 Nov 2026):** steps 1, 2, 3, 4, 5, 6, 8 and 9 PASSED. Step 7 (F8) was NOT run by hand; Ray accepts the suite's coverage (`verify_write_safety_al.js` F8 / F8b / F8c). Step 10 is suite-only, as planned. Saves did not feel slower on the S25 (the extra header read per save, and the formula read on the narrow writers, are accepted). Merged to main by fast-forward to `9033fa5`.
