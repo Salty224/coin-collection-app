@@ -100,7 +100,12 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
         // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
         await this.waitFor(() => !this.open("bgCropOverlay"), 10000);
         if (this.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
-        return await this.waitFor(() => this.newCount() > countBefore);
+        // The entry is placed in the same task that hides the last overlay (the pipeline's
+        // onComplete closes the overlay, then hands the entry on). A Replace puts a new blob
+        // in place of an old one, so the count does not grow: that answer is "false" at
+        // once, not after a timed wait for a count that never comes.
+        await this.waitFor(() => !this.open("bgCropOverlay") && !this.open("photoAdjustOverlay"), 10000);
+        return this.newCount() > countBefore;
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
       // Add Coin's photos are Edit Coin's section in draft mode
