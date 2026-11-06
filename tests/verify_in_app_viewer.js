@@ -13,7 +13,7 @@
 
 const { defineSuite, APP_URL } = require("./harness");
 
-module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLET }) => {
+module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, appReady, PHONE, TABLET }) => {
   const page = await openApp(PHONE);
 
   // ---------- Setup: live mode, synthetic coins, mock Graph + write spy --
@@ -241,7 +241,7 @@ module.exports = defineSuite("in-app-viewer", async ({ ok, openApp, PHONE, TABLE
     // Back left the app (B9 has already failed by name). Reopen it and redo
     // the setup so every later assertion still runs and reports.
     await page.goto(APP_URL, { waitUntil: "load" });
-    await page.waitForTimeout(600);
+    await appReady(page);
     await setup(page);
     urls = await page.evaluate(() => window.__URLS);
     await openCoin("AY-00001");

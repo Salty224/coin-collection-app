@@ -269,7 +269,7 @@ const BASE_DRAFT = {
 };
 
 
-module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck, openApp, PHONE }) => {
+module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck, openApp, appReady, PHONE }) => {
   const ok = check; selfCheck(ok);
   const __c = (s) => !!s && s.disabled && s.dim && s.hint && s.counts === null;   // clean: dimmed, hint, nothing unsaved
   const __d = (s) => !!s && !s.disabled && !s.dim && !s.hint && s.counts !== null; // dirty: enabled, no hint, something unsaved
@@ -311,7 +311,7 @@ module.exports = defineSuite("save-only-when-changed", async ({ check, selfCheck
     W.isDirty = (s) => !s.disabled && !s.dim && !s.hint && s.counts !== null;
   });
   // A clean page for each group, so a group cannot be disturbed by what an earlier one left behind.
-  const fresh = async () => { await page.goto(APP_URL, { waitUntil: "load" }); await page.waitForTimeout(600); await setup(page); await addExtras(); };
+  const fresh = async () => { await page.goto(APP_URL, { waitUntil: "load" }); await appReady(page); await setup(page); await addExtras(); };
   await addExtras();
 
   // ---------- A  Edit Coin fields ---------------------------------------------
