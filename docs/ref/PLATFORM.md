@@ -564,7 +564,7 @@ run `npm test` and nothing asks him to.
 - **Rules for new waits.** Wait on the condition with a generous ceiling (10 s); never size a timed wait for a thing that may not happen. verify_crop_from_upload and the staging-replace-keeps-old waits use 10 s ceilings (the old 2 s / 600 ms / 3 s and 4 s budgets are what ran out under load).
 - **D9** in deploy-workflow compared `appSrc.split("\n")[i]` inside a filter callback (quadratic, about 90 s); the lines are split once now.
 - **Part 3 (one shared Chromium) was dropped**: it saves about 18 s of 957 s, and `browser.newPage()` already isolates each page in its own context.
-- **Measured**, full `npm test` on the `b0e02d6` code: 957 s before (4804 / 0 / 0 / 92); numbers after are in BACKLOG (an). Every one of the 92 per-suite pass counts is identical after each part.
+- **Measured**, full `npm test` on the `b0e02d6` code: 957 s before and 640 s after (both 4804 / 0 / 0 / 92); per-suite times and what was left alone are in BACKLOG (an). Every one of the 92 per-suite pass counts is identical after each part. To compare a run with the baseline, save the `PASS` / `FAIL` lines of two runs (`grep '^PASS\|^FAIL' | sed 's/^[A-Z]*  //' | sort`) and `diff` them.
 
 **Only the Add Coin Phase 1 suite is committed so far** (69 assertions).
 Retro-rebuilding the older suites remains the separate tracked item it
