@@ -631,7 +631,7 @@ Ray's go-ahead 4 Nov 2026 (Q1-Q6). LIVE All.ValueDate on AY-00759 held the TEXT 
 - **Left alone on purpose:** Copilot's own writes (the coordinator gives Copilot its note); the cleared-date-box quirk above; date cells the app never writes (DB_*, Wishlist, ParkingLot); old text dates are not bulk-fixed by the app (the Docket lists them).
 - **Verified:** Ray's TEST checks passed (4 Nov 2026): Edit Coin dates, the text-date Docket row and its fix-on-save, Add Coin ValueDate, LastModified date + time on two saves, a photo-only save leaving LastModified alone. Not checked on LIVE yet (Ray deploys). Tests, negative controls and the TEST-check lists: docs/HISTORY.md "Dates the app writes are real Excel dates".
 
-## Write safety (al) (built 5 Nov 2026 on `claude/write-safety-al`; Ray's TEST on _Testing passed 6 Nov 2026; merged to main by fast-forward to `9033fa5` (last code commit `b0e02d6`); NOT yet on LIVE; plan and Ray's answers in docs/BACKLOG.md (al))
+## Write safety (al) (built 5 Nov 2026 on `claude/write-safety-al`; Ray's TEST on _Testing passed 6 Nov 2026; merged to main by fast-forward to `9033fa5` (last code commit `b0e02d6`); on LIVE in `f779287` (Ray deployed main, 6 Nov 2026); plan and Ray's answers in docs/BACKLOG.md (al))
 Three stages, one branch, one TEST pass (Ray, Q9). The shared compare (`allRowHoldsCoinDraft` / `cellsEqual`) is unchanged; no seventh All writer was added.
 
 **Stage A, know the columns (F6, 5.B, 5.D, 5.C).**

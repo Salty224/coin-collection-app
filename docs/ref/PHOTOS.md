@@ -404,8 +404,7 @@ writes).
 passed and the Edit Set toast fix (`a576e42`, below). `main` is the source of
 truth; the branch stays on origin as history. Branch cut from `main`
 `e8abe7d`. Suite: `tests/verify_photo_label_save.js`. Replaces the earlier
-`claude/label-save-on-blur` (`dfcb4f1`/`3994ee4`, never merged, kept on origin
-as history): Ray tested save-on-blur on TEST and chose design B, because a
+`claude/label-save-on-blur` (`dfcb4f1`/`3994ee4`, never merged; branch since deleted from origin, 6 Nov 2026): Ray tested save-on-blur on TEST and chose design B, because a
 label saved on blur had no undo.
 - **The rule.** A label typed on a saved photo (Reference, COA, Other on a
   coin; COA, Other on a Set) works like the coin's other fields: typing
@@ -719,14 +718,14 @@ label saved on blur had no undo.
 every fix below passed Ray's tests on the S25 and tablet; tested build
 `38b0207`. **NOT merged: stage C3 (Add Coin, `c386fbf`, `73d9dc6`) and its
 smaller-circles follow-up (`74bf8d3`, `3101bf2`).** They were built but not
-accepted, and stay on `claude/unified-image-chooser` at `3101bf2` as history
-only. Ray's decision (22 Oct 2026) replaces C3: Add Coin and the
+accepted, and stayed on `claude/unified-image-chooser` at `3101bf2` as history
+only (the branch was deleted from origin by Ray, 6 Nov 2026). Ray's decision (22 Oct 2026) replaces C3: Add Coin and the
 Staging-draft edit use Edit Coin's own photo section in a draft storage mode
 (picks held in memory, written to Staging only on Save), built on
 `claude/addcoin-shared-photos`, merged to `main` 23 Oct 2026 (Add Coin's own
 📷 🖼️ 📁 buttons are gone). Add Set and Wishlist keep theirs (C4).
 Supersedes the per-slot 📁 Files approach on `claude/edit-coin-files-picker-button`
-(tip `e8d822a`, never merged, kept as history). Ray's call after testing it
+(tip `e8d822a`, never merged; branch deleted from origin, 6 Nov 2026). Ray's call after testing it
 on the S25: every image interaction works the same way. Suite:
 `tests/verify_image_chooser.js` (37).
 - **The rule.** An empty slot is ONE "+" box with the slot's label inside
