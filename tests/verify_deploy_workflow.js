@@ -64,8 +64,12 @@ function runStamp(script, dir, branch, number) {
     env: { ...process.env, BUILD_BRANCH: branch, BUILD_NUMBER: number } });
 }
 
-async function openServed(openApp, url, html, extra) {
-  const page = await openApp();
+// Loads the served copy ONCE: a blank page (no file:// load of app.html first),
+// routes in place, then the one goto. appReady() replaces the fixed 700 ms; the
+// short settle that remains is for the app's fire-and-forget build-info.json
+// check, which has no completion signal (D19 and D20 read its result).
+async function openServed(openApp, appReady, url, html, extra) {
+  const page = await openApp(undefined, { blank: true });
   const base = url.slice(0, url.lastIndexOf("/") + 1);
   await page.route("**/*", async route => {
     const u = route.request().url();
@@ -77,7 +81,8 @@ async function openServed(openApp, url, html, extra) {
     return route.abort();
   });
   await page.goto(url, { waitUntil: "load" });
-  await page.waitForTimeout(700);
+  await appReady(page);
+  await page.waitForTimeout(300);
   return page;
 }
 
@@ -88,7 +93,7 @@ const readState = page => page.evaluate(() => ({
   newer: !document.getElementById("newerBuildBar").classList.contains("hidden")
 }));
 
-module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
+module.exports = defineSuite("deploy-workflow", async ({ ok, openApp, appReady }) => {
   ok(fs.existsSync(WF_PATH), "D0 .github/workflows/deploy.yml exists");
   const yml = fs.readFileSync(WF_PATH, "utf8");
 
@@ -145,11 +150,14 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
     const age = stamp ? Date.now() - Date.parse(stamp.date) : Infinity;
     ok(stamp && stamp.branch === "main" && stamp.commit === main.commit && stamp.number === "57" && age >= 0 && age < 120000,
       "D8 the stamp carries the branch, the real checked-out commit, the run number and the current UTC date");
-    ok(out.split("\n").length === appSrc.split("\n").length &&
-       out.split("\n").filter((l, i) => l !== appSrc.split("\n")[i]).length === 1,
+    // The two line arrays are built ONCE. This used to call appSrc.split("\n")
+    // inside the filter callback (36,634 lines x a 2 MB split each, about 90 s).
+    const srcLines = appSrc.split("\n"), outLines = out.split("\n");
+    ok(outLines.length === srcLines.length &&
+       outLines.filter((l, i) => l !== srcLines[i]).length === 1,
       "D9 nothing else in app.html changes");
 
-    const liveP = await openServed(openApp, LIVE_URL, out);
+    const liveP = await openServed(openApp, appReady, LIVE_URL, out);
     const L = await readState(liveP);
     const short = main.commit.slice(0, 7);
     ok(L.target === "live" && L.banner === "", "D10 the stamped main, served from the real URL, runs LIVE with no TEST bar");
@@ -162,14 +170,14 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
     ok(!!info && JSON.stringify(info) === JSON.stringify(stamp),
       "D18 the script writes build-info.json carrying exactly the stamp it put in app.html");
     const readIfThere = f => (fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null);
-    const sameP = await openServed(openApp, LIVE_URL, out, readIfThere(infoPath));
+    const sameP = await openServed(openApp, appReady, LIVE_URL, out, readIfThere(infoPath));
     const S = await readState(sameP);
     ok(S.target === "live" && S.newer === false, "D19 the deployed app with its own build-info.json shows no \"newer build\" row");
     await sameP.close();
     const later = tempRepo(appSrc + "\n"); dirs.push(later.dir);
     runStamp(script, later.dir, "main", "63");
     const otherInfo = readIfThere(path.join(later.dir, "build-info.json"));
-    const oldP = await openServed(openApp, LIVE_URL, out, otherInfo);
+    const oldP = await openServed(openApp, appReady, LIVE_URL, out, otherInfo);
     const O = await readState(oldP);
     ok(later.commit !== main.commit && O.newer === true,
       "D20 an open older build, once a newer one's build-info.json is deployed, shows the \"newer build\" row");
@@ -177,7 +185,7 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
 
     const feat = tempRepo(appSrc); dirs.push(feat.dir);
     runStamp(script, feat.dir, "claude/try-something", "58");
-    const featP = await openServed(openApp, LIVE_URL, fs.readFileSync(path.join(feat.dir, "app.html"), "utf8"));
+    const featP = await openServed(openApp, appReady, LIVE_URL, fs.readFileSync(path.join(feat.dir, "app.html"), "utf8"));
     const F = await readState(featP);
     ok(F.target === "copy" && F.banner === "TEST · claude/try-something", "D12 a stamped feature branch runs TEST and names itself in the bar");
     await featP.close();
@@ -186,7 +194,7 @@ module.exports = defineSuite("deploy-workflow", async ({ ok, openApp }) => {
     const hostile = 'x</script><b id="pwn">"q\'';
     const hr = tempRepo(appSrc); dirs.push(hr.dir);
     runStamp(script, hr.dir, hostile, "59");
-    const hP = await openServed(openApp, LIVE_URL, fs.readFileSync(path.join(hr.dir, "app.html"), "utf8"));
+    const hP = await openServed(openApp, appReady, LIVE_URL, fs.readFileSync(path.join(hr.dir, "app.html"), "utf8"));
     const H = await readState(hP);
     const pwn = await hP.evaluate(() => !!document.getElementById("pwn"));
     ok(H.target === "copy" && H.banner === "TEST · " + hostile && !pwn, "D13 a hostile branch name is shown as text, never as markup");

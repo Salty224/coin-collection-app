@@ -38,8 +38,11 @@ function stampSource(src, value) {
 // Serves `html` at `url` (and the repo's own files beside it), aborting every
 // other request — Graph, Microsoft sign-in, the MSAL CDN — so a LIVE page
 // can never reach OneDrive from a test.
-async function openServed(openApp, viewport, url, html, extraRoutes) {
-  const page = await openApp(viewport);
+//
+// Loads the served copy ONCE: a blank page (no file:// load of app.html first),
+// routes in place, the one goto, then appReady() instead of a fixed 600 ms.
+async function openServed(openApp, appReady, viewport, url, html, extraRoutes) {
+  const page = await openApp(viewport, { blank: true });
   const base = url.slice(0, url.lastIndexOf("/") + 1);
   await page.route("**/*", async route => {
     const u = route.request().url();
@@ -59,7 +62,7 @@ async function openServed(openApp, viewport, url, html, extraRoutes) {
     return route.abort();
   });
   await page.goto(url, { waitUntil: "load" });
-  await page.waitForTimeout(600);
+  await appReady(page);
   return page;
 }
 
@@ -69,7 +72,7 @@ const readTarget = page => page.evaluate(() => ({
     ENABLE_ADDCOIN_WRITE, ENABLE_SET_LINK_WRITE, ENABLE_PURGE_WRITE].every(v => v === true)
 }));
 
-module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE }) => {
+module.exports = defineSuite("build-decides-target", async ({ ok, openApp, appReady, PHONE }) => {
   const page = await openApp(PHONE);
 
   // ================================================================
@@ -144,7 +147,7 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   const appSrc = APP_SRC();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "build-target-"));
   try {
-    const live = await openServed(openApp, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
+    const live = await openServed(openApp, appReady, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
     const L = await readTarget(live);
     ok(L.target === "live" && L.stamp && L.stamp.branch === "main", "T13 a stamped main served from the real URL loads as LIVE");
     ok(L.workbook === "CoinCollection/CoinCollection (AI).xlsx" && L.flagsOn, "T14 with the REAL workbook path and every write flag on");
@@ -164,11 +167,11 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
       if (where === "file") {
         const f = path.join(tmpDir, "app.html");
         fs.writeFileSync(f, html);
-        p = await openApp(PHONE);
+        p = await openApp(PHONE, { blank: true });
         await p.goto("file://" + f, { waitUntil: "load" });
-        await p.waitForTimeout(600);
+        await appReady(p);
       } else {
-        p = await openServed(openApp, PHONE, where, html);
+        p = await openServed(openApp, appReady, PHONE, where, html);
       }
       const r = await readTarget(p);
       ok(r.target === "copy" && r.workbook === "CoinCollection/_Testing/CoinCollection (AI) COPY.xlsx", label);
@@ -250,13 +253,13 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   }
 
   // Branch name on a stamped feature build; nothing at all when LIVE.
-  const branchPage = await openServed(openApp, PHONE, LIVE_URL,
+  const branchPage = await openServed(openApp, appReady, PHONE, LIVE_URL,
     stampSource(appSrc, { ...stampMain, branch: "claude/build-decides-target" }));
   const BB = await branchPage.evaluate(() => document.getElementById("testBanner").textContent);
   ok(BB === "TEST · claude/build-decides-target", "B8 a stamped feature branch reads \"TEST · {branch}\"");
   await branchPage.close();
 
-  const livePage = await openServed(openApp, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
+  const livePage = await openServed(openApp, appReady, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
   const BL = await livePage.evaluate(() => ({
     target: WRITE_TARGET,
     stripShown: getComputedStyle(document.getElementById("topStrip")).display !== "none",
@@ -315,7 +318,7 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   }));
   ok(TZ.local === 1 && TZ.line === "Build 8 · 31 Oct · 0123456", "L8 the date is shown in UTC, not the device's own timezone");
 
-  const stampedLines = await openServed(openApp, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
+  const stampedLines = await openServed(openApp, appReady, PHONE, LIVE_URL, stampSource(appSrc, stampMain));
   const SL = await readLines(stampedLines);
   const slTarget = await stampedLines.evaluate(() => WRITE_TARGET);
   ok(slTarget === "live" && SL.splash === "Build 57 · 17 Oct · 0123456" && SL.docket === SL.splash,
@@ -330,7 +333,7 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
   // (an object, a raw string body, or a status number), counting requests.
   const openWithInfo = async (html, info) => {
     const seen = [];
-    const pg = await openServed(openApp, PHONE, LIVE_URL, html, async (route, u) => {
+    const pg = await openServed(openApp, appReady, PHONE, LIVE_URL, html, async (route, u) => {
       if (u.indexOf("https://salty224.github.io/coin-collection-app/build-info.json") !== 0) return false;
       seen.push(u);
       if (typeof info === "number") await route.fulfill({ status: info, body: "" });
@@ -359,11 +362,12 @@ module.exports = defineSuite("build-decides-target", async ({ ok, openApp, PHONE
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "build-info-file-"));
     const f = path.join(d, "app.html");
     fs.writeFileSync(f, stampSource(appSrc, stampMain));
-    const pg = await openApp(PHONE);
+    const pg = await openApp(PHONE, { blank: true });
     const reqs = [];
     pg.on("request", r => { if (/build-info\.json/.test(r.url())) reqs.push(r.url()); });
     await pg.goto("file://" + f, { waitUntil: "load" });
-    await pg.waitForTimeout(600);
+    await appReady(pg);
+    await pg.waitForTimeout(300); // a request would be fire-and-forget at startup; a short look for one
     const shown = await pg.evaluate(() => !document.getElementById("newerBuildBar").classList.contains("hidden"));
     ok(reqs.length === 0 && !shown, "N1b a stamped copy opened from a file makes no request and shows nothing");
     await pg.close();
