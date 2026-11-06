@@ -189,6 +189,18 @@
      (under the connecting status) and at the very bottom of the Docket. */
   .build-line { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 10px; }
   #docketBuildLine { margin: 28px 0 0; }
+  /* (ao) Stage 1: launch-read and workbook-version report just above the
+     Docket's Build line (which stays the last thing on the screen). Same
+     small gray text; wraps on a phone. */
+  .load-report { font-size: 11px; color: var(--text-muted); text-align: center; margin: 28px 0 0; overflow-wrap: anywhere; }
+  .load-report.is-shown + #docketBuildLine { margin-top: 10px; }
+  .load-report-line { margin: 4px 0 0; }
+  .load-report-details { margin: 4px 0 0; text-align: left; }
+  .load-report-details summary { text-align: center; cursor: pointer; }
+  .load-report-details ul { margin: 4px 0 0; padding-left: 18px; }
+  .load-report-check { font: inherit; font-size: 12px; color: var(--gold); background: none; border: 1px solid var(--gold-dim);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+  .load-report-check[disabled] { opacity: 0.6; cursor: default; }
   body { padding-top: var(--top-strip-h, 0px); }
   .splash-inner { text-align: center; padding: 20px; max-width: 320px; }
   .splash-disc {
@@ -4633,6 +4645,7 @@
             <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
           </div>
         </div>
+        <div class="load-report" id="docketLoadReport" style="display:none;"></div>
         <p class="build-line" id="docketBuildLine"></p>
       </section>
 
@@ -6558,6 +6571,11 @@
         const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
           liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
           ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
+        // (ao) Stage 1: time from sending the request to having the whole
+        // body (the token wait is excluded), and the body's size in bytes
+        // (uncompressed JSON; the browser can't see the gzipped wire size of
+        // a Graph response). Reported on the Docket — see renderLoadReport().
+        const sentAt = Date.now();
         const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal });
         if (!res.ok) {
           const retryAfterMs = noteRetryAfter(res);
@@ -6565,16 +6583,17 @@
           console.warn("Live nav data: sheet read failed", sheet, res.status);
           return null; // transient/permission error — worth retrying later, don't cache
         }
-        const data = await res.json();
+        const { data, bytes } = await readJsonBodyMeasured(res);
+        const ms = Date.now() - sentAt;
         const values = data.values || [];
-        if (values.length < 2) { record({ kind: "ok", rowCount: 0 }); return []; } // header row only (or truly empty) — a real, cacheable answer
+        if (values.length < 2) { record({ kind: "ok", rowCount: 0, ms, bytes }); return []; } // header row only (or truly empty) — a real, cacheable answer
         const headers = values[0].map(h => String(h == null ? "" : h).trim());
         const rows = values.slice(1).map(r => {
           const obj = {};
           headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
           return obj;
         });
-        record({ kind: "ok", rowCount: rows.length });
+        record({ kind: "ok", rowCount: rows.length, ms, bytes });
         return rows;
       }, splashTiming("request"));
     } catch (e) {
@@ -6588,6 +6607,239 @@
       console.warn("Live nav data fetch error:", sheet, e && e.message);
       return null;
     }
+  }
+
+  // ==================================================================
+  // (ao) Stage 1: LOAD REPORT + WORKBOOK VERSION PROBE (read-only)
+  // Measures what the launch costs today and whether the workbook's
+  // OneDrive version (eTag / cTag) moves promptly after an edit, so Ray can
+  // decide whether a device cache is worth building (docs/BACKLOG.md (ao),
+  // Q3 and Q15). Shown at the bottom of the Docket, just above the Build
+  // line (the Build line stays the last thing on the screen).
+  // Nothing here caches, blocks or writes anything: two GETs at most (the
+  // version lookup, on the first Docket visit after the launch read and on
+  // "Check again"), and bookkeeping on reads the app already makes.
+  // ==================================================================
+
+  // The 11 sheets of the full read, in ensureLiveNavDataFetch()'s order.
+  const FULL_READ_SHEETS = ["All", "DB_Sets", "DB_Coins", "Lookup_MetalContent", "Lookup_Graders",
+    "Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories"];
+  const VERSION_CHECK_HISTORY_MAX = 20;
+  let launchReadReport = null;   // the first full read of this page load
+  let lastFullReadReport = null; // the most recent full read (a refresh after a save, Retry, ...)
+  let failedLaunchAttempts = 0;   // full reads that went out before the launch read and failed
+  let workbookVersionChecks = []; // newest last
+  let workbookVersionCheckInFlight = null;
+  function __getLoadReportForTest() { return { launch: launchReadReport, last: lastFullReadReport, checks: workbookVersionChecks.slice() }; } // test-only seam
+  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = 0; workbookVersionChecks = []; workbookVersionCheckInFlight = null; } // test-only seam
+
+  // Reads a response body as JSON and reports its size in bytes. Same
+  // result as res.json(); falls back to it for a body without text().
+  async function readJsonBodyMeasured(res) {
+    if (typeof res.text !== "function") return { data: await res.json(), bytes: null };
+    const text = await res.text();
+    let bytes = text.length;
+    try { bytes = new TextEncoder().encode(text).length; } catch (e) { /* keep the character count */ }
+    return { data: JSON.parse(text), bytes };
+  }
+
+  // Called once per full read that was not superseded by Retry, with the
+  // per-sheet results in FULL_READ_SHEETS order (null = no answer). The
+  // LAUNCH read is the first one in which the five core sheets all arrived
+  // (the one that lets the splash go); full reads that failed before it are
+  // counted, and one in which no sheet was even requested (no token yet,
+  // e.g. mid sign-in) is ignored.
+  function noteFullReadReport(results, startedAt, reason) {
+    const sheets = FULL_READ_SHEETS.map((name, i) => {
+      const d = liveNavDataDiagnostics[name] || {};
+      return {
+        name,
+        ok: results[i] !== null && results[i] !== undefined,
+        kind: d.kind || "unknown",
+        ms: typeof d.ms === "number" ? d.ms : null,
+        bytes: typeof d.bytes === "number" ? d.bytes : null,
+        rowCount: typeof d.rowCount === "number" ? d.rowCount : null
+      };
+    });
+    const okSheets = sheets.filter(x => x.ok);
+    const slowest = okSheets.reduce((a, b) => (a && a.ms >= (b.ms || 0) ? a : b), null);
+    if (sheets.every(x => x.kind === "no-token")) return null;
+    const coreOk = sheets.slice(0, 5).every(x => x.ok);
+    const report = {
+      at: Date.now(),
+      reason,
+      coreOk,
+      wallMs: Date.now() - startedAt,
+      okCount: okSheets.length,
+      totalBytes: okSheets.reduce((n, x) => n + (x.bytes || 0), 0),
+      slowest: slowest ? { name: slowest.name, ms: slowest.ms } : null,
+      sheets
+    };
+    if (!launchReadReport) {
+      if (coreOk) {
+        report.reason = "launch";
+        report.failedBefore = failedLaunchAttempts;
+        launchReadReport = report;
+      } else {
+        failedLaunchAttempts++;
+        report.reason = "failed attempt";
+      }
+    }
+    lastFullReadReport = report;
+    renderLoadReport();
+    return report;
+  }
+
+  // GET the workbook's OneDrive item: id, eTag (content + metadata), cTag
+  // (content only), size, lastModifiedDateTime. One OneDrive lookup, not an
+  // Excel request. Same token and 12 s deadline as the sheet reads.
+  async function fetchWorkbookVersion() {
+    try {
+      return await withRequestTimeout(async signal => {
+        const token = await getLiveNavToken();
+        if (!token) return { ok: false, reason: "no token" };
+        const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+          liveNavWorkbookPath().split("/").map(encodeURIComponent).join("/") +
+          "?$select=id,eTag,cTag,size,lastModifiedDateTime";
+        const sentAt = Date.now();
+        const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal, cache: "no-store" });
+        if (!res.ok) return { ok: false, reason: "HTTP " + res.status };
+        const meta = await res.json();
+        return {
+          ok: true, ms: Date.now() - sentAt,
+          id: meta.id || "", eTag: meta.eTag || "", cTag: meta.cTag || "",
+          size: typeof meta.size === "number" ? meta.size : null,
+          lastModifiedDateTime: meta.lastModifiedDateTime || ""
+        };
+      }, splashTiming("request"));
+    } catch (e) {
+      if (e && e.name === "TimeoutError") return { ok: false, reason: "timed out" };
+      return { ok: false, reason: (e && e.message) || String(e) };
+    }
+  }
+
+  // One version check, compared with the previous successful one. Taps
+  // while a check is in flight share it.
+  function checkWorkbookVersion() {
+    if (workbookVersionCheckInFlight) return workbookVersionCheckInFlight;
+    workbookVersionCheckInFlight = fetchWorkbookVersion().then(v => {
+      const entry = Object.assign({ at: Date.now() }, v);
+      if (entry.ok) {
+        const prev = workbookVersionChecks.slice().reverse().find(c => c.ok);
+        if (prev) {
+          entry.eTagChanged = prev.eTag !== entry.eTag;
+          entry.cTagChanged = prev.cTag !== entry.cTag;
+          entry.sizeChanged = prev.size !== entry.size;
+          entry.modifiedChanged = prev.lastModifiedDateTime !== entry.lastModifiedDateTime;
+        }
+      }
+      workbookVersionChecks.push(entry);
+      if (workbookVersionChecks.length > VERSION_CHECK_HISTORY_MAX) workbookVersionChecks.shift();
+      return entry;
+    }).finally(() => {
+      workbookVersionCheckInFlight = null;
+      renderLoadReport();
+    });
+    renderLoadReport(); // shows "Checking…"
+    return workbookVersionCheckInFlight;
+  }
+
+  function loadReportMB(bytes) {
+    if (typeof bytes !== "number") return "? MB";
+    if (bytes < 10000) return (bytes / 1000).toFixed(1) + " KB";
+    if (bytes < 100000) return Math.round(bytes / 1000) + " KB";
+    return (bytes / 1000000).toFixed(1) + " MB";
+  }
+  function loadReportSeconds(ms) { return typeof ms === "number" ? (ms / 1000).toFixed(1) + " s" : "? s"; }
+  function loadReportClock(t) {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return "?";
+    const p = n => String(n).padStart(2, "0");
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+  function loadReportDateClock(t) {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return "?";
+    return d.getDate() + " " + BUILD_MONTHS[d.getMonth()] + " " + loadReportClock(d);
+  }
+  // The last 6 characters of a tag, enough to tell two versions apart on
+  // screen; whether it changed is decided on the whole value.
+  function loadReportTag(tag) {
+    const t = String(tag || "").replace(/"/g, "");
+    return t ? "…" + t.slice(-6) : "(none)";
+  }
+  function loadReportReadLine(label, r) {
+    const failed = r.sheets.filter(x => !x.ok).map(x => x.name + " " + x.kind);
+    return label + " (" + loadReportClock(r.at) + "): " + r.okCount + " of " + r.sheets.length + " sheets, " +
+      loadReportMB(r.totalBytes) + ", " + loadReportSeconds(r.wallMs) +
+      (r.slowest ? " (slowest " + r.slowest.name + " " + loadReportSeconds(r.slowest.ms) + ")" : "") +
+      (failed.length ? "; not read: " + failed.join(", ") : "") +
+      (r.failedBefore ? "; " + r.failedBefore + " failed attempt" + (r.failedBefore === 1 ? "" : "s") + " before it" : "");
+  }
+  function loadReportVersionLine(c) {
+    if (!c.ok) return loadReportClock(c.at) + " · check failed: " + c.reason;
+    const mark = changed => changed === undefined ? "" : (changed ? " CHANGED" : " same");
+    return loadReportClock(c.at) + " · last changed " + loadReportDateClock(c.lastModifiedDateTime) + mark(c.modifiedChanged) +
+      " · eTag " + loadReportTag(c.eTag) + mark(c.eTagChanged) +
+      " · cTag " + loadReportTag(c.cTag) + mark(c.cTagChanged) +
+      " · size " + (c.size == null ? "?" : c.size.toLocaleString("en-US")) + mark(c.sizeChanged) +
+      " · " + loadReportSeconds(c.ms);
+  }
+
+  function renderLoadReport() {
+    const el = document.getElementById("docketLoadReport");
+    if (!el) return;
+    if (!launchReadReport && !workbookVersionChecks.length && liveDataMode() !== "live") {
+      el.style.display = "none";
+      el.classList.remove("is-shown");
+      el.innerHTML = "";
+      return;
+    }
+    el.style.display = "";
+    el.classList.add("is-shown");
+    const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
+    const parts = [];
+    parts.push('<p class="load-report-line" id="docketLaunchReadLine">' + esc(launchReadReport
+      ? loadReportReadLine("Launch read", launchReadReport)
+      : "Launch read: not finished yet") + "</p>");
+    if (lastFullReadReport && lastFullReadReport !== launchReadReport) {
+      parts.push('<p class="load-report-line" id="docketLastReadLine">' +
+        esc(loadReportReadLine("Last full read, " + lastFullReadReport.reason, lastFullReadReport)) + "</p>");
+    }
+    const sheetsReport = lastFullReadReport || launchReadReport;
+    if (sheetsReport) {
+      const rows = sheetsReport.sheets.map(x => "<li>" + esc(x.name + ": " + (x.ok
+        ? loadReportMB(x.bytes) + ", " + loadReportSeconds(x.ms) + ", " + (x.rowCount == null ? "?" : x.rowCount) + " rows"
+        : "not read (" + x.kind + ")")) + "</li>").join("");
+      parts.push('<details class="load-report-details"><summary>Per sheet</summary><ul>' + rows + "</ul></details>");
+    }
+    const latest = workbookVersionChecks[workbookVersionChecks.length - 1];
+    const checking = !!workbookVersionCheckInFlight;
+    parts.push('<p class="load-report-line" id="docketVersionLine">Workbook version: ' +
+      esc(latest ? loadReportVersionLine(latest) : (checking ? "checking…" : "not checked yet")) + "</p>");
+    parts.push('<p class="load-report-line"><button type="button" class="load-report-check" id="docketVersionCheckBtn"' +
+      (checking ? " disabled" : "") + ">" + (checking ? "Checking…" : (latest ? "Check again" : "Check now")) + "</button></p>");
+    if (workbookVersionChecks.length > 1) {
+      const rows = workbookVersionChecks.slice().reverse().map(c => "<li>" + esc(loadReportVersionLine(c)) + "</li>").join("");
+      parts.push('<details class="load-report-details"><summary>Version checks this session (' +
+        workbookVersionChecks.length + ")</summary><ul>" + rows + "</ul></details>");
+    }
+    // Keep a details element open across redraws (a check redraws it).
+    const openSummaries = new Set([...el.querySelectorAll("details[open] > summary")].map(s => s.textContent.replace(/\s*\(\d+\)$/, "")));
+    el.innerHTML = parts.join("");
+    el.querySelectorAll("details > summary").forEach(s => {
+      if (openSummaries.has(s.textContent.replace(/\s*\(\d+\)$/, ""))) s.parentElement.open = true;
+    });
+    const btn = document.getElementById("docketVersionCheckBtn");
+    if (btn) btn.addEventListener("click", () => { checkWorkbookVersion(); });
+  }
+
+  // The Docket's first visit after the launch read checks the version once
+  // on its own; after that only "Check again" does.
+  function onDocketShownForLoadReport() {
+    renderLoadReport();
+    if (launchReadReport && !workbookVersionChecks.length && !workbookVersionCheckInFlight &&
+        liveDataMode() === "live") checkWorkbookVersion();
   }
 
   // Defensive header lookup. A handful of fields this feature needs have a
@@ -7625,6 +7877,8 @@
     // refetch of them still in flight is superseded.
     liveNavOptionalGeneration++;
     liveNavOptionalFetchPromise = null;
+    const fullReadStartedAt = Date.now(); // (ao) Stage 1 load report
+    const fullReadReason = force ? "refresh after a save" : (launchReadReport ? "re-read" : "launch");
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -7671,6 +7925,10 @@
     ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]) => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
       liveNavDataFetchPromise = null;
+      try {
+        noteFullReadReport([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
+          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows], fullReadStartedAt, fullReadReason);
+      } catch (e) { console.warn("Load report failed:", e && e.message); } // diagnostics never stop the load
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) {
         if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
@@ -14211,6 +14469,7 @@
     }
     if (viewId === "needsdbcoins") {
       renderNeedsAttentionHub();
+      onDocketShownForLoadReport(); // (ao) Stage 1
     }
     // Real bug fix (2026-09-02): navigate() never had a "stats" branch at
     // all, so entering Ledger/Stats via the cabinet drawer never primed the
