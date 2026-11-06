@@ -181,6 +181,23 @@
   .test-banner.hidden { display: none; }
   .newer-build-bar { height: 24px; background: #8a5a00; text-align: center; }
   .newer-build-bar.hidden { display: none; }
+  /* (ao) Session row: a saved copy being checked / updated (gray), or
+     read-only because OneDrive can't be reached (amber). */
+  .session-bar {
+    height: 24px; line-height: 24px; padding: 0 12px; background: #3a3f47; color: #fff;
+    font-size: 12px; font-weight: 700; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .session-bar.is-trouble { background: #8a5a00; }
+  .session-bar.hidden { display: none; }
+  .session-bar button { all: unset; cursor: pointer; margin-left: 10px; text-decoration: underline; }
+  .session-bar button.hidden { display: none; }
+  /* Write entry points and Save buttons look unavailable while read-only;
+     a tap gives a toast (wireReadOnlyTaps()). */
+  body.session-read-only :is(#browseEditSaveBtn, #browseEditSetSaveBtn, #saveToDatabaseBtn, #saveToStagingBtn,
+    #addCoinMatchNoneBtn, #batchReceiptSaveBtn, #addSetChildSaveBtn, #addSetChildDoneBtn, #addSetChildPauseBtn,
+    #managePhotosSaveLabelsBtn, #spotReviewConfirmBtn, #browseDetailEditBtn, #acqAddCoinBtn, #acqAddSetBtn,
+    #acqBatchReceiptBtn, #addSetStartBtn, #editSetLinkCoinBtn, #spotEditReviewBtn, .staging-btn) { opacity: 0.45; }
   .newer-build-bar button {
     all: unset; cursor: pointer; display: block; width: 100%; height: 24px; line-height: 24px;
     color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
@@ -2916,6 +2933,9 @@
     <div class="test-banner hidden" id="testBanner" role="status"></div>
     <div class="newer-build-bar hidden" id="newerBuildBar" role="status">
       <button type="button" id="newerBuildReloadBtn">A newer build is deployed — reload</button>
+    </div>
+    <div class="session-bar hidden" id="sessionBar" role="status">
+      <span id="sessionBarText"></span><button type="button" class="hidden" id="sessionBarRetry">Retry</button>
     </div>
   </div>
 
@@ -5844,14 +5864,24 @@
       } catch (e) {
         const hasAccount = graphMsalInstance.getAllAccounts().length > 0;
         const InteractionRequiredAuthErrorClass = typeof msal !== "undefined" ? msal.InteractionRequiredAuthError : undefined;
+        // (ao) Stage 2: a failure caused by the network (offline, or MSAL's
+        // own network error) never counts and never redirects — offline, a
+        // redirect would replace the app with the browser's offline page.
+        const offline = isOfflineNow();
+        const networkFailure = offline || isMsalNetworkError(e);
         // Only count a genuine "retry silently" verdict — an immediate-
         // escalation case (missing account, or a confirmed
         // InteractionRequiredAuthError) doesn't need the ceiling and
         // shouldn't inflate it.
-        if (!shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass)) {
+        if (!networkFailure && !shouldStartInteractiveRedirect(hasAccount, e, InteractionRequiredAuthErrorClass)) {
           graphSilentFailureCount++;
         }
-        if (shouldEscalateAfterSilentFailures(hasAccount, e, InteractionRequiredAuthErrorClass, graphSilentFailureCount) && !graphRedirectStarted) {
+        const action = tokenFailureAction(offline, e, hasAccount, InteractionRequiredAuthErrorClass, graphSilentFailureCount);
+        if (action === "network") {
+          setConnectionTrouble(offline ? "offline" : "unreachable", "sign-in failed: no network");
+          return null;
+        }
+        if (action === "redirect" && !graphRedirectStarted) {
           graphRedirectStarted = true;
           graphSilentFailureCount = 0;
           graphMsalInstance.acquireTokenRedirect({ scopes: GRAPH_SCOPES });
@@ -6627,11 +6657,14 @@
   const VERSION_CHECK_HISTORY_MAX = 20;
   let launchReadReport = null;   // the first full read of this page load
   let lastFullReadReport = null; // the most recent full read (a refresh after a save, Retry, ...)
-  let failedLaunchAttempts = 0;   // full reads that went out before the launch read and failed
+  // Full reads that went out before the launch read and did not deliver it:
+  // { startedAt, wallMs, reason } each ((ao) Stage 2: duration and reason,
+  // not just a count, so a slow launch is not understated).
+  let failedLaunchAttempts = [];
   let workbookVersionChecks = []; // newest last
   let workbookVersionCheckInFlight = null;
   function __getLoadReportForTest() { return { launch: launchReadReport, last: lastFullReadReport, checks: workbookVersionChecks.slice() }; } // test-only seam
-  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = 0; workbookVersionChecks = []; workbookVersionCheckInFlight = null; } // test-only seam
+  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = []; workbookVersionChecks = []; workbookVersionCheckInFlight = null; lastSaveTiming = null; activeSaveTiming = null; } // test-only seam
 
   // Reads a response body as JSON and reports its size in bytes. Same
   // result as res.json(); falls back to it for a body without text().
@@ -6643,12 +6676,34 @@
     return { data: JSON.parse(text), bytes };
   }
 
+  // Why a sheet was not read, in a few words: "timeout", "auth (no token)",
+  // "HTTP 503", "empty body", "no answer", or the error's own message.
+  function sheetFailureReason(kind, diag) {
+    switch (kind) {
+      case "timeout": return "timeout";
+      case "no-token": return "auth (no token)";
+      case "http-error": return "HTTP " + (diag && diag.status != null ? diag.status : "?");
+      case "empty-body": return "empty body";
+      case "pending": return "no answer";
+      case "exception": return String((diag && diag.message) || "error").slice(0, 60);
+      default: return kind || "unknown";
+    }
+  }
+  // "timeout ×11" / "HTTP 503 ×2, timeout ×9", in first-seen order.
+  function summarizeFailureReasons(reasons) {
+    const counts = new Map();
+    reasons.forEach(r => counts.set(r, (counts.get(r) || 0) + 1));
+    return [...counts].map(([r, n]) => r + " ×" + n).join(", ");
+  }
+
   // Called once per full read that was not superseded by Retry, with the
   // per-sheet results in FULL_READ_SHEETS order (null = no answer). The
   // LAUNCH read is the first one in which the five core sheets all arrived
   // (the one that lets the splash go); full reads that failed before it are
-  // counted, and one in which no sheet was even requested (no token yet,
-  // e.g. mid sign-in) is ignored.
+  // kept with their duration and reasons. A read in which no sheet was even
+  // requested (no token) is ignored outside a live session (the offline
+  // mockup and the test sandbox never have one); in a live session it is an
+  // auth failure and is kept.
   function noteFullReadReport(results, startedAt, reason) {
     const sheets = FULL_READ_SHEETS.map((name, i) => {
       const d = liveNavDataDiagnostics[name] || {};
@@ -6656,6 +6711,7 @@
         name,
         ok: results[i] !== null && results[i] !== undefined,
         kind: d.kind || "unknown",
+        reason: sheetFailureReason(d.kind, d),
         ms: typeof d.ms === "number" ? d.ms : null,
         bytes: typeof d.bytes === "number" ? d.bytes : null,
         rowCount: typeof d.rowCount === "number" ? d.rowCount : null
@@ -6663,7 +6719,7 @@
     });
     const okSheets = sheets.filter(x => x.ok);
     const slowest = okSheets.reduce((a, b) => (a && a.ms >= (b.ms || 0) ? a : b), null);
-    if (sheets.every(x => x.kind === "no-token")) return null;
+    if (sheets.every(x => x.kind === "no-token") && liveDataMode() !== "live") return null;
     const coreOk = sheets.slice(0, 5).every(x => x.ok);
     const report = {
       at: Date.now(),
@@ -6678,16 +6734,25 @@
     if (!launchReadReport) {
       if (coreOk) {
         report.reason = "launch";
-        report.failedBefore = failedLaunchAttempts;
+        report.failedBefore = failedLaunchAttempts.slice();
+        report.failedBefore.length && (report.launchTotalMs = report.at - report.failedBefore[0].startedAt);
         launchReadReport = report;
       } else {
-        failedLaunchAttempts++;
         report.reason = "failed attempt";
+        failedLaunchAttempts.push({ startedAt, wallMs: report.wallMs,
+          reason: summarizeFailureReasons(sheets.filter(x => !x.ok).map(x => x.reason)) });
       }
     }
     lastFullReadReport = report;
     renderLoadReport();
     return report;
+  }
+  // A full read that Retry abandoned before it answered: before the launch
+  // read it still cost the user that long, so it is kept as a failed attempt.
+  function noteAbandonedFullRead(startedAt) {
+    if (launchReadReport) return;
+    failedLaunchAttempts.push({ startedAt, wallMs: Date.now() - startedAt, reason: "abandoned by Retry" });
+    renderLoadReport();
   }
 
   // GET the workbook's OneDrive item: id, eTag (content + metadata), cTag
@@ -6769,12 +6834,16 @@
     return t ? "…" + t.slice(-6) : "(none)";
   }
   function loadReportReadLine(label, r) {
-    const failed = r.sheets.filter(x => !x.ok).map(x => x.name + " " + x.kind);
+    const failed = r.sheets.filter(x => !x.ok).map(x => x.name + " " + x.reason);
     return label + " (" + loadReportClock(r.at) + "): " + r.okCount + " of " + r.sheets.length + " sheets, " +
       loadReportMB(r.totalBytes) + ", " + loadReportSeconds(r.wallMs) +
       (r.slowest ? " (slowest " + r.slowest.name + " " + loadReportSeconds(r.slowest.ms) + ")" : "") +
       (failed.length ? "; not read: " + failed.join(", ") : "") +
-      (r.failedBefore ? "; " + r.failedBefore + " failed attempt" + (r.failedBefore === 1 ? "" : "s") + " before it" : "");
+      (r.failedBefore && r.failedBefore.length
+        ? "; before it " + r.failedBefore.length + " failed attempt" + (r.failedBefore.length === 1 ? "" : "s") + ": " +
+          r.failedBefore.map(a => loadReportSeconds(a.wallMs) + " " + a.reason).join("; ") +
+          "; launch total " + loadReportSeconds(r.launchTotalMs)
+        : "");
   }
   function loadReportVersionLine(c) {
     if (!c.ok) return loadReportClock(c.at) + " · check failed: " + c.reason;
@@ -6789,7 +6858,7 @@
   function renderLoadReport() {
     const el = document.getElementById("docketLoadReport");
     if (!el) return;
-    if (!launchReadReport && !workbookVersionChecks.length && liveDataMode() !== "live") {
+    if (!launchReadReport && !workbookVersionChecks.length && !lastSaveTiming && liveDataMode() !== "live") {
       el.style.display = "none";
       el.classList.remove("is-shown");
       el.innerHTML = "";
@@ -6801,7 +6870,10 @@
     const parts = [];
     parts.push('<p class="load-report-line" id="docketLaunchReadLine">' + esc(launchReadReport
       ? loadReportReadLine("Launch read", launchReadReport)
-      : "Launch read: not finished yet") + "</p>");
+      : "Launch read: not finished yet" + (failedLaunchAttempts.length
+        ? "; " + failedLaunchAttempts.length + " failed attempt" + (failedLaunchAttempts.length === 1 ? "" : "s") + " so far: " +
+          failedLaunchAttempts.map(a => loadReportSeconds(a.wallMs) + " " + a.reason).join("; ")
+        : "")) + "</p>");
     if (lastFullReadReport && lastFullReadReport !== launchReadReport) {
       parts.push('<p class="load-report-line" id="docketLastReadLine">' +
         esc(loadReportReadLine("Last full read, " + lastFullReadReport.reason, lastFullReadReport)) + "</p>");
@@ -6810,8 +6882,17 @@
     if (sheetsReport) {
       const rows = sheetsReport.sheets.map(x => "<li>" + esc(x.name + ": " + (x.ok
         ? loadReportMB(x.bytes) + ", " + loadReportSeconds(x.ms) + ", " + (x.rowCount == null ? "?" : x.rowCount) + " rows"
-        : "not read (" + x.kind + ")")) + "</li>").join("");
+        : "not read (" + x.reason + ")")) + "</li>").join("");
       parts.push('<details class="load-report-details"><summary>Per sheet</summary><ul>' + rows + "</ul></details>");
+    }
+    // (ao) Stage 2: the last save, step by step ("+offset duration step").
+    if (lastSaveTiming) {
+      const t = lastSaveTiming;
+      parts.push('<p class="load-report-line" id="docketLastSaveLine">' + esc("Last save (" + loadReportClock(t.startedAt) + ", " +
+        t.label + "): " + loadReportSeconds(t.totalMs) + ", " + t.outcome + ", " + t.steps.length + " steps") + "</p>");
+      const rows = t.steps.slice().sort((a, b) => a.offsetMs - b.offsetMs).map(x =>
+        "<li>" + esc("+" + loadReportSeconds(x.offsetMs) + " " + x.name + ": " + loadReportSeconds(x.ms)) + "</li>").join("");
+      parts.push('<details class="load-report-details"><summary>Save steps</summary><ul>' + rows + "</ul></details>");
     }
     const latest = workbookVersionChecks[workbookVersionChecks.length - 1];
     const checking = !!workbookVersionCheckInFlight;
@@ -6840,6 +6921,417 @@
     renderLoadReport();
     if (launchReadReport && !workbookVersionChecks.length && !workbookVersionCheckInFlight &&
         liveDataMode() === "live") checkWorkbookVersion();
+  }
+
+  // ==================================================================
+  // (ao) Stage 2: SAVE TIMING (diagnostic) — where a save's time goes.
+  // A save started through withEditSaveLock() / withSaveTiming() records
+  // its named steps (saveCoinRowToWorkbook's header re-read, row lookup,
+  // conflict re-read, write) and EVERY graph() call made while it runs
+  // (method, a short description, offset from the start, duration), plus
+  // each $batch POST inside patchWorkbookRanges(). The last one is shown on
+  // the Docket's load report. Nothing here changes what a save does.
+  // ==================================================================
+  let activeSaveTiming = null;
+  let lastSaveTiming = null;
+  function __getSaveTimingForTest() { return { active: activeSaveTiming, last: lastSaveTiming }; } // test-only seam
+  function beginSaveTiming(label) {
+    if (activeSaveTiming) return null; // nested: the outer save owns the record
+    activeSaveTiming = { label: label || "Save", startedAt: Date.now(), steps: [] };
+    return activeSaveTiming;
+  }
+  function endSaveTiming(t, outcome) {
+    if (!t || activeSaveTiming !== t) return;
+    t.totalMs = Date.now() - t.startedAt;
+    t.outcome = outcome;
+    lastSaveTiming = t;
+    activeSaveTiming = null;
+    try { renderLoadReport(); } catch (e) { /* diagnostics never break a save */ }
+  }
+  function noteSaveStep(name, startedAt, ms) {
+    const t = activeSaveTiming;
+    if (!t) return;
+    t.steps.push({ name, offsetMs: startedAt - t.startedAt, ms });
+  }
+  async function timeSaveStep(name, fn) {
+    const t0 = Date.now();
+    try { return await fn(); } finally { noteSaveStep(name, t0, Date.now() - t0); }
+  }
+  // Runs fn as one timed save. The outcome is "done", or "failed: <why>"
+  // for a throw or a { ok: false } result.
+  async function withSaveTiming(label, fn) {
+    const t = beginSaveTiming(label);
+    let outcome = "done";
+    try {
+      const out = await fn();
+      if (out && typeof out === "object" && out.ok === false) outcome = "not saved: " + (out.reason || "failed");
+      return out;
+    } catch (e) {
+      outcome = "failed: " + String((e && e.message) || e).slice(0, 80);
+      throw e;
+    } finally {
+      endSaveTiming(t, outcome);
+    }
+  }
+  // A short description of a graph() call for the timing list: the method
+  // and its string arguments, minus the workbook path, each cut short.
+  function describeGraphCall(method, args) {
+    const wb = writePaths().workbook;
+    const bits = (args || []).filter(a => typeof a === "string" && a !== wb)
+      .map(a => a.length > 40 ? "…" + a.slice(-39) : a);
+    if (method === "patchWorkbookRanges" && Array.isArray(args[2])) bits.push(args[2].length + " ranges");
+    return method + (bits.length ? " " + bits.join(" ") : "");
+  }
+  function timeGraphCall(method, args, call) {
+    if (!activeSaveTiming) return call();
+    const t0 = Date.now();
+    const out = call();
+    if (out && typeof out.then === "function") {
+      return out.then(v => { noteSaveStep("Graph " + describeGraphCall(method, args), t0, Date.now() - t0); return v; },
+        e => { noteSaveStep("Graph " + describeGraphCall(method, args) + " (failed)", t0, Date.now() - t0); throw e; });
+    }
+    noteSaveStep("Graph " + describeGraphCall(method, args), t0, Date.now() - t0);
+    return out;
+  }
+
+  // ==================================================================
+  // (ao) Stage 2: SESSION STATE + THE READ-ONLY WRITE GATE
+  // Where the data on screen came from, whether it is known to match the
+  // workbook, and whether OneDrive can be reached. One gate on every Graph
+  // write (graph() returns a wrapper whose putContent / deleteItem /
+  // patchWorkbookRanges / addTableRow ask workbookWritesAllowed() first and
+  // throw a ReadOnlyError when it says no) — that is the guarantee; the
+  // dimmed buttons and their toasts are the courtesy. Invariant 17
+  // (CLAUDE.md): the device cache is display-only, and no write starts while
+  // the session is offline, can't reach OneDrive, or shows a saved copy that
+  // hasn't been checked with the workbook.
+  // ==================================================================
+  const workbookSession = {
+    source: "none",        // "none" | "workbook" (read this session) | "saved-copy" (Stage 3, from the device)
+    verified: false,       // saved-copy only: the version check matched the workbook
+    dataAt: 0,             // when the data on screen was read from the workbook
+    dataVersion: null,     // the workbook version that data corresponds to (null = unknown)
+    connection: "ok",      // "ok" | "offline" | "unreachable"
+    connectionReason: "",
+    updating: false,       // a background full read is replacing the data
+    checking: false,       // a version check is out for a saved copy not yet checked
+    checkingSince: 0,
+    ownWriteSinceData: false,
+    lastCheckAt: 0
+  };
+  function __getWorkbookSessionForTest() { return Object.assign({}, workbookSession); } // test-only seam
+  function __setWorkbookSessionForTest(patch) { Object.assign(workbookSession, patch || {}); renderSessionState(); } // test-only seam
+
+  // Every method that writes. A test (session-gate-ao G1/G2) fails if a
+  // client grows a method that is not a get / read / list and is not here.
+  const GATED_GRAPH_METHODS = new Set(["putContent", "uploadFile", "uploadBytes", "uploadJson", "deleteItem",
+    "patchWorkbookRanges", "addTableRow"]);
+  const WORKBOOK_WRITE_GRAPH_METHODS = new Set(["patchWorkbookRanges", "addTableRow"]);
+
+  function workbookWritesAllowed() {
+    if (workbookSession.connection === "offline") return { ok: false, reason: "offline" };
+    if (workbookSession.connection === "unreachable") return { ok: false, reason: "unreachable" };
+    if (workbookSession.source === "saved-copy" && !workbookSession.verified) return { ok: false, reason: "unchecked" };
+    return { ok: true };
+  }
+  const READ_ONLY_SAVE_MESSAGES = {
+    offline: "Offline: nothing was saved. Your changes are still on this screen; Save again when back online.",
+    unreachable: "Can't reach OneDrive: nothing was saved. Your changes are still on this screen; Save again when it's back.",
+    unchecked: "Nothing was saved: the saved copy hasn't been checked with the workbook yet. Your changes are still on this screen; try again in a moment."
+  };
+  const READ_ONLY_ENTRY_MESSAGES = {
+    offline: "Read-only while offline",
+    unreachable: "Read-only: can't reach OneDrive",
+    unchecked: "Read-only until the saved copy is checked with the workbook"
+  };
+  function readOnlyError(verdict, method) {
+    const e = new Error(READ_ONLY_SAVE_MESSAGES[verdict.reason] || "Read-only: nothing was saved.");
+    e.name = "ReadOnlyError";
+    e.readOnly = true;
+    e.reason = verdict.reason;
+    e.method = method;
+    return e;
+  }
+
+  // The wrapper graph() hands out. Built once per client (so a test's mock
+  // gets the same gate as the real client). Reads pass straight through
+  // (timed while a save runs); the four write methods are refused while
+  // writes aren't allowed, and a workbook write first deletes the device's
+  // saved copy (Stage 3) so a write can never leave a stale copy behind.
+  const gatedGraphClients = new WeakMap();
+  function gatedGraphClient(client) {
+    if (!client || (typeof client !== "object" && typeof client !== "function")) return client;
+    let wrapped = gatedGraphClients.get(client);
+    if (wrapped) return wrapped;
+    wrapped = new Proxy(client, {
+      get(target, prop, receiver) {
+        const v = Reflect.get(target, prop, receiver);
+        if (typeof v !== "function" || typeof prop !== "string") return v;
+        if (GATED_GRAPH_METHODS.has(prop)) {
+          return function gatedGraphWrite(...args) {
+            const verdict = workbookWritesAllowed();
+            if (!verdict.ok) return Promise.reject(readOnlyError(verdict, prop));
+            // Called on the client itself, so an upload helper's own
+            // this.putContent() is not checked (or timed) a second time.
+            if (!WORKBOOK_WRITE_GRAPH_METHODS.has(prop)) return timeGraphCall(prop, args, () => v.apply(target, args));
+            workbookSession.ownWriteSinceData = true;
+            return invalidateWorkbookCacheBeforeWrite().then(() => timeGraphCall(prop, args, () => v.apply(target, args)));
+          };
+        }
+        return function graphRead(...args) { return timeGraphCall(prop, args, () => v.apply(this, args)); };
+      }
+    });
+    gatedGraphClients.set(client, wrapped);
+    return wrapped;
+  }
+  // Deletes the device's saved copy of the workbook before any workbook
+  // write (Stage 3: deleteWorkbookCacheForWrite()).
+  function invalidateWorkbookCacheBeforeWrite() { return deleteWorkbookCacheForWrite(); }
+
+  // ---- Connection state ----------------------------------------------
+  let connectionRetryTimer = null;
+  const CONNECTION_RETRY_MS = 30000;   // while read-only: check again this often
+  const RESUME_CHECK_MIN_GAP_MS = 60000; // a resume checks at most once a minute
+  function __setConnectionTimingsForTest(t) { // test-only seam (also drops a pending retry)
+    connectionTimings = t || null;
+    if (connectionRetryTimer) { clearTimeout(connectionRetryTimer); connectionRetryTimer = null; }
+  }
+  let connectionTimings = null;
+  function connectionTiming(name) {
+    if (connectionTimings && typeof connectionTimings[name] === "number") return connectionTimings[name];
+    return name === "retry" ? CONNECTION_RETRY_MS : RESUME_CHECK_MIN_GAP_MS;
+  }
+  function isOfflineNow() { return typeof navigator !== "undefined" && navigator.onLine === false; }
+  // Called when OneDrive can't be reached (offline, a failed version check,
+  // a sign-in that failed for lack of network). Live sessions only.
+  function setConnectionTrouble(kind, reason) {
+    if (liveDataMode() !== "live") return;
+    workbookSession.connection = kind === "offline" ? "offline" : "unreachable";
+    workbookSession.connectionReason = reason || "";
+    scheduleConnectionRetry();
+    renderSessionState();
+  }
+  function scheduleConnectionRetry() {
+    if (connectionRetryTimer) return;
+    connectionRetryTimer = setTimeout(() => {
+      connectionRetryTimer = null;
+      if (workbookSession.connection !== "ok" || (workbookSession.source === "saved-copy" && !workbookSession.verified)) {
+        checkSessionAgainstWorkbook("retry");
+      }
+    }, connectionTiming("retry"));
+  }
+
+  function versionsMatch(a, b) {
+    return !!(a && b && a.ok && b.ok && a.id === b.id && a.eTag === b.eTag && a.cTag === b.cTag && a.size === b.size);
+  }
+
+  // The one check: is OneDrive reachable, and is the data on screen still
+  // the workbook's? Runs on resume, on the `online` event, every 30 s while
+  // read-only, on Retry / "Refresh from workbook", and at a saved-copy
+  // launch (Stage 3). A match changes nothing (a saved copy becomes
+  // checked); a mismatch replaces the data from a background full read.
+  let sessionCheckInFlight = null;
+  function checkSessionAgainstWorkbook(trigger) {
+    if (liveDataMode() !== "live") return Promise.resolve(null);
+    if (sessionCheckInFlight) return sessionCheckInFlight;
+    sessionCheckInFlight = (async () => {
+      const wasDown = workbookSession.connection !== "ok";
+      if (isOfflineNow()) { setConnectionTrouble("offline", "the device is offline"); return { connection: "offline" }; }
+      workbookSession.lastCheckAt = Date.now();
+      const v = await checkWorkbookVersion();
+      if (!v.ok) {
+        setConnectionTrouble(isOfflineNow() ? "offline" : "unreachable", v.reason);
+        return { connection: workbookSession.connection, reason: v.reason };
+      }
+      workbookSession.connection = "ok";
+      workbookSession.connectionReason = "";
+      if (workbookSession.source === "none") { renderSessionState(); return { connection: "ok", match: null }; }
+      const match = versionsMatch(v, workbookSession.dataVersion);
+      if (match) {
+        if (workbookSession.source === "saved-copy" && !workbookSession.verified) {
+          workbookSession.verified = true;
+          workbookSession.checkedAt = Date.now();
+        }
+        renderSessionState();
+        if (wasDown) showToast("Back online · data is current");
+        return { connection: "ok", match: true };
+      }
+      const ownWrite = workbookSession.ownWriteSinceData;
+      const ok = await refreshSessionFromWorkbook(trigger);
+      if (ok) {
+        if (wasDown) showToast("Back online · updated from the workbook");
+        else if (!ownWrite && trigger !== "launch") showToast("Updated from the workbook");
+      }
+      return { connection: workbookSession.connection, match: false, refreshed: ok };
+    })().finally(() => { sessionCheckInFlight = null; renderSessionState(); });
+    return sessionCheckInFlight;
+  }
+  // A background full read that replaces the data on screen wholesale
+  // (rerenderViewsAfterLiveNavData(), which already leaves an open album
+  // book and an open edit form alone).
+  async function refreshSessionFromWorkbook(trigger) {
+    workbookSession.updating = true;
+    renderSessionState();
+    try {
+      const ok = await ensureLiveNavDataFetch({ force: true, reason: trigger === "refresh" ? "refresh from workbook" : "workbook changed" });
+      if (!ok && workbookSession.connection === "ok") setConnectionTrouble(isOfflineNow() ? "offline" : "unreachable", "the full read failed");
+      return !!ok;
+    } finally {
+      workbookSession.updating = false;
+      renderSessionState();
+    }
+  }
+  // A full read from the workbook has landed and replaced the data: the
+  // session is now "read from the workbook" (checked by definition), and
+  // OneDrive is reachable. Its version is recorded once it answers, if it
+  // can be trusted (Stage 3 also saves the device copy then).
+  const VERSION_MODIFIED_MARGIN_MS = 120000;
+  function fullReadVersionTrusted(v, startedAt) {
+    if (!v || !v.ok) return false;
+    const modified = Date.parse(v.lastModifiedDateTime);
+    // A change near the read could be in the version but not in the data;
+    // 2 minutes also covers a device clock that is a little off.
+    return !isNaN(modified) && modified < startedAt - VERSION_MODIFIED_MARGIN_MS;
+  }
+  function onFullReadLanded(startedAt, versionPromise, gen, results) {
+    workbookSession.source = "workbook";
+    workbookSession.verified = true;
+    workbookSession.dataAt = Date.now();
+    workbookSession.dataVersion = null;
+    workbookSession.ownWriteSinceData = false;
+    if (workbookSession.connection !== "ok" && !isOfflineNow()) {
+      workbookSession.connection = "ok";
+      workbookSession.connectionReason = "";
+    }
+    renderSessionState();
+    return Promise.resolve(versionPromise).then(v => {
+      if (gen !== liveNavFetchGeneration || workbookSession.ownWriteSinceData) return null; // a newer read, or a write since
+      if (!fullReadVersionTrusted(v, startedAt)) return null;
+      workbookSession.dataVersion = v;
+      renderSessionState();
+      return saveWorkbookCacheAfterRead(v, results, startedAt);
+    }).catch(e => { console.warn("Version / saved copy after a full read:", e && e.message); return null; });
+  }
+
+  function maybeCheckOnResume() {
+    if (liveDataMode() !== "live" || workbookSession.source === "none") return;
+    if (Date.now() - workbookSession.lastCheckAt < connectionTiming("resume")) return;
+    checkSessionAgainstWorkbook("resume");
+  }
+  (function wireConnectionWatch() {
+    window.addEventListener("offline", () => setConnectionTrouble("offline", "the device went offline"));
+    window.addEventListener("online", () => { if (liveDataMode() === "live") checkSessionAgainstWorkbook("online"); });
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") maybeCheckOnResume(); });
+  })();
+
+  // Waits (up to maxMs) for a live launch to settle and for writes to be
+  // allowed; true = go ahead. Outside a live session: true at once. Used by
+  // the startup draft file moves, which must never run read-only.
+  function whenWritesAllowed(maxMs) {
+    const limit = Date.now() + (typeof maxMs === "number" ? maxMs : 60000);
+    return new Promise(resolve => {
+      (function look() {
+        if (liveDataMode() !== "live") return resolve(true);
+        const settled = workbookSession.source !== "none";
+        if (settled && workbookWritesAllowed().ok) return resolve(true);
+        if (Date.now() >= limit) return resolve(false);
+        setTimeout(look, 250);
+      })();
+    });
+  }
+
+  // Stage 3 fills these in (the device's saved copy and the Docket's data
+  // line); in Stage 2 there is no saved copy.
+  function deleteWorkbookCacheForWrite() { return Promise.resolve(); }
+  function saveWorkbookCacheAfterRead() { return Promise.resolve(null); }
+  function renderDocketDataLine() {}
+
+  // ---- What the user sees --------------------------------------------
+  const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function sessionDateLabel(t) {
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return "?";
+    const p = n => String(n).padStart(2, "0");
+    return WEEKDAYS[d.getDay()] + " " + d.getDate() + " " + BUILD_MONTHS[d.getMonth()] + ", " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  // The top-strip row, or "" for none. Approved wording (Ray, Q16).
+  const SESSION_CHECKING_ROW_DELAY_MS = 1500;
+  function sessionBarText() {
+    const s = workbookSession;
+    const copy = s.source === "saved-copy";
+    const what = copy ? "saved copy from " + sessionDateLabel(s.dataAt) : "data from " + sessionDateLabel(s.dataAt);
+    if (s.connection === "offline") return s.source === "none" ? "Offline · read-only" : "Offline · read-only · " + what;
+    if (s.connection === "unreachable") return s.source === "none" ? "Can't reach OneDrive · read-only" : "Can't reach OneDrive · read-only · " + what;
+    if (copy && !s.verified && s.updating) return "Saved copy from " + sessionDateLabel(s.dataAt) + " · updating from the workbook…";
+    if (copy && !s.verified && s.checking && Date.now() - s.checkingSince >= SESSION_CHECKING_ROW_DELAY_MS) {
+      return "Saved copy from " + sessionDateLabel(s.dataAt) + " · checking with the workbook…";
+    }
+    return "";
+  }
+  let sessionBarTimer = null;
+  function renderSessionState() {
+    const bar = document.getElementById("sessionBar");
+    const text = document.getElementById("sessionBarText");
+    const retry = document.getElementById("sessionBarRetry");
+    const label = sessionBarText();
+    if (bar && text) {
+      text.textContent = label;
+      bar.classList.toggle("hidden", !label);
+      bar.classList.toggle("is-trouble", workbookSession.connection !== "ok");
+      if (retry) retry.classList.toggle("hidden", workbookSession.connection !== "unreachable");
+      renderTopStrip();
+    }
+    document.body.classList.toggle("session-read-only", !workbookWritesAllowed().ok);
+    // The "checking…" row appears only once a check has taken 1.5 s.
+    if (!sessionBarTimer && workbookSession.checking && !label) {
+      sessionBarTimer = setTimeout(() => { sessionBarTimer = null; renderSessionState(); }, SESSION_CHECKING_ROW_DELAY_MS);
+    }
+    try { renderDocketDataLine(); } catch (e) { /* the Docket line is diagnostic */ }
+  }
+
+  // Write entry points and Save buttons. While writes aren't allowed a tap
+  // is stopped before the feature's own handler runs, with a toast. The
+  // ReadOnlyError gate above still refuses anything that gets past this.
+  const READ_ONLY_SAVE_SELECTORS = ["#browseEditSaveBtn", "#browseEditSetSaveBtn", "#saveToDatabaseBtn", "#saveToStagingBtn",
+    "#addCoinMatchNoneBtn", "#batchReceiptSaveBtn", "#addSetChildSaveBtn", "#addSetChildDoneBtn", "#addSetChildPauseBtn",
+    "#managePhotosSaveLabelsBtn", "#spotReviewConfirmBtn"];
+  const READ_ONLY_ENTRY_SELECTORS = ["#browseDetailEditBtn", "#acqAddCoinBtn", "#acqAddSetBtn", "#acqBatchReceiptBtn",
+    "#addSetStartBtn", "#editSetLinkCoinBtn", "#spotEditReviewBtn", ".staging-btn"];
+  (function wireReadOnlyTaps() {
+    const saveSel = READ_ONLY_SAVE_SELECTORS.join(",");
+    const entrySel = READ_ONLY_ENTRY_SELECTORS.join(",");
+    document.addEventListener("click", e => {
+      const verdict = workbookWritesAllowed();
+      if (verdict.ok || !e.target || typeof e.target.closest !== "function") return;
+      const save = e.target.closest(saveSel);
+      const entry = !save && e.target.closest(entrySel);
+      if (!save && !entry) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      showToast((save ? READ_ONLY_SAVE_MESSAGES : READ_ONLY_ENTRY_MESSAGES)[verdict.reason]);
+    }, true);
+    const retry = document.getElementById("sessionBarRetry");
+    if (retry) retry.addEventListener("click", () => checkSessionAgainstWorkbook("retry"));
+  })();
+
+  // ---- MSAL: never redirect to sign-in for lack of network ------------
+  // Today 3 silent failures escalate to acquireTokenRedirect(); offline that
+  // replaces the app (and the read-only view) with the browser's offline
+  // page. A failure caused by the network never counts and never redirects.
+  function isMsalNetworkError(e) {
+    const code = String((e && (e.errorCode || e.code)) || "");
+    const msg = String((e && e.message) || "");
+    return /no_network_connectivity|network_request_failed|post_request_failed|get_request_failed|endpoints_resolution_error|network_error|failed_to_fetch/i.test(code) ||
+      /Failed to fetch|NetworkError|network error|no_network_connectivity|Load failed/i.test(msg);
+  }
+  // Pure: what acquireGraphToken() does after a silent failure.
+  //   "network"  — offline, or the error is the network's: no count, no redirect
+  //   "redirect" — interactive sign-in (no account, a real InteractionRequired, or the 3rd silent failure)
+  //   "wait"     — count it and answer "no token yet"
+  function tokenFailureAction(offline, error, hasAccount, InteractionRequiredAuthErrorClass, silentFailureCountAfter) {
+    if (offline || isMsalNetworkError(error)) return "network";
+    if (shouldEscalateAfterSilentFailures(hasAccount, error, InteractionRequiredAuthErrorClass, silentFailureCountAfter)) return "redirect";
+    return "wait";
   }
 
   // Defensive header lookup. A handful of fields this feature needs have a
@@ -7878,7 +8370,12 @@
     liveNavOptionalGeneration++;
     liveNavOptionalFetchPromise = null;
     const fullReadStartedAt = Date.now(); // (ao) Stage 1 load report
-    const fullReadReason = force ? "refresh after a save" : (launchReadReport ? "re-read" : "launch");
+    const fullReadReason = (opts && opts.reason) || (force ? "refresh after a save" : (launchReadReport ? "re-read" : "launch"));
+    // (ao) Stage 2: the workbook's version, asked for at the same moment as
+    // the sheets (no added wait). It is trusted as "the version this data
+    // is" only if the workbook was last changed well before the read began
+    // (fullReadVersionTrusted()).
+    const versionAtStart = liveDataMode() === "live" ? fetchWorkbookVersion() : Promise.resolve(null);
     liveNavDataFetchPromise = Promise.all([
       fetchWorkbookSheetRows("All"),
       fetchWorkbookSheetRows("DB_Sets"),
@@ -7923,7 +8420,10 @@
       // short "list unavailable" note and the Coin button still works.
       fetchWorkbookSheetRows("Lookup_Categories")
     ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]) => {
-      if (gen !== liveNavFetchGeneration) return false; // superseded (Retry) — leave every shared value to the newer fetch
+      if (gen !== liveNavFetchGeneration) { // superseded (Retry) — leave every shared value to the newer fetch
+        noteAbandonedFullRead(fullReadStartedAt);
+        return false;
+      }
       liveNavDataFetchPromise = null;
       try {
         noteFullReadReport([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
@@ -8020,6 +8520,9 @@
       if (lookupCategoryRows === null && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
       liveAlbumsLoadFailed = !LIVE_ALBUMS;
       rerenderViewsAfterLiveNavData();
+      onFullReadLanded(fullReadStartedAt, versionAtStart, gen,
+        [allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
+          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]);
       return true;
     }).catch(err => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
@@ -8363,6 +8866,10 @@
           return req;
         });
         let res;
+        const batchSentAt = Date.now();
+        const batchLabel = "$batch " + (start / GRAPH_BATCH_LIMIT + 1) + " of " + Math.ceil(edits.length / GRAPH_BATCH_LIMIT) +
+          ": " + chunk.length + " range writes" +
+          (chunk.some(e => (e._columns || []).indexOf("LastModified") !== -1) ? " (includes LastModified)" : "");
         try {
           res = await fetch("https://graph.microsoft.com/v1.0/$batch", {
             method: "POST",
@@ -8370,8 +8877,10 @@
             body: JSON.stringify({ requests })
           });
         } catch (e) {
+          noteSaveStep(batchLabel + " (no response)", batchSentAt, Date.now() - batchSentAt);
           throw batchWriteError(sheet, edits, landed, start, "no response (" + String(e && e.message || e) + ")");
         }
+        noteSaveStep(batchLabel, batchSentAt, Date.now() - batchSentAt);
         if (!res.ok) throw batchWriteError(sheet, edits, landed, start, res.status + " " + (await res.text()));
         const data = await res.json();
         const byId = {};
@@ -8660,7 +9169,8 @@
   // The active client — Real by default; tests swap in a mock. Kept mutable
   // so nothing captures a stale reference.
   let activeGraphClient = RealGraphClient;
-  function graph() { return activeGraphClient; }
+  // Every caller gets the read-only gate ((ao) Stage 2, gatedGraphClient()).
+  function graph() { return gatedGraphClient(activeGraphClient); }
   function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; } // test-only seam
 
   // Cached once per session (Task 2) — the workbook's own webUrl never
@@ -9540,12 +10050,13 @@
     try {
       // (al) 5.B: the header is re-read at the start of every save; the read,
       // the checks and the write below all use this one map.
-      await ensureAllHeaderMap({ fresh: true });
-      rowNumber = await findAllSheetRowNumber(collectionId);
+      // (ao) Stage 2: each step is timed for the Docket's "last save" report.
+      await timeSaveStep("header re-read", () => ensureAllHeaderMap({ fresh: true }));
+      rowNumber = await timeSaveStep("row lookup", () => findAllSheetRowNumber(collectionId));
       if (!rowNumber) {
         return { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." };
       }
-      const read = await readAllRowForWrite(rowNumber);
+      const read = await timeSaveStep("row re-read for the conflict check", () => readAllRowForWrite(rowNumber));
       fresh = read.values;
       formulas = read.formulas;
     } catch (e) {
@@ -9582,13 +10093,14 @@
 
     let edits;
     try {
-      edits = await buildRowCellEdits(rowNumber, changed);
+      edits = await timeSaveStep("build the cell edits", () => buildRowCellEdits(rowNumber, changed));
     } catch (e) {
       if (e && e.code === "MISSING_COLUMN") return { ok: false, reason: "missing-column", columns: e.columns, message: e.message };
       return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
     try {
-      await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
+      await timeSaveStep("write (" + edits.length + " ranges, LastModified last)",
+        () => graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits));
     } catch (e) {
       if (e && Array.isArray(e.landed) && e.landed.length) return partialSaveResult(rowNumber, edits, e);
       return { ok: false, reason: "error", message: String(e && e.message || e) };
@@ -19944,7 +20456,7 @@
       setProgress("Saving…");
       try { res = await savePhotosAndLabels(coin.id, setProgress); }
       finally { setProgress(null); }
-    });
+    }, "Edit Coin " + coin.id + " (photos / labels)");
     const head = photoSaveHeadline(coin.id, res) || "Couldn't save the photo changes on " + coin.id + ".";
     showToast(head + photoSaveFailureText(res, "Save Changes"));
     if (photoEditsAllSaved(res)) showBrowseDetail(coin);
@@ -19973,7 +20485,7 @@
       applyEditsToRecord(coin, form.record);
       (async () => {
         const pres = photoEditsPending(coin.id)
-          ? await withEditSaveLock(() => savePhotosAndLabels(coin.id, null)) : null;
+          ? await withEditSaveLock(() => savePhotosAndLabels(coin.id, null), "Edit Coin " + coin.id + " (photos)") : null;
         const headline = photoSaveHeadline(coin.id, pres);
         const labelMsg = headline ? " " + headline : "";
         showToast("Updated " + coin.id + " for this session only — not saved to OneDrive." + linkMsg + labelMsg + photoSaveFailureText(pres, "Save Changes"));
@@ -20033,7 +20545,7 @@
 
   async function performBrowseEditWrite(coin, form, resolvedRow) {
     // The whole Save (fields, CoinID, photos, labels) runs under the lock.
-    return withEditSaveLock(() => performBrowseEditWriteLocked(coin, form, resolvedRow));
+    return withEditSaveLock(() => performBrowseEditWriteLocked(coin, form, resolvedRow), "Edit Coin " + coin.id);
   }
   async function performBrowseEditWriteLocked(coin, form, resolvedRow) {
     const btn = document.getElementById("browseEditSaveBtn");
@@ -20294,7 +20806,7 @@
             setProgress("Saving…");
             try { pres = await savePhotosAndLabels(coin.id, setProgress); }
             finally { setProgress(null); }
-          });
+          }, "Edit Set " + coin.id + " (photos / labels)");
         }
         // What really landed, in the one wording every editing screen uses
         // ("Saved AY-00463 — 1 photo added." / "— 1 label updated.").
@@ -23740,7 +24252,7 @@
   // app never wrote a Set's row; here the app IS what wrote the row, so it
   // is the only thing that can honestly report the promotion happened.
   async function promoteCoinDraft(collectionId) {
-    const result = await promoteCoinDraftToAllSheet(collectionId);
+    const result = await withSaveTiming("Promote " + collectionId, () => promoteCoinDraftToAllSheet(collectionId));
     if (!result.ok) {
       showToast("Couldn't promote " + collectionId + ": " + (result.message || result.reason));
       return false;
@@ -28160,7 +28672,7 @@
       const setProgress = pendingButtonProgress(btn);
       try { res = await savePhotosAndLabels(ctx.id, setProgress); }
       finally { setProgress(null); }
-    });
+    }, "Manage Photos " + ctx.id);
     const head = photoSaveHeadline(ctx.id, res) ||
       (photoEditsAllSaved(res) ? "Nothing to save." : "Couldn't save " + ctx.id + ".");
     showToast(head + photoSaveFailureText(res, "Save"));
@@ -28188,10 +28700,10 @@
   let editSaveInFlight = false;
   // Back, Close Drawer and the form itself are locked while a Save runs
   // (Ray's Q5), so a discard can never race a half-finished save.
-  async function withEditSaveLock(fn) {
+  async function withEditSaveLock(fn, label) {
     editSaveInFlight = true;
     document.body.classList.add("edit-save-locked");
-    try { return await fn(); }
+    try { return await withSaveTiming(label || "Save", fn); } // (ao) Stage 2: timed for the Docket report
     finally {
       editSaveInFlight = false;
       document.body.classList.remove("edit-save-locked");
@@ -33514,7 +34026,12 @@
     );
   }
 
-  async function completeAddCoinSave(destination, match) {
+  // (ao) Stage 2: timed for the Docket report.
+  function completeAddCoinSave(destination, match) {
+    return withSaveTiming(destination === "database" ? "Add Coin: Save to Database" : "Add Coin: Save to Staging",
+      () => completeAddCoinSaveUntimed(destination, match));
+  }
+  async function completeAddCoinSaveUntimed(destination, match) {
     const btnId = destination === "database" ? "saveToDatabaseBtn" : "saveToStagingBtn";
     const btn = document.getElementById(btnId);
     const originalHtml = btn.innerHTML;
@@ -36899,11 +37416,13 @@
   // any externally-Promoted Set draft whose files haven't moved yet. Fully
   // guarded — with the write layer disabled it catches and no-ops, so it can
   // never break launch or fire an auth redirect on the live site.
-  trackStartup(processPromotedSetDrafts().catch(() => {}));
+  // (ao) Stage 2: these move files, so in a live session they wait until the
+  // launch has settled and writes are allowed (never while read-only).
+  trackStartup(whenWritesAllowed().then(go => go ? processPromotedSetDrafts() : []).catch(() => {}));
   // Coin-side equivalent — resumes a photo move that failed or was
   // interrupted after a promotion write. A no-op unless ENABLE_ADDCOIN_WRITE
   // is on and something is genuinely mid-move.
-  trackStartup(processPromotedCoinDrafts().catch(() => {}));
+  trackStartup(whenWritesAllowed().then(go => go ? processPromotedCoinDrafts() : []).catch(() => {}));
   // Every startup promise has now been launched; raise the flag when the last
   // one settles.
   Promise.allSettled(startupSettled).then(() => { window.__appReady = true; });

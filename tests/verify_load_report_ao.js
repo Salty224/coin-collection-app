@@ -106,7 +106,7 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
   ok("L7 slowest is the delayed sheet, wall time at least its delay (" + JSON.stringify(L4.launch && L4.launch.slowest) + ", " + (L4.launch && L4.launch.wallMs) + " ms)",
     L4.launch && L4.launch.slowest && L4.launch.slowest.name === "DB_Coins" && L4.launch.wallMs >= 180);
   ok("L8 the line names counts, size, time, slowest and the sheet not read: " + L4.line,
-    /^Launch read \(\d\d:\d\d:\d\d\): 10 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest DB_Coins \d+\.\d s\); not read: Photos http-error$/.test(L4.line));
+    /^Launch read \(\d\d:\d\d:\d\d\): 10 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest DB_Coins \d+\.\d s\); not read: Photos HTTP 500$/.test(L4.line));
 
   // ---- L9: a refresh after a save is reported separately -------------------
   const L9 = await page.evaluate(async () => {
@@ -135,14 +135,15 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     return {
       noToken, noTokenLaunch: afterNoToken.launch, noTokenLast: afterNoToken.last,
       failLaunch: afterFail.launch, failReason: afterFail.last && afterFail.last.reason,
-      okReason: afterOk.launch && afterOk.launch.reason, failedBefore: afterOk.launch && afterOk.launch.failedBefore,
+      okReason: afterOk.launch && afterOk.launch.reason, failedBefore: afterOk.launch && afterOk.launch.failedBefore && afterOk.launch.failedBefore.length,
       line: afterOk.launch ? loadReportReadLine("Launch read", afterOk.launch) : ""
     };
   });
-  ok("L10 a read with no token (mid sign-in) reports nothing", L10.noToken === false && L10.noTokenLaunch === null && L10.noTokenLast === null);
+  ok("L10 outside a live session a read with no token (the mockup, the sandbox) reports nothing", L10.noToken === false && L10.noTokenLaunch === null && L10.noTokenLast === null);
   ok("L11 a read whose core sheet failed is a failed attempt, not the launch read", L10.failLaunch === null && L10.failReason === "failed attempt");
   ok("L12 the next good read is the launch read and counts the attempt before it: " + L10.line,
-    L10.okReason === "launch" && L10.failedBefore === 1 && /; 1 failed attempt before it$/.test(L10.line));
+    L10.okReason === "launch" && L10.failedBefore === 1 &&
+    /; before it 1 failed attempt: \d+\.\d s HTTP 500 ×1; launch total \d+\.\d s$/.test(L10.line));
 
   await page.evaluate(INSTALL_FAKE);
   const L13 = await page.evaluate(async () => {
@@ -159,13 +160,17 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
   const L14 = await page.evaluate(async () => {
     __setLiveDataModeForTest("live");
     await ensureLiveNavDataFetch();
+    // (ao) Stage 2: a live full read asks for the version alongside the
+    // sheets; the Docket's own automatic check is counted from here.
+    const beforeDocket = window.__fakeCalls.filter(c => c.key === "version").length;
     navigate("needsdbcoins");
     await new Promise(r => setTimeout(r, 50));
     if (workbookVersionCheckInFlight) await workbookVersionCheckInFlight;
     const el = document.getElementById("docketLoadReport");
     const build = document.getElementById("docketBuildLine");
-    const versionCalls = window.__fakeCalls.filter(c => c.key === "version");
+    const versionCalls = window.__fakeCalls.filter(c => c.key === "version").slice(beforeDocket);
     return {
+      readVersionCalls: beforeDocket,
       shown: el.style.display !== "none" && el.offsetParent !== null,
       aboveBuild: el.nextElementSibling === build && build.parentElement.lastElementChild === build,
       launch: (document.getElementById("docketLaunchReadLine") || {}).textContent || "",
@@ -178,7 +183,8 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
   ok("L14 the report is shown on the Docket, directly above the Build line, which stays last", L14.shown && L14.aboveBuild);
   ok("L15 it shows the launch read: " + L14.launch, /^Launch read \(\d\d:\d\d:\d\d\): 11 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest /.test(L14.launch));
   ok("L16 per-sheet detail lists all 11 sheets (" + L14.perSheet + ")", L14.perSheet === 11);
-  ok("L17 the first Docket visit checked the version exactly once (" + L14.versionCalls + ")", L14.versionCalls === 1);
+  ok("L17 the first Docket visit checked the version exactly once (" + L14.versionCalls + "; the full read itself asked " + L14.readVersionCalls + ")",
+    L14.versionCalls === 1 && L14.readVersionCalls === 1);
   ok("L18 the lookup is one OneDrive item GET on the session's workbook, not an Excel request: " + L14.versionUrl,
     L14.versionUrl === "https://graph.microsoft.com/v1.0/me/drive/root:/CoinCollection/_Testing/CoinCollection%20(AI)%20COPY.xlsx?$select=id,eTag,cTag,size,lastModifiedDateTime");
   ok("L19 the version line shows last-changed, tag tails and size: " + L14.version,
@@ -210,7 +216,7 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     /last changed 6 Nov \d\d:41:10 CHANGED · eTag …AAA},6 CHANGED · cTag …AAA},4 same · size 1,843,201 same · /.test(L20.version));
   ok("L22 the checks are listed newest first (" + L20.histSummary + ", " + L20.histItems + " items)", L20.histSummary === "Version checks this session (2)" && L20.histItems === 2);
   ok("L23 an unchanged version is 'same' on every field (" + JSON.stringify([L20.same.eTagChanged, L20.same.cTagChanged, L20.same.sizeChanged, L20.same.modifiedChanged]) + ")",
-    L20.same.eTagChanged === false && L20.same.cTagChanged === false && L20.same.sizeChanged === false && L20.same.modifiedChanged === false && L20.versionCalls === 3);
+    L20.same.eTagChanged === false && L20.same.cTagChanged === false && L20.same.sizeChanged === false && L20.same.modifiedChanged === false && L20.versionCalls === 4);
 
   // ---- L24: failures -------------------------------------------------------
   const L24 = await page.evaluate(async () => {
