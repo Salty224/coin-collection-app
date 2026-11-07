@@ -7170,12 +7170,18 @@
             // this.putContent() is not checked (or timed) a second time.
             if (!WORKBOOK_WRITE_GRAPH_METHODS.has(prop)) return timeGraphCall(prop, args, () => v.apply(target, args));
             workbookSession.ownWriteSinceData = true;
+            // (ax) 2a, E: a workbook write outside any timed save gets a
+            // record of its own, so no write is missing from Save steps.
+            const untimed = activeSaveTiming ? null : beginSaveTiming("Write outside a timed save: " + describeGraphCall(prop, args));
             const deleteStartedAt = Date.now();
             const deleteReport = {};
-            return invalidateWorkbookCacheBeforeWrite(deleteReport).then(() => {
+            const run = invalidateWorkbookCacheBeforeWrite(deleteReport).then(() => {
               noteSaveStep(savedCopyDeleteStepName(deleteReport), deleteStartedAt, Date.now() - deleteStartedAt);
               return timeGraphCall(prop, args, () => v.apply(target, args));
             });
+            if (!untimed) return run;
+            return run.then(out => { endSaveTiming(untimed, "written"); return out; },
+              e => { endSaveTiming(untimed, "failed (" + String((e && e.message) || e).slice(0, 80) + ")"); throw e; });
           };
         }
         return function graphRead(...args) { return timeGraphCall(prop, args, () => v.apply(this, args)); };
@@ -9855,7 +9861,7 @@
   let activeGraphClient = RealGraphClient;
   // Every caller gets the read-only gate ((ao) Stage 2, gatedGraphClient()).
   function graph() { return gatedGraphClient(activeGraphClient); }
-  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; if (typeof recentRowWrites !== "undefined") recentRowWrites.clear(); } // test-only seam (a new workbook: no recent writes)
+  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; if (typeof recentRowWrites !== "undefined") recentRowWrites.clear(); clearOwnRowStates(); } // test-only seam (a new workbook: no recent writes)
 
   // Cached once per session (Task 2) — the workbook's own webUrl never
   // changes mid-session, so there's no reason to re-fetch it per render.
@@ -10538,6 +10544,7 @@
     const wanted = ALL_WRITABLE_COLUMNS.concat(ALL_CONTEXT_COLUMNS);
     const indices = wanted.map(c => map[c]).filter(Boolean);
     if (!indices.length) return { values: {}, formulas: {} };
+    if (map.CollectionID) indices.push(map.CollectionID); // (ax) 2a: the row's own id comes with the read
     const last = columnIndexToLetters(Math.max.apply(null, indices));
     const d = await graph().readWorkbookRangeDetail(
       writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
@@ -10557,7 +10564,10 @@
       out[name] = raw === undefined ? null : raw;
       if (isFormulaCell(frow[idx - 1])) formulas[name] = frow[idx - 1];
     });
-    return { values: out, formulas };
+    // (ax) 2a: the CollectionID on the row read (never exposed as a value:
+    // it is a key, not a writable column), or undefined when not in the read.
+    const idOnRow = map.CollectionID && row.length >= map.CollectionID ? row[map.CollectionID - 1] : undefined;
+    return { values: out, formulas, idOnRow };
   }
 
   // --- Comparison / conflict detection --------------------------------
@@ -10768,6 +10778,68 @@
     return out;
   }
 
+  // ==================================================================
+  // (ax) 2a, Part 3: A SECOND SAVE WHILE EXCEL STILL SHOWS THE FIRST
+  // For a couple of minutes after a save, Graph can answer reads with the
+  // row as it was BEFORE that save. A second save of the same coin then saw
+  // a "difference" that was only its own first save, and was refused
+  // (Ray's (ao) TEST round 1). Per CollectionID, for RECENT_WRITE_SHOW_MS
+  // after the app's last save of it, the row states this app produced are
+  // kept: the row before the first save, then the row after each save. A
+  // read is recognised as one of them only if EVERY column those saves
+  // wrote matches, LastModified to the whole second (every app save stamps
+  // it last; Excel and Copilot never touch it, Copilot_Rules A7). A read
+  // that is an EARLIER state is treated as that lag: the latest state's
+  // written values are applied to it before the conflict check and before
+  // working out what to write (so a field set back to its old value while
+  // Excel lags is still written). Anything else, a third value in any
+  // written column or a LastModified that is not one of the app's own, is
+  // compared as read, exactly as before.
+  // ==================================================================
+  const ownRowStates = new Map(); // CollectionID -> { at, cols: Set, states: [row values] }
+  function clearOwnRowStates() { ownRowStates.clear(); }
+  function __ownRowStatesForTest() { return ownRowStates; } // test-only seam
+  function ownCellsMatch(col, a, b) {
+    if (col === "LastModified") {
+      const na = Number(a), nb = Number(b);
+      const blankA = a === null || a === undefined || a === "", blankB = b === null || b === undefined || b === "";
+      if (blankA || blankB) return blankA && blankB;
+      if (Number.isFinite(na) && Number.isFinite(nb)) return Math.round(na * 86400) === Math.round(nb * 86400);
+    }
+    return cellsEqual(a, b);
+  }
+  function ownStateMatches(state, values, cols) {
+    return [...cols].every(c => (c in values) && ownCellsMatch(c, state[c], values[c]));
+  }
+  function ownRowStatesFor(collectionId) {
+    const e = ownRowStates.get(collectionId);
+    if (!e) return null;
+    if (Date.now() - e.at > RECENT_WRITE_SHOW_MS) { ownRowStates.delete(collectionId); return null; }
+    return e;
+  }
+  function noteOwnRowState(collectionId, before, after, written) {
+    if (!collectionId || !before || !after) return;
+    const e = ownRowStatesFor(collectionId) || { states: [], cols: new Set() };
+    (written || []).forEach(c => e.cols.add(c));
+    const last = e.states[e.states.length - 1];
+    if (!last || !ownStateMatches(last, before, e.cols)) e.states.push(Object.assign({}, before));
+    e.states.push(Object.assign({}, after));
+    e.at = Date.now();
+    ownRowStates.set(collectionId, e);
+  }
+  // The index of the app's own state `values` is (latest first), or -1.
+  function ownStateIndex(e, values) {
+    if (!e || !values) return -1;
+    for (let i = e.states.length - 1; i >= 0; i--) if (ownStateMatches(e.states[i], values, e.cols)) return i;
+    return -1;
+  }
+  function withLatestOwnState(values, e) {
+    const latest = e.states[e.states.length - 1];
+    const out = Object.assign({}, values);
+    e.cols.forEach(c => { if (c in latest) out[c] = latest[c]; });
+    return out;
+  }
+
   // (ao) B3: the save's outcome for the Docket's "Last save" line.
   // The first outcome wins, except that a later problem replaces "saved"
   // (fields saved, then a photo failed = partly saved).
@@ -10847,6 +10919,12 @@
       noteSaveStep("parallel row read not used: " + why + "; read again", Date.now(), 0);
     }
     const r = await timeSaveStep("row re-read for the conflict check", () => readAllRowForWrite(rowNumber, map));
+    // (ax) 2a (Ray, 7 Nov 2026): the one-at-a-time read checks the row's
+    // CollectionID too. A different id means the lookup and the row read
+    // saw different versions of the sheet: nothing is written.
+    if (map.CollectionID && r.idOnRow !== undefined && String(r.idOnRow == null ? "" : r.idOnRow).trim() !== String(collectionId).trim()) {
+      return { rowNumber, rowMismatch: r.idOnRow == null || r.idOnRow === "" ? "no CollectionID" : String(r.idOnRow) };
+    }
     return { rowNumber, values: r.values, formulas: r.formulas, readWidth, rowRead: guess ? "again" : "after" };
   }
 
@@ -10919,6 +10997,7 @@
       if (r && r.ok && r.written && r.written.indexOf("LastModified") !== -1 && r.rowNumber) {
         lastModifiedCheck = { collectionId, rowNumber: r.rowNumber, written: r.values.LastModified, at: Date.now(), readBack: null };
       }
+      if (r && r.ok && r.written) noteOwnRowState(collectionId, r.before, r.values, r.written); // (ax) Part 3
       if (r && r.ok && r.written) {
         const written = {};
         r.written.forEach(col => { written[col] = r.values[col]; });
@@ -10945,11 +11024,31 @@
       if (!rowNumber) {
         return finishCoinRowSave(collectionId, { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." });
       }
+      if (read.rowMismatch) {
+        return finishCoinRowSave(collectionId, { ok: false, reason: "row-moved", rowNumber,
+          message: "Row " + rowNumber + " holds " + read.rowMismatch + ", not " + collectionId + ": the sheet changed while this save was reading it. Nothing was saved; try again in a few minutes." });
+      }
       fresh = read.values;
       formulas = read.formulas;
       readWidth = read.readWidth;
     } catch (e) {
       return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
+    }
+
+    // (ax) 2a, Part 3: a read that is only this app's own earlier save.
+    const own = ownRowStatesFor(collectionId);
+    if (own) {
+      const lastIndex = own.states.length - 1;
+      const fi = ownStateIndex(own, fresh);
+      if (fi >= 0 && fi < lastIndex) {
+        fresh = withLatestOwnState(fresh, own);
+        noteSaveStep("the row read still shows this app's earlier save (Excel hasn't caught up): compared with what the app wrote", Date.now(), 0);
+      }
+      const si = snapshot ? ownStateIndex(own, snapshot) : -1;
+      if (si >= 0 && si < lastIndex) {
+        snapshot = withLatestOwnState(snapshot, own);
+        noteSaveStep("the form was opened while Excel still showed this app's earlier save: compared with what the app wrote", Date.now(), 0);
+      }
     }
 
     const conflicts = detectRowConflicts(snapshot, fresh);
@@ -11246,10 +11345,45 @@
 
   const BLANK_ROW_CLAIM_ATTEMPTS = 5;
 
+  // (ax) 2a, A4: the sheet rows this session has claimed, per table. For a
+  // few minutes after a write, Graph can answer reads with the workbook as
+  // it was BEFORE the write (Ray's TEST, 7 Nov 2026), so a row this session
+  // just filled can still read as blank. A claimed row is never claimed
+  // again in this session, whatever a read says. Kept per graph client (a
+  // test's fresh mock workbook starts empty), like lastMintedIds.
+  let claimedRowsByTable = {}, claimedRowsClient = null;
+  function claimedRows(tableName) {
+    if (claimedRowsClient !== graph()) { claimedRowsByTable = {}; claimedRowsClient = graph(); }
+    return claimedRowsByTable[tableName] || (claimedRowsByTable[tableName] = new Set());
+  }
+  function noteClaimedRow(tableName, sheetRow) { claimedRows(tableName).add(sheetRow); }
+  function rowClaimedThisSession(tableName, sheetRow) { return claimedRows(tableName).has(sheetRow); }
+  function __claimedRowsForTest(tableName) { return [...claimedRows(tableName)]; } // test-only seam
+  // (ax) 2a, C': CollectionIDs whose keys this session wrote but no read has
+  // shown yet -> { row, at }. A retry while Excel still lags must not claim
+  // ANOTHER row (that would make a duplicate): it refuses again until a read
+  // finds the id. After RECENT_WRITE_SHOW_MS (10 minutes, far past the
+  // delays measured) the write is treated as lost and a retry may claim a
+  // new row (the old one stays claimed, A4). Per graph client.
+  function keysNotVisibleRows() {
+    claimedRows(ALL_TABLE_NAME); // resets both maps with a new client
+    return claimedRowsByTable.__keysNotVisible || (claimedRowsByTable.__keysNotVisible = new Map());
+  }
+  function __keysNotVisibleForTest() { return keysNotVisibleRows(); } // test-only seam
+  function keysNotVisibleError(collectionId, targetRow) {
+    const err = new Error("Wrote the keys for " + collectionId + " to row " + targetRow + " (Graph confirmed the write), " +
+      "but Excel isn't showing them yet; it can take a couple of minutes. Nothing else was written. " +
+      "Promote (or Force Add) " + collectionId + " again in a couple of minutes: the app will find row " + targetRow + " and finish it.");
+    err.code = "KEYS_NOT_VISIBLE_YET";
+    err.rowNumber = targetRow;
+    return err;
+  }
+
   async function findClaimableBlankRow(col) {
     let checked = 0;
     for (let i = 1; i < col.length && checked < BLANK_ROW_CLAIM_ATTEMPTS; i++) {
       if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
+      if (rowClaimedThisSession(ALL_TABLE_NAME, i + 1)) continue; // (ax) A4
       checked++;
       const sheetRow = i + 1;
       if (await allSheetRowIsBlank(sheetRow)) return sheetRow;
@@ -11307,6 +11441,15 @@
       // us. Nothing has been appended at this point, so nothing is left
       // behind — the old version's "a blank row was appended" caveat is gone.
       const already = collectionIdRowsInColumn(col, collectionId);
+      // (ax) C': keys already written by this session and still not showing:
+      // refuse again rather than claim a second row.
+      const pending = keysNotVisibleRows().get(String(collectionId).trim());
+      const pendingRow = pending && Date.now() - pending.at <= RECENT_WRITE_SHOW_MS ? pending.row : null;
+      if (!already.length && pendingRow) {
+        noteSaveStep("keys for " + collectionId + " written earlier to row " + pendingRow + ", still not showing; nothing written", Date.now(), 0);
+        throw keysNotVisibleError(collectionId, pendingRow);
+      }
+      if (already.length) keysNotVisibleRows().delete(String(collectionId).trim());
       if (already.length) {
         const err = new Error(collectionId + " already appears on the All sheet at row " + already.join(" and row ") +
           " — nothing written, and nothing was added to the sheet.");
@@ -11329,7 +11472,7 @@
         const candidates = [];
         if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
         if (col.length > 1) candidates.push(col.length); // the table's last row
-        targetRow = candidates.filter(cellIsBlank)[0];
+        targetRow = candidates.filter(r => cellIsBlank(r) && !rowClaimedThisSession(ALL_TABLE_NAME, r))[0];
         if (!targetRow) {
           throw new Error("Appended a row for " + collectionId + " but no blank row was available to claim" +
             (candidates.length ? " (checked row " + candidates.join(" and row ") + ")" : "") +
@@ -11337,6 +11480,9 @@
         }
       }
 
+      // (ax) A4: claimed before the write, so even a failed or unconfirmed
+      // write never lets this session hand the same row out again.
+      noteClaimedRow(ALL_TABLE_NAME, targetRow);
       await writeNewRowKeyCells(targetRow, collectionId, coinId);
 
       // Verify in two halves, deliberately.
@@ -11377,10 +11523,18 @@
       // claimed rather than failing and leaving a keys-only row behind.
       if (!rows.length && keyLanded) return targetRow;
       if (!rows.length) {
-        throw new Error("Wrote keys for " + collectionId + " at row " + targetRow +
-          " but the cell reads back empty — nothing further was written. " +
-          "Press Force Add (or Promote) again: if the keys did land, the retry completes the row.");
+        // (ax) 2a, C': Graph confirmed the key write (patchWorkbookRanges
+        // throws otherwise), but Excel can answer reads with the workbook as
+        // it was before it for a couple of minutes (Ray's TEST, 7 Nov 2026:
+        // row 626 read back empty though the keys had landed). An empty
+        // read-back proves nothing either way, so nothing more is written
+        // here; Promote again later finds the row and finishes it (the
+        // "already on the All sheet" path: fills blanks, never overwrites).
+        noteSaveStep("key read-back: row " + targetRow + " not showing " + collectionId + " yet (Graph confirmed the write); nothing more written", Date.now(), 0);
+        keysNotVisibleRows().set(String(collectionId).trim(), { row: targetRow, at: Date.now() });
+        throw keysNotVisibleError(collectionId, targetRow);
       }
+      keysNotVisibleRows().delete(String(collectionId).trim());
       return rows[0];
     });
   }
@@ -11772,6 +11926,7 @@
       let checked = 0;
       for (let i = 1; i < col.length && checked < RECORD_ROW_CLAIM_ATTEMPTS; i++) {
         if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
+        if (rowClaimedThisSession(tableName, i + 1)) continue; // (ax) A4
         checked++;
         if (await tableRowIsBlank(sheetName, i + 1, map)) { targetRow = i + 1; break; }
       }
@@ -11783,9 +11938,10 @@
         const candidates = [];
         if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
         if (after.length > 1) candidates.push(after.length);
-        targetRow = candidates.filter(blankAt)[0];
+        targetRow = candidates.filter(r => blankAt(r) && !rowClaimedThisSession(tableName, r))[0];
         if (!targetRow) throw new Error("Appended a " + sheetName + " row but no blank row was available to claim.");
       }
+      noteClaimedRow(tableName, targetRow); // (ax) A4: before the write, never handed out twice
       await patchRecordRow(sheetName, targetRow, map, values);
       return targetRow;
     });
@@ -11829,6 +11985,11 @@
       const a1 = columnIndexToLetters(map[name]) + rowNumber;
       await graph().patchWorkbookRanges(writePaths().workbook, sheetName,
         [{ address: a1 + ":" + a1, values: [[dateValues[name].value]], numberFormat: [[WORKBOOK_DATE_FORMAT]] }]);
+    }
+    // (ax) A4: a row this session blanked itself (a detach writes every
+    // cell blank, confirmed by Graph) goes back into the claimable pool.
+    if (Object.keys(values || {}).every(k => isBlankWriteValue(values[k]))) {
+      claimedRows(SHEET_TABLE_NAMES[sheetName] || sheetName).delete(rowNumber);
     }
   }
 
@@ -25110,7 +25271,17 @@
   // (Ray chose the sheet by tapping) and the toast says which were kept. CoinID
   // is not touched here (`force` skips its rules): Mark as promoted closes a
   // draft, it does not link one.
-  async function markCoinDraftAlreadyPromoted(collectionId) {
+  // (ax) 2a, E: timed for Save steps like Promote; the outcome says what
+  // happened when no row write reported one.
+  function markCoinDraftAlreadyPromoted(collectionId) {
+    return withSaveTiming("Mark as promoted " + collectionId, async () => {
+      const done = await markCoinDraftAlreadyPromotedUntimed(collectionId);
+      if (!done) noteSaveOutcome("not done (see the message on screen)");
+      else if (activeSaveTiming && !activeSaveTiming.noted) noteSaveOutcome("draft closed (nothing written to All)");
+      return done;
+    });
+  }
+  async function markCoinDraftAlreadyPromotedUntimed(collectionId) {
     try {
       const rowNumber = await findAllSheetRowNumber(collectionId);
       if (!rowNumber) {

@@ -155,7 +155,11 @@ module.exports = defineSuite("retest-round2", async ({ ok, openApp, PHONE, TABLE
     __setGraphClientForTest(null); __resetAllHeaderMapForTest();
     return { err };
   });
-  ok(/reads back empty/.test(B3.err || ""), "B4 a write that truly didn't land still fails: " + B3.err);
+  // (ax) 2a: Graph's 200 makes "never landed" and "Excel not showing it yet"
+  // look the same from here, so the wording now says the latter (C'); the
+  // write still fails, nothing else is written, and the retry is named.
+  ok(/^Wrote the keys for AY-00715 to row \d+ \(Graph confirmed the write\), but Excel isn't showing them yet.*Nothing else was written\. Promote \(or Force Add\) AY-00715 again/.test(B3.err || ""),
+    "B4 a write that truly didn't land still fails: " + B3.err);
   ok(/again/.test(B3.err || "") && !/duplicate row/.test(B3.err || ""),
     "B5 ... with wording that says to retry, not the old misleading \"check for a duplicate row\"");
 
