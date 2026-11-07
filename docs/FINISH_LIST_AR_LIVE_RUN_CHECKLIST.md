@@ -17,4 +17,4 @@ Before TEST: refresh `_Testing` from LIVE so its Lookup_Finishes has Various (A1
 After merge and the LIVE deploy:
 8. LIVE first launch: "Data: read from the workbook" (the old saved copy is refused, "format"), no TEST bar, Diamond Field in the Finish list, Various not offered.
 
-Results: (none yet)
+Results: TEST on PC (Ray, 7 Nov 2026, branch tip `552ff13`, Build 106): PASSED: About "12 of 12" (checklist 2); the Finish list in sheet order, Various absent, no grey note (3); Diamond Field survives Save to Staging and reopen (4); a second reopen says "saved copy matched", no sheet reads (6). NOT RUN: the catalog fill with an unknown Finish (5): the Copilot check shows no DB_Coins row has an unlisted or blank Finish, so it can't happen with real data; covered by `verify_finish_list_ar` F5c. SKIPPED: offline (7, optional). Ray's report numbered these 1, 2, 3, 5 (passed), 4 (not run), 6 (skipped). Merged to main by fast-forward on Ray's go-ahead (7 Nov 2026). Step 8 (first LIVE launch) waits for Ray's LIVE deploy of main.
