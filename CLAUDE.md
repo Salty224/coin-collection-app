@@ -5,18 +5,16 @@ no backend server. Talks directly to OneDrive (Ray's personal Microsoft account)
 Microsoft Graph API, and the Excel workbook there is the authoritative data store.
 
 ## Current state (rewritten at the end of every task; read this first)
-- main = the (ar) merge docs commit of 7 Nov 2026 (`git log -1 main`): fast-forward of `claude/finish-list-ar`, last code commit `632f8e0` (`app.html` last changed in `c520e3d`). LIVE = `d0a69b2` (Ray deployed main 7 Nov): (al), (an), (ao) ON LIVE; (ar) is NOT on LIVE until Ray deploys main. A merge never deploys: what is deployed is known only from Ray's screen (Build line) or his word.
-- No open feature branch. (ar) MERGED (Ray's go-ahead 7 Nov after TEST on PC, Build 106, tip `552ff13`: 12 of 12, sheet-order list without Various, Diamond Field kept through Staging and reopen, "saved copy matched"; the unknown-Finish catalog fill not run, no such DB_Coins row; offline skipped). Write-up docs/ref/ADD_COIN.md "Finish list from Lookup_Finishes (ar)", log docs/HISTORY.md, checklist docs/FINISH_LIST_AR_LIVE_RUN_CHECKLIST.md.
-- WAITING ON RAY: deploy main to LIVE and run (ar) checklist step 8 (first LIVE launch "read from the workbook", the old saved copy refused as "format", Diamond Field listed, Various not, no TEST bar). No deadline: Diamond Field is entered when the 2026-P Diamond Field Morgan and Peace coins arrive; Copilot adds that set's DB_Coins / DB_Sets rows separately.
-- Origin branches: `main` and `claude/finish-list-ar` (merged; Ray deletes; never delete branches here). Never push a ccr- branch.
+- main = the (ax) STEP 0 docs commit of 7 Nov 2026 (`git log -1 main`); last code commit `632f8e0` (`app.html` last changed in `c520e3d`). LIVE = `2b4920f` (Ray deployed main 7 Nov; (ar) step 8 PASSED: no TEST bar, "Data: read from the workbook", About 12 of 12, Diamond Field listed, Various not). Everything merged is on LIVE; commits after `2b4920f` are docs only. A merge never deploys: what is deployed is known only from Ray's screen (Build line) or his word.
+- Hash check (7 Nov): (ar)'s TEST ran on `552ff13`, LIVE is `2b4920f`, the baseline ran on `632f8e0`; `632f8e0..2b4920f` touches no app.html and no tests, so all three ran the same code.
+- No open feature branch. Origin: `main` only (Ray deleted `claude/finish-list-ar`); never delete branches here; never push a ccr- branch.
 - Baseline: full `npm test` at `632f8e0` (7 Nov 2026; later commits are docs only): 4961 passed, 0 failed, 0 page errors, 97 suites, 625 s. To compare a run, diff the sorted `PASS` / `FAIL` lines.
-- (ar) LIVE workbook check (Copilot, read-only, 7 Nov): Lookup_Finishes A2:A12 = FINISH_FALLBACK_LIST values 1-10 and 12 exactly (order differs), A13 Various, A14 Matte, A15 Diamond Field; no spacing / NBSP / apostrophe / divider issues; every non-blank DB_Coins.Finish and All.Finish matches the sheet; All has 6 Various rows (set-level).
-- Finding (ao TEST round 2): Excel for the web saves in TWO stages (version first, content with a second version change, ~2 min apart); Graph writes land in one stage. Covered by the design; the 10-minute rules stay.
-- Next: (ax) save speed, its own branch: FIRST find the missing ~5 s inside the write step (8.0 s vs a 2.9 s `$batch`), then run the header re-read, row lookup and conflict re-read together; (au) MSAL load failure shows demo data (plan first); (ba) About lists background re-reads; (ay) value rule question; (az) Build line date; then the unordered backlog.
-- Open for Ray from (ao) (BACKLOG (ao) "TEST round 1"): a false "changed since you opened" on a second save of the same coin while Excel's content changes over (safe direction; fixing it changes invariant 4).
+- NEXT: (ax) save speed. PLAN written 7 Nov 2026 in docs/BACKLOG.md (ax) "PLAN (7 Nov 2026)": 1 the missing ~5 s inside "write" (IndexedDB delete, token, body read, main-thread stall; measure in About > Save steps), 2 the three pre-write reads in parallel (P2 with three confirmations and a serial fallback), 3 the false second-save refusal (recognise the app's own recent save by LastModified; rewords invariant 4). WAITING on Ray's answers Q1-Q10; NO code until then. Branch `claude/save-speed-ax`, held for Ray's merge go-ahead.
+- After (ax): (au) MSAL load failure shows demo data (plan first); (ba) About lists background re-reads; (ay) value rule question; (az) Build line date; then the unordered backlog, including new (bb) Save to Staging's "Last save" outcome and (bc) the Category model (design agreed 7 Nov, not scheduled).
+- Workbook 7 Nov (Copilot, LIVE, ParkingLot 308): Lookup_Categories.AppliesTo added (37 rows; comma-separated Coin / Set / Roll); nothing in the app reads it yet ((bc)). Excel for the web saves in TWO stages (version, then content ~2 min later); Graph writes land in one stage; the 10-minute rules stay.
 - Waiting on Ray (other): device check of the interim receipt naming; (z) on a device; Ledger tiles, Sets Variety line, melt / face labels on LIVE; LIVE Photos duplicate PhotoIDs (u) before any Replace on LIVE; `cropped_04` on AY-00756.
 - Workbook: docs/ref/WORKBOOK.md. LIVE All lost "Column1" (former AE) on 7 Nov, so LIVE letters from AE on moved one left (LastModified AY); _Testing keeps it until its next refresh (ValueDate AD, LastModified AZ). All.SpotValue has its formula in 1,552 of 1,555 rows. ParkingLot rows 1, 3, 4 of the old block are ParkingLot 286, 302, 303.
-- Not verified on a real device / LIVE: (ar) on LIVE (step 8), (ar) on a phone and offline; IndexedDB eviction, installed app vs tab, MSAL's real offline error codes; content lag over 10 min; (aw); (an) ready flag on LIVE; write safety on LIVE beyond _Testing; F8 by hand; real `$batch` over 20 (F5) and part-landed (F2); the date branch, album cover coin, Build B's Set Details tile / arrow keys / tablet, Builds 1-2 on LIVE; interim receipt naming; drift rows vs the real formulas; (z); Graph conflictBehavior=fail (409) on a real upload.
+- Not verified on a real device / LIVE: (ar) on a phone and offline; IndexedDB eviction, installed app vs tab, MSAL's real offline error codes; content lag over 10 min; (aw); (an) ready flag on LIVE; write safety on LIVE beyond _Testing; F8 by hand; real `$batch` over 20 (F5) and part-landed (F2); the date branch, album cover coin, Build B's Set Details tile / arrow keys / tablet, Builds 1-2 on LIVE; interim receipt naming; drift rows vs the real formulas; (z); Graph conflictBehavior=fail (409) on a real upload.
 - Finding things: docs/INDEX.md (moved headings), docs/CODEMAP.md (regenerated at `632f8e0`, with an (ar) section).
 
 ## Where to look (read the file BEFORE working in that area)
@@ -157,71 +155,8 @@ Full text and history: [docs/ref/PLATFORM.md](docs/ref/PLATFORM.md). Rules:
 - Mobile-first — Ray uses Chrome on a Samsung S25 (corrected 7 Nov 2026; older docs and E2 say Samsung
   Internet, whose quirks shaped earlier work). Desktop/tablet also matter, especially for Albums.
 
-## The build decides its data target (Oct 2026) — read this first
-**Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
-constant that "only Ray flips".** Built on `claude/build-decides-target`
-(app) and `claude/build-decides-target-deploy-workflow` (workflow), merged
-to `main` as two fast-forwards on Ray's go-ahead (`aa55f55`, then `1119003`).
-**DONE and LIVE (17 Oct 2026):** Pages source is "GitHub Actions"; Ray ran
-the workflow (runs #1-#3, all success) and `main` is deployed stamped, so the
-live site writes the REAL workbook and `CoinCollection/CoinPhotos`/
-`CoinReceipts`. Ray confirmed a real photo and receipt read/write against the
-live database. Every future change reaches the live site only when Ray runs
-the workflow for `main`.
-
-**The rule.** `WRITE_TARGET` is derived at load from an inline build stamp
-(`BUILD_STAMP`, the one placeholder line `const BUILD_STAMP = null;` marked
-for the workflow) by `isLiveBuild()`. It is `"live"` (the real workbook and
-the real `CoinCollection/CoinPhotos`, `CoinReceipts`, `Staging`) ONLY when
-all of these hold; anything else, including any error while checking, is
-`"copy"` (`CoinCollection/_Testing/`):
-- the stamp is a real object (not the placeholder, not a string);
-- its branch is exactly `"main"` (not `main-fix`, a tag, `refs/heads/main`);
-- its commit is 40 lowercase hex characters;
-- the page is served over https from `salty224.github.io` under
-  `/coin-collection-app/` (not localhost, `file://`, a download, another
-  path).
-The stamp is inline (not fetched) so it exists synchronously before the
-write flags, `WRITE_LAYER_ENABLED`, the MSAL instance and `WRITE_PATHS` are
-built, and so it can never disagree with the code it shipped with. **Nothing
-in the code is flipped to go live** — deploying `main` through the workflow
-is what does it.
-
-**Every write flag is on in both targets** (`ENABLE_SET_WRITE_LAYER`,
-`ENABLE_BROWSE_EDIT_WRITE`, `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`,
-`ENABLE_SET_LINK_WRITE`, `ENABLE_PURGE_WRITE` are plain `true`; they used to
-be `(WRITE_TARGET === "copy")`, which switched every writer OFF under
-"live"). Each flag still gates its own feature. The on-screen messages that
-say "WRITE_TARGET is live and this hasn't been re-enabled yet" are now
-unreachable and were deliberately left alone.
-
-**What the user sees.**
-- **TEST bar**: a thin (24px) blue bar fixed at the very top, above the
-  splash, reading `TEST · {branch}` (`TEST · unstamped` with no stamp), shown
-  ONLY when the target is the copy. Nothing at all when live. Its height is
-  published as `--top-strip-h`, which pads the body, moves the sticky
-  `.nav-chrome` down, pads the photo overlays, and is subtracted from
-  `#app`'s `min-height: 100vh` (without that, every screen scrolled by 24px).
-- **Build line**: small gray `Build {N} · {D Mon} · {short commit}` (date in
-  UTC) directly under "Connecting to OneDrive…" on the splash and at the
-  very bottom of the Docket screen, centred, in both modes; `Build
-  unstamped` with no stamp.
-- **Newer-build row**: a stamped, served build fetches `build-info.json`
-  (written by the workflow beside `app.html`) uncached once at startup; if
-  its commit differs from the page's own stamp, an amber row "A newer build
-  is deployed — reload" appears under (or instead of) the TEST bar. Does
-  nothing when unstamped, opened from a file, or when the file is missing or
-  malformed.
-
-**Deploy routine (after the workflow merge).** Pages source is "GitHub
-Actions". There is no push trigger: nothing deploys until Ray runs the
-workflow. Actions → "Deploy to GitHub Pages" → Run workflow → leave "Use
-workflow from" on `main` → type the branch to deploy (no default since
-Oct 2026: the box starts blank and a blank run fails before checkout, so
-LIVE is never a pre-filled value accepted by accident) → Run workflow. The workflow checks out that branch, stamps branch, commit,
-`github.run_number` and the UTC date into the placeholder line (the build
-fails if the line isn't found exactly once), writes `build-info.json`, and
-deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
+## The build decides its data target (Oct 2026; LIVE since 17 Oct 2026)
+`WRITE_TARGET` is never hand-set: `isLiveBuild()` derives it at load from the inline `BUILD_STAMP` (the one placeholder line `const BUILD_STAMP = null;`, stamped by the deploy workflow). It is `"live"` (the real workbook and `CoinCollection/CoinPhotos`, `CoinReceipts`, `Staging`) ONLY when the stamp is a real object, its branch is exactly `"main"`, its commit is 40 lowercase hex, and the page is served over https from `salty224.github.io` under `/coin-collection-app/`; anything else, any error included, is `"copy"` (`CoinCollection/_Testing/`). Nothing in the code is flipped to go live; every write flag is plain `true` in both targets. On screen: the blue `TEST · {branch}` bar (copy only; `--top-strip-h`), the gray Build line (splash, Docket bottom), the amber "A newer build is deployed — reload" row (`build-info.json`). Deploy: Actions → "Deploy to GitHub Pages" → Run workflow from `main` → type the branch (the box starts blank; a blank run fails) → `main` = LIVE, any other branch = TEST. No push trigger. Full text (moved 7 Nov 2026): [docs/ref/PLATFORM.md](docs/ref/PLATFORM.md) "The build decides its data target: the rule".
 
 ## Platform and auth rules (detail: [docs/ref/PLATFORM.md](docs/ref/PLATFORM.md))
 - **Azure/Entra:** client ID `bf9aaf28-a5e1-4eed-a006-15f03146693b`, tenant `consumers` (personal accounts only), authority `https://login.microsoftonline.com/consumers`. Use `loginRedirect`, never popup. Load MSAL from the jsdelivr CDN, not `alcdn.msauth.net` (a browser extension of Ray's blocks it). Redirect URIs are registered per page: `index.html` (bare Pages root), `stage.html`, and `app.html` for both `http://localhost:8791/app.html` and the Pages URL; `app.html` derives `redirectUri` from `window.location` at runtime.
@@ -278,43 +213,27 @@ deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
 - Receipt photos auto-wrap to a single-page PDF (lossless; a picked PDF passes through unchanged).
 
 ## App structure
-Single-page app shell, one MSAL redirect URI, internal navigation: Dashboard /
-Browse / Albums / Sets / Wishlist / Add Coin. Name: "Salty's Cabinet." Batch
-Receipt, Stats & Value, and Needs Attention are dashboard-only destinations,
-not persistent nav items. **Superseded: the persistent bottom/side nav is now
-six items, not five** — `Sets` was added as a full persistent nav entry (see
-"Browse: navigation restructure" below), same standing as Albums; the
-Dashboard's "Go To" tile grid is generated from the same nav-item list, so
-Sets automatically got a Dashboard tile too, the same way Albums always has.
-Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
-tile — it's reachable only via its own tab inside Browse.
+Single-page app "Salty's Cabinet", one MSAL redirect URI, internal navigation. Persistent nav, six items: Dashboard, Browse, Albums, Sets, Wishlist, Add Coin (the Dashboard's "Go To" tiles come from the same list). Batch Receipt, Stats & Value and Needs Attention are Dashboard-only destinations. Rolls has no nav entry or tile: only its own tab inside Browse.
 
 ## What NOT to build
 - AI photo pre-fill from receipts/coin photos — shelved permanently. Redundant with
   free chat-based photo analysis Ray already gets through his Pro subscription.
 - Batch order entry UI in the app — stays a chat + Copilot workflow.
-- Live PCGS account login — see External data sources above.
+- Live PCGS account login (docs/ref/PLATFORM.md "External data sources").
 - localStorage/sessionStorage for anything that matters — use OneDrive as the
   actual store; the app should be re-derivable from OneDrive state at any time.
 
-## Merged work: rules and one-line summaries (write-ups: the file named at the end of each line)
-- **Photos wait for Save, C1-C3** (main 27 Oct, `928d7a9`): Add, Replace, Recrop, ✕ on a saved record are held in memory and written only by Save Changes / Save, one at a time in screen order; the leave guard (`navigate()` wraps `navigateNow()`; `guardLeaveEditScreen`; one device-Back history entry) asks before discarding; Package / OGP is open-ended; Replace never overwrites a file (names chosen at Save). [SAVE_AND_RECEIPTS.md]
-- **Receipts never overwrite** (28 Oct): same-document decided by bytes; byte-fetch failure counts as different; one ReceiptID never points at two files. [SAVE_AND_RECEIPTS.md]
-- **✕ on a Replace pick is an undo** (30 Oct): the pick goes, the previous photo comes back; deleting the old one is a separate ✕. [SAVE_AND_RECEIPTS.md]
-- **Staging photo replace keeps the old file** (30 Oct): only ✕ after its confirm deletes; a failed Staging-edit save deletes its own half-pair. [SAVE_AND_RECEIPTS.md]
-- **Save only when something changed** (z, 31 Oct, `014be60`): see invariant 11; `refreshEditSaveState()`, `.save-btn.is-clean`. [SAVE_AND_RECEIPTS.md]
-- **Receipts wait for Save** (x, 31 Oct, `da1c19e`): `holdPendingReceipt()`, `pendingReceipts[id]`, Save writes the receipt last (`savePendingReceipt`). [SAVE_AND_RECEIPTS.md]
-- **Receipts and photos alignment, Build 1** (31 Oct, `6a21b60`): invariant 12; Docket rows for 2+ receipts and for drift; Binder button only while the slot is empty (`BINDER_RECEIPT_TEXT`). [SAVE_AND_RECEIPTS.md]
-- **Build 2** (31 Oct, `28e5d5d`; on LIVE in `d61f1dd`): ✕ on a stored receipt always asks and only makes the removal pending (never deletes a file); a Replace of a shared receipt asks "Replace on all N coins" / "This coin only"; INTERIM naming: a picked PDF keeps its name, a photo on 2+ coins is `{ReceiptID}_receipt.pdf`, any other photo `{CollectionID}_receipt.pdf` (Edit Coin / Edit Set only; Add Coin, Staging edit and Add Set keep `{CollectionID}_receipt.pdf` until Batch Receipt). [SAVE_AND_RECEIPTS.md]
-- **Guided Obverse / Reverse crop, Build A** (1 Nov, `e0aa7a3`; on LIVE in `d61f1dd`): a Holder front / back / Reference added in a session offers to crop the Obverse / Reverse from it (Add Coin, Staging edit and Edit Coin only; never Manage Photos or Edit Set); the crop is an ordinary pending entry; the source is the pending picture's own bytes (1400 px limit accepted). [PHOTOS.md]
-- **Details photo viewer next / previous, Build B** (2 Nov, `24d3e72`; on LIVE in `d61f1dd`): steps through the page's photos in page order, never wraps, never includes receipts; edit-screen viewers have no next / previous; if zoom / pan is ever added, swipe must become "only when not zoomed". [PHOTOS.md]
-- **Dates are real Excel dates** (4 Nov, `7b75c4e`): invariants 5 and 6; Docket row "Date stored as text"; Staging / Docket JSON dates use the local day. [WRITE_LAYER.md]
-- **Finish / Category required, draft cleanup** (5 Nov 2026, merged `7c3c82c`, on LIVE in `8c58b00`): Save to Database and Promote need a Finish AND a Category (Lookup_Categories column A, read only; "Use <Finish> (from the catalog)"; Force Add excepted; `COIN_DEFAULT_CATEGORY`); a leftover draft of a coin already on All shows one action, "Mark as promoted" (never automatic); **Promote NEVER overwrites a row already on All**: identical = nothing written, blank cells filled (LastModified stamped), a differing cell = nothing written and the draft stays open. [ADD_COIN_WRITE.md, DOCKET_STAGING.md]
-- **Write safety (al)** (6 Nov 2026, merged `9033fa5`, on LIVE in `f779287`): invariants 1, 3, 5 and 14 (missing column refused F6, headers re-read at every write, formula cells never written, LastModified last, `$batch` split at 20, part-landed saves named); F8 Mark as promoted on the Docket. [WRITE_LAYER.md]
-- **Test speed (an)** (6 Nov 2026, merged `1eefde8`, Ray's TEST check passed, on LIVE in `8622d7d`): `npm test -- <word...>` / `--list`; app `window.__appReady` after ALL startup promises settle (`trackStartup()` + `Promise.allSettled`; rejections stay page errors; nothing in the app reads it); `openApp` waits for it, `appReady(page)`, `openApp(vp, { blank: true })`; crop Stage 2 = wait for `bgCropOverlay` hidden, then look; no assertion changed; control `node tests/controls/ready_flag_control.js` (by hand). [PLATFORM.md]
-- **Device cache and offline read-only view (ao)** (7 Nov 2026, merged by fast-forward, last code `406fed8`; Ray's TEST rounds 1-2 passed; on LIVE in `d0a69b2`, step 12 passed 7 Nov): invariant 17; the IndexedDB saved copy (launch without sheet reads when the version matches and the workbook is 10+ min unchanged); the write gate is an allow-list (checked AND online); Offline / Can't reach OneDrive rows, dimmed write buttons, no MSAL redirect for lack of network; toasts "Updated" (only when data changed) / "Back online"; a save's written values shown while Excel's content lags (`withRecentWrites`, display only); Docket "About": load report, save steps and outcome, version checks, content-lag probe, Refresh. [PLATFORM.md; log HISTORY.md]
-- **Finish list from Lookup_Finishes (ar)** (7 Nov 2026, merged by fast-forward, last code `632f8e0`; Ray's TEST on PC passed; LIVE pending): Lookup_Finishes is the 12th launch sheet (optional, in the saved copy, `WORKBOOK_CACHE_FORMAT` 2); Add Coin's Finish list is its column A in sheet order (`buildLookupFinishList`: trimmed only, no blank / "═" / repeat, never "Various" (`FINISH_NOT_OFFERED`)); fallback `FINISH_FALLBACK_LIST` = the old 12 plus Diamond Field, never empty; a value the list lacks stays as "— existing value" (`populateFinishOptions`); the catalog fill only sets an offered Finish; Diamond Field in the Special Catalog pill. Read-only: the app never writes Lookup_Finishes. [ADD_COIN.md; log HISTORY.md]
-- **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned" at creation, Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): rules are in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
+## Merged work: one-line summaries (write-ups: the file at the end of each line; the fuller lines as they stood until 7 Nov 2026: docs/HISTORY.md "Merged-work lines moved from CLAUDE.md")
+- **Photos and receipts on a saved record** (27-31 Oct: C1-C3 `928d7a9`, receipts never overwrite, ✕ on a Replace pick is an undo, Staging photo replace keeps the old file, (z) save only when changed `014be60`, (x) receipts wait for Save `da1c19e`): invariants 9-11. [SAVE_AND_RECEIPTS.md]
+- **Receipts / photos alignment** Build 1 (31 Oct, `6a21b60`; invariant 12) and Build 2 (31 Oct, `28e5d5d`): ✕ on a stored receipt only makes the removal pending; a shared receipt's Replace asks "all N coins" / "this coin only"; INTERIM naming (a picked PDF keeps its name; a photo on 2+ coins `{ReceiptID}_receipt.pdf`, else `{CollectionID}_receipt.pdf`; Edit Coin / Edit Set only). [SAVE_AND_RECEIPTS.md]
+- **Guided Obverse / Reverse crop, Build A** (1 Nov, `e0aa7a3`) and **Details viewer next / previous, Build B** (2 Nov, `24d3e72`; if zoom is ever added, swipe only when not zoomed); both on LIVE in `d61f1dd`. [PHOTOS.md]
+- **Dates are real Excel dates** (4 Nov, `7b75c4e`): invariants 5, 6. [WRITE_LAYER.md]
+- **Finish / Category required, draft cleanup** (5 Nov, `7c3c82c`, LIVE in `8c58b00`): Save to Database and Promote need both (Force Add excepted; `COIN_DEFAULT_CATEGORY`); a leftover draft of a coin on All offers only "Mark as promoted"; Promote never overwrites a row already on All. [ADD_COIN_WRITE.md, DOCKET_STAGING.md]
+- **Write safety (al)** (6 Nov, `9033fa5`, LIVE in `f779287`): invariants 1, 3, 5, 14; F8 Mark as promoted on the Docket. [WRITE_LAYER.md]
+- **Test speed (an)** (6 Nov, `1eefde8`, LIVE in `8622d7d`): `npm test -- <word...>` / `--list`; `window.__appReady` after every startup promise settles; `openApp` waits for it. [PLATFORM.md]
+- **Device cache and offline read-only view (ao)** (7 Nov, last code `406fed8`, LIVE in `d0a69b2`): invariant 17; Offline / Can't reach OneDrive rows; toasts "Updated" / "Back online"; written values shown while Excel's content lags (`withRecentWrites`, display only); Docket "About" (load report, save steps and outcome, version checks, content-lag probe, Refresh). [PLATFORM.md]
+- **Finish list from Lookup_Finishes (ar)** (7 Nov, last code `632f8e0`, LIVE in `2b4920f`, step 8 passed): the 12th launch sheet (optional; saved-copy format 2); the list is column A in sheet order, never "Various"; fallback `FINISH_FALLBACK_LIST` (13, with Diamond Field); a value the list lacks stays as "— existing value". Read-only. [ADD_COIN.md]
+- **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned", Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
 
 ## Open backlog (one line each; full text: [docs/BACKLOG.md](docs/BACKLOG.md))
 Open, not built:
@@ -322,7 +241,7 @@ Open, not built:
 - (a) a newly promoted coin is not in the Catalog until restart (plan first). (d) a Staging-edit receipt's ✕ appears only after a redraw. (e) image chooser left: C4 (Add Set, Wishlist), C5 receipts; HEIC via Files unverified. (f) Catalog Finish groups are fixed in code. (h) graded / reholdered capture design (cost part is (ag)). (i) viewer back gesture unverified on a device. (j) residual receipt bugs, mostly closed by (x) and Builds 1-2. (k) deploy workflow actions to Node 24.
 - (q) retire the old OGP read mapping after C4 and a workbook check. (r) Edit Set saving and split build (all fields with a conflict check, split out child coins, partial sales; "My notes" / "Catalogue notes" labels; a Set's Fun Fact hidden). (u) data fix outside the app: PH-00129 on two TEST rows; check LIVE's Photos tab for duplicate PhotoIDs. (v) note only: pre-27 Oct LIVE Replace overwrote files.
 - (x) rest: move the Edit Coin / Edit Set receipt slot into Purchase Details. (y) the Staging-edit receipt slot needs the shared chooser and a top-right ✕. (aa) Keep or Delete prompt on every Replace, one "Replaced" folder, Staging folder cleanup ((s) folded in). (ab) apply the (z) rule to later forms. (ac) Ledger By Denomination lists six denominations only. (ad) should Total spent / Net include Shipping (pair with (ag)). (ae) SerNo leading-zeros compare differs from `cellsEqual`. (ag) grading cost and grading receipt (ReceiptType, GradingCost). (ah) Sets list sort / filter like Coins. (ak) optional: keep the raw for Holder / Reference.
-- (aq) F4 clearer Save to Database failure toast. (ba) About lists background re-reads. (aw) workbook session probe. (ax) NEXT: save speed: first the missing ~5 s in the write step, then header re-read, row lookup and conflict re-read in parallel. (ay) value rule question. (az) Build line date UTC vs local. (as) offline photos / receipts. (at) cold offline launch needs a service worker. (av) PLATFORM.md says nine startup sheet reads (12 since (ar)). (ap) unscheduled review items. Batch Receipt design (draft, nothing built); remove a shared receipt from ALL its coins; a general busy indicator; receipt photo cropping; standardising receipt file names. Data note: All.SpotValue has its formula in 1,552 of 1,555 rows. ParkingLot rows 1, 3, 4 of the old block are in the workbook (ParkingLot 286, 302, 303).
+- (aq) F4 clearer Save to Database failure toast. (ba) About lists background re-reads. (aw) workbook session probe. (ax) NEXT: save speed, PLAN written 7 Nov (BACKLOG), waiting on Ray's answers. (bb) Save to Staging's "Last save" should say saved / refused / partly saved. (bc) Category model (DB_Coins / DB_Sets.Category the source, Lookup_Categories.AppliesTo; design agreed, not scheduled). (ay) value rule question. (az) Build line date UTC vs local. (as) offline photos / receipts. (at) cold offline launch needs a service worker. (av) PLATFORM.md says nine startup sheet reads (12 since (ar)). (ap) unscheduled review items. Batch Receipt design (draft, nothing built); remove a shared receipt from ALL its coins; a general busy indicator; receipt photo cropping; standardising receipt file names. Data note: All.SpotValue has its formula in 1,552 of 1,555 rows. ParkingLot rows 1, 3, 4 of the old block are in the workbook (ParkingLot 286, 302, 303).
 Done: (b) (c) (g) (l) (m) (n) (o) (p) (t) (w) (z) (af) (ai) (aj) (al) (am) (an) (ao) (ar).
 
 ## Full design history

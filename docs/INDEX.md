@@ -196,3 +196,6 @@ Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sect
 - Rules extracted from moved sections (intro lines) -> [docs/HISTORY.md](HISTORY.md), original lines 108-110
 - Rules E1-E21 (the 16 assigned ones): header lines are at the end of the ref file their Source names, under "Cross-area rules stated in CLAUDE.md"; the excerpts were already in those files.
 - NEXT BRANCH (decided by Ray 4 Nov 2026) `claude/addcoin-finish-required-and-draft-cleanup`, moved 5 Nov 2026 when the branch was built -> [docs/HISTORY.md](HISTORY.md), section "Finish / Category required and draft cleanup" (the spec is quoted verbatim there; the code write-ups are in [docs/ref/ADD_COIN_WRITE.md](ref/ADD_COIN_WRITE.md) and [docs/ref/DOCKET_STAGING.md](ref/DOCKET_STAGING.md))
+- The build decides its data target (Oct 2026) — read this first: full text moved 7 Nov 2026 -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), section "The build decides its data target: the rule"; CLAUDE.md keeps a one-paragraph summary.
+- Merged work: rules and one-line summaries (the fuller lines, 7 Nov 2026) -> [docs/HISTORY.md](HISTORY.md), section "Merged-work lines moved from CLAUDE.md"; CLAUDE.md keeps shorter lines.
+- App structure (the original paragraph, 7 Nov 2026) -> [docs/HISTORY.md](HISTORY.md), section "App structure as it stood in CLAUDE.md until 7 Nov 2026".

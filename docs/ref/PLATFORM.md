@@ -463,6 +463,72 @@ needs a valid URL pattern such as `https://graph.microsoft.com/*`. A bare
   gets stuck: Escape and scrolling don't close it.
 - Navigation fetches (Catalog, Albums, Ledger) do not back off after a failure.
 
+## The build decides its data target: the rule (moved from CLAUDE.md 7 Nov 2026; its heading there was "The build decides its data target (Oct 2026) — read this first")
+**Supersedes every earlier statement that `WRITE_TARGET` is a hand-set
+constant that "only Ray flips".** Built on `claude/build-decides-target`
+(app) and `claude/build-decides-target-deploy-workflow` (workflow), merged
+to `main` as two fast-forwards on Ray's go-ahead (`aa55f55`, then `1119003`).
+**DONE and LIVE (17 Oct 2026):** Pages source is "GitHub Actions"; Ray ran
+the workflow (runs #1-#3, all success) and `main` is deployed stamped, so the
+live site writes the REAL workbook and `CoinCollection/CoinPhotos`/
+`CoinReceipts`. Ray confirmed a real photo and receipt read/write against the
+live database. Every future change reaches the live site only when Ray runs
+the workflow for `main`.
+
+**The rule.** `WRITE_TARGET` is derived at load from an inline build stamp
+(`BUILD_STAMP`, the one placeholder line `const BUILD_STAMP = null;` marked
+for the workflow) by `isLiveBuild()`. It is `"live"` (the real workbook and
+the real `CoinCollection/CoinPhotos`, `CoinReceipts`, `Staging`) ONLY when
+all of these hold; anything else, including any error while checking, is
+`"copy"` (`CoinCollection/_Testing/`):
+- the stamp is a real object (not the placeholder, not a string);
+- its branch is exactly `"main"` (not `main-fix`, a tag, `refs/heads/main`);
+- its commit is 40 lowercase hex characters;
+- the page is served over https from `salty224.github.io` under
+  `/coin-collection-app/` (not localhost, `file://`, a download, another
+  path).
+The stamp is inline (not fetched) so it exists synchronously before the
+write flags, `WRITE_LAYER_ENABLED`, the MSAL instance and `WRITE_PATHS` are
+built, and so it can never disagree with the code it shipped with. **Nothing
+in the code is flipped to go live** — deploying `main` through the workflow
+is what does it.
+
+**Every write flag is on in both targets** (`ENABLE_SET_WRITE_LAYER`,
+`ENABLE_BROWSE_EDIT_WRITE`, `ENABLE_DOCKET_WRITE`, `ENABLE_ADDCOIN_WRITE`,
+`ENABLE_SET_LINK_WRITE`, `ENABLE_PURGE_WRITE` are plain `true`; they used to
+be `(WRITE_TARGET === "copy")`, which switched every writer OFF under
+"live"). Each flag still gates its own feature. The on-screen messages that
+say "WRITE_TARGET is live and this hasn't been re-enabled yet" are now
+unreachable and were deliberately left alone.
+
+**What the user sees.**
+- **TEST bar**: a thin (24px) blue bar fixed at the very top, above the
+  splash, reading `TEST · {branch}` (`TEST · unstamped` with no stamp), shown
+  ONLY when the target is the copy. Nothing at all when live. Its height is
+  published as `--top-strip-h`, which pads the body, moves the sticky
+  `.nav-chrome` down, pads the photo overlays, and is subtracted from
+  `#app`'s `min-height: 100vh` (without that, every screen scrolled by 24px).
+- **Build line**: small gray `Build {N} · {D Mon} · {short commit}` (date in
+  UTC) directly under "Connecting to OneDrive…" on the splash and at the
+  very bottom of the Docket screen, centred, in both modes; `Build
+  unstamped` with no stamp.
+- **Newer-build row**: a stamped, served build fetches `build-info.json`
+  (written by the workflow beside `app.html`) uncached once at startup; if
+  its commit differs from the page's own stamp, an amber row "A newer build
+  is deployed — reload" appears under (or instead of) the TEST bar. Does
+  nothing when unstamped, opened from a file, or when the file is missing or
+  malformed.
+
+**Deploy routine (after the workflow merge).** Pages source is "GitHub
+Actions". There is no push trigger: nothing deploys until Ray runs the
+workflow. Actions → "Deploy to GitHub Pages" → Run workflow → leave "Use
+workflow from" on `main` → type the branch to deploy (no default since
+Oct 2026: the box starts blank and a blank run fails before checkout, so
+LIVE is never a pre-filled value accepted by accident) → Run workflow. The workflow checks out that branch, stamps branch, commit,
+`github.run_number` and the UTC date into the placeholder line (the build
+fails if the line isn't found exactly once), writes `build-info.json`, and
+deploys. `main` → LIVE; any other branch → TEST with its name in the bar.
+
 ## The build decides its data target: rollout order, testing notes, known effects (continuation)
 
 **Rollout order (agreed, all five steps completed 17 Oct 2026).** (1) merge the app branch while Pages is still on

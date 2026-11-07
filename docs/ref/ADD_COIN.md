@@ -1533,7 +1533,7 @@ errors.
 
 
 
-### Finish list from Lookup_Finishes (ar) (merged to main 7 Nov 2026 by fast-forward of `claude/finish-list-ar`; Ray's TEST on PC passed; LIVE pending)
+### Finish list from Lookup_Finishes (ar) (merged to main 7 Nov 2026 by fast-forward of `claude/finish-list-ar`; Ray's TEST on PC passed; on LIVE in `2b4920f`, step 8 passed 7 Nov 2026)
 
 ParkingLot 304. Add Coin's Finish dropdown (`#finish`; Add Coin and Staging edit share it; Edit Coin has no Finish field, stage.html and Add Set have none) used to be 12 options typed into app.html. Lookup_Finishes gained Matte (A14) and Diamond Field (A15, 6 Nov 2026) for the 2026-P Diamond Field Morgan and Peace set.
 
@@ -1548,7 +1548,7 @@ ParkingLot 304. Add Coin's Finish dropdown (`#finish`; Add Coin and Staging edit
 - **Tests:** `tests/verify_finish_list_ar.js` (F0-F9). `verify_device_cache_ao`, `verify_load_report_ao` and `verify_startup_connection` J6 follow the 12th sheet and format 2.
 - **Checked on LIVE:** Copilot read-only check of LIVE (7 Nov 2026, nothing changed): Lookup_Finishes A2:A12 match FINISH_FALLBACK_LIST values 1-10 and 12 exactly (order differs), A13 Various, A14 Matte, A15 Diamond Field; no spacing, NBSP, apostrophe or divider issues; every non-blank DB_Coins.Finish and All.Finish value matches the sheet exactly; All has 6 "Various" rows (set-level). So the sheet's list offers the same 12 values as the fallback (in the sheet's order) plus Diamond Field, and the matcher's Finish tier and "Use <Finish> (from the catalog)" see no spelling differences.
 - **TEST (Ray, PC, 7 Nov 2026, Build 106):** 12 of 12, sheet-order list without Various and without the note, Diamond Field kept through Save to Staging and reopen, "saved copy matched" on a second reopen. The unknown-Finish catalog fill was not run (no such DB_Coins row exists; suite F5c).
-- **Not verified:** a phone; offline; the first LIVE launch (checklist step 8).
+- **Not verified:** a phone; offline. (The first LIVE launch, checklist step 8, passed 7 Nov 2026 on `2b4920f`.)
 
 ## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
 
