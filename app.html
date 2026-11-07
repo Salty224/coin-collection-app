@@ -9662,7 +9662,7 @@
   let activeGraphClient = RealGraphClient;
   // Every caller gets the read-only gate ((ao) Stage 2, gatedGraphClient()).
   function graph() { return gatedGraphClient(activeGraphClient); }
-  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; } // test-only seam
+  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; if (typeof recentRowWrites !== "undefined") recentRowWrites.clear(); } // test-only seam (a new workbook: no recent writes)
 
   // Cached once per session (Task 2) — the workbook's own webUrl never
   // changes mid-session, so there's no reason to re-fetch it per render.
@@ -10583,21 +10583,24 @@
     if (result.reason === "error" && /^(Offline|Can't reach OneDrive|Nothing was saved|Read-only)/.test(result.message || "")) return "refused (read-only: " + result.message.split(":")[0] + ")";
     return "refused (" + result.reason + (result.message ? ": " + String(result.message).slice(0, 80) : "") + ")";
   }
-  async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot, opts) {
-    const result = await saveCoinRowToWorkbookUnnoted(collectionId, nextValues, snapshot, opts);
-    noteSaveOutcome(saveRowOutcomeText(result));
-    if (result && result.ok && result.written) {
-      const before = result.before || {};
-      const written = {};
-      result.written.forEach(col => { written[col] = result.values[col]; });
-      noteRecentRowWrite(collectionId, written, before);
-    }
-    return result;
+  // Every return of saveCoinRowToWorkbook() passes through here: the Docket's
+  // save outcome ((ao) B3) and, for a save that landed, what it wrote ((ao)
+  // B2, withRecentWrites). The writer keeps its own name (invariant 2).
+  function finishCoinRowSave(collectionId, result) {
+    return Promise.resolve(result).then(r => {
+      noteSaveOutcome(saveRowOutcomeText(r));
+      if (r && r.ok && r.written) {
+        const written = {};
+        r.written.forEach(col => { written[col] = r.values[col]; });
+        noteRecentRowWrite(collectionId, written, r.before || {});
+      }
+      return r;
+    });
   }
-  async function saveCoinRowToWorkbookUnnoted(collectionId, nextValues, snapshot, opts) {
+  async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot, opts) {
     const gate = (opts && opts.gate) || browseEditWriteEnabled;
     if (!gate()) {
-      return { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
+      return finishCoinRowSave(collectionId, { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." });
     }
     let rowNumber, fresh, formulas;
     try {
@@ -10607,20 +10610,20 @@
       await timeSaveStep("header re-read", () => ensureAllHeaderMap({ fresh: true }));
       rowNumber = await timeSaveStep("row lookup", () => findAllSheetRowNumber(collectionId));
       if (!rowNumber) {
-        return { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." };
+        return finishCoinRowSave(collectionId, { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." });
       }
       const read = await timeSaveStep("row re-read for the conflict check", () => readAllRowForWrite(rowNumber));
       fresh = read.values;
       formulas = read.formulas;
     } catch (e) {
-      return { ok: false, reason: "error", message: String(e && e.message || e) };
+      return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
     }
 
     const conflicts = detectRowConflicts(snapshot, fresh);
     // freshValues rides along so the caller can adopt them as the new
     // baseline once the user has acknowledged the block — without that the
     // next Save re-detects the same conflict forever.
-    if (conflicts.length) return { ok: false, reason: "conflict", conflicts, freshValues: fresh };
+    if (conflicts.length) return finishCoinRowSave(collectionId, { ok: false, reason: "conflict", conflicts, freshValues: fresh });
 
     const changed = {};
     Object.keys(nextValues).forEach(name => {
@@ -10641,30 +10644,30 @@
     const onFormulas = Object.keys(changed).filter(name => formulas[name]);
     if (onFormulas.length) {
       const err = formulaColumnError(ALL_SHEET_NAME, rowNumber, onFormulas);
-      return { ok: false, reason: "formula-column", columns: err.columns, message: err.message };
+      return finishCoinRowSave(collectionId, { ok: false, reason: "formula-column", columns: err.columns, message: err.message });
     }
 
     let edits;
     try {
       edits = await timeSaveStep("build the cell edits", () => buildRowCellEdits(rowNumber, changed));
     } catch (e) {
-      if (e && e.code === "MISSING_COLUMN") return { ok: false, reason: "missing-column", columns: e.columns, message: e.message };
-      return { ok: false, reason: "error", message: String(e && e.message || e) };
+      if (e && e.code === "MISSING_COLUMN") return finishCoinRowSave(collectionId, { ok: false, reason: "missing-column", columns: e.columns, message: e.message });
+      return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
     }
     try {
       await timeSaveStep("write (" + edits.length + " ranges, LastModified last)",
         () => graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits));
     } catch (e) {
-      if (e && Array.isArray(e.landed) && e.landed.length) return partialSaveResult(rowNumber, edits, e);
-      return { ok: false, reason: "error", message: String(e && e.message || e) };
+      if (e && Array.isArray(e.landed) && e.landed.length) return finishCoinRowSave(collectionId, partialSaveResult(rowNumber, edits, e));
+      return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
     }
-    return {
+    return finishCoinRowSave(collectionId, {
       ok: true,
       rowNumber,
       written: edits.reduce((acc, e) => acc.concat(e._columns), []),
       values: Object.assign({}, fresh, changed),
       before: fresh // (ao) B2: what the row showed before this write
-    };
+    });
   }
 
   // ==================================================================
