@@ -73,6 +73,11 @@ questions as Q1/Q2... each with the recommendation in brackets, and the
 "CLAUDE.md updated in <commit>" / "no CLAUDE.md change needed because ..."
 line inside the block. At most one short sentence outside it. Don't wait to
 be asked for the copy-paste version.
+Every report (build, plan, docs) also ends with a required section (Ray, 7 Nov 2026):
+TIME SPENT (wall clock, this round): the total, start of work to report; broken down into
+reading / planning, coding, affected-suite runs (count, total time), negative controls (count,
+total time), full npm test (count, total time), docs (CLAUDE.md, BACKLOG, CODEMAP, other), and
+anything else over 2 minutes; then one line: the biggest cost this round and whether it was avoidable.
 
 **4. Keep "Current state" current (standing rule, Ray, 27 Oct 2026).** At the
 end of EVERY task, before the report, rewrite (do not append to) the "Current
