@@ -176,6 +176,45 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
     G3.save.ok === false && /^Offline: nothing was saved\. Your changes are still on this screen; Save again when back online\.$/.test(G3.save.message) && G3.sameAfterSave);
   ok("G8 once the saved copy is checked the same save goes through (" + G3.remarksNow + ")", G3.save2ok === true && G3.remarksNow === "new remark");
 
+  // ---- G9-G12: the gate is an ALLOW-LIST (Ray, Q2) ----------------------------
+  const G9 = await page.evaluate(async () => {
+    const base = { source: "workbook", verified: true, dataAt: Date.now(), connection: "ok", updating: false, checking: false };
+    const verdict = patch => { __setWorkbookSessionForTest(Object.assign({}, base, patch)); return workbookWritesAllowed(); };
+    const mock = createMockGraphClient({});
+    __setGraphClientForTest(mock);
+    const tryWrite = async patch => {
+      __setWorkbookSessionForTest(Object.assign({}, base, patch));
+      try { await graph().uploadJson("CoinCollection/_Testing/Staging/g9.json", { a: 1 }); return "wrote"; }
+      catch (e) { return e.name + ":" + e.reason; }
+    };
+    const out = {
+      checkedWorkbook: verdict({}),
+      checkedCopy: verdict({ source: "saved-copy", verified: true }),
+      notRead: verdict({ source: "none", verified: false }),
+      notReadButFlagged: verdict({ source: "none", verified: true }),
+      readNotFlagged: verdict({ source: "workbook", verified: false }),
+      verifiedTruthy: verdict({ verified: 1 }),
+      unknownSource: verdict({ source: "something-added-later", verified: true }),
+      unknownConnection: verdict({ connection: "reconnecting" }),
+      unknownWrite: await tryWrite({ source: "something-added-later", verified: true }),
+      unknownConnWrite: await tryWrite({ connection: "reconnecting" }),
+      notReadWrite: await tryWrite({ source: "none", verified: false }),
+      okWrite: await tryWrite({})
+    };
+    __setWorkbookSessionForTest(base);
+    __setGraphClientForTest(null);
+    return out;
+  });
+  ok("G9 allowed only when checked and online: a full read this session (" + JSON.stringify(G9.checkedWorkbook) + ") or a matched saved copy (" + JSON.stringify(G9.checkedCopy) + "), and the write lands (" + G9.okWrite + ")",
+    G9.checkedWorkbook.ok === true && G9.checkedCopy.ok === true && G9.okWrite === "wrote");
+  ok("G10 a session that has not read the workbook refuses, whatever its flag says (" + JSON.stringify([G9.notRead, G9.notReadButFlagged, G9.readNotFlagged, G9.verifiedTruthy, G9.notReadWrite]) + ")",
+    G9.notRead.ok === false && G9.notRead.reason === "not-read" && G9.notReadButFlagged.ok === false &&
+    G9.readNotFlagged.ok === false && G9.verifiedTruthy.ok === false && G9.notReadWrite === "ReadOnlyError:not-read");
+  ok("G11 a NEW, unknown session state refuses writes (" + JSON.stringify([G9.unknownSource, G9.unknownWrite]) + ")",
+    G9.unknownSource.ok === false && G9.unknownSource.reason === "unknown" && G9.unknownWrite === "ReadOnlyError:unknown");
+  ok("G12 an unknown connection state refuses too (" + JSON.stringify([G9.unknownConnection, G9.unknownConnWrite]) + ")",
+    G9.unknownConnection.ok === false && G9.unknownConnWrite === "ReadOnlyError:unknown");
+
   // ---- U: what the user sees ----------------------------------------------
   await page.evaluate(INSTALL);
   const U1 = await page.evaluate(async () => {
@@ -419,6 +458,7 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
   // ---- T: save timing ----------------------------------------------------------
   await page.evaluate(INSTALL);
   const T = await page.evaluate(async (seed) => {
+    __setWorkbookSessionForTest({ source: "workbook", verified: true, connection: "ok" }); // a checked session
     const mock = createMockGraphClient(seed);
     __setGraphClientForTest(mock);
     __setBrowseEditWriteEnabledForTest(true);

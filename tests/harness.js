@@ -78,6 +78,16 @@ const READY_TIMEOUT_MS = 10000;
 async function waitForAppReady(page, record) {
   try {
     await page.waitForFunction(() => window.__appReady === true, null, { timeout: READY_TIMEOUT_MS });
+    // (ao) The write gate is an allow-list: writes need a session that has
+    // read the workbook. The sandbox never reads a real workbook (no MSAL),
+    // so the page is put in the state a finished full read leaves, the same
+    // way it is in a real session after launch. Suites that test the gate
+    // or the session set their own state (session-gate-ao, device-cache-ao).
+    await page.evaluate(() => {
+      if (typeof __setWorkbookSessionForTest === "function") {
+        __setWorkbookSessionForTest({ source: "workbook", verified: true, dataAt: Date.now(), connection: "ok" });
+      }
+    });
     return true;
   } catch (e) {
     record(false, "openApp: window.__appReady was not raised within " + (READY_TIMEOUT_MS / 1000) +

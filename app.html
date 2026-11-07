@@ -7050,21 +7050,37 @@
     "patchWorkbookRanges", "addTableRow"]);
   const WORKBOOK_WRITE_GRAPH_METHODS = new Set(["patchWorkbookRanges", "addTableRow"]);
 
+  // An ALLOW-LIST (Ray, Q2, 7 Nov 2026): writes are allowed only when the
+  // session is checked (a full read from the workbook finished this
+  // session, or a saved copy whose version matched) AND online. Every other
+  // state refuses, including one nobody has thought of yet; the reason only
+  // picks the message.
+  function workbookSessionChecked() {
+    const s = workbookSession;
+    return s.verified === true && (s.source === "workbook" || s.source === "saved-copy");
+  }
   function workbookWritesAllowed() {
-    if (workbookSession.connection === "offline") return { ok: false, reason: "offline" };
-    if (workbookSession.connection === "unreachable") return { ok: false, reason: "unreachable" };
-    if (workbookSession.source === "saved-copy" && !workbookSession.verified) return { ok: false, reason: "unchecked" };
-    return { ok: true };
+    const s = workbookSession;
+    if (workbookSessionChecked() && s.connection === "ok" && !isOfflineNow()) return { ok: true };
+    if (s.connection === "offline" || isOfflineNow()) return { ok: false, reason: "offline" };
+    if (s.connection === "unreachable") return { ok: false, reason: "unreachable" };
+    if (s.source === "saved-copy") return { ok: false, reason: "unchecked" };
+    if (s.source === "none") return { ok: false, reason: "not-read" };
+    return { ok: false, reason: "unknown" };
   }
   const READ_ONLY_SAVE_MESSAGES = {
     offline: "Offline: nothing was saved. Your changes are still on this screen; Save again when back online.",
     unreachable: "Can't reach OneDrive: nothing was saved. Your changes are still on this screen; Save again when it's back.",
-    unchecked: "Nothing was saved: the saved copy hasn't been checked with the workbook yet. Your changes are still on this screen; try again in a moment."
+    unchecked: "Nothing was saved: the saved copy hasn't been checked with the workbook yet. Your changes are still on this screen; try again in a moment.",
+    "not-read": "Nothing was saved: the app hasn't read the workbook yet. Your changes are still on this screen; try again in a moment.",
+    unknown: "Read-only: nothing was saved. Your changes are still on this screen."
   };
   const READ_ONLY_ENTRY_MESSAGES = {
     offline: "Read-only while offline",
     unreachable: "Read-only: can't reach OneDrive",
-    unchecked: "Read-only until the saved copy is checked with the workbook"
+    unchecked: "Read-only until the saved copy is checked with the workbook",
+    "not-read": "Read-only until the workbook has been read",
+    unknown: "Read-only"
   };
   function readOnlyError(verdict, method) {
     const e = new Error(READ_ONLY_SAVE_MESSAGES[verdict.reason] || "Read-only: nothing was saved.");
