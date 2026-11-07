@@ -2,7 +2,7 @@
 // offline read-only view.
 //
 // What it proves (docs/ref/PLATFORM.md "Device cache (ao)"):
-//   D1   a launch full read whose version can be trusted saves all 11 sheets,
+//   D1   a launch full read whose version can be trusted saves all 12 sheets (11 before (ar) added Lookup_Finishes),
 //        in this target's own database, with account, build and version;
 //   D2   the next launch with the same version paints the copy and sends NO
 //        sheet read; the session is checked and writes are allowed;
@@ -108,12 +108,12 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
         eTag: r.version.eTag, sheets: Object.keys(r.sheets), all: r.sheets.All },
       dbs: await __dbNames() };
   });
-  ok("D1 a first launch reads the workbook (11 sheet reads) as today (" + D1.sheetCalls + ", " + D1.source + ")", D1.res === true && D1.sheetCalls === 11 && D1.source === "workbook");
-  ok("D2 ...and saves all 11 sheets' raw values in this target's own database (" + JSON.stringify(D1.rec && D1.rec.sheets) + ", " + JSON.stringify(D1.dbs) + ")",
-    D1.rec && D1.rec.sheets.length === 11 && JSON.stringify(D1.rec.all) === JSON.stringify([["CollectionID", "Year", "Denomination", "Description"], ["AY-00001", 1909, "1C", "Lincoln Wheat"]]) &&
+  ok("D1 a first launch reads the workbook (12 sheet reads; 11 before (ar)) as today (" + D1.sheetCalls + ", " + D1.source + ")", D1.res === true && D1.sheetCalls === 12 && D1.source === "workbook");
+  ok("D2 ...and saves all 12 sheets' raw values in this target's own database (" + JSON.stringify(D1.rec && D1.rec.sheets) + ", " + JSON.stringify(D1.dbs) + ")",
+    D1.rec && D1.rec.sheets.length === 12 && JSON.stringify(D1.rec.all) === JSON.stringify([["CollectionID", "Year", "Denomination", "Description"], ["AY-00001", 1909, "1C", "Lincoln Wheat"]]) &&
     JSON.stringify(D1.dbs) === JSON.stringify(["salty-cabinet-cache-copy"]));
   ok("D3 ...stamped with target, account, build, format, workbook and version (" + JSON.stringify(D1.rec && Object.assign({}, D1.rec, { sheets: undefined, all: undefined })) + ")",
-    D1.rec && D1.rec.target === "copy" && D1.rec.account === "acct-1" && D1.rec.build === "unstamped" && D1.rec.format === 1 &&
+    D1.rec && D1.rec.target === "copy" && D1.rec.account === "acct-1" && D1.rec.build === "unstamped" && D1.rec.format === 2 && /* 2 since (ar): 12 sheets */
     D1.rec.path === "CoinCollection/_Testing/CoinCollection (AI) COPY.xlsx" && D1.rec.eTag === "\"{AAA},5\"");
 
   // ---- D4: same version -> the copy, no sheet reads ------------------------------
@@ -246,7 +246,7 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     return out;
   });
   ok("D16 a workbook changed 5 minutes ago is re-read even though its version matches (" + JSON.stringify(D16) + ")",
-    D16.saved && D16.sheetCalls === 11 && D16.source === "workbook" && D16.savedLine === "workbook changed in the last 10 minutes; re-read");
+    D16.saved && D16.sheetCalls === 12 && D16.source === "workbook" && D16.savedLine === "workbook changed in the last 10 minutes; re-read");
 
   // ---- D17: POISONED COPY never reaches the write layer ---------------------------
   const D17 = await page.evaluate(async () => {
@@ -312,11 +312,11 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     return results;
   });
   ok("D21 a LIVE copy on the device is never shown by a TEST build (" + JSON.stringify(D21.live.coins) + ") and its database is deleted (" + JSON.stringify(D21.live.dbs) + ")",
-    !D21.live.coins.includes("AY-LIVE") && D21.live.sheetCalls === 11 && !D21.live.dbs.includes("salty-cabinet-cache-live"));
+    !D21.live.coins.includes("AY-LIVE") && D21.live.sheetCalls === 12 && !D21.live.dbs.includes("salty-cabinet-cache-live"));
   for (const label of ["target", "account", "build", "format", "sheets", "workbook"]) {
     const r = D21[label];
     ok("D22-" + label + " a record with the wrong " + label + " is deleted unused and the workbook is read (" + JSON.stringify(r) + ")",
-      r.used === false && r.outcome === "saved copy not used (" + label + "), deleted" && r.sheetCalls === 11);
+      r.used === false && r.outcome === "saved copy not used (" + label + "), deleted" && r.sheetCalls === 12);
   }
 
   // ---- D23: nothing saved when the version can't be trusted ------------------------
@@ -383,9 +383,9 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     return out;
   });
   ok("D27 IndexedDB that throws: the launch reads the workbook as today (" + JSON.stringify(D27.throws) + ")",
-    D27.throws.res === true && D27.throws.sheetCalls === 11 && D27.throws.source === "workbook");
+    D27.throws.res === true && D27.throws.sheetCalls === 12 && D27.throws.source === "workbook");
   ok("D28 IndexedDB that never answers: the same, after the 1.5 s deadline (200 ms here) (" + JSON.stringify(D27.hangs) + ")",
-    D27.hangs.res === true && D27.hangs.sheetCalls === 11 && D27.hangs.source === "workbook" && D27.hangs.ms < 2000);
+    D27.hangs.res === true && D27.hangs.sheetCalls === 12 && D27.hangs.source === "workbook" && D27.hangs.ms < 2000);
 
   // ---- D29: Refresh from workbook ---------------------------------------------------
   const D29 = await page.evaluate(async () => {
@@ -400,8 +400,8 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     await __wait(20);
     return { before, after: document.querySelector("#docketDataLine .docket-data-text").textContent, sheetCalls: __sheetCalls(), toasts: window.__toasts.slice() };
   });
-  ok("D29 \"Refresh from workbook\" reads all 11 sheets now and says so (" + JSON.stringify(D29) + ")",
-    /saved copy matched/.test(D29.before) && D29.sheetCalls === 11 && /^Data: read from the workbook \d\d:\d\d$/.test(D29.after) && D29.toasts.includes("Read from the workbook"));
+  ok("D29 \"Refresh from workbook\" reads all 12 sheets now and says so (" + JSON.stringify(D29) + ")",
+    /saved copy matched/.test(D29.before) && D29.sheetCalls === 12 && /^Data: read from the workbook \d\d:\d\d$/.test(D29.after) && D29.toasts.includes("Read from the workbook"));
 
   // ---- D30: the real offline switch -------------------------------------------------
   await page.context().setOffline(true);

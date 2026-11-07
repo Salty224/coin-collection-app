@@ -4271,51 +4271,20 @@
                 saved directly (see Save options below).
               </p>
 
-              <!-- Options confirmed against the real DB_Coins Finish column
-                   (live spot-check, batch 4 follow-up), same "derive from the
-                   real catalog, don't hand-guess" fix as the Denomination
-                   dropdown. "Uncirculated" (172 rows) and "Circulated" (139
-                   rows) are BOTH deliberately excluded — real workbook data
-                   carries them as a condition-vs-finish mix-up, a future
-                   data-cleanup project for the catalog itself, not a dropdown
-                   gap. The matcher's soft-fallback-to-full-list already covers
-                   a blank Finish for those rows. -->
+              <!-- Finish choices come from the workbook's Lookup_Finishes
+                   sheet, column A, in the sheet's order ((ar), Nov 2026;
+                   buildLookupFinishList / populateFinishOptions). Until it
+                   lands, or if it can't be read, FINISH_FALLBACK_LIST fills
+                   the list (the 12 values this dropdown carried by hand, plus
+                   Diamond Field), so it is never empty. "Various" is never
+                   offered (set-level only). The history of the hand-kept list
+                   (Uncirculated, Specimen, Matte, Matte Proof) is in
+                   docs/ref/ADD_COIN.md. -->
               <label>Finish</label>
               <select id="finish">
                 <option value="">— not recorded —</option>
-                <option value="Business Strike">Business Strike</option>
-                <option value="Proof">Proof</option>
-                <option value="Reverse Proof">Reverse Proof</option>
-                <option value="SMS">SMS</option>
-                <option value="Burnished">Burnished</option>
-                <option value="Satin Finish">Satin Finish</option>
-                <option value="Enhanced Reverse Proof">Enhanced Reverse Proof</option>
-                <option value="Enhanced Uncirculated">Enhanced Uncirculated</option>
-                <!-- The four below were re-checked against the real workbook
-                     (2026-09-02) and added back or added new:
-
-                     Uncirculated — 211 real DB_Coins rows, and one of
-                       Lookup_Finishes' own 11 defined values ("Mint state, no
-                       wear", typical use "Mint sets"). It had been excluded on
-                       the theory that it was a condition-vs-finish data
-                       mix-up; the real data does not support that. (The
-                       genuinely suspect All-sheet values were "Circulated" and
-                       "Various", which are a separate matter and are NOT
-                       offered here.)
-                     Specimen — 9 real rows. Removed once on the stated
-                       grounds of matching zero rows; that was simply wrong.
-                     Matte — 3 real rows, all modern silver medals.
-                     Matte Proof — Lookup_Finishes' own value for the historic
-                       1908-1916 gold matte proofs. DISTINCT from "Matte"
-                       above, not a spelling variant of it: different era,
-                       different coins. Zero rows today — offered because
-                       "no rows yet" is exactly the reasoning that wrongly
-                       removed Specimen. -->
-                <option value="Uncirculated">Uncirculated</option>
-                <option value="Specimen">Specimen</option>
-                <option value="Matte">Matte</option>
-                <option value="Matte Proof">Matte Proof</option>
               </select>
+              <p id="finishListNote" class="placeholder-note" style="display:none; margin:4px 0 0;">Finish list from the app; Lookup_Finishes couldn’t be read</p>
               <p class="placeholder-note" style="margin:4px 0 16px;">
                 A Proof and a Business Strike of the same date are different coins
                 in the catalog, so recording this narrows the DB_Coins match and
@@ -6681,9 +6650,10 @@
   // was built from, for the saved copy. Weak: nothing is kept alive by it.
   const sheetRawValues = new WeakMap();
 
-  // The 11 sheets of the full read, in ensureLiveNavDataFetch()'s order.
+  // The 12 sheets of the full read, in ensureLiveNavDataFetch()'s order
+  // (Lookup_Finishes added by (ar), Nov 2026).
   const FULL_READ_SHEETS = ["All", "DB_Sets", "DB_Coins", "Lookup_MetalContent", "Lookup_Graders",
-    "Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories"];
+    "Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories", "Lookup_Finishes"];
   const VERSION_CHECK_HISTORY_MAX = 20;
   let launchReadReport = null;   // the first full read of this page load
   let lastFullReadReport = null; // the most recent full read (a refresh after a save, Retry, ...)
@@ -7425,11 +7395,13 @@
   // while a saved copy on screen hasn't been checked (workbookWritesAllowed()).
   // One record per target, in its own database: salty-cabinet-cache-copy /
   // salty-cabinet-cache-live (TEST and LIVE share the salty224.github.io
-  // origin, so they must never mix). Saved only after a full read of all 11
+  // origin, so they must never mix). Saved only after a full read of all 12
   // sheets whose workbook version could be trusted; deleted before every
   // workbook write. Any IndexedDB trouble = no saved copy = today's launch.
   // ==================================================================
-  const WORKBOOK_CACHE_FORMAT = 1;
+  // 2 since (ar): the record carries 12 sheets (Lookup_Finishes added); a
+  // format-1 record (11 sheets) is refused as "format" and deleted.
+  const WORKBOOK_CACHE_FORMAT = 2;
   const WORKBOOK_CACHE_STORE = "copy";
   const WORKBOOK_CACHE_KEY = "workbook";
   const WORKBOOK_CACHE_RECENT_EDIT_MS = 10 * 60 * 1000; // Q4: a workbook changed in the last 10 min is always re-read
@@ -7544,7 +7516,7 @@
     return idbCacheDelete(WRITE_TARGET).catch(() => false);
   }
 
-  // After a full read of all 11 sheets whose version could be trusted
+  // After a full read of all 12 sheets whose version could be trusted
   // (onFullReadLanded()), keep the raw values for the next launch.
   async function saveWorkbookCacheAfterRead(version, results, readStartedAt) {
     if (!workbookCacheUsable() || !version || !version.ok) return null;
@@ -8378,6 +8350,28 @@
   // usable, so the "list unavailable" note shows.
   let LIVE_LOOKUP_CATEGORIES = null;
   let liveLookupCategoriesLoadFailed = false;
+  // Add Coin's Finish dropdown choices from the real Lookup_Finishes sheet
+  // ((ar), Nov 2026; column A, header excluded, see buildLookupFinishList).
+  // READ-ONLY: the app never writes this sheet. null = not loaded this
+  // session (or nothing offerable in it); the dropdown then offers
+  // FINISH_FALLBACK_LIST. liveLookupFinishesLoadFailed shows the note.
+  let LIVE_LOOKUP_FINISHES = null;
+  let liveLookupFinishesLoadFailed = false;
+  // The Finish list when Lookup_Finishes has not arrived, failed, or has
+  // nothing offerable: the 12 values the dropdown carried before (ar), in
+  // that order, plus Diamond Field (Lookup_Finishes A15, added 6 Nov 2026
+  // for the 2026-P Diamond Field Morgan and Peace set). A fixed copy of a
+  // reference table, not demo data, so it is used in a live session too
+  // (same posture as activeLookupGraders()). Add Coin never shows an empty
+  // Finish list.
+  const FINISH_FALLBACK_LIST = ["Business Strike", "Proof", "Reverse Proof", "SMS", "Burnished",
+    "Satin Finish", "Enhanced Reverse Proof", "Enhanced Uncirculated", "Uncirculated", "Specimen",
+    "Matte", "Matte Proof", "Diamond Field"];
+  // Lookup_Finishes values Add Coin never offers, by exact name. "Various"
+  // (A13) is a set-level value only: its CoinID must be blank, so it is
+  // never a single coin's Finish. A restored draft or an existing value of
+  // "Various" still shows, as "Various — existing value".
+  const FINISH_NOT_OFFERED = ["Various"];
   // The Category of an ordinary single coin (359 All rows carry it; it is in
   // Lookup_Categories; no All row has a blank Category, coordinator's check
   // 4 Nov 2026). The one place this literal lives.
@@ -8404,8 +8398,8 @@
   // this session), and while any is still null the next
   // ensureLiveNavDataFetch() call refetches ONLY those, in the background.
   // Once all four have loaded, nothing extra is ever requested.
-  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories"];
-  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null };
+  const LIVE_NAV_OPTIONAL_SHEETS = ["Photos", "Receipts", "Albums", "Wishlist", "Lookup_Errors", "Lookup_Categories", "Lookup_Finishes"];
+  let liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null, Lookup_Finishes: null };
   // Raw DB_Sets/DB_Coins rows from the last successful core load — Albums is
   // built from raw rows (buildLiveAlbums()), so a late Albums or Wishlist
   // needs them to rebuild without refetching the core sheets.
@@ -8419,7 +8413,7 @@
     return LIVE_NAV_OPTIONAL_SHEETS.filter(sheet => liveNavOptionalRows[sheet] === null);
   }
   function __resetLiveNavOptionalForTest() { // test-only seam
-    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null };
+    liveNavOptionalRows = { Photos: null, Receipts: null, Albums: null, Wishlist: null, Lookup_Errors: null, Lookup_Categories: null, Lookup_Finishes: null };
     liveNavCoreRawRows = null;
     liveNavOptionalFetchPromise = null;
     liveNavOptionalGeneration++;
@@ -8459,6 +8453,39 @@
       liveLookupCategoriesLoadFailed = !LIVE_LOOKUP_CATEGORIES;
       refreshAddCoinCategoryUI();
     }
+    // Lookup_Finishes feeds Add Coin's Finish dropdown ((ar), read only).
+    if (got.Lookup_Finishes) {
+      LIVE_LOOKUP_FINISHES = buildLookupFinishList(got.Lookup_Finishes);
+      liveLookupFinishesLoadFailed = !LIVE_LOOKUP_FINISHES;
+      populateFinishOptions();
+    }
+  }
+
+  // Lookup_Finishes -> the Finish dropdown's choices ((ar), Nov 2026).
+  // COLUMN A, whatever its header text (the same reading as
+  // buildLookupCategoryList). The text is kept exactly as written: trimmed
+  // at both ends, nothing else (no case folding, no renaming), because the
+  // matcher's Finish tier and the "Use <Finish> (from the catalog)" button
+  // compare it with DB_Coins.Finish. Blank rows, "═" section dividers and
+  // repeats are dropped; the sheet's order is kept. Values in
+  // FINISH_NOT_OFFERED are never offered (exact name). Returns null when
+  // the sheet has no header (an empty read) and when nothing offerable is
+  // left: both mean "use FINISH_FALLBACK_LIST", so the dropdown is never
+  // empty.
+  function buildLookupFinishList(rows) {
+    if (!Array.isArray(rows)) return null;
+    const seen = new Set();
+    const out = [];
+    rows.forEach(row => {
+      if (!row) return;
+      const keys = Object.keys(row);
+      if (!keys.length) return;
+      const name = String(row[keys[0]] == null ? "" : row[keys[0]]).trim();
+      if (!name || name.startsWith("\u2550") || seen.has(name) || FINISH_NOT_OFFERED.includes(name)) return;
+      seen.add(name);
+      out.push(name);
+    });
+    return out.length ? out : null;
   }
 
   // Lookup_Categories -> the Category dropdown's choices: COLUMN A, the header
@@ -8531,6 +8558,7 @@
       // set — the full fetch that left Albums missing set it.
       if (missing.includes("Lookup_Errors") && !got.Lookup_Errors && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       if (missing.includes("Lookup_Categories") && !got.Lookup_Categories && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+      if (missing.includes("Lookup_Finishes") && !got.Lookup_Finishes && !LIVE_LOOKUP_FINISHES) { liveLookupFinishesLoadFailed = true; populateFinishOptions(); }
       if (!Object.keys(got).length) { refreshAlbumsListIfShowing(); return false; }
       rerenderViewsAfterLiveNavData();
       return true;
@@ -8540,6 +8568,7 @@
         refreshAlbumsListIfShowing();
         if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
         if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+        if (!LIVE_LOOKUP_FINISHES) { liveLookupFinishesLoadFailed = true; populateFinishOptions(); }
       }
       console.warn("Live nav data: non-essential sheet refetch error:", err && err.message);
       return false;
@@ -8578,6 +8607,30 @@
   // (or without) the real list. The "Coin" button works either way.
   const FAKE_LOOKUP_CATEGORIES = ["Coin", "Commemorative", "Proof Set", "Mint Set"];
   function activeLookupCategories() { return LIVE_LOOKUP_CATEGORIES || (demoDataAllowed() ? FAKE_LOOKUP_CATEGORIES : []); }
+  // Finish choices ((ar)): the real Lookup_Finishes list once loaded, else
+  // the fixed FINISH_FALLBACK_LIST, in every mode. Never empty.
+  function activeLookupFinishes() { return LIVE_LOOKUP_FINISHES || FINISH_FALLBACK_LIST; }
+  // (Re)fills Add Coin's Finish dropdown from activeLookupFinishes(). Called
+  // at page load and again whenever Lookup_Finishes lands or fails. Keeps
+  // the static "— not recorded —" option first. The current value is never
+  // lost: one the new list does not offer stays as "<value> — existing
+  // value" (setSelectValuePreservingUnknown). The note shows while a live
+  // session is on the fallback because the sheet could not be read.
+  function populateFinishOptions() {
+    const sel = document.getElementById("finish");
+    if (!sel) return;
+    const current = sel.value;
+    [...sel.options].forEach(o => { if (o.value !== "") o.remove(); });
+    activeLookupFinishes().forEach(f => sel.appendChild(new Option(f, f)));
+    setSelectValuePreservingUnknown(sel, current);
+    const note = document.getElementById("finishListNote");
+    if (note) note.style.display = (!LIVE_LOOKUP_FINISHES && liveLookupFinishesLoadFailed && !demoDataAllowed()) ? "block" : "none";
+  }
+  function __setLiveLookupFinishesForTest(list, failed) { // test-only seam
+    LIVE_LOOKUP_FINISHES = list || null;
+    liveLookupFinishesLoadFailed = !!failed;
+    populateFinishOptions();
+  }
 
   // (Re)fills Add Coin's Error dropdown from activeLookupErrors(). Called at
   // page load and again when Lookup_Errors arrives. Keeps the static
@@ -8898,8 +8951,12 @@
       // Lookup_Categories — Add Coin's Category dropdown (read only). Optional
       // like Lookup_Errors: a failure never blocks startup; the form shows a
       // short "list unavailable" note and the Coin button still works.
-      fetchWorkbookSheetRows("Lookup_Categories")
-    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]) => {
+      fetchWorkbookSheetRows("Lookup_Categories"),
+      // Lookup_Finishes — Add Coin's Finish dropdown ((ar), read only).
+      // Optional like the two above: until it lands, or if it never does,
+      // the dropdown offers FINISH_FALLBACK_LIST.
+      fetchWorkbookSheetRows("Lookup_Finishes")
+    ]).then(([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows, lookupFinishRows]) => {
       if (gen !== liveNavFetchGeneration) { // superseded (Retry) — leave every shared value to the newer fetch
         noteAbandonedFullRead(fullReadStartedAt);
         return false;
@@ -8907,19 +8964,20 @@
       liveNavDataFetchPromise = null;
       try {
         noteFullReadReport([allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
-          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows], fullReadStartedAt, fullReadReason);
+          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows, lookupFinishRows], fullReadStartedAt, fullReadReason);
       } catch (e) { console.warn("Load report failed:", e && e.message); } // diagnostics never stop the load
       // no real answer yet for any of the five core sheets — don't cache, retry on next call
       if (allRows === null || dbSetsRows === null || dbCoinsRows === null || metalContentRows === null || gradersRows === null) {
         if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
         if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
         if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+        if (!LIVE_LOOKUP_FINISHES) { liveLookupFinishesLoadFailed = true; populateFinishOptions(); }
         return false;
       }
-      applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows);
+      applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows, lookupFinishRows);
       onFullReadLanded(fullReadStartedAt, versionAtStart, gen,
         [allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
-          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]);
+          albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows, lookupFinishRows]);
       return true;
     }).catch(err => {
       if (gen !== liveNavFetchGeneration) return false; // superseded (Retry)
@@ -8927,6 +8985,7 @@
       if (!LIVE_ALBUMS) { liveAlbumsLoadFailed = true; refreshAlbumsListIfShowing(); }
       if (!LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
       if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+      if (!LIVE_LOOKUP_FINISHES) { liveLookupFinishesLoadFailed = true; populateFinishOptions(); }
       // DIAGNOSTIC-ONLY (temporary): every individual fetchWorkbookSheetRows()
       // call catches its own errors and never rejects, so reaching this
       // catch means the PROCESSING block above (after every sheet already
@@ -8938,11 +8997,11 @@
     return liveNavDataFetchPromise;
   }
 
-  // Builds every LIVE_* array from the 11 sheets' rows (five core sheets
-  // required, the six optional ones may be null) and redraws. Shared by a
+  // Builds every LIVE_* array from the 12 sheets' rows (five core sheets
+  // required, the seven optional ones may be null) and redraws. Shared by a
   // full read from the workbook and, (ao) Stage 3, a launch from the
   // device's saved copy, so both go through exactly the same mapping.
-  function applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows) {
+  function applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows, lookupFinishRows) {
     // (ao) B2: a read that still shows the old value of a field this session
     // just wrote shows the written value (withRecentWrites).
     if (recentRowWrites.size) allRows = allRows.map(r => withRecentWrites(colVal(r, "CollectionID"), r));
@@ -9025,9 +9084,11 @@
     if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
     if (lookupErrorRows !== null) optionalGot.Lookup_Errors = lookupErrorRows;
     if (lookupCategoryRows !== null) optionalGot.Lookup_Categories = lookupCategoryRows;
+    if (lookupFinishRows != null) optionalGot.Lookup_Finishes = lookupFinishRows;
     applyLiveNavOptionalRows(optionalGot);
     if (lookupErrorRows === null && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
     if (lookupCategoryRows === null && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+    if (lookupFinishRows == null && !LIVE_LOOKUP_FINISHES) { liveLookupFinishesLoadFailed = true; populateFinishOptions(); }
     liveAlbumsLoadFailed = !LIVE_ALBUMS;
     rerenderViewsAfterLiveNavData();
   }
@@ -17417,7 +17478,8 @@
   ];
   let browseSelectedGradingServiceKeys = new Set();
 
-  // Catalog Finish filter. The app does not load Lookup_Finishes, so the
+  // Catalog Finish filter. Lookup_Finishes has no grouping column (Add Coin
+  // reads it for its Finish list since (ar), not for this), so the
   // grouping of All.Finish values is fixed here, matched trimmed and
   // case-insensitively. A blank Finish, or one in no group (e.g. "Various"),
   // only shows under All. Short pill labels keep the row on one line on a
@@ -17426,8 +17488,8 @@
     { key: "strike",   label: "Strike",     full: "Business Strike or Uncirculated", values: ["Business Strike", "Uncirculated"] },
     { key: "proof",    label: "Proof",      full: "Proof or Matte Proof", values: ["Proof", "Matte Proof"] },
     { key: "revproof", label: "Rev. Proof", full: "Reverse Proof or Enhanced Reverse Proof", values: ["Reverse Proof", "Enhanced Reverse Proof"] },
-    { key: "special",  label: "Special",    full: "Special finishes: Burnished, Enhanced Uncirculated, Satin Finish, SMS, Specimen, Matte",
-      values: ["Burnished", "Enhanced Uncirculated", "Satin Finish", "SMS", "Specimen", "Matte"] }
+    { key: "special",  label: "Special",    full: "Special finishes: Burnished, Enhanced Uncirculated, Satin Finish, SMS, Specimen, Matte, Diamond Field",
+      values: ["Burnished", "Enhanced Uncirculated", "Satin Finish", "SMS", "Specimen", "Matte", "Diamond Field"] }
   ];
   function catalogFinishGroupKey(finish) {
     const f = String(finish || "").trim().toLowerCase();
@@ -33734,7 +33796,14 @@
     // The matched catalog row knows this specimen's Finish; carrying it onto
     // the form both records it on the draft and lets the Finish tier narrow
     // any later re-match, instead of leaving a field the catalog just told us.
-    if (row.finish) document.getElementById("finish").value = row.finish;
+    // (ar): only a Finish the dropdown offers (same normField match as
+    // addCoinCatalogFinish()). Setting a <select> to a value it doesn't
+    // offer silently gives "", which used to wipe a Finish already picked.
+    if (row.finish) {
+      const finishEl = document.getElementById("finish");
+      const opt = [...finishEl.options].find(o => o.value && !o.dataset.injected && normField(o.value) === normField(String(row.finish).trim()));
+      if (opt) finishEl.value = opt.value;
+    }
     refreshVarietyOptions();
     checkDbCoinsMatch();
   }
@@ -34276,7 +34345,7 @@
     const row = state && state.candidates && state.candidates.length === 1 ? state.candidates[0] : null;
     const raw = row ? String(row.finish || "").trim() : "";
     if (!raw) return { raw: "", option: "" };
-    const opt = [...document.getElementById("finish").options].find(o => o.value && normField(o.value) === normField(raw));
+    const opt = [...document.getElementById("finish").options].find(o => o.value && !o.dataset.injected && normField(o.value) === normField(raw));
     return { raw, option: opt ? opt.value : "" };
   }
   function addCoinGateMessage() {
@@ -35021,6 +35090,7 @@
     document.getElementById("varietyOther").style.display = "none";
     document.getElementById("variety").value = "";
     document.getElementById("finish").value = "";
+    populateFinishOptions(); // (ar): drops a kept "— existing value" option from the last draft
     document.getElementById("designation").value = "";
     document.getElementById("errorSelect").value = "";
     document.getElementById("errorOther").value = "";
@@ -35196,7 +35266,9 @@
 
     document.getElementById("variety").value = draft.variety || "";
     refreshVarietyOptions(); // rebuilds the filtered list and picks Other if needed
-    document.getElementById("finish").value = draft.finish || "";
+    // (ar): a saved Finish the list doesn't offer (e.g. "Various", or a value
+    // since removed from Lookup_Finishes) stays, as "<value> — existing value".
+    setSelectValuePreservingUnknown(document.getElementById("finish"), draft.finish || "");
     document.getElementById("designation").value = draft.designation || "";
 
     // Error: hidden field is the source of truth, the select/override pair is
@@ -36161,6 +36233,7 @@
     // override, same shape as Variety's override but no context-filtering.
     const errorSelect = document.getElementById("errorSelect");
     populateErrorOptions();
+    populateFinishOptions();
     refreshAddCoinCategoryUI();
     errorSelect.addEventListener("change", (e) => {
       const otherInput = document.getElementById("errorOther");

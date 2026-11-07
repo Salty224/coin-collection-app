@@ -1028,7 +1028,7 @@ module.exports = defineSuite("startup-connection", async ({ ok, openApp, PHONE }
     restartStartupFetches();
     return r;
   });
-  ok(J6.attempts.length === 1 && J6.total === 12, /* 11 sheets (Lookup_Errors added Oct 2026, Lookup_Categories Nov 2026) + the Docket read */ `J6 while a read hangs, the checks send nothing new: 1 attempt, ${J6.total} requests in 1.5s (backoff only 50ms)`);
+  ok(J6.attempts.length === 1 && J6.total === 13, /* 12 sheets (Lookup_Errors added Oct 2026, Lookup_Categories Nov 2026, Lookup_Finishes (ar) Nov 2026) + the Docket read */ `J6 while a read hangs, the checks send nothing new: 1 attempt, ${J6.total} requests in 1.5s (backoff only 50ms)`);
 
   // J7–J8: Retry starts a fresh attempt at once and resets the schedule.
   await page.evaluate(RESET); await page.evaluate(INSTALL_FAKE); await page.evaluate(SPLASH_RUN); await page.evaluate(FAST_FAIL);

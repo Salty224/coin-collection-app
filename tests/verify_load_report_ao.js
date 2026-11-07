@@ -3,7 +3,7 @@
 // What it proves:
 //   - every startup sheet read records how long it took and how many bytes
 //     its body held (UTF-8 bytes, not characters);
-//   - the full 11-sheet read produces a "Launch read" report (sheets, size,
+//   - the full 12-sheet read (11 before (ar)) produces a "Launch read" report (sheets, size,
 //     wall time, slowest sheet, sheets not read), a refresh after a save is
 //     reported separately, an attempt with no token is ignored, failed
 //     attempts before the launch read are counted, and a read superseded by
@@ -98,15 +98,15 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
       line: loadReportReadLine("Launch read", r.launch) };
   });
   ok("L4 the full read still loads the app's data (" + JSON.stringify(L4.coins) + ")", L4.result === true && L4.coins.includes("AY-90001"));
-  ok("L5 it is reported as the launch read, all 11 sheets listed in order", L4.launch && L4.launch.reason === "launch" &&
-    L4.launch.sheets.map(x => x.name).join() === "All,DB_Sets,DB_Coins,Lookup_MetalContent,Lookup_Graders,Photos,Receipts,Albums,Wishlist,Lookup_Errors,Lookup_Categories" &&
+  ok("L5 it is reported as the launch read, all 12 sheets listed in order", L4.launch && L4.launch.reason === "launch" &&
+    L4.launch.sheets.map(x => x.name).join() === "All,DB_Sets,DB_Coins,Lookup_MetalContent,Lookup_Graders,Photos,Receipts,Albums,Wishlist,Lookup_Errors,Lookup_Categories,Lookup_Finishes" &&
     L4.last === L4.launch);
-  ok("L6 10 of 11 read, total bytes = the sum of the sheets read (" + (L4.launch && L4.launch.totalBytes) + " vs " + L4.sum + ")",
-    L4.launch && L4.launch.okCount === 10 && L4.launch.totalBytes === L4.sum && L4.sum > 0);
+  ok("L6 11 of 12 read, total bytes = the sum of the sheets read (" + (L4.launch && L4.launch.totalBytes) + " vs " + L4.sum + ")",
+    L4.launch && L4.launch.okCount === 11 && L4.launch.totalBytes === L4.sum && L4.sum > 0);
   ok("L7 slowest is the delayed sheet, wall time at least its delay (" + JSON.stringify(L4.launch && L4.launch.slowest) + ", " + (L4.launch && L4.launch.wallMs) + " ms)",
     L4.launch && L4.launch.slowest && L4.launch.slowest.name === "DB_Coins" && L4.launch.wallMs >= 180);
   ok("L8 the line names counts, size, time, slowest and the sheet not read: " + L4.line,
-    /^Launch read \(\d\d:\d\d:\d\d\): 10 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest DB_Coins \d+\.\d s\); not read: Photos HTTP 500$/.test(L4.line));
+    /^Launch read \(\d\d:\d\d:\d\d\): 11 of 12 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest DB_Coins \d+\.\d s\); not read: Photos HTTP 500$/.test(L4.line));
 
   // ---- L9: a refresh after a save is reported separately -------------------
   const L9 = await page.evaluate(async () => {
@@ -117,7 +117,7 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     return { sameLaunch: r.launch === before, lastReason: r.last && r.last.reason, lastOk: r.last && r.last.okCount };
   });
   ok("L9 a refresh after a save keeps the launch report and adds its own (" + JSON.stringify(L9) + ")",
-    L9.sameLaunch && L9.lastReason === "refresh after a save" && L9.lastOk === 11);
+    L9.sameLaunch && L9.lastReason === "refresh after a save" && L9.lastOk === 12);
 
   // ---- L10: no token, failed attempts, superseded --------------------------
   await page.evaluate(INSTALL_FAKE);
@@ -185,8 +185,8 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     };
   });
   ok("L14 the report is in the Docket's About section (collapsed until opened), directly above the Build line, which stays last", L14.shown && L14.aboveBuild);
-  ok("L15 it shows the launch read: " + L14.launch, /^Launch read \(\d\d:\d\d:\d\d\): 11 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest /.test(L14.launch));
-  ok("L16 per-sheet detail lists all 11 sheets (" + L14.perSheet + ")", L14.perSheet === 11);
+  ok("L15 it shows the launch read: " + L14.launch, /^Launch read \(\d\d:\d\d:\d\d\): 12 of 12 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest /.test(L14.launch));
+  ok("L16 per-sheet detail lists all 12 sheets (" + L14.perSheet + ")", L14.perSheet === 12);
   ok("L17 the first Docket visit checked the version exactly once (" + L14.versionCalls + "; the full read itself asked " + L14.readVersionCalls + ")",
     L14.versionCalls === 1 && L14.readVersionCalls === 1);
   ok("L18 the lookup is one OneDrive item GET on the session's workbook, not an Excel request: " + L14.versionUrl,
