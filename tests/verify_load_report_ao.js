@@ -164,6 +164,9 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     // sheets; the Docket's own automatic check is counted from here.
     const beforeDocket = window.__fakeCalls.filter(c => c.key === "version").length;
     navigate("needsdbcoins");
+    const aboutBody = document.getElementById("docketAboutBody");
+    const aboutCollapsed = aboutBody.classList.contains("hidden");
+    document.getElementById("docketAboutHeader").click(); // the diagnostics live in the collapsed About section
     await new Promise(r => setTimeout(r, 50));
     if (workbookVersionCheckInFlight) await workbookVersionCheckInFlight;
     const el = document.getElementById("docketLoadReport");
@@ -172,7 +175,8 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
     return {
       readVersionCalls: beforeDocket,
       shown: el.style.display !== "none" && el.offsetParent !== null,
-      aboveBuild: el.nextElementSibling === build && build.parentElement.lastElementChild === build,
+      aboveBuild: aboutBody.contains(el) && document.getElementById("docketAboutAccordion").nextElementSibling === build &&
+        build.parentElement.lastElementChild === build && aboutCollapsed,
       launch: (document.getElementById("docketLaunchReadLine") || {}).textContent || "",
       version: (document.getElementById("docketVersionLine") || {}).textContent || "",
       btn: (document.getElementById("docketVersionCheckBtn") || {}).textContent || "",
@@ -180,7 +184,7 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
       perSheet: el.querySelectorAll("details li").length
     };
   });
-  ok("L14 the report is shown on the Docket, directly above the Build line, which stays last", L14.shown && L14.aboveBuild);
+  ok("L14 the report is in the Docket's About section (collapsed until opened), directly above the Build line, which stays last", L14.shown && L14.aboveBuild);
   ok("L15 it shows the launch read: " + L14.launch, /^Launch read \(\d\d:\d\d:\d\d\): 11 of 11 sheets, \d+(\.\d)? KB, \d+\.\d s \(slowest /.test(L14.launch));
   ok("L16 per-sheet detail lists all 11 sheets (" + L14.perSheet + ")", L14.perSheet === 11);
   ok("L17 the first Docket visit checked the version exactly once (" + L14.versionCalls + "; the full read itself asked " + L14.readVersionCalls + ")",
@@ -249,4 +253,36 @@ module.exports = defineSuite("load-report-ao", async ({ check, selfCheck, openAp
   });
   ok("L27 in the offline mockup the report is hidden and no version lookup is sent (" + JSON.stringify(L27) + ")",
     L27.mode !== "live" && L27.hidden && L27.text === "" && L27.versionCalls === 0);
+
+  // ---- L28-L31: the content-lag probe (Ray's B1) -------------------------------
+  await page.evaluate(INSTALL_FAKE);
+  const L28 = await page.evaluate(async () => {
+    __setLiveDataModeForTest("live");
+    __setLagProbeTimingsForTest({ every: 60, max: 5000 });
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    navigate("needsdbcoins");
+    const btnText = () => (document.getElementById("docketLagProbeBtn") || {}).textContent;
+    const idle = btnText();
+    document.getElementById("docketLagProbeBtn").click();
+    await wait(150);
+    const running = btnText();
+    // The file version moves first; the content follows two samples later.
+    window.__version = Object.assign({}, window.__version, { eTag: "\"{AAA},9\"", lastModifiedDateTime: new Date(Date.now() - 1000).toISOString() });
+    await wait(150);
+    window.__bodies.All = window.__bodies.All.concat([["AY-00099", 1950, "1C", ""]]);
+    for (let i = 0; i < 40 && !(__getLagProbeForTest() && __getLagProbeForTest().contentChangedAt); i++) await wait(50);
+    await wait(100);
+    const p = __getLagProbeForTest();
+    const out = { idle, running, after: btnText(), summary: (document.getElementById("docketLagProbeLine") || {}).textContent || "",
+      vAt: p.versionChangedAt, cAt: p.contentChangedAt, stillRunning: p.running,
+      methods: window.__fakeCalls.filter(c => c.method !== "GET").length };
+    __setLagProbeTimingsForTest(null);
+    return out;
+  });
+  ok("L28 the probe starts and stops from the About section (" + JSON.stringify([L28.idle, L28.running, L28.after]) + ")",
+    L28.idle === "Start content-lag probe" && L28.running === "Stop content-lag probe" && L28.after === "Start content-lag probe" && L28.stillRunning === false);
+  ok("L29 it sees the version move first and the content later (" + (L28.cAt - L28.vAt) + " ms apart)", L28.vAt > 0 && L28.cAt > L28.vAt);
+  ok("L30 the summary gives the content lag after the last-changed time: " + L28.summary,
+    /version changed by \d\d:\d\d:\d\d \(workbook last changed .+\); content changed by \d\d:\d\d:\d\d: content lag at most \d+\.\d s after the last-changed time$/.test(L28.summary));
+  ok("L31 the probe sends GETs only (" + L28.methods + " other requests)", L28.methods === 0);
 });

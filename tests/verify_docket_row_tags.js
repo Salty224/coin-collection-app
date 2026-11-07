@@ -24,8 +24,8 @@ module.exports = defineSuite("docket-row-tags", async ({ ok, openApp, PHONE }) =
     // The count is digits, or "?" when the Docket queue couldn't be read.
     return headers.map(h => h.querySelector('span').textContent.replace(/\s+(\d+|\?)$/, '').trim());
   });
-  ok(JSON.stringify(A) === JSON.stringify(["Staging", "Awaiting Copilot Research", "Other / Requires Photos"]),
-    "A1 still three sections — the distinction is a per-row tag, not a section rename/split: " + A.join(" | "));
+  ok(JSON.stringify(A) === JSON.stringify(["Staging", "Awaiting Copilot Research", "Other / Requires Photos", "About"]),
+    "A1 still three work sections (plus the (ao) About diagnostics) — the distinction is a per-row tag, not a section rename/split: " + A.join(" | "));
 
   // ---------- B. A real Docket queue entry (genuine no-match) tags "Research" ----------
   const B = await page.evaluate(async () => {

@@ -129,6 +129,7 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
       source: s.source, verified: s.verified, allowed: workbookWritesAllowed().ok,
       dataLine: document.querySelector("#docketDataLine .docket-data-text").textContent,
       savedLine: (document.getElementById("docketSavedCopyLine") || {}).textContent || "",
+      versionLine: (document.getElementById("docketVersionLine") || {}).textContent || "",
       launchLine: (document.getElementById("docketLaunchReadLine") || {}).textContent || "",
       bar: document.getElementById("sessionBar").classList.contains("hidden") };
     window.__sheetMode = "ok";
@@ -142,6 +143,8 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     /^Data: checked with the workbook \d\d:\d\d \(saved copy matched\)$/.test(D4.dataLine) &&
     /^Saved copy at launch \(\d\d:\d\d:\d\d\): matched the workbook in \d+\.\d s; no sheet reads$/.test(D4.savedLine) &&
     D4.launchLine === "Launch read: none (the saved copy was used)");
+  ok("D6b the version line shows the launch's own check, not \"not checked yet\" (Ray's B4): " + D4.versionLine,
+    /^Workbook version: \d\d:\d\d:\d\d \(launch\) · last changed /.test(D4.versionLine));
 
   // ---- D7: a changed workbook -> copy read-only, re-read, rewritten ----------------
   const D7 = await page.evaluate(async () => {
@@ -173,7 +176,7 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
   });
   ok("D7 a changed workbook: the copy is shown at once (" + JSON.stringify(D7.between.coins) + "), \"" + D7.between.bar + "\"",
     D7.between.res === true && JSON.stringify(D7.between.coins) === JSON.stringify(["AY-00001"]) &&
-    /^Saved copy from \w{3} \d+ \w{3}, \d\d:\d\d · updating from the workbook…$/.test(D7.between.bar));
+    D7.between.bar === "" && D7.between.updating === true && D7.between.verified === false); // Ray, 7 Nov: no "updating…" row
   ok("D8 ...read-only meanwhile: a write is refused (" + D7.refused + ")", D7.between.allowed.ok === false && D7.refused === "ReadOnlyError:unchecked");
   ok("D9 ...then the full read replaces it, writes come back (" + JSON.stringify(D7.after) + ")",
     D7.after.source === "workbook" && D7.after.coins.includes("AY-00002") && D7.after.allowed === true);
@@ -198,7 +201,7 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
   });
   ok("D11 a slow check: the splash stops waiting and the copy shows read-only, no row in the first 1.5 s (" + JSON.stringify(D11.early) + ")",
     D11.res === true && D11.early.coins >= 1 && D11.early.verified === false && D11.early.bar === "");
-  ok("D12 ...then \"" + D11.mid + "\"", /^Saved copy from \w{3} \d+ \w{3}, \d\d:\d\d · checking with the workbook…$/.test(D11.mid));
+  ok("D12 ...and no \"checking…\" row even after 1.5 s (Ray, 7 Nov) (\"" + D11.mid + "\")", D11.mid === "");
   ok("D13 ...and when the answer matches: checked, the row goes, still no sheet read (" + JSON.stringify([D11.verified, D11.late, D11.sheetCalls]) + ")",
     D11.verified === true && D11.late === true && D11.sheetCalls === 0);
 
@@ -225,7 +228,7 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     D14.res === true && D14.coins >= 1 && D14.allowed.ok === false && D14.allowed.reason === "unreachable" &&
     /^Can't reach OneDrive · read-only · saved copy from \w{3} \d+ \w{3}, \d\d:\d\d$/.test(D14.bar));
   ok("D15 ...the retry finds it again: checked, \"Back online · data is current\", the row goes (" + JSON.stringify(D14.after) + ", " + JSON.stringify(D14.toasts) + ")",
-    D14.after.conn === "ok" && D14.after.verified === true && D14.toasts.includes("Back online · data is current") && D14.hidden);
+    D14.after.conn === "ok" && D14.after.verified === true && D14.toasts.includes("Back online") && D14.hidden);
 
   // ---- D16: changed in the last 10 minutes -> re-read ---------------------------
   const D16 = await page.evaluate(async () => {
@@ -420,5 +423,5 @@ module.exports = defineSuite("device-cache-ao", async ({ check, selfCheck, openA
     return { conn: s.connection, verified: s.verified, toasts: window.__toasts.slice(), hidden: document.getElementById("sessionBar").classList.contains("hidden") };
   });
   ok("D31 back online (the real online event): checked, \"Back online · data is current\", the row goes (" + JSON.stringify(D31) + ")",
-    D31.conn === "ok" && D31.verified === true && D31.toasts.includes("Back online · data is current") && D31.hidden);
+    D31.conn === "ok" && D31.verified === true && D31.toasts.includes("Back online") && D31.hidden);
 });

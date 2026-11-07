@@ -66,6 +66,7 @@ const INSTALL = () => {
     All: [["CollectionID", "Year", "Denomination"], ["AY-90001", 1909, "1C"]],
     DB_Sets: [["SetID", "Lineage", "Description", "Year"], ["S-1", "Proof Set", "Test Proof Set", 1999]]
   };
+  window.__bodies = bodies;
   window.fetch = (url, init) => {
     const u = String(url);
     const m = /worksheets\('([^']+)'\)/.exec(u);
@@ -277,38 +278,49 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
     const s = __getWorkbookSessionForTest();
     return { conn: s.connection, toasts: window.__toasts.slice(), sheetCalls: window.__fakeCalls.filter(c => c.key === "All").length };
   });
-  ok("C2 online + unchanged workbook: writes back, toast \"Back online · data is current\", nothing re-read (" + JSON.stringify(C2) + ")",
-    C2.conn === "ok" && C2.toasts.slice(-1)[0] === "Back online · data is current" && C2.sheetCalls === 0);
+  ok("C2 online + unchanged workbook: writes back, toast \"Back online\", nothing re-read (" + JSON.stringify(C2) + ")",
+    C2.conn === "ok" && C2.toasts.slice(-1)[0] === "Back online" && C2.sheetCalls === 0);
 
   const C3 = await page.evaluate(async () => {
-    window.__toasts = [];
-    __setWorkbookSessionForTest({ source: "workbook", verified: true, dataAt: 1, connection: "offline",
-      dataVersion: Object.assign({ ok: true }, window.__version, { eTag: "\"{AAA},4\"" }) });
-    window.dispatchEvent(new Event("online"));
-    await __wait(50);
-    if (sessionCheckInFlight) await sessionCheckInFlight;
-    const s = __getWorkbookSessionForTest();
-    return { conn: s.connection, toasts: window.__toasts.slice(), sheetCalls: window.__fakeCalls.filter(c => c.key === "All").length,
-      dataAt: s.dataAt, coins: activeCoins().map(c => c.id), updating: s.updating };
+    const run = async (newContent) => {
+      window.__toasts = [];
+      const before = window.__fakeCalls.filter(c => c.key === "All").length;
+      if (newContent) window.__bodies.All = window.__bodies.All.concat([["AY-90009", 1911, "10C"]]);
+      __setWorkbookSessionForTest({ source: "workbook", verified: true, dataAt: 1, connection: "offline",
+        dataVersion: Object.assign({ ok: true }, window.__version, { eTag: "\"{AAA},4\"" }) });
+      window.dispatchEvent(new Event("online"));
+      await __wait(50);
+      if (sessionCheckInFlight) await sessionCheckInFlight;
+      const s = __getWorkbookSessionForTest();
+      return { conn: s.connection, toasts: window.__toasts.slice(), sheetCalls: window.__fakeCalls.filter(c => c.key === "All").length - before,
+        dataAt: s.dataAt, coins: activeCoins().map(c => c.id), updating: s.updating };
+    };
+    const lagging = await run(false); // the version moved but Excel sent the same content (Ray's B1)
+    const changed = await run(true);
+    return { lagging, changed };
   });
-  ok("C3 online + changed workbook: re-read in the background, toast \"Back online · updated from the workbook\" (" + JSON.stringify(C3) + ")",
-    C3.conn === "ok" && C3.toasts.slice(-1)[0] === "Back online · updated from the workbook" && C3.sheetCalls === 1 &&
-    C3.dataAt > 1 && C3.coins.includes("AY-90001") && C3.updating === false);
+  ok("C3 online + changed version but the SAME content (Excel lagging): re-read, toast just \"Back online\" (" + JSON.stringify(C3.lagging) + ")",
+    C3.lagging.conn === "ok" && C3.lagging.toasts.join() === "Back online" && C3.lagging.sheetCalls === 1 && C3.lagging.updating === false);
+  ok("C3b online + really changed content: re-read, toast \"Back online · updated\" (" + JSON.stringify(C3.changed) + ")",
+    C3.changed.conn === "ok" && C3.changed.toasts.join() === "Back online · updated" && C3.changed.sheetCalls === 1 &&
+    C3.changed.dataAt > 1 && C3.changed.coins.includes("AY-90009"));
 
   const C4 = await page.evaluate(async () => {
     const runs = [];
-    for (const own of [false, true]) {
+    for (const [own, newContent] of [[false, false], [false, true], [true, true]]) {
       window.__toasts = [];
+      if (newContent) window.__bodies.All = window.__bodies.All.concat([["AY-9100" + runs.length, 1912, "25C"]]);
       __setWorkbookSessionForTest({ connection: "ok", ownWriteSinceData: own, lastCheckAt: 0,
         dataVersion: Object.assign({ ok: true }, window.__version, { cTag: "\"c:{AAA},1\"" }) });
       const before = window.__fakeCalls.filter(c => c.key === "All").length;
       await checkSessionAgainstWorkbook("resume");
-      runs.push({ own, toasts: window.__toasts.slice(), reread: window.__fakeCalls.filter(c => c.key === "All").length - before });
+      runs.push({ own, newContent, toasts: window.__toasts.slice(), reread: window.__fakeCalls.filter(c => c.key === "All").length - before });
     }
     return runs;
   });
-  ok("C4 a change found mid-session is re-read with \"Updated from the workbook\"; after the app's own write it is re-read silently (" + JSON.stringify(C4) + ")",
-    C4[0].reread === 1 && C4[0].toasts.join() === "Updated from the workbook" && C4[1].reread === 1 && C4[1].toasts.length === 0);
+  ok("C4 mid-session: a re-read that brings the same content says nothing; one that changes the data says \"Updated\"; after the app's own write, silent (" + JSON.stringify(C4) + ")",
+    C4[0].reread === 1 && C4[0].toasts.length === 0 && C4[1].reread === 1 && C4[1].toasts.join() === "Updated" &&
+    C4[2].reread === 1 && C4[2].toasts.length === 0);
 
   const C5 = await page.evaluate(async () => {
     __setConnectionTimingsForTest({ retry: 150, resume: 60000 });
@@ -327,7 +339,7 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
   ok("C5 a failed check makes the session read-only (" + C5.failConn + ", " + C5.failReason + ": \"" + C5.roText + "\")",
     C5.failConn === "unreachable" && /^Can't reach OneDrive · read-only/.test(C5.roText));
   ok("C6 ...and the retry timer checks again on its own and restores it (" + C5.okConn + ", " + JSON.stringify(C5.toasts) + ")",
-    C5.okConn === "ok" && C5.toasts.includes("Back online · data is current"));
+    C5.okConn === "ok" && C5.toasts.includes("Back online"));
 
   const C7 = await page.evaluate(async () => {
     __setConnectionTimingsForTest(null);
@@ -369,12 +381,12 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
     C8.old.dv && C8.old.dv.eTag === "\"{AAA},5\"");
   ok("C10 ...and does not when it changed 30 s before (" + JSON.stringify(C8.recent.dv) + ")", C8.recent.dv === null);
   const C11 = await page.evaluate(() => ({
-    a: fullReadVersionTrusted({ ok: true, lastModifiedDateTime: new Date(Date.now() - 121000).toISOString() }, Date.now()),
-    b: fullReadVersionTrusted({ ok: true, lastModifiedDateTime: new Date(Date.now() - 119000).toISOString() }, Date.now()),
+    a: fullReadVersionTrusted({ ok: true, lastModifiedDateTime: new Date(Date.now() - 601000).toISOString() }, Date.now()),
+    b: fullReadVersionTrusted({ ok: true, lastModifiedDateTime: new Date(Date.now() - 599000).toISOString() }, Date.now()),
     c: fullReadVersionTrusted({ ok: false }, Date.now()),
     d: fullReadVersionTrusted({ ok: true, lastModifiedDateTime: "garbage" }, Date.now())
   }));
-  ok("C11 the 2-minute margin, exactly (" + JSON.stringify(C11) + ")", C11.a === true && C11.b === false && C11.c === false && C11.d === false);
+  ok("C11 the 10-minute margin (Ray's B1), exactly (" + JSON.stringify(C11) + ")", C11.a === true && C11.b === false && C11.c === false && C11.d === false);
 
   const C12 = await page.evaluate(async () => {
     __setLiveDataModeForTest("live");
@@ -488,11 +500,50 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
   const has = (re) => T.names.some(n => re.test(n));
   ok("T1 the save's named steps are timed (" + JSON.stringify(T.names) + ")",
     has(/^header re-read$/) && has(/^row lookup$/) && has(/^row re-read for the conflict check$/) && has(/^build the cell edits$/) &&
-    has(/^write \(\d+ ranges, LastModified last\)$/) && T.outcome === "done" && typeof T.total === "number");
+    has(/^write \(\d+ ranges, LastModified last\)$/) && T.outcome === "saved" && typeof T.total === "number");
   ok("T2 ...and so is every Graph call inside it", has(/^Graph readTableHeaderRow AllCoins$/) && has(/^Graph patchWorkbookRanges All \d+ ranges$/));
   ok("T3 a nested save does not replace the outer record (" + T.nested + ")", T.nested === "outer");
   ok("T4 each $batch POST is timed, the one carrying LastModified named (" + JSON.stringify(T.batchNames) + ")",
     T.batchNames.length === 2 && T.batchNames[0] === "$batch 1 of 2: 20 range writes" && T.batchNames[1] === "$batch 2 of 2: 5 range writes (includes LastModified)");
   ok("T5 the Docket shows the last save and its steps: " + T.line,
-    /^Last save \(\d\d:\d\d:\d\d, Edit Coin AY-00001\): \d+\.\d s, done, \d+ steps$/.test(T.line) && T.stepItems === T.names.length);
+    /^Last save \(\d\d:\d\d:\d\d, Edit Coin AY-00001\): \d+\.\d s, saved, \d+ steps$/.test(T.line) && T.stepItems === T.names.length);
+
+  // ---- T6-T8: the outcome says what happened (Ray's B3) ---------------------------
+  const T6 = await page.evaluate(async (seed) => {
+    __setWorkbookSessionForTest({ source: "workbook", verified: true, connection: "ok" });
+    const mock = createMockGraphClient(seed);
+    __setGraphClientForTest(mock);
+    __setBrowseEditWriteEnabledForTest(true);
+    __resetAllHeaderMapForTest();
+    const snap = await readAllRowWritableValues(2);
+    const out = {};
+    // Refused: the row changed since the form opened (Ray's case).
+    mock._grids.All[1][mock._grids.All[0].indexOf("Remarks")] = "changed by Copilot";
+    await withEditSaveLock(() => saveCoinRowToWorkbook("AY-00001", Object.assign({}, snap, { Cost: 9 }), snap), "Edit Coin AY-00001");
+    out.conflict = __getSaveTimingForTest().last;
+    // Refused: read-only.
+    __setWorkbookSessionForTest({ connection: "offline" });
+    const snap2 = await readAllRowWritableValues(2);
+    await withEditSaveLock(() => saveCoinRowToWorkbook("AY-00001", Object.assign({}, snap2, { Cost: 9 }), snap2), "Edit Coin AY-00001");
+    out.offline = __getSaveTimingForTest().last.outcome;
+    __setWorkbookSessionForTest({ connection: "ok" });
+    // Partly saved: the second $batch chunk fails.
+    const real = mock.patchWorkbookRanges;
+    mock.patchWorkbookRanges = () => { const e = new Error("boom"); e.landed = [0]; return Promise.reject(e); };
+    await withEditSaveLock(() => saveCoinRowToWorkbook("AY-00001", Object.assign({}, snap2, { Cost: 11, Grade: "MS-65" }), snap2), "Edit Coin AY-00001");
+    out.partial = __getSaveTimingForTest().last.outcome;
+    mock.patchWorkbookRanges = real;
+    // Nothing reported: says so instead of claiming success.
+    await withSaveTiming("silent", async () => undefined);
+    out.silent = __getSaveTimingForTest().last.outcome;
+    __setGraphClientForTest(null);
+    __setBrowseEditWriteEnabledForTest(null);
+    return { conflictOutcome: out.conflict.outcome, conflictSteps: out.conflict.steps.map(s => s.name), offline: out.offline, partial: out.partial, silent: out.silent };
+  }, allSeed());
+  ok("T6 a save refused by the conflict check says so, and no write step ran (" + JSON.stringify(T6.conflictOutcome) + ", " + JSON.stringify(T6.conflictSteps) + ")",
+    T6.conflictOutcome === "refused (changed in the workbook: Remarks)" && !T6.conflictSteps.some(n => /^write /.test(n)) &&
+    T6.conflictSteps.includes("row re-read for the conflict check"));
+  ok("T7 read-only and part-landed saves say so (" + JSON.stringify([T6.offline, T6.partial]) + ")",
+    T6.offline === "refused (read-only: Offline)" && /^partly saved \(/.test(T6.partial));
+  ok("T8 a save that reports nothing never claims \"saved\" (" + T6.silent + ")", T6.silent === "finished (no outcome reported)");
 });

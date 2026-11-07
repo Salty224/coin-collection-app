@@ -26,16 +26,16 @@ module.exports = defineSuite("docket-sections", async ({ ok, openApp, PHONE }) =
     return {
       // The count is digits, or "?" when the Docket queue couldn't be read.
       order: headers.map(h => h.querySelector('span').textContent.replace(/\s+(\d+|\?)$/, '').trim()),
-      collapsed: ['docketStagingBody', 'docketResearchBody', 'docketOtherBody']
+      collapsed: ['docketStagingBody', 'docketResearchBody', 'docketOtherBody', 'docketAboutBody']
         .map(id => document.getElementById(id).classList.contains('hidden')),
       // The old flat containers must be gone, not merely hidden.
       oldGone: !document.getElementById('needsActionContainer') && !document.getElementById('needsResearchContainer'),
       hasCounts: ['docketStagingCount', 'docketResearchCount', 'docketOtherCount'].every(id => !!document.getElementById(id))
     };
   });
-  ok(JSON.stringify(A.order) === JSON.stringify(["Staging", "Awaiting Copilot Research", "Other / Requires Photos"]),
-    "A1 three sections in the specified order: " + A.order.join(" | "));
-  ok(A.collapsed.every(Boolean), "A2 all three sections collapsed by default");
+  ok(JSON.stringify(A.order) === JSON.stringify(["Staging", "Awaiting Copilot Research", "Other / Requires Photos", "About"]),
+    "A1 three sections in the specified order, then the (ao) About diagnostics section last: " + A.order.join(" | "));
+  ok(A.collapsed.every(Boolean), "A2 all three sections (and About) collapsed by default");
   ok(A.oldGone, "A3 the old flat needsAction/needsResearch containers are removed, not just hidden");
   ok(A.hasCounts, "A4 every section header carries its own count element");
 

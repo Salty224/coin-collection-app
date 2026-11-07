@@ -210,10 +210,11 @@
   /* (ao) Stage 1: launch-read and workbook-version report just above the
      Docket's Build line (which stays the last thing on the screen). Same
      small gray text; wraps on a phone. */
-  .load-report { font-size: 11px; color: var(--text-muted); text-align: center; margin: 28px 0 0; overflow-wrap: anywhere; }
-  .load-report.is-shown + #docketBuildLine { margin-top: 10px; }
+  .load-report { font-size: 11px; color: var(--text-muted); text-align: center; margin: 10px 0 0; overflow-wrap: anywhere; }
+  #docketAboutAccordion { margin-top: 28px; }
+  #docketAboutAccordion + #docketBuildLine { margin-top: 14px; }
   /* (ao) Stage 3: where the data on screen came from, and Refresh. */
-  .docket-data-line { font-size: 12px; color: var(--text-muted); text-align: center; margin: 28px 0 0; }
+  .docket-data-line { font-size: 12px; color: var(--text-muted); text-align: center; margin: 4px 0 0; }
   .docket-data-line .load-report-check { margin-left: 8px; }
   .docket-data-line + .load-report { margin-top: 10px; }
   .load-report-line { margin: 4px 0 0; }
@@ -4670,9 +4671,20 @@
             <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
           </div>
         </div>
-        <p class="docket-data-line" id="docketDataLine" style="display:none;"><span class="docket-data-text"></span>
-          <button type="button" class="load-report-check" id="docketRefreshBtn">Refresh from workbook</button></p>
-        <div class="load-report" id="docketLoadReport" style="display:none;"></div>
+        <!-- (ao) Diagnostics, collapsed (Ray, 7 Nov 2026). The Build line
+             stays the last thing on the Docket, outside it. -->
+        <div class="detail-accordion" id="docketAboutAccordion">
+          <button type="button" class="accordion-header" id="docketAboutHeader" aria-expanded="false">
+            <span>About</span>
+            <span class="accordion-chevron">›</span>
+          </button>
+          <div class="accordion-body hidden" id="docketAboutBody">
+            <p class="docket-data-line" id="docketDataLine" style="display:none;"><span class="docket-data-text"></span>
+              <button type="button" class="load-report-check" id="docketRefreshBtn">Refresh from workbook</button></p>
+            <div class="load-report" id="docketLoadReport" style="display:none;"></div>
+            <div class="load-report" id="docketLagProbe"></div>
+          </div>
+        </div>
         <p class="build-line" id="docketBuildLine"></p>
       </section>
 
@@ -6803,23 +6815,28 @@
 
   // One version check, compared with the previous successful one. Taps
   // while a check is in flight share it.
+  // One entry in the Docket's version list, compared with the previous
+  // successful one. `via`: "check" (a check / Check again), "launch" (the
+  // saved-copy launch's own check, (ao) B4).
+  function recordWorkbookVersionCheck(v, via) {
+    const entry = Object.assign({ at: Date.now(), via: via || "check" }, v);
+    if (entry.ok) {
+      const prev = workbookVersionChecks.slice().reverse().find(c => c.ok);
+      if (prev) {
+        entry.eTagChanged = prev.eTag !== entry.eTag;
+        entry.cTagChanged = prev.cTag !== entry.cTag;
+        entry.sizeChanged = prev.size !== entry.size;
+        entry.modifiedChanged = prev.lastModifiedDateTime !== entry.lastModifiedDateTime;
+      }
+    }
+    workbookVersionChecks.push(entry);
+    if (workbookVersionChecks.length > VERSION_CHECK_HISTORY_MAX) workbookVersionChecks.shift();
+    try { renderLoadReport(); } catch (e) { /* diagnostics */ }
+    return entry;
+  }
   function checkWorkbookVersion() {
     if (workbookVersionCheckInFlight) return workbookVersionCheckInFlight;
-    workbookVersionCheckInFlight = fetchWorkbookVersion().then(v => {
-      const entry = Object.assign({ at: Date.now() }, v);
-      if (entry.ok) {
-        const prev = workbookVersionChecks.slice().reverse().find(c => c.ok);
-        if (prev) {
-          entry.eTagChanged = prev.eTag !== entry.eTag;
-          entry.cTagChanged = prev.cTag !== entry.cTag;
-          entry.sizeChanged = prev.size !== entry.size;
-          entry.modifiedChanged = prev.lastModifiedDateTime !== entry.lastModifiedDateTime;
-        }
-      }
-      workbookVersionChecks.push(entry);
-      if (workbookVersionChecks.length > VERSION_CHECK_HISTORY_MAX) workbookVersionChecks.shift();
-      return entry;
-    }).finally(() => {
+    workbookVersionCheckInFlight = fetchWorkbookVersion().then(v => recordWorkbookVersionCheck(v, "check")).finally(() => {
       workbookVersionCheckInFlight = null;
       renderLoadReport();
     });
@@ -6864,9 +6881,10 @@
         : "");
   }
   function loadReportVersionLine(c) {
-    if (!c.ok) return loadReportClock(c.at) + " · check failed: " + c.reason;
+    const at = loadReportClock(c.at) + (c.via && c.via !== "check" ? " (" + c.via + ")" : "");
+    if (!c.ok) return at + " · check failed: " + c.reason;
     const mark = changed => changed === undefined ? "" : (changed ? " CHANGED" : " same");
-    return loadReportClock(c.at) + " · last changed " + loadReportDateClock(c.lastModifiedDateTime) + mark(c.modifiedChanged) +
+    return at + " · last changed " + loadReportDateClock(c.lastModifiedDateTime) + mark(c.modifiedChanged) +
       " · eTag " + loadReportTag(c.eTag) + mark(c.eTagChanged) +
       " · cTag " + loadReportTag(c.cTag) + mark(c.cTagChanged) +
       " · size " + (c.size == null ? "?" : c.size.toLocaleString("en-US")) + mark(c.sizeChanged) +
@@ -6981,18 +6999,23 @@
   }
   // Runs fn as one timed save. The outcome is "done", or "failed: <why>"
   // for a throw or a { ok: false } result.
+  // (ao) B3: the outcome a save itself reported (noteSaveOutcome():
+  // "saved" / "refused (reason)" / "partly saved (…)") wins; otherwise a
+  // { ok: false } result is "refused", a throw "failed", and a save that
+  // reported nothing says so rather than claiming success.
   async function withSaveTiming(label, fn) {
     const t = beginSaveTiming(label);
-    let outcome = "done";
+    let outcome = "finished (no outcome reported)";
     try {
       const out = await fn();
-      if (out && typeof out === "object" && out.ok === false) outcome = "not saved: " + (out.reason || "failed");
+      if (out && typeof out === "object" && out.ok === false) outcome = "refused (" + (out.reason || "failed") + ")";
+      else if (out && typeof out === "object" && out.ok === true) outcome = "saved";
       return out;
     } catch (e) {
-      outcome = "failed: " + String((e && e.message) || e).slice(0, 80);
+      outcome = "failed (" + String((e && e.message) || e).slice(0, 80) + ")";
       throw e;
     } finally {
-      endSaveTiming(t, outcome);
+      endSaveTiming(t, (t && t.noted) || outcome);
     }
   }
   // A short description of a graph() call for the timing list: the method
@@ -7196,29 +7219,35 @@
           if (savedCopyLaunch) savedCopyLaunch.outcome = "matched the workbook on a later check";
         }
         renderSessionState();
-        if (wasDown) showToast("Back online · data is current");
+        if (wasDown) showToast("Back online");
         return { connection: "ok", match: true };
       }
       const ownWrite = workbookSession.ownWriteSinceData;
-      const ok = await refreshSessionFromWorkbook(trigger);
-      if (ok) {
-        if (wasDown) showToast("Back online · updated from the workbook");
-        else if (!ownWrite && trigger !== "launch") showToast("Updated from the workbook");
+      const r = await refreshSessionFromWorkbook(trigger);
+      // (ao) B1: "Updated" only when the re-read really changed the data: Excel
+      // can answer with the old content for minutes after the version moved.
+      if (r.ok) {
+        if (wasDown) showToast(r.changed ? "Back online · updated" : "Back online");
+        else if (r.changed && !ownWrite && trigger !== "launch") showToast("Updated");
       }
-      return { connection: workbookSession.connection, match: false, refreshed: ok };
+      return { connection: workbookSession.connection, match: false, refreshed: r.ok, changed: r.changed };
     })().finally(() => { sessionCheckInFlight = null; renderSessionState(); });
     return sessionCheckInFlight;
   }
   // A background full read that replaces the data on screen wholesale
   // (rerenderViewsAfterLiveNavData(), which already leaves an open album
   // book and an open edit form alone).
+  // Returns { ok, changed }: changed = some sheet's content differs from
+  // what was on screen before (dataFingerprints).
   async function refreshSessionFromWorkbook(trigger) {
     workbookSession.updating = true;
     renderSessionState();
+    const before = Object.assign({}, dataFingerprints);
     try {
       const ok = await ensureLiveNavDataFetch({ force: true, reason: trigger === "refresh" ? "refresh from workbook" : "workbook changed" });
       if (!ok && workbookSession.connection === "ok") setConnectionTrouble(isOfflineNow() ? "offline" : "unreachable", "the full read failed");
-      return !!ok;
+      const changed = !!ok && Object.keys(dataFingerprints).some(k => k in before && before[k] !== dataFingerprints[k]);
+      return { ok: !!ok, changed };
     } finally {
       workbookSession.updating = false;
       renderSessionState();
@@ -7228,15 +7257,39 @@
   // session is now "read from the workbook" (checked by definition), and
   // OneDrive is reachable. Its version is recorded once it answers, if it
   // can be trusted (Stage 3 also saves the device copy then).
-  const VERSION_MODIFIED_MARGIN_MS = 120000;
+  // (ao) B1 (Ray's TEST, 7 Nov 2026): Excel's CONTENT can lag the file
+  // version by minutes (measured > 40 s and < 3.5 min), so a read made soon
+  // after a change may hold the old content under the new version. A read's
+  // version is trusted (and a saved copy kept) only if the workbook was last
+  // changed 10+ minutes before the read began: the same 10 minutes as the
+  // launch rule. Raised from 2 minutes.
+  const VERSION_MODIFIED_MARGIN_MS = 10 * 60 * 1000;
   function fullReadVersionTrusted(v, startedAt) {
     if (!v || !v.ok) return false;
     const modified = Date.parse(v.lastModifiedDateTime);
-    // A change near the read could be in the version but not in the data;
-    // 2 minutes also covers a device clock that is a little off.
     return !isNaN(modified) && modified < startedAt - VERSION_MODIFIED_MARGIN_MS;
   }
+  // A cheap content fingerprint per sheet (FNV-1a over every cell), so a
+  // re-read can tell "the data changed" from "Excel sent the same again".
+  const dataFingerprints = {};
+  function hashSheetValues(values) {
+    let h = 0x811c9dc5;
+    const add = str => { for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } };
+    (values || []).forEach(row => { (row || []).forEach(cell => { add(cell == null ? "" : String(cell)); add("\u0001"); }); add("\u0002"); });
+    return (h >>> 0).toString(16) + ":" + (values || []).length;
+  }
+  function noteDataFingerprints(sheetsByName) {
+    Object.keys(sheetsByName).forEach(name => {
+      const values = sheetsByName[name];
+      if (values) dataFingerprints[name] = hashSheetValues(values);
+    });
+  }
   function onFullReadLanded(startedAt, versionPromise, gen, results) {
+    try {
+      const got = {};
+      FULL_READ_SHEETS.forEach((name, i) => { const v = results && results[i] && sheetRawValues.get(results[i]); if (v) got[name] = v; });
+      noteDataFingerprints(got);
+    } catch (e) { /* the fingerprint only decides a toast */ }
     workbookSession.source = "workbook";
     workbookSession.verified = true;
     workbookSession.dataAt = Date.now();
@@ -7292,20 +7345,16 @@
     return WEEKDAYS[d.getDay()] + " " + d.getDate() + " " + BUILD_MONTHS[d.getMonth()] + ", " + p(d.getHours()) + ":" + p(d.getMinutes());
   }
   // The top-strip row, or "" for none. Approved wording (Ray, Q16).
-  const SESSION_CHECKING_ROW_DELAY_MS = 1500;
   function sessionBarText() {
     const s = workbookSession;
     const copy = s.source === "saved-copy";
     const what = copy ? "saved copy from " + sessionDateLabel(s.dataAt) : "data from " + sessionDateLabel(s.dataAt);
     if (s.connection === "offline") return s.source === "none" ? "Offline · read-only" : "Offline · read-only · " + what;
     if (s.connection === "unreachable") return s.source === "none" ? "Can't reach OneDrive · read-only" : "Can't reach OneDrive · read-only · " + what;
-    if (copy && !s.verified && s.updating) return "Saved copy from " + sessionDateLabel(s.dataAt) + " · updating from the workbook…";
-    if (copy && !s.verified && s.checking && Date.now() - s.checkingSince >= SESSION_CHECKING_ROW_DELAY_MS) {
-      return "Saved copy from " + sessionDateLabel(s.dataAt) + " · checking with the workbook…";
-    }
+    // Ray (7 Nov 2026): no "checking…" / "updating…" rows; the app just
+    // updates. Only Offline and Can't reach OneDrive get a row.
     return "";
   }
-  let sessionBarTimer = null;
   function renderSessionState() {
     const bar = document.getElementById("sessionBar");
     const text = document.getElementById("sessionBarText");
@@ -7319,13 +7368,6 @@
       renderTopStrip();
     }
     document.body.classList.toggle("session-read-only", !workbookWritesAllowed().ok);
-    // The "checking…" row appears once the check has taken 1.5 s, counted
-    // from when the check started (not from this redraw).
-    if (workbookSession.checking && !label) {
-      clearTimeout(sessionBarTimer);
-      const due = Math.max(0, SESSION_CHECKING_ROW_DELAY_MS - (Date.now() - workbookSession.checkingSince)) + 20;
-      sessionBarTimer = setTimeout(() => { sessionBarTimer = null; renderSessionState(); }, due);
-    }
     try { renderDocketDataLine(); } catch (e) { /* the Docket line is diagnostic */ }
   }
 
@@ -7594,12 +7636,15 @@
     if (!record || gen !== liveNavFetchGeneration || (LIVE_COINS && LIVE_DB_SETS)) return false;
     workbookSession.checking = true;
     workbookSession.checkingSince = Date.now();
-    const versionP = isOfflineNow() ? Promise.resolve({ ok: false, reason: "offline" }) : fetchWorkbookVersion();
+    // Recorded in the Docket's version list as the launch's own check ((ao) B4).
+    const versionP = isOfflineNow() ? Promise.resolve({ ok: false, reason: "offline" })
+      : fetchWorkbookVersion().then(v => { recordWorkbookVersionCheck(v, "launch"); return v; });
     const wait = Math.max(0, workbookCacheTiming("splash") - (Date.now() - t0));
     const first = await Promise.race([versionP, new Promise(r => setTimeout(() => r(null), wait))]);
     if (gen !== liveNavFetchGeneration || (LIVE_COINS && LIVE_DB_SETS)) return false; // Retry, or data landed another way
     const sheets = FULL_READ_SHEETS.map(n => rowsFromSheetValues(record.sheets[n]));
     applyLiveNavSheetRows(...sheets);
+    try { noteDataFingerprints(record.sheets); } catch (e) { /* only decides a toast */ }
     workbookSession.source = "saved-copy";
     workbookSession.verified = false;
     workbookSession.dataAt = record.dataAt;
@@ -7670,6 +7715,92 @@
     const btn = document.getElementById("docketRefreshBtn");
     if (btn) btn.addEventListener("click", () => refreshFromWorkbookNow());
   })();
+
+  // ==================================================================
+  // (ao) B1: CONTENT-LAG PROBE (diagnostic, GETs only; Docket > About)
+  // Ray's TEST showed Excel's content arriving minutes after the file
+  // version moved. This measures it: every 15 s for up to 15 minutes it
+  // reads the workbook's version AND the All sheet, and notes when each
+  // first differs from the first sample. Start it, then change a cell on
+  // All in Excel; the summary gives the content lag after the workbook's
+  // last-changed time. Reads only; nothing is cached, kept or written.
+  // ==================================================================
+  const LAG_PROBE_DEFAULT_TIMINGS = { every: 15000, max: 15 * 60 * 1000 };
+  let lagProbeTimings = null;
+  function __setLagProbeTimingsForTest(t) { lagProbeTimings = t || null; } // test-only seam
+  function lagProbeTiming(k) { return (lagProbeTimings && typeof lagProbeTimings[k] === "number") ? lagProbeTimings[k] : LAG_PROBE_DEFAULT_TIMINGS[k]; }
+  let lagProbe = null; // { startedAt, samples, timer, running, base, versionChangedAt, contentChangedAt, modifiedAtChange }
+  function __getLagProbeForTest() { return lagProbe; } // test-only seam
+  async function lagProbeSample() {
+    const p = lagProbe;
+    if (!p || !p.running) return;
+    const at = Date.now();
+    const [v, rows] = await Promise.all([fetchWorkbookVersion(), fetchWorkbookSheetRows("All")]);
+    if (lagProbe !== p) return;
+    const values = rows ? sheetRawValues.get(rows) : null;
+    const sample = { at, ok: !!(v && v.ok && values), eTag: v && v.eTag, modified: v && v.lastModifiedDateTime,
+      hash: values ? hashSheetValues(values) : null, reason: !(v && v.ok) ? (v && v.reason) || "version failed" : (!values ? "All not read" : "") };
+    if (sample.ok) {
+      if (!p.base) p.base = { eTag: sample.eTag, hash: sample.hash, modified: sample.modified };
+      else {
+        sample.versionChanged = sample.eTag !== p.base.eTag;
+        sample.contentChanged = sample.hash !== p.base.hash;
+        if (sample.versionChanged && !p.versionChangedAt) { p.versionChangedAt = at; p.modifiedAtChange = sample.modified; }
+        if (sample.contentChanged && !p.contentChangedAt) p.contentChangedAt = at;
+      }
+    }
+    p.samples.push(sample);
+    renderLagProbe();
+  }
+  function startLagProbe() {
+    stopLagProbe();
+    lagProbe = { startedAt: Date.now(), samples: [], running: true, timer: null };
+    const p = lagProbe;
+    const tick = () => {
+      if (lagProbe !== p || !p.running) return;
+      if (Date.now() - p.startedAt >= lagProbeTiming("max") || (p.contentChangedAt && p.versionChangedAt)) { p.running = false; renderLagProbe(); return; }
+      lagProbeSample().finally(() => { if (lagProbe === p && p.running) p.timer = setTimeout(tick, lagProbeTiming("every")); });
+    };
+    tick();
+    renderLagProbe();
+    return p;
+  }
+  function stopLagProbe() {
+    if (!lagProbe) return;
+    lagProbe.running = false;
+    clearTimeout(lagProbe.timer);
+    renderLagProbe();
+  }
+  function lagProbeSummary(p) {
+    if (!p) return "";
+    const clock = loadReportClock;
+    const parts = ["Content-lag probe (All sheet): started " + clock(p.startedAt) + ", " + p.samples.length + " samples" + (p.running ? ", running" : ", stopped")];
+    if (!p.versionChangedAt) parts.push("version not changed yet (change a cell on All in Excel)");
+    else parts.push("version changed by " + clock(p.versionChangedAt) + " (workbook last changed " + loadReportDateClock(p.modifiedAtChange) + ")");
+    if (p.contentChangedAt) {
+      const since = Date.parse(p.modifiedAtChange);
+      parts.push("content changed by " + clock(p.contentChangedAt) +
+        (isNaN(since) ? "" : ": content lag at most " + loadReportSeconds(p.contentChangedAt - since) + " after the last-changed time"));
+    } else if (p.versionChangedAt) parts.push("content not changed yet");
+    return parts.join("; ");
+  }
+  function renderLagProbe() {
+    const el = document.getElementById("docketLagProbe");
+    if (!el) return;
+    if (liveDataMode() !== "live" && !lagProbe) { el.innerHTML = ""; return; }
+    const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
+    const p = lagProbe;
+    const running = !!(p && p.running);
+    const rows = p ? p.samples.slice().reverse().map(x => "<li>" + esc(loadReportClock(x.at) + " · " + (x.ok
+      ? "version " + loadReportTag(x.eTag) + (x.versionChanged ? " CHANGED" : "") + " · content " + (x.contentChanged ? "CHANGED" : "same")
+      : "sample failed: " + x.reason)) + "</li>").join("") : "";
+    el.innerHTML = (p ? '<p class="load-report-line" id="docketLagProbeLine">' + esc(lagProbeSummary(p)) + "</p>" : "") +
+      '<p class="load-report-line"><button type="button" class="load-report-check" id="docketLagProbeBtn">' +
+      (running ? "Stop content-lag probe" : "Start content-lag probe") + "</button></p>" +
+      (rows ? '<details class="load-report-details"><summary>Probe samples</summary><ul>' + rows + "</ul></details>" : "");
+    const btn = document.getElementById("docketLagProbeBtn");
+    if (btn) btn.addEventListener("click", () => { if (lagProbe && lagProbe.running) stopLagProbe(); else startLagProbe(); });
+  }
 
   // Defensive header lookup. A handful of fields this feature needs have a
   // CONFIRMED exact real column name (CollectionID, Denomination, Year,
@@ -8812,6 +8943,9 @@
   // full read from the workbook and, (ao) Stage 3, a launch from the
   // device's saved copy, so both go through exactly the same mapping.
   function applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows) {
+    // (ao) B2: a read that still shows the old value of a field this session
+    // just wrote shows the written value (withRecentWrites).
+    if (recentRowWrites.size) allRows = allRows.map(r => withRecentWrites(colVal(r, "CollectionID"), r));
     // A stray blank sheet row (no CollectionID) is never a real owned
     // coin; a DB_Sets row with no Lineage is out of this feature's scope
     // entirely (Commemorative/one-off/Album reference rows — the exact
@@ -10398,7 +10532,69 @@
   // file is that independently-flagged features must not be coupled, and
   // hard-wiring this to browseEditWriteEnabled() would have meant Add
   // Coin's promote silently requiring Browse Edit's flag to be on too.
+  // ---- (ao) B2: what this session just wrote, shown while Excel catches up
+  // Ray's TEST (7 Nov 2026): after a save, Graph reads of the workbook can
+  // return the OLD content for minutes (measured > 40 s, < 3.5 min after an
+  // Excel edit; an app save behaves the same). A read in that window put the
+  // old value back on Details and in Edit Coin's form (Save stayed lit up).
+  // So for 10 minutes after a save, wherever a read still shows the value a
+  // field had BEFORE our write, the value we wrote is shown instead. A value
+  // that is neither (somebody else changed it) is shown as read. Once a read
+  // shows everything we wrote, the entry goes. DISPLAY ONLY: the conflict
+  // check, row lookups and header maps keep using the raw reads.
+  const RECENT_WRITE_SHOW_MS = 10 * 60 * 1000;
+  const recentRowWrites = new Map(); // CollectionID -> { at, written: {col: v}, before: {col: v} }
+  function __recentRowWritesForTest() { return recentRowWrites; } // test-only seam
+  function noteRecentRowWrite(collectionId, written, before) {
+    if (!collectionId) return;
+    const prev = recentRowWrites.get(collectionId);
+    const entry = prev && Date.now() - prev.at <= RECENT_WRITE_SHOW_MS ? prev : { written: {}, before: {} };
+    Object.keys(written || {}).forEach(col => {
+      if (!(col in entry.written)) entry.before[col] = before ? before[col] : undefined;
+      entry.written[col] = written[col];
+    });
+    entry.at = Date.now();
+    recentRowWrites.set(collectionId, entry);
+  }
+  function withRecentWrites(collectionId, values) {
+    const w = collectionId && recentRowWrites.get(collectionId);
+    if (!w || !values) return values;
+    if (Date.now() - w.at > RECENT_WRITE_SHOW_MS) { recentRowWrites.delete(collectionId); return values; }
+    const cols = Object.keys(w.written);
+    if (cols.every(c => cellsEqual(values[c], w.written[c]))) { recentRowWrites.delete(collectionId); return values; } // Excel caught up
+    const out = Object.assign({}, values);
+    cols.forEach(c => { if (cellsEqual(values[c], w.before[c])) out[c] = w.written[c]; });
+    return out;
+  }
+
+  // (ao) B3: the save's outcome for the Docket's "Last save" line.
+  // The first outcome wins, except that a later problem replaces "saved"
+  // (fields saved, then a photo failed = partly saved).
+  function noteSaveOutcome(text) {
+    const t = activeSaveTiming;
+    if (!t) return;
+    if (!t.noted || (t.noted === "saved" && text !== "saved")) t.noted = text;
+  }
+  function saveRowOutcomeText(result) {
+    if (!result) return "failed";
+    if (result.ok) return "saved";
+    if (result.reason === "partial") return "partly saved (" + (result.message || "some ranges did not land") + ")";
+    if (result.reason === "conflict") return "refused (changed in the workbook: " + (result.conflicts || []).map(c => c.field || c.column || c.name || c).join(", ") + ")";
+    if (result.reason === "error" && /^(Offline|Can't reach OneDrive|Nothing was saved|Read-only)/.test(result.message || "")) return "refused (read-only: " + result.message.split(":")[0] + ")";
+    return "refused (" + result.reason + (result.message ? ": " + String(result.message).slice(0, 80) : "") + ")";
+  }
   async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot, opts) {
+    const result = await saveCoinRowToWorkbookUnnoted(collectionId, nextValues, snapshot, opts);
+    noteSaveOutcome(saveRowOutcomeText(result));
+    if (result && result.ok && result.written) {
+      const before = result.before || {};
+      const written = {};
+      result.written.forEach(col => { written[col] = result.values[col]; });
+      noteRecentRowWrite(collectionId, written, before);
+    }
+    return result;
+  }
+  async function saveCoinRowToWorkbookUnnoted(collectionId, nextValues, snapshot, opts) {
     const gate = (opts && opts.gate) || browseEditWriteEnabled;
     if (!gate()) {
       return { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
@@ -10466,7 +10662,8 @@
       ok: true,
       rowNumber,
       written: edits.reduce((acc, e) => acc.concat(e._columns), []),
-      values: Object.assign({}, fresh, changed)
+      values: Object.assign({}, fresh, changed),
+      before: fresh // (ao) B2: what the row showed before this write
     };
   }
 
@@ -15340,6 +15537,7 @@
       renderNeedsAttentionHub();
       onDocketShownForLoadReport(); // (ao) Stage 1
       renderDocketDataLine();       // (ao) Stage 3
+      renderLagProbe();             // (ao) B1
     }
     // Real bug fix (2026-09-02): navigate() never had a "stats" branch at
     // all, so entering Ledger/Stats via the cabinet drawer never primed the
@@ -19960,8 +20158,11 @@
       await ensureContainersFetch();
       const rowNumber = await findAllSheetRowNumber(coin.id);
       if (!rowNumber) return null;
-      const values = await readAllRowWritableValues(rowNumber);
-      browseEditSnapshot = { id: coin.id, values };
+      const raw = await readAllRowWritableValues(rowNumber);
+      // The raw read is the conflict baseline; the form and the record show
+      // it with this session's own recent writes on top ((ao) B2).
+      browseEditSnapshot = { id: coin.id, values: raw };
+      const values = withRecentWrites(coin.id, raw);
       // The record every screen shares gets the fresh values regardless of
       // what's on screen right now — that's what keeps Browse detail from
       // disagreeing with Edit about the same coin.
@@ -20069,7 +20270,7 @@
     const notesEl = document.getElementById("browseEditNotes");
     if (browseEditWriteEnabled()) {
       const hasFreshSnapshot = browseEditSnapshot && browseEditSnapshot.id === coin.id && browseEditSnapshot.values;
-      notesEl.value = hasFreshSnapshot ? String(browseEditSnapshot.values.Remarks || "") : "";
+      notesEl.value = hasFreshSnapshot ? String(withRecentWrites(coin.id, browseEditSnapshot.values).Remarks || "") : "";
       notesEl.placeholder = hasFreshSnapshot ? "Anything else worth remembering about this specimen" : "Loading current notes…";
     } else {
       // coin.remarks is the row's real All.Remarks (mapped as of this round);
@@ -20765,7 +20966,11 @@
           saleDate: val("browseEditSaleDate"),
           buyer: val("browseEditBuyer").trim(),
           salePrice: numOrUndefined(val("browseEditSalePrice")),
-          platform: val("browseEditPlatform").trim()
+          platform: val("browseEditPlatform").trim(),
+          // (ao) B2: Details shows coin.remarks first, so the record's own
+          // remarks must follow the form (before, only details.notes did,
+          // and Details kept the old Notes until a re-read).
+          remarks: val("browseEditNotes").trim()
         },
         details: {
           shippingCost: numOrUndefined(val("browseEditShippingCost")),
@@ -20971,7 +21176,15 @@
       // Re-baseline so a second save from the same open form compares
       // against what's now really on the row, not the pre-save values.
       browseEditSnapshot = { id: coin.id, values: result.values };
+      // (ao) B2: the record takes the values just written (result.values is
+      // the row as this save left it), not a later read-back, which Excel
+      // can answer with the old content for minutes.
       applyEditsToRecord(coin, form.record);
+      applySnapshotToRecord(coin, result.values);
+      // A background re-read may have replaced the coin list while the form
+      // was open; the record Details now draws gets the same values.
+      const listed = activeCoins().find(c => c.id === coin.id);
+      if (listed && listed !== coin) { applyEditsToRecord(listed, form.record); applySnapshotToRecord(listed, result.values); }
 
       // Then photos (files, then rows, removals last), then labels, one
       // cell each (photos wait for Save, Oct 2026). Anything that fails
@@ -29234,7 +29447,9 @@
     const receipt = pendingReceiptCount(targetId) ? await savePendingReceipt(targetId, setProgress) : null;
     repaintPhotoHost(targetId);
     refreshManagePhotosSaveLabelsBtn();
-    return { photos, labels, receipt };
+    const res = { photos, labels, receipt };
+    noteSaveOutcome(photoEditsAllSaved(res) ? "saved" : "partly saved (" + (photoSaveSummaryText(res) || "some photos did not save") + ")"); // (ao) B3
+    return res;
   }
   function photoEditsPending(targetId) {
     return !!(pendingPhotoCount(targetId) || unsavedPhotoLabelCount(targetId) || pendingReceiptCount(targetId));
@@ -37736,6 +37951,7 @@
   document.getElementById("docketOpenStagingBtn").addEventListener("click", () => navigate("staging"));
   wireStaticAccordionToggle("docketResearchHeader", "docketResearchBody");
   wireStaticAccordionToggle("docketOtherHeader", "docketOtherBody");
+  wireStaticAccordionToggle("docketAboutHeader", "docketAboutBody"); // (ao) diagnostics
   // TEST SEAM, "ready" flag (test-speed branch, Nov 2026): window.__appReady
   // becomes true once EVERY startup promise launched below has settled, a
   // rejected one included. Nothing in the app reads it and it changes nothing
