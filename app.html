@@ -5836,6 +5836,9 @@
   // any real success; NOT reset by a new runSplashConnect()/Retry call, by
   // design (see that function's own comment).
   let graphSilentFailureCount = 0;
+  // (ax) Stage 1, diagnostic only: MSAL's own answer to "did this token come
+  // from the cache?" for the last acquisition (null = not known).
+  let lastGraphTokenFromCache = null;
   function acquireGraphToken() {
     if (!graphMsalInstance) return Promise.resolve(null); // MSAL didn't load, or every feature is off
     if (graphTokenInFlight) return graphTokenInFlight;
@@ -5847,6 +5850,7 @@
         await graphRedirectHandledPromise;
         const account = graphMsalInstance.getAllAccounts()[0];
         const result = await graphMsalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+        lastGraphTokenFromCache = result && typeof result.fromCache === "boolean" ? result.fromCache : null; // (ax) Save steps
         graphSilentFailureCount = 0; // a real success clears any accumulated silent-failure streak
         return result.accessToken;
       } catch (e) {
@@ -6664,7 +6668,7 @@
   let workbookVersionChecks = []; // newest last
   let workbookVersionCheckInFlight = null;
   function __getLoadReportForTest() { return { launch: launchReadReport, last: lastFullReadReport, checks: workbookVersionChecks.slice() }; } // test-only seam
-  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = []; workbookVersionChecks = []; workbookVersionCheckInFlight = null; lastSaveTiming = null; activeSaveTiming = null; } // test-only seam
+  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = []; workbookVersionChecks = []; workbookVersionCheckInFlight = null; lastSaveTiming = null; activeSaveTiming = null; lastModifiedCheck = null; } // test-only seam
 
   // Reads a response body as JSON and reports its size in bytes. Same
   // result as res.json(); falls back to it for a body without text().
@@ -6904,6 +6908,12 @@
         "<li>" + esc("+" + loadReportSeconds(x.offsetMs) + " " + x.name + ": " + loadReportSeconds(x.ms)) + "</li>").join("");
       parts.push('<details class="load-report-details"><summary>Save steps</summary><ul>' + rows + "</ul></details>");
     }
+    // (ax) Stage 1: LastModified precision check.
+    if (lastModifiedCheck) {
+      lastModifiedCheckLines(lastModifiedCheck).forEach((line, i) =>
+        parts.push('<p class="load-report-line"' + (i === 0 ? ' id="docketLastModifiedLine"' : ' id="docketLastModifiedReadLine"') + ">" + esc(line) + "</p>"));
+      parts.push('<p class="load-report-line"><button type="button" class="load-report-check" id="docketLastModifiedReadBtn">Read it back</button></p>');
+    }
     const latest = workbookVersionChecks[workbookVersionChecks.length - 1];
     const checking = !!workbookVersionCheckInFlight;
     parts.push('<p class="load-report-line" id="docketVersionLine">Workbook version: ' +
@@ -6923,6 +6933,8 @@
     });
     const btn = document.getElementById("docketVersionCheckBtn");
     if (btn) btn.addEventListener("click", () => { checkWorkbookVersion(); });
+    const lmBtn = document.getElementById("docketLastModifiedReadBtn");
+    if (lmBtn) lmBtn.addEventListener("click", () => { lmBtn.disabled = true; lmBtn.textContent = "Reading…"; readBackLastModified(); });
   }
 
   // The Docket's first visit after the launch read checks the version once
@@ -6944,14 +6956,66 @@
   // ==================================================================
   let activeSaveTiming = null;
   let lastSaveTiming = null;
+  let lastModifiedCheck = null; // (ax) Stage 1: see readBackLastModified()
   function __getSaveTimingForTest() { return { active: activeSaveTiming, last: lastSaveTiming }; } // test-only seam
   function beginSaveTiming(label) {
     if (activeSaveTiming) return null; // nested: the outer save owns the record
     activeSaveTiming = { label: label || "Save", startedAt: Date.now(), steps: [] };
+    startSaveWatch(activeSaveTiming);
     return activeSaveTiming;
+  }
+  // (ax) Stage 1, diagnostic only: was the app itself busy while the save
+  // ran? A heartbeat every SAVE_HEARTBEAT_MS notes how late it fired (a busy
+  // main thread delays every await of the save, Graph answers included),
+  // Chrome's long-task observer (where it exists) adds up the long tasks,
+  // and each beat notes background work that was running: a full re-read
+  // of the workbook (liveNavDataFetchPromise) or a put of the device's
+  // saved copy (idbPutsInFlight). Three extra lines in Save steps.
+  const SAVE_HEARTBEAT_MS = 100;
+  function startSaveWatch(t) {
+    const w = { maxLateMs: 0, maxLateAt: t.startedAt, longTasks: 0, longTaskMs: 0, longestTaskMs: 0, background: new Set(), timer: null, po: null };
+    t.watch = w;
+    const sample = () => {
+      try {
+        if (liveNavDataFetchPromise) w.background.add("full re-read of the workbook");
+        if (idbPutsInFlight > 0) w.background.add("saved-copy put");
+      } catch (e) { /* diagnostics never break a save */ }
+    };
+    sample();
+    let last = Date.now();
+    w.timer = setInterval(() => {
+      const now = Date.now();
+      const late = now - last - SAVE_HEARTBEAT_MS;
+      if (late > w.maxLateMs) { w.maxLateMs = late; w.maxLateAt = last; }
+      last = now;
+      sample();
+    }, SAVE_HEARTBEAT_MS);
+    try {
+      if (typeof PerformanceObserver !== "undefined" && (PerformanceObserver.supportedEntryTypes || []).indexOf("longtask") !== -1) {
+        w.po = new PerformanceObserver(list => list.getEntries().forEach(e => {
+          w.longTasks++;
+          w.longTaskMs += e.duration;
+          if (e.duration > w.longestTaskMs) w.longestTaskMs = e.duration;
+        }));
+        w.po.observe({ type: "longtask" });
+      }
+    } catch (e) { w.po = null; }
+  }
+  function stopSaveWatch(t) {
+    const w = t && t.watch;
+    if (!w) return;
+    clearInterval(w.timer);
+    try { if (w.po) { w.po.takeRecords().forEach(e => { w.longTasks++; w.longTaskMs += e.duration; if (e.duration > w.longestTaskMs) w.longestTaskMs = e.duration; }); w.po.disconnect(); } } catch (e) { /* ignore */ }
+    const end = Date.now() - t.startedAt;
+    t.steps.push({ name: "main thread: longest stall (heartbeat late)", offsetMs: w.maxLateAt - t.startedAt, ms: Math.max(0, w.maxLateMs) });
+    t.steps.push({ name: w.po ? "main thread: " + w.longTasks + " long task" + (w.longTasks === 1 ? "" : "s") + ", longest " +
+      loadReportSeconds(w.longestTaskMs) + " (total shown)" : "main thread: long tasks not measured on this browser", offsetMs: end, ms: Math.round(w.longTaskMs) });
+    t.steps.push({ name: "background work during the save: " + (w.background.size ? [...w.background].join(", ") : "none"), offsetMs: end, ms: 0 });
+    delete t.watch;
   }
   function endSaveTiming(t, outcome) {
     if (!t || activeSaveTiming !== t) return;
+    stopSaveWatch(t);
     t.totalMs = Date.now() - t.startedAt;
     t.outcome = outcome;
     lastSaveTiming = t;
@@ -7106,7 +7170,12 @@
             // this.putContent() is not checked (or timed) a second time.
             if (!WORKBOOK_WRITE_GRAPH_METHODS.has(prop)) return timeGraphCall(prop, args, () => v.apply(target, args));
             workbookSession.ownWriteSinceData = true;
-            return invalidateWorkbookCacheBeforeWrite().then(() => timeGraphCall(prop, args, () => v.apply(target, args)));
+            const deleteStartedAt = Date.now();
+            const deleteReport = {};
+            return invalidateWorkbookCacheBeforeWrite(deleteReport).then(() => {
+              noteSaveStep(savedCopyDeleteStepName(deleteReport), deleteStartedAt, Date.now() - deleteStartedAt);
+              return timeGraphCall(prop, args, () => v.apply(target, args));
+            });
           };
         }
         return function graphRead(...args) { return timeGraphCall(prop, args, () => v.apply(this, args)); };
@@ -7117,7 +7186,14 @@
   }
   // Deletes the device's saved copy of the workbook before any workbook
   // write (Stage 3: deleteWorkbookCacheForWrite()).
-  function invalidateWorkbookCacheBeforeWrite() { return deleteWorkbookCacheForWrite(); }
+  function invalidateWorkbookCacheBeforeWrite(report) { return deleteWorkbookCacheForWrite(report); }
+  // (ax) Stage 1: the Save steps line for that delete.
+  function savedCopyDeleteStepName(r) {
+    const parts = [];
+    if (typeof r.openMs === "number") parts.push("open " + loadReportSeconds(r.openMs));
+    if (typeof r.deleteMs === "number") parts.push("delete " + loadReportSeconds(r.deleteMs));
+    return "saved-copy delete before the write: " + (parts.length ? parts.join(", ") + ", " : "") + (r.result || "no result");
+  }
 
   // ---- Connection state ----------------------------------------------
   let connectionRetryTimer = null;
@@ -7488,16 +7564,37 @@
     try { const r = await idbRequest(db, "readonly", st => st.get(WORKBOOK_CACHE_KEY)); return r && r.ok ? r.value || null : null; }
     finally { try { db.close(); } catch (e) { /* closed */ } }
   }
+  // (ax) Stage 1: puts running now, for the save watch's "background work".
+  let idbPutsInFlight = 0;
   async function idbCachePut(target, record) {
-    const db = await idbOpenCache(target);
-    if (!db) return false;
-    try { const r = await idbRequest(db, "readwrite", st => st.put(record, WORKBOOK_CACHE_KEY)); return !!(r && r.ok); }
-    finally { try { db.close(); } catch (e) { /* closed */ } }
+    idbPutsInFlight++;
+    try {
+      const db = await idbOpenCache(target);
+      if (!db) return false;
+      try { const r = await idbRequest(db, "readwrite", st => st.put(record, WORKBOOK_CACHE_KEY)); return !!(r && r.ok); }
+      finally { try { db.close(); } catch (e) { /* closed */ } }
+    } finally { idbPutsInFlight--; }
   }
-  async function idbCacheDelete(target) {
+  // (ax) Stage 1: `report` (optional) gets openMs, deleteMs and a result for
+  // Save steps. The count is asked in the same transaction, before the
+  // delete, so "deleted" and "nothing there" can be told apart for free.
+  async function idbCacheDelete(target, report) {
+    const t0 = Date.now();
     const db = await idbOpenCache(target);
-    if (!db) return false;
-    try { const r = await idbRequest(db, "readwrite", st => st.delete(WORKBOOK_CACHE_KEY)); return !!(r && r.ok); }
+    if (report) report.openMs = Date.now() - t0;
+    if (!db) {
+      if (report) report.result = report.openMs >= workbookCacheTiming("open") - 20 ? "open timed out" : "open failed";
+      return false;
+    }
+    try {
+      const t1 = Date.now();
+      const r = await idbRequest(db, "readwrite", st => { const c = st.count(WORKBOOK_CACHE_KEY); st.delete(WORKBOOK_CACHE_KEY); return c; });
+      if (report) {
+        report.deleteMs = Date.now() - t1;
+        report.result = !r ? "delete timed out" : !r.ok ? "delete failed" : r.value ? "deleted" : "nothing there";
+      }
+      return !!(r && r.ok);
+    }
     finally { try { db.close(); } catch (e) { /* closed */ } }
   }
   function idbDropDatabase(target) {
@@ -7511,9 +7608,9 @@
   // 17: a write never leaves a stale copy behind). Live sessions only; any
   // trouble here never stops the write (the version check on the next
   // launch then disagrees with the copy, so it is not trusted).
-  function deleteWorkbookCacheForWrite() {
-    if (!workbookCacheUsable()) return Promise.resolve(false);
-    return idbCacheDelete(WRITE_TARGET).catch(() => false);
+  function deleteWorkbookCacheForWrite(report) {
+    if (!workbookCacheUsable()) { if (report) report.result = "not used (no live session)"; return Promise.resolve(false); }
+    return idbCacheDelete(WRITE_TARGET, report).catch(() => { if (report) report.result = "failed"; return false; });
   }
 
   // After a full read of all 12 sheets whose version could be trusted
@@ -9345,6 +9442,22 @@
       const data = await res.json();
       return { address: data.address || "", values: data.values || [], formulas: data.formulas || [], numberFormat: data.numberFormat || [] };
     },
+    // (ax) Stage 1, diagnostic only (Docket > About, "Read it back"): one
+    // range's values, display text and number format, plus Graph's answer as
+    // TEXT, so the digits Excel stored can be seen before JSON parsing.
+    // GET-only.
+    async readRangeValuesAndText(workbookPath, sheet, address) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
+        ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) +
+        "')?$select=address,values,text,numberFormat";
+      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
+      const raw = await res.text();
+      const data = JSON.parse(raw);
+      return { address: data.address || "", values: data.values || [], text: data.text || [], numberFormat: data.numberFormat || [], raw };
+    },
     async readUsedRangeDetail(workbookPath, sheet) {
       const token = await getWriteToken();
       if (!token) throw new Error("Write layer unavailable.");
@@ -9398,8 +9511,16 @@
     // and `graphError` (Graph's own text, kept in the message).
     async patchWorkbookRanges(workbookPath, sheet, edits) {
       if (!edits.length) return { written: 0 };
+      // (ax) Stage 1: the text-date check and the token are timed for Save steps.
+      const checkStartedAt = Date.now();
       assertNoTextDatesInEdits(sheet, edits);
+      noteSaveStep("text-date check", checkStartedAt, Date.now() - checkStartedAt);
+      const tokenStartedAt = Date.now();
+      const tokenWaited = !!graphTokenInFlight;
+      lastGraphTokenFromCache = null;
       const token = await getWriteToken();
+      noteSaveStep("token (" + (tokenWaited ? "waited for another request's token" : lastGraphTokenFromCache === true ? "from cache"
+        : lastGraphTokenFromCache === false ? "refreshed" : "source not known") + ")", tokenStartedAt, Date.now() - tokenStartedAt);
       if (!token) throw new Error("Write layer unavailable.");
       const base = "/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='";
@@ -9432,9 +9553,11 @@
           noteSaveStep(batchLabel + " (no response)", batchSentAt, Date.now() - batchSentAt);
           throw batchWriteError(sheet, edits, landed, start, "no response (" + String(e && e.message || e) + ")");
         }
-        noteSaveStep(batchLabel, batchSentAt, Date.now() - batchSentAt);
+        noteSaveStep(batchLabel, batchSentAt, Date.now() - batchSentAt); // until the answer's headers arrived
         if (!res.ok) throw batchWriteError(sheet, edits, landed, start, res.status + " " + (await res.text()));
+        const bodyStartedAt = Date.now();
         const data = await res.json();
+        noteSaveStep(batchLabel.split(":")[0] + ": reading the answer", bodyStartedAt, Date.now() - bodyStartedAt); // (ax) Stage 1
         const byId = {};
         (data.responses || []).forEach(r => { byId[String(r.id)] = r; });
         for (let i = 0; i < chunk.length; i++) {
@@ -9652,6 +9775,15 @@
       readWorkbookRangeDetail(workbookPath, sheet, address) {
         const a = parseA1(address);
         return Promise.resolve(Object.assign({ address: sheet + "!" + address }, detailFor(sheet, a)));
+      },
+      // (ax) mirrors the real diagnostic read; text is the plain value as a string.
+      readRangeValuesAndText(workbookPath, sheet, address) {
+        const a = parseA1(address);
+        const d = detailFor(sheet, a);
+        const text = d.values.map(row => row.map(v => (v == null ? "" : String(v))));
+        const out = { address: sheet + "!" + address, values: d.values, text, numberFormat: d.numberFormat };
+        out.raw = JSON.stringify(out);
+        return Promise.resolve(out);
       },
       readUsedRangeDetail(workbookPath, sheet) {
         if (!(sheet in grids)) return Promise.reject(new Error("Sheet read " + sheet + " failed: 404"));
@@ -10399,14 +10531,22 @@
   // returns each cell's formula (al 5.C): { values, formulas } where
   // `formulas` names only the writable columns that hold a formula on this
   // row. Still ONE request.
-  async function readAllRowForWrite(rowNumber) {
-    const map = await ensureAllHeaderMap();
+  // `headerMap` (optional, (ax)): the map this save just read; otherwise
+  // the current one.
+  async function readAllRowForWrite(rowNumber, headerMap) {
+    const map = headerMap || await ensureAllHeaderMap();
     const wanted = ALL_WRITABLE_COLUMNS.concat(ALL_CONTEXT_COLUMNS);
     const indices = wanted.map(c => map[c]).filter(Boolean);
     if (!indices.length) return { values: {}, formulas: {} };
     const last = columnIndexToLetters(Math.max.apply(null, indices));
     const d = await graph().readWorkbookRangeDetail(
       writePaths().workbook, ALL_SHEET_NAME, "A" + rowNumber + ":" + last + rowNumber);
+    return allRowForWriteFromDetail(d, map);
+  }
+  // One row read (values + formulas, the read starting at column A) mapped by
+  // a header map: the writable and context columns only.
+  function allRowForWriteFromDetail(d, map) {
+    const wanted = ALL_WRITABLE_COLUMNS.concat(ALL_CONTEXT_COLUMNS);
     const row = (d && d.values && d.values[0]) || [];
     const frow = (d && d.formulas && d.formulas[0]) || [];
     const out = {}, formulas = {};
@@ -10644,12 +10784,141 @@
     if (result.reason === "error" && /^(Offline|Can't reach OneDrive|Nothing was saved|Read-only)/.test(result.message || "")) return "refused (read-only: " + result.message.split(":")[0] + ")";
     return "refused (" + result.reason + (result.message ? ": " + String(result.message).slice(0, 80) : "") + ")";
   }
+  // ==================================================================
+  // (ax) P1 / P2: THE THREE PRE-WRITE READS AT THE SAME TIME
+  // Each read used to wait for the one before it (about 1.5-2 s each on the
+  // phone). The header re-read and the row lookup need nothing from each
+  // other, so they always run together (P1). With a row guess from Edit
+  // Coin (the sheet row its form was read from at open, a Graph lookup,
+  // never the device's saved copy: invariant 17) the row is read at the
+  // same time too (P2), over the table's width at that read, and is used
+  // ONLY after three confirmations against this save's own fresh reads:
+  //   (i)   the fresh lookup returns the same row;
+  //   (ii)  every column the save needs lies inside the range read, by the
+  //         FRESH header;
+  //   (iii) the row's CollectionID cell (at the fresh header's position) is
+  //         this coin's id.
+  // Any failure: the row is re-read at the fresh row with the fresh header,
+  // one step after the others, exactly as before (P1). Invariants 1, 3 and
+  // 4 hold either way: header fresh at this save, row by CollectionID fresh,
+  // the conflict compared against a row read during this save, formulas
+  // from that same read.
+  // ==================================================================
+  const ROW_GUESS_STEP = "row re-read for the conflict check (in parallel, at the row Edit Coin opened)";
+  function allHeaderMapWidth(map) {
+    const idx = Object.keys(map || {}).map(k => map[k]).filter(n => typeof n === "number" && n > 0);
+    return idx.length ? Math.max.apply(null, idx) : 0;
+  }
+  function rowGuessProblem(detail, map, rowNumber, guess, collectionId) {
+    if (rowNumber !== guess.rowNumber) return "the row moved (now row " + rowNumber + ")";
+    const addr = /!?\$?[A-Z]+\$?(\d+)/.exec(String(detail && detail.address || "").replace(/^.*!/, ""));
+    if (addr && Number(addr[1]) !== guess.rowNumber) return "the read came back for row " + addr[1];
+    const needed = ALL_WRITABLE_COLUMNS.concat(ALL_CONTEXT_COLUMNS, ["CollectionID"]);
+    const outside = needed.filter(n => map[n] && map[n] > guess.width);
+    if (outside.length) return "a column is now past the range read (" + outside.join(", ") + ")";
+    if (!map.CollectionID) return "no CollectionID column to confirm the row";
+    const row = (detail && detail.values && detail.values[0]) || [];
+    const id = row[map.CollectionID - 1];
+    if (String(id == null ? "" : id).trim() !== String(collectionId).trim()) return "row " + rowNumber + " holds " + (id == null || id === "" ? "no CollectionID" : id) + ", not this coin";
+    return "";
+  }
+  async function readAllRowForSave(collectionId, rowGuess) {
+    const guess = rowGuess && Number(rowGuess.rowNumber) > 1 && Number(rowGuess.width) > 0
+      ? { rowNumber: Number(rowGuess.rowNumber), width: Number(rowGuess.width) } : null;
+    const headerP = timeSaveStep("header re-read", () => ensureAllHeaderMap({ fresh: true }));
+    const lookupP = timeSaveStep("row lookup", () => findAllSheetRowNumber(collectionId));
+    const guessP = guess ? timeSaveStep(ROW_GUESS_STEP, () => graph().readWorkbookRangeDetail(writePaths().workbook, ALL_SHEET_NAME,
+      "A" + guess.rowNumber + ":" + columnIndexToLetters(guess.width) + guess.rowNumber)) : Promise.resolve(null);
+    // Every read is settled before anything is decided, so none is left
+    // running (or rejecting unseen) behind a failure of another.
+    const [h, l, g] = await Promise.allSettled([headerP, lookupP, guessP]);
+    if (h.status === "rejected") throw h.reason;
+    if (l.status === "rejected") throw l.reason;
+    const map = h.value;
+    const rowNumber = l.value;
+    const readWidth = allHeaderMapWidth(map);
+    if (!rowNumber) return { rowNumber: null };
+    if (guess) {
+      const why = g.status === "rejected" ? "the parallel read failed" : rowGuessProblem(g.value, map, rowNumber, guess, collectionId);
+      if (!why) {
+        const r = allRowForWriteFromDetail(g.value, map);
+        return { rowNumber, values: r.values, formulas: r.formulas, readWidth, rowRead: "parallel" };
+      }
+      noteSaveStep("parallel row read not used: " + why + "; read again", Date.now(), 0);
+    }
+    const r = await timeSaveStep("row re-read for the conflict check", () => readAllRowForWrite(rowNumber, map));
+    return { rowNumber, values: r.values, formulas: r.formulas, readWidth, rowRead: guess ? "again" : "after" };
+  }
+
+  // ==================================================================
+  // (ax) Stage 1, diagnostic only: LastModified's precision on the real
+  // workbook. The last Edit Coin / Promote save's stamp (local day serial +
+  // seconds / 86400, written with "yyyy-mm-dd hh:mm") is kept here; Docket >
+  // About shows it and "Read it back" GETs that one cell (values, text,
+  // number format and Graph's raw answer) so Ray can see whether Excel keeps
+  // the seconds. Nothing reads this to decide anything.
+  // ==================================================================
+  function __getLastModifiedCheckForTest() { return lastModifiedCheck; } // test-only seam
+  function serialToClockWithSeconds(serial) {
+    const n = Number(serial);
+    if (!Number.isFinite(n)) return String(serial);
+    const msOfDay = Math.round((n - Math.floor(n)) * 86400000);
+    const p = (v, w) => String(v).padStart(w || 2, "0");
+    const secs = msOfDay / 1000;
+    return excelSerialToISODate(n) + " " + p(Math.floor(secs / 3600)) + ":" + p(Math.floor(secs / 60) % 60) + ":" +
+      p(Math.floor(secs) % 60) + (msOfDay % 1000 ? "." + p(msOfDay % 1000, 3) : "");
+  }
+  async function readBackLastModified() {
+    const c = lastModifiedCheck;
+    if (!c) return null;
+    const out = { at: Date.now() };
+    try {
+      const map = await ensureAllHeaderMap({ fresh: true });
+      if (!map.LastModified) throw new Error("no LastModified column");
+      const address = columnIndexToLetters(map.LastModified) + c.rowNumber;
+      const idCell = map.CollectionID ? await graph().readWorkbookRangeDetail(writePaths().workbook, ALL_SHEET_NAME,
+        columnIndexToLetters(map.CollectionID) + c.rowNumber) : null;
+      const d = await graph().readRangeValuesAndText(writePaths().workbook, ALL_SHEET_NAME, address);
+      out.address = address;
+      out.idOnRow = idCell && idCell.values && idCell.values[0] ? idCell.values[0][0] : null;
+      out.value = d.values && d.values[0] ? d.values[0][0] : null;
+      out.text = d.text && d.text[0] ? d.text[0][0] : null;
+      out.numberFormat = d.numberFormat && d.numberFormat[0] ? d.numberFormat[0][0] : null;
+      const m = /"values"\s*:\s*\[\s*\[\s*([^\],]*)/.exec(d.raw || "");
+      out.rawValue = m ? m[1].trim() : null;
+      out.diffSeconds = typeof out.value === "number" && typeof c.written === "number"
+        ? Math.round((out.value - c.written) * 86400 * 1000) / 1000 : null;
+    } catch (e) {
+      out.error = String(e && e.message || e).slice(0, 120);
+    }
+    if (lastModifiedCheck === c) c.readBack = out;
+    try { renderLoadReport(); } catch (e) { /* diagnostics only */ }
+    return out;
+  }
+  function lastModifiedCheckLines(c) {
+    const lines = ["LastModified written (" + loadReportClock(c.at) + ", " + c.collectionId + " row " + c.rowNumber + "): " +
+      c.written + " = " + serialToClockWithSeconds(c.written)];
+    const r = c.readBack;
+    if (r && r.error) lines.push("Read back " + loadReportClock(r.at) + ": failed (" + r.error + ")");
+    else if (r) {
+      lines.push("Read back " + loadReportClock(r.at) + " (" + r.address + (r.idOnRow != null && String(r.idOnRow).trim() !== c.collectionId ? ", row now holds " + r.idOnRow : "") + "): value " +
+        (r.rawValue != null ? r.rawValue : JSON.stringify(r.value)) +
+        (typeof r.value === "number" ? " = " + serialToClockWithSeconds(r.value) : "") +
+        (r.diffSeconds != null ? "; read minus written " + r.diffSeconds + " s" : "") +
+        "; text \"" + (r.text == null ? "" : r.text) + "\"; format \"" + (r.numberFormat == null ? "" : r.numberFormat) + "\"");
+    }
+    return lines;
+  }
+
   // Every return of saveCoinRowToWorkbook() passes through here: the Docket's
   // save outcome ((ao) B3) and, for a save that landed, what it wrote ((ao)
   // B2, withRecentWrites). The writer keeps its own name (invariant 2).
   function finishCoinRowSave(collectionId, result) {
     return Promise.resolve(result).then(r => {
       noteSaveOutcome(saveRowOutcomeText(r));
+      if (r && r.ok && r.written && r.written.indexOf("LastModified") !== -1 && r.rowNumber) {
+        lastModifiedCheck = { collectionId, rowNumber: r.rowNumber, written: r.values.LastModified, at: Date.now(), readBack: null };
+      }
       if (r && r.ok && r.written) {
         const written = {};
         r.written.forEach(col => { written[col] = r.values[col]; });
@@ -10663,19 +10932,22 @@
     if (!gate()) {
       return finishCoinRowSave(collectionId, { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." });
     }
-    let rowNumber, fresh, formulas;
+    let rowNumber, fresh, formulas, readWidth;
     try {
       // (al) 5.B: the header is re-read at the start of every save; the read,
       // the checks and the write below all use this one map.
       // (ao) Stage 2: each step is timed for the Docket's "last save" report.
-      await timeSaveStep("header re-read", () => ensureAllHeaderMap({ fresh: true }));
-      rowNumber = await timeSaveStep("row lookup", () => findAllSheetRowNumber(collectionId));
+      // (ax) P1 / P2: the header re-read and the row lookup run at the same
+      // time, and with `opts.rowGuess` (Edit Coin) the row re-read too; see
+      // readAllRowForSave().
+      const read = await readAllRowForSave(collectionId, opts && opts.rowGuess);
+      rowNumber = read.rowNumber;
       if (!rowNumber) {
         return finishCoinRowSave(collectionId, { ok: false, reason: "not-found", message: collectionId + " is no longer on the All sheet." });
       }
-      const read = await timeSaveStep("row re-read for the conflict check", () => readAllRowForWrite(rowNumber));
       fresh = read.values;
       formulas = read.formulas;
+      readWidth = read.readWidth;
     } catch (e) {
       return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
     }
@@ -10684,7 +10956,7 @@
     // freshValues rides along so the caller can adopt them as the new
     // baseline once the user has acknowledged the block — without that the
     // next Save re-detects the same conflict forever.
-    if (conflicts.length) return finishCoinRowSave(collectionId, { ok: false, reason: "conflict", conflicts, freshValues: fresh });
+    if (conflicts.length) return finishCoinRowSave(collectionId, { ok: false, reason: "conflict", conflicts, freshValues: fresh, rowNumber, readWidth });
 
     const changed = {};
     Object.keys(nextValues).forEach(name => {
@@ -10725,6 +10997,7 @@
     return finishCoinRowSave(collectionId, {
       ok: true,
       rowNumber,
+      readWidth, // (ax) P2: the next save's parallel row read spans this
       written: edits.reduce((acc, e) => acc.concat(e._columns), []),
       values: Object.assign({}, fresh, changed),
       before: fresh // (ao) B2: what the row showed before this write
@@ -20226,7 +20499,9 @@
       const raw = await readAllRowWritableValues(rowNumber);
       // The raw read is the conflict baseline; the form and the record show
       // it with this session's own recent writes on top ((ao) B2).
-      browseEditSnapshot = { id: coin.id, values: raw };
+      // (ax) P2: the sheet row it came from (a Graph lookup, never the saved
+      // copy) and the table's width then, for Save's parallel row read.
+      browseEditSnapshot = { id: coin.id, values: raw, rowNumber, readWidth: allHeaderMapWidth(allHeaderMap) };
       const values = withRecentWrites(coin.id, raw);
       // The record every screen shares gets the fresh values regardless of
       // what's on screen right now — that's what keeps Browse detail from
@@ -21183,7 +21458,8 @@
     const restoreBtn = () => { btn.disabled = false; btn.textContent = originalLabel; };
     let result;
     try {
-      result = await saveCoinRowToWorkbook(coin.id, form.workbook, browseEditSnapshot.values);
+      result = await saveCoinRowToWorkbook(coin.id, form.workbook, browseEditSnapshot.values,
+        { rowGuess: { rowNumber: browseEditSnapshot.rowNumber, width: browseEditSnapshot.readWidth } }); // (ax) P2
     } catch (e) {
       restoreBtn();
       throw e;
@@ -21240,7 +21516,7 @@
 
       // Re-baseline so a second save from the same open form compares
       // against what's now really on the row, not the pre-save values.
-      browseEditSnapshot = { id: coin.id, values: result.values };
+      browseEditSnapshot = { id: coin.id, values: result.values, rowNumber: result.rowNumber, readWidth: result.readWidth };
       // (ao) B2: the record takes the values just written (result.values is
       // the row as this save left it), not a later read-back, which Excel
       // can answer with the old content for minutes.
@@ -21316,7 +21592,9 @@
   // field by field, before this runs.
   function resolveConflictAndRebaseline(coin, freshValues) {
     if (!freshValues) return;
-    browseEditSnapshot = { id: coin.id, values: freshValues };
+    // (ax) P2: the row guess carries over (Save confirms it afresh anyway).
+    const prev = browseEditSnapshot && browseEditSnapshot.id === coin.id ? browseEditSnapshot : {};
+    browseEditSnapshot = { id: coin.id, values: freshValues, rowNumber: prev.rowNumber, readWidth: prev.readWidth };
     // Keep the in-memory record in step too, so Browse detail doesn't go on
     // showing the pre-conflict values after the user backs out.
     applySnapshotToRecord(coin, freshValues);

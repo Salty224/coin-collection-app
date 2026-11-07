@@ -503,8 +503,15 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
     has(/^write \(\d+ ranges, LastModified last\)$/) && T.outcome === "saved" && typeof T.total === "number");
   ok("T2 ...and so is every Graph call inside it", has(/^Graph readTableHeaderRow AllCoins$/) && has(/^Graph patchWorkbookRanges All \d+ ranges$/));
   ok("T3 a nested save does not replace the outer record (" + T.nested + ")", T.nested === "outer");
+  // (ax) Stage 1 added the text-date check, the token, each answer's read
+  // and the three main-thread / background lines to the same list; the
+  // $batch POST lines themselves are unchanged and still checked exactly.
+  const posts = T.batchNames.filter(n => /^\$batch \d+ of \d+: \d+ range writes/.test(n));
   ok("T4 each $batch POST is timed, the one carrying LastModified named (" + JSON.stringify(T.batchNames) + ")",
-    T.batchNames.length === 2 && T.batchNames[0] === "$batch 1 of 2: 20 range writes" && T.batchNames[1] === "$batch 2 of 2: 5 range writes (includes LastModified)");
+    posts.length === 2 && posts[0] === "$batch 1 of 2: 20 range writes" && posts[1] === "$batch 2 of 2: 5 range writes (includes LastModified)" &&
+    T.batchNames.includes("text-date check") && T.batchNames.some(n => /^token \(/.test(n)) &&
+    T.batchNames.includes("$batch 1 of 2: reading the answer") && T.batchNames.includes("$batch 2 of 2: reading the answer") &&
+    T.batchNames.includes("main thread: longest stall (heartbeat late)") && T.batchNames.some(n => /^background work during the save: /.test(n)));
   ok("T5 the Docket shows the last save and its steps: " + T.line,
     /^Last save \(\d\d:\d\d:\d\d, Edit Coin AY-00001\): \d+\.\d s, saved, \d+ steps$/.test(T.line) && T.stepItems === T.names.length);
 

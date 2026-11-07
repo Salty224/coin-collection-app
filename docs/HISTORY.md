@@ -3298,3 +3298,11 @@ Dashboard's "Go To" tile grid is generated from the same nav-item list, so
 Sets automatically got a Dashboard tile too, the same way Albums always has.
 Rolls, by contrast, deliberately got neither a nav entry nor a Dashboard
 tile — it's reachable only via its own tab inside Browse.
+
+## Save speed (ax): build log (7 Nov 2026, branch `claude/save-speed-ax`, Stage 1 held for Ray's TEST)
+- STEP 0 (docs only, `fa4b16c` on main): LIVE = `2b4920f` recorded ((ar) step 8 passed), hash check (docs only between `632f8e0` and `2b4920f`), CLAUDE.md slimmed to 37,797 bytes, BACKLOG (bb) / (bc), the (ax) PLAN.
+- Ray's answers (7 Nov): every recommendation, with Q6 changed to "check LastModified precision first and report" and Q4 deferred to Stage 2's numbers. Full text: docs/BACKLOG.md (ax).
+- Stage 1 built: `readAllRowForSave` (P1 / P2, `rowGuessProblem` checks (i)-(iii), `ROW_GUESS_STEP`), `allRowForWriteFromDetail`, `allHeaderMapWidth`, Edit Coin's snapshot keeps `rowNumber` / `readWidth`; Save steps diagnostics (`startSaveWatch` / `stopSaveWatch`, `SAVE_HEARTBEAT_MS`, `idbPutsInFlight`, `savedCopyDeleteStepName`, `lastGraphTokenFromCache`, "text-date check", "reading the answer"); the LastModified check in About (`lastModifiedCheck`, `readBackLastModified`, `readRangeValuesAndText`, `serialToClockWithSeconds`). Part 3 (the false second-save refusal) not built: waits for the TEST read-back.
+- Tests: new `verify_save_speed_ax.js` (16); `verify_session_gate_ao.js` T4 follows the design (the $batch POST lines still exact; the new lines required).
+- Negative controls (by hand, 7 Nov 2026, app.html mutated and restored each time): confirmations (i)-(iii) switched off -> S2, S3, S4 red; the row guess ignored (P1 only) -> S1, S1b, S1c, S2-S5 red; header and lookup made serial -> S1, S6 red; the saved-copy delete line removed -> S1d, S7 red; the save watch not started -> S1d, B1 red; the LastModified stamp not kept -> L1, L1b, L1c red.
+- Gate on the branch: full `npm test` 4977 passed, 0 failed, 0 page errors, 98 suites, 682 s (7 Nov 2026; 4961 baseline + the 16 new checks; no other PASS / FAIL line changed).
