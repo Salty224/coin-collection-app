@@ -2,6 +2,8 @@
 
 Branch `claude/finish-list-ar`. Write-up: docs/ref/ADD_COIN.md "Finish list from Lookup_Finishes (ar)".
 
+No deadline (Ray, 7 Nov 2026): Diamond Field is entered when the coins arrive.
+
 Before TEST: refresh `_Testing` from LIVE so its Lookup_Finishes has Various (A13), Matte (A14) and Diamond Field (A15). Without the sheet TEST still shows the fallback list, but never saves a device copy.
 
 1. Deploy `claude/finish-list-ar` to TEST. The TEST bar shows the branch.
