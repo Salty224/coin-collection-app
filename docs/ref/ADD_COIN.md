@@ -1546,7 +1546,8 @@ ParkingLot 304. Add Coin's Finish dropdown (`#finish`; Add Coin and Staging edit
 - **Catalog pills:** "Diamond Field" added to the Special group of `CATALOG_FINISH_GROUPS` (Ray's Q4). The groups stay fixed in code (backlog (f)).
 - **Left alone on purpose:** `FINISH_GRADE_PREFIX` (Diamond Field decodes 60-70 as MS through the existing fallback, Ray's Q3); the Finish gate (`addCoinDirectSaveGaps`, `coinDraftPromoteGaps`) still checks only that a Finish is present; DB_Coins / DB_Sets rows for the 2026 set (Copilot's job, Q9); `LIVE_NAV_DATA_SHEETS` (the splash list, (av)).
 - **Tests:** `tests/verify_finish_list_ar.js` (F0-F9). `verify_device_cache_ao`, `verify_load_report_ao` and `verify_startup_connection` J6 follow the 12th sheet and format 2.
-- **Not verified:** the real Lookup_Finishes text on LIVE (a Copilot read-only check of A1:A15 and the DB_Coins / All Finish values is pending; the project copy has A2-A12 spelled as the old dropdown, A13 Various, A14 Matte, A15 Diamond Field); a real device; _Testing after Ray's refresh.
+- **Checked on LIVE:** Copilot read-only check of LIVE (7 Nov 2026, nothing changed): Lookup_Finishes A2:A12 match FINISH_FALLBACK_LIST values 1-10 and 12 exactly (order differs), A13 Various, A14 Matte, A15 Diamond Field; no spacing, NBSP, apostrophe or divider issues; every non-blank DB_Coins.Finish and All.Finish value matches the sheet exactly; All has 6 "Various" rows (set-level). So the sheet's list offers the same 12 values as the fallback (in the sheet's order) plus Diamond Field, and the matcher's Finish tier and "Use <Finish> (from the catalog)" see no spelling differences.
+- **Not verified:** a real device; _Testing after Ray's refresh.
 
 ## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
 
