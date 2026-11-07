@@ -24,8 +24,8 @@ Merged to `main`. Suite: `tests/verify_catalog_finish_filter.js` (30).
   `catalogFinishGroupKey()`): Strike = Business Strike, Uncirculated; Proof =
   Proof, Matte Proof; Rev. Proof = Reverse Proof, Enhanced Reverse Proof;
   Special = Burnished, Enhanced Uncirculated, Satin Finish, SMS, Specimen,
-  Matte. Blank or anything else (e.g. "Various") shows only under All.
-  **Hardcoded on purpose: the app does not load Lookup_Finishes.**
+  Matte, Diamond Field (added by (ar), Nov 2026). Blank or anything else (e.g. "Various") shows only under All.
+  **Hardcoded on purpose:** Lookup_Finishes has no grouping column. Since (ar) the app reads Lookup_Finishes, but only for Add Coin's Finish list (docs/ref/ADD_COIN.md "Finish list from Lookup_Finishes (ar)"), not for these groups.
 - **Search**: `coinMatchesSearchQuery()` now also matches `coin.finish`. That
   helper is shared, so Ledger's Find a Coin and Former Holdings search match
   Finish too.

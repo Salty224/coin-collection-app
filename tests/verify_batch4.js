@@ -120,7 +120,10 @@ module.exports = defineSuite("batch4", async ({ ok, openApp, PHONE }) => {
   ok(B3.options.includes("Matte") && B3.options.includes("Matte Proof"),
     "4.3.3b \"Matte\" (3 real rows, modern silver medals) and \"Matte Proof\" (Lookup_Finishes' historic 1908-1916 gold value) are both offered, as genuinely different finishes");
   ok(!B3.options.includes("Circulated"), "4.3.4 \"Circulated\" stays excluded -- a wear state, and absent from Lookup_Finishes (unchanged)");
-  ok(B3.options.length === 13, "4.3.5 exactly 13 options total (blank + Lookup_Finishes' 11 defined values + the in-use \"Matte\")");
+  // (ar), Nov 2026: with no Lookup_Finishes read (this page), the list is
+  // FINISH_FALLBACK_LIST: the 13 above (blank included) plus Diamond Field.
+  ok(B3.options.length === 14 && B3.options[B3.options.length - 1] === "Diamond Field",
+    "4.3.5 exactly 14 options total (blank + Lookup_Finishes' 11 defined values + the in-use \"Matte\" + Diamond Field, the (ar) fallback)");
 
   // "Enhanced Uncirculated" must remain a distinct option, never conflated
   // with a plain "Uncirculated" value -- and it should still narrow the

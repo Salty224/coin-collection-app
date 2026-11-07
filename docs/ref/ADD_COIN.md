@@ -1276,7 +1276,7 @@ the Add Coin dropdown yet: that dropdown is DERIVED from `FAKE_DENOMINATIONS`,
 and `Ref_Denominations` has no matching series row — the derivation still
 holding is itself asserted.
 
-**4. Finish dropdown corrected against real `DB_Coins.Finish` values.**
+**4. Finish dropdown corrected against real `DB_Coins.Finish` values.** *(Superseded by (ar), Nov 2026: the list now comes from Lookup_Finishes; these 12 values are `FINISH_FALLBACK_LIST`'s first 12. See "Finish list from Lookup_Finishes (ar)" below.)*
 Two of these reverse earlier decisions that the data does not support:
 - **`Specimen` restored** — removed on the stated grounds of matching zero
   real rows. It matches **9**.
@@ -1532,6 +1532,21 @@ errors.
 
 
 
+
+### Finish list from Lookup_Finishes (ar) (Nov 2026; branch `claude/finish-list-ar`, held for Ray's TEST)
+
+ParkingLot 304. Add Coin's Finish dropdown (`#finish`; Add Coin and Staging edit share it; Edit Coin has no Finish field, stage.html and Add Set have none) used to be 12 options typed into app.html. Lookup_Finishes gained Matte (A14) and Diamond Field (A15, 6 Nov 2026) for the 2026-P Diamond Field Morgan and Peace set.
+
+- **Read:** Lookup_Finishes is the 12th launch sheet (`FULL_READ_SHEETS`, `LIVE_NAV_OPTIONAL_SHEETS`, the 12th parameter of `applyLiveNavSheetRows`), optional like Lookup_Categories: a failure never blocks startup, the background refetch (`refetchMissingLiveNavSheets`) tries again. It is in the device's saved copy, so an offline or saved-copy launch shows the sheet's list. READ-ONLY: the app never writes the sheet.
+- **List:** `buildLookupFinishList(rows)`: column A whatever its header text; text kept as written, trimmed at both ends only (no case folding, no renaming; the matcher's Finish tier and "Use <Finish> (from the catalog)" compare it with DB_Coins.Finish); blank rows, "═" dividers, repeats and `FINISH_NOT_OFFERED` (["Various"], exact name: A13, set-level only, its CoinID must be blank) are dropped; the sheet's order is kept. Returns null for no header and for nothing offerable.
+- **Fallback:** `activeLookupFinishes()` = `LIVE_LOOKUP_FINISHES || FINISH_FALLBACK_LIST` in every mode (a fixed copy of a reference table, not demo data, same posture as `activeLookupGraders()`): the 12 old values in their old order plus Diamond Field = 13. Never an empty list. While a live session is on the fallback because the sheet failed or had nothing offerable, `#finishListNote` says "Finish list from the app; Lookup_Finishes couldn't be read" (`liveLookupFinishesLoadFailed`).
+- **Fill:** `populateFinishOptions()` at page load, when the sheet lands or fails, and in `resetAddCoinForm()`. It keeps "— not recorded —" first and never loses the current value: one the list doesn't offer stays as "<value> — existing value" (`setSelectValuePreservingUnknown`, marked `data-injected`). A new form drops that kept option.
+- **Fixed in passing:** the draft restore (`applyCoinDraftToForm`) used a plain `.value =`, which silently blanked a Finish the list didn't offer; it now keeps it. The catalog fill (`applyDbCoinsRowToForm`) used to set any catalog Finish, which blanked a Finish already picked when the catalog's value wasn't an option; it now sets only an offered option (normField match, the list's own text) and otherwise leaves the pick alone. `addCoinCatalogFinish()` and the catalog fill skip kept ("existing value") options.
+- **Saved copy:** `WORKBOOK_CACHE_FORMAT` 2 (12 sheets). A format-1 record is refused ("format") and deleted; the first launch after the deploy reads the workbook and saves a new copy. The copy is saved only when all 12 sheets arrive, so a workbook without Lookup_Finishes never gets one (the same as Lookup_Categories): _Testing must carry the sheet.
+- **Catalog pills:** "Diamond Field" added to the Special group of `CATALOG_FINISH_GROUPS` (Ray's Q4). The groups stay fixed in code (backlog (f)).
+- **Left alone on purpose:** `FINISH_GRADE_PREFIX` (Diamond Field decodes 60-70 as MS through the existing fallback, Ray's Q3); the Finish gate (`addCoinDirectSaveGaps`, `coinDraftPromoteGaps`) still checks only that a Finish is present; DB_Coins / DB_Sets rows for the 2026 set (Copilot's job, Q9); `LIVE_NAV_DATA_SHEETS` (the splash list, (av)).
+- **Tests:** `tests/verify_finish_list_ar.js` (F0-F9). `verify_device_cache_ao`, `verify_load_report_ao` and `verify_startup_connection` J6 follow the 12th sheet and format 2.
+- **Not verified:** the real Lookup_Finishes text on LIVE (Ray to paste A1:A15; the project copy has A2-A12 spelled as the old dropdown, A13 Various, A14 Matte, A15 Diamond Field); a real device; _Testing after Ray's refresh.
 
 ## Cross-area rules stated in CLAUDE.md (E-numbered; header lines moved here in the (am) slimming)
 

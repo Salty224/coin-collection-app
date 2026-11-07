@@ -460,10 +460,10 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
     return { failed: r.launch && r.launch.failedBefore, line: loadReportReadLine("Launch read", r.launch), notYet };
   });
   ok("R1 each failed attempt is kept with its duration and reason: timeout, auth, abandoned by Retry (" + JSON.stringify(R.failed) + ")",
-    Array.isArray(R.failed) && R.failed.length === 3 && R.failed[0].reason === "timeout ×11" && R.failed[0].wallMs >= 140 &&
-    R.failed[1].reason === "auth (no token) ×11" && R.failed[2].reason === "abandoned by Retry");
+    Array.isArray(R.failed) && R.failed.length === 3 && R.failed[0].reason === "timeout ×12" /* 12 launch sheets since (ar) */ && R.failed[0].wallMs >= 140 &&
+    R.failed[1].reason === "auth (no token) ×12" && R.failed[2].reason === "abandoned by Retry");
   ok("R2 the launch line shows them and the launch total: " + R.line,
-    /; before it 3 failed attempts: \d+\.\d s timeout ×11; \d+\.\d s auth \(no token\) ×11; \d+\.\d s abandoned by Retry; launch total \d+\.\d s$/.test(R.line));
+    /; before it 3 failed attempts: \d+\.\d s timeout ×12; \d+\.\d s auth \(no token\) ×12; \d+\.\d s abandoned by Retry; launch total \d+\.\d s$/.test(R.line));
   ok("R3 before the launch read lands, the Docket already lists them: " + R.notYet,
     /^Launch read: not finished yet; 3 failed attempts so far: /.test(R.notYet));
 
