@@ -42,4 +42,4 @@ Have _Testing open in Excel in a browser tab for steps 2-6 (the delay seems more
 
 Report: what each step showed (screenshots of Save steps for 2, 3 and 5), and anything that differs from the expected text.
 
-2a results: not run yet.
+2a results: Ray gave the merge go-ahead on 7 Nov 2026 with steps 6-8 not run on TEST (covered by `verify_save_lag_ax`). Merged to main by fast-forward (`db8673e`).
