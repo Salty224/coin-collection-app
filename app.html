@@ -184,9 +184,10 @@
   /* (ao) Session row: a saved copy being checked / updated (gray), or
      read-only because OneDrive can't be reached (amber). */
   .session-bar {
-    height: 24px; line-height: 24px; padding: 0 12px; background: #3a3f47; color: #fff;
+    /* Wraps to a second line on a phone rather than cut off Retry; the
+       strip's height (--top-strip-h) is measured, so the page follows. */
+    min-height: 24px; line-height: 16px; padding: 4px 12px; box-sizing: border-box; background: #3a3f47; color: #fff;
     font-size: 12px; font-weight: 700; text-align: center;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .session-bar.is-trouble { background: #8a5a00; }
   .session-bar.hidden { display: none; }
@@ -211,6 +212,10 @@
      small gray text; wraps on a phone. */
   .load-report { font-size: 11px; color: var(--text-muted); text-align: center; margin: 28px 0 0; overflow-wrap: anywhere; }
   .load-report.is-shown + #docketBuildLine { margin-top: 10px; }
+  /* (ao) Stage 3: where the data on screen came from, and Refresh. */
+  .docket-data-line { font-size: 12px; color: var(--text-muted); text-align: center; margin: 28px 0 0; }
+  .docket-data-line .load-report-check { margin-left: 8px; }
+  .docket-data-line + .load-report { margin-top: 10px; }
   .load-report-line { margin: 4px 0 0; }
   .load-report-details { margin: 4px 0 0; text-align: left; }
   .load-report-details summary { text-align: center; cursor: pointer; }
@@ -4665,6 +4670,8 @@
             <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
           </div>
         </div>
+        <p class="docket-data-line" id="docketDataLine" style="display:none;"><span class="docket-data-text"></span>
+          <button type="button" class="load-report-check" id="docketRefreshBtn">Refresh from workbook</button></p>
         <div class="load-report" id="docketLoadReport" style="display:none;"></div>
         <p class="build-line" id="docketBuildLine"></p>
       </section>
@@ -6616,13 +6623,8 @@
         const { data, bytes } = await readJsonBodyMeasured(res);
         const ms = Date.now() - sentAt;
         const values = data.values || [];
-        if (values.length < 2) { record({ kind: "ok", rowCount: 0, ms, bytes }); return []; } // header row only (or truly empty) — a real, cacheable answer
-        const headers = values[0].map(h => String(h == null ? "" : h).trim());
-        const rows = values.slice(1).map(r => {
-          const obj = {};
-          headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
-          return obj;
-        });
+        const rows = rowsFromSheetValues(values); // header row only (or truly empty) = [], a real, cacheable answer
+        sheetRawValues.set(rows, values); // (ao) Stage 3: what the device's saved copy keeps
         record({ kind: "ok", rowCount: rows.length, ms, bytes });
         return rows;
       }, splashTiming("request"));
@@ -6650,6 +6652,22 @@
   // version lookup, on the first Docket visit after the launch read and on
   // "Check again"), and bookkeeping on reads the app already makes.
   // ==================================================================
+
+  // A sheet's used-range values -> plain row objects keyed by the header
+  // row's own text (trimmed); [] for a header-only or empty sheet. Used by
+  // a full read and by a launch from the device's saved copy alike.
+  function rowsFromSheetValues(values) {
+    if (!Array.isArray(values) || values.length < 2) return [];
+    const headers = values[0].map(h => String(h == null ? "" : h).trim());
+    return values.slice(1).map(r => {
+      const obj = {};
+      headers.forEach((h, i) => { if (h) obj[h] = r[i]; });
+      return obj;
+    });
+  }
+  // rows array (as returned by fetchWorkbookSheetRows) -> the raw values it
+  // was built from, for the saved copy. Weak: nothing is kept alive by it.
+  const sheetRawValues = new WeakMap();
 
   // The 11 sheets of the full read, in ensureLiveNavDataFetch()'s order.
   const FULL_READ_SHEETS = ["All", "DB_Sets", "DB_Coins", "Lookup_MetalContent", "Lookup_Graders",
@@ -6858,7 +6876,7 @@
   function renderLoadReport() {
     const el = document.getElementById("docketLoadReport");
     if (!el) return;
-    if (!launchReadReport && !workbookVersionChecks.length && !lastSaveTiming && liveDataMode() !== "live") {
+    if (!launchReadReport && !workbookVersionChecks.length && !lastSaveTiming && !savedCopyLaunch && liveDataMode() !== "live") {
       el.style.display = "none";
       el.classList.remove("is-shown");
       el.innerHTML = "";
@@ -6868,9 +6886,13 @@
     el.classList.add("is-shown");
     const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
     const parts = [];
+    if (savedCopyLaunch) {
+      parts.push('<p class="load-report-line" id="docketSavedCopyLine">' + esc("Saved copy at launch (" + loadReportClock(savedCopyLaunch.at) + "): " +
+        savedCopyLaunch.outcome) + "</p>");
+    }
     parts.push('<p class="load-report-line" id="docketLaunchReadLine">' + esc(launchReadReport
       ? loadReportReadLine("Launch read", launchReadReport)
-      : "Launch read: not finished yet" + (failedLaunchAttempts.length
+      : (savedCopyLaunch && workbookSession.source === "saved-copy" ? "Launch read: none (the saved copy was used)" : "Launch read: not finished yet") + (failedLaunchAttempts.length
         ? "; " + failedLaunchAttempts.length + " failed attempt" + (failedLaunchAttempts.length === 1 ? "" : "s") + " so far: " +
           failedLaunchAttempts.map(a => loadReportSeconds(a.wallMs) + " " + a.reason).join("; ")
         : "")) + "</p>");
@@ -7146,11 +7168,16 @@
       workbookSession.connection = "ok";
       workbookSession.connectionReason = "";
       if (workbookSession.source === "none") { renderSessionState(); return { connection: "ok", match: null }; }
-      const match = versionsMatch(v, workbookSession.dataVersion);
+      const unchecked = workbookSession.source === "saved-copy" && !workbookSession.verified;
+      // A saved copy not yet checked also needs "not changed in the last 10
+      // minutes" (Q4); data read this session only needs the same version.
+      const match = unchecked ? savedCopyMatches(v, { version: workbookSession.dataVersion })
+        : versionsMatch(v, workbookSession.dataVersion);
       if (match) {
-        if (workbookSession.source === "saved-copy" && !workbookSession.verified) {
+        if (unchecked) {
           workbookSession.verified = true;
           workbookSession.checkedAt = Date.now();
+          if (savedCopyLaunch) savedCopyLaunch.outcome = "matched the workbook on a later check";
         }
         renderSessionState();
         if (wasDown) showToast("Back online · data is current");
@@ -7240,12 +7267,6 @@
     });
   }
 
-  // Stage 3 fills these in (the device's saved copy and the Docket's data
-  // line); in Stage 2 there is no saved copy.
-  function deleteWorkbookCacheForWrite() { return Promise.resolve(); }
-  function saveWorkbookCacheAfterRead() { return Promise.resolve(null); }
-  function renderDocketDataLine() {}
-
   // ---- What the user sees --------------------------------------------
   const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function sessionDateLabel(t) {
@@ -7282,9 +7303,12 @@
       renderTopStrip();
     }
     document.body.classList.toggle("session-read-only", !workbookWritesAllowed().ok);
-    // The "checking…" row appears only once a check has taken 1.5 s.
-    if (!sessionBarTimer && workbookSession.checking && !label) {
-      sessionBarTimer = setTimeout(() => { sessionBarTimer = null; renderSessionState(); }, SESSION_CHECKING_ROW_DELAY_MS);
+    // The "checking…" row appears once the check has taken 1.5 s, counted
+    // from when the check started (not from this redraw).
+    if (workbookSession.checking && !label) {
+      clearTimeout(sessionBarTimer);
+      const due = Math.max(0, SESSION_CHECKING_ROW_DELAY_MS - (Date.now() - workbookSession.checkingSince)) + 20;
+      sessionBarTimer = setTimeout(() => { sessionBarTimer = null; renderSessionState(); }, due);
     }
     try { renderDocketDataLine(); } catch (e) { /* the Docket line is diagnostic */ }
   }
@@ -7333,6 +7357,303 @@
     if (shouldEscalateAfterSilentFailures(hasAccount, error, InteractionRequiredAuthErrorClass, silentFailureCountAfter)) return "redirect";
     return "wait";
   }
+
+  // ==================================================================
+  // (ao) Stage 3: THE DEVICE'S SAVED COPY OF THE WORKBOOK (IndexedDB)
+  // Invariant 17 (CLAUDE.md): display-only. Read in exactly one place, a
+  // launch (launchFromSavedCopy() -> applyLiveNavSheetRows()); nothing in
+  // the write layer reads it (header maps, row lookups, snapshots, the
+  // conflict check, ids all stay fresh workbook reads), and no write starts
+  // while a saved copy on screen hasn't been checked (workbookWritesAllowed()).
+  // One record per target, in its own database: salty-cabinet-cache-copy /
+  // salty-cabinet-cache-live (TEST and LIVE share the salty224.github.io
+  // origin, so they must never mix). Saved only after a full read of all 11
+  // sheets whose workbook version could be trusted; deleted before every
+  // workbook write. Any IndexedDB trouble = no saved copy = today's launch.
+  // ==================================================================
+  const WORKBOOK_CACHE_FORMAT = 1;
+  const WORKBOOK_CACHE_STORE = "copy";
+  const WORKBOOK_CACHE_KEY = "workbook";
+  const WORKBOOK_CACHE_RECENT_EDIT_MS = 10 * 60 * 1000; // Q4: a workbook changed in the last 10 min is always re-read
+  const WORKBOOK_CACHE_DEFAULT_TIMINGS = { open: 1500, splash: 3000 }; // Q6: the splash waits up to 3 s for the version check
+  let workbookCacheTimings = null;
+  function workbookCacheTiming(name) {
+    return (workbookCacheTimings && typeof workbookCacheTimings[name] === "number") ? workbookCacheTimings[name] : WORKBOOK_CACHE_DEFAULT_TIMINGS[name];
+  }
+  let cacheAccountOverride; // test-only: undefined = ask MSAL
+  let savedCopyLaunchTried = false;
+  let savedCopyLaunch = null; // what the launch did with the saved copy, for the Docket
+  function __setWorkbookCacheForTest(o) { // test-only seam
+    o = o || {};
+    if ("account" in o) cacheAccountOverride = o.account;
+    if ("timings" in o) workbookCacheTimings = o.timings;
+    if ("launchTried" in o) savedCopyLaunchTried = !!o.launchTried;
+    if ("savedCopyLaunch" in o) savedCopyLaunch = o.savedCopyLaunch;
+  }
+  function workbookCacheDbName(target) { return "salty-cabinet-cache-" + target; }
+  function workbookCacheBuildCommit() {
+    return (BUILD_STAMP && typeof BUILD_STAMP === "object" && typeof BUILD_STAMP.commit === "string") ? BUILD_STAMP.commit : "unstamped";
+  }
+  function workbookCacheAccountId() {
+    if (cacheAccountOverride !== undefined) return cacheAccountOverride;
+    try {
+      const a = graphMsalInstance && graphMsalInstance.getAllAccounts()[0];
+      return (a && (a.homeAccountId || a.localAccountId)) || null;
+    } catch (e) { return null; }
+  }
+  function workbookCacheUsable() {
+    try {
+      return liveDataMode() === "live" && typeof indexedDB !== "undefined" && !!indexedDB &&
+        (!!graphMsalInstance || cacheAccountOverride !== undefined);
+    } catch (e) { return false; }
+  }
+  // Signed out (MSAL loaded, no account once any sign-in redirect has been
+  // handled): no saved copy of either target stays on the device.
+  function wipeWorkbookCachesIfSignedOut() {
+    if (!graphMsalInstance || typeof indexedDB === "undefined" || !indexedDB) return Promise.resolve(false);
+    return Promise.resolve(graphRedirectHandledPromise).then(() => {
+      let accounts = 1;
+      try { accounts = graphMsalInstance.getAllAccounts().length; } catch (e) { accounts = 1; }
+      if (accounts) return false;
+      return Promise.all([idbDropDatabase("copy"), idbDropDatabase("live")]).then(() => true);
+    }).catch(() => false);
+  }
+  wipeWorkbookCachesIfSignedOut();
+
+  // ---- IndexedDB, every call with a deadline and never a throw ----------
+  function idbWithDeadline(start, ms) {
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (!done) { done = true; resolve(v); } };
+      setTimeout(() => finish(null), ms);
+      try { start(finish); } catch (e) { finish(null); }
+    });
+  }
+  function idbOpenCache(target) {
+    return idbWithDeadline(finish => {
+      const req = indexedDB.open(workbookCacheDbName(target), 1);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore(WORKBOOK_CACHE_STORE); } catch (e) { /* exists */ } };
+      req.onsuccess = () => {
+        const db = req.result;
+        // A database opened after the deadline is closed, not leaked.
+        finish(db);
+        setTimeout(() => { if (!db.__used) try { db.close(); } catch (e) { /* closed */ } }, 0);
+      };
+      req.onerror = () => finish(null);
+      req.onblocked = () => finish(null);
+    }, workbookCacheTiming("open"));
+  }
+  function idbRequest(db, mode, fn) {
+    return idbWithDeadline(finish => {
+      db.__used = true;
+      const tx = db.transaction(WORKBOOK_CACHE_STORE, mode);
+      const req = fn(tx.objectStore(WORKBOOK_CACHE_STORE));
+      tx.oncomplete = () => finish({ ok: true, value: req && req.result });
+      tx.onerror = tx.onabort = () => finish({ ok: false });
+    }, workbookCacheTiming("open"));
+  }
+  async function idbCacheGet(target) {
+    const db = await idbOpenCache(target);
+    if (!db) return null;
+    try { const r = await idbRequest(db, "readonly", st => st.get(WORKBOOK_CACHE_KEY)); return r && r.ok ? r.value || null : null; }
+    finally { try { db.close(); } catch (e) { /* closed */ } }
+  }
+  async function idbCachePut(target, record) {
+    const db = await idbOpenCache(target);
+    if (!db) return false;
+    try { const r = await idbRequest(db, "readwrite", st => st.put(record, WORKBOOK_CACHE_KEY)); return !!(r && r.ok); }
+    finally { try { db.close(); } catch (e) { /* closed */ } }
+  }
+  async function idbCacheDelete(target) {
+    const db = await idbOpenCache(target);
+    if (!db) return false;
+    try { const r = await idbRequest(db, "readwrite", st => st.delete(WORKBOOK_CACHE_KEY)); return !!(r && r.ok); }
+    finally { try { db.close(); } catch (e) { /* closed */ } }
+  }
+  function idbDropDatabase(target) {
+    return idbWithDeadline(finish => {
+      const req = indexedDB.deleteDatabase(workbookCacheDbName(target));
+      req.onsuccess = req.onerror = req.onblocked = () => finish(true);
+    }, workbookCacheTiming("open"));
+  }
+
+  // Deletes this target's saved copy before a workbook write ((ao) invariant
+  // 17: a write never leaves a stale copy behind). Live sessions only; any
+  // trouble here never stops the write (the version check on the next
+  // launch then disagrees with the copy, so it is not trusted).
+  function deleteWorkbookCacheForWrite() {
+    if (!workbookCacheUsable()) return Promise.resolve(false);
+    return idbCacheDelete(WRITE_TARGET).catch(() => false);
+  }
+
+  // After a full read of all 11 sheets whose version could be trusted
+  // (onFullReadLanded()), keep the raw values for the next launch.
+  async function saveWorkbookCacheAfterRead(version, results, readStartedAt) {
+    if (!workbookCacheUsable() || !version || !version.ok) return null;
+    const accountId = workbookCacheAccountId();
+    if (!accountId) return null;
+    if (!Array.isArray(results) || results.length !== FULL_READ_SHEETS.length) return null;
+    const sheets = {};
+    for (let i = 0; i < FULL_READ_SHEETS.length; i++) {
+      const values = results[i] && sheetRawValues.get(results[i]);
+      if (!values) return null; // a sheet missing from this read: no saved copy this time
+      sheets[FULL_READ_SHEETS[i]] = values;
+    }
+    if (workbookSession.ownWriteSinceData) return null;
+    const record = {
+      formatVersion: WORKBOOK_CACHE_FORMAT,
+      target: WRITE_TARGET,
+      workbookPath: writePaths().workbook,
+      buildCommit: workbookCacheBuildCommit(),
+      accountId,
+      dataAt: workbookSession.dataAt || Date.now(),
+      readStartedAt,
+      savedAt: Date.now(),
+      version: { id: version.id, eTag: version.eTag, cTag: version.cTag, size: version.size, lastModifiedDateTime: version.lastModifiedDateTime },
+      sheets
+    };
+    const saved = await idbCachePut(WRITE_TARGET, record);
+    if (saved) { workbookCacheLastSavedAt = record.savedAt; renderDocketDataLine(); }
+    return saved ? record : null;
+  }
+  let workbookCacheLastSavedAt = 0;
+
+  // Why a stored record can't be used (null = it can).
+  function workbookCacheRecordProblem(r, accountId) {
+    if (!r || typeof r !== "object") return "no record";
+    if (r.formatVersion !== WORKBOOK_CACHE_FORMAT) return "format";
+    if (r.target !== WRITE_TARGET) return "target";
+    if (r.workbookPath !== writePaths().workbook) return "workbook";
+    if (r.buildCommit !== workbookCacheBuildCommit()) return "build";
+    if (!accountId || r.accountId !== accountId) return "account";
+    const v = r.version;
+    if (!v || typeof v.eTag !== "string" || typeof v.cTag !== "string" || !v.id) return "version";
+    if (!r.sheets || FULL_READ_SHEETS.some(n => !Array.isArray(r.sheets[n]))) return "sheets";
+    if (typeof r.dataAt !== "number") return "date";
+    return null;
+  }
+  // The launch's look at the device: clears what must be cleared and
+  // returns a usable record or null. Never throws, never waits past the
+  // IndexedDB deadline.
+  async function loadWorkbookCacheRecord() {
+    if (!workbookCacheUsable()) return null;
+    try {
+      const accountId = workbookCacheAccountId();
+      if (!accountId) { // signed out / no account: wipe both targets
+        await Promise.all([idbDropDatabase("copy"), idbDropDatabase("live")]);
+        return null;
+      }
+      idbDropDatabase(WRITE_TARGET === "live" ? "copy" : "live"); // Q8: the other target's copy goes
+      const record = await idbCacheGet(WRITE_TARGET);
+      if (!record) return null;
+      const problem = workbookCacheRecordProblem(record, accountId);
+      if (problem) { await idbCacheDelete(WRITE_TARGET); savedCopyLaunch = { at: Date.now(), outcome: "saved copy not used (" + problem + "), deleted" }; return null; }
+      return record;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function savedCopyRecentlyModified(v) {
+    const modified = Date.parse(v && v.lastModifiedDateTime);
+    return isNaN(modified) || Date.now() - modified < WORKBOOK_CACHE_RECENT_EDIT_MS;
+  }
+  // Match = same file, same eTag / cTag / size, and not changed in the last
+  // 10 minutes (Q4).
+  function savedCopyMatches(v, record) {
+    return versionsMatch(v, Object.assign({ ok: true }, record.version)) && !savedCopyRecentlyModified(v);
+  }
+
+  // The launch, when a usable saved copy is on the device: ask the
+  // workbook's version (the splash waits up to 3 s for it), then
+  //   match            -> show the copy as checked; no sheet reads at all
+  //   changed          -> show the copy read-only, "updating…", full read behind it
+  //   slow / failed    -> show the copy read-only ("checking…" / offline /
+  //                       can't reach OneDrive); the check goes on
+  // Returns true when the copy is on screen, false to launch as today.
+  async function launchFromSavedCopy() {
+    const t0 = Date.now();
+    const gen = liveNavFetchGeneration;
+    const record = await loadWorkbookCacheRecord();
+    if (!record || gen !== liveNavFetchGeneration || (LIVE_COINS && LIVE_DB_SETS)) return false;
+    workbookSession.checking = true;
+    workbookSession.checkingSince = Date.now();
+    const versionP = isOfflineNow() ? Promise.resolve({ ok: false, reason: "offline" }) : fetchWorkbookVersion();
+    const wait = Math.max(0, workbookCacheTiming("splash") - (Date.now() - t0));
+    const first = await Promise.race([versionP, new Promise(r => setTimeout(() => r(null), wait))]);
+    if (gen !== liveNavFetchGeneration || (LIVE_COINS && LIVE_DB_SETS)) return false; // Retry, or data landed another way
+    const sheets = FULL_READ_SHEETS.map(n => rowsFromSheetValues(record.sheets[n]));
+    applyLiveNavSheetRows(...sheets);
+    workbookSession.source = "saved-copy";
+    workbookSession.verified = false;
+    workbookSession.dataAt = record.dataAt;
+    workbookSession.dataVersion = Object.assign({ ok: true }, record.version);
+    workbookSession.ownWriteSinceData = false;
+    savedCopyLaunch = { at: Date.now(), dataAt: record.dataAt, outcome: "checking" };
+    const settle = v => settleSavedCopyVersion(v, record, t0);
+    renderSessionState();
+    if (first) settle(first);
+    else versionP.then(settle);
+    return true;
+  }
+  function settleSavedCopyVersion(v, record, t0) {
+    if (workbookSession.source !== "saved-copy" || workbookSession.verified) return;
+    workbookSession.checking = false;
+    workbookSession.lastCheckAt = Date.now();
+    if (!v || !v.ok) {
+      savedCopyLaunch.outcome = "version check failed (" + ((v && v.reason) || "no answer") + ")";
+      setConnectionTrouble(isOfflineNow() || (v && v.reason === "offline") ? "offline" : "unreachable", v && v.reason);
+      return;
+    }
+    if (savedCopyMatches(v, record)) {
+      workbookSession.verified = true;
+      workbookSession.checkedAt = Date.now();
+      savedCopyLaunch.outcome = "matched the workbook in " + loadReportSeconds(Date.now() - t0) + "; no sheet reads";
+      renderSessionState();
+      return;
+    }
+    savedCopyLaunch.outcome = versionsMatch(v, Object.assign({ ok: true }, record.version))
+      ? "workbook changed in the last 10 minutes; re-read" : "workbook changed; re-read";
+    workbookSession.updating = true; // the row says "updating…" from now on
+    renderSessionState();
+    // Started only after this launch's own promise has finished: a re-read
+    // started inside it would be handed that same promise
+    // (ensureLiveNavDataFetch() shares an in-flight read) and read nothing.
+    setTimeout(() => refreshSessionFromWorkbook("launch"), 0);
+  }
+
+  // "Refresh from workbook" on the Docket: a fresh full read now.
+  function refreshFromWorkbookNow() {
+    if (liveDataMode() !== "live") return Promise.resolve(false);
+    return refreshSessionFromWorkbook("refresh").then(ok => {
+      showToast(ok ? "Read from the workbook" : "Couldn't read the workbook; nothing changed on screen");
+      return ok;
+    });
+  }
+
+  // The Docket's data line, under the load report (approved wording, Q16).
+  function docketDataLineText() {
+    const s = workbookSession;
+    const clock = t => { const d = new Date(t); const p = n => String(n).padStart(2, "0"); return p(d.getHours()) + ":" + p(d.getMinutes()); };
+    if (s.source === "saved-copy" && s.verified) return "Data: checked with the workbook " + clock(s.checkedAt || Date.now()) + " (saved copy matched)";
+    if (s.source === "saved-copy") return "Data: saved copy from " + sessionDateLabel(s.dataAt).replace(",", "") + " · not checked";
+    if (s.source === "workbook") return "Data: read from the workbook " + clock(s.dataAt);
+    return "";
+  }
+  function renderDocketDataLine() {
+    const el = document.getElementById("docketDataLine");
+    if (!el) return;
+    const text = liveDataMode() === "live" ? docketDataLineText() : "";
+    el.style.display = text ? "" : "none";
+    const label = el.querySelector(".docket-data-text");
+    if (label) label.textContent = text;
+    const btn = el.querySelector("button");
+    if (btn) btn.disabled = !!workbookSession.updating;
+  }
+  (function wireDocketDataLine() {
+    const btn = document.getElementById("docketRefreshBtn");
+    if (btn) btn.addEventListener("click", () => refreshFromWorkbookNow());
+  })();
 
   // Defensive header lookup. A handful of fields this feature needs have a
   // CONFIRMED exact real column name (CollectionID, Denomination, Year,
@@ -8348,6 +8669,18 @@
     // at most a moment ago and is already going to return fresh data, so
     // starting a second one would only duplicate the work.
     if (liveNavDataFetchPromise) return liveNavDataFetchPromise;
+    // (ao) Stage 3: the first launch read of a live session looks at the
+    // device's saved copy first (launchFromSavedCopy()); without a usable
+    // one it falls through to the full read below, as before.
+    if (!force && !savedCopyLaunchTried && workbookCacheUsable()) {
+      savedCopyLaunchTried = true;
+      const viaCopy = launchFromSavedCopy().catch(() => false).then(applied => {
+        if (liveNavDataFetchPromise === viaCopy) liveNavDataFetchPromise = null;
+        return applied ? true : ensureLiveNavDataFetch(opts);
+      });
+      liveNavDataFetchPromise = viaCopy;
+      return viaCopy;
+    }
     // Retest #10 was going to show the shared loading indicator here too,
     // but this call site is a genuinely different shape from the other
     // two (Staging Review, the Docket): showBrowseTab() calls this and
@@ -8436,90 +8769,7 @@
         if (!LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
         return false;
       }
-      // A stray blank sheet row (no CollectionID) is never a real owned
-      // coin; a DB_Sets row with no Lineage is out of this feature's scope
-      // entirely (Commemorative/one-off/Album reference rows — the exact
-      // same filter dbSetLineageIncludes()'s callers already imply).
-      const coinIdToContentType = {};
-      // CoinID -> DB_Coins.Composition, for the flip card's BR corner (see
-      // preciousMetalCompositionFor()). Composition lives ONLY on DB_Coins —
-      // All has no such column — so a saved coin can only reach its own
-      // composition through this join on its CoinID. Built in the same pass
-      // as the MetalContentType map above rather than a second walk of the
-      // same rows.
-      const coinIdToComposition = {};
-      // The Specifications panel's real source. DB_Coins carries every field
-      // it shows directly — Composition, Weight, the four precious-metal Oz
-      // columns, Diameter, Thickness, Edge, ReedCount — so a live coin no
-      // longer has to go anywhere near FAKE_METAL_CONTENT (see
-      // metalContentFor() for the wrong-coin collision that caused).
-      dbCoinsRows.forEach(row => {
-        const coinId = colVal(row, "CoinID");
-        const contentType = colVal(row, "MetalContentType");
-        if (coinId && contentType) coinIdToContentType[coinId] = contentType;
-        const composition = colVal(row, "Composition");
-        if (coinId && composition) coinIdToComposition[coinId] = String(composition);
-      });
-      const contentTypeToCategory = {};
-      metalContentRows.forEach(row => {
-        const coinType = colVal(row, "CoinType");
-        const category = colVal(row, "MetalCategory");
-        if (coinType && category) contentTypeToCategory[coinType] = category;
-      });
-      // Specifications, keyed both by the coin's own catalog row and by coin
-      // TYPE for the top-up — see buildCoinSpecsIndexes()/resolveCoinSpecs().
-      const specIndexes = buildCoinSpecsIndexes(dbCoinsRows, metalContentRows);
-      // The DB_Coins rows are already in hand for the metal join above —
-      // cache them as the real catalog too, rather than discarding them and
-      // leaving every DB_Coins match running against the 12-row mock (see
-      // LIVE_DB_COINS' own comment for the bug that caused). A row with no
-      // CoinID isn't a usable catalog entry, same filter as LIVE_COINS.
-      LIVE_DB_COINS = dbCoinsRows.map(mapWorkbookRowToDbCoin).filter(c => c.coinId);
-      LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id).map(coin => {
-        // A coin with no MetalContentType match (or a broken link anywhere
-        // in the chain) gets a blank metalCategory — metalCategoryFor()'s
-        // caller (the Metal filter's "Other" pill test) already treats
-        // blank the same as an explicit "Other", so this falls under Other
-        // rather than becoming unreachable by any pill. Confirmed
-        // expected/no-op, not a new fallback to build.
-        const contentType = coinIdToContentType[coin.coinId];
-        coin.metalCategory = contentType ? (contentTypeToCategory[contentType] || "") : "";
-        // A coin whose CoinID is blank or doesn't resolve to a catalog row
-        // gets a blank composition and simply shows nothing in the flip
-        // card's BR corner — confirmed acceptable (Q5), no fallback wanted.
-        // Silent by design: the corner is supplementary, and inventing a
-        // composition for an unlinked coin would be worse than omitting it.
-        coin.composition = coinIdToComposition[coin.coinId] || "";
-        // Specifications, from the coin's own catalog row, topped up per
-        // coin TYPE where that row is blank. A coin whose CoinID resolves to
-        // nothing gets NO specs — deliberately empty rather than borrowed.
-        const specs = resolveCoinSpecs(coin.coinId, contentType, specIndexes);
-        if (specs) coin.specs = specs;
-        return coin;
-      });
-      LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
-      LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
-      // Photos/Receipts/Albums/Wishlist are additive: a null (no real
-      // answer) leaves whatever was already loaded in place rather than
-      // blanking the display, exactly like the reference-image fetcher's own
-      // attempted/not-attempted rule — and that sheet stays marked missing,
-      // so the next ensureLiveNavDataFetch() call refetches just it (see
-      // refetchMissingLiveNavSheets()). dbSetsRows is guaranteed present
-      // here (the five-core-sheet gate above already returned false
-      // otherwise), and is kept for a later Albums/Wishlist rebuild.
-      liveNavCoreRawRows = { DB_Sets: dbSetsRows, DB_Coins: dbCoinsRows };
-      const optionalGot = {};
-      if (photoRows !== null) optionalGot.Photos = photoRows;
-      if (receiptRows !== null) optionalGot.Receipts = receiptRows;
-      if (albumRows !== null) optionalGot.Albums = albumRows;
-      if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
-      if (lookupErrorRows !== null) optionalGot.Lookup_Errors = lookupErrorRows;
-      if (lookupCategoryRows !== null) optionalGot.Lookup_Categories = lookupCategoryRows;
-      applyLiveNavOptionalRows(optionalGot);
-      if (lookupErrorRows === null && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
-      if (lookupCategoryRows === null && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
-      liveAlbumsLoadFailed = !LIVE_ALBUMS;
-      rerenderViewsAfterLiveNavData();
+      applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows);
       onFullReadLanded(fullReadStartedAt, versionAtStart, gen,
         [allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows,
           albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows]);
@@ -8539,6 +8789,97 @@
       return false;
     });
     return liveNavDataFetchPromise;
+  }
+
+  // Builds every LIVE_* array from the 11 sheets' rows (five core sheets
+  // required, the six optional ones may be null) and redraws. Shared by a
+  // full read from the workbook and, (ao) Stage 3, a launch from the
+  // device's saved copy, so both go through exactly the same mapping.
+  function applyLiveNavSheetRows(allRows, dbSetsRows, dbCoinsRows, metalContentRows, gradersRows, photoRows, receiptRows, albumRows, wishlistRows, lookupErrorRows, lookupCategoryRows) {
+    // A stray blank sheet row (no CollectionID) is never a real owned
+    // coin; a DB_Sets row with no Lineage is out of this feature's scope
+    // entirely (Commemorative/one-off/Album reference rows — the exact
+    // same filter dbSetLineageIncludes()'s callers already imply).
+    const coinIdToContentType = {};
+    // CoinID -> DB_Coins.Composition, for the flip card's BR corner (see
+    // preciousMetalCompositionFor()). Composition lives ONLY on DB_Coins —
+    // All has no such column — so a saved coin can only reach its own
+    // composition through this join on its CoinID. Built in the same pass
+    // as the MetalContentType map above rather than a second walk of the
+    // same rows.
+    const coinIdToComposition = {};
+    // The Specifications panel's real source. DB_Coins carries every field
+    // it shows directly — Composition, Weight, the four precious-metal Oz
+    // columns, Diameter, Thickness, Edge, ReedCount — so a live coin no
+    // longer has to go anywhere near FAKE_METAL_CONTENT (see
+    // metalContentFor() for the wrong-coin collision that caused).
+    dbCoinsRows.forEach(row => {
+      const coinId = colVal(row, "CoinID");
+      const contentType = colVal(row, "MetalContentType");
+      if (coinId && contentType) coinIdToContentType[coinId] = contentType;
+      const composition = colVal(row, "Composition");
+      if (coinId && composition) coinIdToComposition[coinId] = String(composition);
+    });
+    const contentTypeToCategory = {};
+    metalContentRows.forEach(row => {
+      const coinType = colVal(row, "CoinType");
+      const category = colVal(row, "MetalCategory");
+      if (coinType && category) contentTypeToCategory[coinType] = category;
+    });
+    // Specifications, keyed both by the coin's own catalog row and by coin
+    // TYPE for the top-up — see buildCoinSpecsIndexes()/resolveCoinSpecs().
+    const specIndexes = buildCoinSpecsIndexes(dbCoinsRows, metalContentRows);
+    // The DB_Coins rows are already in hand for the metal join above —
+    // cache them as the real catalog too, rather than discarding them and
+    // leaving every DB_Coins match running against the 12-row mock (see
+    // LIVE_DB_COINS' own comment for the bug that caused). A row with no
+    // CoinID isn't a usable catalog entry, same filter as LIVE_COINS.
+    LIVE_DB_COINS = dbCoinsRows.map(mapWorkbookRowToDbCoin).filter(c => c.coinId);
+    LIVE_COINS = allRows.map(mapWorkbookRowToCoin).filter(c => c.id).map(coin => {
+      // A coin with no MetalContentType match (or a broken link anywhere
+      // in the chain) gets a blank metalCategory — metalCategoryFor()'s
+      // caller (the Metal filter's "Other" pill test) already treats
+      // blank the same as an explicit "Other", so this falls under Other
+      // rather than becoming unreachable by any pill. Confirmed
+      // expected/no-op, not a new fallback to build.
+      const contentType = coinIdToContentType[coin.coinId];
+      coin.metalCategory = contentType ? (contentTypeToCategory[contentType] || "") : "";
+      // A coin whose CoinID is blank or doesn't resolve to a catalog row
+      // gets a blank composition and simply shows nothing in the flip
+      // card's BR corner — confirmed acceptable (Q5), no fallback wanted.
+      // Silent by design: the corner is supplementary, and inventing a
+      // composition for an unlinked coin would be worse than omitting it.
+      coin.composition = coinIdToComposition[coin.coinId] || "";
+      // Specifications, from the coin's own catalog row, topped up per
+      // coin TYPE where that row is blank. A coin whose CoinID resolves to
+      // nothing gets NO specs — deliberately empty rather than borrowed.
+      const specs = resolveCoinSpecs(coin.coinId, contentType, specIndexes);
+      if (specs) coin.specs = specs;
+      return coin;
+    });
+    LIVE_DB_SETS = dbSetsRows.map(mapWorkbookRowToDbSet).filter(s => s.lineage);
+    LIVE_LOOKUP_GRADERS = gradersRows.map(mapWorkbookRowToGrader).filter(g => g.code);
+    // Photos/Receipts/Albums/Wishlist are additive: a null (no real
+    // answer) leaves whatever was already loaded in place rather than
+    // blanking the display, exactly like the reference-image fetcher's own
+    // attempted/not-attempted rule — and that sheet stays marked missing,
+    // so the next ensureLiveNavDataFetch() call refetches just it (see
+    // refetchMissingLiveNavSheets()). dbSetsRows is guaranteed present
+    // here (the five-core-sheet gate above already returned false
+    // otherwise), and is kept for a later Albums/Wishlist rebuild.
+    liveNavCoreRawRows = { DB_Sets: dbSetsRows, DB_Coins: dbCoinsRows };
+    const optionalGot = {};
+    if (photoRows !== null) optionalGot.Photos = photoRows;
+    if (receiptRows !== null) optionalGot.Receipts = receiptRows;
+    if (albumRows !== null) optionalGot.Albums = albumRows;
+    if (wishlistRows !== null) optionalGot.Wishlist = wishlistRows;
+    if (lookupErrorRows !== null) optionalGot.Lookup_Errors = lookupErrorRows;
+    if (lookupCategoryRows !== null) optionalGot.Lookup_Categories = lookupCategoryRows;
+    applyLiveNavOptionalRows(optionalGot);
+    if (lookupErrorRows === null && !LIVE_LOOKUP_ERRORS) { liveLookupErrorsLoadFailed = true; populateErrorOptions(); }
+    if (lookupCategoryRows === null && !LIVE_LOOKUP_CATEGORIES) { liveLookupCategoriesLoadFailed = true; refreshAddCoinCategoryUI(); }
+    liveAlbumsLoadFailed = !LIVE_ALBUMS;
+    rerenderViewsAfterLiveNavData();
   }
 
   // Forces the next ensureLiveNavDataFetch() to genuinely re-fetch instead
@@ -14982,6 +15323,7 @@
     if (viewId === "needsdbcoins") {
       renderNeedsAttentionHub();
       onDocketShownForLoadReport(); // (ao) Stage 1
+      renderDocketDataLine();       // (ao) Stage 3
     }
     // Real bug fix (2026-09-02): navigate() never had a "stats" branch at
     // all, so entering Ledger/Stats via the cabinet drawer never primed the
