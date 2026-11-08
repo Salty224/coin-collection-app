@@ -62,6 +62,12 @@ miss often happen to coincide in practice.
 - **Save to Staging** — always available as a manual override even when
   confident (Ray may want a second look before it's final), and the *only*
   option shown when not confident.
+  **Writes the draft only, never All** (fact, checked in the code 7 Nov 2026,
+  formerly backlog (bg)): `completeAddCoinSaveUntimed` writes
+  `Staging/{CollectionID}/coin.json` (which claims the CollectionID for the
+  reservation), the photos and the receipt; All is written only by Save to
+  Database with a catalog match and Finish + Category (`wantsDirect`,
+  `savedVia` "direct") or later by Promote.
 - Both destinations reserve a CollectionID at the moment of that save (not
   deferred) via `getNextCollectionId()` — **this scans All and Staging
   together**; there was no "next available CollectionID" logic anywhere in
