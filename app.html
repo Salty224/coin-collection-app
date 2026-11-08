@@ -6598,7 +6598,9 @@
         // (uncompressed JSON; the browser can't see the gzipped wire size of
         // a Graph response). Reported on the Docket — see renderLoadReport().
         const sentAt = Date.now();
-        const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal });
+        // (bk): a session only once one exists (the cold launch has none, Q1);
+        // never an idle one here.
+        const res = await excelWorkbookFetch(url, { method: "GET", headers: { Authorization: "Bearer " + token }, signal }, { background: true });
         if (!res.ok) {
           const retryAfterMs = noteRetryAfter(res);
           record({ kind: "http-error", status: res.status, retryAfterMs });
@@ -6908,6 +6910,19 @@
         "<li>" + esc("+" + loadReportSeconds(x.offsetMs) + " " + x.name + ": " + loadReportSeconds(x.ms)) + "</li>").join("");
       parts.push('<details class="load-report-details"><summary>Save steps</summary><ul>' + rows + "</ul></details>");
     }
+    // (bk): the Excel workbook session (shown once it has done anything).
+    if (excelSession.id || excelSession.events.length) {
+      const now = Date.now();
+      const line = excelSession.id
+        ? "Excel session: held since " + loadReportClock(excelSession.createdAt) +
+          (excelSession.lastCreateMs != null ? " (made in " + loadReportSeconds(excelSession.lastCreateMs) + ")" : "") +
+          ", last used " + Math.round((now - excelSession.lastUsedAt) / 1000) + " s ago" +
+          (now - excelSession.lastUsedAt > excelSessionTiming("idle") ? " (idle: the next save makes a new one)" : "")
+        : "Excel session: none" + (excelSession.failReason ? " (last attempt: " + excelSession.failReason + ")" : "");
+      parts.push('<p class="load-report-line" id="docketExcelSessionLine">' + esc(line) + "</p>");
+      const rows = excelSession.events.slice().reverse().map(ev => "<li>" + esc(loadReportClock(ev.at) + " " + ev.text) + "</li>").join("");
+      if (rows) parts.push('<details class="load-report-details"><summary>Excel session events</summary><ul>' + rows + "</ul></details>");
+    }
     // (ax) Stage 1: LastModified precision check.
     if (lastModifiedCheck) {
       lastModifiedCheckLines(lastModifiedCheck).forEach((line, i) =>
@@ -7148,6 +7163,52 @@
     return e;
   }
 
+  // (bk) WRITE STEPS AND THE SESSION GENERATION (QA5, Q2 of the addition).
+  // A write step is a piece of work that reads its own row / column
+  // positions and then writes by them: an Edit Coin field save, one Photos /
+  // Receipts row claim, one label or removal, a Set attach / detach, Purge's
+  // flag, a Docket re-link, a spot-price update. Promote's keys-then-data is
+  // ONE step (opts.operation). runWorkbookStep() makes or reuses the Excel
+  // session at the step's start (the only place an idle one is renewed) and
+  // records its generation (`pin`); the write gate refuses any workbook
+  // write while the generation differs from the pin (SESSION_CHANGED,
+  // nothing sent). The step then reads again once from the start, if nothing
+  // of it was written yet; a second change refuses ("try again"). A call
+  // made inside a running step joins it (same pin, no renewal, no re-run).
+  // opts.pinGeneration: the step writes at an address an EARLIER step read
+  // (Edit Coin's CoinID re-link): it keeps that step's pin, never renews and
+  // never re-runs. A write outside any step is counted and noted in Save
+  // steps (session-bk checks none happens in the flows it runs).
+  let activeWorkbookStep = null;
+  let workbookWritesOutsideStep = 0;
+  function __workbookWritesOutsideStepForTest() { return workbookWritesOutsideStep; } // test-only seam
+  function __activeWorkbookStepForTest() { return activeWorkbookStep; } // test-only seam
+  async function runWorkbookStep(label, fn, opts) {
+    const o = opts || {};
+    if (activeWorkbookStep) return fn(activeWorkbookStep);
+    const pinned = typeof o.pinGeneration === "number";
+    const rerun = !pinned && o.rerun !== false;
+    for (let attempt = 1; ; attempt++) {
+      if (!pinned) await prepareExcelSessionForStep(label);
+      const pin = pinned ? o.pinGeneration : excelSession.generation;
+      const step = { label, pin, wrote: false, operation: !!o.operation,
+        sessioned: !!excelSession.id && excelSession.generation === pin && excelSessionsApply() };
+      activeWorkbookStep = step;
+      try {
+        return await fn(step);
+      } catch (e) {
+        if (!(e && e.code === "SESSION_CHANGED")) throw e;
+        if (attempt === 1 && rerun && !step.wrote) {
+          noteSaveStep("the workbook session changed before anything was written: " + label + " reads again", Date.now(), 0);
+          continue;
+        }
+        throw e;
+      } finally {
+        if (activeWorkbookStep === step) activeWorkbookStep = null;
+      }
+    }
+  }
+
   // The wrapper graph() hands out. Built once per client (so a test's mock
   // gets the same gate as the real client). Reads pass straight through
   // (timed while a save runs); the four write methods are refused while
@@ -7166,19 +7227,35 @@
           return function gatedGraphWrite(...args) {
             const verdict = workbookWritesAllowed();
             if (!verdict.ok) return Promise.reject(readOnlyError(verdict, prop));
+            // (bk): the step this write belongs to, and whether it landed
+            // (any outcome but a refusal counts: a step that wrote is never
+            // re-run).
+            const step = activeWorkbookStep;
+            const markWrote = (p) => p.then(out => { if (step) step.wrote = true; return out; },
+              e => { if (step && !(e && (e.code === "SESSION_CHANGED" || e.readOnly))) step.wrote = true; throw e; });
             // Called on the client itself, so an upload helper's own
             // this.putContent() is not checked (or timed) a second time.
-            if (!WORKBOOK_WRITE_GRAPH_METHODS.has(prop)) return timeGraphCall(prop, args, () => v.apply(target, args));
+            if (!WORKBOOK_WRITE_GRAPH_METHODS.has(prop)) return markWrote(timeGraphCall(prop, args, () => v.apply(target, args)));
+            // (bk) QA5: a workbook write under another session generation than
+            // the one its step read with is refused before anything is sent.
+            if (step && step.pin !== excelSession.generation) {
+              noteSaveStep("workbook session changed after " + step.label + " read the workbook: " + describeGraphCall(prop, args) + " not sent", Date.now(), 0);
+              return Promise.reject(sessionChangedError("it changed after this step read the workbook"));
+            }
             workbookSession.ownWriteSinceData = true;
             // (ax) 2a, E: a workbook write outside any timed save gets a
             // record of its own, so no write is missing from Save steps.
             const untimed = activeSaveTiming ? null : beginSaveTiming("Write outside a timed save: " + describeGraphCall(prop, args));
+            if (!step) {
+              workbookWritesOutsideStep++;
+              noteSaveStep("workbook write outside a write step (no session check): " + describeGraphCall(prop, args), Date.now(), 0);
+            }
             const deleteStartedAt = Date.now();
             const deleteReport = {};
-            const run = invalidateWorkbookCacheBeforeWrite(deleteReport).then(() => {
+            const run = markWrote(invalidateWorkbookCacheBeforeWrite(deleteReport).then(() => {
               noteSaveStep(savedCopyDeleteStepName(deleteReport), deleteStartedAt, Date.now() - deleteStartedAt);
               return timeGraphCall(prop, args, () => v.apply(target, args));
-            });
+            }));
             if (!untimed) return run;
             return run.then(out => { endSaveTiming(untimed, "written"); return out; },
               e => { endSaveTiming(untimed, "failed (" + String((e && e.message) || e).slice(0, 80) + ")"); throw e; });
@@ -9258,6 +9335,253 @@
     return acquireGraphToken();
   }
 
+  // ==================================================================
+  // (bk) THE EXCEL WORKBOOK SESSION (8 Nov 2026; docs/ref/WRITE_LAYER.md
+  // "Workbook session (bk)"). Without a session, a Graph read can answer with
+  // the workbook as it was minutes ago while a write lands on it as it is now,
+  // so a save could read a stale row position and write by address into the
+  // wrong row ((ax) Stage 1 step 6, (bi)). Every workbook request the app
+  // makes goes through excelWorkbookFetch(), which carries one Graph workbook
+  // session (createSession, persistChanges true; the `workbook-session-id`
+  // header, on every $batch sub-request too), so a write step's reads and its
+  // write run in the same session.
+  //   * Held in memory only, keyed by workbook path + account (TEST and LIVE
+  //     never share one; a page load has one target).
+  //   * Made in the background after launch, and at the start of a write
+  //     step when there is none or it has been idle EXCEL_SESSION_IDLE_MS
+  //     (Graph drops an idle one after about 5 min). No keep-alive timer: a
+  //     session kept open for long is the blind-session risk Ray's TEST (c)
+  //     checks, so a save after a long idle makes a fresh one (its cost has
+  //     its own Save steps line).
+  //   * createSession is given EXCEL_SESSION_CREATE_TIMEOUT_MS; a failure,
+  //     timeout or a 202 means "no session": the request goes exactly as it
+  //     did before (bk), and no new attempt for EXCEL_SESSION_RETRY_COOLDOWN_MS.
+  //     A session failure never blocks a save.
+  //   * Graph rejects the session: it is dropped (the generation moves on); a
+  //     READ in a write step makes one new session and is re-sent once (else
+  //     without a session); a WRITE is never re-sent: it throws
+  //     SESSION_CHANGED (nothing landed) and the step re-reads (see
+  //     runWorkbookStep()).
+  //   * `generation` changes whenever the session id is created, dropped or
+  //     renewed. A write step records it at its start; the write gate refuses
+  //     a write made under another generation (QA5).
+  // ==================================================================
+  const EXCEL_SESSION_IDLE_MS = 4 * 60 * 1000;
+  const EXCEL_SESSION_CREATE_TIMEOUT_MS = 8000;
+  const EXCEL_SESSION_RETRY_COOLDOWN_MS = 60 * 1000;
+  const excelSession = {
+    id: null,           // the workbook-session-id while one is held
+    key: null,          // workbook path + account it belongs to
+    generation: 0,      // moves on with every create / drop / renewal
+    createdAt: 0,
+    lastUsedAt: 0,      // the last request sent with the id (any request: activity)
+    creating: null,     // the one createSession in flight (shared by every caller)
+    failedAt: 0,        // the last failed createSession (cool-down)
+    failReason: "",
+    lastCreateMs: null,
+    events: []          // the last few happenings, for Docket > About
+  };
+  let excelSessionTimings = null; // test seam: { idle, timeout, cooldown }
+  function excelSessionTiming(name) {
+    if (excelSessionTimings && typeof excelSessionTimings[name] === "number") return excelSessionTimings[name];
+    return name === "idle" ? EXCEL_SESSION_IDLE_MS : name === "timeout" ? EXCEL_SESSION_CREATE_TIMEOUT_MS : EXCEL_SESSION_RETRY_COOLDOWN_MS;
+  }
+  function __setExcelSessionTimingsForTest(t) { excelSessionTimings = t || null; } // test-only seam
+  function __getExcelSessionForTest() { const s = Object.assign({}, excelSession); s.events = excelSession.events.slice(); delete s.creating; return s; } // test-only seam
+  function __resetExcelSessionForTest(patch) { // test-only seam
+    Object.assign(excelSession, { id: null, key: null, createdAt: 0, lastUsedAt: 0, creating: null, failedAt: 0, failReason: "", lastCreateMs: null, events: [] }, patch || {});
+    excelSession.generation++;
+    activeWorkbookStep = null;
+    workbookWritesOutsideStep = 0;
+  }
+  function noteExcelSessionEvent(text) {
+    excelSession.events.push({ at: Date.now(), text });
+    if (excelSession.events.length > 12) excelSession.events.shift();
+  }
+  function excelSessionKey() {
+    let account = "";
+    try { account = workbookCacheAccountId() || ""; } catch (e) { account = ""; }
+    return writePaths().workbook + "|" + account;
+  }
+  // Sessions belong to the real Graph client; a test's mock client has none
+  // (unless a test routes the workbook methods to the real client).
+  let excelSessionsForcedForTest = false;
+  function __setExcelSessionsApplyForTest(v) { excelSessionsForcedForTest = !!v; } // test-only seam
+  function excelSessionsApply() { return excelSessionsForcedForTest || activeGraphClient === RealGraphClient; }
+  function dropExcelSession(reason) {
+    if (!excelSession.id) return;
+    excelSession.id = null;
+    excelSession.key = null;
+    excelSession.generation++;
+    noteExcelSessionEvent("dropped: " + reason);
+  }
+  function excelSessionIdleMs() { return excelSession.id ? Date.now() - excelSession.lastUsedAt : 0; }
+  // The id to send with a request now, or null. A session for another
+  // workbook or account is dropped, never sent. `allowIdle` false (a
+  // background read) leaves an idle session alone rather than risk it.
+  function excelSessionIdForRequest(allowIdle) {
+    if (!excelSession.id) return null;
+    if (excelSession.key !== excelSessionKey()) { dropExcelSession("workbook or account changed"); return null; }
+    if (!allowIdle && excelSessionIdleMs() > excelSessionTiming("idle")) return null;
+    return excelSession.id;
+  }
+  // The one request that makes a session. A POST, but it writes nothing to
+  // the workbook (session-gate-ao G0 allows exactly this one, here).
+  async function postCreateSession(url, token, signal) {
+    return fetch(url, {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ persistChanges: true }),
+      signal
+    });
+  }
+  // Makes a session (one at a time; a second caller shares the first's).
+  // Resolves { ok, ms, reason }; never throws.
+  function createExcelSession(trigger) {
+    if (excelSession.creating) return excelSession.creating;
+    if (!excelSessionsApply()) return Promise.resolve({ ok: false, ms: 0, reason: "test client" });
+    if (isOfflineNow()) return Promise.resolve({ ok: false, ms: 0, reason: "offline" });
+    if (excelSession.failedAt && Date.now() - excelSession.failedAt < excelSessionTiming("cooldown")) {
+      return Promise.resolve({ ok: false, ms: 0, reason: "waiting after a failed attempt " +
+        Math.round((Date.now() - excelSession.failedAt) / 1000) + " s ago (" + excelSession.failReason + ")" });
+    }
+    const key = excelSessionKey();
+    const startedAt = Date.now();
+    excelSession.creating = (async () => {
+      const fail = (reason, cooldown) => {
+        if (cooldown) { excelSession.failedAt = Date.now(); excelSession.failReason = reason; }
+        noteExcelSessionEvent("not made (" + trigger + "): " + reason);
+        return { ok: false, ms: Date.now() - startedAt, reason };
+      };
+      let token;
+      try { token = await getWriteToken(); } catch (e) { token = null; }
+      if (!token) return fail("no sign-in token", false);
+      const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(writePaths().workbook) + ":/workbook/createSession";
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      let timer = null;
+      try {
+        const res = await Promise.race([
+          postCreateSession(url, token, ctrl ? ctrl.signal : undefined),
+          new Promise((_, reject) => { timer = setTimeout(() => { if (ctrl) ctrl.abort(); reject(new Error("no answer in " + Math.round(excelSessionTiming("timeout") / 1000) + " s")); }, excelSessionTiming("timeout")); })
+        ]);
+        if (res.status === 202) return fail("Graph answered 202 (a long-running create)", true);
+        if (!res.ok) return fail("HTTP " + res.status, true);
+        const data = await res.json();
+        if (!data || !data.id) return fail("no session id in the answer", true);
+        if (key !== excelSessionKey()) return fail("workbook or account changed while it was made", false);
+        if (excelSession.id) dropExcelSession("replaced");
+        excelSession.id = String(data.id);
+        excelSession.key = key;
+        excelSession.generation++;
+        excelSession.createdAt = Date.now();
+        excelSession.lastUsedAt = Date.now();
+        excelSession.failedAt = 0;
+        excelSession.failReason = "";
+        excelSession.lastCreateMs = Date.now() - startedAt;
+        noteExcelSessionEvent("made (" + trigger + ") in " + loadReportSeconds(excelSession.lastCreateMs));
+        return { ok: true, ms: excelSession.lastCreateMs, reason: "" };
+      } catch (e) {
+        return fail(String((e && e.message) || e), true);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    })().finally(() => { excelSession.creating = null; try { renderLoadReport(); } catch (e) { /* diagnostics only */ } });
+    return excelSession.creating;
+  }
+  // At the start of a write step (and only there, Q2): reuse a fresh session,
+  // or make one when there is none or it has been idle too long. Returns
+  // { outcome: "reused" | "created" | "none", ms, reason } and notes it in
+  // Save steps ("Excel session: ...").
+  async function prepareExcelSessionForStep(label) {
+    if (!excelSessionsApply()) return { outcome: "none", ms: 0, reason: "test client" };
+    const t0 = Date.now();
+    let out;
+    if (excelSessionIdForRequest(false)) {
+      out = { outcome: "reused", ms: 0, reason: "" };
+    } else {
+      if (excelSession.id) dropExcelSession("idle " + Math.round(excelSessionIdleMs() / 1000) + " s");
+      const verdict = workbookWritesAllowed();
+      if (!verdict.ok) out = { outcome: "none", ms: 0, reason: "read-only (" + verdict.reason + ")" };
+      else {
+        const r = await createExcelSession("save");
+        out = r.ok ? { outcome: "created", ms: r.ms, reason: "" } : { outcome: "none", ms: r.ms, reason: r.reason };
+      }
+    }
+    noteSaveStep("Excel session: " + (out.outcome === "created" ? "created in " + loadReportSeconds(out.ms)
+      : out.outcome === "reused" ? "reused" : "none (" + out.reason + ")") + (label ? " [" + label + "]" : ""), t0, Date.now() - t0);
+    excelSession.lastStepOutcome = out.outcome;
+    return out;
+  }
+  // Made in the background once launch has settled (Q1: the cold-launch
+  // reads go without one). Live sessions with writes allowed only.
+  function startExcelSessionAfterLaunch() {
+    try {
+      if (!excelSessionsApply() || liveDataMode() !== "live" || !WRITE_LAYER_ENABLED) return;
+      if (!workbookWritesAllowed().ok || excelSessionIdForRequest(false)) return;
+      createExcelSession("after launch");
+    } catch (e) { /* never breaks the launch */ }
+  }
+  // Graph's answer names the session as the problem (expired, not found,
+  // invalid). The error code is kept for Save steps / About (TEST confirms
+  // the real codes).
+  function excelSessionRejection(status, bodyText) {
+    if (!(status >= 400 && status < 500) || status === 401 || status === 403 || status === 429) return null;
+    let code = "", message = "";
+    try {
+      const err = (JSON.parse(bodyText || "{}") || {}).error || {};
+      code = [err.code, err.innerError && err.innerError.code, err.innererror && err.innererror.code].filter(Boolean).join("/");
+      message = String(err.message || "");
+    } catch (e) { message = String(bodyText || ""); }
+    return /session/i.test(code) || /session/i.test(message) ? (code || "HTTP " + status) : null;
+  }
+  function sessionChangedError(detail) {
+    const e = new Error("The workbook session changed during this save (" + detail + "): nothing more was written. Try again.");
+    e.code = "SESSION_CHANGED";
+    e.sessionChanged = true;
+    return e;
+  }
+  // Every workbook request goes through here (session-bk K1 checks the source).
+  // opts.background: a launch / re-read outside any write step: an idle
+  // session is not used, a rejection is re-sent without one and never makes
+  // a new one.
+  async function excelWorkbookFetch(url, init, opts) {
+    // A request outside any write step (an Edit Coin open read, a Docket
+    // read) counts as background unless told otherwise.
+    const background = opts && typeof opts.background === "boolean" ? opts.background : !activeWorkbookStep;
+    const method = String((init && init.method) || "GET").toUpperCase();
+    const send = (id) => {
+      const headers = Object.assign({}, (init && init.headers) || {});
+      if (id) { headers["workbook-session-id"] = id; excelSession.lastUsedAt = Date.now(); }
+      return fetch(url, Object.assign({}, init || {}, { headers }));
+    };
+    const id = excelSessionsApply() ? excelSessionIdForRequest(!background) : null;
+    const res = await send(id);
+    if (!id || res.ok) return res;
+    let text = "";
+    try { text = await res.clone().text(); } catch (e) { text = ""; }
+    const code = excelSessionRejection(res.status, text);
+    if (!code) return res;
+    if (excelSession.id === id) dropExcelSession("Graph rejected it (" + code + ")");
+    noteSaveStep("Excel session rejected by Graph (" + code + ")" + (method === "GET" ? ": read again" : ": nothing written"), Date.now(), 0);
+    if (method !== "GET") throw sessionChangedError("Graph rejected the session: " + code);
+    if (!background && workbookWritesAllowed().ok) {
+      // Parallel reads rejected together share ONE new session: a read that
+      // finds the session already replaced uses that one.
+      let fresh = excelSession.id && excelSession.id !== id ? excelSession.id : null;
+      if (!fresh) { const r = await createExcelSession("after a rejection"); if (r.ok) fresh = excelSession.id; }
+      if (fresh) {
+        const again = await send(fresh);
+        if (again.ok) return again;
+        let t2 = "";
+        try { t2 = await again.clone().text(); } catch (e) { t2 = ""; }
+        const code2 = excelSessionRejection(again.status, t2);
+        if (!code2) return again;
+        if (excelSession.id === fresh) dropExcelSession("Graph rejected it too (" + code2 + ")");
+      }
+    }
+    return send(null);
+  }
+
   // ---- Graph client abstraction --------------------------------------
   // A minimal filesystem-ish interface over Graph, so the reservation/
   // draft/promotion logic depends on THIS, not on fetch() directly, and
@@ -9394,7 +9718,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange(valuesOnly=true)?$select=values";
-      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Workbook read failed: " + res.status);
       const data = await res.json();
       const values = data.values || [];
@@ -9413,7 +9737,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) + "')?$select=values";
-      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
       const data = await res.json();
       return data.values || [];
@@ -9427,7 +9751,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/tables('" + encodeURIComponent(tableName) + "')/headerRowRange?$select=address,values";
-      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Table header read " + tableName + " failed: " + res.status);
       const data = await res.json();
       return { address: data.address || "", values: (data.values && data.values[0]) || [] };
@@ -9443,7 +9767,7 @@
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) +
         "')?$select=address,values,formulas,numberFormat";
-      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
       const data = await res.json();
       return { address: data.address || "", values: data.values || [], formulas: data.formulas || [], numberFormat: data.numberFormat || [] };
@@ -9458,7 +9782,7 @@
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/range(address='" + encodeURIComponent(address) +
         "')?$select=address,values,text,numberFormat";
-      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Range read " + address + " failed: " + res.status);
       const raw = await res.text();
       const data = JSON.parse(raw);
@@ -9469,7 +9793,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/worksheets('" + encodeURIComponent(sheet) + "')/usedRange?$select=address,values,formulas,numberFormat";
-      const res = await fetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { method: "GET", headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Sheet read " + sheet + " failed: " + res.status);
       const data = await res.json();
       return { address: data.address || "", values: data.values || [], formulas: data.formulas || [], numberFormat: data.numberFormat || [] };
@@ -9483,7 +9807,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/tables('" + encodeURIComponent(tableName) + "')/columns('" + encodeURIComponent(columnName) + "')?$select=values";
-      const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+      const res = await excelWorkbookFetch(url, { headers: { Authorization: "Bearer " + token } });
       if (!res.ok) throw new Error("Table column read " + columnName + " failed: " + res.status);
       const data = await res.json();
       return (data.values || []).map(r => (r && r.length ? r[0] : null));
@@ -9533,12 +9857,16 @@
       const landed = [];
       for (let start = 0; start < edits.length; start += GRAPH_BATCH_LIMIT) {
         const chunk = edits.slice(start, start + GRAPH_BATCH_LIMIT);
+        // (bk): the workbook session goes on EVERY sub-request (Graph does not
+        // pass the outer POST's headers down to them).
+        const sid = excelSessionsApply() ? excelSessionIdForRequest(true) : null;
+        if (sid) excelSession.lastUsedAt = Date.now();
         const requests = chunk.map((e, i) => {
           const req = {
             id: String(i + 1),
             method: "PATCH",
             url: base + encodeURIComponent(e.address) + "')",
-            headers: { "Content-Type": "application/json" },
+            headers: sid ? { "Content-Type": "application/json", "workbook-session-id": sid } : { "Content-Type": "application/json" },
             body: e.numberFormat ? { values: e.values, numberFormat: e.numberFormat } : { values: e.values }
           };
           if (i > 0) req.dependsOn = [String(i)];
@@ -9569,6 +9897,18 @@
         for (let i = 0; i < chunk.length; i++) {
           const r = byId[String(i + 1)];
           if (r && r.status >= 200 && r.status < 300) { landed.push(start + i); continue; }
+          // (bk): Graph rejected the session. Nothing landed only when it is
+          // the very first range of the first chunk (dependsOn chains the
+          // rest): then SESSION_CHANGED, and the step re-reads. Otherwise it
+          // is reported as partly written, as before.
+          const sessionCode = sid && r ? excelSessionRejection(r.status, JSON.stringify(r.body || {})) : null;
+          if (sessionCode) {
+            if (excelSession.id === sid) dropExcelSession("Graph rejected it (" + sessionCode + ")");
+            if (!landed.length) {
+              noteSaveStep("Excel session rejected by Graph (" + sessionCode + "): nothing written", Date.now(), 0);
+              throw sessionChangedError("Graph rejected the session: " + sessionCode);
+            }
+          }
           // The first request that did not land carries Graph's real error; the
           // ones chained after it only say 424 (failed dependency).
           throw batchWriteError(sheet, edits, landed, start + i,
@@ -9643,7 +9983,7 @@
       if (!token) throw new Error("Write layer unavailable.");
       const url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(workbookPath) +
         ":/workbook/tables('" + encodeURIComponent(tableName) + "')/rows/add";
-      const res = await fetch(url, {
+      const res = await excelWorkbookFetch(url, {
         method: "POST",
         headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
         body: JSON.stringify({ values: null })
@@ -10817,9 +11157,13 @@
     if (Date.now() - e.at > RECENT_WRITE_SHOW_MS) { ownRowStates.delete(collectionId); return null; }
     return e;
   }
-  function noteOwnRowState(collectionId, before, after, written) {
+  function noteOwnRowState(collectionId, before, after, written, step) {
     if (!collectionId || !before || !after) return;
     const e = ownRowStatesFor(collectionId) || { states: [], cols: new Set() };
+    // (bk) QA4: the session the write went through (generation, and whether
+    // it carried one at all).
+    e.lastGen = step ? step.pin : null;
+    e.lastSessioned = !!(step && step.sessioned);
     (written || []).forEach(c => e.cols.add(c));
     const last = e.states[e.states.length - 1];
     if (!last || !ownStateMatches(last, before, e.cols)) e.states.push(Object.assign({}, before));
@@ -10997,7 +11341,7 @@
       if (r && r.ok && r.written && r.written.indexOf("LastModified") !== -1 && r.rowNumber) {
         lastModifiedCheck = { collectionId, rowNumber: r.rowNumber, written: r.values.LastModified, at: Date.now(), readBack: null };
       }
-      if (r && r.ok && r.written) noteOwnRowState(collectionId, r.before, r.values, r.written); // (ax) Part 3
+      if (r && r.ok && r.written) noteOwnRowState(collectionId, r.before, r.values, r.written, activeWorkbookStep); // (ax) Part 3; (bk) QA4
       if (r && r.ok && r.written) {
         const written = {};
         r.written.forEach(col => { written[col] = r.values[col]; });
@@ -11006,7 +11350,30 @@
       return r;
     });
   }
+  // (bk): one write step (it reads the header, the row's position and the
+  // row, then writes by them): the first call runs itself again inside
+  // runWorkbookStep() (opts.inStep). A final SESSION_CHANGED becomes an
+  // ordinary refused result at the top level; inside a larger step (Promote)
+  // it is passed up so that step decides. `sessionGeneration` on the result
+  // is the pin a later step writing at this row keeps (Edit Coin's re-link).
+  // The name stays (invariant 2: the six functions that write All).
   async function saveCoinRowToWorkbook(collectionId, nextValues, snapshot, opts) {
+    if (!(opts && opts.inStep)) {
+      const nested = !!activeWorkbookStep;
+      try {
+        return await runWorkbookStep("field save " + collectionId, async (st) => {
+          const r = await saveCoinRowToWorkbook(collectionId, nextValues, snapshot, Object.assign({}, opts || {}, { inStep: st }));
+          if (r && typeof r === "object") r.sessionGeneration = st.pin;
+          return r;
+        });
+      } catch (e) {
+        if (!nested && e && e.code === "SESSION_CHANGED") {
+          return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e.message) });
+        }
+        throw e;
+      }
+    }
+    const step = opts.inStep;
     const gate = (opts && opts.gate) || browseEditWriteEnabled;
     if (!gate()) {
       return finishCoinRowSave(collectionId, { ok: false, reason: "disabled", message: "This write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." });
@@ -11036,15 +11403,21 @@
     }
 
     // (ax) 2a, Part 3: a read that is only this app's own earlier save.
+    // (bk) QA4: only where the read may lag the app's last write of this
+    // coin: unless both went through the SAME Excel session (same generation,
+    // both with a session), a read showing an earlier own state is Excel's
+    // delay; in the same session it cannot be, so it is compared as read.
     const own = ownRowStatesFor(collectionId);
+    const sameSession = (gen, sessioned) => !!(own && step && step.sessioned && sessioned && own.lastSessioned && gen === own.lastGen);
     if (own) {
       const lastIndex = own.states.length - 1;
-      const fi = ownStateIndex(own, fresh);
+      const fi = sameSession(step && step.pin, step && step.sessioned) ? -1 : ownStateIndex(own, fresh);
       if (fi >= 0 && fi < lastIndex) {
         fresh = withLatestOwnState(fresh, own);
         noteSaveStep("the row read still shows this app's earlier save (Excel hasn't caught up): compared with what the app wrote", Date.now(), 0);
       }
-      const si = snapshot ? ownStateIndex(own, snapshot) : -1;
+      const snapRead = opts && opts.snapshotRead;
+      const si = snapshot && !(snapRead && sameSession(snapRead.gen, snapRead.sessioned)) ? ownStateIndex(own, snapshot) : -1;
       if (si >= 0 && si < lastIndex) {
         snapshot = withLatestOwnState(snapshot, own);
         noteSaveStep("the form was opened while Excel still showed this app's earlier save: compared with what the app wrote", Date.now(), 0);
@@ -11090,6 +11463,7 @@
       await timeSaveStep("write (" + edits.length + " ranges, LastModified last)",
         () => graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits));
     } catch (e) {
+      if (e && e.code === "SESSION_CHANGED") throw e; // (bk): nothing sent; the step decides (re-read once)
       if (e && Array.isArray(e.landed) && e.landed.length) return finishCoinRowSave(collectionId, partialSaveResult(rowNumber, edits, e));
       return finishCoinRowSave(collectionId, { ok: false, reason: "error", message: String(e && e.message || e) });
     }
@@ -11426,7 +11800,9 @@
   // (now: the whole row must be), and exactly one row must carry the id
   // afterwards and it must be the row claimed.
   async function createAllSheetRow(collectionId, coinId) {
-    return withAllRowCreationLock(async () => {
+    // (bk): one write step (the Excel session and the generation check);
+    // inside Promote it joins Promote's.
+    return runWorkbookStep("new All row " + collectionId, () => withAllRowCreationLock(async () => {
       // (al) F6 / 5.B: the key columns must exist BEFORE a row is claimed or
       // appended, so a missing one leaves the sheet exactly as it was.
       const keyMap = await ensureAllHeaderMap({ fresh: true });
@@ -11536,7 +11912,7 @@
       }
       keysNotVisibleRows().delete(String(collectionId).trim());
       return rows[0];
-    });
+    }));
   }
 
   // ==================================================================
@@ -11704,7 +12080,11 @@
   // be noise.
   //
   // Never throws for an expected outcome; every caller renders the reason.
-  async function applySetLinkageWrite(childId, expectedCurrent, nextValue) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function applySetLinkageWrite(childId, expectedCurrent, nextValue) {
+    return runWorkbookStep("Set link", () => applySetLinkageWriteInStep(childId, expectedCurrent, nextValue), {});
+  }
+  async function applySetLinkageWriteInStep(childId, expectedCurrent, nextValue) {
     if (!setLinkWriteEnabled()) {
       return { ok: false, reason: "disabled",
         message: "The Set-linkage write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
@@ -11915,7 +12295,11 @@
   // written blank, which is correct for a row being created.
   // `mintId` (optional) gives the new row its id INSIDE the lock — see
   // nextRecordId() for the duplicate it prevents.
-  async function writeRecordRow(sheetName, tableName, idColumn, values, mintId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function writeRecordRow(sheetName, tableName, idColumn, values, mintId) {
+    return runWorkbookStep("record row claim", () => writeRecordRowInStep(sheetName, tableName, idColumn, values, mintId), {});
+  }
+  async function writeRecordRowInStep(sheetName, tableName, idColumn, values, mintId) {
     return withRecordRowLock(tableName, async () => {
       const map = await ensureSheetHeaderMap(sheetName, { fresh: true });
       if (!map[idColumn]) throw new Error(sheetName + " sheet has no " + idColumn + " column.");
@@ -12048,7 +12432,11 @@
   // same rule as detach. So replacing a legacy-named photo (AY-00208's
   // hand-filed "AY-00208_obverse.jpg") leaves one orphan behind and moves
   // the record onto the convention, which is the deliberate trade.
-  async function writePhotoRow(collectionId, entry, filename, originalFilename, replacePhotoId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function writePhotoRow(collectionId, entry, filename, originalFilename, replacePhotoId) {
+    return runWorkbookStep("Photos row", () => writePhotoRowInStep(collectionId, entry, filename, originalFilename, replacePhotoId), {});
+  }
+  async function writePhotoRowInStep(collectionId, entry, filename, originalFilename, replacePhotoId) {
     const def = galleryTypeDef(entry.type);
     const photoType = photoTypeForGalleryType(entry.type);
     if (!photoType) throw new Error("No PhotoType mapping for gallery type " + entry.type);
@@ -12115,7 +12503,11 @@
   // every mapped cell goes back as the trimmed TEXT readRecordRows() read
   // (a formula would be flattened to its value). A single-cell PATCH can do
   // none of that: nothing but Label is touched, DateAdded included.
-  async function writePhotoLabel(collectionId, photoId, label) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function writePhotoLabel(collectionId, photoId, label) {
+    return runWorkbookStep("photo label", () => writePhotoLabelInStep(collectionId, photoId, label), {});
+  }
+  async function writePhotoLabelInStep(collectionId, photoId, label) {
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     if (!map.Label) throw new Error("The Photos tab has no Label column.");
     const hit = await findPhotoRowByPhotoId(photoId);
@@ -12133,7 +12525,11 @@
   // workbook records on purpose — the claim-a-blank-row approach was chosen
   // for AllCoins precisely to avoid needing one. A blanked row returns to
   // the claimable pool, which is the same mechanism from the other side.
-  async function detachPhotoRow(collectionId, galleryType, subGroupId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function detachPhotoRow(collectionId, galleryType, subGroupId) {
+    return runWorkbookStep("Photos row removal", () => detachPhotoRowInStep(collectionId, galleryType, subGroupId), {});
+  }
+  async function detachPhotoRowInStep(collectionId, galleryType, subGroupId) {
     const photoType = photoTypeForGalleryType(galleryType);
     const want = (subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID) ? subGroupId : "";
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
@@ -12145,7 +12541,11 @@
     return { detached: true, row: hit.__row, filename: hit.Filename };
   }
 
-  async function detachPhotoRowByFilename(collectionId, filename) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function detachPhotoRowByFilename(collectionId, filename) {
+    return runWorkbookStep("Photos row removal", () => detachPhotoRowByFilenameInStep(collectionId, filename), {});
+  }
+  async function detachPhotoRowByFilenameInStep(collectionId, filename) {
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
     const hit = rows.find(r => r.CollectionID === collectionId && r.Filename === filename);
@@ -12193,7 +12593,11 @@
   // Used when only one of a photo's two files is being purged; the row
   // stays, since it still references the surviving file. Full removal
   // (detachPhotoRowByPhotoId, below) is for when nothing would be left.
-  async function clearPhotoRowField(collectionId, photoId, field) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function clearPhotoRowField(collectionId, photoId, field) {
+    return runWorkbookStep("Photos cell clear", () => clearPhotoRowFieldInStep(collectionId, photoId, field), {});
+  }
+  async function clearPhotoRowFieldInStep(collectionId, photoId, field) {
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const hit = await findPhotoRowByPhotoId(photoId);
     if (!hit || hit.CollectionID !== collectionId) return { cleared: false };
@@ -12207,7 +12611,11 @@
   // one identifier that stays reliable once a photo's own Filename may
   // already be blank (the "one file already gone, the other is what's being
   // purged now" case a prior partial purge on this same photo can produce).
-  async function detachPhotoRowByPhotoId(collectionId, photoId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function detachPhotoRowByPhotoId(collectionId, photoId) {
+    return runWorkbookStep("Photos row removal", () => detachPhotoRowByPhotoIdInStep(collectionId, photoId), {});
+  }
+  async function detachPhotoRowByPhotoIdInStep(collectionId, photoId) {
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
     const hit = await findPhotoRowByPhotoId(photoId);
     if (!hit || hit.CollectionID !== collectionId) return { detached: false };
@@ -12347,7 +12755,11 @@
   // Derived HERE, at write time, from the state the purge actually left
   // behind — never re-derived on render. Returns what happened so the
   // caller can report it honestly.
-  async function finalisePurgedFlag(collectionId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function finalisePurgedFlag(collectionId) {
+    return runWorkbookStep("Purged flag", () => finalisePurgedFlagInStep(collectionId), {});
+  }
+  async function finalisePurgedFlagInStep(collectionId) {
     const remaining = purgeablePhotosFor(collectionId);
     if (remaining.length) return { fullyPurged: false, remaining: remaining.length };
     const rowNumber = await findAllSheetRowNumber(collectionId);
@@ -12471,7 +12883,11 @@
 
   // `receiptId` null: a new id, minted inside the Receipts table's lock (see
   // nextRecordId() for the duplicate a mint outside the lock allowed).
-  async function writeReceiptRow(collectionId, filename, receiptId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function writeReceiptRow(collectionId, filename, receiptId) {
+    return runWorkbookStep("Receipts row", () => writeReceiptRowInStep(collectionId, filename, receiptId), {});
+  }
+  async function writeReceiptRowInStep(collectionId, filename, receiptId) {
     const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const values = {
@@ -13715,7 +14131,19 @@
   //
   // Do not call this directly — promoteCoinDraftToAllSheet() below wraps it
   // in the per-CollectionID lock that keeps two of these off the same coin.
+  // (bk): Promote's keys-then-data is ONE write step (an operation): the
+  // key write, its read-back and the data save share one Excel session, so
+  // the read-back sees the keys. Re-run once from the start if the session
+  // changed before anything was written; otherwise refused with "try again".
   async function promoteCoinDraftToAllSheetUnlocked(collectionId, opts) {
+    try {
+      return await runWorkbookStep("Promote " + collectionId, () => promoteCoinDraftToAllSheetInStep(collectionId, opts), { operation: true });
+    } catch (e) {
+      if (e && e.code === "SESSION_CHANGED") return { ok: false, reason: "error", message: collectionId + ": " + e.message };
+      throw e;
+    }
+  }
+  async function promoteCoinDraftToAllSheetInStep(collectionId, opts) {
     const force = !!(opts && opts.force);
     if (!addCoinWriteEnabled()) {
       return { ok: false, reason: "disabled", message: "Add Coin's write layer is off (WRITE_TARGET is \"live\" and it hasn't been re-enabled yet)." };
@@ -13806,6 +14234,7 @@
         }
       }
     } catch (e) {
+      if (e && e.code === "SESSION_CHANGED") throw e; // (bk): the operation decides
       return { ok: false, reason: "error", message: String(e && e.message || e) };
     }
 
@@ -13846,7 +14275,7 @@
       }
       if (held.coinIdBlank) {
         try { await writeCoinIdCell(rowNumber, draft.coinId, { stampLastModified: true }); }
-        catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+        catch (e) { if (e && e.code === "SESSION_CHANGED") throw e; return { ok: false, reason: "error", message: String(e && e.message || e) }; }
         written.push("CoinID");
       }
       return { ok: true, rowNumber, written, coinId: force ? "" : (draft.coinId || ""), draft, adopted: true,
@@ -20655,14 +21084,17 @@
     if (!browseEditWriteEnabled()) return null;
     try {
       await ensureContainersFetch();
+      // (bk) QA4: which Excel session the baseline was read in.
+      const read = { gen: excelSession.generation, sessioned: excelSessionsApply() && !!excelSessionIdForRequest(false) };
       const rowNumber = await findAllSheetRowNumber(coin.id);
       if (!rowNumber) return null;
       const raw = await readAllRowWritableValues(rowNumber);
+      if (excelSession.generation !== read.gen) read.sessioned = false; // changed while reading: treat as no session
       // The raw read is the conflict baseline; the form and the record show
       // it with this session's own recent writes on top ((ao) B2).
       // (ax) P2: the sheet row it came from (a Graph lookup, never the saved
       // copy) and the table's width then, for Save's parallel row read.
-      browseEditSnapshot = { id: coin.id, values: raw, rowNumber, readWidth: allHeaderMapWidth(allHeaderMap) };
+      browseEditSnapshot = { id: coin.id, values: raw, rowNumber, readWidth: allHeaderMapWidth(allHeaderMap), read };
       const values = withRecentWrites(coin.id, raw);
       // The record every screen shares gets the fresh values regardless of
       // what's on screen right now — that's what keeps Browse detail from
@@ -21620,7 +22052,8 @@
     let result;
     try {
       result = await saveCoinRowToWorkbook(coin.id, form.workbook, browseEditSnapshot.values,
-        { rowGuess: { rowNumber: browseEditSnapshot.rowNumber, width: browseEditSnapshot.readWidth } }); // (ax) P2
+        { rowGuess: { rowNumber: browseEditSnapshot.rowNumber, width: browseEditSnapshot.readWidth }, // (ax) P2
+          snapshotRead: browseEditSnapshot.read }); // (bk) QA4
     } catch (e) {
       restoreBtn();
       throw e;
@@ -21641,7 +22074,10 @@
       let coinIdMsg = "";
       if (coinIdDecision.needed) {
         try {
-          await writeCoinIdCell(result.rowNumber, coinIdDecision.coinId);
+          // (bk): written at the row the field save read, so in that save's
+          // session generation (pinned; refused if the session changed since).
+          await runWorkbookStep("CoinID re-link " + coin.id, () => writeCoinIdCell(result.rowNumber, coinIdDecision.coinId),
+            { pinGeneration: result.sessionGeneration });
           if (coinIdDecision.coinId) {
             coin.coinId = coinIdDecision.coinId;
             coinIdMsg = " CoinID updated to " + coinIdDecision.coinId + ".";
@@ -24029,9 +24465,13 @@
 
     if (docketWriteEnabled() && entry.collectionId) {
       try {
-        const rowNumber = await findAllSheetRowNumber(entry.collectionId);
+        // (bk): the lookup and the write are one write step.
+        const rowNumber = await runWorkbookStep("Docket re-link " + entry.collectionId, async () => {
+          const rn = await findAllSheetRowNumber(entry.collectionId);
+          if (rn) await writeCoinIdCell(rn, coinId);
+          return rn;
+        });
         if (rowNumber) {
-          await writeCoinIdCell(rowNumber, coinId);
           wroteWorkbook = true;
         } else {
           // Legitimately expected, not a failure: a coin saved to Staging
@@ -25281,7 +25721,11 @@
       return done;
     });
   }
-  async function markCoinDraftAlreadyPromotedUntimed(collectionId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function markCoinDraftAlreadyPromotedUntimed(collectionId) {
+    return runWorkbookStep("Mark as promoted", () => markCoinDraftAlreadyPromotedUntimedInStep(collectionId), { rerun: false });
+  }
+  async function markCoinDraftAlreadyPromotedUntimedInStep(collectionId) {
     try {
       const rowNumber = await findAllSheetRowNumber(collectionId);
       if (!rowNumber) {
@@ -25669,8 +26113,12 @@
       // row to reach, which is the ordinary case and correctly a no-op:
       // its CoinID travels into All later, through Promote.
       if (fresh.allRowWritten && addCoinWriteEnabled()) {
-        const rowNumber = await findAllSheetRowNumber(fresh.collectionID);
-        if (rowNumber) { await writeCoinIdCell(rowNumber, fresh.coinId); wroteCell = true; }
+        // (bk): the lookup and the write are one write step.
+        wroteCell = await runWorkbookStep("Force Add re-link " + fresh.collectionID, async () => {
+          const rowNumber = await findAllSheetRowNumber(fresh.collectionID);
+          if (rowNumber) { await writeCoinIdCell(rowNumber, fresh.coinId); return true; }
+          return wroteCell;
+        });
       }
       // Once its catalog gap is closed there is nothing left for research
       // to do, so a resolved force-added coin stops being listed. The row
@@ -26108,7 +26556,11 @@
   function __setSpotPricePatienceDelaysForTest(arr) { SPOT_PRICE_PATIENCE_DELAYS_MS = arr || [1000, 2000, 4000]; } // test-only seam
 
   // Confirm. Never throws; always says per metal what is in the cells now.
-  async function commitSpotPriceUpdate(validated, snapshot, onStage) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function commitSpotPriceUpdate(validated, snapshot, onStage) {
+    return runWorkbookStep("spot prices", () => commitSpotPriceUpdateInStep(validated, snapshot, onStage), { rerun: false });
+  }
+  async function commitSpotPriceUpdateInStep(validated, snapshot, onStage) {
     if (!spotPriceWriteEnabled()) return { ok: false, message: "Spot-price updates are switched off (ENABLE_SPOT_PRICE_WRITE). Nothing was written." };
     if (!validated || !validated.ok) return { ok: false, message: "Nothing to write." };
     const wb = writePaths().workbook;
@@ -27608,7 +28060,11 @@
   // today's DateAdded. Its own row is updated when it has one (the first
   // blank row is claimed otherwise); other coins on the old ReceiptID keep
   // their rows, and no file is touched. Already a Binder row: nothing written.
-  async function commitBinderReceipt(collectionId) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function commitBinderReceipt(collectionId) {
+    return runWorkbookStep("binder receipt", () => commitBinderReceiptInStep(collectionId), {});
+  }
+  async function commitBinderReceiptInStep(collectionId) {
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const thisRow = ownReceiptRowOrRefuse(rows, collectionId);
     if (thisRow && isBinderReceiptName(thisRow.Filename)) {
@@ -27633,7 +28089,11 @@
   //     (res.adopted, nothing uploaded) with a new ReceiptID. Different bytes
   //     still take the next free name.
   //   - old files are never deleted.
-  async function commitReceiptCapture(collectionId, prepared, opts) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function commitReceiptCapture(collectionId, prepared, opts) {
+    return runWorkbookStep("receipt", () => commitReceiptCaptureInStep(collectionId, prepared, opts), {});
+  }
+  async function commitReceiptCaptureInStep(collectionId, prepared, opts) {
     opts = opts || {};
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const thisRow = ownReceiptRowOrRefuse(rows, collectionId);
@@ -27767,7 +28227,11 @@
   // same ReceiptID and the file in CoinReceipts are never touched, and no file
   // is ever deleted. `expected` is the receipt the user saw and chose to
   // remove; if the row now says something else, nothing is blanked.
-  async function commitReceiptRemoval(collectionId, expected) {
+  // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
+  function commitReceiptRemoval(collectionId, expected) {
+    return runWorkbookStep("receipt removal", () => commitReceiptRemovalInStep(collectionId, expected), {});
+  }
+  async function commitReceiptRemovalInStep(collectionId, expected) {
     const map = await ensureSheetHeaderMap(RECEIPTS_SHEET_NAME, { fresh: true });
     const rows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
     const own = ownReceiptRowOrRefuse(rows, collectionId);
@@ -38524,7 +38988,7 @@
   trackStartup(whenWritesAllowed().then(go => go ? processPromotedCoinDrafts() : []).catch(() => {}));
   // Every startup promise has now been launched; raise the flag when the last
   // one settles.
-  Promise.allSettled(startupSettled).then(() => { window.__appReady = true; });
+  Promise.allSettled(startupSettled).then(() => { window.__appReady = true; startExcelSessionAfterLaunch(); }); // (bk) Q1: the session is made after launch, in the background
 </script>
 
 </body>

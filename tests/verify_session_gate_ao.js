@@ -98,9 +98,19 @@ module.exports = defineSuite("session-gate-ao", async ({ check, selfCheck, openA
   const src = fs.readFileSync(path.resolve(__dirname, "..", "app.html"), "utf8");
   const clientStart = src.indexOf("  const RealGraphClient = {");
   const clientEnd = src.indexOf("\n  };\n", clientStart);
-  const outside = (src.slice(0, clientStart) + src.slice(clientEnd)).match(/method:\s*"(PUT|POST|PATCH|DELETE)"/g) || [];
-  ok("G0 no fetch outside RealGraphClient sends a PUT / POST / PATCH / DELETE (" + JSON.stringify(outside) + ")",
+  // (bk, 8 Nov 2026): the ONE exception is postCreateSession(), the POST that
+  // makes the Excel workbook session; it writes nothing to the workbook. It
+  // is cut out by name and must target createSession only.
+  const csStart = src.indexOf("  async function postCreateSession(");
+  const csEnd = src.indexOf("\n  }\n", csStart);
+  const csBody = csStart > 0 ? src.slice(csStart, csEnd) : "";
+  const outsideSrc = src.slice(0, clientStart) + src.slice(clientEnd);
+  const outside = (csStart > 0 ? outsideSrc.replace(csBody, "") : outsideSrc).match(/method:\s*"(PUT|POST|PATCH|DELETE)"/g) || [];
+  ok("G0 no fetch outside RealGraphClient sends a PUT / POST / PATCH / DELETE, except the createSession POST (" + JSON.stringify(outside) + ")",
     clientStart > 0 && clientEnd > clientStart && outside.length === 0);
+  ok("G0b the one allowed POST is createSession's and sends only persistChanges",
+    csStart > 0 && /method:\s*"POST"/.test(csBody) && /persistChanges: true/.test(csBody) && !/values|PATCH/.test(csBody) &&
+    /\/workbook\/createSession/.test(src.slice(src.indexOf("function createExcelSession("), src.indexOf("function createExcelSession(") + 3000)));
 
   const page = await openApp(PHONE);
   await page.evaluate(INSTALL);
