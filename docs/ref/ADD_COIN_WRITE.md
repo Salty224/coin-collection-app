@@ -672,3 +672,5 @@ Why: AY-00760 (2026 Lincoln Shield Cent) reached the All sheet with Finish and C
 
 **Not verified:** a real device; the real Lookup_Categories sheet (the mock list only); the 1.5 s wait on a real workbook; Mark as promoted on a real leftover draft (AY-00760's on _Testing is the natural check); `PROMOTE_RELOOK_MS` against a real lag.
 
+
+**Promote auto-finish (bf)** (8 Nov 2026, branch `claude/promote-auto-finish-bf`, held): when Promote's (or Force Add's, or Save to Database's) key read-back is "not showing yet", Promote returns at once and finishes the row by itself (re-checks every 20 s for up to 5 minutes, only on the row Graph confirmed; the row is kept in the draft's coin.json as `keysWrittenRow` / `keysWrittenAt`). Full write-up: docs/ref/WRITE_LAYER.md "Promote auto-finish (bf)".

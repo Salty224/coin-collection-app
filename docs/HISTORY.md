@@ -3312,3 +3312,16 @@ tile — it's reachable only via its own tab inside Browse.
 - 2a gate: full `npm test` 4993 passed, 0 failed, 0 page errors, 99 suites, 653 s (7 Nov 2026; Stage 1's 4977 + 16 new; retest-round2 B4 follows the wording change).
 - Merged 7 Nov 2026 on Ray's go-ahead: fast-forward of `claude/save-speed-ax` onto main (last code commit `db8673e`); 2a TEST steps 6-8 not run (covered by the suites); 2b shelved; CODEMAP regenerated with an (ax) section. Backlog added: (bf) Promote auto-finish, (bg) Save to Staging and All, (bh) Add Coin Status fixed to Owned.
 - LIVE: Ray deployed main 7 Nov 2026, Build 111 · 7 Nov · `785e7de` (docs only after `db8673e`, so the app code is (ax) Stage 1 + 2a). Docs 8 Nov: (bg) moved to ADD_COIN_WRITE.md as a fact; (bh) reworded as an undecided idea; (bi) known gap (stale reads after an Excel row insert / delete / sort) and (bj) Add Set category drift added.
+
+## Promote auto-finish (bf): build log (8 Nov 2026, branch `claude/promote-auto-finish-bf`, HELD for Ray's TEST and merge go-ahead)
+- Plan (8 Nov 2026), Q1-Q8 all as recommended: 20 s / 5 minutes clock time; Force Add too; the row kept in coin.json; resume only on a tap; the "different row: stop" check for manual Promote too; Save to Database returns at once; held; no separate docs commit.
+- Code `d47ca51`. Write-up: docs/ref/WRITE_LAYER.md "Promote auto-finish (bf)".
+- Negative controls (8 Nov 2026, each against `verify_promote_auto_finish_bf`, app.html restored after each): NC1 the "row must be N" check dropped (`rows.length !== 1` only) -> F6 failed (the finisher adopted row N+1 and wrote it); NC2 coin.json's `keysWrittenRow` ignored in `pendingKeysRowFor` -> F9 failed (after a "reload" Promote claimed and wrote keys again); NC3 the claimedRows skip in `findClaimableBlankRow` removed -> F4 failed (the second coin claimed the first coin's row 3). Each failed only its target check.
+- A test-writing slip, fixed before the run: the suite first seeded drafts with status "Ready" (the real value is "Ready for reconciliation"), so the Docket listed nothing.
+- TEST steps for Ray (TEST build of the branch, _Testing):
+  1) Add Coin: a matched coin with Finish and Category, Save to Staging. Docket > Staging > Promote. Either the usual "written to row N" toast, or "Finishing… row N" on the card plus a toast. Go to Browse and come back. Within 5 minutes: the success toast, and the card is gone.
+  2) Add Coin: another coin, Save to Database. The form finishes at once; then as step 1.
+  3) While a card shows Finishing…: it has no buttons (Staging Review: one dimmed "Finishing…"). Promote a second coin: it gets a different row number.
+  4) While a card shows Finishing…, swipe the app closed; reopen within 2 minutes. The card says "Not finished: row N has only its keys". Tap Promote: "Finishing…" again, then it finishes row N.
+  5) Docket > About > Last save: "Promote AY-… (finishing)" with the re-checks and an outcome.
+  6) Wait 5 minutes, then in Excel search each id from steps 1-4: exactly one complete row each.
