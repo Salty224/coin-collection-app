@@ -6,7 +6,7 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 
 ## Current state (rewritten at the end of every task; read this first)
 - main = the (bk) merge docs commit of 8 Nov 2026 (`git log -1 main`); last code commit `296d8c4` ((bk) Workbook session; `ea60360` before the rebase onto main). LIVE: see the next line. A merge never deploys: what is deployed is known only from Ray's screen (Build line), his word, or the deploy run.
-- LIVE: before this merge, Build 111 · 7 Nov · `785e7de`. Ray's go-ahead (8 Nov) covers deploying main; the deploy run and its Build number are in the merge report; Ray confirms the splash Build line.
+- LIVE = Build 114 · 8 Nov · `f1d07f0` (deploy run #114, 8 Nov 2026 23:26 UTC, success; started by the merge session on Ray's go-ahead): (bk) is ON LIVE. Later main commits are docs only until the next code merge. Ray confirms the splash Build line.
 - No open feature branch. (bk) MERGED 8 Nov (Ray's TEST passed: c1 X / Y, c2 V, (a), (b); (d)/(e) not run cleanly; details docs/BACKLOG.md (bk)). Write-up docs/ref/WRITE_LAYER.md "Workbook session (bk)"; invariant 18.
 - (bf) Promote auto-finish is ARCHIVED, NOT MERGED: branch `claude/promote-auto-finish-bf` at `6416106` (code `d47ca51`); the tag push was refused (HTTP 403), so Ray creates `archive/promote-auto-finish-bf` by hand before deleting the branch.
 - Baseline: full `npm test` at `913adb3` (8 Nov 2026, (bk) merge gate): 5019 passed, 0 failed, 0 page errors, 100 suites, 642 s. The full run is the merge gate only (Session working rule 3). To compare a run, diff the sorted `PASS` / `FAIL` lines.
