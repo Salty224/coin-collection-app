@@ -13783,7 +13783,30 @@
     // exactly one row with this id, use that row rather than failing.
     let rowNumber;
     let existing = false; // the row was already on the sheet (any of the three ways)
-    try {
+    // (bf) Keys this session (memory) or an earlier one (coin.json) wrote to
+    // row N that no read has shown yet: never claim another row, and finish
+    // ONLY row N. A read that shows the id anywhere else, or on 2+ rows, stops
+    // with nothing written (Q5, also for a manual Promote).
+    const pendingRow = pendingKeysRowFor(collectionId, draft, opts);
+    if (pendingRow) {
+      noteClaimedRow(ALL_TABLE_NAME, pendingRow); // (ax) A4, also across a reload
+      let rows;
+      try { rows = await findAllSheetRowNumbersFor(collectionId); }
+      catch (e) { return { ok: false, reason: "error", message: String(e && e.message || e) }; }
+      if (!rows.length) {
+        noteSaveStep("keys for " + collectionId + " on row " + pendingRow + " (written earlier), still not showing; nothing written", Date.now(), 0);
+        noteSaveOutcome("keys on row " + pendingRow + ", not showing yet: finishing");
+        return { ok: false, reason: "finishing", rowNumber: pendingRow, force, message: promoteFinishingMessage(collectionId, pendingRow) };
+      }
+      if (rows.length !== 1 || rows[0] !== pendingRow) {
+        noteSaveStep("keys for " + collectionId + " written to row " + pendingRow + " but a read shows row " + rows.join(" and row ") + "; nothing written", Date.now(), 0);
+        return { ok: false, reason: "row-mismatch", rowNumber: pendingRow, rows, message: keysRowMismatchMessage(collectionId, pendingRow, rows) };
+      }
+      keysNotVisibleRows().delete(String(collectionId).trim());
+      rowNumber = pendingRow;
+      existing = true;
+    }
+    if (!rowNumber) try {
       rowNumber = await findAllSheetRowNumber(collectionId);
       if (rowNumber) {
         existing = true;
@@ -13799,6 +13822,13 @@
             if (e && e.code === "ALL_ROW_EXISTS" && Array.isArray(e.rows) && e.rows.length === 1) {
               rowNumber = e.rows[0]; // exactly one row: it is this coin's
               existing = true;
+            } else if (e && e.code === "KEYS_NOT_VISIBLE_YET" && Number.isInteger(e.rowNumber)) {
+              // (bf): Graph confirmed the keys, no read shows them yet. Nothing
+              // more is written now; the row is recorded in coin.json (Q3) and
+              // the wrapper starts the finisher.
+              await saveKeysWrittenMarker(collectionId, e.rowNumber);
+              noteSaveOutcome("keys on row " + e.rowNumber + ", not showing yet: finishing");
+              return { ok: false, reason: "finishing", rowNumber: e.rowNumber, force, message: promoteFinishingMessage(collectionId, e.rowNumber) };
             } else {
               throw e;
             }
@@ -13890,8 +13920,191 @@
   // two are never offered for the same draft at the same time.
   const coinPromoteInFlight = new Map(); // CollectionID -> in-flight promise
 
+  // ==================================================================
+  // (bf) PROMOTE FINISHES THE ROW ITSELF (8 Nov 2026)
+  // ==================================================================
+  // When Promote's key read-back is empty although Graph confirmed the key
+  // write ((ax) C', KEYS_NOT_VISIBLE_YET), Promote no longer stops and asks
+  // Ray to try again: it returns { ok:false, reason:"finishing" } at once
+  // and a background finisher re-checks every PROMOTE_FINISH_INTERVAL_MS
+  // (20 s) for at most PROMOTE_FINISH_TOTAL_MS (5 minutes, clock time; a
+  // check also runs at once when the tab becomes visible again). Each check
+  // is one CollectionID column read; only when it shows the id on exactly
+  // ONE row, and that row is the one Graph confirmed (N), does the finisher
+  // run the ordinary Promote again, which takes the existing-row path at N
+  // (fills blank cells only, CoinID last; any different value refuses).
+  // The id on another row or on 2+ rows stops it with nothing written.
+  // Nothing here writes to All by itself: every write is Promote's own,
+  // through the six writers. Row N stays claimed (A4); the row number is
+  // also kept in the draft's coin.json (keysWrittenRow / keysWrittenAt) so a
+  // Promote after a reload finishes row N instead of claiming another.
+  let PROMOTE_FINISH_INTERVAL_MS = 20 * 1000;
+  let PROMOTE_FINISH_TOTAL_MS = 5 * 60 * 1000;
+  function __setPromoteFinishTimingForTest(intervalMs, totalMs) { // test-only seam
+    PROMOTE_FINISH_INTERVAL_MS = intervalMs == null ? 20 * 1000 : intervalMs;
+    PROMOTE_FINISH_TOTAL_MS = totalMs == null ? 5 * 60 * 1000 : totalMs;
+  }
+  const promoteFinishers = new Map(); // CollectionID -> { row, force, startedAt, checks, log, promise }
+  function coinDraftFinishing(collectionId) { return promoteFinishers.get(String(collectionId || "").trim()) || null; }
+  function __promoteFinisherForTest(collectionId) { const f = coinDraftFinishing(collectionId); return f ? f.promise : null; } // test-only seam
+
+  // The row to finish, if any: an explicit one (the finisher's own), this
+  // session's memory, or coin.json's record of the keys write; each only
+  // within RECENT_WRITE_SHOW_MS of the write ((ax) C': after that the write
+  // is treated as lost and a retry may claim a new row).
+  function pendingKeysRowFor(collectionId, draft, opts) {
+    if (opts && Number.isInteger(opts.pendingRow)) return opts.pendingRow;
+    const mem = keysNotVisibleRows().get(String(collectionId).trim());
+    if (mem && Date.now() - mem.at <= RECENT_WRITE_SHOW_MS) return mem.row;
+    const at = draft && draft.keysWrittenAt ? Date.parse(draft.keysWrittenAt) : NaN;
+    if (draft && Number.isInteger(draft.keysWrittenRow) && !draft.allRowWritten && draft.status !== COIN_DRAFT_STATUS.PROMOTED &&
+        Number.isFinite(at) && Date.now() - at <= RECENT_WRITE_SHOW_MS) return draft.keysWrittenRow;
+    return null;
+  }
+  // Best effort: a failed write of the marker leaves this session's memory
+  // as the only guard (as before (bf)) and says so in Save steps.
+  async function saveKeysWrittenMarker(collectionId, row) {
+    try {
+      const d = await readCoinDraft(collectionId);
+      if (!d) return;
+      d.keysWrittenRow = row;
+      d.keysWrittenAt = new Date().toISOString();
+      await writeCoinDraft(d);
+      noteSaveStep("row " + row + " recorded in " + collectionId + "'s draft", Date.now(), 0);
+    } catch (e) {
+      console.warn("Couldn't record row " + row + " in " + collectionId + "'s draft:", e);
+      noteSaveStep("couldn't record row " + row + " in " + collectionId + "'s draft (" + String(e && e.message || e).slice(0, 60) + ")", Date.now(), 0);
+    }
+  }
+  function promoteFinishingMessage(collectionId, row) {
+    return collectionId + ": written to row " + row + "; Excel is slow to show new rows, so the app is finishing it by itself " +
+      "(up to " + Math.round(PROMOTE_FINISH_TOTAL_MS / 60000) + " minutes). You can keep using the app.";
+  }
+  function keysRowMismatchMessage(collectionId, row, rows) {
+    return collectionId + ": the app wrote row " + row + ", but Excel now shows it at row " + rows.join(" and row ") +
+      ". Nothing more was written. Check " + (rows.indexOf(row) === -1 ? "both rows" : "those rows") + " in Excel.";
+  }
+  function promoteGaveUpMessage(collectionId, row, force) {
+    const again = force ? "Force Add" : "Promote";
+    return collectionId + ": the keys went to row " + row + " (Graph confirmed), but Excel still isn't showing them after " +
+      Math.round(PROMOTE_FINISH_TOTAL_MS / 60000) + " minutes, so nothing else was written. The draft stays Ready. Tap " + again +
+      " later and the app will finish row " + row + ". If Excel still shows nothing there after 10 minutes, check row " + row +
+      " in Excel before trying again.";
+  }
+  // Resolves after ms, or at once when the page becomes visible again (a
+  // phone may pause timers while the app is in the background).
+  function waitForFinishCheck(ms) {
+    return new Promise(resolve => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        document.removeEventListener("visibilitychange", onVis);
+        resolve();
+      };
+      const onVis = () => { if (document.visibilityState === "visible") finish(); };
+      const timer = setTimeout(finish, Math.max(0, ms));
+      document.addEventListener("visibilitychange", onVis);
+    });
+  }
+  function redrawCoinDraftListsQuietly() {
+    try {
+      renderNeedsAttentionHub();
+      const v = document.getElementById("view-staging");
+      if (v && v.classList.contains("active")) renderStagingList();
+    } catch (e) { console.warn("Couldn't redraw the draft lists:", e); }
+  }
+  // Registered synchronously by the wrapper, before it releases the coin's
+  // lock, so no tap can slip in between.
+  function startPromoteFinisher(collectionId, started, opts) {
+    const key = String(collectionId).trim();
+    const entry = { row: started.rowNumber, force: !!(opts && opts.force), startedAt: Date.now(), checks: 0, log: [] };
+    promoteFinishers.set(key, entry);
+    entry.promise = (async () => {
+      let result;
+      try { result = await runPromoteFinisher(key, entry); }
+      catch (e) { result = { ok: false, reason: "error", rowNumber: entry.row, message: String(e && e.message || e) }; }
+      finally { promoteFinishers.delete(key); }
+      if (opts && typeof opts.onFinished === "function") {
+        try { await opts.onFinished(result); } catch (e) { console.error("After finishing " + key + ":", e); }
+      }
+      redrawCoinDraftListsQuietly();
+      return result;
+    })();
+    redrawCoinDraftListsQuietly();
+    return entry;
+  }
+  async function runPromoteFinisher(key, entry) {
+    const deadline = entry.startedAt + PROMOTE_FINISH_TOTAL_MS;
+    const since = () => Math.round((Date.now() - entry.startedAt) / 1000) + " s";
+    for (;;) {
+      await waitForFinishCheck(Math.min(PROMOTE_FINISH_INTERVAL_MS, deadline - Date.now()));
+      entry.checks++;
+      let rows = null;
+      try { rows = await findAllSheetRowNumbersFor(key); }
+      catch (e) { entry.log.push("re-check " + entry.checks + " (+" + since() + "): read failed (" + String(e && e.message || e).slice(0, 60) + ")"); }
+      if (rows && rows.length) {
+        entry.log.push("re-check " + entry.checks + " (+" + since() + "): showing at row " + rows.join(" and row "));
+        // The ordinary Promote, told which row it must find; timed as its
+        // own save so Docket > About shows the re-checks and the outcome.
+        const r = await withSaveTiming("Promote " + key + " (finishing)", () => {
+          entry.log.forEach(line => noteSaveStep(line, Date.now(), 0));
+          return promoteCoinDraftToAllSheetUnlocked(key, { force: entry.force, pendingRow: entry.row });
+        });
+        if (!r || r.reason !== "finishing") return r; // done, refused or stopped: no more checks
+        entry.log.length = 0;
+        entry.log.push("re-check " + entry.checks + " (+" + since() + "): not showing again");
+      } else if (rows) {
+        entry.log.push("re-check " + entry.checks + " (+" + since() + "): row " + entry.row + " not showing yet");
+      }
+      if (Date.now() >= deadline) {
+        const out = { ok: false, reason: "not-finished", rowNumber: entry.row, message: promoteGaveUpMessage(key, entry.row, entry.force) };
+        await withSaveTiming("Promote " + key + " (finishing)", async () => {
+          entry.log.forEach(line => noteSaveStep(line, Date.now(), 0));
+          noteSaveOutcome("not finished: row " + entry.row + " still not showing after " + since());
+          return out;
+        });
+        return out;
+      }
+    }
+  }
+  // Every other action on a draft waits while its row is being finished.
+  function coinDraftFinishingRefusal(collectionId) {
+    const f = coinDraftFinishing(collectionId);
+    if (!f) return null;
+    return collectionId + " is being finished (row " + f.row + "); try again when that is done.";
+  }
+
+  // The card line for a draft whose row is being finished, or whose keys
+  // are on a row that was never finished (the app closed, or it gave up).
+  function coinDraftFinishNoteHtml(draft) {
+    if (!draft || !draft.collectionID) return "";
+    const f = coinDraftFinishing(draft.collectionID);
+    if (f) {
+      return '<div class="wish-notes staging-pending-flag staging-finishing-note">Finishing… row ' + f.row +
+        ': Excel is slow to show new rows; the app re-checks every ' + Math.round(PROMOTE_FINISH_INTERVAL_MS / 1000) +
+        ' s for up to ' + Math.round(PROMOTE_FINISH_TOTAL_MS / 60000) + ' minutes.</div>';
+    }
+    if (Number.isInteger(draft.keysWrittenRow) && !draft.allRowWritten && draft.status !== COIN_DRAFT_STATUS.PROMOTED) {
+      const at = Date.parse(draft.keysWrittenAt || "");
+      const when = Number.isFinite(at) ? " (written " + String(new Date(at).getHours()).padStart(2, "0") + ":" +
+        String(new Date(at).getMinutes()).padStart(2, "0") + ")" : "";
+      const old = !Number.isFinite(at) || Date.now() - at > RECENT_WRITE_SHOW_MS;
+      return '<div class="wish-notes staging-pending-flag staging-finishing-note">Not finished: row ' + draft.keysWrittenRow +
+        ' has only its keys' + when + '. Tap ' + (draft.coinId ? "Promote" : "Force Add") + ' to finish it.' +
+        (old ? ' If Excel shows nothing on row ' + draft.keysWrittenRow + ', check that row in Excel before trying again.' : '') + '</div>';
+    }
+    return "";
+  }
+
   async function promoteCoinDraftToAllSheet(collectionId, opts) {
     const key = String(collectionId);
+    const finishing = coinDraftFinishing(key);
+    if (finishing) {
+      return { ok: false, reason: "finishing", rowNumber: finishing.row, coalesced: true,
+        message: collectionId + " is already being finished (row " + finishing.row + ")." };
+    }
     const running = coinPromoteInFlight.get(key);
     if (running) {
       try {
@@ -13903,7 +14116,11 @@
     }
     // Registered before the first await, so a second call arriving in a
     // later event turn always sees it.
-    const p = promoteCoinDraftToAllSheetUnlocked(collectionId, opts);
+    const p = promoteCoinDraftToAllSheetUnlocked(collectionId, opts).then(r => {
+      // (bf): hand over to the finisher before the lock is released.
+      if (r && r.reason === "finishing" && !r.coalesced) startPromoteFinisher(collectionId, r, opts);
+      return r;
+    });
     coinPromoteInFlight.set(key, p);
     try { return await p; }
     finally { coinPromoteInFlight.delete(key); }
@@ -24352,7 +24569,7 @@
       // S2: a leftover draft whose coin is already on the loaded All rows is
       // listed once, in Staging, with Mark as promoted only (no Promote,
       // Re-check, Force Add or Edit). Never acted on automatically.
-      const leftovers = all.filter(coinDraftStaleOnAll);
+      const leftovers = all.filter(d => coinDraftStaleOnAll(d) && !coinDraftFinishing(d.collectionID)); // (bf)
       staleOnAllDrafts = leftovers;
       staleOnAllRows = leftovers.length ? await allSheetRowNumbersFor(leftovers.map(d => d.collectionID)) : new Map();
       const isLeftover = d => leftovers.includes(d);
@@ -24419,19 +24636,20 @@
       // offers Edit instead of Promote.
       const promoteGaps = (readyAndMatched && c.collectionID) ? coinDraftPromoteGaps(c) : [];
       const readyToPromote = readyAndMatched && !promoteGaps.length;
+      const finishingNow = !!(c.collectionID && coinDraftFinishing(c.collectionID)); // (bf): no actions while finishing
       stagingRows.push({
         html: `<div class="wish-desc">${label}</div><div class="wish-notes">${
           readyToPromote ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — ready to write to the All sheet"
             : promoteGaps.length ? "Marked ready · CoinID " + escapeHtmlText(c.coinId) + " — needs " + promoteGaps.join(" and ") + " — Edit"
             : note
-        }</div>${researchNoteHtml}`,
-        onEdit: promoteGaps.length ? () => openEditForDocketRow(c.collectionID, c) : null,
+        }</div>${researchNoteHtml}${coinDraftFinishNoteHtml(c)}`,
+        onEdit: (promoteGaps.length && !finishingNow) ? () => openEditForDocketRow(c.collectionID, c) : null,
         onClick: () => navigate("staging"),
         // Re-check only where there's actually something unresolved to
         // re-check, and only on a real durable draft (a mock row has
         // nothing to write a resolved CoinID back to).
-        onRecheck: (!resolved && c.collectionID) ? () => recheckCoinDraftMatch(c) : null,
-        onPromote: readyToPromote ? () => promoteCoinDraft(c.collectionID) : null,
+        onRecheck: (!resolved && c.collectionID && !finishingNow) ? () => recheckCoinDraftMatch(c) : null,
+        onPromote: (readyToPromote && !finishingNow) ? () => promoteCoinDraft(c.collectionID) : null,
         // (al) F8: a draft whose All row already exists (allRowWritten: a Force
         // Added coin that Re-check later re-linked) is listed here with
         // Promote; if Promote finds the row differs, its refusal says "or use
@@ -24439,7 +24657,7 @@
         // same markCoinDraftAlreadyPromoted as a leftover's card (fills blank
         // cells, keeps the sheet's values, closes the draft; never overwrites).
         // Staging Review does not list allRowWritten drafts at all.
-        onMarkPromoted: (c.allRowWritten && c.collectionID && c.status !== COIN_DRAFT_STATUS.PROMOTED)
+        onMarkPromoted: (c.allRowWritten && c.collectionID && c.status !== COIN_DRAFT_STATUS.PROMOTED && !finishingNow)
           ? () => markCoinDraftAlreadyPromoted(c.collectionID) : null
       });
     });
@@ -24587,17 +24805,18 @@
             ") doesn't match this coin's Description. Confirm the link, correct the " +
             "Description, or add the right catalog entry"
           : "No DB_Coins match — research the catalog gap, or add it without a match";
+      const finishingNow = !!coinDraftFinishing(d.collectionID); // (bf): no actions while finishing
       researchRows.push({
-        html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div>`,
+        html: `<div class="wish-desc">${escapeHtmlText(d.collectionID)} · ${escapeHtmlText(label)}</div><div class="wish-notes">${note}</div>${coinDraftFinishNoteHtml(d)}`,
         kind: "handoff",
-        onRecheck: () => recheckCoinDraftMatch(d),
+        onRecheck: finishingNow ? null : () => recheckCoinDraftMatch(d),
         // Force-added -> its All row exists -> Browse Edit; otherwise the
         // draft editor. openEditForDocketRow() decides, not this call site.
-        onEdit: () => openEditForDocketRow(d.collectionID, d),
+        onEdit: finishingNow ? null : () => openEditForDocketRow(d.collectionID, d),
         // Force Add only while the row doesn't exist yet; once it does,
         // Dismiss is what closes the card instead.
-        onForceAdd: d.forceAdded ? null : (btn) => confirmForceAddCoinDraft(d.collectionID, btn),
-        onDismiss: d.forceAdded ? (btn) => promptDismissForceAdded(d.collectionID, btn) : null
+        onForceAdd: (d.forceAdded || finishingNow) ? null : (btn) => confirmForceAddCoinDraft(d.collectionID, btn),
+        onDismiss: (d.forceAdded && !finishingNow) ? (btn) => promptDismissForceAdded(d.collectionID, btn) : null
       });
     });
     // Reads through docketOpenEntries() rather than FAKE_NEEDS_QUEUE
@@ -24876,7 +25095,7 @@
       // (its bookkeeping never reached Promoted). It shows "Already on the All
       // sheet (row N)" with ONE action, Mark as promoted. The sheet row comes
       // from a single column read, made only when at least one draft matches.
-      const staleIds = rows.filter(r => coinDraftStaleOnAll(r._draft)).map(r => r.id);
+      const staleIds = rows.filter(r => coinDraftStaleOnAll(r._draft) && !coinDraftFinishing(r.id)).map(r => r.id); // (bf)
       if (staleIds.length) {
         const rowNumbers = await allSheetRowNumbersFor(staleIds);
         if (myToken !== stagingRenderToken) return;
@@ -25020,6 +25239,8 @@
       const folderLinkHtml = folderUrl
         ? '<div class="wish-notes"><a href="' + folderUrl + '" target="_blank" rel="noopener">Open this coin’s folder in OneDrive ↗</a></div>'
         : '';
+      // (bf): while its row is being finished, the draft offers no action.
+      const finishingNow = !row._mock && !!coinDraftFinishing(row.id);
       item.innerHTML =
         '<div>' +
           '<div class="staging-id">' + escapeHtmlText(row.id) + '</div>' +
@@ -25028,14 +25249,16 @@
           (extra ? '<div class="wish-notes">' + escapeHtmlText(extra) + '</div>' : '') +
           pendingNoteHtml +
           gapNoteHtml +
+          (row._mock ? '' : coinDraftFinishNoteHtml(row._draft)) +
           folderLinkHtml +
           '<div class="wish-date">Staged ' + escapeHtmlText(row.stagedDate || "") + '</div>' +
         '</div>' +
         '<div class="staging-actions">' +
+          (finishingNow ? '<button class="staging-btn promote staging-finishing" disabled>Finishing…</button>' :
           primaryBtnHtml +
           editBtnHtml +
           recheckBtnHtml +
-          '<button class="staging-btn reject">Reject</button>' +
+          '<button class="staging-btn reject">Reject</button>') +
         '</div>';
       // Every action on this row does real, slow Graph work and used to give
       // no sign it had started (see runWithButtonPending). Reject is the one
@@ -25274,6 +25497,7 @@
   // (ax) 2a, E: timed for Save steps like Promote; the outcome says what
   // happened when no row write reported one.
   function markCoinDraftAlreadyPromoted(collectionId) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return Promise.resolve(false); } } // (bf)
     return withSaveTiming("Mark as promoted " + collectionId, async () => {
       const done = await markCoinDraftAlreadyPromotedUntimed(collectionId);
       if (!done) noteSaveOutcome("not done (see the message on screen)");
@@ -25337,7 +25561,14 @@
   // app never wrote a Set's row; here the app IS what wrote the row, so it
   // is the only thing that can honestly report the promotion happened.
   async function promoteCoinDraft(collectionId) {
-    const result = await withSaveTiming("Promote " + collectionId, () => promoteCoinDraftToAllSheet(collectionId));
+    const result = await withSaveTiming("Promote " + collectionId, () =>
+      promoteCoinDraftToAllSheet(collectionId, { onFinished: r => afterPromoteFinished(collectionId, r) }));
+    // (bf): the keys are on row N and the finisher is completing it; its own
+    // toast follows when it is done (afterPromoteFinished).
+    if (result.reason === "finishing") {
+      showToast(result.message || promoteFinishingMessage(collectionId, result.rowNumber));
+      return true;
+    }
     if (!result.ok) {
       showToast("Couldn't promote " + collectionId + ": " + (result.message || result.reason));
       return false;
@@ -25347,13 +25578,29 @@
     // chain and will toast. Doing either again would move the photos twice
     // and toast twice for one coin.
     if (result.coalesced) return true;
+    return afterPromoteWritten(collectionId, result);
+  }
+  // (bf) The finisher's result, reported like a Promote's own.
+  async function afterPromoteFinished(collectionId, result) {
+    if (!result || !result.ok) {
+      showToast(result && (result.reason === "not-finished" || result.reason === "row-mismatch")
+        ? result.message
+        : "Couldn't finish " + collectionId + ": " + ((result && (result.message || result.reason)) || "unknown error"));
+      return false;
+    }
+    return afterPromoteWritten(collectionId, result, true);
+  }
+  async function afterPromoteWritten(collectionId, result, finished) {
 
     // Toast BEFORE the follow-up chain, not after. The row is real the
     // moment the write returns; finishCoinDraftWrite() then moves photos and
     // re-fetches every live sheet, which on the real workbook is easily ten
     // seconds of silence. Reporting success only at the end of that is what
     // made a completed promote look like a no-op.
-    showToast(result.linkedOnly
+    showToast(finished
+      ? collectionId + " finished: row " + result.rowNumber + " on the All sheet is complete" +
+        (result.coinId ? " and linked to " + result.coinId : "") + ". Its draft is now marked promoted."
+      : result.linkedOnly
       ? collectionId + " was already on the All sheet (row " + result.rowNumber + ") with these values — only its CoinID was written (" + result.coinId + "); its draft is now marked promoted."
       : (result.adopted && result.filled && result.filled.length)
       ? collectionId + " was already on the All sheet (row " + result.rowNumber + "): its blank cells were filled from the draft (" + result.filled.join(", ") + ")" +
@@ -25364,7 +25611,8 @@
         (result.coinId || "(no CoinID)") + ".");
     try {
       await finishCoinDraftWrite(result.draft, {
-        patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: localISODateToday() },
+        patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: localISODateToday(),
+          keysWrittenRow: null, keysWrittenAt: null },
         movePhotos: true
       });
     } catch (e) {
@@ -25384,17 +25632,33 @@
   // Awaiting Research as "written, still needs a catalog match" until the
   // user either resolves it via Re-check or explicitly Dismisses it.
   async function forceAddCoinDraft(collectionId) {
-    const result = await promoteCoinDraftToAllSheet(collectionId, { force: true });
+    const result = await promoteCoinDraftToAllSheet(collectionId, { force: true, onFinished: r => afterForceAddFinished(collectionId, r) });
+    if (result.reason === "finishing") { // (bf) Q2: same as Promote
+      showToast(result.message || promoteFinishingMessage(collectionId, result.rowNumber));
+      return true;
+    }
     if (!result.ok) {
       showToast("Couldn't add " + collectionId + ": " + (result.message || result.reason));
       return false;
     }
     if (result.coalesced) return true; // see promoteCoinDraft() — same reasoning
-    showToast(collectionId + " added to the All sheet (row " + result.rowNumber +
-      ") with no CoinID — still listed under research until a catalog match is found.");
+    return afterForceAddWritten(collectionId, result);
+  }
+  async function afterForceAddFinished(collectionId, result) {
+    if (!result || !result.ok) {
+      showToast(result && (result.reason === "not-finished" || result.reason === "row-mismatch")
+        ? result.message
+        : "Couldn't finish " + collectionId + ": " + ((result && (result.message || result.reason)) || "unknown error"));
+      return false;
+    }
+    return afterForceAddWritten(collectionId, result, true);
+  }
+  async function afterForceAddWritten(collectionId, result, finished) {
+    showToast(collectionId + (finished ? " finished: row " + result.rowNumber + " on the All sheet is complete," : " added to the All sheet (row " + result.rowNumber + ")") +
+      " with no CoinID — still listed under research until a catalog match is found.");
     try {
       await finishCoinDraftWrite(result.draft, {
-        patch: { forceAdded: true, allRowWritten: true, forceAddedDate: localISODateToday() },
+        patch: { forceAdded: true, allRowWritten: true, forceAddedDate: localISODateToday(), keysWrittenRow: null, keysWrittenAt: null },
         movePhotos: true
       });
     } catch (e) {
@@ -25409,6 +25673,7 @@
   // state goes on the WORK, after the confirm — not on the dialog-opening
   // click, which would read as "Adding…" while the user is still deciding.
   function confirmForceAddCoinDraft(collectionId, btn) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return undefined; } } // (bf)
     showWriteGuard({
       title: "Add without a catalog match",
       bodyHtml:
@@ -25434,6 +25699,7 @@
   // on the sheet. The reason rides along on the draft as the audit trail.
   // `btn` (optional): see confirmForceAddCoinDraft() for the convention.
   function promptDismissForceAdded(collectionId, btn) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return undefined; } } // (bf)
     showWriteGuard({
       title: "Dismiss without a catalog match",
       bodyHtml:
@@ -25490,6 +25756,7 @@
   // FAKE_STAGING row is never "Ready" to begin with, so this button never
   // renders in the flag-off build).
   async function revertStagedCoinToDraft(collectionId) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return false; } } // (bf)
     try {
       await revertCoinDraftToDraft(collectionId);
       await renderStagingList();
@@ -25537,6 +25804,7 @@
   // from a list that renders each row's own Description IS the
   // confirmation, same exemption the Add Coin path makes.
   async function recheckCoinDraftMatch(draft) {
+    { const busy = coinDraftFinishingRefusal(draft && draft.collectionID); if (busy) { showToast(busy); return false; } } // (bf)
     const label = draft.collectionID + " · " +
       (draft.year || "") + (draft.mint ? "-" + draft.mint : "") + " " + (draft.description || draft.denom || "");
     const candidates = dbCoinsCandidatesFor(coinDraftMatchShape(draft));
@@ -25714,6 +25982,7 @@
   // pending state belongs on the deletion, which is slow and silent, not on
   // opening the dialog, which is instant and self-evident.
   function rejectStagedCoin(collectionId, btn) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return undefined; } } // (bf)
     const real = addCoinWriteEnabled();
     showWriteGuard({
       title: "Reject " + collectionId + "?",
@@ -35822,6 +36091,7 @@
   // navigate()-then-apply order the album and wishlist deep-links use, which
   // matters because navigate("addcoin") always resets the form first.
   async function beginCoinDraftEdit(collectionId) {
+    { const busy = coinDraftFinishingRefusal(collectionId); if (busy) { showToast(busy); return false; } } // (bf)
     let draft;
     try { draft = await readCoinDraft(collectionId); }
     catch (e) {

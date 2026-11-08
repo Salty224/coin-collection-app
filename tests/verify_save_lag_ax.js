@@ -7,10 +7,11 @@
 // as they were when the lag started, while writes land for real.
 //
 //   A1  two photo rows in a row while reads lag: two different rows, both kept (A4)
-//   C1  Promote while reads lag: keys written, honest "not showing yet" refusal, nothing else written
-//   C2  ...a retry while still lagging refuses again: no second row (no duplicate)
-//   C3  ...a retry after the lag finishes the same row: one complete row
-//   C4  a key write that truly never landed: after 10 minutes a retry claims a new row
+//   C1  Promote while reads lag: keys written, "finishing" (bf), nothing else written yet
+//   C2  ...a retry while it is finishing joins it: no second row (no duplicate)
+//   C3  ...when the lag ends the finisher completes the same row: one complete row
+//   C4  a key write that truly never landed: the finisher gives up; within 10 minutes a
+//       retry finishes the same row only; after 10 minutes a retry claims a new row
 //   I1  the one-at-a-time row re-read holding another coin's id: refused, nothing written
 //   E1  Mark as promoted gets its own Save steps record
 //   E2  a workbook write outside any timed save gets a record of its own
@@ -82,6 +83,7 @@ module.exports = defineSuite("save-lag-ax", async ({ check, selfCheck, openApp, 
       __setWorkbookSessionForTest({ source: "workbook", verified: true, connection: "ok" });
       __setBrowseEditWriteEnabledForTest(true);
       __setAddCoinWriteEnabledForTest(true);
+      __setPromoteFinishTimingForTest(30, 1500); // (bf) finisher: fast checks in tests
       return m;
     };
     window.__teardown = () => {
@@ -90,6 +92,7 @@ module.exports = defineSuite("save-lag-ax", async ({ check, selfCheck, openApp, 
       __setBrowseEditWriteEnabledForTest(null);
       __setAddCoinWriteEnabledForTest(null);
       __setLiveDbCoinsForTest(null);
+      __setPromoteFinishTimingForTest(null, null);
     };
   }, ALL);
 
@@ -124,22 +127,25 @@ module.exports = defineSuite("save-lag-ax", async ({ check, selfCheck, openApp, 
     const r1 = await withSaveTiming("Promote AY-00760", () => promoteCoinDraftToAllSheet("AY-00760"));
     out.c1 = { ok: r1.ok, message: r1.message, rows: __rowsWith(g, "AY-00760").map(x => ({ row: x.sheetRow, nonKey: nonKey(x.r) })),
       steps: __getSaveTimingForTest().last.steps.map(s => s.name) };
+    out.c1.reason = r1.reason;
     const r2 = await promoteCoinDraftToAllSheet("AY-00760");
-    out.c2 = { ok: r2.ok, message: r2.message, rows: __rowsWith(g, "AY-00760").map(x => x.sheetRow) };
+    out.c2 = { ok: r2.ok, reason: r2.reason, coalesced: !!r2.coalesced, message: r2.message, rows: __rowsWith(g, "AY-00760").map(x => x.sheetRow) };
+    await new Promise(r => setTimeout(r, 100)); // a few re-checks while still lagging
     lag.on = false;
-    const r3 = await promoteCoinDraftToAllSheet("AY-00760");
+    const finisher = __promoteFinisherForTest("AY-00760");
+    const r3 = finisher ? await finisher : { ok: false, reason: "no finisher running" };
     const finalRows = __rowsWith(g, "AY-00760");
     out.c3 = { ok: r3.ok, rowNumber: r3.rowNumber, adopted: !!r3.adopted, rows: finalRows.map(x => ({ row: x.sheetRow, nonKey: nonKey(x.r) })) };
     __teardown();
     return out;
   }, { row: MATCH_ROW, draft: READY_DRAFT });
-  ok("C1 Promote while reads lag: keys on one row only, the honest message, nothing else written (" + JSON.stringify(C.c1) + ")",
-    C.c1.ok === false && C.c1.rows.length === 1 && C.c1.rows[0].nonKey === 0 &&
-    /^Wrote the keys for AY-00760 to row \d+ \(Graph confirmed the write\), but Excel isn't showing them yet/.test(C.c1.message) &&
+  ok("C1 Promote while reads lag: keys on one row only, \"finishing\" (bf), nothing else written yet (" + JSON.stringify(C.c1) + ")",
+    C.c1.ok === false && C.c1.reason === "finishing" && C.c1.rows.length === 1 && C.c1.rows[0].nonKey === 0 &&
+    /^AY-00760: written to row \d+; Excel is slow to show new rows, so the app is finishing it by itself/.test(C.c1.message) &&
     C.c1.message.indexOf("row " + C.c1.rows[0].row) !== -1 && C.c1.steps.some(n => /^key read-back: row \d+ not showing AY-00760 yet/.test(n)));
-  ok("C2 a retry while still lagging refuses again and claims no second row (" + JSON.stringify(C.c2) + ")",
-    C.c2.ok === false && /isn't showing them yet/.test(C.c2.message) && C.c2.rows.length === 1 && C.c2.rows[0] === C.c1.rows[0].row);
-  ok("C3 a retry after the lag finishes that same row: one complete row (" + JSON.stringify(C.c3) + ")",
+  ok("C2 a retry while it is finishing joins it and claims no second row (" + JSON.stringify(C.c2) + ")",
+    C.c2.ok === false && C.c2.reason === "finishing" && C.c2.coalesced && C.c2.rows.length === 1 && C.c2.rows[0] === C.c1.rows[0].row);
+  ok("C3 when the lag ends the finisher completes that same row: one complete row (" + JSON.stringify(C.c3) + ")",
     C.c3.ok === true && C.c3.adopted && C.c3.rows.length === 1 && C.c3.rows[0].row === C.c1.rows[0].row && C.c3.rows[0].nonKey > 3);
 
   // ---- C4: a key write that never landed (Graph said yes, nothing there) --------------------
@@ -153,16 +159,25 @@ module.exports = defineSuite("save-lag-ax", async ({ check, selfCheck, openApp, 
     mock.patchWorkbookRanges = () => Promise.resolve({ written: 0 }); // lost: nothing lands
     const r1 = await promoteCoinDraftToAllSheet("AY-00760");
     mock.patchWorkbookRanges = realPatch;
-    const r2 = await promoteCoinDraftToAllSheet("AY-00760"); // within 10 minutes: refused again
+    const f1 = await __promoteFinisherForTest("AY-00760"); // gives up: nothing ever shows
+    const r2 = await promoteCoinDraftToAllSheet("AY-00760"); // within 10 minutes: finishing that row only
+    const f2 = await __promoteFinisherForTest("AY-00760");
     __keysNotVisibleForTest().get("AY-00760").at -= 11 * 60 * 1000;
+    const path = writePaths().stagingBase + "/AY-00760/coin.json";
+    const d = await mock.getJson(path);
+    d.keysWrittenAt = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    await mock.uploadJson(path, d);
     const r3 = await promoteCoinDraftToAllSheet("AY-00760");
     const rows = __rowsWith(mock._grids.All, "AY-00760").map(x => x.sheetRow);
-    const out = { r1: r1.ok, r1row: (/to row (\d+)/.exec(r1.message || "") || [])[1], r2: r2.ok, r3: r3.ok, r3row: r3.rowNumber, rows };
+    const out = { r1: r1.ok, r1reason: r1.reason, r1row: r1.rowNumber, f1: f1 && f1.reason, r2: r2.ok, r2reason: r2.reason, r2row: r2.rowNumber,
+      f2: f2 && f2.reason, r3: r3.ok, r3row: r3.rowNumber, rows };
     __teardown();
     return out;
   }, { row: MATCH_ROW, draft: READY_DRAFT });
-  ok("C4 a key write that never landed: refused within 10 minutes, then a retry claims a NEW row and completes (" + JSON.stringify(C4) + ")",
-    C4.r1 === false && C4.r2 === false && C4.r3 === true && C4.rows.length === 1 && String(C4.r3row) !== String(C4.r1row) && C4.rows[0] === C4.r3row);
+  ok("C4 a key write that never landed: the finisher gives up, a retry within 10 minutes finishes that row only, after 10 minutes a retry claims a NEW row and completes (" + JSON.stringify(C4) + ")",
+    C4.r1 === false && C4.r1reason === "finishing" && C4.f1 === "not-finished" && C4.r2 === false && C4.r2reason === "finishing" &&
+    C4.r2row === C4.r1row && C4.f2 === "not-finished" &&
+    C4.r3 === true && C4.rows.length === 1 && String(C4.r3row) !== String(C4.r1row) && C4.rows[0] === C4.r3row);
 
   // ---- I1: the one-at-a-time re-read holds another coin ------------------------------------
   const I1 = await page.evaluate(async () => {
