@@ -199,3 +199,7 @@ Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sect
 - The build decides its data target (Oct 2026) — read this first: full text moved 7 Nov 2026 -> [docs/ref/PLATFORM.md](ref/PLATFORM.md), section "The build decides its data target: the rule"; CLAUDE.md keeps a one-paragraph summary.
 - Merged work: rules and one-line summaries (the fuller lines, 7 Nov 2026) -> [docs/HISTORY.md](HISTORY.md), section "Merged-work lines moved from CLAUDE.md"; CLAUDE.md keeps shorter lines.
 - App structure (the original paragraph, 7 Nov 2026) -> [docs/HISTORY.md](HISTORY.md), section "App structure as it stood in CLAUDE.md until 7 Nov 2026".
+- Merged work: one-line summaries (moved 9 Nov 2026) -> [docs/HISTORY.md](HISTORY.md) "Merged-work one-line summaries"
+- Open backlog one-liners (moved 9 Nov 2026) -> [docs/BACKLOG.md](BACKLOG.md) "Index (moved from CLAUDE.md 9 Nov 2026)"
+- Current state "Not verified on a real device / LIVE" list (moved 9 Nov 2026) -> [docs/BACKLOG.md](BACKLOG.md) "Unverified on a real device / LIVE"
+- End-of-task reporting, Merge policy (old text), Maintenance (retired 9 Nov 2026) -> [docs/HISTORY.md](HISTORY.md) "CLAUDE.md sections retired 9 Nov 2026"

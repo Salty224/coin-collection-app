@@ -3321,3 +3321,48 @@ tile — it's reachable only via its own tab inside Browse.
 
 ## Workbook session (bk): merge (8 Nov 2026)
 - Ray's TEST of `705937e` passed (c1 X / Y, c2 V, (a), (b); (d)/(e) not run cleanly; details docs/BACKLOG.md (bk)); merge and LIVE deploy go-ahead. `claude/workbook-session-bk` rebased onto main (main had two docs-only commits the branch lacked; one CLAUDE.md backlog-line conflict, main's text kept; the branch's last docs commit was identical to main's `06f2e65` and dropped), tree identical to `705937e`, then fast-forwarded: code `296d8c4` (was `ea60360`), docs `913adb3`. Gate: full `npm test` 5019 passed, 0 failed, 0 page errors, 100 suites, 642 s; against the 4993 baseline only session-gate-ao (49 -> 50) and the new workbook-session-bk (25) differ. CODEMAP regenerated with a (bk) section. Backlog: (bq) the 30-minute check re-reads after the app's own saves, (br) the workbook Staging tab is unused by the app.
+
+## Merged-work one-line summaries (moved from CLAUDE.md 9 Nov 2026; before that the CLAUDE.md section "Merged work: one-line summaries") (write-ups: the file at the end of each line; the fuller lines as they stood until 7 Nov 2026: docs/HISTORY.md "Merged-work lines moved from CLAUDE.md")
+- **Photos and receipts on a saved record** (27-31 Oct: C1-C3 `928d7a9`, receipts never overwrite, ✕ on a Replace pick is an undo, Staging photo replace keeps the old file, (z) save only when changed `014be60`, (x) receipts wait for Save `da1c19e`): invariants 9-11. [SAVE_AND_RECEIPTS.md]
+- **Receipts / photos alignment** Build 1 (31 Oct, `6a21b60`; invariant 12) and Build 2 (31 Oct, `28e5d5d`): ✕ on a stored receipt only makes the removal pending; a shared receipt's Replace asks "all N coins" / "this coin only"; INTERIM naming (a picked PDF keeps its name; a photo on 2+ coins `{ReceiptID}_receipt.pdf`, else `{CollectionID}_receipt.pdf`; Edit Coin / Edit Set only). [SAVE_AND_RECEIPTS.md]
+- **Guided Obverse / Reverse crop, Build A** (1 Nov, `e0aa7a3`) and **Details viewer next / previous, Build B** (2 Nov, `24d3e72`; if zoom is ever added, swipe only when not zoomed); both on LIVE in `d61f1dd`. [PHOTOS.md]
+- **Dates are real Excel dates** (4 Nov, `7b75c4e`): invariants 5, 6. [WRITE_LAYER.md]
+- **Finish / Category required, draft cleanup** (5 Nov, `7c3c82c`, LIVE in `8c58b00`): Save to Database and Promote need both (Force Add excepted; `COIN_DEFAULT_CATEGORY`); a leftover draft of a coin on All offers only "Mark as promoted"; Promote never overwrites a row already on All. [ADD_COIN_WRITE.md, DOCKET_STAGING.md]
+- **Write safety (al)** (6 Nov, `9033fa5`, LIVE in `f779287`): invariants 1, 3, 5, 14; F8 Mark as promoted on the Docket. [WRITE_LAYER.md]
+- **Test speed (an)** (6 Nov, `1eefde8`, LIVE in `8622d7d`): `npm test -- <word...>` / `--list`; `window.__appReady` after every startup promise settles; `openApp` waits for it. [PLATFORM.md]
+- **Device cache and offline read-only view (ao)** (7 Nov, last code `406fed8`, LIVE in `d0a69b2`): invariant 17; Offline / Can't reach OneDrive rows; toasts "Updated" / "Back online"; written values shown while Excel's content lags (`withRecentWrites`, display only); Docket "About" (load report, save steps and outcome, version checks, content-lag probe, Refresh). [PLATFORM.md]
+- **Finish list from Lookup_Finishes (ar)** (7 Nov, last code `632f8e0`, LIVE in `2b4920f`, step 8 passed): the 12th launch sheet (optional; saved-copy format 2); the list is column A in sheet order, never "Various"; fallback `FINISH_FALLBACK_LIST` (13, with Diamond Field); a value the list lacks stays as "— existing value". Read-only. [ADD_COIN.md]
+- **Save speed (ax), Stage 1 + 2a** (7 Nov, last code `db8673e`; LIVE in `785e7de`; 2b shelved): the header re-read, row lookup and row re-read run together (P2 for Edit Coin with checks (i)-(iii), P1 for Promote; invariant 3); Save steps diagnostics (saved-copy delete, token, answer read, main-thread stall, background work; Mark as promoted; "Write outside a timed save"); About's LastModified read-back; writes while Excel lags: claimed rows never re-claimed, Promote "not showing yet" with no second row on a retry, the serial re-read's CollectionID check, own row states by LastModified (invariants 4, 7). [WRITE_LAYER.md]
+- **Workbook session (bk)** (8 Nov, code `296d8c4`): every workbook request through one Excel session, write steps pinned to its generation (invariant 18; Ray's TEST passed (a), (b), c1, c2). [WRITE_LAYER.md]
+- **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned", Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
+
+## CLAUDE.md sections retired 9 Nov 2026 (usefulness-over-size rule)
+Kept verbatim for the record. "End-of-task reporting" was folded into rule 3; "Merge policy" was replaced (every code merge waits for Ray); "Maintenance" contradicted rules 1 and 4 and was removed.
+
+## End-of-task reporting (standing rule)
+When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
+plain-text summary block (one fenced code block; see rule 3 of "Standard
+end-of-work pattern" at the top of this file): what changed, how it was verified, and — critically —
+any open questions or concerns worth a second look (an ambiguous instruction,
+a tradeoff made without explicit sign-off, a side effect on something else,
+an unresolved item carried over from a prior task) so the two of you can
+deliberate before anything moves further. Don't skip the questions section
+just because nothing came up — say so explicitly rather than omitting it.
+This applies on top of, not instead of, the CLAUDE.md update rule below.
+
+## Merge policy (standing rule)
+Auto-merge feature branches to main at the end of a task by default — don't wait
+for Ray to explicitly ask each time. **Exception:** large/architectural/
+cross-cutting work (e.g. the CollectionID-reservation system) stays held on its
+branch — wait for Ray's explicit go-ahead before merging that class of work, same
+as before this policy existed.
+
+## Maintenance
+Update this file only when something changes that a future session would actually
+need to know to avoid re-doing work or making a wrong assumption — a new
+architectural decision, a schema/naming convention change, a scope boundary, or a
+change to how a feature is supposed to work. Don't update it for routine task
+completions (a bug fix, a component built to existing spec, a screen finished per
+existing spec) — just do the work. If unsure whether something rises to that bar,
+ask before updating rather than updating by default.
+

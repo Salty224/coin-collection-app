@@ -17,7 +17,7 @@ Microsoft Graph API, and the Excel workbook there is the authoritative data stor
 - Waiting on Ray (other): _Testing leftovers (AY-00002 Grade F; Remarks test13-test16 on AY-00001-00004; AY-00760 test row); device check of the interim receipt naming; (z) on a device; Ledger tiles, Sets Variety line, melt / face labels on LIVE; LIVE Photos duplicate PhotoIDs (u) before any Replace on LIVE; `cropped_04` on AY-00756; what a PCGS NFC tag holds ((bo)).
 - Found 8 Nov (read only, not changed): Add Coin's Finish note still says "Optional — leaving it blank never blocks a save", but Save to Database and Promote require Finish since 5 Nov; a (bl) item.
 - Workbook: docs/ref/WORKBOOK.md. LIVE All lost "Column1" (former AE) on 7 Nov, so LIVE letters from AE on moved one left (LastModified AY); _Testing keeps it until its next refresh (ValueDate AD, LastModified AZ). All.SpotValue has its formula in 1,552 of 1,555 rows.
-- Not verified on a real device / LIVE: (bk) TEST (d)/(e) (session created vs reused cost, Graph's idle expiry), real session error codes, (bk) on LIVE; (ax) used on LIVE (deployed, not exercised), and 2a's steps 6-8 on TEST; whether the read lag needs the workbook open in Excel; (ar) on a phone and offline; IndexedDB eviction, installed app vs tab, MSAL's real offline error codes; content lag over 10 min; (an) ready flag on LIVE; write safety on LIVE beyond _Testing; F8 by hand; real `$batch` over 20 (F5) and part-landed (F2); the date branch, album cover coin, Build B's Set Details tile / arrow keys / tablet, Builds 1-2 on LIVE; interim receipt naming; drift rows vs the real formulas; (z); Graph conflictBehavior=fail (409) on a real upload.
+- Not verified on a real device / LIVE: the list is in docs/BACKLOG.md "Unverified on a real device / LIVE" (moved 9 Nov 2026); add to it there.
 - Finding things: docs/INDEX.md (moved headings), docs/CODEMAP.md (regenerated at `296d8c4`, with a (bk) section).
 
 ## Where to look (read the file BEFORE working in that area)
@@ -47,14 +47,14 @@ This file keeps what every session needs: standing rules, current state, the wri
 **1. With every branch, before reporting it done.** The branch's last commit
 adds or updates its write-up in the matching `docs/` file (what it does, the
 function and constant names, what was left alone on purpose, and what is not
-verified) and leaves a one-line summary in this file (rule 5).
+verified) and leaves its one-line summary in docs/HISTORY.md "Merged-work one-line summaries" and any new standing rule in this file (rule 5).
 Docs reach `main` in the same merge as the code. Every branch report ends with
 one line: "CLAUDE.md updated in <commit>", or "no CLAUDE.md change needed
 because <reason>".
 See also "History goes to docs/HISTORY.md" below; where they differ, the later rule wins.
 
 **2. When Ray says "end session"** (or at a natural stopping point):
-- a. Check that this file matches `main`: every merged branch has a one-line summary here and its write-up in docs/;
+- a. Check that this file matches `main`: every merged branch has a one-line summary in docs/HISTORY.md "Merged-work one-line summaries", its write-up in docs/ and its rules here;
   nothing describes removed code as current (grep for the names of functions
   known to be removed, e.g. `resolveCoinSetLink` — mentions must be marked
   *(removed …)* or describe current behaviour); the baseline line below is
@@ -76,6 +76,7 @@ questions as Q1/Q2... each with the recommendation in brackets, and the
 "CLAUDE.md updated in <commit>" / "no CLAUDE.md change needed because ..."
 line inside the block. At most one short sentence outside it. Don't wait to
 be asked for the copy-paste version.
+Every report says what changed, how it was verified, and the open questions or concerns worth a second look (an ambiguous instruction, a tradeoff made without sign-off, a side effect, an item carried over); if there are none, say so rather than leaving the section out.
 Every report (build, plan, docs) also ends with a required section (Ray, 7 Nov 2026):
 TIME SPENT (wall clock, this round): the total, start of work to report; broken down into
 reading / planning, coding, affected-suite runs (count, total time), negative controls (count,
@@ -99,7 +100,9 @@ the model and effort line, main's hash and whether origin matches, then wait
 for the task" (any wording, possibly with the task included): answer exactly
 that, then wait.
 
-**5. At each code merge, in the same docs commit:** regenerate docs/CODEMAP.md; move the full write-up of the merged work to the matching docs/ file and leave a one-line summary in CLAUDE.md; report CLAUDE.md's size (wc -c) in the merge report. CLAUDE.md stays under about 45 KB.
+**5. At each code merge, in the same docs commit:** regenerate docs/CODEMAP.md; move the full write-up of the merged work to the matching docs/ file and leave a one-line summary in docs/HISTORY.md "Merged-work one-line summaries" and any new standing rule in CLAUDE.md; report CLAUDE.md's size (wc -c) in every report, as information only.
+
+**6. Usefulness over size (Ray, 9 Nov 2026; replaces the old "under about 45 KB" limit).** CLAUDE.md holds what every session needs to start cold and work safely: current state, standing rules, data-safety rules and pointers into docs/. History, merged write-ups and detail read only when a task touches that area go in docs/, with CLAUDE.md saying where.
 
 **Docs-only commits** (CLAUDE.md and docs/ only, no code) may go straight to `main` with
 Ray's go-ahead. **Code never does**: code goes through a branch and Ray's merge
@@ -114,25 +117,10 @@ workflow for `main`.
 2. **When running npm test, report only the totals and any failures, not the full output.**
 3. **The full npm test runs ONCE, as the merge gate** (Ray, 8 Nov 2026): not before TEST. While iterating, run only the affected suites (`npm test -- <word...>`) and their negative controls.
 4. **Test drafts and fixtures copy status values and other constants from the code** (`COIN_DRAFT_STATUS.READY`, never a hand-typed "Ready"; the (bf) slip, 8 Nov 2026: the real value is "Ready for reconciliation", and the Docket listed nothing).
-5. **History goes to docs/HISTORY.md.** When a branch merges, move its build history into docs/HISTORY.md and keep only its rules and a one-line summary in CLAUDE.md, so the file doesn't grow back.
+5. **History goes to docs/HISTORY.md.** When a branch merges, move its build history into docs/HISTORY.md and keep only its rules in CLAUDE.md (its one-line summary goes to docs/HISTORY.md "Merged-work one-line summaries").
 
-## End-of-task reporting (standing rule)
-When finishing any task (bug fix, feature, batch), give Ray a copy-paste-able
-plain-text summary block (one fenced code block; see rule 3 of "Standard
-end-of-work pattern" at the top of this file): what changed, how it was verified, and — critically —
-any open questions or concerns worth a second look (an ambiguous instruction,
-a tradeoff made without explicit sign-off, a side effect on something else,
-an unresolved item carried over from a prior task) so the two of you can
-deliberate before anything moves further. Don't skip the questions section
-just because nothing came up — say so explicitly rather than omitting it.
-This applies on top of, not instead of, the CLAUDE.md update rule below.
-
-## Merge policy (standing rule)
-Auto-merge feature branches to main at the end of a task by default — don't wait
-for Ray to explicitly ask each time. **Exception:** large/architectural/
-cross-cutting work (e.g. the CollectionID-reservation system) stays held on its
-branch — wait for Ray's explicit go-ahead before merging that class of work, same
-as before this policy existed.
+## Merge policy (standing rule; Ray, 9 Nov 2026)
+Every code merge waits for Ray's explicit go-ahead; nothing is auto-merged. Docs-only commits may go to `main` with his go-ahead.
 
 ## Clarifying-question format (standing rule)
 Never use an interactive multiple-choice question tool/prompt on Ray. Always ask
@@ -140,16 +128,7 @@ clarifying questions as plain, copy-pasteable text in the chat response instead 
 he discusses them with Claude (chat) separately and brings back answers to all of
 them at once, which an interactive per-question picker doesn't allow for.
 
-## Maintenance
-Update this file only when something changes that a future session would actually
-need to know to avoid re-doing work or making a wrong assumption — a new
-architectural decision, a schema/naming convention change, a scope boundary, or a
-change to how a feature is supposed to work. Don't update it for routine task
-completions (a bug fix, a component built to existing spec, a screen finished per
-existing spec) — just do the work. If unsure whether something rises to that bar,
-ask before updating rather than updating by default.
-
-## Regression suites are COMMITTED (locked in — supersedes the scratchpad convention)
+## Regression suites (committed in `tests/`)
 Full text and history: [docs/ref/PLATFORM.md](docs/ref/PLATFORM.md). Rules:
 - Suites are `tests/verify_*.js`, committed, auto-discovered, run with `npm test` (`tests/run-all.js`: per-suite time, one total, slowest five; non-zero exit on any failure or uncaught page error). GitHub Pages serves the whole checkout, so put nothing private in the repo.
 - **Never hardcode a browser path in a suite**; `tests/harness.js` resolves it (`CHROMIUM_PATH`, newest `chromium-*` under `PLAYWRIGHT_BROWSERS_PATH`, system Chrome, Playwright's default).
@@ -193,8 +172,8 @@ Full text and history: [docs/ref/PLATFORM.md](docs/ref/PLATFORM.md). Rules:
 14. **Failure is loud and loses nothing:** non-optimistic (memory changes only after the write is confirmed), per-item results named by file, an orphan or blank row is recoverable and a clobbered formula is not. Purge detaches the row BEFORE deleting its file. Never blank a half-written row: a part-landed batch (`$batch` is split at `GRAPH_BATCH_LIMIT` 20) returns reason "partial" naming what did and did not land (`batchWriteError`, `partialSaveResult`).
 15. **Set membership comes only from the child's `OriginSetID`** (the parent's CollectionID; a real parent row carries none). SetID is the issue-catalog id, never membership: at most one Set chip (`resolveChildParentSet`); "Issued in ..." is plain text (`setIssueRemarkFor`).
 16. **Staging:** a coin draft is `Staging/{CollectionID}/coin.json` plus its photos; the reservation scans Staging folder names (monotonic max+1; a rejected mid-sequence id stays a permanent gap, only the top id is reusable); Promote carries the id forward and sets Promoted itself; only Ray's tap changes a draft's state.
-17. **The device's saved copy of the workbook is display-only ((ao), IndexedDB `salty-cabinet-cache-{target}`).** Read in one place only, a live launch (`launchFromSavedCopy()`); never by a header map, row lookup, snapshot, conflict check, id minting or any `graph()` read. Writes are an ALLOW-LIST: only when the session is checked (a full read from the workbook this session, or a saved copy whose version matched) AND online; every other state refuses, including one added later (`workbookWritesAllowed()`; the `graph()` wrapper refuses every write method with a `ReadOnlyError`; tests fail if a client grows an ungated write method or an unknown state is allowed). Every workbook write deletes the copy before its first request. TEST and LIVE copies live in separate databases and never mix. Merged 7 Nov 2026 (`406fed8`).
-18. **One Excel workbook session for every workbook request ((bk), merged 8 Nov 2026).** Every `/workbook/` request goes through `excelWorkbookFetch()` (the `workbook-session-id` header; every `$batch` sub-request carries it in `patchWorkbookRanges`); never a bare `fetch` to the workbook API (session-bk K1). Every workbook write runs inside a write step (`runWorkbookStep`): the session is made / reused / renewed only at a step's start, the step records its generation, and the `graph()` gate refuses a write under another generation (`SESSION_CHANGED`, nothing sent; the step reads again once, then refuses). Promote is one step; Edit Coin's CoinID re-link keeps the field save's generation. A session failure never blocks a save (no session = the old path); a write is never re-sent after a session rejection. Memory only, keyed by workbook path + account. Write-up: docs/ref/WRITE_LAYER.md "Workbook session (bk)".
+17. **The device's saved copy of the workbook is display-only ((ao), IndexedDB `salty-cabinet-cache-{target}`).** Read in one place only, a live launch (`launchFromSavedCopy()`); never by a header map, row lookup, snapshot, conflict check, id minting or any `graph()` read. Writes are an ALLOW-LIST: only when the session is checked (a full read from the workbook this session, or a saved copy whose version matched) AND online; every other state refuses, including one added later (`workbookWritesAllowed()`; the `graph()` wrapper refuses every write method with a `ReadOnlyError`; tests fail if a client grows an ungated write method or an unknown state is allowed). Every workbook write deletes the copy before its first request. TEST and LIVE copies live in separate databases and never mix.
+18. **One Excel workbook session for every workbook request ((bk)).** Every `/workbook/` request goes through `excelWorkbookFetch()` (the `workbook-session-id` header; every `$batch` sub-request carries it in `patchWorkbookRanges`); never a bare `fetch` to the workbook API (session-bk K1). Every workbook write runs inside a write step (`runWorkbookStep`): the session is made / reused / renewed only at a step's start, the step records its generation, and the `graph()` gate refuses a write under another generation (`SESSION_CHANGED`, nothing sent; the step reads again once, then refuses). Promote is one step; Edit Coin's CoinID re-link keeps the field save's generation. A session failure never blocks a save (no session = the old path); a write is never re-sent after a session rejection. Memory only, keyed by workbook path + account. Write-up: docs/ref/WRITE_LAYER.md "Workbook session (bk)".
 
 ## Cross-area rules E1-E21 (one line each; the original header line and excerpt sit at the end of the named ref file, under "Cross-area rules stated in CLAUDE.md")
 - **E1** There is NO global `.hidden` rule in app.html: `class="hidden"` on a plain div does nothing. Scope every hide rule to its component (`.detail-row.hidden`) and test it. [BROWSE_DETAIL.md]
@@ -234,28 +213,14 @@ Single-page app "Salty's Cabinet", one MSAL redirect URI, internal navigation. P
 - localStorage/sessionStorage for anything that matters — use OneDrive as the
   actual store; the app should be re-derivable from OneDrive state at any time.
 
-## Merged work: one-line summaries (write-ups: the file at the end of each line; the fuller lines as they stood until 7 Nov 2026: docs/HISTORY.md "Merged-work lines moved from CLAUDE.md")
-- **Photos and receipts on a saved record** (27-31 Oct: C1-C3 `928d7a9`, receipts never overwrite, ✕ on a Replace pick is an undo, Staging photo replace keeps the old file, (z) save only when changed `014be60`, (x) receipts wait for Save `da1c19e`): invariants 9-11. [SAVE_AND_RECEIPTS.md]
-- **Receipts / photos alignment** Build 1 (31 Oct, `6a21b60`; invariant 12) and Build 2 (31 Oct, `28e5d5d`): ✕ on a stored receipt only makes the removal pending; a shared receipt's Replace asks "all N coins" / "this coin only"; INTERIM naming (a picked PDF keeps its name; a photo on 2+ coins `{ReceiptID}_receipt.pdf`, else `{CollectionID}_receipt.pdf`; Edit Coin / Edit Set only). [SAVE_AND_RECEIPTS.md]
-- **Guided Obverse / Reverse crop, Build A** (1 Nov, `e0aa7a3`) and **Details viewer next / previous, Build B** (2 Nov, `24d3e72`; if zoom is ever added, swipe only when not zoomed); both on LIVE in `d61f1dd`. [PHOTOS.md]
-- **Dates are real Excel dates** (4 Nov, `7b75c4e`): invariants 5, 6. [WRITE_LAYER.md]
-- **Finish / Category required, draft cleanup** (5 Nov, `7c3c82c`, LIVE in `8c58b00`): Save to Database and Promote need both (Force Add excepted; `COIN_DEFAULT_CATEGORY`); a leftover draft of a coin on All offers only "Mark as promoted"; Promote never overwrites a row already on All. [ADD_COIN_WRITE.md, DOCKET_STAGING.md]
-- **Write safety (al)** (6 Nov, `9033fa5`, LIVE in `f779287`): invariants 1, 3, 5, 14; F8 Mark as promoted on the Docket. [WRITE_LAYER.md]
-- **Test speed (an)** (6 Nov, `1eefde8`, LIVE in `8622d7d`): `npm test -- <word...>` / `--list`; `window.__appReady` after every startup promise settles; `openApp` waits for it. [PLATFORM.md]
-- **Device cache and offline read-only view (ao)** (7 Nov, last code `406fed8`, LIVE in `d0a69b2`): invariant 17; Offline / Can't reach OneDrive rows; toasts "Updated" / "Back online"; written values shown while Excel's content lags (`withRecentWrites`, display only); Docket "About" (load report, save steps and outcome, version checks, content-lag probe, Refresh). [PLATFORM.md]
-- **Finish list from Lookup_Finishes (ar)** (7 Nov, last code `632f8e0`, LIVE in `2b4920f`, step 8 passed): the 12th launch sheet (optional; saved-copy format 2); the list is column A in sheet order, never "Various"; fallback `FINISH_FALLBACK_LIST` (13, with Diamond Field); a value the list lacks stays as "— existing value". Read-only. [ADD_COIN.md]
-- **Save speed (ax), Stage 1 + 2a** (7 Nov, last code `db8673e`; LIVE in `785e7de`; 2b shelved): the header re-read, row lookup and row re-read run together (P2 for Edit Coin with checks (i)-(iii), P1 for Promote; invariant 3); Save steps diagnostics (saved-copy delete, token, answer read, main-thread stall, background work; Mark as promoted; "Write outside a timed save"); About's LastModified read-back; writes while Excel lags: claimed rows never re-claimed, Promote "not showing yet" with no second row on a retry, the serial re-read's CollectionID check, own row states by LastModified (invariants 4, 7). [WRITE_LAYER.md]
-- **Workbook session (bk)** (8 Nov, code `296d8c4`): every workbook request through one Excel session, write steps pinned to its generation (invariant 18; Ray's TEST passed (a), (b), c1, c2). [WRITE_LAYER.md]
-- **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned", Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
+## Rules from merged work not covered by an invariant (the one-line summaries of merged work: docs/HISTORY.md "Merged-work one-line summaries")
+- Save to Database and Promote need Finish and Category (Force Add excepted; `COIN_DEFAULT_CATEGORY`); a leftover draft of a coin already on All offers only "Mark as promoted"; Promote never overwrites a row already on All. [ADD_COIN_WRITE.md, DOCKET_STAGING.md]
+- Guided Obverse / Reverse crop is offered on Add Coin, the Staging-draft edit and Edit Coin only, never on Manage Photos or Edit Set, and only from the pick itself. [PHOTOS.md]
+- The Details photo viewer never lists receipts; it stops at both ends; if photo zoom is ever added, swipe works only when not zoomed. [PHOTOS.md]
+- Finish list: Lookup_Finishes column A in sheet order, never "Various"; a value the list lacks stays as "— existing value". [ADD_COIN.md]
 
-## Open backlog (one line each; full text: [docs/BACKLOG.md](docs/BACKLOG.md))
-Open, not built:
-- (au) next small branch after (ax): if the MSAL script fails to load, a signed-in user sees the demo mockup (fake data shown as real).
-- (a) a newly promoted coin is not in the Catalog until restart (plan first). (d) a Staging-edit receipt's ✕ appears only after a redraw. (e) image chooser left: C4 (Add Set, Wishlist), C5 receipts; HEIC via Files unverified. (f) Catalog Finish groups are fixed in code. (h) graded / reholdered capture design (cost part is (ag)). (i) viewer back gesture unverified on a device. (j) residual receipt bugs, mostly closed by (x) and Builds 1-2. (k) deploy workflow actions to Node 24.
-- (q) retire the old OGP read mapping after C4 and a workbook check. (r) Edit Set saving and split build (all fields with a conflict check, split out child coins, partial sales; "My notes" / "Catalogue notes" labels; a Set's Fun Fact hidden). (u) data fix outside the app: PH-00129 on two TEST rows; check LIVE's Photos tab for duplicate PhotoIDs. (v) note only: pre-27 Oct LIVE Replace overwrote files.
-- (x) rest: move the Edit Coin / Edit Set receipt slot into Purchase Details. (y) the Staging-edit receipt slot needs the shared chooser and a top-right ✕. (aa) Keep or Delete prompt on every Replace, one "Replaced" folder, Staging folder cleanup ((s) folded in). (ab) apply the (z) rule to later forms. (ac) Ledger By Denomination lists six denominations only. (ad) should Total spent / Net include Shipping (pair with (ag)). (ae) SerNo leading-zeros compare differs from `cellsEqual`. (ag) grading cost and grading receipt (ReceiptType, GradingCost). (ah) Sets list sort / filter like Coins. (ak) optional: keep the raw for Holder / Reference.
-- (aq) F4 clearer Save to Database failure toast. (ba) About lists background re-reads. (aw) workbook session probe (see (bk)). (ax) 2b shelved (speed: Promote reads, skip a blank Reviewed, parallel ranges). (bf) Promote auto-finish: ARCHIVED, not merged (branch `claude/promote-auto-finish-bf` at `6416106`; the archive tag's push was refused, so keep the branch); decide after (bk). (bq) the 30-min check re-reads after own saves. (br) workbook Staging tab unused by the app (retirement candidate). (bk) known gap: overlapping saves (BACKLOG (bk)). (bl) Add Coin rework + Category stage 1 (plan first). (bm) Category stage 2. (bn) Create catalog entry (after (bk)). (bo) Slab scanning. (bp) idea: single-writer lease. (bh) idea: Add Coin Status fixed to Owned. (bi) known gap: stale reads after an Excel row insert / delete / sort (append-only rule + 5-minute wait). (bj) Add Set's fixed category list vs Lookup_Categories. (bb) Save to Staging's "Last save" should say saved / refused / partly saved. (bc) Category model (DB_Coins / DB_Sets.Category the source, Lookup_Categories.AppliesTo; design agreed, not scheduled). (ay) value rule: show EffectiveValue (MAX of Value, SpotValue, ComponentValue)? Ray undecided. (az) Build line date UTC vs local. (as) offline photos / receipts. (at) cold offline launch needs a service worker. (av) PLATFORM.md says nine startup sheet reads (12 since (ar)). (ap) unscheduled review items. Batch Receipt design (draft, nothing built); remove a shared receipt from ALL its coins; a general busy indicator; receipt photo cropping; standardising receipt file names. Data note: All.SpotValue has its formula in 1,552 of 1,555 rows. ParkingLot rows 1, 3, 4 of the old block are in the workbook (ParkingLot 286, 302, 303).
-Done: (b) (c) (g) (l) (m) (n) (o) (p) (t) (w) (z) (af) (ai) (aj) (al) (am) (an) (ao) (ar) (ax) Stage 1 + 2a, (bk).
+## Backlog
+The open items, one line each, and the done list: [docs/BACKLOG.md](docs/BACKLOG.md) "Index (moved from CLAUDE.md 9 Nov 2026)". The order of the next tasks is in "Current state" above.
 
 ## Full design history
 For the complete session-by-session reasoning behind these decisions, see the
