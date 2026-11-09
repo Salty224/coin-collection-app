@@ -6165,6 +6165,56 @@
     return (filename && coinPhotoCache[filename]) || null;
   }
 
+  // (ak) Server thumbnails for full-resolution photos. A Holder, Reference,
+  // Other, COA, Package or Set photo is now the full camera picture (often
+  // 2-15 MB), so its TILE reads OneDrive's own thumbnail (about 800 px, the
+  // way Album covers already do) and only the viewer reads the file. A
+  // thumbnail OneDrive has not made yet (a file just uploaded) or any other
+  // miss falls back to the file itself. A file already read this session is
+  // used as it is (no second request). Same attempted / not-attempted rule
+  // as ensureCoinPhotoFetch().
+  const COIN_PHOTO_THUMB_SIZE = "large";
+  const coinPhotoThumbCache = {};
+  const coinPhotoThumbsInFlight = {};
+  async function fetchCoinPhotoThumbBlob(filename) {
+    const token = await getWriteToken();
+    if (!token) return { attempted: false };
+    const path = writePaths().coinPhotos + "/" + filename;
+    try {
+      const res = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" +
+          path.split("/").map(encodeURIComponent).join("/") + ":/thumbnails/0/" + COIN_PHOTO_THUMB_SIZE + "/content",
+        { method: "GET", headers: { Authorization: "Bearer " + token } }
+      );
+      if (!res.ok) return { attempted: true, url: null };
+      return { attempted: true, url: URL.createObjectURL(await res.blob()) };
+    } catch (e) {
+      return { attempted: true, url: null };
+    }
+  }
+  function ensureCoinPhotoThumb(filename) {
+    if (!filename || !WRITE_LAYER_ENABLED) return Promise.resolve(null);
+    if (coinPhotoCache[filename]) return Promise.resolve(coinPhotoCache[filename]);
+    if (coinPhotoThumbCache[filename]) return Promise.resolve(coinPhotoThumbCache[filename]);
+    if (coinPhotoThumbsInFlight[filename]) return coinPhotoThumbsInFlight[filename];
+    const promise = fetchCoinPhotoThumbBlob(filename).then(result => {
+      delete coinPhotoThumbsInFlight[filename];
+      if (result.url) { coinPhotoThumbCache[filename] = result.url; return result.url; }
+      if (!result.attempted) return null; // no token yet: try again later
+      return ensureCoinPhotoFetch(filename); // no thumbnail: the file itself
+    });
+    coinPhotoThumbsInFlight[filename] = promise;
+    return promise;
+  }
+  // What a stored photo's TILE shows: the thumbnail for a trim-only type,
+  // the file itself for an Obverse / Reverse crop (small, and what the flip
+  // card and Albums already cache).
+  function storedTileFetch(entry) {
+    return galleryTypeTrimOnly(galleryTypeDef(entry.type))
+      ? ensureCoinPhotoThumb(entry.storedFilename)
+      : ensureCoinPhotoFetch(entry.storedFilename);
+  }
+
   // ---- Receipts ----------------------------------------------------
   // The receipt on file for a record: the coin's FIRST Receipts row, or
   // null. The old All.Receipt column is not read (receipts and photos
@@ -7074,6 +7124,9 @@
     const bits = (args || []).filter(a => typeof a === "string" && a !== wb)
       .map(a => a.length > 40 ? "…" + a.slice(-39) : a);
     if (method === "patchWorkbookRanges" && Array.isArray(args[2])) bits.push(args[2].length + " ranges");
+    // (ak) An upload's size, so About's Save steps show what each upload carried.
+    const sized = (args || []).find(a => a && typeof a === "object" && (typeof a.size === "number" || typeof a.byteLength === "number"));
+    if (sized && /^(upload|putContent)/.test(method)) bits.push(uploadSizeText(sized));
     return method + (bits.length ? " " + bits.join(" ") : "");
   }
   function timeGraphCall(method, args, call) {
@@ -7118,7 +7171,7 @@
 
   // Every method that writes. A test (session-gate-ao G1/G2) fails if a
   // client grows a method that is not a get / read / list and is not here.
-  const GATED_GRAPH_METHODS = new Set(["putContent", "uploadFile", "uploadBytes", "uploadJson", "deleteItem",
+  const GATED_GRAPH_METHODS = new Set(["putContent", "putContentInSession", "uploadFile", "uploadBytes", "uploadJson", "deleteItem",
     "patchWorkbookRanges", "addTableRow"]);
   const WORKBOOK_WRITE_GRAPH_METHODS = new Set(["patchWorkbookRanges", "addTableRow"]);
 
@@ -9593,6 +9646,14 @@
   }
 
   const NO_OVERWRITE = { noOverwrite: true };
+  // (ak) Upload-session piece size: 10 x 320 KiB (Graph wants multiples of 320 KiB).
+  const UPLOAD_SESSION_CHUNK = 10 * 320 * 1024;
+  // "2.41 MB" / "830 KB" for a Blob or bytes; "" when it can't be told.
+  function uploadSizeText(v) {
+    const n = v == null ? null : (typeof v.size === "number" ? v.size : (typeof v.byteLength === "number" ? v.byteLength : null));
+    if (n == null) return "";
+    return n >= 1024 * 1024 ? (n / (1024 * 1024)).toFixed(2) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  }
   // A failed PUT. `conflict` is true for 409 — the name was already taken
   // and, with NO_OVERWRITE, nothing was written.
   function uploadError(path, status, detail) {
@@ -9626,8 +9687,45 @@
         "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/content" + query,
         { method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": contentType || "application/octet-stream" }, body }
       );
+      // (ak) A file too big for one simple upload (413) goes again through
+      // an upload session, with the same no-overwrite rule.
+      if (res.status === 413 && body && typeof body !== "string") {
+        noteSaveStep("simple upload refused (413, " + uploadSizeText(body) + "): " + path.split("/").pop() + " goes through an upload session", Date.now(), 0);
+        return this.putContentInSession(path, body, opts);
+      }
       if (!res.ok) throw uploadError(path, res.status, await res.text());
       return res.json();
+    },
+    // (ak) Microsoft's upload session: create it (conflictBehavior "fail"
+    // when the caller asked for no-overwrite, so a taken name answers 409
+    // and nothing is written), then send the bytes in UPLOAD_SESSION_CHUNK
+    // pieces (a multiple of 320 KiB, as Graph requires). The chunk PUTs go
+    // to the session's own URL WITHOUT the Authorization header (Graph's
+    // rule for that URL). A failed piece cancels the session (DELETE), so
+    // no half file is left; the error is the usual uploadError.
+    async putContentInSession(path, body, opts) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable (not signed in or disabled).");
+      const blob = body instanceof Blob ? body : new Blob([body]);
+      const created = await fetch(
+        "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(path) + ":/createUploadSession",
+        { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+          body: JSON.stringify({ item: { "@microsoft.graph.conflictBehavior": (opts && opts.noOverwrite) ? "fail" : "replace" } }) }
+      );
+      if (!created.ok) throw uploadError(path, created.status, await created.text());
+      const uploadUrl = (await created.json()).uploadUrl;
+      if (!uploadUrl) throw uploadError(path, 0, "no upload URL came back");
+      const size = blob.size;
+      for (let start = 0; start < size; start += UPLOAD_SESSION_CHUNK) {
+        const end = Math.min(size, start + UPLOAD_SESSION_CHUNK);
+        const r = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Range": "bytes " + start + "-" + (end - 1) + "/" + size }, body: blob.slice(start, end) });
+        if (r.status === 202) continue;
+        if (r.ok) return r.json();
+        const detail = await r.text();
+        try { await fetch(uploadUrl, { method: "DELETE" }); } catch (e) { /* the session expires on its own */ }
+        throw uploadError(path, r.status, detail);
+      }
+      throw uploadError(path, 0, "the upload session ended without a file");
     },
     uploadFile(path, fileOrBlob, opts) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream", opts); },
     uploadBytes(path, bytes, opts) { return this.putContent(path, bytes, "application/octet-stream", opts); },
@@ -28801,6 +28899,10 @@
     // exported the full 240 — so the saved image carried a thin ring the
     // user never framed, ~1.7% of the diameter.
     const circleSize = circleEl.clientWidth || 240;
+    // (ak) The bake draws from these upright PIXELS, not from the <img>:
+    // the <img> shows a JPEG copy of them (display only), and baking from
+    // it added a second JPEG generation to every Obverse / Reverse.
+    let sourceCanvas = null;
     img.onload = () => {
       // Real live-run finding (#5): dragging inside the circle did nothing
       // at the default framing. Root cause is the "cover" fit math in
@@ -28820,7 +28922,7 @@
       photoAdjustState = {
         naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
         zoom: DEFAULT_PHOTO_ADJUST_ZOOM / 100, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
-        circleSize,
+        circleSize, sourceCanvas,
         onComplete: callbackMode ? optsOrPreviewId.onComplete : null,
         targetPreviewId: callbackMode ? null : optsOrPreviewId,
         targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
@@ -28834,7 +28936,10 @@
     // preview and the final canvas bake (which draws from this same <img>)
     // then work from already-correct pixels, with no dependency on canvas
     // drawImage() honoring EXIF (it never does).
-    const orientedCanvas = await loadOrientedImageCanvas(source);
+    // A canvas handed over by Stage 1 is already upright (ak).
+    const orientedCanvas = (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement)
+      ? source : await loadOrientedImageCanvas(source);
+    sourceCanvas = orientedCanvas;
     img.src = orientedCanvas.toDataURL("image/jpeg", 0.95);
   }
 
@@ -28959,7 +29064,8 @@
       ctx.translate(s.offsetX * canvasScale, s.offsetY * canvasScale);
       ctx.rotate(rotationRad);
       ctx.scale(scale * canvasScale, scale * canvasScale);
-      ctx.drawImage(img, -s.naturalWidth / 2, -s.naturalHeight / 2);
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(s.sourceCanvas || img, -s.naturalWidth / 2, -s.naturalHeight / 2);
       ctx.restore();
 
       canvas.toBlob((blob) => {
@@ -28999,14 +29105,72 @@
   // adjuster above (this project's no-external-CDN posture).
   // ==================================================================
 
-  let bgCropState = null; // { baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, onComplete }
+  let bgCropState = null; // { source, fullW, fullH, baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, trimOnly, handOffCanvas, onComplete }
   const BG_CROP_MIN = 32;   // smallest crop box, display px
   const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds
-  // The EXIF-oriented source is capped to this long edge before any rotation
-  // work, so a re-bake on every straighten-slider tick stays fast on a phone.
-  // Final output caps at 1400 anyway (see the Use Crop handler), so this
-  // costs no meaningful quality.
+  // (ak) FULL RESOLUTION, 9 Nov 2026. The crop SCREEN works on a display
+  // copy of the photo (long edge BG_CROP_BASE_MAX), so a re-bake on every
+  // straighten tick stays fast on a phone. The crop itself is kept as
+  // geometry (the box, the 90° turns, the straighten angle) and, at "Use",
+  // applied ONCE to the full-resolution upright original
+  // (bakeBgCropFromOriginal). Nothing is ever cut from the display copy.
+  //   * trim-only types (every non-flip type: Holder, Reference, Other, COA,
+  //     Package, Set photos): never downscaled; untouched = the picked
+  //     file's own bytes (JPEG only); trimmed or turned = one JPEG encode at
+  //     BG_CROP_TRIM_QUALITY, full resolution.
+  //   * a flip source (Obverse / Reverse): the cut is handed to Stage 2 as
+  //     PIXELS (a canvas, never a JPEG), at most BG_CROP_HANDOFF_MAX across;
+  //     Stage 2 makes the one JPEG (1400 cap, 0.92, unchanged).
+  //   * any other caller (Add Set's square child slots): a JPEG capped at
+  //     BG_CROP_OUTPUT_MAX, 0.92, as before, but cut from the original.
   const BG_CROP_BASE_MAX = 1600;
+  const BG_CROP_OUTPUT_MAX = 1400;
+  const BG_CROP_HANDOFF_MAX = 2000;
+  const BG_CROP_TRIM_QUALITY = 0.95;
+  // The one exception to "never downscaled" (Ray's Q13): a photo over about
+  // 60 MP is decoded at FULLRES_SAFETY_LONG_EDGE on its long edge, so a
+  // phone tab is not killed by a 200 MB+ bitmap.
+  const FULLRES_MAX_PIXELS = 60000000;
+  const FULLRES_SAFETY_LONG_EDGE = 8192;
+  // A pending pick's tile shows a small copy made from the display copy
+  // (the viewer still shows the full picture).
+  const PHOTO_PREVIEW_LONG_EDGE = 640;
+
+  // True when the bytes are a JPEG (FF D8 FF), whatever the file says.
+  async function blobIsJpeg(blob) {
+    try {
+      const b = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
+      return b.length === 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+    } catch (e) { return false; }
+  }
+  // The full-resolution upright original as an ImageBitmap (the caller
+  // closes it). Over FULLRES_MAX_PIXELS it is decoded smaller (see above);
+  // `safetyScaled` says so.
+  async function decodeFullResOriented(source) {
+    const probe = await createImageBitmap(source, { imageOrientation: "from-image" });
+    const w = probe.width, h = probe.height;
+    if (w * h <= FULLRES_MAX_PIXELS) return { bitmap: probe, safetyScaled: false };
+    probe.close();
+    const k = FULLRES_SAFETY_LONG_EDGE / Math.max(w, h);
+    const bitmap = await createImageBitmap(source, { imageOrientation: "from-image",
+      resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: "high" });
+    return { bitmap, safetyScaled: true };
+  }
+  // A small preview canvas (long edge PHOTO_PREVIEW_LONG_EDGE at most).
+  function smallCopyOf(canvas) {
+    const k = Math.min(1, PHOTO_PREVIEW_LONG_EDGE / Math.max(canvas.width, canvas.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(canvas.width * k));
+    c.height = Math.max(1, Math.round(canvas.height * k));
+    c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+    return c;
+  }
+  function canvasToBlob(canvas, quality) {
+    return new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error("The photo could not be encoded.")), "image/jpeg", quality));
+  }
+  // Test seam: the last Stage 1 result ({ kind, width, height, bytes, ... }).
+  let lastBgCropResult = null;
+  function __getLastBgCropResultForTest() { return lastBgCropResult; }
 
   // Rotation is applied by RE-BAKING the source into an upright canvas rather
   // than CSS-transforming the displayed image. That's deliberate: the crop box
@@ -29062,9 +29226,13 @@
   }
 
   // Default framing: 80% inset, squared and centered when aspect-locked.
+  // (ak): a trim-only photo (Holder, Reference, Other, COA, Package, Set
+  // photos) starts at the WHOLE photo, so "Use" without touching it keeps
+  // the original bytes (Ray's Q1, 9 Nov 2026).
   function resetBgCropBox() {
     const s = bgCropState;
-    let left = s.dispW * 0.1, top = s.dispH * 0.1, right = s.dispW * 0.9, bottom = s.dispH * 0.9;
+    const inset = s.trimOnly ? 0 : 0.1;
+    let left = s.dispW * inset, top = s.dispH * inset, right = s.dispW * (1 - inset), bottom = s.dispH * (1 - inset);
     if (s.aspectLock) {
       const side = Math.min(right - left, bottom - top);
       const cx = s.dispW / 2, cy = s.dispH / 2;
@@ -29077,34 +29245,81 @@
     opts = opts || {};
     const overlay = document.getElementById("bgCropOverlay");
     document.getElementById("bgCropTitle").textContent = opts.title || "Crop Photo";
-    const oriented = await loadOrientedImageCanvas(source);
-    // Cap the working source once, up front (see BG_CROP_BASE_MAX).
-    let baseCanvas = oriented;
-    const longEdge = Math.max(oriented.width, oriented.height);
-    if (longEdge > BG_CROP_BASE_MAX) {
-      const k = BG_CROP_BASE_MAX / longEdge;
-      const c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(oriented.width * k));
-      c.height = Math.max(1, Math.round(oriented.height * k));
-      c.getContext("2d").drawImage(oriented, 0, 0, c.width, c.height);
-      baseCanvas = c;
-    }
+    // (ak) The display copy only: the full-resolution original is decoded
+    // again at "Use" (bakeBgCropFromOriginal), so the screen never holds it.
+    const full = await createImageBitmap(source, { imageOrientation: "from-image" });
+    const fullW = full.width, fullH = full.height;
+    const k = Math.min(1, BG_CROP_BASE_MAX / Math.max(fullW, fullH));
+    const baseCanvas = document.createElement("canvas");
+    baseCanvas.width = Math.max(1, Math.round(fullW * k));
+    baseCanvas.height = Math.max(1, Math.round(fullH * k));
+    baseCanvas.getContext("2d").drawImage(full, 0, 0, baseCanvas.width, baseCanvas.height);
+    full.close();
 
     const aspectLock = !!opts.aspectLock;
     document.getElementById("bgCropAspectLock").checked = aspectLock;
     document.getElementById("bgCropStraighten").value = 0;
 
     bgCropState = {
+      source, fullW, fullH,
       baseCanvas, workCanvas: baseCanvas,
       dispW: 0, dispH: 0, naturalW: baseCanvas.width, naturalH: baseCanvas.height,
       box: { left: 0, top: 0, right: 0, bottom: 0 },
       aspectLock, rotateQuick: 0, rotateFine: 0,
+      trimOnly: !!opts.trimOnly,
+      handOffCanvas: !!opts.handOffCanvas,
+      baking: false,
       onComplete: opts.onComplete || null,
       onCancel: opts.onCancel || null
     };
     document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
     refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
     overlay.classList.remove("hidden");
+  }
+
+  // (ak) Is the box still the whole photo, with no turn? (half a display px)
+  function bgCropUntouched(s) {
+    const b = s.box, eps = 0.5;
+    return s.rotateQuick === 0 && Number(s.rotateFine) === 0 &&
+      b.left <= eps && b.top <= eps && b.right >= s.dispW - eps && b.bottom >= s.dispH - eps;
+  }
+
+  // (ak) Applies the screen's geometry to the full-resolution original.
+  // The display copy is a straight scale of the original (k = base / full),
+  // so every box edge and turn maps exactly: the box centre is taken
+  // relative to the rotated display copy's centre, divided by k, and placed
+  // about the rotated ORIGINAL's centre. Only the crop's own pixels are
+  // drawn (the whole original is never rotated as a canvas of its own).
+  // outMax: the long-edge cap of the result (null = none).
+  async function bakeBgCropFromOriginal(s, outMax) {
+    const { bitmap, safetyScaled } = await decodeFullResOriented(s.source);
+    try {
+      const W = bitmap.width, H = bitmap.height;
+      // Display copy -> this bitmap (the same aspect; average the two axes).
+      const k = ((s.baseCanvas.width / W) + (s.baseCanvas.height / H)) / 2;
+      const rad = ((s.rotateQuick + Number(s.rotateFine)) * Math.PI) / 180;
+      const b = s.box;
+      const sx = s.naturalW / s.dispW, sy = s.naturalH / s.dispH; // display px -> work (rotated copy) px
+      const boxW = (b.right - b.left) * sx, boxH = (b.bottom - b.top) * sy;
+      const cxWork = (b.left + b.right) / 2 * sx - s.naturalW / 2;
+      const cyWork = (b.top + b.bottom) / 2 * sy - s.naturalH / 2;
+      const cropW = boxW / k, cropH = boxH / k;
+      const longEdge = Math.max(cropW, cropH);
+      const scale = (outMax && longEdge > outMax) ? outMax / longEdge : 1;
+      const outW = Math.max(1, Math.round(cropW * scale)), outH = Math.max(1, Math.round(cropH * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = outW; canvas.height = outH;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.translate(outW / 2, outH / 2);
+      ctx.scale(outW / cropW, outH / cropH);
+      ctx.translate(-cxWork / k, -cyWork / k);
+      ctx.rotate(rad);
+      ctx.drawImage(bitmap, -W / 2, -H / 2);
+      return { canvas, safetyScaled, fullW: W, fullH: H };
+    } finally {
+      bitmap.close();
+    }
   }
 
   function closeBgCrop() {
@@ -29247,30 +29462,47 @@
     });
 
     document.getElementById("bgCropCancelBtn").addEventListener("click", cancelBgCrop);
-    document.getElementById("bgCropUseBtn").addEventListener("click", () => {
+    document.getElementById("bgCropUseBtn").addEventListener("click", async () => {
       const s = bgCropState;
-      if (!s) return;
-      const b = s.box;
-      const sx = s.naturalW / s.dispW, sy = s.naturalH / s.dispH;
-      const srcX = Math.round(b.left * sx), srcY = Math.round(b.top * sy);
-      const srcW = Math.round((b.right - b.left) * sx), srcH = Math.round((b.bottom - b.top) * sy);
-      // Cap output long edge to bound memory; preserve the crop's own aspect.
-      const cap = 1400;
-      const longEdge = Math.max(srcW, srcH);
-      const outScale = longEdge > cap ? cap / longEdge : 1;
-      const outW = Math.max(1, Math.round(srcW * outScale)), outH = Math.max(1, Math.round(srcH * outScale));
-      const canvas = document.createElement("canvas");
-      canvas.width = outW; canvas.height = outH;
-      // Draw from the work CANVAS, not the <img>: the img's src is a data URL
-      // set asynchronously by refreshBgCropSource(), so reading it here raced
-      // against its own load (and would silently produce a blank/stale crop
-      // right after a rotation). The canvas is always immediately correct.
-      canvas.getContext("2d").drawImage(s.workCanvas, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
-      canvas.toBlob((blob) => {
-        const cb = s.onComplete;
-        closeBgCrop();
-        if (cb) cb(blob);
-      }, "image/jpeg", 0.92);
+      if (!s || s.baking) return;
+      s.baking = true; // a second tap while the original decodes does nothing
+      const useBtn = document.getElementById("bgCropUseBtn");
+      useBtn.disabled = true;
+      let result = null;
+      try {
+        if (s.trimOnly && bgCropUntouched(s) && await blobIsJpeg(s.source)) {
+          // (ak) Untouched: the picked file's own bytes, not re-encoded.
+          const blob = s.source.type === "image/jpeg" ? s.source : new Blob([s.source], { type: "image/jpeg" });
+          result = { blob, preview: smallCopyOf(s.baseCanvas), info: { kind: "original-bytes", width: s.fullW, height: s.fullH, bytes: blob.size } };
+        } else {
+          const outMax = s.trimOnly ? null : (s.handOffCanvas ? BG_CROP_HANDOFF_MAX : BG_CROP_OUTPUT_MAX);
+          const baked = await bakeBgCropFromOriginal(s, outMax);
+          if (s.handOffCanvas) {
+            result = { canvas: baked.canvas, info: { kind: "pixels", width: baked.canvas.width, height: baked.canvas.height, safetyScaled: baked.safetyScaled } };
+          } else {
+            const blob = await canvasToBlob(baked.canvas, s.trimOnly ? BG_CROP_TRIM_QUALITY : 0.92);
+            result = { blob, preview: s.trimOnly ? smallCopyOf(baked.canvas) : null,
+              info: { kind: s.trimOnly ? "trimmed-fullres" : "capped", width: baked.canvas.width, height: baked.canvas.height,
+                bytes: blob.size, safetyScaled: baked.safetyScaled } };
+            baked.canvas.width = baked.canvas.height = 0; // free it now, not at the next GC
+          }
+        }
+      } catch (e) {
+        console.warn("Crop failed:", e);
+        s.baking = false;
+        useBtn.disabled = false;
+        showToast("That photo couldn't be cropped" + (e && e.message ? ": " + e.message : "") + ". Nothing was added.");
+        return;
+      }
+      useBtn.disabled = false;
+      if (bgCropState !== s) return; // cancelled while it baked
+      lastBgCropResult = result.info;
+      if (result.info.safetyScaled) showToast("That photo is over 60 MP, so it was kept at 8192 px on its long edge.");
+      const cb = s.onComplete;
+      closeBgCrop();
+      if (!cb) return;
+      if (s.handOffCanvas) cb(result.canvas, result.info);
+      else cb(result.blob, Object.assign({ previewUrl: result.preview ? result.preview.toDataURL("image/jpeg", 0.85) : null }, result.info));
     });
   }
 
@@ -29290,6 +29522,9 @@
   // subGroupId (optional): only meaningful for the subgroup_* tier — namespaces
   // the photo to one sub-group so each sub-group keeps its own obverse/reverse
   // pair. Omitted/null means the implicit default (a flat Set).
+  // (ak) Every non-flip type is trim-only: never downscaled (Ray's Q3, 9 Nov
+  // 2026: Holder, Reference, Other, COA, Package / OGP and Set photos).
+  function galleryTypeTrimOnly(def) { return !!def && !def.flipSource; }
   function runCropPipeline(file, type, collectionId, onEntry, subGroupId, opts) {
     const def = galleryTypeDef(type);
     if (!def) return;
@@ -29298,59 +29533,62 @@
     const indexAmongType = galleryFor(collectionId).filter(e => e.type === type).length;
     const names = galleryFilenameFor(collectionId, type, indexAmongType, subGroupId);
     const onCancel = (opts && opts.onCancel) || null;
+    // FOR A FLIP SOURCE, STAGE 2'S OUTPUT IS THE STORED IMAGE.
+    //
+    // SUPERSEDED: circleBlob used to be "a session-only display
+    // convenience — NOT a stored asset; the flip card re-derives the
+    // circle from the stored rectangle." That is what put a visible ring
+    // of background between the coin and the circle's edge, reported live
+    // on AY-00002 and measured directly: the user frames the coin to FILL
+    // the circle guide, and then the card paints the STAGE 1 rectangle
+    // masked to a circle, discarding that framing entirely. Stage 2's 110%
+    // default zoom guarantees a gap even when Stage 1 is perfectly tight.
+    //
+    // The card still re-derives the circle by masking a square, exactly
+    // as before — the fix is WHICH square: the one actually framed in the
+    // guide, not the intermediate trim. Still one stored file per side.
+    //
+    // (ak) A flip source's Stage 1 cut reaches Stage 2 as PIXELS (a canvas
+    // cut from the full-resolution original), never as a JPEG, so the
+    // stored Obverse / Reverse is the ONE encode of the whole chain.
+    const finish = (circleBlob, rectBlob, info) => {
+      const framedBlob = circleBlob || rectBlob;
+      const fullUrl = URL.createObjectURL(framedBlob);
+      // A trim-only pick shows a small copy on its tile (`url`); the viewer
+      // and anything that needs the picture itself use `fullUrl` / `blob`.
+      const tileUrl = (!circleBlob && info && info.previewUrl) || fullUrl;
+      onEntry({
+        type, url: tileUrl, fullUrl, rawUrl,
+        // Same bytes as `url` for a flip source. Kept because the Add
+        // Coin slot preview reads it (applyCirclePreview).
+        circleUrl: circleBlob ? fullUrl : null,
+        // The cropped Blob itself, not just its display URL — the (gated,
+        // real) Add Set write path uploads Blobs, so a caller that feeds
+        // that path needs the bytes, not a blob: URL it can't upload.
+        blob: framedBlob,
+        caption: "",
+        filename: names.cropped,
+        rawFilename: names.raw || null,
+        subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
+      });
+    };
     openBgCrop(file, {
       title: "Crop — " + def.label + ((opts && opts.titleSuffix) || ""),
       aspectLock: def.aspect === "square",
+      trimOnly: galleryTypeTrimOnly(def),
+      handOffCanvas: !!def.flipSource,
       onCancel,
-      onComplete: (rectBlob) => {
-        const rectUrl = URL.createObjectURL(rectBlob);
-        // FOR A FLIP SOURCE, STAGE 2'S OUTPUT IS THE STORED IMAGE.
-        //
-        // SUPERSEDED: circleBlob used to be "a session-only display
-        // convenience — NOT a stored asset; the flip card re-derives the
-        // circle from the stored rectangle." That is what put a visible ring
-        // of background between the coin and the circle's edge, reported live
-        // on AY-00002 and measured directly: the user frames the coin to FILL
-        // the circle guide, and then the card paints the STAGE 1 rectangle
-        // masked to a circle, discarding that framing entirely. With a
-        // realistic Stage-1 crop (coin at 80% of the square — Stage 1 trims
-        // background, it does not make the coin touch all four edges) the
-        // coin rendered at 0.80 of the circle's diameter against the 1.00 the
-        // user had just framed. Stage 2's 110% default zoom guarantees a gap
-        // even when Stage 1 is perfectly tight.
-        //
-        // The card still re-derives the circle by masking a square, exactly
-        // as before — the fix is WHICH square: the one actually framed in the
-        // guide, not the intermediate trim. Still one stored file per side.
-        const finish = (circleBlob) => {
-          // A non-flip type never runs Stage 2, so it keeps the Stage-1
-          // rectangle exactly as before.
-          const framedBlob = circleBlob || rectBlob;
-          const framedUrl = circleBlob ? URL.createObjectURL(circleBlob) : rectUrl;
-          onEntry({
-            type, url: framedUrl, rawUrl,
-            // Same bytes as `url` now for a flip source. Kept because the Add
-            // Coin slot preview reads it (applyCirclePreview).
-            circleUrl: circleBlob ? framedUrl : null,
-            // The cropped Blob itself, not just its display URL — the (gated,
-            // real) Add Set write path uploads Blobs, so a caller that feeds
-            // that path needs the bytes, not a blob: URL it can't upload.
-            blob: framedBlob,
-            caption: "",
-            filename: names.cropped,
-            rawFilename: names.raw || null,
-            subGroupId: def.tier === "subgroup" ? (subGroupId || DEFAULT_SUBGROUP_ID) : undefined
-          });
-        };
+      onComplete: (result, info) => {
         if (def.flipSource) {
-          // Stage 2: frame the flip-card circle from the clean rectangle.
-          openPhotoAdjust(rectBlob, { onComplete: (circleBlob) => finish(circleBlob), onCancel });
+          // Stage 2: frame the flip-card circle from the cut (pixels).
+          openPhotoAdjust(result, { onComplete: (circleBlob) => finish(circleBlob, null, null), onCancel });
         } else {
-          finish(null);
+          finish(null, result, info);
         }
       }
     });
   }
+
 
 
   // ==================================================================
@@ -29448,7 +29686,9 @@
       await putNew(entry.filename, entry.blob);
       // Point the read cache at the bytes just written, so the flip card
       // and Albums (both read through getCachedCoinPhotoUrl()) show them.
-      if (entry.url) coinPhotoCache[entry.filename] = entry.url;
+      // (ak) The full picture, never a trim-only pick's small tile copy.
+      const cacheUrl = entry.fullUrl || entry.url;
+      if (cacheUrl) coinPhotoCache[entry.filename] = cacheUrl;
     }
     let rawName = "";
     if (entry.rawFilename && entry.rawStored) {
@@ -30505,7 +30745,7 @@
     const pending = galleryFor(collectionId).filter(e => e.stored && !e.url && e.storedFilename);
     if (!pending.length) return;
     Promise.all(pending.map(e =>
-      ensureCoinPhotoFetch(e.storedFilename).then(url => { if (url) { e.url = url; return true; } return false; })
+      storedTileFetch(e).then(url => { if (url) { e.url = url; return true; } return false; })
     )).then(results => { if (results.some(Boolean) && render) render(); });
   }
 
@@ -30685,7 +30925,8 @@
     if (draft) {
       if (!src) return null;
       if (src.blob) return src.blob;
-      return src.url ? fetch(src.url).then(r => r.blob()) : null;
+      const u = src.fullUrl || src.url; // (ak) never a tile copy
+      return u ? fetch(u).then(r => r.blob()) : null;
     }
     if (src && src.pendingSave && src.blob) return src.blob; // a pick not saved yet
     if (!src || !src.storedFilename) return null;
@@ -31389,7 +31630,7 @@
   // the edit opens (loadStagingEditFiles), so until then there is nothing to
   // crop from yet.
   async function draftRecropSource(entry) {
-    const u = entry && (entry.rawUrl || entry.stagingRawUrl || entry.url);
+    const u = entry && (entry.rawUrl || entry.stagingRawUrl || entry.fullUrl || entry.url); // (ak) never a tile copy
     if (!u) return null;
     try { return await fetch(u).then(r => r.blob()); } catch (e) { return null; }
   }
@@ -32528,7 +32769,7 @@
   // collapse whatever accordion the user had open).
   function paintStoredThumbWhenReady(entry, tileHost) {
     if (!entry || !entry.stored || entry.url || !entry.storedFilename) return;
-    ensureCoinPhotoFetch(entry.storedFilename).then(url => {
+    storedTileFetch(entry).then(url => {
       if (!url) return;
       entry.url = url;
       const img = tileHost.querySelector(".gc-img");
@@ -32868,7 +33109,11 @@
     // The photos either side, fetched ahead through the existing read path.
     [index - 1, index + 1].forEach(i => {
       const nb = seq.items[i] && seq.items[i].entry;
-      if (nb && !nb.url && nb.stored && nb.storedFilename) {
+      if (nb && nb.stored && nb.storedFilename && galleryTypeTrimOnly(galleryTypeDef(nb.type))) {
+        // (ak) The thumbnail for the picture, then the file itself.
+        if (!nb.url) ensureCoinPhotoThumb(nb.storedFilename).then(url => { if (url && !nb.url) nb.url = url; });
+        if (!nb.fullUrl) ensureCoinPhotoFetch(nb.storedFilename).then(url => { if (url && !nb.fullUrl) nb.fullUrl = url; });
+      } else if (nb && !nb.url && nb.stored && nb.storedFilename) {
         ensureCoinPhotoFetch(nb.storedFilename).then(url => { if (url && !nb.url) nb.url = url; });
       }
     });
@@ -32952,6 +33197,19 @@
     return showEntryInMediaViewer(entry, typeLabel, token);
   }
   function showEntryInMediaViewer(entry, label, token) {
+    if (entry.fullUrl) { setMediaViewerImage(entry.fullUrl, label); return token; }
+    // (ak) A stored full-resolution photo (a trim-only type): its tile's
+    // server thumbnail shows at once, then the file itself replaces it.
+    if (entry.stored && entry.storedFilename && galleryTypeTrimOnly(galleryTypeDef(entry.type))) {
+      if (entry.url) setMediaViewerImage(entry.url, label);
+      ensureCoinPhotoFetch(entry.storedFilename).then(url => {
+        if (url) entry.fullUrl = url;
+        if (!mediaViewerCurrent(token)) return;
+        if (url) setMediaViewerImage(url, label);
+        else if (!entry.url) setMediaViewerMessage("This photo couldn't be loaded right now.", entry.storedFilename);
+      });
+      return token;
+    }
     if (entry.url) { setMediaViewerImage(entry.url, label); return token; }
     if (entry.stored && entry.storedFilename) {
       ensureCoinPhotoFetch(entry.storedFilename).then(url => {
