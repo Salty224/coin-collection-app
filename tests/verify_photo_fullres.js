@@ -251,7 +251,8 @@ module.exports = defineSuite("photo-fullres", async ({ openApp, check, selfCheck
     const crop = { type: "obverse", stored: true, storedFilename: "AY-00002_obverse_cropped_77.jpg", url: null };
     const tHolder = await storedTileFetch(holder);
     const tCrop = await storedTileFetch(crop);
-    const afterTiles = reqs.slice();
+    // CoinPhotos requests only: a background docket.json read can land in this window.
+    const afterTiles = reqs.filter(u => /\/CoinPhotos\//.test(u));
     // A thumbnail OneDrive has not made yet: the file itself.
     thumbStatus = 404;
     const late = { type: "reference", stored: true, storedFilename: "AY-00002_reference_77.jpg", url: null };

@@ -397,7 +397,7 @@ module.exports = defineSuite("details-viewer-nav", async ({ check, selfCheck, op
   await page.evaluate(() => { window.__ECALLS.length = 0; });
   await openCoin("AY-90605");
   await page.evaluate(() => {
-    for (const e of galleryFor("AY-90605")) { e.url = null; }  // forget the urls the earlier steps put on the entries
+    for (const e of galleryFor("AY-90605")) { e.url = null; e.fullUrl = null; }  // forget the urls the earlier steps put on the entries ((ak): the full file's too)
   });
   await tapTile(1);
   await wait(80);
