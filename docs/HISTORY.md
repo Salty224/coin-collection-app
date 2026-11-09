@@ -3366,3 +3366,13 @@ completions (a bug fix, a component built to existing spec, a screen finished pe
 existing spec) — just do the work. If unsure whether something rises to that bar,
 ask before updating rather than updating by default.
 
+
+## (ak) negative controls (9 Nov 2026, branch `claude/holder-fullres-ak`)
+Each mutation was applied to app.html, `npm test -- photo_fullres` run, and app.html restored (`git checkout`). Every one failed the suite:
+- Bake from the display copy instead of the original (`bakeBgCropFromOriginal` drew `s.baseCanvas`): 9 failed (A4, B1, C1, C3, D2, E2, E3, H1, H2).
+- The 1400 cap left on trim-only photos (`outMax = BG_CROP_OUTPUT_MAX`): 4 failed (A4, B1, C1, H1).
+- Untouched bytes re-encoded anyway (the original-bytes branch skipped): 1 failed (A2).
+- Stored trim-only tiles read the full file (`storedTileFetch` never thumbnails): 1 failed (F4).
+- The 80% inset kept for trim-only photos (`resetBgCropBox`): 9 failed (A1-A4, E1-E3, F2, H1).
+- No upload session after a 413: 6 failed (G1-G6).
+Found while running them: F4 counted every Graph request in its window, and a background docket.json read sometimes landed there (seen once, under the cap mutation); F4 now counts CoinPhotos requests only. details-viewer-nav H3 forgot each entry's `url` but not the new `fullUrl`, so the neighbour prefetch it checks was skipped; the fixture now forgets both (the assertion is unchanged).
