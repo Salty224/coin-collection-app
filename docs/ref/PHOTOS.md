@@ -44,7 +44,7 @@ Ray's plan answers Q1-Q15 (9 Nov 2026). Supersedes Build A's "1400 px holder-cro
   - Negative controls: docs/HISTORY.md "(ak) negative controls".
 - **Verified on Ray's phone (TEST, Build 116, 11 Nov 2026):** untouched camera holder 2.6 MB at 2992 x 2992; trimmed + straightened 1600 x 1800 at full resolution; guided Obverse 1354 x 1354, 382 KB; Gallery and OneDrive picks byte-identical; tiles and viewer fast; Staging -> Promote sizes unchanged; Replace keeps the PhotoID; a 50 MP holder (11.99 MB) uploaded by the simple PUT in 14.0 s, no crash. The in-app 📷 Camera's photo is NOT kept in the Samsung Gallery.
 - **Not verified on a device:** the upload-session path (no 413 was seen), a failed save on a weak signal (step 11), LIVE vs TEST save timing (step 12).
-- **Known, for Build 3 ((bs)):** F1 the whole-photo box puts the handles on the image border (hard to grab); F2 a wide photo overflows the crop screen on the right.
+- **Known, for Build 3 ((bs)):** F1 the whole-photo box puts the handles on the image border (hard to grab); F2 a wide photo overflows the crop screen on the right (measured 11 Nov 2026: NOT from (ak); the Stage 1 stage is a fixed 360 px, wider than the panel on any phone, since it was built; plan in docs/BACKLOG.md "(bs) Build 3 plan").
 
 ## Details photo viewer: next / previous, Build B (built 2 Nov 2026 on `claude/details-viewer-next-prev`, cut from main `9b4e21d`, merged to main 2 Nov 2026 by fast-forward to `24d3e72`; not deployed)
 Ray's go-ahead with all eleven suggested defaults (Q1-Q11), 2 Nov 2026. Display only: nothing here writes; the Graph write spy stays at zero.
