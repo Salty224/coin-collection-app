@@ -3368,6 +3368,25 @@ existing spec) — just do the work. If unsure whether something rises to that b
 ask before updating rather than updating by default.
 
 
+## (bs) build history (11 Nov 2026, branch `claude/crop-basics-bs`, HELD for Ray's TEST)
+- Plan 11 Nov (docs/BACKLOG.md "(bs) Build 3 plan"); Ray's answers Q1-Q9 the same day, all as suggested, plus a reset to exactly 0° on both stages (Q6 addition). Built from main `1b502e0`: code `379290d`.
+- Deviation from the plan: the Stage 1 panel's max-width went 420 -> 440 px. With the 2 x 16 px margin a 420 px panel gave a tablet only 348 x 261, so the 360 x 300 cap Ray kept (Q2) was out of reach (found by B2). The 0° reset is a separate button, not a tap on the readout (Ray left it to the build).
+- Affected suites (16: the 15 crop-screen suites + crop_basics), one run after the build: all PASS, 0 failed (about 5 min).
+- Branch gate (full `npm test` at `379290d`, 11 Nov 2026): 5106 passed, 0 failed, 0 page errors, 102 suites, 755 s.
+
+### (bs) negative controls (11 Nov 2026, branch `claude/crop-basics-bs`)
+Each mutation was applied to a copy of app.html and the suite run there (in parallel, four at a time, about 3.5 min for all); every one failed:
+- N1 no long-press block (`blockCropLongPress` adds nothing): crop_basics 2 failed (A1, A2).
+- N2 the fixed 360 x 300 back (`bgCropFitBounds` returns the cap): 9 failed (B1 at 360 / 384 / 412, B3, B6, C2 at 384 and 412, C3 at 384, C4).
+- N3 margin 0 (`BG_CROP_GUTTER` 0, padding 0): 4 failed (C1, C2 at 384 and 412).
+- N4 no touch area (the ::before 16 px): 2 failed (C3 at 384 and 412).
+- N5a Stage 1 nudge not clamped: 1 failed (D4). N5b arrows never greyed: 3 failed (D1, D2, D4).
+- N6 Stage 2 nudge not clamped: 1 failed (E3; 82 px against a limit of 11.8).
+- N7a Ray's control, a reset that leaves a residue (reset = current x 1e-9, rounding removed): 4 failed (F2, F9, F10, F11: the upload was 77,125 bytes, not the original's 72,622; kind "trimmed-fullres").
+- N7b rounding removed only: 1 failed (F2). (A reset to a literal 0 still saves the bytes without the rounding; the rounding is what keeps a slider or step sequence back at 0 exactly.)
+- N8 a white square drawn into Stage 2's bake: 1 failed (G4).
+- N9 (ak)'s control, `bakeBgCropFromOriginal` drawing the display copy (`s.baseCanvas` at its own size) instead of the original: photo_fullres 3 failed (B2, C2, C4). (ak)'s run listed 9 failures for its version of this mutation; this version keeps the original's W x H, so the size checks pass and only the content checks fail. A first try that stretched the display copy to W x H passed photo_fullres (the geometry is then right, only softer): sharpness is not checked there, as it was not in (ak).
+
 ## (ak) build history (9-11 Nov 2026, branch `claude/holder-fullres-ak`, merged 11 Nov 2026)
 - Plan round 9 Nov (Ray's Q1-Q15); build 9 Nov: code `13d1978` + test fixes `1332303`; branch gate 5057 / 0 / 0 on 101 suites (647 s); TEST deploy run #116 (Build 116).
 - Ray's TEST, phone, _Testing coins (11 Nov): steps 1-10 passed. 1 camera holder untouched 2.6 MB, 2992 x 2992 (camera in 1:1); 2 trimmed + straightened 1600 x 1800, 730 KB (camera in Full mode); 3 guided Obverse 1354 x 1354, 382 KB; 4 Gallery pick byte-identical; 5 Reference via Files identical; 6 tiles and viewer fast; 7 Staging -> Promote sizes unchanged; 8 Replace: same PhotoID, `_02` name, old file kept, Obverse unchanged; 9 a 50 MP holder (AY-00004_slab_reverse_02.jpg, 11.99 MB), no crash, NO 413 line: the simple upload took it in 14.0 s, save total 18.9 s (the upload-session path not exercised on a device); 10 the in-app Camera's photo is NOT in the Samsung Gallery. Skipped: 11 (airplane-mode failure), 12 (LIVE vs TEST timing).
