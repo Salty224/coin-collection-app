@@ -2135,6 +2135,41 @@
      this the later-in-DOM sheet paints over the crop tool and swallows its
      clicks — the tool looks frozen. Lift both crop stages above the rest. */
   #bgCropOverlay, #photoAdjustOverlay { z-index: 210; }
+  /* (bs) Both crop screens: no Android long-press menu (image / text
+     selection) over the crop (Q8), and on a short screen the panel scrolls
+     instead of being cut off (Q9): flex-start + the panel's auto margins
+     centre it when it fits and let it scroll from the top when it does not. */
+  #bgCropOverlay, #photoAdjustOverlay {
+    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+    overflow-y: auto; align-items: flex-start;
+  }
+  #bgCropOverlay > .bg-crop-panel, #photoAdjustOverlay > .photo-adjust-panel { margin: auto 0; }
+  /* (bs) Nudge arrows and fine-angle steps, shared by both stages. Tap only
+     (click); touch-action: manipulation stops a quick double tap zooming. */
+  .crop-nudge-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  .crop-nudge-row button, .crop-angle-row button {
+    min-width: 44px; min-height: 40px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+    font-family: inherit; font-size: 15px; background: transparent;
+    border: 1px solid var(--case-border); color: var(--text); touch-action: manipulation;
+  }
+  .crop-nudge-row button:disabled { opacity: 0.3; cursor: default; }
+  .crop-angle-row { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 6px; }
+  .crop-angle-row button { font-size: 13px; }
+  .crop-angle-readout { min-width: 120px; font-size: 13px; color: var(--text); }
+  /* (bs) Centre mark: display only, never part of a bake (the bakes draw
+     from canvases, not from the screen). */
+  .crop-centre-mark {
+    position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+    pointer-events: none; z-index: 1;
+  }
+  .crop-centre-mark::before, .crop-centre-mark::after {
+    content: ""; position: absolute; background: rgba(255,255,255,0.85);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.45);
+  }
+  .crop-centre-mark::before { left: 8px; top: 0; width: 2px; height: 18px; }
+  .crop-centre-mark::after { left: 0; top: 8px; width: 18px; height: 2px; }
+  .bg-crop-box .crop-centre-mark { display: none; }
+  .bg-crop-box.locked .crop-centre-mark { display: block; }
   .photo-adjust-panel {
     background: var(--bg-case); border: 1px solid var(--case-border-bright);
     border-radius: 14px; padding: 20px; max-width: 320px; width: 100%; text-align: center;
@@ -2182,14 +2217,22 @@
      square (flip sources) or free-form (gallery-only images). */
   .bg-crop-panel {
     background: var(--bg-case); border: 1px solid var(--case-border-bright);
-    border-radius: 14px; padding: 18px; max-width: 420px; width: 100%; text-align: center;
+    border-radius: 14px; padding: 18px; max-width: 440px; width: 100%; text-align: center;
   }
+  /* (bs) max-width 440 (was 420): room for the 360 px cap plus the 2 x 16 px
+     margin and the borders, so a tablet still gets the full 360 x 300 (Q2). */
+  /* (bs) The stage is the picture plus a dark margin (BG_CROP_GUTTER, its
+     padding) on every side, so a box at the whole photo has its handles on
+     the margin, not on the panel edge (F1). The picture, the shades and the
+     box live in #bgCropFrame; every box position is measured on the picture
+     (0..dispW), never on the margin. JS sets the stage's size (F2). */
   .bg-crop-stage {
     position: relative; margin: 0 auto 12px; background: #000; overflow: hidden;
     border: 1px solid var(--case-border); touch-action: none; user-select: none;
-    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
   }
-  .bg-crop-stage img { display: block; max-width: 100%; max-height: 100%; pointer-events: none; user-select: none; }
+  .bg-crop-frame { position: relative; }
+  .bg-crop-stage img { display: block; width: 100%; height: 100%; pointer-events: none; user-select: none; }
   /* Four dim panels around the crop box (top/right/bottom/left) rather than a
      single overlay with a punched hole, so the selected region stays fully
      bright with no compositing tricks. */
@@ -2200,8 +2243,16 @@
   }
   .bg-crop-handle {
     position: absolute; width: 16px; height: 16px; background: var(--gold-bright);
-    border: 1px solid #241c05; border-radius: 3px; touch-action: none;
+    border: 1px solid #241c05; border-radius: 3px; touch-action: none; z-index: 2;
   }
+  /* (bs) F1: an invisible ~44 px touch area round each 16 px handle (a hit
+     on it is a hit on the handle). Corners sit above edges, so where two
+     areas overlap on a small box the corner wins; both win over "move". */
+  .bg-crop-handle::before {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 44px; height: 44px; margin: -22px 0 0 -22px;
+  }
+  .bg-crop-handle.nw, .bg-crop-handle.ne, .bg-crop-handle.sw, .bg-crop-handle.se { z-index: 3; }
   .bg-crop-handle.nw { top: -8px; left: -8px; cursor: nwse-resize; }
   .bg-crop-handle.ne { top: -8px; right: -8px; cursor: nesw-resize; }
   .bg-crop-handle.sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
@@ -5178,6 +5229,13 @@
       <div class="photo-adjust-title">Adjust Photo</div>
       <div class="photo-adjust-circle" id="photoAdjustCircle">
         <img id="photoAdjustImg" draggable="false" alt="">
+        <div class="crop-centre-mark" id="photoAdjustCentreMark"></div>
+      </div>
+      <div class="crop-nudge-row" id="photoAdjustNudgeRow">
+        <button type="button" data-nudge="left" aria-label="Move the picture left">←</button>
+        <button type="button" data-nudge="up" aria-label="Move the picture up">↑</button>
+        <button type="button" data-nudge="down" aria-label="Move the picture down">↓</button>
+        <button type="button" data-nudge="right" aria-label="Move the picture right">→</button>
       </div>
       <label class="photo-adjust-zoom-label" for="photoAdjustZoom">Zoom</label>
       <input type="range" id="photoAdjustZoom" min="100" max="300" value="100">
@@ -5185,8 +5243,13 @@
         <button type="button" id="photoAdjustRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
         <button type="button" id="photoAdjustRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
       </div>
-      <label class="photo-adjust-zoom-label" for="photoAdjustRotate">Straighten</label>
-      <input type="range" id="photoAdjustRotate" min="-45" max="45" value="0" step="1">
+      <div class="crop-angle-row" id="photoAdjustAngleRow">
+        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree">−0.5°</button>
+        <span class="crop-angle-readout" id="photoAdjustAngleReadout">Straighten 0°</span>
+        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree">+0.5°</button>
+        <button type="button" data-angle="reset" id="photoAdjustAngleReset" aria-label="Straighten back to 0 degrees">0°</button>
+      </div>
+      <input type="range" id="photoAdjustRotate" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
       <div class="photo-adjust-hint">Drag to reposition, slider to zoom, straighten if it's tilted</div>
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
@@ -5202,21 +5265,30 @@
     <div class="bg-crop-panel">
       <div class="photo-adjust-title" id="bgCropTitle">Crop Photo</div>
       <div class="bg-crop-stage" id="bgCropStage">
-        <img id="bgCropImg" draggable="false" alt="">
-        <div class="bg-crop-shade" id="bgCropShadeTop"></div>
-        <div class="bg-crop-shade" id="bgCropShadeBottom"></div>
-        <div class="bg-crop-shade" id="bgCropShadeLeft"></div>
-        <div class="bg-crop-shade" id="bgCropShadeRight"></div>
-        <div class="bg-crop-box" id="bgCropBox">
-          <div class="bg-crop-handle nw" data-h="nw"></div>
-          <div class="bg-crop-handle ne" data-h="ne"></div>
-          <div class="bg-crop-handle sw" data-h="sw"></div>
-          <div class="bg-crop-handle se" data-h="se"></div>
-          <div class="bg-crop-handle n" data-h="n"></div>
-          <div class="bg-crop-handle s" data-h="s"></div>
-          <div class="bg-crop-handle w" data-h="w"></div>
-          <div class="bg-crop-handle e" data-h="e"></div>
+        <div class="bg-crop-frame" id="bgCropFrame">
+          <img id="bgCropImg" draggable="false" alt="">
+          <div class="bg-crop-shade" id="bgCropShadeTop"></div>
+          <div class="bg-crop-shade" id="bgCropShadeBottom"></div>
+          <div class="bg-crop-shade" id="bgCropShadeLeft"></div>
+          <div class="bg-crop-shade" id="bgCropShadeRight"></div>
+          <div class="bg-crop-box" id="bgCropBox">
+            <div class="crop-centre-mark" id="bgCropCentreMark"></div>
+            <div class="bg-crop-handle n" data-h="n"></div>
+            <div class="bg-crop-handle s" data-h="s"></div>
+            <div class="bg-crop-handle w" data-h="w"></div>
+            <div class="bg-crop-handle e" data-h="e"></div>
+            <div class="bg-crop-handle nw" data-h="nw"></div>
+            <div class="bg-crop-handle ne" data-h="ne"></div>
+            <div class="bg-crop-handle sw" data-h="sw"></div>
+            <div class="bg-crop-handle se" data-h="se"></div>
+          </div>
         </div>
+      </div>
+      <div class="crop-nudge-row" id="bgCropNudgeRow">
+        <button type="button" data-nudge="left" aria-label="Move the box left">←</button>
+        <button type="button" data-nudge="up" aria-label="Move the box up">↑</button>
+        <button type="button" data-nudge="down" aria-label="Move the box down">↓</button>
+        <button type="button" data-nudge="right" aria-label="Move the box right">→</button>
       </div>
       <label class="bg-crop-aspect-row" id="bgCropAspectRow">
         <input type="checkbox" id="bgCropAspectLock"> Lock to square
@@ -5230,8 +5302,13 @@
         <button type="button" id="bgCropRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
         <button type="button" id="bgCropRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
       </div>
-      <label class="photo-adjust-zoom-label" for="bgCropStraighten">Straighten</label>
-      <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="1">
+      <div class="crop-angle-row" id="bgCropAngleRow">
+        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree">−0.5°</button>
+        <span class="crop-angle-readout" id="bgCropAngleReadout">Straighten 0°</span>
+        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree">+0.5°</button>
+        <button type="button" data-angle="reset" id="bgCropAngleReset" aria-label="Straighten back to 0 degrees">0°</button>
+      </div>
+      <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
       <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background. Rotate or straighten if it came out sideways or tilted.</div>
       <div class="photo-adjust-btns">
         <button type="button" id="bgCropCancelBtn">Cancel</button>
@@ -28872,6 +28949,39 @@
   // Receipt photos stay a plain rectangular preview, no adjuster needed there.
   // ==================================================================
 
+  // (bs) Crop-screen basics, shared by both stages (Ray's Q1-Q9, 11 Nov 2026).
+  // CROP_NUDGE_PX: one arrow tap moves the box (Stage 1) or the picture
+  // (Stage 2) this many screen px; tap only, no hold-to-repeat (Q3).
+  // CROP_ANGLE_STEP: the +/- buttons; the slider moves in 0.1° (Q6).
+  const CROP_NUDGE_PX = 2;
+  const CROP_ANGLE_STEP = 0.5;
+  const CROP_ANGLE_MAX = 45;
+  const CROP_NUDGE_DIRS = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
+  // Every straighten angle goes through here: one decimal, within ±45, and
+  // a true 0 (never -0 or a float residue such as 0.1 + 0.2 - 0.3), so an
+  // angle taken back to 0 counts as untouched and a trim-only photo keeps
+  // its own bytes ((ak)).
+  function roundCropAngle(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    const r = Math.round(Math.max(-CROP_ANGLE_MAX, Math.min(CROP_ANGLE_MAX, n)) * 10) / 10;
+    return r === 0 ? 0 : r;
+  }
+  function cropAngleText(v) {
+    if (v === 0) return "Straighten 0°";
+    return "Straighten " + (v > 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°";
+  }
+  // The next angle for a tap on the -0.5 / +0.5 / 0° buttons.
+  function steppedCropAngle(current, step) {
+    if (step === "reset") return 0;
+    return roundCropAngle(Number(current) + Number(step));
+  }
+  // Q8: no long-press menu on the two crop screens (CSS stops the callout
+  // and selection; this stops the context menu itself).
+  function blockCropLongPress(overlay) {
+    overlay.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
   let photoAdjustState = null; // { naturalWidth, naturalHeight, effWidth, effHeight, baseScale, zoom, offsetX, offsetY, rotateQuick, rotateFine, circleSize, + EITHER target*Id (legacy) OR onComplete (callback) }
   const slotFiles = {}; // frameId -> original File, so "reopen adjuster" can re-crop the same photo
 
@@ -28930,6 +29040,7 @@
       recomputePhotoAdjustBaseScale();
       document.getElementById("photoAdjustZoom").value = DEFAULT_PHOTO_ADJUST_ZOOM;
       document.getElementById("photoAdjustRotate").value = 0;
+      document.getElementById("photoAdjustAngleReadout").textContent = cropAngleText(0);
       applyPhotoAdjustTransform();
     };
     // Orient before the adjuster ever sees it — both the live on-screen
@@ -29028,11 +29139,35 @@
       applyPhotoAdjustTransform();
     });
 
-    document.getElementById("photoAdjustRotate").addEventListener("input", (e) => {
-      if (!photoAdjustState) return;
-      photoAdjustState.rotateFine = Number(e.target.value);
+    // (bs) One way in for every angle change: rounded, slider and readout
+    // kept in step.
+    function setPhotoAdjustAngle(v) {
+      const s = photoAdjustState;
+      if (!s) return;
+      s.rotateFine = roundCropAngle(v);
+      document.getElementById("photoAdjustRotate").value = s.rotateFine;
+      document.getElementById("photoAdjustAngleReadout").textContent = cropAngleText(s.rotateFine);
+      applyPhotoAdjustTransform();
+    }
+    document.getElementById("photoAdjustRotate").addEventListener("input", (e) => setPhotoAdjustAngle(e.target.value));
+    document.getElementById("photoAdjustAngleRow").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-angle]");
+      if (!btn || !photoAdjustState) return;
+      setPhotoAdjustAngle(steppedCropAngle(photoAdjustState.rotateFine, btn.dataset.angle));
+    });
+    // (bs) Q4: an arrow moves the picture under the circle, the same way a
+    // drag does, within the same pan limits.
+    document.getElementById("photoAdjustNudgeRow").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-nudge]");
+      const s = photoAdjustState;
+      if (!btn || !s) return;
+      const d = CROP_NUDGE_DIRS[btn.dataset.nudge];
+      s.offsetX += d[0] * CROP_NUDGE_PX;
+      s.offsetY += d[1] * CROP_NUDGE_PX;
+      clampPhotoAdjustOffsets();
       applyPhotoAdjustTransform();
     });
+    blockCropLongPress(document.getElementById("photoAdjustOverlay"));
     document.getElementById("photoAdjustRotateLeftBtn").addEventListener("click", () => quickRotatePhotoAdjust(-90));
     document.getElementById("photoAdjustRotateRightBtn").addEventListener("click", () => quickRotatePhotoAdjust(90));
 
@@ -29107,7 +29242,13 @@
 
   let bgCropState = null; // { source, fullW, fullH, baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, trimOnly, handOffCanvas, onComplete }
   const BG_CROP_MIN = 32;   // smallest crop box, display px
-  const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds
+  const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds (the cap, Q2)
+  // (bs) F1: the dark margin round the picture (the stage's CSS padding);
+  // F2 / Q9: the picture is never squeezed below this height to fit a short
+  // screen (the panel scrolls instead).
+  const BG_CROP_GUTTER = 16;
+  const BG_CROP_MIN_DISP_H = 200;
+  const BG_CROP_MIN_DISP_W = 120;
   // (ak) FULL RESOLUTION, 9 Nov 2026. The crop SCREEN works on a display
   // copy of the photo (long edge BG_CROP_BASE_MAX), so a re-bake on every
   // straighten tick stays fast on a phone. The crop itself is kept as
@@ -29200,20 +29341,44 @@
   // slightly and losing framing every tick would be jarring). When false the
   // box resets to the default inset (used for 90° quick rotates, where the
   // aspect fundamentally flips and preserving framing is meaningless).
-  function refreshBgCropSource(preserveBox) {
+  // (bs) F2: the largest picture size that fits the panel as it is on this
+  // screen, under the 360 x 300 cap (Q2). Width: the panel's inside less the
+  // margin and the stage border. Height: what the screen leaves after the
+  // panel's other controls, but never under BG_CROP_MIN_DISP_H (Q9: the
+  // panel scrolls instead). Measured with the overlay showing.
+  function bgCropFitBounds() {
+    const overlay = document.getElementById("bgCropOverlay");
+    const panel = overlay.querySelector(".bg-crop-panel");
+    const stage = document.getElementById("bgCropStage");
+    const chromeX = 2 * BG_CROP_GUTTER + 2; // margin both sides + 1px border both sides
+    let maxW = BG_CROP_MAX_DISP_W, maxH = BG_CROP_MAX_DISP_H;
+    if (panel && panel.clientWidth > 0) {
+      const ps = getComputedStyle(panel);
+      const inner = panel.clientWidth - parseFloat(ps.paddingLeft) - parseFloat(ps.paddingRight);
+      maxW = Math.max(BG_CROP_MIN_DISP_W, Math.min(BG_CROP_MAX_DISP_W, Math.floor(inner - chromeX)));
+      const os = getComputedStyle(overlay);
+      const others = panel.offsetHeight - stage.offsetHeight; // the panel without the stage
+      const room = window.innerHeight - parseFloat(os.paddingTop) - parseFloat(os.paddingBottom) - others - chromeX;
+      maxH = Math.max(BG_CROP_MIN_DISP_H, Math.min(BG_CROP_MAX_DISP_H, Math.floor(room)));
+    }
+    return { maxW, maxH };
+  }
+
+  // (bs) Sizes the stage for the current work canvas. Box positions are on
+  // the picture (0..dispW), so a new size rescales the box with it.
+  function layoutBgCropStage(preserveBox, oldW, oldH) {
     const s = bgCropState;
     if (!s) return;
-    const oldW = s.dispW, oldH = s.dispH;
-    const work = bakeRotatedWorkCanvas(s.baseCanvas, s.rotateQuick, s.rotateFine);
-    s.workCanvas = work;
-    s.naturalW = work.width; s.naturalH = work.height;
-    const scale = Math.min(BG_CROP_MAX_DISP_W / work.width, BG_CROP_MAX_DISP_H / work.height, 1);
-    s.dispW = Math.round(work.width * scale);
-    s.dispH = Math.round(work.height * scale);
+    const { maxW, maxH } = bgCropFitBounds();
+    const scale = Math.min(maxW / s.naturalW, maxH / s.naturalH, 1);
+    s.dispW = Math.max(1, Math.round(s.naturalW * scale));
+    s.dispH = Math.max(1, Math.round(s.naturalH * scale));
+    const frame = document.getElementById("bgCropFrame");
+    frame.style.width = s.dispW + "px";
+    frame.style.height = s.dispH + "px";
     const stage = document.getElementById("bgCropStage");
-    stage.style.width = s.dispW + "px";
-    stage.style.height = s.dispH + "px";
-    document.getElementById("bgCropImg").src = work.toDataURL("image/jpeg", 0.95);
+    stage.style.width = (s.dispW + 2 * BG_CROP_GUTTER + 2) + "px";
+    stage.style.height = (s.dispH + 2 * BG_CROP_GUTTER + 2) + "px";
     if (preserveBox && oldW > 0 && oldH > 0) {
       const fx = s.dispW / oldW, fy = s.dispH / oldH;
       s.box.left *= fx; s.box.right *= fx;
@@ -29223,6 +29388,17 @@
       resetBgCropBox();
     }
     renderBgCrop();
+  }
+
+  function refreshBgCropSource(preserveBox) {
+    const s = bgCropState;
+    if (!s) return;
+    const oldW = s.dispW, oldH = s.dispH;
+    const work = bakeRotatedWorkCanvas(s.baseCanvas, s.rotateQuick, s.rotateFine);
+    s.workCanvas = work;
+    s.naturalW = work.width; s.naturalH = work.height;
+    document.getElementById("bgCropImg").src = work.toDataURL("image/jpeg", 0.95);
+    layoutBgCropStage(preserveBox, oldW, oldH);
   }
 
   // Default framing: 80% inset, squared and centered when aspect-locked.
@@ -29259,6 +29435,7 @@
     const aspectLock = !!opts.aspectLock;
     document.getElementById("bgCropAspectLock").checked = aspectLock;
     document.getElementById("bgCropStraighten").value = 0;
+    document.getElementById("bgCropAngleReadout").textContent = cropAngleText(0);
 
     bgCropState = {
       source, fullW, fullH,
@@ -29273,8 +29450,10 @@
       onCancel: opts.onCancel || null
     };
     document.getElementById("bgCropBox").classList.toggle("locked", aspectLock);
-    refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
+    // (bs) Shown first, in the same task (nothing paints in between): the
+    // stage is fitted to the panel as measured, and a hidden panel measures 0.
     overlay.classList.remove("hidden");
+    refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
   }
 
   // (ak) Is the box still the whole photo, with no turn? (half a display px)
@@ -29354,6 +29533,26 @@
     setShade("bgCropShadeBottom", 0, b.bottom, s.dispW, s.dispH - b.bottom);
     setShade("bgCropShadeLeft", 0, b.top, b.left, h);
     setShade("bgCropShadeRight", b.right, b.top, s.dispW - b.right, h);
+    // (bs) Q5: an arrow that cannot move the box (it is at that edge of the
+    // photo) is greyed; on an untouched whole-photo box all four are.
+    const eps = 0.01;
+    const can = { left: b.left > eps, up: b.top > eps, right: b.right < s.dispW - eps, down: b.bottom < s.dispH - eps };
+    document.querySelectorAll("#bgCropNudgeRow button[data-nudge]").forEach(btn => {
+      btn.disabled = !can[btn.dataset.nudge];
+    });
+  }
+
+  // (bs) One arrow tap: the box moves CROP_NUDGE_PX screen px (box positions
+  // are screen px on the picture), never past the photo's edge, same size.
+  function nudgeBgCropBox(dir) {
+    const s = bgCropState;
+    const d = CROP_NUDGE_DIRS[dir];
+    if (!s || !d) return;
+    const b = s.box, w = b.right - b.left, h = b.bottom - b.top;
+    const nl = Math.max(0, Math.min(s.dispW - w, b.left + d[0] * CROP_NUDGE_PX));
+    const nt = Math.max(0, Math.min(s.dispH - h, b.top + d[1] * CROP_NUDGE_PX));
+    b.left = nl; b.right = nl + w; b.top = nt; b.bottom = nt + h;
+    renderBgCrop();
   }
 
   function clampBgBox() {
@@ -29449,16 +29648,44 @@
     document.getElementById("bgCropRotateLeftBtn").addEventListener("click", () => quickRotate(-90));
     document.getElementById("bgCropRotateRightBtn").addEventListener("click", () => quickRotate(90));
 
+    // (bs) Every angle change (slider, -0.5 / +0.5, 0°) comes through here:
+    // rounded (roundCropAngle), slider and readout kept in step, and the
+    // re-bake rAF-throttled as before.
     let straightenPending = false;
-    document.getElementById("bgCropStraighten").addEventListener("input", (e) => {
-      if (!bgCropState) return;
-      bgCropState.rotateFine = Number(e.target.value);
+    function setBgCropAngle(v) {
+      const s = bgCropState;
+      if (!s) return;
+      s.rotateFine = roundCropAngle(v);
+      document.getElementById("bgCropStraighten").value = s.rotateFine;
+      document.getElementById("bgCropAngleReadout").textContent = cropAngleText(s.rotateFine);
       if (straightenPending) return;
       straightenPending = true;
       requestAnimationFrame(() => {
         straightenPending = false;
         if (bgCropState) refreshBgCropSource(true);
       });
+    }
+    document.getElementById("bgCropStraighten").addEventListener("input", (e) => setBgCropAngle(e.target.value));
+    document.getElementById("bgCropAngleRow").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-angle]");
+      if (!btn || !bgCropState) return;
+      setBgCropAngle(steppedCropAngle(bgCropState.rotateFine, btn.dataset.angle));
+    });
+    document.getElementById("bgCropNudgeRow").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-nudge]");
+      if (btn && !btn.disabled) nudgeBgCropBox(btn.dataset.nudge);
+    });
+    blockCropLongPress(document.getElementById("bgCropOverlay"));
+    // (bs) F2: a turn of the phone (or any resize) re-fits the stage and
+    // keeps the box on the same part of the photo.
+    window.addEventListener("resize", () => {
+      const s = bgCropState;
+      if (!s || document.getElementById("bgCropOverlay").classList.contains("hidden")) return;
+      const oldW = s.dispW, oldH = s.dispH;
+      const { maxW, maxH } = bgCropFitBounds();
+      const scale = Math.min(maxW / s.naturalW, maxH / s.naturalH, 1);
+      if (Math.round(s.naturalW * scale) === oldW && Math.round(s.naturalH * scale) === oldH) return;
+      layoutBgCropStage(true, oldW, oldH);
     });
 
     document.getElementById("bgCropCancelBtn").addEventListener("click", cancelBgCrop);
