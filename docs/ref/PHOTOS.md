@@ -4,7 +4,7 @@ Read this file when: touching photos, crop, receipts, the image chooser, Manage 
 Since the (am) slimming (4 Nov 2026) the Save-wait, leave guard, Replace, receipts, alignment and Photos / Receipts tab write-ups are in [SAVE_AND_RECEIPTS.md](SAVE_AND_RECEIPTS.md); the rules blocks of Guided crop and the Details viewer end this file. The cross-area rules E2 and E21 end this file too.
 Back to [CLAUDE.md](../../CLAUDE.md). Line numbers in this file's pointers refer to CLAUDE.md as it was at commit `21bcd95`, before it was slimmed (see [docs/INDEX.md](../INDEX.md)).
 
-## (ak) Full-resolution Holder, Reference and other trim-only photos (built 9 Nov 2026 on `claude/holder-fullres-ak`, cut from main `6437872`; HELD for Ray's TEST and merge go-ahead)
+## (ak) Full-resolution Holder, Reference and other trim-only photos (built 9 Nov 2026 on `claude/holder-fullres-ak`, cut from main `6437872`; MERGED 11 Nov 2026 by fast-forward, code `1332303`; Ray's TEST of Build 116 passed steps 1-10; build history and TEST results: docs/HISTORY.md "(ak) build history")
 Ray's plan answers Q1-Q15 (9 Nov 2026). Supersedes Build A's "1400 px holder-crop limit accepted by Ray" and the "Source is the holder as trimmed" note below.
 - **Before.** Every pick went through `runCropPipeline` -> Stage 1 (`openBgCrop`): decoded upright, shrunk to 1600 px (`BG_CROP_BASE_MAX`), cut and capped at 1400 px, JPEG 0.92. Holder / Reference / Other / COA / Package / Set photos stopped there (about 200-300 KB). Obverse / Reverse then went through Stage 2 (`openPhotoAdjust`), which re-encoded its source at 0.95 before baking from the `<img>`. A guided crop was cut from the 1400 px holder, so the coin was about 500-700 px (about 80 KB) after three JPEG encodes and two downscales.
 - **The rule now.** Every non-flip type is TRIM-ONLY (`galleryTypeTrimOnly(def)` = `!def.flipSource`; Ray's Q3): Holder front/back, Reference, Other, COA, Package / OGP and the Set photos. Trimmed, never downscaled. Obverse / Reverse stay capped at 1400 px, JPEG 0.92 (Q4).
@@ -42,7 +42,9 @@ Ray's plan answers Q1-Q15 (9 Nov 2026). Supersedes Build A's "1400 px holder-cro
 - **Tests.**
   - `tests/verify_photo_fullres.js` (38 incl. the self-check pair): A untouched bytes / whole-photo box / PNG / type list; B trimmed full-res; C 90° and fine-turn mapping; D flip hand-off and the 1400 cap; E guided crop from a full-res holder; F tiles, thumbnail fallback and the viewer; G upload session; H over 60 MP; I Save-step sizes; J no writes.
   - Negative controls: docs/HISTORY.md "(ak) negative controls".
-- **Not verified on a device:** everything in Ray's TEST steps 1-12 (sizes on OneDrive, the 413 / upload-session path against real Graph, Graph thumbnails of fresh uploads, memory with a 50 MP photo, whether the in-app camera's photo is kept in the Gallery, save timings).
+- **Verified on Ray's phone (TEST, Build 116, 11 Nov 2026):** untouched camera holder 2.6 MB at 2992 x 2992; trimmed + straightened 1600 x 1800 at full resolution; guided Obverse 1354 x 1354, 382 KB; Gallery and OneDrive picks byte-identical; tiles and viewer fast; Staging -> Promote sizes unchanged; Replace keeps the PhotoID; a 50 MP holder (11.99 MB) uploaded by the simple PUT in 14.0 s, no crash. The in-app 📷 Camera's photo is NOT kept in the Samsung Gallery.
+- **Not verified on a device:** the upload-session path (no 413 was seen), a failed save on a weak signal (step 11), LIVE vs TEST save timing (step 12).
+- **Known, for Build 3 ((bs)):** F1 the whole-photo box puts the handles on the image border (hard to grab); F2 a wide photo overflows the crop screen on the right.
 
 ## Details photo viewer: next / previous, Build B (built 2 Nov 2026 on `claude/details-viewer-next-prev`, cut from main `9b4e21d`, merged to main 2 Nov 2026 by fast-forward to `24d3e72`; not deployed)
 Ray's go-ahead with all eleven suggested defaults (Q1-Q11), 2 Nov 2026. Display only: nothing here writes; the Graph write spy stays at zero.

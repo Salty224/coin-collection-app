@@ -3333,6 +3333,7 @@ tile — it's reachable only via its own tab inside Browse.
 - **Device cache and offline read-only view (ao)** (7 Nov, last code `406fed8`, LIVE in `d0a69b2`): invariant 17; Offline / Can't reach OneDrive rows; toasts "Updated" / "Back online"; written values shown while Excel's content lags (`withRecentWrites`, display only); Docket "About" (load report, save steps and outcome, version checks, content-lag probe, Refresh). [PLATFORM.md]
 - **Finish list from Lookup_Finishes (ar)** (7 Nov, last code `632f8e0`, LIVE in `2b4920f`, step 8 passed): the 12th launch sheet (optional; saved-copy format 2); the list is column A in sheet order, never "Various"; fallback `FINISH_FALLBACK_LIST` (13, with Diamond Field); a value the list lacks stays as "— existing value". Read-only. [ADD_COIN.md]
 - **Save speed (ax), Stage 1 + 2a** (7 Nov, last code `db8673e`; LIVE in `785e7de`; 2b shelved): the header re-read, row lookup and row re-read run together (P2 for Edit Coin with checks (i)-(iii), P1 for Promote; invariant 3); Save steps diagnostics (saved-copy delete, token, answer read, main-thread stall, background work; Mark as promoted; "Write outside a timed save"); About's LastModified read-back; writes while Excel lags: claimed rows never re-claimed, Promote "not showing yet" with no second row on a retry, the serial re-read's CollectionID check, own row states by LastModified (invariants 4, 7). [WRITE_LAYER.md]
+- **Full-resolution photos (ak)** (11 Nov, code `1332303`, merged by fast-forward): every non-flip photo trim-only and never downscaled, untouched = the picked file's own bytes; Obverse / Reverse one encode, 1400 / 0.92; thumbnails for tiles; upload session after a 413. [PHOTOS.md]
 - **Workbook session (bk)** (8 Nov, code `296d8c4`): every workbook request through one Excel session, write steps pinned to its generation (invariant 18; Ray's TEST passed (a), (b), c1, c2). [WRITE_LAYER.md]
 - **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned", Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
 
@@ -3367,7 +3368,14 @@ existing spec) — just do the work. If unsure whether something rises to that b
 ask before updating rather than updating by default.
 
 
-## (ak) negative controls (9 Nov 2026, branch `claude/holder-fullres-ak`)
+## (ak) build history (9-11 Nov 2026, branch `claude/holder-fullres-ak`, merged 11 Nov 2026)
+- Plan round 9 Nov (Ray's Q1-Q15); build 9 Nov: code `13d1978` + test fixes `1332303`; branch gate 5057 / 0 / 0 on 101 suites (647 s); TEST deploy run #116 (Build 116).
+- Ray's TEST, phone, _Testing coins (11 Nov): steps 1-10 passed. 1 camera holder untouched 2.6 MB, 2992 x 2992 (camera in 1:1); 2 trimmed + straightened 1600 x 1800, 730 KB (camera in Full mode); 3 guided Obverse 1354 x 1354, 382 KB; 4 Gallery pick byte-identical; 5 Reference via Files identical; 6 tiles and viewer fast; 7 Staging -> Promote sizes unchanged; 8 Replace: same PhotoID, `_02` name, old file kept, Obverse unchanged; 9 a 50 MP holder (AY-00004_slab_reverse_02.jpg, 11.99 MB), no crash, NO 413 line: the simple upload took it in 14.0 s, save total 18.9 s (the upload-session path not exercised on a device); 10 the in-app Camera's photo is NOT in the Samsung Gallery. Skipped: 11 (airplane-mode failure), 12 (LIVE vs TEST timing).
+- Answers 11 Nov: Q1 keep the upload session (only after a 413); Q2 Staging-edit tiles -> backlog (bt); Q3 viewer zoom -> backlog (bu), after Build 3.
+- Findings: F1 / F2 -> Build 3 (bs); F3 -> (bv); F4 watch + the keep-the-steps idea -> (bw).
+- Merged by fast-forward to `1d53ec4` (main had not moved from `6437872`, so the branch gate stood); the merge's docs commit regenerated CODEMAP and moved these notes here.
+
+### (ak) negative controls (9 Nov 2026, branch `claude/holder-fullres-ak`)
 Each mutation was applied to app.html, `npm test -- photo_fullres` run, and app.html restored (`git checkout`). Every one failed the suite:
 - Bake from the display copy instead of the original (`bakeBgCropFromOriginal` drew `s.baseCanvas`): 9 failed (A4, B1, C1, C3, D2, E2, E3, H1, H2).
 - The 1400 cap left on trim-only photos (`outMax = BG_CROP_OUTPUT_MAX`): 4 failed (A4, B1, C1, H1).

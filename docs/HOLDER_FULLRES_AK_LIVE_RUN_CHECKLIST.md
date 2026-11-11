@@ -14,3 +14,6 @@ Run on the TEST build (blue "TEST · claude/holder-fullres-ak" bar), on _Testing
 10. Take a photo with the app's 📷 Camera, then open the Samsung Gallery: is that photo there?
 11. Save on a weak signal (or switch to airplane mode mid-save). A failure stays pending; Retry sends only it.
 12. Timing: the same save (holder pair plus two guided crops on one coin) on wifi, once on LIVE and once on this TEST build. After each, Docket, About, "Last save" and "Save steps": note the total, each "Graph uploadFile ... (size)" line, and the workbook lines (header / row reads, patchWorkbookRanges, addTableRow).
+
+## Results (Ray, Build 116, phone, 11 Nov 2026)
+Steps 1-10 passed; 11 and 12 skipped. Details and the findings (F1-F4): docs/HISTORY.md "(ak) build history". Merged 11 Nov 2026.
