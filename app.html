@@ -2144,18 +2144,49 @@
     overflow-y: auto; align-items: flex-start;
   }
   #bgCropOverlay > .bg-crop-panel, #photoAdjustOverlay > .photo-adjust-panel { margin: auto 0; }
-  /* (bs) Nudge arrows and fine-angle steps, shared by both stages. Tap only
-     (click); touch-action: manipulation stops a quick double tap zooming. */
-  .crop-nudge-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
-  .crop-nudge-row button, .crop-angle-row button {
-    min-width: 44px; min-height: 40px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
-    font-family: inherit; font-size: 15px; background: transparent;
+  /* (bs) fix round (Ray's TEST of Build 119): both crop panels are tighter so
+     Use is on screen without scrolling on an upright phone (about 384 x 740). */
+  #bgCropOverlay, #photoAdjustOverlay { padding: 10px; padding-top: calc(10px + var(--top-strip-h, 0px)); }
+  #bgCropOverlay .bg-crop-panel, #photoAdjustOverlay .photo-adjust-panel { padding: 12px 14px; }
+  #bgCropOverlay .photo-adjust-title, #photoAdjustOverlay .photo-adjust-title { margin-bottom: 8px; }
+  #bgCropOverlay .photo-adjust-hint, #photoAdjustOverlay .photo-adjust-hint { margin-bottom: 8px; }
+  #photoAdjustOverlay .photo-adjust-circle { margin-bottom: 10px; }
+  #bgCropOverlay .photo-adjust-rotate-row, #photoAdjustOverlay .photo-adjust-rotate-row { margin-bottom: 8px; }
+  /* (bs) The control pad, both stages (Ray's layout, 14 Nov 2026):
+        −   ↑   +        left side decreases, right side increases:
+          ←   →          − / + zoom (circle only), ↺ / ↻ −0.5° / +0.5°;
+        ↺   ↓   ↻        nothing sits directly beside ← or →.
+     A 5 x 3 grid; the empty cells stay empty. Buttons 44 px, down to 40 px
+     on a narrow screen. Tap only (click); touch-action: manipulation stops a
+     quick double tap zooming the page. */
+  .crop-pad {
+    display: grid; grid-template-columns: repeat(5, minmax(40px, 44px)); grid-template-rows: repeat(3, auto);
+    column-gap: 6px; row-gap: 4px; justify-content: center; margin: 0 auto 8px;
+  }
+  .crop-pad button {
+    width: 100%; height: 40px; padding: 0; border-radius: 8px; cursor: pointer;
+    font-family: inherit; font-size: 18px; line-height: 1; background: transparent;
     border: 1px solid var(--case-border); color: var(--text); touch-action: manipulation;
   }
-  .crop-nudge-row button:disabled { opacity: 0.3; cursor: default; }
-  .crop-angle-row { display: flex; gap: 6px; align-items: center; justify-content: center; margin-bottom: 6px; }
-  .crop-angle-row button { font-size: 13px; }
-  .crop-angle-readout { min-width: 120px; font-size: 13px; color: var(--text); }
+  .crop-pad button:disabled { opacity: 0.3; cursor: default; }
+  .crop-pad [data-zoom="out"] { grid-area: 1 / 1; }
+  .crop-pad [data-nudge="up"] { grid-area: 1 / 3; }
+  .crop-pad [data-zoom="in"] { grid-area: 1 / 5; }
+  .crop-pad [data-nudge="left"] { grid-area: 2 / 2; }
+  .crop-pad [data-nudge="right"] { grid-area: 2 / 4; }
+  .crop-pad [data-angle="-0.5"] { grid-area: 3 / 1; }
+  .crop-pad [data-nudge="down"] { grid-area: 3 / 3; }
+  .crop-pad [data-angle="0.5"] { grid-area: 3 / 5; }
+  @media (min-width: 380px) { .crop-pad button { height: 44px; } }
+  /* (bs) The Straighten readout sits on the slider row, above the slider; a
+     tick marks 0° (the range is symmetric, so 0 is the middle of the track). */
+  .crop-angle-readout { display: block; font-size: 12px; color: var(--text); text-align: left; margin-bottom: 2px; }
+  .crop-slider-wrap { position: relative; margin-bottom: 8px; }
+  .crop-slider-wrap input[type="range"] { width: 100%; margin: 0; display: block; position: relative; z-index: 1; }
+  .crop-slider-tick {
+    position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+    background: var(--gold-bright); opacity: 0.8; pointer-events: none; border-radius: 1px;
+  }
   /* (bs) Centre mark: display only, never part of a bake (the bakes draw
      from canvases, not from the screen). */
   .crop-centre-mark {
@@ -2191,7 +2222,7 @@
   .photo-adjust-zoom-label {
     display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; text-align: left;
   }
-  #photoAdjustZoom { width: 100%; margin-bottom: 6px; }
+  #photoAdjustZoom { width: 100%; margin-bottom: 8px; }
   #photoAdjustRotate { width: 100%; margin-bottom: 12px; }
   .photo-adjust-rotate-row { display: flex; gap: 10px; margin-bottom: 14px; }
   .photo-adjust-rotate-row button {
@@ -2265,7 +2296,13 @@
     display: flex; align-items: center; justify-content: center; gap: 8px;
     font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
   }
-  #bgCropStraighten { width: 100%; margin-bottom: 12px; }
+  /* (bs) Lock to square shares a row with the two 90° turns. */
+  .bg-crop-tools-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .bg-crop-tools-row button {
+    padding: 8px 10px; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 15px;
+    background: transparent; border: 1px solid var(--case-border); color: var(--text);
+  }
+  .bg-crop-tools-row .bg-crop-aspect-row { margin-bottom: 0; }
 
   /* ---- Sub-group photo chip (on each sub-group row) + its focused sheet.
      The chip keeps the row one compact line regardless of how many
@@ -5231,11 +5268,15 @@
         <img id="photoAdjustImg" draggable="false" alt="">
         <div class="crop-centre-mark" id="photoAdjustCentreMark"></div>
       </div>
-      <div class="crop-nudge-row" id="photoAdjustNudgeRow">
-        <button type="button" data-nudge="left" aria-label="Move the picture left">←</button>
+      <div class="crop-pad" id="photoAdjustPad">
+        <button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out">−</button>
         <button type="button" data-nudge="up" aria-label="Move the picture up">↑</button>
-        <button type="button" data-nudge="down" aria-label="Move the picture down">↓</button>
+        <button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" data-nudge="left" aria-label="Move the picture left">←</button>
         <button type="button" data-nudge="right" aria-label="Move the picture right">→</button>
+        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree" title="−0.5°">↺</button>
+        <button type="button" data-nudge="down" aria-label="Move the picture down">↓</button>
+        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree" title="+0.5°">↻</button>
       </div>
       <label class="photo-adjust-zoom-label" for="photoAdjustZoom">Zoom</label>
       <input type="range" id="photoAdjustZoom" min="100" max="300" value="100">
@@ -5243,14 +5284,12 @@
         <button type="button" id="photoAdjustRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
         <button type="button" id="photoAdjustRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
       </div>
-      <div class="crop-angle-row" id="photoAdjustAngleRow">
-        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree">−0.5°</button>
-        <span class="crop-angle-readout" id="photoAdjustAngleReadout">Straighten 0°</span>
-        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree">+0.5°</button>
-        <button type="button" data-angle="reset" id="photoAdjustAngleReset" aria-label="Straighten back to 0 degrees">0°</button>
+      <label class="crop-angle-readout" id="photoAdjustAngleReadout" for="photoAdjustRotate">Straighten 0°</label>
+      <div class="crop-slider-wrap">
+        <input type="range" id="photoAdjustRotate" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
+        <div class="crop-slider-tick" id="photoAdjustRotateTick"></div>
       </div>
-      <input type="range" id="photoAdjustRotate" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
-      <div class="photo-adjust-hint">Drag to reposition, slider to zoom, straighten if it's tilted</div>
+      <div class="photo-adjust-hint">Drag or use the arrows to centre the coin</div>
       <div class="photo-adjust-btns">
         <button type="button" id="photoAdjustCancelBtn">Cancel</button>
         <button type="button" id="photoAdjustUseBtn">Use Photo</button>
@@ -5284,32 +5323,33 @@
           </div>
         </div>
       </div>
-      <div class="crop-nudge-row" id="bgCropNudgeRow">
-        <button type="button" data-nudge="left" aria-label="Move the box left">←</button>
+      <!-- (bs) The control pad: the − / + spots stay empty here (no zoom). -->
+      <div class="crop-pad" id="bgCropPad">
         <button type="button" data-nudge="up" aria-label="Move the box up">↑</button>
-        <button type="button" data-nudge="down" aria-label="Move the box down">↓</button>
+        <button type="button" data-nudge="left" aria-label="Move the box left">←</button>
         <button type="button" data-nudge="right" aria-label="Move the box right">→</button>
+        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree" title="−0.5°">↺</button>
+        <button type="button" data-nudge="down" aria-label="Move the box down">↓</button>
+        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree" title="+0.5°">↻</button>
       </div>
-      <label class="bg-crop-aspect-row" id="bgCropAspectRow">
-        <input type="checkbox" id="bgCropAspectLock"> Lock to square
-      </label>
       <!-- Rotation — same control set as the circle adjuster (two 90° quick
            rotates + a ±45° straighten slider), ported here because EVERY
            photo type passes through this stage, whereas the circle adjuster
            only ever runs for coin obverse/reverse. Without this a whole-set/
            COA/slab photo taken sideways had no way to be corrected in-app. -->
-      <div class="photo-adjust-rotate-row">
+      <div class="bg-crop-tools-row">
         <button type="button" id="bgCropRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
+        <label class="bg-crop-aspect-row" id="bgCropAspectRow">
+          <input type="checkbox" id="bgCropAspectLock"> Lock to square
+        </label>
         <button type="button" id="bgCropRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
       </div>
-      <div class="crop-angle-row" id="bgCropAngleRow">
-        <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree">−0.5°</button>
-        <span class="crop-angle-readout" id="bgCropAngleReadout">Straighten 0°</span>
-        <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree">+0.5°</button>
-        <button type="button" data-angle="reset" id="bgCropAngleReset" aria-label="Straighten back to 0 degrees">0°</button>
+      <label class="crop-angle-readout" id="bgCropAngleReadout" for="bgCropStraighten">Straighten 0°</label>
+      <div class="crop-slider-wrap">
+        <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
+        <div class="crop-slider-tick" id="bgCropStraightenTick"></div>
       </div>
-      <input type="range" id="bgCropStraighten" min="-45" max="45" value="0" step="0.1" aria-label="Straighten">
-      <div class="photo-adjust-hint">Drag the box or its handles to frame just the coin — crop out the background. Rotate or straighten if it came out sideways or tilted.</div>
+      <div class="photo-adjust-hint">Drag the box or its handles to frame just the subject.</div>
       <div class="photo-adjust-btns">
         <button type="button" id="bgCropCancelBtn">Cancel</button>
         <button type="button" id="bgCropUseBtn">Use Crop</button>
@@ -28956,6 +28996,11 @@
   const CROP_NUDGE_PX = 2;
   const CROP_ANGLE_STEP = 0.5;
   const CROP_ANGLE_MAX = 45;
+  // (bs) fix round: the angle SLIDER snaps to exactly 0 within this many
+  // degrees (the 0° button is gone, Ray 14 Nov 2026); the − / + buttons step
+  // the circle's zoom by this factor (about 1% a tap).
+  const CROP_ANGLE_SNAP = 0.3;
+  const CROP_ZOOM_STEP = 1.01;
   const CROP_NUDGE_DIRS = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
   // Every straighten angle goes through here: one decimal, within ±45, and
   // a true 0 (never -0 or a float residue such as 0.1 + 0.2 - 0.3), so an
@@ -28971,10 +29016,23 @@
     if (v === 0) return "Straighten 0°";
     return "Straighten " + (v > 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°";
   }
-  // The next angle for a tap on the -0.5 / +0.5 / 0° buttons.
+  // The next angle for a tap on ↺ (−0.5) / ↻ (+0.5).
   function steppedCropAngle(current, step) {
-    if (step === "reset") return 0;
     return roundCropAngle(Number(current) + Number(step));
+  }
+  // A slider position: within ±CROP_ANGLE_SNAP of 0 it is exactly 0, so
+  // bringing the slider back near the middle leaves no turn at all (and an
+  // untouched trim-only photo keeps its own bytes).
+  function snapCropAngle(v) {
+    const n = Number(v);
+    if (Number.isFinite(n) && Math.abs(n) <= CROP_ANGLE_SNAP + 1e-9) return 0;
+    return roundCropAngle(n);
+  }
+  // The next circle zoom for a tap on − / + (multiplicative, so every tap
+  // feels the same), within the zoom slider's own range.
+  function steppedCropZoom(current, dir, min, max) {
+    const z = dir === "in" ? current * CROP_ZOOM_STEP : current / CROP_ZOOM_STEP;
+    return Math.max(min, Math.min(max, z));
   }
   // Q8: no long-press menu on the two crop screens (CSS stops the callout
   // and selection; this stops the context menu itself).
@@ -29149,19 +29207,25 @@
       document.getElementById("photoAdjustAngleReadout").textContent = cropAngleText(s.rotateFine);
       applyPhotoAdjustTransform();
     }
-    document.getElementById("photoAdjustRotate").addEventListener("input", (e) => setPhotoAdjustAngle(e.target.value));
-    document.getElementById("photoAdjustAngleRow").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-angle]");
-      if (!btn || !photoAdjustState) return;
-      setPhotoAdjustAngle(steppedCropAngle(photoAdjustState.rotateFine, btn.dataset.angle));
-    });
-    // (bs) Q4: an arrow moves the picture under the circle, the same way a
-    // drag does, within the same pan limits.
-    document.getElementById("photoAdjustNudgeRow").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-nudge]");
+    document.getElementById("photoAdjustRotate").addEventListener("input", (e) => setPhotoAdjustAngle(snapCropAngle(e.target.value)));
+    // (bs) The pad: ↺ / ↻ step the angle (the slider follows), − / + step the
+    // zoom (the zoom slider follows), and an arrow moves the picture under
+    // the circle, the same way a drag does, within the same pan limits (Q4).
+    document.getElementById("photoAdjustPad").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
       const s = photoAdjustState;
       if (!btn || !s) return;
+      if (btn.dataset.angle) { setPhotoAdjustAngle(steppedCropAngle(s.rotateFine, btn.dataset.angle)); return; }
+      if (btn.dataset.zoom) {
+        const zs = document.getElementById("photoAdjustZoom");
+        s.zoom = steppedCropZoom(s.zoom, btn.dataset.zoom, Number(zs.min) / 100, Number(zs.max) / 100);
+        zs.value = Math.round(s.zoom * 100);
+        clampPhotoAdjustOffsets();
+        applyPhotoAdjustTransform();
+        return;
+      }
       const d = CROP_NUDGE_DIRS[btn.dataset.nudge];
+      if (!d) return;
       s.offsetX += d[0] * CROP_NUDGE_PX;
       s.offsetY += d[1] * CROP_NUDGE_PX;
       clampPhotoAdjustOffsets();
@@ -29537,7 +29601,7 @@
     // photo) is greyed; on an untouched whole-photo box all four are.
     const eps = 0.01;
     const can = { left: b.left > eps, up: b.top > eps, right: b.right < s.dispW - eps, down: b.bottom < s.dispH - eps };
-    document.querySelectorAll("#bgCropNudgeRow button[data-nudge]").forEach(btn => {
+    document.querySelectorAll("#bgCropPad button[data-nudge]").forEach(btn => {
       btn.disabled = !can[btn.dataset.nudge];
     });
   }
@@ -29648,7 +29712,7 @@
     document.getElementById("bgCropRotateLeftBtn").addEventListener("click", () => quickRotate(-90));
     document.getElementById("bgCropRotateRightBtn").addEventListener("click", () => quickRotate(90));
 
-    // (bs) Every angle change (slider, -0.5 / +0.5, 0°) comes through here:
+    // (bs) Every angle change (slider, ↺ / ↻) comes through here:
     // rounded (roundCropAngle), slider and readout kept in step, and the
     // re-bake rAF-throttled as before.
     let straightenPending = false;
@@ -29665,15 +29729,12 @@
         if (bgCropState) refreshBgCropSource(true);
       });
     }
-    document.getElementById("bgCropStraighten").addEventListener("input", (e) => setBgCropAngle(e.target.value));
-    document.getElementById("bgCropAngleRow").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-angle]");
-      if (!btn || !bgCropState) return;
-      setBgCropAngle(steppedCropAngle(bgCropState.rotateFine, btn.dataset.angle));
-    });
-    document.getElementById("bgCropNudgeRow").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-nudge]");
-      if (btn && !btn.disabled) nudgeBgCropBox(btn.dataset.nudge);
+    document.getElementById("bgCropStraighten").addEventListener("input", (e) => setBgCropAngle(snapCropAngle(e.target.value)));
+    document.getElementById("bgCropPad").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn || btn.disabled || !bgCropState) return;
+      if (btn.dataset.angle) setBgCropAngle(steppedCropAngle(bgCropState.rotateFine, btn.dataset.angle));
+      else if (btn.dataset.nudge) nudgeBgCropBox(btn.dataset.nudge);
     });
     blockCropLongPress(document.getElementById("bgCropOverlay"));
     // (bs) F2: a turn of the phone (or any resize) re-fits the stage and

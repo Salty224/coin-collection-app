@@ -5,8 +5,11 @@
 // hard to grab; F2 a wide photo ran off the right of the screen (the stage
 // was a fixed 360 px, wider than the panel on a phone). Plus the crop
 // basics he asked for in the image round: no long-press menu, nudge arrows,
-// 0.5° steps with a 0.1° slider, a reset to exactly 0°, a centre mark.
-// Ray's answers Q1-Q9, 11 Nov 2026.
+// 0.5° steps with a 0.1° slider, a centre mark.
+// Ray's answers Q1-Q9, 11 Nov 2026; the fix round after his TEST of Build
+// 119 (14 Nov 2026): the 0° button is gone, a snap to 0 within ±0.3° and a
+// 0° tick instead, one control pad per stage, circle zoom − / +, Use on
+// screen at 384 x 740.
 //
 //   A  long-press: no context menu on either crop screen, only there
 //   B  F2: the stage fits the panel at 360 / 384 / 412 / 768 for wide,
@@ -21,9 +24,13 @@
 //      cannot move, and the nudge reaches the full-resolution crop
 //   E  Stage 2 arrows: move the picture like a drag, within its limits,
 //      and the nudge reaches the stored Obverse
-//   F  angle: -0.5 / +0.5 / 0° buttons and readout on both stages, 0.1°
-//      slider, rounding; an untouched Holder whose angle was changed and
-//      reset to 0° saves the original's own bytes (Ray's addition to Q6)
+//   F  angle: ↺ / ↻ and the readout on both stages, the 0.1° slider, the
+//      snap to exactly 0 within ±0.3°, rounding; an untouched Holder whose
+//      slider was moved and let go near 0 saves the original's own bytes
+//   K  the pad layout (rows, columns, nothing beside ← →, no zoom on the
+//      rectangle crop), 44 / 40 px buttons, the 0° tick, Use on screen at
+//      384 x 740 and 360 x 700
+//   Z  circle zoom − / + (about 1% a tap, the slider follows, 100-300%)
 //   G  centre mark: always on the circle, on Stage 1 only with Lock to
 //      square, never in a saved picture
 //   H  nothing above writes anything (apart from the one Save in F)
@@ -273,7 +280,7 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   // ---------- D. Stage 1 arrows --------------------------------------------
   const D = await page.evaluate(async () => {
     const C = __cb;
-    const btn = (d) => document.querySelector('#bgCropNudgeRow button[data-nudge="' + d + '"]');
+    const btn = (d) => document.querySelector('#bgCropPad button[data-nudge="' + d + '"]');
     const states = () => ["left", "up", "down", "right"].map(d => btn(d).disabled);
     const s = await C.open(await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.95), "slab_reverse");
     const wholeGrey = states();
@@ -313,7 +320,7 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   // ---------- E. Stage 2 arrows --------------------------------------------
   const E = await page.evaluate(async () => {
     const C = __cb;
-    const btn = (d) => document.querySelector('#photoAdjustNudgeRow button[data-nudge="' + d + '"]');
+    const btn = (d) => document.querySelector('#photoAdjustPad button[data-nudge="' + d + '"]');
     const out = {};
     // A square photo: red left half, green right half, the edge in the middle.
     await C.open(await C.toBlob(C.halves(2000, 2000), "image/jpeg", 0.95), "obverse");
@@ -344,22 +351,28 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   // ---------- F. angle ------------------------------------------------------
   const F = await page.evaluate(async () => {
     const C = __cb;
-    const btn = (row, a) => document.querySelector("#" + row + ' button[data-angle="' + a + '"]');
+    const btn = (pad, a) => document.querySelector("#" + pad + ' button[data-angle="' + a + '"]');
+    const slide = (el, v) => { el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); };
     const out = {};
     out.steps = [document.getElementById("bgCropStraighten").step, document.getElementById("photoAdjustRotate").step];
     out.round = { residue: roundCropAngle(0.1 + 0.2 - 0.3), negZero: Object.is(roundCropAngle(-0.04), 0), clampHi: steppedCropAngle(45, 0.5), clampLo: roundCropAngle(-50) };
+    out.noResetButton = document.querySelectorAll('[data-angle="reset"], #bgCropAngleReset, #photoAdjustAngleReset').length;
     // Stage 1.
     const s = await C.open(await C.toBlob(C.halves(1600, 1200), "image/jpeg", 0.9), "other");
-    for (let i = 0; i < 3; i++) btn("bgCropAngleRow", "0.5").click();
+    for (let i = 0; i < 3; i++) btn("bgCropPad", "0.5").click();
     out.s1Plus = { v: s.rotateFine, slider: document.getElementById("bgCropStraighten").value, text: document.getElementById("bgCropAngleReadout").textContent };
-    for (let i = 0; i < 4; i++) btn("bgCropAngleRow", "-0.5").click();
-    out.s1Minus = { v: s.rotateFine, text: document.getElementById("bgCropAngleReadout").textContent };
+    for (let i = 0; i < 4; i++) btn("bgCropPad", "-0.5").click();
+    out.s1Minus = { v: s.rotateFine, slider: document.getElementById("bgCropStraighten").value, text: document.getElementById("bgCropAngleReadout").textContent };
     const sl = document.getElementById("bgCropStraighten");
-    sl.value = "0.3"; sl.dispatchEvent(new Event("input", { bubbles: true }));
-    out.s1Slider = { v: s.rotateFine, text: document.getElementById("bgCropAngleReadout").textContent };
+    // The snap: within ±0.3° of 0 the slider gives exactly 0; 0.4 is a turn.
+    out.snap = [];
+    for (const v of ["0.3", "-0.3", "0.2", "-0.1", "0.4", "-0.4", "1.3"]) {
+      slide(sl, v);
+      out.snap.push({ v, got: s.rotateFine, isZero: Object.is(s.rotateFine, 0), slider: sl.value, text: document.getElementById("bgCropAngleReadout").textContent });
+    }
     await C.settle();
-    // A 0.1° turn is a real turn: it reaches the bake (the photo is no longer untouched).
-    sl.value = "0.1"; sl.dispatchEvent(new Event("input", { bubbles: true }));
+    // A 0.4° turn is a real turn: it reaches the bake (the photo is no longer untouched).
+    slide(sl, "0.4");
     await C.settle();
     await C.finish();
     out.fine = __getLastBgCropResultForTest().kind;
@@ -367,14 +380,14 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     await C.open(await C.toBlob(C.halves(1600, 1600), "image/jpeg", 0.9), "obverse");
     await C.useStage1();
     await C.waitFor(() => photoAdjustState, 15000);
-    btn("photoAdjustAngleRow", "0.5").click(); btn("photoAdjustAngleRow", "0.5").click();
-    out.s2Plus = { v: photoAdjustState.rotateFine, text: document.getElementById("photoAdjustAngleReadout").textContent,
-      transform: document.getElementById("photoAdjustImg").style.transform };
+    btn("photoAdjustPad", "0.5").click(); btn("photoAdjustPad", "0.5").click();
     const r2 = document.getElementById("photoAdjustRotate");
-    r2.value = "-7.3"; r2.dispatchEvent(new Event("input", { bubbles: true }));
+    out.s2Plus = { v: photoAdjustState.rotateFine, slider: r2.value, text: document.getElementById("photoAdjustAngleReadout").textContent,
+      transform: document.getElementById("photoAdjustImg").style.transform };
+    slide(r2, "-7.3");
     out.s2Slider = { v: photoAdjustState.rotateFine, text: document.getElementById("photoAdjustAngleReadout").textContent };
-    btn("photoAdjustAngleRow", "reset").click();
-    out.s2Reset = { v: photoAdjustState.rotateFine, isZero: Object.is(photoAdjustState.rotateFine, 0), slider: r2.value,
+    slide(r2, "0.2");
+    out.s2Snap = { v: photoAdjustState.rotateFine, isZero: Object.is(photoAdjustState.rotateFine, 0), slider: r2.value,
       text: document.getElementById("photoAdjustAngleReadout").textContent, transform: document.getElementById("photoAdjustImg").style.transform };
     cancelPhotoAdjust();
     return out;
@@ -382,20 +395,27 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   ok("F1 both sliders move in 0.1° steps: " + JSON.stringify(F.steps), F.steps[0] === "0.1" && F.steps[1] === "0.1", F);
   ok("F2 angles are rounded to 0.1°, a float residue is exactly 0 (never -0), and ±45 holds: " + JSON.stringify(F.round),
     F.round.residue === 0 && Object.is(F.round.residue, 0) && F.round.negZero && F.round.clampHi === 45 && F.round.clampLo === -45, F);
-  ok("F3 Stage 1: +0.5 three times = +1.5°, slider and readout in step: " + JSON.stringify(F.s1Plus),
+  ok("F3 the 0° button is gone from both stages (Ray, 14 Nov 2026)", F.noResetButton === 0, F);
+  ok("F4 Stage 1: ↻ three times = +1.5°, the slider follows and the readout says so: " + JSON.stringify(F.s1Plus),
     F.s1Plus.v === 1.5 && F.s1Plus.slider === "1.5" && F.s1Plus.text === "Straighten +1.5°", F);
-  ok("F4 Stage 1: then -0.5 four times = −0.5°: " + JSON.stringify(F.s1Minus), F.s1Minus.v === -0.5 && F.s1Minus.text === "Straighten −0.5°", F);
-  ok("F5 Stage 1: the slider at 0.3 reads +0.3°: " + JSON.stringify(F.s1Slider), F.s1Slider.v === 0.3 && F.s1Slider.text === "Straighten +0.3°", F);
-  ok("F6 a 0.1° straighten is a real turn: it reaches the full-resolution bake (" + F.fine + ")", F.fine === "trimmed-fullres", F);
-  ok("F7 Stage 2: +0.5 twice = +1.0°, on screen: " + JSON.stringify(F.s2Plus),
-    F.s2Plus.v === 1 && F.s2Plus.text === "Straighten +1.0°" && /rotate\(1deg\)/.test(F.s2Plus.transform), F);
-  ok("F8 Stage 2: the slider at −7.3 reads −7.3°: " + JSON.stringify(F.s2Slider), F.s2Slider.v === -7.3 && F.s2Slider.text === "Straighten −7.3°", F);
-  ok("F9 Stage 2: 0° resets to exactly 0 (slider, readout, picture): " + JSON.stringify(F.s2Reset),
-    F.s2Reset.isZero && F.s2Reset.slider === "0" && F.s2Reset.text === "Straighten 0°" && /rotate\(0deg\)/.test(F.s2Reset.transform), F);
+  ok("F5 Stage 1: then ↺ four times = −0.5°, slider in step: " + JSON.stringify(F.s1Minus),
+    F.s1Minus.v === -0.5 && F.s1Minus.slider === "-0.5" && F.s1Minus.text === "Straighten −0.5°", F);
+  const snapOk = (v, want) => { const r = F.snap.find(x => x.v === v); return r && r.got === want && (want !== 0 || r.isZero); };
+  ok("F6 the slider snaps to exactly 0 within ±0.3° (0.3, −0.3, 0.2, −0.1 -> 0; slider and readout at 0): " + JSON.stringify(F.snap.slice(0, 4)),
+    ["0.3", "-0.3", "0.2", "-0.1"].every(v => snapOk(v, 0)) && F.snap.slice(0, 4).every(r => r.slider === "0" && r.text === "Straighten 0°"), F.snap);
+  ok("F7 ... and not beyond it (0.4 -> +0.4°, −0.4 -> −0.4°, 1.3 -> +1.3°): " + JSON.stringify(F.snap.slice(4)),
+    snapOk("0.4", 0.4) && snapOk("-0.4", -0.4) && snapOk("1.3", 1.3) && F.snap[4].text === "Straighten +0.4°", F.snap);
+  ok("F8 a 0.4° straighten is a real turn: it reaches the full-resolution bake (" + F.fine + ")", F.fine === "trimmed-fullres", F);
+  ok("F9 Stage 2: ↻ twice = +1.0°, slider and picture follow: " + JSON.stringify(F.s2Plus),
+    F.s2Plus.v === 1 && F.s2Plus.slider === "1" && F.s2Plus.text === "Straighten +1.0°" && /rotate\(1deg\)/.test(F.s2Plus.transform), F);
+  ok("F10 Stage 2: the slider at −7.3 reads −7.3°: " + JSON.stringify(F.s2Slider), F.s2Slider.v === -7.3 && F.s2Slider.text === "Straighten −7.3°", F);
+  ok("F11 Stage 2: the slider brought to 0.2 snaps to exactly 0 (slider, readout, picture): " + JSON.stringify(F.s2Snap),
+    F.s2Snap.isZero && F.s2Snap.slider === "0" && F.s2Snap.text === "Straighten 0°" && /rotate\(0deg\)/.test(F.s2Snap.transform), F);
 
-  // Ray's addition to Q6: change the angle on an untouched Holder, reset to
-  // 0°, Save. The uploaded file must be the original's own bytes.
-  const F10 = await page.evaluate(async ({ PHOTOS_HEADER }) => {
+  // Ray's check (14 Nov 2026): on an untouched Holder move the angle slider,
+  // bring it NEAR 0, Save. The snap leaves no turn, so the uploaded file must
+  // be the original's own bytes.
+  const F12 = await page.evaluate(async ({ PHOTOS_HEADER }) => {
     const C = __cb;
     const coin = { id: "AY-00099", name: "1916-D Mercury Dime", denom: "10C", year: 1916, mint: "D", description: "Mercury Dime" };
     const mock = createMockGraphClient({ sheets: { Photos: [PHOTOS_HEADER, ["", "", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", "", ""]] } });
@@ -411,13 +431,12 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     __setStoredPhotosForTest({ "AY-00099": [] });
     const src = await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.9);
     const s = await C.open(src, "slab_obverse", "AY-00099");
-    const btn = (a) => document.querySelector('#bgCropAngleRow button[data-angle="' + a + '"]');
-    btn("0.5").click(); btn("0.5").click(); btn("0.5").click(); await C.settle();
     const sl = document.getElementById("bgCropStraighten");
-    sl.value = "2.7"; sl.dispatchEvent(new Event("input", { bubbles: true })); await C.settle();
-    const turned = { v: s.rotateFine, boxW: s.box.right - s.box.left, dispW: s.dispW };
-    btn("reset").click(); await C.settle(); await C.sleep(30);
-    const reset = { v: s.rotateFine, isZero: Object.is(s.rotateFine, 0), text: document.getElementById("bgCropAngleReadout").textContent,
+    const slide = (v) => { sl.value = String(v); sl.dispatchEvent(new Event("input", { bubbles: true })); };
+    // A drag across the slider: out to 2.7°, back down, and let go at 0.2°.
+    for (const v of ["0.6", "1.4", "2.7", "1.9", "0.8", "0.2"]) { slide(v); await C.settle(); }
+    await C.sleep(30);
+    const near = { v: s.rotateFine, isZero: Object.is(s.rotateFine, 0), text: document.getElementById("bgCropAngleReadout").textContent,
       slider: sl.value, whole: s.box.left <= 0.5 && s.box.top <= 0.5 && s.box.right >= s.dispW - 0.5 && s.box.bottom >= s.dispH - 0.5 };
     const entry = await C.finish();
     const kind = __getLastBgCropResultForTest().kind;
@@ -427,12 +446,12 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     const up = uploads[0];
     const same = up ? await C.sameBytes(up.blob, src) : false;
     __setGraphClientForTest(null);
-    return { turned, reset, kind, res, uploads: uploads.map(u => u.path), same, srcSize: src.size, upSize: up ? up.blob.size : 0 };
+    return { near, kind, res, uploads: uploads.map(u => u.path), same, srcSize: src.size, upSize: up ? up.blob.size : 0 };
   }, { PHOTOS_HEADER });
-  ok("F10 an untouched Holder turned to +1.5° then 2.7° is reset by 0° to exactly 0 (readout, slider), its box still the whole photo: " + JSON.stringify([F10.turned, F10.reset]),
-    F10.turned.v === 2.7 && F10.reset.isZero && F10.reset.text === "Straighten 0°" && F10.reset.slider === "0" && F10.reset.whole, F10);
-  ok("F11 ... and Save uploads the original's own bytes, byte for byte (" + F10.upSize + " of " + F10.srcSize + "; " + F10.kind + "): " + JSON.stringify(F10.uploads),
-    F10.kind === "original-bytes" && F10.res.added === 1 && F10.uploads.length === 1 && /AY-00099_slab_obverse\.jpg$/.test(F10.uploads[0]) && F10.same, F10);
+  ok("F12 an untouched Holder's angle slider taken out to 2.7° and let go at 0.2° snaps to exactly 0, its box still the whole photo: " + JSON.stringify(F12.near),
+    F12.near.isZero && F12.near.text === "Straighten 0°" && F12.near.slider === "0" && F12.near.whole, F12);
+  ok("F13 ... and Save uploads the original's own bytes, byte for byte (" + F12.upSize + " of " + F12.srcSize + "; " + F12.kind + "): " + JSON.stringify(F12.uploads),
+    F12.kind === "original-bytes" && F12.res.added === 1 && F12.uploads.length === 1 && /AY-00099_slab_obverse\.jpg$/.test(F12.uploads[0]) && F12.same, F12);
 
   // ---------- G. centre mark ------------------------------------------------
   const G = await page.evaluate(async () => {
@@ -466,6 +485,120 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   ok("G3 the marks never catch a touch (a drag on the centre still drags)", G.s1Hit && G.s2Hit, G);
   ok("G4 the mark is never in the saved picture (a plain red photo saves red at its centre): " + JSON.stringify(G.baked),
     G.baked[0] > 200 && G.baked[1] < 60 && G.baked[2] < 60, G);
+
+  // ---------- K. the control pad, the 0° tick, Use on screen ---------------
+  // Ray's layout (14 Nov 2026), both stages:   −   ↑   +
+  //                                              ←   →
+  //                                            ↺   ↓   ↻
+  const padAt = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    return page.evaluate(async () => {
+      const C = __cb;
+      const cells = (padId) => {
+        const pad = document.getElementById(padId);
+        const at = (sel) => { const b = pad.querySelector(sel); if (!b) return null; const r = C.rect(b); return { x: (r.l + r.r) / 2, y: (r.t + r.b) / 2, w: r.w, h: r.h }; };
+        const c = { out: at('[data-zoom="out"]'), up: at('[data-nudge="up"]'), inn: at('[data-zoom="in"]'), left: at('[data-nudge="left"]'),
+          right: at('[data-nudge="right"]'), ccw: at('[data-angle="-0.5"]'), down: at('[data-nudge="down"]'), cw: at('[data-angle="0.5"]') };
+        const col = c.up.x - c.left.x; // half a column step: ← sits between columns 1 and 3
+        const isBtn = (x, y) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest && e.closest("#" + padId + " button")); };
+        const ccwX = c.ccw.x, cwX = c.cw.x;
+        c.empty = { beforeLeft: isBtn(ccwX, c.left.y), between: isBtn(c.up.x, c.left.y), afterRight: isBtn(cwX, c.left.y),
+          topLeft: isBtn(ccwX, c.up.y), topRight: isBtn(cwX, c.up.y) };
+        c.col = col;
+        return c;
+      };
+      const tick = (sliderId) => {
+        const sl = C.rect(document.getElementById(sliderId)), t = document.getElementById(sliderId).parentElement.querySelector(".crop-slider-tick");
+        if (!t) return null;
+        const r = C.rect(t);
+        return { off: (r.l + r.r) / 2 - (sl.l + sl.r) / 2, visible: r.w > 0 && r.h > sl.h * 0.5, pe: getComputedStyle(t).pointerEvents };
+      };
+      const useBox = (ovId, btnId) => {
+        const ov = document.getElementById(ovId); ov.scrollTop = 0;
+        const u = C.rect(document.getElementById(btnId));
+        return { top: u.t, bottom: u.b, vh: innerHeight, scrolled: ov.scrollTop };
+      };
+      const out = { vw: innerWidth, vh: innerHeight };
+      await C.open(await C.toBlob(C.halves(3000, 4000), "image/jpeg", 0.8), "obverse"); // tall: the worst case for height
+      await C.settle();
+      out.s1 = cells("bgCropPad"); out.s1Tick = tick("bgCropStraighten"); out.s1UseTall = useBox("bgCropOverlay", "bgCropUseBtn");
+      out.s1DispH = bgCropState.dispH;
+      out.s1Zoom = document.querySelectorAll("#bgCropPad [data-zoom]").length;
+      await C.useStage1();
+      await C.waitFor(() => photoAdjustState, 15000); await C.settle();
+      out.s2 = cells("photoAdjustPad"); out.s2Tick = tick("photoAdjustRotate"); out.s2Use = useBox("photoAdjustOverlay", "photoAdjustUseBtn");
+      cancelPhotoAdjust();
+      await C.open(await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.8), "slab_obverse"); await C.settle();
+      out.s1UseWide = useBox("bgCropOverlay", "bgCropUseBtn");
+      cancelBgCrop();
+      return out;
+    });
+  };
+  const near = (a, b) => Math.abs(a - b) < 1.5;
+  const layoutOk = (c, zoom) => {
+    const rows = near(c.up.y, c.down.y - 2 * (c.down.y - c.left.y)) && near(c.ccw.y, c.down.y) && near(c.cw.y, c.down.y) &&
+      c.left.y > c.up.y + 10 && c.left.y < c.down.y - 10 && near(c.left.y, c.right.y);
+    const cols = near(c.up.x, c.down.x) && near(c.ccw.x + 2 * c.col, c.up.x) && near(c.cw.x - 2 * c.col, c.up.x) &&
+      near(c.left.x + c.col, c.up.x) && near(c.right.x - c.col, c.up.x) && c.ccw.x < c.left.x && c.cw.x > c.right.x;
+    const zoomOk = zoom ? (c.out && c.inn && near(c.out.x, c.ccw.x) && near(c.inn.x, c.cw.x) && near(c.out.y, c.up.y) && near(c.inn.y, c.up.y)) : (!c.out && !c.inn);
+    const empties = !c.empty.beforeLeft && !c.empty.between && !c.empty.afterRight && (zoom || (!c.empty.topLeft && !c.empty.topRight));
+    return rows && cols && zoomOk && empties;
+  };
+  const K412 = await padAt(412, 915);
+  ok("K1 circle pad: − ↑ + on the top row, ← → in the middle, ↺ ↓ ↻ at the bottom; − over ↺ on the left, + over ↻ on the right; nothing beside ← or →: " +
+    JSON.stringify({ col: K412.s2.col, empty: K412.s2.empty }), layoutOk(K412.s2, true), K412.s2);
+  ok("K2 rectangle-crop pad: the same, with the − and + spots empty (no zoom there): " + JSON.stringify({ zoomButtons: K412.s1Zoom, empty: K412.s1.empty }),
+    layoutOk(K412.s1, false) && K412.s1Zoom === 0, K412.s1);
+  ok("K3 the pad buttons are 44 x 44 px at 412 px wide: " + JSON.stringify([K412.s2.up.w, K412.s2.up.h, K412.s1.ccw.w, K412.s1.ccw.h]),
+    [K412.s2.up, K412.s2.cw, K412.s2.out, K412.s1.ccw, K412.s1.down].every(b => near(b.w, 44) && near(b.h, 44)), K412);
+  ok("K4 a 0° tick sits under the middle of both angle sliders, display only: " + JSON.stringify([K412.s1Tick, K412.s2Tick]),
+    [K412.s1Tick, K412.s2Tick].every(t => t && t.visible && Math.abs(t.off) < 1 && t.pe === "none"), K412);
+  const K384 = await padAt(384, 740);
+  ok("K5 at 384 x 740 (upright phone) Use Crop is on screen without scrolling, for a tall and a wide photo: " + JSON.stringify([K384.s1UseTall, K384.s1UseWide, K384.s1DispH]),
+    [K384.s1UseTall, K384.s1UseWide].every(u => u.scrolled === 0 && u.top >= 0 && u.bottom <= u.vh) && K384.s1DispH >= 200, K384);
+  ok("K6 ... and so is Use Photo on the circle: " + JSON.stringify(K384.s2Use), K384.s2Use.scrolled === 0 && K384.s2Use.top >= 0 && K384.s2Use.bottom <= K384.s2Use.vh, K384);
+  ok("K7 ... with the same layout and 44 px buttons: " + JSON.stringify([K384.s2.up.w, K384.s2.up.h]),
+    layoutOk(K384.s2, true) && layoutOk(K384.s1, false) && near(K384.s2.up.w, 44) && near(K384.s2.up.h, 44), K384);
+  const K360 = await padAt(360, 700);
+  ok("K8 on a narrow screen (360 x 700) the buttons stay at least 40 px, the layout holds and Use is on screen: " + JSON.stringify([K360.s2.up.w, K360.s2.up.h, K360.s1UseTall]),
+    [K360.s2.up, K360.s2.cw, K360.s1.ccw].every(b => b.w >= 40 - 0.5 && b.h >= 40 - 0.5) && layoutOk(K360.s2, true) && layoutOk(K360.s1, false) &&
+    K360.s1UseTall.bottom <= K360.s1UseTall.vh && K360.s2Use.bottom <= K360.s2Use.vh, K360);
+  await page.setViewportSize(PHONE);
+
+  // ---------- Z. circle zoom − / + -----------------------------------------
+  const Z = await page.evaluate(async () => {
+    const C = __cb;
+    const pad = (z) => document.querySelector('#photoAdjustPad [data-zoom="' + z + '"]');
+    const zs = document.getElementById("photoAdjustZoom");
+    await C.open(await C.toBlob(C.halves(1600, 1600), "image/jpeg", 0.9), "obverse");
+    await C.useStage1();
+    await C.waitFor(() => photoAdjustState, 15000);
+    const st = photoAdjustState;
+    const scaleOf = () => { const m = /scale\(([\d.]+)\)/.exec(document.getElementById("photoAdjustImg").style.transform); return m ? Number(m[1]) : null; };
+    const out = { start: { z: st.zoom, slider: zs.value, scale: scaleOf() } };
+    pad("in").click();
+    out.in1 = { z: st.zoom, slider: zs.value, scale: scaleOf() };
+    pad("out").click(); pad("out").click();
+    out.out2 = { z: st.zoom, slider: zs.value };
+    for (let i = 0; i < 30; i++) pad("out").click();
+    out.floor = { z: st.zoom, slider: zs.value };
+    for (let i = 0; i < 200; i++) pad("in").click();
+    out.ceil = { z: st.zoom, slider: zs.value };
+    // After zooming in, panning room grows; a − tap that shrinks it keeps the picture inside the circle.
+    for (let i = 0; i < 40; i++) document.querySelector('#photoAdjustPad [data-nudge="right"]').click();
+    for (let i = 0; i < 120; i++) pad("out").click();
+    const scale = st.baseScale * st.zoom, maxX = Math.max(0, (st.effWidth * scale - st.circleSize) / 2);
+    out.clamped = { x: st.offsetX, maxX };
+    cancelPhotoAdjust();
+    return out;
+  });
+  ok("Z1 the circle starts at 110% (unchanged), the zoom slider at 110: " + JSON.stringify(Z.start), near(Z.start.z * 100, 110) && Z.start.slider === "110", Z);
+  ok("Z2 + zooms in by about 1% (110% -> 111.1%), the slider and the picture follow: " + JSON.stringify(Z.in1),
+    Math.abs(Z.in1.z - 1.111) < 0.0005 && Z.in1.slider === "111" && Z.in1.scale > Z.start.scale, Z);
+  ok("Z3 − twice from there: about 1% a tap the other way (109%): " + JSON.stringify(Z.out2), Math.abs(Z.out2.z - 1.111 / 1.0201) < 0.0005 && Z.out2.slider === "109", Z);
+  ok("Z4 − stops at 100% (the smallest zoom that still covers the circle) and + at 300%: " + JSON.stringify([Z.floor, Z.ceil]),
+    Z.floor.z === 1 && Z.floor.slider === "100" && Z.ceil.z === 3 && Z.ceil.slider === "300", Z);
+  ok("Z5 zooming out keeps the picture inside its pan limit: " + JSON.stringify(Z.clamped), Math.abs(Z.clamped.x) <= Z.clamped.maxX + 1e-9, Z);
 
   // ---------- H. no writes --------------------------------------------------
   const H = await page.evaluate(() => __cb.writes.slice());

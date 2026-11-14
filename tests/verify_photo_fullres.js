@@ -23,6 +23,8 @@
 //   H  over about 60 MP: decoded at 8192 px on the long edge, with a toast
 //   I  About's Save steps name each upload's size
 //   J  nothing in A-F writes anything
+//   K  sharpness: 2 px stripes in a trimmed Holder stay crisp (a crop cut
+//      from the display copy and stretched back would turn them grey)
 
 const { defineSuite } = require("./harness");
 
@@ -277,6 +279,43 @@ module.exports = defineSuite("photo-fullres", async ({ openApp, check, selfCheck
   ok("F5 no thumbnail yet: the tile falls back to the file itself: " + JSON.stringify(F2.lateDims), F2.lateDims && F2.lateDims.w === 3000, F2);
   ok("F6 the viewer shows the thumbnail first, then the full file: " + JSON.stringify([F2.first, F2.second, F2.fullDims]),
     F2.first && F2.second && F2.fullDims && F2.fullDims.w === 3000, F2);
+
+  // ---------- K. sharpness: fine detail survives a trim -------------------
+  // (bs) fix round (Ray, 14 Nov 2026). The sizes and colours above would
+  // not notice a crop cut from the 1600 px display copy and stretched back
+  // to full size (the right geometry, only soft). A Holder of 2 px black /
+  // white stripes is trimmed and Used; in the saved file the stripes must
+  // still be black and white (a stretched display copy turns them grey).
+  const K = await page.evaluate(async () => {
+    const F = __fr;
+    const W = 4000, H = 3000;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    g.fillStyle = "#000000"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#ffffff"; for (let x = 0; x < W; x += 4) g.fillRect(x, 0, 2, H);
+    const src = await F.toBlob(c, "image/jpeg", 0.95);
+    // The middle half (so the crop is encoded, not the original's bytes).
+    const r = await F.run(src, "slab_obverse", (s) => { s.box = { left: s.dispW / 4, top: s.dispH / 4, right: s.dispW * 3 / 4, bottom: s.dispH * 3 / 4 }; });
+    const info = __getLastBgCropResultForTest();
+    const b = await createImageBitmap(r.entry.blob);
+    const cv = document.createElement("canvas"); cv.width = b.width; cv.height = b.height;
+    const cg = cv.getContext("2d"); cg.drawImage(b, 0, 0);
+    const y = Math.floor(b.height / 2);
+    const row = cg.getImageData(0, y, b.width, 1).data;
+    b.close();
+    // Mean difference between pixels 2 apart (one stripe apart), across the
+    // middle of the row; and how many pixels are near-black or near-white.
+    let diff = 0, n = 0, extreme = 0;
+    for (let x = 100; x < Math.min(1600, cv.width - 3); x++) {
+      diff += Math.abs(row[x * 4] - row[(x + 2) * 4]); n++;
+      if (row[x * 4] < 50 || row[x * 4] > 205) extreme++;
+    }
+    return { kind: info.kind, w: info.width, h: info.height, contrast: Math.round(diff / n), extreme: Math.round(100 * extreme / n) };
+  });
+  ok("K1 a trimmed Holder of 2 px stripes is saved at full resolution (2000 x 1500): " + JSON.stringify(K),
+    K.kind === "trimmed-fullres" && Math.abs(K.w - 2000) <= 2 && Math.abs(K.h - 1500) <= 2, K);
+  ok("K2 ... and its stripes are still crisp: mean step " + K.contrast + " of 255 between neighbouring stripes, " + K.extreme + "% of pixels black or white",
+    K.contrast >= 180 && K.extreme >= 80, K);
 
   // ---------- J. nothing above wrote anything ----------------------------
   const J = await page.evaluate(() => __fr.writes.slice());
