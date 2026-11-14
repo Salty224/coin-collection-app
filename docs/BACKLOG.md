@@ -23,7 +23,7 @@ Done: (b) (c) (g) (l) (m) (n) (o) (p) (t) (w) (z) (af) (ai) (aj) (al) (am) (an) 
 
 ## Unverified on a real device / LIVE (moved from CLAUDE.md "Current state" 9 Nov 2026)
 (bk) TEST (d)/(e) (session created vs reused cost, Graph's idle expiry), real session error codes, (bk) on LIVE; (ax) used on LIVE (deployed, not exercised), and 2a's steps 6-8 on TEST; whether the read lag needs the workbook open in Excel; (ar) on a phone and offline; IndexedDB eviction, installed app vs tab, MSAL's real offline error codes; content lag over 10 min; (an) ready flag on LIVE; write safety on LIVE beyond _Testing; F8 by hand; real `$batch` over 20 (F5) and part-landed (F2); the date branch, album cover coin, Build B's Set Details tile / arrow keys / tablet, Builds 1-2 on LIVE; interim receipt naming; drift rows vs the real formulas; (z); Graph conflictBehavior=fail (409) on a real upload.
-(bs): real pinch / two-finger pan felt fine in Ray's TEST, but T10's file sizes after zooming were not read on the device (V7-V11 cover it); (bs) on LIVE.
+(bs): real pinch / two-finger pan felt fine in Ray's TEST, but T10's file sizes after zooming were not read on the device (V7-V11 cover it); (bs) used on LIVE (deployed 14 Nov 2026, Build 123 `5a60fbd`, deploy run #123: no longer "not on LIVE"; not recorded as exercised there yet, the same wording as (ak) below).
 (ak): the upload-session path (only after a 413) was not exercised on a device (Ray's 12 MB, 50 MP upload went through the simple PUT in 14.0 s); TEST steps 11 (a failed save on a weak signal) and 12 (LIVE vs TEST timing) skipped; (ak) used on LIVE (deployed 11 Nov 2026, Build 118 `165628b`; not exercised yet).
 
 ## (bs) Build 3 plan (11 Nov 2026, plan only, no code; waiting for Ray's answers Q1-Q9)
