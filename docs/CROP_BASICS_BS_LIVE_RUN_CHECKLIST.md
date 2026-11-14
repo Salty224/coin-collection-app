@@ -33,3 +33,6 @@ R12. Sharp small coin (new, the reason for saving from the original): on the R10
 R13. Square at the photo's edge (new): pull the square into a corner of the photo, Use Crop: the circle can zoom out only towards the side that has photo, and never shows black.
 R14. Direct Obverse pick (new): pick a photo that is just the coin and pull the square out to the whole photo: the circle starts at its smallest zoom (the tick at the far left), can still zoom in, and never shows black. A direct pick left at its usual square has the photo round it to zoom out into.
 R15. Guided crop from a Holder: R8-R12 behave the same there.
+
+## Re-test results
+Build of `7a19175` (Ray, phone, 14 Nov 2026): R1-R15 passed. Asked for next (fix round 3): the snap zone to ±0.5°, arrows at 1 px, and view zoom on the rectangle crop (plan: docs/BACKLOG.md "(bs) fix round 3 plan").
