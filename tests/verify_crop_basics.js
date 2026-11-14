@@ -30,6 +30,11 @@
 //   K  the pad layout (rows, columns, nothing beside ← →, no zoom on the
 //      rectangle crop), 44 / 40 px buttons, the 0° tick, Use on screen at
 //      384 x 740 and 360 x 700
+//   V  view zoom on the rectangle crop (fix round 3): − / + 1.25x, 1x-4x,
+//      about the last-touched handle or the view's centre, pinch, one-finger
+//      pan outside the box, slide-along, pan limits with the margin (F1 at
+//      4x), arrows 1 screen px; the four (ak) proofs (same bytes at any
+//      zoom, drag / zoom, untouched bytes, no decode while zooming)
 //   Z  circle zoom, Z-C (Ray, 14 Nov 2026): the square plus 25% of photo
 //      handed to the circle; it starts with the square filling the circle
 //      (a tick), zooms out to the smallest zoom that covers it (never
@@ -302,25 +307,25 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     s.box.left = s.dispW - w - 1; s.box.right = s.dispW - 1; renderBgCrop();
     btn("right").click();
     const clamp = { right: s.box.right, dispW: s.dispW, rightGrey: btn("right").disabled, width: s.box.right - s.box.left };
-    // Back to the left half nudged 10 taps right (20 px), then Use: the red /
-    // green edge moves left in the crop by 20 px x (original / screen).
+    // Back to the left half nudged 10 taps right (10 x CROP_NUDGE_PX), then Use: the
+    // red / green edge moves left in the crop by that x (original / screen).
     s.box = { left: 0, top: 0, right: s.dispW / 2, bottom: s.dispH }; renderBgCrop();
     for (let i = 0; i < 10; i++) btn("right").click();
     const dispW = s.dispW;
     const entry = await C.finish();
     const d = await C.dims(entry.blob);
-    const off = 20 * 4000 / dispW, edge = (2000 - off) / 2000;
-    return { wholeGrey, halfGrey, one, ten, clamp, d, edge,
+    const off = 10 * CROP_NUDGE_PX * 4000 / dispW, edge = (2000 - off) / 2000;
+    return { step: CROP_NUDGE_PX, wholeGrey, halfGrey, one, ten, clamp, d, edge,
       before: await C.colourAt(entry.blob, edge - 0.03, 0.5), after: await C.colourAt(entry.blob, edge + 0.03, 0.5) };
   });
   ok("D1 an untouched whole-photo box greys all four arrows (Q5): " + JSON.stringify(D.wholeGrey), D.wholeGrey.every(v => v === true), D);
   ok("D2 a box at the photo's left edge greys left, up and down, not right: " + JSON.stringify(D.halfGrey),
     JSON.stringify(D.halfGrey) === JSON.stringify([true, true, true, false]), D);
-  ok("D3 one tap moves the box 2 screen px; ten taps 20 px, same size, and left is no longer greyed: " + JSON.stringify([D.one, D.ten]),
-    D.one === 2 && D.ten.left === 20 && Math.abs(D.ten.width - D.clamp.width) < 0.01 && D.ten.leftGrey === false, D);
+  ok("D3 one tap moves the box 1 screen px (fix round 3; was 2); ten taps 10 px, same size, and left is no longer greyed: " + JSON.stringify([D.step, D.one, D.ten]),
+    D.step === 1 && D.one === 1 && D.ten.left === 10 && Math.abs(D.ten.width - D.clamp.width) < 0.01 && D.ten.leftGrey === false, D);
   ok("D4 a tap never goes past the photo's edge (1 px left: it stops on the edge) and then greys: " + JSON.stringify(D.clamp),
     D.clamp.right === D.clamp.dispW && D.clamp.rightGrey === true, D);
-  ok("D5 the nudge reaches the full-resolution crop (still 2000 x 3000; the red / green edge moved by 20 screen px): " + JSON.stringify(D),
+  ok("D5 the nudge reaches the full-resolution crop (still 2000 x 3000; the red / green edge moved by 10 screen px): " + JSON.stringify(D),
     Math.abs(D.d.w - 2000) <= 3 && Math.abs(D.d.h - 3000) <= 3 && D.before[0] > 200 && D.before[1] < 60 && D.after[1] > 200 && D.after[0] < 60, D);
 
   // ---------- E. Stage 2 arrows --------------------------------------------
@@ -337,7 +342,7 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
       out.one = { x: st.offsetX, y: st.offsetY, transform: document.getElementById("photoAdjustImg").style.transform };
       btn("down").click(); btn("up").click();
       out.upDown = st.offsetY;
-      for (let i = 0; i < 40; i++) btn("right").click();
+      for (let i = 0; i < 100; i++) btn("right").click();
       const scale = st.baseScale * st.zoom, maxX = Math.max(0, (st.effWidth * scale - st.circleSize) / 2);
       out.clamp = { x: st.offsetX, maxX, notGreyed: !btn("right").disabled };
       out.shift = st.offsetX / st.circleSize;
@@ -347,8 +352,8 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     out.mid = await C.colourAt(entry.blob, 0.47, 0.5);
     return out;
   });
-  ok("E1 on the circle one tap moves the picture 2 px right, like a drag (Q4): " + JSON.stringify(E.one),
-    E.one.x === 2 && E.one.y === 0 && /translate\(2px, 0px\)/.test(E.one.transform), E);
+  ok("E1 on the circle one tap moves the picture 1 px right (fix round 3; was 2), like a drag (Q4): " + JSON.stringify(E.one),
+    E.one.x === 1 && E.one.y === 0 && /translate\(1px, 0px\)/.test(E.one.transform), E);
   ok("E2 down then up comes back to where it was", E.upDown === 0, E);
   ok("E3 taps stop at the picture's own pan limit (as a drag does): " + JSON.stringify(E.clamp),
     E.clamp.maxX > 4 && Math.abs(E.clamp.x - E.clamp.maxX) < 0.001, E);
@@ -373,13 +378,13 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     const sl = document.getElementById("bgCropStraighten");
     // The snap: within ±0.3° of 0 the slider gives exactly 0; 0.4 is a turn.
     out.snap = [];
-    for (const v of ["0.3", "-0.3", "0.2", "-0.1", "0.4", "-0.4", "1.3"]) {
+    for (const v of ["0.5", "-0.5", "0.4", "-0.1", "0.6", "-0.6", "1.3"]) {
       slide(sl, v);
       out.snap.push({ v, got: s.rotateFine, isZero: Object.is(s.rotateFine, 0), slider: sl.value, text: document.getElementById("bgCropAngleReadout").textContent });
     }
     await C.settle();
     // A 0.4° turn is a real turn: it reaches the bake (the photo is no longer untouched).
-    slide(sl, "0.4");
+    slide(sl, "0.6");
     await C.settle();
     await C.finish();
     out.fine = __getLastBgCropResultForTest().kind;
@@ -408,11 +413,11 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   ok("F5 Stage 1: then ↺ four times = −0.5°, slider in step: " + JSON.stringify(F.s1Minus),
     F.s1Minus.v === -0.5 && F.s1Minus.slider === "-0.5" && F.s1Minus.text === "Straighten −0.5°", F);
   const snapOk = (v, want) => { const r = F.snap.find(x => x.v === v); return r && r.got === want && (want !== 0 || r.isZero); };
-  ok("F6 the slider snaps to exactly 0 within ±0.3° (0.3, −0.3, 0.2, −0.1 -> 0; slider and readout at 0): " + JSON.stringify(F.snap.slice(0, 4)),
-    ["0.3", "-0.3", "0.2", "-0.1"].every(v => snapOk(v, 0)) && F.snap.slice(0, 4).every(r => r.slider === "0" && r.text === "Straighten 0°"), F.snap);
-  ok("F7 ... and not beyond it (0.4 -> +0.4°, −0.4 -> −0.4°, 1.3 -> +1.3°): " + JSON.stringify(F.snap.slice(4)),
-    snapOk("0.4", 0.4) && snapOk("-0.4", -0.4) && snapOk("1.3", 1.3) && F.snap[4].text === "Straighten +0.4°", F.snap);
-  ok("F8 a 0.4° straighten is a real turn: it reaches the full-resolution bake (" + F.fine + ")", F.fine === "trimmed-fullres", F);
+  ok("F6 the slider snaps to exactly 0 within ±0.5° (fix round 3; was ±0.3°): 0.5, −0.5, 0.4, −0.1 -> 0, slider and readout at 0: " + JSON.stringify(F.snap.slice(0, 4)),
+    ["0.5", "-0.5", "0.4", "-0.1"].every(v => snapOk(v, 0)) && F.snap.slice(0, 4).every(r => r.slider === "0" && r.text === "Straighten 0°"), F.snap);
+  ok("F7 ... and not beyond it (0.6 -> +0.6°, −0.6 -> −0.6°, 1.3 -> +1.3°): " + JSON.stringify(F.snap.slice(4)),
+    snapOk("0.6", 0.6) && snapOk("-0.6", -0.6) && snapOk("1.3", 1.3) && F.snap[4].text === "Straighten +0.6°", F.snap);
+  ok("F8 a 0.6° straighten is a real turn: it reaches the full-resolution bake (" + F.fine + ")", F.fine === "trimmed-fullres", F);
   ok("F9 Stage 2: ↻ twice = +1.0°, slider and picture follow: " + JSON.stringify(F.s2Plus),
     F.s2Plus.v === 1 && F.s2Plus.slider === "1" && F.s2Plus.text === "Straighten +1.0°" && /rotate\(1deg\)/.test(F.s2Plus.transform), F);
   ok("F10 Stage 2: the slider at −7.3 reads −7.3°: " + JSON.stringify(F.s2Slider), F.s2Slider.v === -7.3 && F.s2Slider.text === "Straighten −7.3°", F);
@@ -441,7 +446,8 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     const sl = document.getElementById("bgCropStraighten");
     const slide = (v) => { sl.value = String(v); sl.dispatchEvent(new Event("input", { bubbles: true })); };
     // A drag across the slider: out to 2.7°, back down, and let go at 0.2°.
-    for (const v of ["0.6", "1.4", "2.7", "1.9", "0.8", "0.2"]) { slide(v); await C.settle(); }
+    // Let go at 0.4°: inside the ±0.5° snap, outside the old ±0.3° one.
+    for (const v of ["0.6", "1.4", "2.7", "1.9", "0.8", "0.4"]) { slide(v); await C.settle(); }
     await C.sleep(30);
     const near = { v: s.rotateFine, isZero: Object.is(s.rotateFine, 0), text: document.getElementById("bgCropAngleReadout").textContent,
       slider: sl.value, whole: s.box.left <= 0.5 && s.box.top <= 0.5 && s.box.right >= s.dispW - 0.5 && s.box.bottom >= s.dispH - 0.5 };
@@ -455,7 +461,7 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     __setGraphClientForTest(null);
     return { near, kind, res, uploads: uploads.map(u => u.path), same, srcSize: src.size, upSize: up ? up.blob.size : 0 };
   }, { PHOTOS_HEADER });
-  ok("F12 an untouched Holder's angle slider taken out to 2.7° and let go at 0.2° snaps to exactly 0, its box still the whole photo: " + JSON.stringify(F12.near),
+  ok("F12 an untouched Holder's angle slider taken out to 2.7° and let go at 0.4° snaps to exactly 0, its box still the whole photo: " + JSON.stringify(F12.near),
     F12.near.isZero && F12.near.text === "Straighten 0°" && F12.near.slider === "0" && F12.near.whole, F12);
   ok("F13 ... and Save uploads the original's own bytes, byte for byte (" + F12.upSize + " of " + F12.srcSize + "; " + F12.kind + "): " + JSON.stringify(F12.uploads),
     F12.kind === "original-bytes" && F12.res.added === 1 && F12.uploads.length === 1 && /AY-00099_slab_obverse\.jpg$/.test(F12.uploads[0]) && F12.same, F12);
@@ -554,8 +560,8 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   const K412 = await padAt(412, 915);
   ok("K1 circle pad: − ↑ + on the top row, ← → in the middle, ↺ ↓ ↻ at the bottom; − over ↺ on the left, + over ↻ on the right; nothing beside ← or →: " +
     JSON.stringify({ col: K412.s2.col, empty: K412.s2.empty }), layoutOk(K412.s2, true), K412.s2);
-  ok("K2 rectangle-crop pad: the same, with the − and + spots empty (no zoom there): " + JSON.stringify({ zoomButtons: K412.s1Zoom, empty: K412.s1.empty }),
-    layoutOk(K412.s1, false) && K412.s1Zoom === 0, K412.s1);
+  ok("K2 rectangle-crop pad: the same layout, − / + now zooming the view (fix round 3): " + JSON.stringify({ zoomButtons: K412.s1Zoom, empty: K412.s1.empty }),
+    layoutOk(K412.s1, true) && K412.s1Zoom === 2, K412.s1);
   ok("K3 the pad buttons are 44 x 44 px at 412 px wide: " + JSON.stringify([K412.s2.up.w, K412.s2.up.h, K412.s1.ccw.w, K412.s1.ccw.h]),
     [K412.s2.up, K412.s2.cw, K412.s2.out, K412.s1.ccw, K412.s1.down].every(b => near(b.w, 44) && near(b.h, 44)), K412);
   ok("K4 a 0° tick sits under the middle of both angle sliders, display only: " + JSON.stringify([K412.s1Tick, K412.s2Tick]),
@@ -565,10 +571,10 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     [K384.s1UseTall, K384.s1UseWide].every(u => u.scrolled === 0 && u.top >= 0 && u.bottom <= u.vh) && K384.s1DispH >= 200, K384);
   ok("K6 ... and so is Use Photo on the circle: " + JSON.stringify(K384.s2Use), K384.s2Use.scrolled === 0 && K384.s2Use.top >= 0 && K384.s2Use.bottom <= K384.s2Use.vh, K384);
   ok("K7 ... with the same layout and 44 px buttons: " + JSON.stringify([K384.s2.up.w, K384.s2.up.h]),
-    layoutOk(K384.s2, true) && layoutOk(K384.s1, false) && near(K384.s2.up.w, 44) && near(K384.s2.up.h, 44), K384);
+    layoutOk(K384.s2, true) && layoutOk(K384.s1, true) && near(K384.s2.up.w, 44) && near(K384.s2.up.h, 44), K384);
   const K360 = await padAt(360, 700);
   ok("K8 on a narrow screen (360 x 700) the buttons stay at least 40 px, the layout holds and Use is on screen: " + JSON.stringify([K360.s2.up.w, K360.s2.up.h, K360.s1UseTall]),
-    [K360.s2.up, K360.s2.cw, K360.s1.ccw].every(b => b.w >= 40 - 0.5 && b.h >= 40 - 0.5) && layoutOk(K360.s2, true) && layoutOk(K360.s1, false) &&
+    [K360.s2.up, K360.s2.cw, K360.s1.ccw].every(b => b.w >= 40 - 0.5 && b.h >= 40 - 0.5) && layoutOk(K360.s2, true) && layoutOk(K360.s1, true) &&
     K360.s1UseTall.bottom <= K360.s1UseTall.vh && K360.s2Use.bottom <= K360.s2Use.vh, K360);
   await page.setViewportSize(PHONE);
 
@@ -814,6 +820,7 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     const off0 = [st.offsetX, st.offsetY];
     document.querySelector('#photoAdjustPad [data-zoom="in"]').click();
     out.zoom = { off0, off1: [st.offsetX, st.offsetY] };
+    out.step = CROP_NUDGE_PX;
     const afterZoom = await centreColour(st);
     document.getElementById("photoAdjustRotateRightBtn").click();
     const afterTurn = await centreColour(st);
@@ -824,10 +831,296 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     cancelPhotoAdjust();
     return out;
   });
-  ok("Z17 a zoom keeps the point at the circle's centre where it is (the offset scales with the zoom: 20 px -> 20.2 px): " + JSON.stringify(ZP.zoom),
-    Math.abs(ZP.zoom.off1[0] - ZP.zoom.off0[0] * 1.01) < 1e-6 && Math.abs(ZP.zoom.off1[1] - ZP.zoom.off0[1] * 1.01) < 1e-6 && ZP.zoom.off0[0] === 20, ZP);
+  ok("Z17 a zoom keeps the point at the circle's centre where it is (the offset scales with the zoom: 10 px -> 10.1 px): " + JSON.stringify(ZP.zoom),
+    Math.abs(ZP.zoom.off1[0] - ZP.zoom.off0[0] * 1.01) < 1e-6 && Math.abs(ZP.zoom.off1[1] - ZP.zoom.off0[1] * 1.01) < 1e-6 && ZP.zoom.off0[0] === 10 * ZP.step, ZP);
   ok("Z18 ... and so do a 90° turn and its undo (the same colour stays under the centre): " + JSON.stringify(ZP.colours),
     ZP.colours.dZoom <= 6 && ZP.colours.dTurn <= 6 && ZP.colours.dBack <= 6, ZP);
+
+  // ---------- V. view zoom on the rectangle crop (fix round 3) -------------
+  // Ray's Q1-Q7 (14 Nov 2026): − / + and pinch zoom the VIEW (1x-4x, 1.25x a
+  // tap); the box stays in picture px at 1x, so (ak) is untouched. Proofs:
+  // (i) the same box saves the same bytes at any zoom; (ii) a drag at 3x
+  // moves the box a third as far, and saves what a 1x crop of that box saves;
+  // (iii) an untouched Holder zoomed, pinched and panned still saves its own
+  // bytes; (iv) nothing decodes the original while zooming.
+  await page.setViewportSize(PHONE);
+  await page.evaluate(() => {
+    const frame = () => document.getElementById("bgCropFrame");
+    const stage = () => document.getElementById("bgCropStage");
+    const client = (x, y) => { const r = frame().getBoundingClientRect(); return { cx: r.left + x, cy: r.top + y }; };
+    // A synthetic finger: down on whatever is at the point, move / up on the stage.
+    const fire = (type, id, x, y) => {
+      const { cx, cy } = client(x, y);
+      const el = type === "pointerdown" ? document.elementFromPoint(cx, cy) : stage();
+      if (!el) throw new Error("no element under the finger at " + x + "," + y + " (view px)");
+      el.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerType: "touch", isPrimary: id === 1 }));
+    };
+    const drag = (id, x0, y0, x1, y1, steps) => {
+      fire("pointerdown", id, x0, y0);
+      for (let i = 1; i <= (steps || 5); i++) fire("pointermove", id, x0 + (x1 - x0) * i / (steps || 5), y0 + (y1 - y0) * i / (steps || 5));
+      fire("pointerup", id, x1, y1);
+    };
+    const view = () => Object.assign({}, bgCropState.view);
+    const toView = (x, y) => { const v = bgCropState.view; return { x: x * v.z + v.panX, y: y * v.z + v.panY }; };
+    const fromView = (x, y) => { const v = bgCropState.view; return { x: (x - v.panX) / v.z, y: (y - v.panY) / v.z }; };
+    const handleAt = (h) => { const r = document.querySelector("#bgCropBox .bg-crop-handle." + h).getBoundingClientRect(), f = frame().getBoundingClientRect(); return { x: (r.left + r.right) / 2 - f.left, y: (r.top + r.bottom) / 2 - f.top }; };
+    const pad = (z) => document.querySelector('#bgCropPad [data-zoom="' + z + '"]');
+    const viewSize = () => ({ w: bgCropState.dispW + 32, h: bgCropState.dispH + 32 });
+    window.__V = { fire, drag, view, toView, fromView, handleAt, pad, viewSize, frame };
+  });
+
+  const V1 = await page.evaluate(async () => {
+    const C = __cb, V = __V, out = {};
+    const s = await C.open(await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.9), "slab_obverse");
+    const badge = document.getElementById("bgCropZoomBadge");
+    out.open = { v: V.view(), badgeHidden: getComputedStyle(badge).display === "none", outGrey: V.pad("out").disabled, inGrey: V.pad("in").disabled };
+    // No handle touched yet: + zooms about the view's centre (Ray's addition
+    // to Q2), not the box's: an off-centre box tells the two apart.
+    const whole = Object.assign({}, s.box);
+    s.box = { left: s.dispW * 0.05, top: s.dispH * 0.05, right: s.dispW * 0.4, bottom: s.dispH * 0.35 }; renderBgCrop();
+    const vs = V.viewSize(), c0 = V.fromView(vs.w / 2, vs.h / 2);
+    V.pad("in").click();
+    const c1 = V.fromView(vs.w / 2, vs.h / 2);
+    out.centre = { before: c0, after: c1, z: s.view.z, anchor: s.view.anchor };
+    s.box = whole; renderBgCrop();
+    const zs = [s.view.z];
+    for (let i = 0; i < 8; i++) { V.pad("in").click(); zs.push(s.view.z); }
+    out.ins = { zs, inGrey: V.pad("in").disabled, badge: badge.textContent };
+    V.pad("out").click(); V.pad("out").click(); V.pad("out").click(); V.pad("out").click(); V.pad("out").click();
+    out.mid = { z: s.view.z, badge: badge.textContent, badgeShown: getComputedStyle(badge).display !== "none", badgePE: getComputedStyle(badge).pointerEvents };
+    for (let i = 0; i < 10; i++) V.pad("out").click();
+    out.back = { v: V.view(), outGrey: V.pad("out").disabled, badgeHidden: getComputedStyle(badge).display === "none" };
+    // The last-touched handle: touch (no move) the bottom-right handle of a middle box, then + about it.
+    s.box = { left: s.dispW * 0.25, top: s.dispH * 0.25, right: s.dispW * 0.75, bottom: s.dispH * 0.75 }; renderBgCrop();
+    const h0 = V.handleAt("se");
+    V.fire("pointerdown", 1, h0.x, h0.y); V.fire("pointerup", 1, h0.x, h0.y);
+    out.anchor = s.view.anchor;
+    V.pad("in").click(); V.pad("in").click();
+    out.seKept = { before: h0, after: V.handleAt("se"), z: s.view.z, boxSame: s.box.right === s.dispW * 0.75 };
+    cancelBgCrop();
+    return out;
+  });
+  ok("V1 the rectangle crop opens at 1x: no badge, − greyed, + ready: " + JSON.stringify(V1.open),
+    V1.open.v.z === 1 && V1.open.v.panX === 16 && V1.open.v.panY === 16 && V1.open.badgeHidden && V1.open.outGrey && !V1.open.inGrey, V1);
+  ok("V2 with no handle touched yet, + zooms about the view's centre (Ray's addition): the picture point there stays put: " + JSON.stringify(V1.centre),
+    V1.centre.z === 1.25 && Math.abs(V1.centre.before.x - V1.centre.after.x) < 0.01 && Math.abs(V1.centre.before.y - V1.centre.after.y) < 0.01, V1);
+  ok("V3 + steps 1.25x and stops at 4x, where it greys out; the badge reads 4.0×: " + JSON.stringify(V1.ins),
+    Math.abs(V1.ins.zs[1] - 1.5625) < 1e-9 && V1.ins.zs.slice(-3).every(z => z === 4) && V1.ins.zs[6] === 4 && Math.abs(V1.ins.zs[5] - Math.pow(1.25, 6)) < 1e-9 && V1.ins.inGrey && V1.ins.badge === "4.0×", V1);
+  ok("V4 − steps back (5 taps from 4x: about 1.3x), the badge shows while zoomed and never catches a touch: " + JSON.stringify(V1.mid),
+    Math.abs(V1.mid.z - 4 / Math.pow(1.25, 5)) < 1e-9 && V1.mid.badge === "1.3×" && V1.mid.badgeShown && V1.mid.badgePE === "none", V1);
+  ok("V5 − stops at exactly 1x (back to the margin), greys out and hides the badge: " + JSON.stringify(V1.back),
+    V1.back.v.z === 1 && V1.back.v.panX === 16 && V1.back.v.panY === 16 && V1.back.outGrey && V1.back.badgeHidden, V1);
+  ok("V6 after a handle is touched (no move), + zooms about THAT handle: it stays where it was on screen, the box unchanged: " + JSON.stringify(V1.seKept),
+    V1.anchor === "se" && Math.abs(V1.seKept.before.x - V1.seKept.after.x) < 0.6 && Math.abs(V1.seKept.before.y - V1.seKept.after.y) < 0.6 && V1.seKept.z > 1.5 && V1.seKept.boxSame, V1);
+
+  // The four (ak) proofs.
+  const VA = await page.evaluate(async () => {
+    const C = __cb, V = __V, out = {};
+    const src = await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.92);
+    const boxOf = (s) => ({ left: s.dispW * 0.2, top: s.dispH * 0.3, right: s.dispW * 0.7, bottom: s.dispH * 0.8 });
+    // (i) The same box, Used at 1x and after zooming to 3x, panning, and a handle out and back.
+    let s = await C.open(src, "slab_reverse"); s.box = boxOf(s); renderBgCrop();
+    const box1 = Object.assign({}, s.box);
+    const e1 = await C.finish(); const kind1 = __getLastBgCropResultForTest().kind;
+    s = await C.open(src, "slab_reverse"); s.box = boxOf(s); renderBgCrop();
+    setBgCropView(3, null, { fx: 0.62, fy: 0.55 }); renderBgCrop(); // the right-hand handle in view
+    const e = V.handleAt("e");
+    V.fire("pointerdown", 1, e.x, e.y); V.fire("pointermove", 1, e.x - 30, e.y); V.fire("pointermove", 1, e.x - 50, e.y + 7); V.fire("pointermove", 1, e.x, e.y); V.fire("pointerup", 1, e.x, e.y);
+    const box3 = Object.assign({}, s.box), z3 = s.view.z;
+    const e3 = await C.finish();
+    out.same = { kind1, z3, boxSame: JSON.stringify(box1) === JSON.stringify(box3), bytes: await C.sameBytes(e1.blob, e3.blob), sizes: [e1.blob.size, e3.blob.size] };
+    // (ii) A 30 screen px drag of the right-hand handle at 3x moves the box 10 picture px ...
+    s = await C.open(src, "slab_reverse"); s.box = boxOf(s); renderBgCrop();
+    setBgCropView(3, null, { fx: 0.6, fy: 0.55 }); renderBgCrop();
+    const right0 = s.box.right, h = V.handleAt("e");
+    V.drag(1, h.x, h.y, h.x - 30, h.y, 6);
+    out.moved = { by: right0 - s.box.right, z: s.view.z };
+    const boxD = Object.assign({}, s.box);
+    const eD = await C.finish();
+    // ... and saves exactly what a 1x crop of that box saves.
+    s = await C.open(src, "slab_reverse"); s.box = Object.assign({}, boxD); renderBgCrop();
+    const e1D = await C.finish();
+    out.moved.bytes = await C.sameBytes(eD.blob, e1D.blob);
+    // (iii) + (iv) An untouched Holder: zoom in / out, pinch, pan; no decode; own bytes.
+    let decodes = 0;
+    const origCIB = window.createImageBitmap;
+    s = await C.open(src, "slab_obverse");
+    window.createImageBitmap = function (...a) { decodes++; return origCIB.apply(this, a); };
+    V.pad("in").click(); V.pad("in").click();
+    const vs = V.viewSize();
+    V.fire("pointerdown", 1, vs.w / 2 - 40, vs.h / 2); V.fire("pointerdown", 2, vs.w / 2 + 40, vs.h / 2);
+    V.fire("pointermove", 1, vs.w / 2 - 70, vs.h / 2); V.fire("pointermove", 2, vs.w / 2 + 70, vs.h / 2);
+    V.fire("pointerup", 1, vs.w / 2 - 70, vs.h / 2); V.fire("pointerup", 2, vs.w / 2 + 70, vs.h / 2);
+    V.pad("out").click();
+    const pinched = s.view.z;
+    out.untouchedBox = bgCropUntouched(s);
+    out.decodesWhileZooming = decodes;
+    window.createImageBitmap = origCIB;
+    const eU = await C.finish();
+    out.untouched = { pinched, kind: __getLastBgCropResultForTest().kind, same: await C.sameBytes(eU.blob, src) };
+    return out;
+  });
+  ok("V7 (ak) proof (i): the same box saves byte-identical files at 1x and after zooming to 3x, panning and a handle dragged out and back: " + JSON.stringify(VA.same),
+    VA.same.kind1 === "trimmed-fullres" && VA.same.z3 === 3 && VA.same.boxSame && VA.same.bytes, VA);
+  ok("V8 (ak) proof (ii): at 3x a 30 screen px drag moves the box 10 picture px: " + JSON.stringify(VA.moved),
+    Math.abs(VA.moved.by - 10) < 0.01 && VA.moved.z === 3, VA);
+  ok("V9 ... and saves byte for byte what a 1x crop of that box saves", VA.moved.bytes === true, VA);
+  ok("V10 (ak) proof (iii): an untouched Holder zoomed in, pinched, zoomed out and Used keeps its box at the whole photo and saves its own bytes: " + JSON.stringify(VA.untouched),
+    VA.untouchedBox && VA.untouched.kind === "original-bytes" && VA.untouched.same && VA.untouched.pinched > 1, VA);
+  ok("V11 (ak) proof (iv): nothing decodes the original while zooming (" + VA.decodesWhileZooming + " decodes)", VA.decodesWhileZooming === 0, VA);
+
+  // Panning, pinching, limits, F1 at 4x, slide-along, arrows.
+  const VP = await page.evaluate(async () => {
+    const C = __cb, V = __V, out = {};
+    const src = await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.9);
+    let s = await C.open(src, "slab_reverse");
+    s.box = { left: s.dispW * 0.3, top: s.dispH * 0.3, right: s.dispW * 0.7, bottom: s.dispH * 0.7 }; renderBgCrop();
+    const box0 = JSON.stringify(s.box), vs = V.viewSize();
+    // At 1x a drag outside the box (on the dimmed photo) does nothing.
+    V.drag(1, 30, 30, 70, 50);
+    out.at1 = { v: V.view(), boxSame: JSON.stringify(s.box) === box0 };
+    // At 2x it pans the view; the box stays.
+    setBgCropView(2, null, { fx: 0.5, fy: 0.5 }); renderBgCrop();
+    const p0 = V.view();
+    // A point well clear of the box and its handles' 44 px touch areas.
+    const clear = { x: 6, y: vs.h / 2 };
+    out.clearTarget = document.elementFromPoint(V.frame().getBoundingClientRect().left + clear.x, V.frame().getBoundingClientRect().top + clear.y).id;
+    V.drag(1, clear.x, clear.y, clear.x + 20, clear.y + 10);
+    const p1 = V.view();
+    out.pan = { dx: p1.panX - p0.panX, dy: p1.panY - p0.panY, boxSame: JSON.stringify(s.box) === box0 };
+    // A drag inside the box moves the box, by the finger's travel / zoom.
+    const mid = V.toView((s.box.left + s.box.right) / 2, (s.box.top + s.box.bottom) / 2), l0 = s.box.left;
+    V.drag(1, mid.x, mid.y, mid.x + 16, mid.y, 4);
+    out.move = { by: s.box.left - l0, z: s.view.z, panSame: V.view().panX === p1.panX };
+    // Pinch: two fingers 100 px apart spread to 200 about a middle point: 2x more, that point stays.
+    setBgCropView(1, null, { fx: 0.5, fy: 0.5 }); renderBgCrop();
+    const M = { x: vs.w / 2 + 20, y: vs.h / 2 - 10 }, q0 = V.fromView(M.x, M.y);
+    V.fire("pointerdown", 1, M.x - 50, M.y); V.fire("pointerdown", 2, M.x + 50, M.y);
+    for (let i = 1; i <= 5; i++) { V.fire("pointermove", 1, M.x - 50 - 10 * i, M.y); V.fire("pointermove", 2, M.x + 50 + 10 * i, M.y); }
+    const q1 = V.fromView(M.x, M.y);
+    out.pinch = { z: s.view.z, q0, q1 };
+    // Two fingers moved together pan without zooming.
+    const pz = V.view();
+    V.fire("pointermove", 1, M.x - 100 + 20, M.y + 10); V.fire("pointermove", 2, M.x + 100 + 20, M.y + 10);
+    const pz2 = V.view();
+    V.fire("pointerup", 1, 0, 0); V.fire("pointerup", 2, 0, 0);
+    out.twoPan = { dz: pz2.z - pz.z, dx: pz2.panX - pz.panX, dy: pz2.panY - pz.panY };
+    // A second finger undoes the first finger's half-done box edit.
+    const before = JSON.stringify(s.box), se = V.handleAt("se");
+    V.fire("pointerdown", 1, se.x, se.y); V.fire("pointermove", 1, se.x - 25, se.y - 15);
+    const midEdit = JSON.stringify(s.box) !== before;
+    V.fire("pointerdown", 2, se.x - 120, se.y - 80);
+    out.secondFinger = { midEdit, restored: JSON.stringify(s.box) === before };
+    V.fire("pointerup", 1, 0, 0); V.fire("pointerup", 2, 0, 0);
+    cancelBgCrop();
+    // Pan limits at 4x and F1: a whole-photo Holder box, pushed to each corner,
+    // keeps its corner handles fully on the margin and grabbable.
+    s = await C.open(src, "slab_obverse");
+    setBgCropView(4, null, { fx: 0.5, fy: 0.5 }); renderBgCrop();
+    const corners = {};
+    for (const [name, dx, dy] of [["nw", 1, 1], ["ne", -1, 1], ["sw", 1, -1], ["se", -1, -1]]) {
+      s.view.panX += dx * 99999; s.view.panY += dy * 99999; clampBgCropPan(s); renderBgCrop();
+      const v = V.view(), vw = V.viewSize();
+      const left = v.panX, right = v.panX + s.dispW * v.z, top = v.panY, bottom = v.panY + s.dispH * v.z;
+      const el = document.querySelector("#bgCropBox .bg-crop-handle." + name), r = el.getBoundingClientRect(), f = V.frame().getBoundingClientRect();
+      const inside = r.left >= f.left && r.right <= f.right && r.top >= f.top && r.bottom <= f.bottom;
+      const hit = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2) === el;
+      const edgeGap = name === "nw" ? [left, top] : name === "ne" ? [vw.w - right, top] : name === "sw" ? [left, vw.h - bottom] : [vw.w - right, vw.h - bottom];
+      corners[name] = { edgeGap, inside, hit };
+    }
+    out.corners = corners;
+    // Slide-along: at 3x hold the right-hand handle 8 px from the view's right edge.
+    s.box = { left: s.dispW * 0.2, top: s.dispH * 0.3, right: s.dispW * 0.5, bottom: s.dispH * 0.7 }; renderBgCrop();
+    setBgCropView(3, null, { fx: 0.4, fy: 0.5 }); renderBgCrop();
+    const e = V.handleAt("e"), vw = V.viewSize(), pan0 = V.view().panX;
+    V.fire("pointerdown", 1, e.x, e.y); V.fire("pointermove", 1, vw.w - 8, e.y);
+    await C.sleep(250);
+    const pan1 = V.view().panX;
+    const underFinger = Math.abs(V.handleAt("e").x - (vw.w - 8)) < 0.6;
+    V.fire("pointerup", 1, vw.w - 8, e.y);
+    await C.sleep(60);
+    out.follow = { pan0, pan1, underFinger, stopped: V.view().panX };
+    // Arrows at 4x: one tap = 1 screen px = a quarter picture px; the view follows the edge.
+    setBgCropView(4, null, { fx: 0.9, fy: 0.5 }); renderBgCrop(); // the box's left edge is off to the left
+    const leftOff = V.toView(s.box.left, 0).x < 0;
+    const lBefore = s.box.left;
+    document.querySelector('#bgCropPad [data-nudge="left"]').click();
+    out.arrow = { by: lBefore - s.box.left, leftOff, edgeNow: V.toView(s.box.left, 0).x, viewW: vw.w };
+    cancelBgCrop();
+    return out;
+  });
+  ok("V12 at 1x a drag outside the box does nothing (no room to pan; the box stays): " + JSON.stringify(VP.at1),
+    VP.at1.v.z === 1 && VP.at1.v.panX === 16 && VP.at1.v.panY === 16 && VP.at1.boxSame, VP);
+  ok("V13 zoomed, one finger dragged outside the box pans the view by the finger's travel and leaves the box alone: " + JSON.stringify(VP.pan),
+    VP.pan.dx === 20 && VP.pan.dy === 10 && VP.pan.boxSame, VP);
+  ok("V14 zoomed, a drag inside the box moves the box by the travel / zoom (16 px at 2x = 8 px), not the view: " + JSON.stringify(VP.move),
+    Math.abs(VP.move.by - 8) < 0.01 && VP.move.panSame, VP);
+  ok("V15 pinch: fingers 100 px apart spread to 200 zoom 2x about their middle (that picture point stays under it): " + JSON.stringify(VP.pinch),
+    Math.abs(VP.pinch.z - 2) < 1e-9 && Math.abs(VP.pinch.q0.x - VP.pinch.q1.x) < 0.01 && Math.abs(VP.pinch.q0.y - VP.pinch.q1.y) < 0.01, VP);
+  ok("V16 two fingers moved together pan without zooming: " + JSON.stringify(VP.twoPan),
+    Math.abs(VP.twoPan.dz) < 1e-9 && Math.abs(VP.twoPan.dx - 20) < 0.01 && Math.abs(VP.twoPan.dy - 10) < 0.01, VP);
+  ok("V17 a second finger undoes the first finger's half-done handle drag (a pinch never resizes the box): " + JSON.stringify(VP.secondFinger),
+    VP.secondFinger.midEdit && VP.secondFinger.restored, VP);
+  ok("V18 at 4x the view pans no further than the 16 px margin past the photo's edge, at every corner: " + JSON.stringify(Object.fromEntries(Object.entries(VP.corners).map(([k, v]) => [k, v.edgeGap]))),
+    Object.values(VP.corners).every(c => c.edgeGap.every(g => Math.abs(g - 16) < 0.01)), VP);
+  ok("V19 ... so a whole-photo Holder's corner handles stay fully on the margin and grabbable at 4x (F1 at every zoom): " + JSON.stringify(VP.corners),
+    Object.values(VP.corners).every(c => c.inside && c.hit), VP);
+  ok("V20 slide-along: a handle held near the view's edge slides the view along, the handle staying under the finger, and stops when let go: " + JSON.stringify(VP.follow),
+    VP.follow.pan1 < VP.follow.pan0 - 8 && VP.follow.underFinger && VP.follow.stopped === VP.follow.pan1, VP);
+  ok("V21 arrows at 4x: one tap moves the box 1 screen px (a quarter picture px), and the view follows that edge into sight: " + JSON.stringify(VP.arrow),
+    Math.abs(VP.arrow.by - 0.25) < 1e-9 && VP.arrow.leftOff && VP.arrow.edgeNow >= 16 - 0.01 && VP.arrow.edgeNow <= VP.arrow.viewW - 16 + 0.01, VP);
+
+  // What the zoom does on a turn, a straighten, Lock to square, a resize, Use / Cancel.
+  const VQ = await page.evaluate(async () => {
+    const C = __cb, V = __V, out = {};
+    const src = await C.toBlob(C.halves(4000, 3000), "image/jpeg", 0.9);
+    let s = await C.open(src, "slab_reverse");
+    setBgCropView(2.5, null, { fx: 0.3, fy: 0.6 }); renderBgCrop();
+    const vs = V.viewSize(), c0 = V.fromView(vs.w / 2, vs.h / 2), f0 = { fx: c0.x / s.dispW, fy: c0.y / s.dispH };
+    const sl = document.getElementById("bgCropStraighten");
+    sl.value = "3"; sl.dispatchEvent(new Event("input", { bubbles: true }));
+    await C.settle(); await C.sleep(30);
+    const vs2 = V.viewSize(), c1 = V.fromView(vs2.w / 2, vs2.h / 2);
+    out.straighten = { z: s.view.z, f0, f1: { fx: c1.x / s.dispW, fy: c1.y / s.dispH } };
+    // Lock to square keeps the zoom and shows the squared box.
+    s.box = { left: s.dispW * 0.05, top: s.dispH * 0.1, right: s.dispW * 0.45, bottom: s.dispH * 0.3 }; renderBgCrop(); // squared: 0.2 of the height, fits the view at 4x
+    setBgCropView(4, null, { fx: 0.9, fy: 0.9 }); renderBgCrop();
+    document.getElementById("bgCropAspectLock").click();
+    const b = s.box, a = V.toView(b.left, b.top), z = V.toView(b.right, b.bottom), vw = V.viewSize();
+    out.lock = { z: s.view.z, inView: a.x >= 15.99 && a.y >= 15.99 && z.x <= vw.w - 15.99 && z.y <= vw.h - 15.99 };
+    document.getElementById("bgCropAspectLock").click();
+    // A 90° turn: back to 1x.
+    document.getElementById("bgCropRotateRightBtn").click(); await C.settle();
+    out.turn = V.view();
+    cancelBgCrop();
+    // Cancel, then reopen: 1x.
+    s = await C.open(src, "slab_reverse");
+    out.reopen = V.view();
+    setBgCropView(3, null, { fx: 0.5, fy: 0.5 }); renderBgCrop();
+    out.beforeResize = V.view();
+    return out;
+  });
+  await page.setViewportSize({ width: 360, height: 740 });
+  const VR = await page.evaluate(async () => {
+    const C = __cb, V = __V;
+    await C.sleep(120);
+    const s = bgCropState, vs = V.viewSize(), c = V.fromView(vs.w / 2, vs.h / 2);
+    const out = { z: s.view.z, dispW: s.dispW, fx: c.x / s.dispW, fy: c.y / s.dispH };
+    await C.finish();
+    const s2 = await C.open(await C.toBlob(C.halves(1600, 1200), "image/jpeg", 0.9), "other");
+    out.afterUse = V.view();
+    cancelBgCrop();
+    return out;
+  });
+  await page.setViewportSize(PHONE);
+  ok("V22 a straighten keeps the zoom and the point at the view's centre: " + JSON.stringify(VQ.straighten),
+    VQ.straighten.z === 2.5 && Math.abs(VQ.straighten.f0.fx - VQ.straighten.f1.fx) < 0.01 && Math.abs(VQ.straighten.f0.fy - VQ.straighten.f1.fy) < 0.01, VQ);
+  ok("V23 Lock to square keeps the zoom and moves the view to show the squared box: " + JSON.stringify(VQ.lock), VQ.lock.z === 4 && VQ.lock.inView, VQ);
+  ok("V24 a 90° turn goes back to 1x: " + JSON.stringify(VQ.turn), VQ.turn.z === 1 && VQ.turn.panX === 16 && VQ.turn.panY === 16 && !VQ.turn.anchor, VQ);
+  ok("V25 Cancel and reopen: 1x: " + JSON.stringify(VQ.reopen), VQ.reopen.z === 1 && VQ.reopen.panX === 16, VQ);
+  ok("V26 a resize (the screen narrower) keeps the zoom and the centre point: " + JSON.stringify(VR),
+    VR.z === 3 && VR.dispW < VQ.beforeResize.z * 1000 && Math.abs(VR.fx - 0.5) < 0.01 && Math.abs(VR.fy - 0.5) < 0.01, { VQ, VR });
+  ok("V27 Use Crop, then the next crop opens at 1x: " + JSON.stringify(VR.afterUse), VR.afterUse.z === 1 && VR.afterUse.panX === 16, VR);
 
   // ---------- H. no writes --------------------------------------------------
   const H = await page.evaluate(() => __cb.writes.slice());

@@ -2260,10 +2260,19 @@
   .bg-crop-stage {
     position: relative; margin: 0 auto 12px; background: #000; overflow: hidden;
     border: 1px solid var(--case-border); touch-action: none; user-select: none;
-    padding: 16px;
   }
-  .bg-crop-frame { position: relative; }
-  .bg-crop-stage img { display: block; width: 100%; height: 100%; pointer-events: none; user-select: none; }
+  /* (bs) fix round 3: #bgCropFrame is the VIEW: the picture plus the 16 px
+     margin (BG_CROP_GUTTER) on every side, clipping a zoomed picture. The
+     picture, shades and box are placed in it by renderBgCrop (screen =
+     picture px x zoom + pan); at 1x the picture sits 16 px in, as before. */
+  .bg-crop-frame { position: relative; overflow: hidden; }
+  .bg-crop-stage img { position: absolute; display: block; pointer-events: none; user-select: none; max-width: none; }
+  .bg-crop-zoom-badge {
+    position: absolute; left: 6px; top: 6px; z-index: 1; pointer-events: none; /* under the handles (z 2-3) */
+    padding: 2px 6px; border-radius: 6px; font-size: 12px; line-height: 1.3;
+    background: rgba(0,0,0,0.65); color: var(--gold-bright); border: 1px solid var(--case-border);
+  }
+  .bg-crop-zoom-badge.hidden { display: none; }
   /* Four dim panels around the crop box (top/right/bottom/left) rather than a
      single overlay with a punched hole, so the selected region stays fully
      bright with no compositing tricks. */
@@ -5311,6 +5320,7 @@
       <div class="bg-crop-stage" id="bgCropStage">
         <div class="bg-crop-frame" id="bgCropFrame">
           <img id="bgCropImg" draggable="false" alt="">
+          <div class="bg-crop-zoom-badge hidden" id="bgCropZoomBadge"></div>
           <div class="bg-crop-shade" id="bgCropShadeTop"></div>
           <div class="bg-crop-shade" id="bgCropShadeBottom"></div>
           <div class="bg-crop-shade" id="bgCropShadeLeft"></div>
@@ -5328,9 +5338,11 @@
           </div>
         </div>
       </div>
-      <!-- (bs) The control pad: the − / + spots stay empty here (no zoom). -->
+      <!-- (bs) The control pad. − / + zoom the VIEW only (fix round 3). -->
       <div class="crop-pad" id="bgCropPad">
+        <button type="button" data-zoom="out" aria-label="Zoom the view out" title="Zoom out">−</button>
         <button type="button" data-nudge="up" aria-label="Move the box up">↑</button>
+        <button type="button" data-zoom="in" aria-label="Zoom the view in" title="Zoom in">+</button>
         <button type="button" data-nudge="left" aria-label="Move the box left">←</button>
         <button type="button" data-nudge="right" aria-label="Move the box right">→</button>
         <button type="button" data-angle="-0.5" aria-label="Straighten minus half a degree" title="−0.5°">↺</button>
@@ -28998,13 +29010,13 @@
   // CROP_NUDGE_PX: one arrow tap moves the box (Stage 1) or the picture
   // (Stage 2) this many screen px; tap only, no hold-to-repeat (Q3).
   // CROP_ANGLE_STEP: the +/- buttons; the slider moves in 0.1° (Q6).
-  const CROP_NUDGE_PX = 2;
+  const CROP_NUDGE_PX = 1; // (bs) fix round 3: 1 screen px a tap (was 2), both stages
   const CROP_ANGLE_STEP = 0.5;
   const CROP_ANGLE_MAX = 45;
   // (bs) fix round: the angle SLIDER snaps to exactly 0 within this many
   // degrees (the 0° button is gone, Ray 14 Nov 2026); the − / + buttons step
   // the circle's zoom by this factor (about 1% a tap).
-  const CROP_ANGLE_SNAP = 0.3;
+  const CROP_ANGLE_SNAP = 0.5; // (bs) fix round 3: ±0.5° (was ±0.3°, too hard to hit with a finger)
   const CROP_ZOOM_STEP = 1.01;
   // (bs) Z-C: the circle zooms in to this many times its starting zoom
   // (Ray: at least 5x; a 13 mm coin in a 66 mm holder square is 5.1x), on a
@@ -29449,6 +29461,7 @@
   // adjuster above (this project's no-external-CDN posture).
   // ==================================================================
 
+  let resetBgCropPointers = () => {}; // (bs) set by initBgCrop
   let bgCropState = null; // { source, fullW, fullH, baseCanvas, workCanvas, dispW, dispH, naturalW, naturalH, box:{...}, aspectLock, rotateQuick, rotateFine, trimOnly, handOffCanvas, onComplete }
   const BG_CROP_MIN = 32;   // smallest crop box, display px
   const BG_CROP_MAX_DISP_W = 360, BG_CROP_MAX_DISP_H = 300; // stage fit bounds (the cap, Q2)
@@ -29456,6 +29469,16 @@
   // F2 / Q9: the picture is never squeezed below this height to fit a short
   // screen (the panel scrolls instead).
   const BG_CROP_GUTTER = 16;
+  // (bs) fix round 3: VIEW zoom on the rectangle crop (Ray's Q1-Q7, 14 Nov
+  // 2026). Only the screen changes: the box stays in picture px at 1x, so
+  // everything that crops and saves is untouched. 1x-4x from the 1600 px
+  // display copy, − / + 1.25x a tap; a handle dragged within
+  // BG_CROP_FOLLOW_EDGE px of the view's edge slides the view along by
+  // BG_CROP_FOLLOW_SPEED px a frame.
+  const BG_CROP_VIEW_MAX = 4;
+  const BG_CROP_VIEW_STEP = 1.25;
+  const BG_CROP_FOLLOW_EDGE = 24;
+  const BG_CROP_FOLLOW_SPEED = 4;
   const BG_CROP_MIN_DISP_H = 200;
   const BG_CROP_MIN_DISP_W = 120;
   // (ak) FULL RESOLUTION, 9 Nov 2026. The crop SCREEN works on a display
@@ -29587,8 +29610,8 @@
     s.dispW = Math.max(1, Math.round(s.naturalW * scale));
     s.dispH = Math.max(1, Math.round(s.naturalH * scale));
     const frame = document.getElementById("bgCropFrame");
-    frame.style.width = s.dispW + "px";
-    frame.style.height = s.dispH + "px";
+    frame.style.width = (s.dispW + 2 * BG_CROP_GUTTER) + "px";
+    frame.style.height = (s.dispH + 2 * BG_CROP_GUTTER) + "px";
     const stage = document.getElementById("bgCropStage");
     stage.style.width = (s.dispW + 2 * BG_CROP_GUTTER + 2) + "px";
     stage.style.height = (s.dispH + 2 * BG_CROP_GUTTER + 2) + "px";
@@ -29597,8 +29620,18 @@
       s.box.left *= fx; s.box.right *= fx;
       s.box.top *= fy; s.box.bottom *= fy;
       clampBgBox();
+      // (bs) Straighten / resize keep the view zoom and the point of the
+      // picture at the view's centre (as a share of the picture).
+      const v = s.view;
+      if (v && oldW > 0) {
+        const cxF = (v.centre ? v.centre.fx : 0.5), cyF = (v.centre ? v.centre.fy : 0.5);
+        setBgCropView(v.z, null, { fx: cxF, fy: cyF });
+      } else {
+        resetBgCropView();
+      }
     } else {
       resetBgCropBox();
+      resetBgCropView(); // (bs) a new picture or a 90° turn: back to 1x
     }
     renderBgCrop();
   }
@@ -29607,6 +29640,7 @@
     const s = bgCropState;
     if (!s) return;
     const oldW = s.dispW, oldH = s.dispH;
+    rememberBgCropViewCentre(s);
     const work = bakeRotatedWorkCanvas(s.baseCanvas, s.rotateQuick, s.rotateFine);
     s.workCanvas = work;
     s.naturalW = work.width; s.naturalH = work.height;
@@ -29666,6 +29700,7 @@
     // (bs) Shown first, in the same task (nothing paints in between): the
     // stage is fitted to the panel as measured, and a hidden panel measures 0.
     overlay.classList.remove("hidden");
+    resetBgCropPointers();
     refreshBgCropSource(false); // sizes the stage, sets the image, resets the box
   }
 
@@ -29738,6 +29773,87 @@
     return { rect: r, boxIn };
   }
 
+  // ---- (bs) fix round 3: the VIEW of the rectangle crop -----------------
+  // s.view = { z, panX, panY, anchor }: a picture point (px at 1x, the box's
+  // own space) is drawn at (x * z + panX, y * z + panY) in #bgCropFrame. The
+  // picture's edge never comes in further than the 16 px margin from the
+  // view's edge, so a handle on the photo's edge always has room (F1). At
+  // 1x the pan is the margin itself: exactly the old screen.
+  function bgCropViewSize(s) { return { w: s.dispW + 2 * BG_CROP_GUTTER, h: s.dispH + 2 * BG_CROP_GUTTER }; }
+  function clampBgCropPan(s) {
+    const v = s.view, vs = bgCropViewSize(s), G = BG_CROP_GUTTER;
+    v.panX = Math.min(G, Math.max(vs.w - G - s.dispW * v.z, v.panX));
+    v.panY = Math.min(G, Math.max(vs.h - G - s.dispH * v.z, v.panY));
+  }
+  function resetBgCropView() {
+    const s = bgCropState;
+    if (!s) return;
+    s.view = { z: 1, panX: BG_CROP_GUTTER, panY: BG_CROP_GUTTER, anchor: null };
+  }
+  // The share of the picture at the view's centre (kept through a re-layout).
+  function rememberBgCropViewCentre(s) {
+    const v = s && s.view;
+    if (!v || !s.dispW) return;
+    const vs = bgCropViewSize(s);
+    v.centre = { fx: (vs.w / 2 - v.panX) / v.z / s.dispW, fy: (vs.h / 2 - v.panY) / v.z / s.dispH };
+  }
+  // Zoom to z, keeping one point where it is on screen: `at` = { x, y } in
+  // view px, or `centre` = { fx, fy } (a share of the picture) to put at the
+  // view's centre.
+  function setBgCropView(z, at, centre) {
+    const s = bgCropState;
+    if (!s) return;
+    if (!s.view) resetBgCropView();
+    const v = s.view;
+    let nz = Math.max(1, Math.min(BG_CROP_VIEW_MAX, z));
+    if (Math.abs(nz - 1) < 1e-6) nz = 1;
+    if (Math.abs(nz - BG_CROP_VIEW_MAX) < 1e-6) nz = BG_CROP_VIEW_MAX;
+    const vs = bgCropViewSize(s);
+    if (centre) {
+      v.panX = vs.w / 2 - centre.fx * s.dispW * nz;
+      v.panY = vs.h / 2 - centre.fy * s.dispH * nz;
+    } else {
+      const p = at || { x: vs.w / 2, y: vs.h / 2 };
+      const qx = (p.x - v.panX) / v.z, qy = (p.y - v.panY) / v.z; // picture point under p
+      v.panX = p.x - qx * nz; v.panY = p.y - qy * nz;
+    }
+    v.z = nz;
+    clampBgCropPan(s);
+  }
+  // Q2 (+ Ray's addition): − / + zoom about the handle last touched, or the
+  // view's centre when no handle has been touched yet.
+  function bgCropHandlePoint(s, h) {
+    const b = s.box;
+    const x = h.includes("w") ? b.left : h.includes("e") ? b.right : (b.left + b.right) / 2;
+    const y = h.includes("n") ? b.top : h.includes("s") ? b.bottom : (b.top + b.bottom) / 2;
+    return { x, y };
+  }
+  function bgCropZoomStep(dir) {
+    const s = bgCropState;
+    if (!s) return;
+    const v = s.view;
+    const nz = dir === "in" ? v.z * BG_CROP_VIEW_STEP : v.z / BG_CROP_VIEW_STEP;
+    let at = null;
+    if (v.anchor) { const q = bgCropHandlePoint(s, v.anchor); at = { x: q.x * v.z + v.panX, y: q.y * v.z + v.panY }; }
+    setBgCropView(nz, at);
+    renderBgCrop();
+  }
+  // Pan just enough that the picture rectangle r (picture px) is in view,
+  // with the margin; for a rectangle larger than the view, its centre.
+  function showBgCropRect(r) {
+    const s = bgCropState, v = s.view, vs = bgCropViewSize(s), G = BG_CROP_GUTTER;
+    const fit = (lo, hi, pan, size) => {
+      const a = lo * v.z + pan, b = hi * v.z + pan;
+      if (b - a > size - 2 * G) return size / 2 - (lo + hi) / 2 * v.z;
+      if (a < G) return pan + (G - a);
+      if (b > size - G) return pan - (b - (size - G));
+      return pan;
+    };
+    if (r.left != null) v.panX = fit(r.left, r.right, v.panX, vs.w);
+    if (r.top != null) v.panY = fit(r.top, r.bottom, v.panY, vs.h);
+    clampBgCropPan(s);
+  }
+
   function closeBgCrop() {
     document.getElementById("bgCropOverlay").classList.add("hidden");
     bgCropState = null;
@@ -29751,7 +29867,22 @@
   function renderBgCrop() {
     const s = bgCropState;
     if (!s) return;
-    const b = s.box;
+    if (!s.view) resetBgCropView();
+    const v = s.view, z = v.z;
+    // (bs) fix round 3: everything is placed in VIEW px (picture px x z +
+    // pan); the handles and their touch areas keep their own size.
+    const img = document.getElementById("bgCropImg");
+    img.style.left = v.panX + "px"; img.style.top = v.panY + "px";
+    img.style.width = (s.dispW * z) + "px"; img.style.height = (s.dispH * z) + "px";
+    const badge = document.getElementById("bgCropZoomBadge");
+    badge.classList.toggle("hidden", z === 1);
+    badge.textContent = z.toFixed(1) + "×";
+    const zb = (sel) => document.querySelector('#bgCropPad [data-zoom="' + sel + '"]');
+    if (zb("out")) zb("out").disabled = z <= 1;
+    if (zb("in")) zb("in").disabled = z >= BG_CROP_VIEW_MAX;
+    const pb = s.box;
+    const b = { left: pb.left * z + v.panX, top: pb.top * z + v.panY, right: pb.right * z + v.panX, bottom: pb.bottom * z + v.panY };
+    const P = { left: v.panX, top: v.panY, right: v.panX + s.dispW * z, bottom: v.panY + s.dispH * z };
     const w = b.right - b.left, h = b.bottom - b.top;
     const box = document.getElementById("bgCropBox");
     box.style.left = b.left + "px"; box.style.top = b.top + "px";
@@ -29766,14 +29897,14 @@
       el.style.left = x + "px"; el.style.top = y + "px";
       el.style.width = Math.max(0, ww) + "px"; el.style.height = Math.max(0, hh) + "px";
     };
-    setShade("bgCropShadeTop", 0, 0, s.dispW, b.top);
-    setShade("bgCropShadeBottom", 0, b.bottom, s.dispW, s.dispH - b.bottom);
-    setShade("bgCropShadeLeft", 0, b.top, b.left, h);
-    setShade("bgCropShadeRight", b.right, b.top, s.dispW - b.right, h);
+    setShade("bgCropShadeTop", P.left, P.top, P.right - P.left, b.top - P.top);
+    setShade("bgCropShadeBottom", P.left, b.bottom, P.right - P.left, P.bottom - b.bottom);
+    setShade("bgCropShadeLeft", P.left, b.top, b.left - P.left, h);
+    setShade("bgCropShadeRight", b.right, b.top, P.right - b.right, h);
     // (bs) Q5: an arrow that cannot move the box (it is at that edge of the
     // photo) is greyed; on an untouched whole-photo box all four are.
     const eps = 0.01;
-    const can = { left: b.left > eps, up: b.top > eps, right: b.right < s.dispW - eps, down: b.bottom < s.dispH - eps };
+    const can = { left: pb.left > eps, up: pb.top > eps, right: pb.right < s.dispW - eps, down: pb.bottom < s.dispH - eps };
     document.querySelectorAll("#bgCropPad button[data-nudge]").forEach(btn => {
       btn.disabled = !can[btn.dataset.nudge];
     });
@@ -29781,14 +29912,25 @@
 
   // (bs) One arrow tap: the box moves CROP_NUDGE_PX screen px (box positions
   // are screen px on the picture), never past the photo's edge, same size.
+  // (bs) fix round 3, Q6: one tap is CROP_NUDGE_PX SCREEN px at any view
+  // zoom (1 / z picture px), and the view follows the edge that moved.
   function nudgeBgCropBox(dir) {
     const s = bgCropState;
     const d = CROP_NUDGE_DIRS[dir];
     if (!s || !d) return;
+    const z = s.view ? s.view.z : 1;
     const b = s.box, w = b.right - b.left, h = b.bottom - b.top;
-    const nl = Math.max(0, Math.min(s.dispW - w, b.left + d[0] * CROP_NUDGE_PX));
-    const nt = Math.max(0, Math.min(s.dispH - h, b.top + d[1] * CROP_NUDGE_PX));
+    const nl = Math.max(0, Math.min(s.dispW - w, b.left + d[0] * CROP_NUDGE_PX / z));
+    const nt = Math.max(0, Math.min(s.dispH - h, b.top + d[1] * CROP_NUDGE_PX / z));
     b.left = nl; b.right = nl + w; b.top = nt; b.bottom = nt + h;
+    if (s.view && z > 1) {
+      // Only the axis that moved: the edge that moved comes into view.
+      const edge = dir === "left" ? { left: b.left, right: b.left }
+        : dir === "right" ? { left: b.right, right: b.right }
+        : dir === "up" ? { top: b.top, bottom: b.top }
+        : { top: b.bottom, bottom: b.bottom };
+      showBgCropRect(edge);
+    }
     renderBgCrop();
   }
 
@@ -29803,24 +29945,20 @@
   function initBgCrop() {
     const stage = document.getElementById("bgCropStage");
     const box = document.getElementById("bgCropBox");
-    let drag = null; // { mode: "move"|handle, startX, startY, orig box }
+    const frame = document.getElementById("bgCropFrame");
+    // (bs) fix round 3: one pointer handler for the whole view.
+    //   a handle (or its touch area)  -> resize, and it becomes the zoom anchor (Q2)
+    //   inside the box                -> move the box
+    //   outside the box (photo / margin) -> pan the view (nothing at 1x: no room)
+    //   a second finger, anywhere     -> pinch: zoom about the fingers' middle and pan
+    // Box changes are in picture px: the finger's travel divided by the zoom.
+    const pointers = new Map(); // pointerId -> { x, y } in view px
+    let drag = null;            // { kind: "box" | "pan" | "pinch", ... }
+    let followRaf = 0;
+    const viewPoint = (e) => { const r = frame.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 
-    function startDrag(e, mode) {
-      if (!bgCropState) return;
-      e.preventDefault();
-      drag = { mode, startX: e.clientX, startY: e.clientY, orig: Object.assign({}, bgCropState.box) };
-      stage.setPointerCapture(e.pointerId);
-    }
-    box.addEventListener("pointerdown", (e) => {
-      // A handle press is caught here too (bubbles) — dataset.h distinguishes.
-      const h = e.target.dataset ? e.target.dataset.h : null;
-      startDrag(e, h || "move");
-      e.stopPropagation();
-    });
-    stage.addEventListener("pointermove", (e) => {
-      if (!drag || !bgCropState) return;
+    function applyBoxDrag(dx, dy) {
       const s = bgCropState, b = s.box, o = drag.orig;
-      const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
       if (drag.mode === "move") {
         const w = o.right - o.left, h = o.bottom - o.top;
         let nl = o.left + dx, nt = o.top + dy;
@@ -29846,17 +29984,103 @@
       } else {
         // Free resize — move only the edges this handle controls.
         const m = drag.mode;
+        b.left = o.left; b.right = o.right; b.top = o.top; b.bottom = o.bottom;
         if (m.includes("w")) b.left = o.left + dx;
         if (m.includes("e")) b.right = o.right + dx;
         if (m.includes("n")) b.top = o.top + dy;
         if (m.includes("s")) b.bottom = o.bottom + dy;
         clampBgBox();
       }
+    }
+    // The finger's travel in PICTURE px since the drag began; a view that
+    // slid along meanwhile counts too (the handle stays under the finger).
+    function redoBoxDrag() {
+      const s = bgCropState, v = s.view;
+      const dx = ((drag.last.x - v.panX) - (drag.start.x - drag.startPan.x)) / v.z;
+      const dy = ((drag.last.y - v.panY) - (drag.start.y - drag.startPan.y)) / v.z;
+      applyBoxDrag(dx, dy);
       renderBgCrop();
+    }
+    // Q1: a handle dragged near the view's edge slides the view along, a
+    // few px a frame, while the finger stays there.
+    function followStep() {
+      followRaf = 0;
+      const s = bgCropState;
+      if (!s || !drag || drag.kind !== "box" || drag.mode === "move" || s.view.z <= 1) return;
+      const vs = bgCropViewSize(s), p = drag.last, E = BG_CROP_FOLLOW_EDGE, sp = BG_CROP_FOLLOW_SPEED;
+      const ox = s.view.panX, oy = s.view.panY;
+      if (p.x < E) s.view.panX += sp; else if (p.x > vs.w - E) s.view.panX -= sp;
+      if (p.y < E) s.view.panY += sp; else if (p.y > vs.h - E) s.view.panY -= sp;
+      clampBgCropPan(s);
+      if (s.view.panX === ox && s.view.panY === oy) return; // at the end of the photo
+      redoBoxDrag();
+      followRaf = requestAnimationFrame(followStep);
+    }
+    function startPinch() {
+      const s = bgCropState;
+      if (drag && drag.kind === "box") { Object.assign(s.box, drag.orig); } // a second finger: undo the first finger's edit
+      const [a, b] = [...pointers.values()];
+      drag = { kind: "pinch", d0: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        z0: s.view.z, pan0: { x: s.view.panX, y: s.view.panY } };
+      renderBgCrop();
+    }
+    stage.addEventListener("pointerdown", (e) => {
+      const s = bgCropState;
+      if (!s) return;
+      e.preventDefault();
+      try { stage.setPointerCapture(e.pointerId); } catch (_) { /* a synthetic pointer */ }
+      const p = viewPoint(e);
+      pointers.set(e.pointerId, p);
+      if (pointers.size >= 2) { startPinch(); return; }
+      const t = e.target && e.target.closest ? e.target : null;
+      const handle = t && t.closest(".bg-crop-handle");
+      const inBox = t && t.closest("#bgCropBox");
+      const base = { start: p, last: p, startPan: { x: s.view.panX, y: s.view.panY }, orig: Object.assign({}, s.box) };
+      if (handle) { s.view.anchor = handle.dataset.h; drag = Object.assign({ kind: "box", mode: handle.dataset.h }, base); }
+      else if (inBox) drag = Object.assign({ kind: "box", mode: "move" }, base);
+      else drag = Object.assign({ kind: "pan" }, base);
     });
-    const endDrag = () => { drag = null; };
-    stage.addEventListener("pointerup", endDrag);
-    stage.addEventListener("pointercancel", endDrag);
+    stage.addEventListener("pointermove", (e) => {
+      const s = bgCropState;
+      if (!s || !pointers.has(e.pointerId)) return;
+      const p = viewPoint(e);
+      pointers.set(e.pointerId, p);
+      if (!drag) return;
+      if (drag.kind === "pinch") {
+        if (pointers.size < 2) return;
+        const [a, b] = [...pointers.values()];
+        const d = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        let nz = Math.max(1, Math.min(BG_CROP_VIEW_MAX, drag.z0 * d / drag.d0));
+        const qx = (drag.m0.x - drag.pan0.x) / drag.z0, qy = (drag.m0.y - drag.pan0.y) / drag.z0; // picture point under the start middle
+        s.view.z = nz;
+        s.view.panX = m.x - qx * nz; s.view.panY = m.y - qy * nz;
+        clampBgCropPan(s);
+        renderBgCrop();
+        return;
+      }
+      if (drag.kind === "pan") {
+        s.view.panX = drag.startPan.x + (p.x - drag.start.x);
+        s.view.panY = drag.startPan.y + (p.y - drag.start.y);
+        clampBgCropPan(s);
+        renderBgCrop();
+        return;
+      }
+      drag.last = p;
+      redoBoxDrag();
+      if (!followRaf && drag.mode !== "move" && s.view.z > 1) followRaf = requestAnimationFrame(followStep);
+    });
+    const endPointer = (e) => {
+      pointers.delete(e.pointerId);
+      if (!drag) return;
+      if (drag.kind === "pinch") { if (pointers.size < 2) drag = null; return; }
+      drag = null;
+      if (followRaf) { cancelAnimationFrame(followRaf); followRaf = 0; }
+    };
+    stage.addEventListener("pointerup", endPointer);
+    stage.addEventListener("pointercancel", endPointer);
+    stage.addEventListener("lostpointercapture", endPointer);
+    // A new crop screen starts with no fingers down.
+    resetBgCropPointers = () => { pointers.clear(); drag = null; if (followRaf) { cancelAnimationFrame(followRaf); followRaf = 0; } };
 
     document.getElementById("bgCropAspectLock").addEventListener("change", (e) => {
       if (!bgCropState) return;
@@ -29869,6 +30093,8 @@
         const side = Math.min(b.right - b.left, b.bottom - b.top);
         b.left = cx - side / 2; b.right = cx + side / 2; b.top = cy - side / 2; b.bottom = cy + side / 2;
         clampBgBox();
+        // (bs) Q5: the zoom stays; the view moves to show the squared box if needed.
+        if (bgCropState.view && bgCropState.view.z > 1) showBgCropRect(b);
       }
       renderBgCrop();
     });
@@ -29907,6 +30133,7 @@
       const btn = e.target.closest("button");
       if (!btn || btn.disabled || !bgCropState) return;
       if (btn.dataset.angle) setBgCropAngle(steppedCropAngle(bgCropState.rotateFine, btn.dataset.angle));
+      else if (btn.dataset.zoom) bgCropZoomStep(btn.dataset.zoom);
       else if (btn.dataset.nudge) nudgeBgCropBox(btn.dataset.nudge);
     });
     blockCropLongPress(document.getElementById("bgCropOverlay"));
@@ -29919,6 +30146,7 @@
       const { maxW, maxH } = bgCropFitBounds();
       const scale = Math.min(maxW / s.naturalW, maxH / s.naturalH, 1);
       if (Math.round(s.naturalW * scale) === oldW && Math.round(s.naturalH * scale) === oldH) return;
+      rememberBgCropViewCentre(s);
       layoutBgCropStage(true, oldW, oldH);
     });
 
