@@ -56,3 +56,6 @@ Build of `d927c55` (Ray, phone, 14 Nov 2026): T1-T11 passed. T10 (saving unchang
 ## Quick check of `85940b2` on TEST
 Q1. Edit Coin on a coin with a Holder photo: open the Holder's crop-from-this-photo chooser ("Crop this photo into…"). The four buttons sit in two rows, Obverse / Reverse then Reference / Cancel, all inside the box and easy to tap. Tap Cancel: the dialog closes, nothing changes.
 Q2. Any two-button dialog (for example the guided-crop offer after picking a Holder, Skip / Crop) still shows its buttons side by side on one row.
+
+## Quick check results
+`85940b2` (Ray, phone, 14 Nov 2026): Q1 passed (the chooser in two rows, Cancel works), Q2 passed (a two-button dialog on one row). Merged to main 14 Nov 2026.

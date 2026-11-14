@@ -3336,6 +3336,8 @@ tile — it's reachable only via its own tab inside Browse.
 - **Full-resolution photos (ak)** (11 Nov, code `1332303`, merged by fast-forward): every non-flip photo trim-only and never downscaled, untouched = the picked file's own bytes; Obverse / Reverse one encode, 1400 / 0.92; thumbnails for tiles; upload session after a 413. [PHOTOS.md]
 - **Workbook session (bk)** (8 Nov, code `296d8c4`): every workbook request through one Excel session, write steps pinned to its generation (invariant 18; Ray's TEST passed (a), (b), c1, c2). [WRITE_LAYER.md]
 - **Belongs to** (Oct): invariant 15. **Earlier work** (Add Set, Browse Edit write layer, Add Coin Phase 1 / 2, Promote duplicate-row fix, Item 5, "Owned", Set attach / detach, Photos and Receipts tabs, Former Holdings + Purge): in the invariants; write-ups in WRITE_LAYER.md, ADD_COIN_WRITE.md, ADD_SET.md, FORMER_HOLDINGS.md, SAVE_AND_RECEIPTS.md.
+- (bs) Build 3, crop-screen basics (merged 14 Nov 2026, code `85940b2`): crop screens fit the phone (F2) with handles on a 16 px dark margin and 44 px touch areas (F1); long-press blocked; a control pad (− ↑ + / ← → / ↺ ↓ ↻) with 1 px arrows and 0.5° steps; angle sliders in 0.1° with a ±0.5° snap to 0 and a 0° tick; the circle gets the square plus 25% of photo (start = square fills it, log zoom to 6x, never black) and is cut from the full-resolution original; display-only view zoom on the rectangle crop (1x-4x, pinch, pan, slide-along); choice dialogs wrap their buttons. [PHOTOS.md "(bs) Crop-screen basics"; HISTORY "(bs) build history"]
+
 
 ## CLAUDE.md sections retired 9 Nov 2026 (usefulness-over-size rule)
 Kept verbatim for the record. "End-of-task reporting" was folded into rule 3; "Merge policy" was replaced (every code merge waits for Ray); "Maintenance" contradicted rules 1 and 4 and was removed.
@@ -3368,7 +3370,7 @@ existing spec) — just do the work. If unsure whether something rises to that b
 ask before updating rather than updating by default.
 
 
-## (bs) build history (11 Nov 2026, branch `claude/crop-basics-bs`, HELD for Ray's TEST)
+## (bs) build history (11-14 Nov 2026, branch `claude/crop-basics-bs`, merged 14 Nov 2026)
 - Plan 11 Nov (docs/BACKLOG.md "(bs) Build 3 plan"); Ray's answers Q1-Q9 the same day, all as suggested, plus a reset to exactly 0° on both stages (Q6 addition). Built from main `1b502e0`: code `379290d`.
 - Deviation from the plan: the Stage 1 panel's max-width went 420 -> 440 px. With the 2 x 16 px margin a 420 px panel gave a tablet only 348 x 261, so the 360 x 300 cap Ray kept (Q2) was out of reach (found by B2). The 0° reset is a separate button, not a tap on the readout (Ray left it to the build).
 - Affected suites (16: the 15 crop-screen suites + crop_basics), one run after the build: all PASS, 0 failed (about 5 min).
@@ -3388,6 +3390,7 @@ ask before updating rather than updating by default.
 
 - Ray's TEST of `d927c55` (phone, 14 Nov 2026): T1-T11 passed (T10 not confirmed with file sizes on the device; V7-V11 cover it). Found: the "Crop this photo into…" chooser ran Cancel off its box at about 384 px. Measured on main `1b502e0` too: the same overflow at 360 and 384 (and into the panel's padding at 412), so older than (bs). Cause: `showWriteGuard`'s button row (`.photo-adjust-btns`, one flex row, no wrap) in a panel of at most 360 px: four buttons need about 330 px, the row has 320 (304 at 384 px wide). Fix `85940b2`: `#writeGuardBtns` wraps, two to a row (`.wrap2`, added by `showWriteGuard` only when one row is too wide, measured with the overlay showing), every button at least 44 px tall (was 40). Because the dialog is capped at 360 px, these four wrap at every screen width; a two-button dialog stays on one row. The crop screens' own rows (both pads, Cancel / Use, the 90° / Lock row) were measured at 360 / 384 / 412: none ran off its panel. Affected suites (29: every suite that opens the dialog, plus photo_fullres and replace_never_overwrites): 2363 / 0 (8.4 min). Negative control, the old single row: crop_basics W1-W3 failed at every width (12 checks).
 - Gate (full `npm test` at `85940b2`, 14 Nov 2026): 5179 passed, 0 failed, 0 page errors, 102 suites, 822 s.
+- Ray's quick check of `85940b2` (14 Nov 2026): Q1 passed (the chooser in two rows, Cancel works), Q2 passed (a two-button dialog on one row). Merged by fast-forward to `d282ace` (main had not moved from `1b502e0`, so the gate at `85940b2` stood); the merge's docs commit regenerated CODEMAP (with a (bs) section), closed (bs) in BACKLOG and added (bx), (by).
 
 ### (bs) fix-round-3 negative controls (14 Nov 2026)
 17 copies, four at a time (about 11.5 min), then 1 re-run. Each made crop_basics fail:
