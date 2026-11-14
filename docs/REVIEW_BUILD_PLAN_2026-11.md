@@ -13,7 +13,7 @@ Written 14 Nov 2026 (docs only); on main since Ray's answers the same day. It tu
 - Agreed order: 1. B2 + B10; 2. B6; 3. data-safety build 1 (A1, A4, A2, A12, B1, plus small Part A fixes that fit); then Promote / photo save (A3, A5, B3, B4; TEST on a device for B4's 409 case).
 - Ray's answers to this plan's Q1-Q9 (14 Nov 2026): every recommended answer, with one change: B7 and A19's check move to right after Build 3 (B7 needs A1's paging), and the later builds are renumbered. The answers are listed at the end.
 - Ray's answers to Part C, the crop review (14 Nov 2026): one crop-fixes build after Build 5 with C1 to C10 and tests T1 to T7; honour any trim that shows on screen (C6); white behind a see-through PNG (C8); an untouched Holder's camera data stays as it is (C11, no change). Ray takes 50 MP photos at times and has done holder, trim, Use Crop, Obverse / Reverse at 50 MP on the S25 (2 x 2 flips) without problems, so C2 and C4 are included but not urgent. The builds below are in the final order, renumbered to include it: ten builds.
-- The two "plan first" builds now have full plans at the end of this file: Build 8 (deadlines) and Build 10 (wrong row).
+- The two "plan first" builds have full plans at the end of this file: Build 8 (deadlines) and Build 10 (wrong row). Ray's answers to their questions (14 Nov 2026): Build 8, all four accepted as proposed; Build 10, QW1 to QW6 accepted as proposed, QW7 deferred until Stage 1's result is in. They are listed after the two plans.
 
 ## A4 explained: what Reject deletes after a Promote whose status write failed
 
@@ -142,7 +142,7 @@ Added by Ray (14 Nov 2026) from Part C of the review. Display and pixel code onl
 - C10: `runCropPipeline` catches a failed open and shows the existing "couldn't be cropped" message; the camera path gets the same file test as the library path. Test: a file that will not decode.
 - T1: the two JPEG quality settings are pinned by tests (negative control: 0.5 must fail). T2: the Staging-draft edit's save uploads the full picture (negative control: the tile copy must fail). T3: crop-from-an-uploaded-photo on a draft reads the full picture. T5: a photo with a camera turn (EXIF orientation 6) runs through the crop suites: untouched, trimmed, Obverse and its kept original.
 - Left alone: C11 (an untouched Holder keeps the camera's data; Ray, 14 Nov 2026).
-- Device TEST: a trimmed and a turned Holder at 50 MP; an Obverse and a Reverse cut from a 50 MP holder; a PNG Reference; Use still on screen without scrolling (the (bs) rule).
+- Device TEST: a trimmed and a turned Holder at 50 MP; an Obverse and a Reverse cut from a 50 MP holder; a PNG Reference; Use still on screen without scrolling (the (bs) rule). Added by Ray (14 Nov 2026) for C9, because the kept original's name is shared with Replace, Recrop and Purge: on a coin whose kept original has a different file ending from its display copy (a PNG pick: `_original.png` beside `_cropped.jpg`), do a Replace, a Recrop and a Purge, and check each finds, keeps or removes the right files.
 
 ### Build 7: small fixes pack: A9, A10, A15, A17, A20 (S each; M together)
 
@@ -157,7 +157,7 @@ Added by Ray (14 Nov 2026) from Part C of the review. Display and pixel code onl
 - A7: one shared deadline for every request the app sends through its Graph layer. A write with no answer is reported as "may have been saved", never "not saved". Takes in backlog (ap) 1.5 with 2.4.
 - A8: when a workbook write gets no answer, the row is read back and the report says what is there.
 - A6 first part: no resume / version check starts while a save is running; it runs when the save ends.
-- Full plan: "Full plan, Build 8" below.
+- Full plan: "Full plan, Build 8" below. Ray accepted it as proposed (QD1 to QD4, 14 Nov 2026).
 
 ### Build 9: Staging housekeeping: B5, A13 first part (M; plan first)
 
@@ -174,7 +174,7 @@ A13 first part: Docket and draft JSON uploads send `If-Match` with the file's eT
 
 - A11 in two stages: a read-only probe first (does a read placed inside the write's own batch see the rows the write will hit?), and the guard itself only if the probe says it can be trusted.
 - A6 second part ("may this save write" decided once per save) is built only if the save log shows mid-save refusals after Build 8.
-- Full plan: "Full plan, Build 10" below.
+- Full plan: "Full plan, Build 10" below. Ray accepted it as proposed (QW1 to QW6, 14 Nov 2026); QW7 is deferred until Stage 1's result is in.
 
 ## Where every finding lands
 
@@ -230,7 +230,7 @@ This build applies those five rules to every save.
 - The deadlines, each a constant with a test seam:
   - a workbook request (read, write, `$batch`, add a table row): 60 s, the spot-price figure;
   - a small file request (a draft's JSON, the Docket file, a folder listing, a file's details, a delete, a move): 60 s;
-  - a photo or receipt upload or download: by size, at least 60 s, allowing for 20 KB a second, at most 10 minutes (a 12 MB Holder gets 10 minutes; a 300 KB Obverse gets 60 s). An upload that goes through an upload session gets this per piece.
+  - a photo or receipt upload or download: by size, at least 60 s, allowing for 20 KB a second, at most 10 minutes (a 12 MB Holder gets 10 minutes; a 300 KB Obverse gets 60 s). An upload that goes through an upload session gets this per piece. Ray (QD1): yes, and the 10-minute cap stays (uploads are normally done at home on a good connection); T4 is the backstop.
 - The launch reads keep their own 12 s. Picture reads for tiles and the viewer do not go through `graph()` and are not changed.
 - Each timeout is a line in the save's steps (B1's log): what was waiting, for how long.
 
@@ -244,7 +244,7 @@ The rule: only a request that could not have changed anything may be reported as
     - some hold it: today's "only part of this save reached the workbook" result, unchanged;
     - none holds it, and the read went through the same Excel session as the write: "Not saved: the workbook did not answer, and a read just now shows the old values." Still worded as a read, not a promise;
     - the read-back failed or timed out too, or there was no session: "May have been saved. Your changes are still on this screen. Wait a minute, then tap Save: the app checks what arrived before it writes anything."
-  - In the "may have been saved" and "not saved after no answer" cases the app remembers what it tried to write. On the next Save, a row that now holds exactly those values is the app's own save arriving, not someone else's edit: it is not reported as a conflict, and only what still differs is written. This uses the existing own-write record (`ownRowStates`, invariant 4's exception), extended from "a save Graph confirmed" to "a save whose answer was lost". The 10-minute limit and the same-session rule of (bk) QA4 stay.
+  - In the "may have been saved" and "not saved after no answer" cases the app remembers what it tried to write. On the next Save, a row that now holds exactly those values is the app's own save arriving, not someone else's edit: it is not reported as a conflict, and only what still differs is written. This uses the existing own-write record (`ownRowStates`, invariant 4's exception), extended from "a save Graph confirmed" to "a save whose answer was lost". The 10-minute limit and the same-session rule of (bk) QA4 stay. Ray (QD3): yes, cell for cell: every cell the save tried to write must hold exactly the value it tried to write. This is an agreed extension of invariant 4's exception; the build that ships it adds it to invariant 4's text in CLAUDE.md.
   - The `$batch` with several chunks: ranges confirmed before the silent chunk are "saved"; the silent chunk's are "may have been saved" until the read-back decides; later chunks are "not sent". `batchWriteError` and `partialSaveResult` gain that third list. The case "the answer arrived but its body could not be read" is treated the same way (today it falls through as a plain error).
   - A Photos or Receipts row write: the photo or receipt stays pending with "May have been saved: tap Save again". Save again is safe after Build 5 (a row with the same coin and file name is reused).
   - An upload: "May have uploaded: tap Save again". Save again is safe after Build 5 (a 409 on identical bytes adopts the file).
@@ -311,7 +311,7 @@ Risks:
 - A deadline cuts off a slow upload that was still moving. Guard: the size rule, and T4. If T4 fails the allowance is raised, not removed.
 - "Not saved" after a read-back, and the write lands later. Guard: that wording is used only for a read through the same session; and the next Save looks before it writes, so the worst case is the same values written once more.
 - Counting a row that already held the same values as "saved". Harmless: it holds what was wanted.
-- The own-write exception grows (a write whose answer was lost). It needs Ray's agreement (QD3) and a line in invariant 4 when built.
+- The own-write exception grows (a write whose answer was lost). Agreed by Ray (QD3, 14 Nov 2026); the build adds the line to invariant 4.
 - The abort signal is new plumbing in every real client method. Guard: D9, D10 and the full run.
 - Depends on Build 5 for safe repeats of rows and uploads. If the order ever changes, D6 and D7 fail and say why.
 
@@ -358,8 +358,8 @@ Written 14 Nov 2026, plan only. This build is the least certain of the ten: its 
   1. the save stops: no CoinID re-link, no photo rows, no receipt, no second batch (Promote's data write never follows a key write that hit a wrong row);
   2. a dialog that must be answered, not a toast: which row, which coin it belongs to, and each cell: "Grade was MS65, now MS66". A Copy button;
   3. the same details are filed on the Docket, so they survive closing the app;
-  4. nothing is put back automatically. Ray repairs the row in Excel from the list (QW2);
-  5. every workbook write is refused until a full re-read has finished and 10 minutes have passed (the standing 10-minute rule), with a message saying why (QW3).
+  4. nothing is put back automatically. Ray repairs the row in Excel from the list (Ray, QW2: yes; a "put the old values back" button is a backlog note, (cb), to consider after the TEST);
+  5. every workbook write is refused until a full re-read has finished and 10 minutes have passed (the standing 10-minute rule), with a message saying why (Ray, QW3: yes, both conditions).
 - Model: the spot-price update's "read back, judge each cell, report per cell, and count All's formulas before and after as a guard". The dialog's list is that per-cell judgement, for a row instead of a price.
 
 ### Tests
@@ -406,19 +406,26 @@ Size: Stage 1 S; Stage 2 M.
   - tests: a mid-save change to unreachable lets the save finish; going offline mid-save still refuses; a new save while unreachable sends nothing; the permit does not carry to the next save; the device-cache suite's "an unknown state refuses" still holds at a save's start.
   - risk: it loosens a gate. The argument for it: a save stopped half-way (file uploaded, row not written) is worse than a save allowed to finish what it started.
 
-# Questions for Ray (the two full plans; recommendation in brackets)
+# Ray's answers to the two full plans (14 Nov 2026)
 
-- QD1. Deadlines: 60 s for every workbook request and small file request; a photo upload or download by size (at least 60 s, allowing 20 KB a second, at most 10 minutes). [yes]
-- QD2. After a write with no answer, the app reads the row back and, if the values are there, reports it as saved. [yes; the spot-price update already works this way]
-- QD3. When it cannot confirm, the next Save treats "the row now holds exactly what I tried to write" as its own save, not as someone else's change. This extends invariant 4's exception to a write whose answer was lost. [yes]
-- QD4. The deadline covers every request through the app's Graph layer, reads included, not only writes. [yes: a read that hangs inside a save hangs the save just the same]
-- QW1. The wrong-row build in two stages: the read-only probe first, the guard only if the probe shows the in-batch read can be trusted. [yes]
-- QW2. When a wrong-row write is found: show the overwritten values, file them on the Docket, and repair by hand in Excel; no automatic undo in the first version. [yes; a "put the old values back" button can be considered after the TEST]
-- QW3. After a wrong-row write is found, refuse every workbook write until a full re-read has finished and 10 minutes have passed. [yes]
-- QW4. A TEST-only switch, "aim the next save at the row below", to prove the guard on _Testing; one save, never present on LIVE. [yes]
-- QW5. Guard Photos and Receipts row writes in the same build, through the same helper. [yes]
-- QW6. A6 second part: build it only if a failed save's log shows a mid-save refusal after Build 8 is on LIVE; close it after four weeks of normal use without one. [yes]
-- QW7. If Stage 1 shows reads are never stale with a session and only stale without one: refuse to save without a session, instead of building the guard? [decide when the probe's result is in; leaning yes, it is simpler and it prevents rather than detects; it would change invariant 18's "a session failure never blocks a save"]
+Every question is answered; nothing here is waiting on Ray except QW7, which he deferred on purpose.
+
+Build 8 (deadlines): all accepted as proposed.
+- QD1. Yes. 60 s for a workbook or small file request; a photo by size, 60 s to 10 minutes at 20 KB a second. The 10-minute cap stays (uploads are normally done at home on a good connection). T4 stays as the backstop.
+- QD2. Yes. After a write with no answer, the row is read back; the values present means it is reported saved.
+- QD3. Yes. The next Save treats "the row holds exactly what I tried to write", cell for cell, as its own save, not as someone else's change. This extends invariant 4's exception from "a save Graph confirmed" to "a save whose answer was lost"; Build 8 adds it to invariant 4's text when it ships.
+- QD4. Yes. The deadline covers reads as well as writes.
+
+Build 10 (wrong row): accepted as proposed, one deferred.
+- QW1. Yes. Two stages. Stage 1 is the read-only probe. Stage 2 is built only if the in-batch read is current while another read is stale.
+- QW2. Yes. Show the overwritten values, file them on the Docket, repair by hand; no automatic undo. Backlog note (cb): consider a "put the old values back" button after the TEST.
+- QW3. Yes. After a wrong-row write, saving is refused until a full re-read has finished AND 10 minutes have passed.
+- QW4. Yes. The TEST-only "aim the next save at the row below" switch: one save, _Testing only, never on LIVE.
+- QW5. Yes. Photos and Receipts row writes are guarded in the same build (Stage 2 only).
+- QW6. Yes. A6's second part is built only if a LIVE save log shows "refused mid-save" after Build 8; it is closed after four weeks without one.
+- QW7. DEFERRED. Decide when Stage 1's result is in; leaning yes (refuse to save without a session, instead of the guard, if only saves without a session are at risk). It would change invariant 18's "a session failure never blocks a save", so it needs its own sign-off then.
+
+Build 6 addition (Ray, same day): C9's TEST gains a Replace, a Recrop and a Purge on a coin whose kept original has a different file ending from its display copy (written into Build 6 above).
 
 ## Not verified
 
