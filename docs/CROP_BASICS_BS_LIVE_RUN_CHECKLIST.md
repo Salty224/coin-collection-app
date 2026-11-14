@@ -49,3 +49,10 @@ T8. Arrows while zoomed: at 4x one tap is a tiny move; if the edge is off the vi
 T9. Zoom and the other controls: a 90° turn goes back to 1x; the angle slider keeps the zoom; ticking Lock to square keeps the zoom and shows the squared box; Use Crop / Cancel and the next crop opens at 1x.
 T10. Saving is unchanged: (a) an untouched Holder zoomed in, panned and pinched, then Use Crop, Skip, Save: the OneDrive file is exactly the original's size; (b) a trimmed Holder placed while zoomed comes out at full resolution, trimmed exactly where the box was.
 T11. Use Crop still on screen without scrolling on the upright phone.
+
+## Fix round 3 TEST results
+Build of `d927c55` (Ray, phone, 14 Nov 2026): T1-T11 passed. T10 (saving unchanged after zooming) was not confirmed with file sizes on the device; crop_basics V7-V11 cover it. Found: the "Crop this photo into…" chooser (Obverse / Reverse / Reference / Cancel) ran Cancel off the right edge of its box at about 384 px (older than (bs): the same on main `1b502e0`); fixed in `85940b2`.
+
+## Quick check of `85940b2` on TEST
+Q1. Edit Coin on a coin with a Holder photo: open the Holder's crop-from-this-photo chooser ("Crop this photo into…"). The four buttons sit in two rows, Obverse / Reverse then Reference / Cancel, all inside the box and easy to tap. Tap Cancel: the dialog closes, nothing changes.
+Q2. Any two-button dialog (for example the guided-crop offer after picking a Holder, Skip / Crop) still shows its buttons side by side on one row.
