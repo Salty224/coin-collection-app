@@ -81,8 +81,10 @@ module.exports = defineSuite("photo-fullres", async ({ openApp, check, selfCheck
         await waitFor(() => !bgCropState, 15000);
         if (!galleryTypeDef(type).flipSource) return;
         await waitFor(() => photoAdjustState, 15000);
+        const g = photoAdjustState.geometry;
         stage2Seen = { naturalWidth: photoAdjustState.naturalWidth, hasCanvas: !!photoAdjustState.sourceCanvas,
-          canvasW: photoAdjustState.sourceCanvas ? photoAdjustState.sourceCanvas.width : 0 };
+          canvasW: photoAdjustState.sourceCanvas ? photoAdjustState.sourceCanvas.width : 0,
+          boxW: g && g.box ? Math.round(g.box.w / (g.sx0 || 1)) : null, handOffBoxW: g && g.box ? Math.round(g.box.w) : null };
         if (stage2) stage2(photoAdjustState);
         document.getElementById("photoAdjustUseBtn").click();
       })();
@@ -209,8 +211,10 @@ module.exports = defineSuite("photo-fullres", async ({ openApp, check, selfCheck
     return { srcDims, d, handed: r.stage2Seen };
   });
   ok("E1 the guided crop's source is the holder at full resolution: " + JSON.stringify(E.srcDims), E.srcDims.w === 4000 && E.srcDims.h === 3000, E);
-  ok("E2 the coin reaches Stage 2 at its own size (about 1300 px), not cut from a 1400 px holder: " + JSON.stringify(E.handed),
-    E.handed && E.handed.canvasW >= 1250 && E.handed.canvasW <= 1350, E);
+  // (bs) Z-C: the circle is handed the square PLUS 25% of photo on every
+  // side (1950 px here), and the square inside it is the coin's own 1300 px.
+  ok("E2 the coin reaches Stage 2 at its own size (the 1300 px square, inside a 1950 px hand-off with its margin), not cut from a 1400 px holder: " + JSON.stringify(E.handed),
+    E.handed && E.handed.handOffBoxW >= 1250 && E.handed.handOffBoxW <= 1350 && E.handed.canvasW >= 1900 && E.handed.canvasW <= 2000, E);
   ok("E3 the stored guided Obverse is over 1100 px (was about 500-700): " + JSON.stringify(E.d), E.d.w >= 1100 && E.d.w <= 1400, E);
 
   // ---------- F. tiles and the viewer ------------------------------------

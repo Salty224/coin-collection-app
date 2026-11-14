@@ -30,7 +30,12 @@
 //   K  the pad layout (rows, columns, nothing beside ← →, no zoom on the
 //      rectangle crop), 44 / 40 px buttons, the 0° tick, Use on screen at
 //      384 x 740 and 360 x 700
-//   Z  circle zoom − / + (about 1% a tap, the slider follows, 100-300%)
+//   Z  circle zoom, Z-C (Ray, 14 Nov 2026): the square plus 25% of photo
+//      handed to the circle; it starts with the square filling the circle
+//      (a tick), zooms out to the smallest zoom that covers it (never
+//      black, also at a turn, a corner square, a direct pick) and in to 6x,
+//      on an even (log) slider; − / + about 1%; the saved Obverse is cut
+//      from the original (matches the screen; a small coin at 5x stays sharp)
 //   G  centre mark: always on the circle, on Stage 1 only with Lock to
 //      square, never in a saved picture
 //   H  nothing above writes anything (apart from the one Save in F)
@@ -110,7 +115,8 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
       if (m !== "GET") writes.push(m + " " + url);
       return origFetch(url, opts);
     };
-    window.__cb = { sleep, waitFor, halves, plain, toBlob, sameBytes, colourAt, dims, open, useStage1, finish, rect, visibleHandles, settle, writes };
+    const pendingNow = () => pending;
+    window.__cb = { pendingNow, sleep, waitFor, halves, plain, toBlob, sameBytes, colourAt, dims, open, useStage1, finish, rect, visibleHandles, settle, writes };
   });
 
   // ---------- A. long-press ------------------------------------------------
@@ -324,7 +330,8 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     const out = {};
     // A square photo: red left half, green right half, the edge in the middle.
     await C.open(await C.toBlob(C.halves(2000, 2000), "image/jpeg", 0.95), "obverse");
-    const s = bgCropState; s.box = { left: 0, top: 0, right: s.dispW, bottom: s.dispH }; renderBgCrop();
+    // The middle half as the square: the circle gets 25% of photo round it (Z-C), so room to move at the start.
+    const s = bgCropState; s.box = { left: s.dispW / 4, top: s.dispH / 4, right: s.dispW * 3 / 4, bottom: s.dispH * 3 / 4 }; renderBgCrop();
     const entry = await C.finish(async (st) => {
       btn("right").click();
       out.one = { x: st.offsetX, y: st.offsetY, transform: document.getElementById("photoAdjustImg").style.transform };
@@ -565,40 +572,262 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
     K360.s1UseTall.bottom <= K360.s1UseTall.vh && K360.s2Use.bottom <= K360.s2Use.vh, K360);
   await page.setViewportSize(PHONE);
 
-  // ---------- Z. circle zoom − / + -----------------------------------------
+  // ---------- Z. circle zoom, Z-C (Ray, 14 Nov 2026) ------------------------
+  // The rectangle crop hands the circle its square plus up to 25% of photo
+  // on every side. The circle starts with the square exactly filling it (a
+  // tick marks that zoom), zooms out to the smallest zoom that still covers
+  // the circle (never black) and in to 6x the start, on an even (log)
+  // slider; − / + about 1% a tap. The saved Obverse is cut from the
+  // full-resolution ORIGINAL with the circle's final position, zoom and turn.
+  await page.evaluate(() => {
+    // A smooth colour ramp (no edges), so any two cuts of the same framing
+    // match colour for colour, and a wrong turn or offset shows at once.
+    __cb.ramp = (w, h) => {
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const g = c.getContext("2d");
+      const gx = g.createLinearGradient(0, 0, w, 0); gx.addColorStop(0, "#ff0000"); gx.addColorStop(1, "#00ff00");
+      g.fillStyle = gx; g.fillRect(0, 0, w, h);
+      const gy = g.createLinearGradient(0, 0, 0, h); gy.addColorStop(0, "rgba(0,0,255,0)"); gy.addColorStop(1, "rgba(0,0,255,1)");
+      g.fillStyle = gy; g.fillRect(0, 0, w, h);
+      return c;
+    };
+    // Opens Stage 1 on `blob`, sets the square with box(s), hands it on and
+    // returns Stage 2's state (not yet Used).
+    __cb.toCircle = async (blob, box, stage1) => {
+      const C = __cb;
+      await C.open(blob, "obverse");
+      const s = bgCropState;
+      if (stage1) { await stage1(s); await C.settle(); }
+      if (box) { s.box = box(s); renderBgCrop(); }
+      await C.useStage1();
+      await C.waitFor(() => photoAdjustState && photoAdjustState.baseScale, 15000);
+      await C.settle();
+      return photoAdjustState;
+    };
+    // Taps Use on the circle and returns the stored Obverse (the entry's blob).
+    __cb.useCircle = async () => {
+      document.getElementById("photoAdjustUseBtn").click();
+      return __cb.pendingNow();
+    };
+    // Every pixel of the saved circle (inside 0.97 of its radius) that is near black.
+    __cb.blackInCircle = async (blob) => {
+      const b = await createImageBitmap(blob);
+      const c = document.createElement("canvas"); c.width = b.width; c.height = b.height;
+      const g = c.getContext("2d"); g.drawImage(b, 0, 0); b.close();
+      const d = g.getImageData(0, 0, c.width, c.height).data, R = c.width / 2;
+      let black = 0, n = 0;
+      for (let y = 0; y < c.height; y += 4) for (let x = 0; x < c.width; x += 4) {
+        if ((x - R) * (x - R) + (y - R) * (y - R) > (0.97 * R) * (0.97 * R)) continue;
+        n++; const i = (y * c.width + x) * 4;
+        if (Math.max(d[i], d[i + 1], d[i + 2]) < 40) black++;
+      }
+      return { black, n };
+    };
+  });
   const Z = await page.evaluate(async () => {
     const C = __cb;
+    const out = {};
+    const slider = document.getElementById("photoAdjustZoom");
+    const tick = document.getElementById("photoAdjustZoomTick");
     const pad = (z) => document.querySelector('#photoAdjustPad [data-zoom="' + z + '"]');
-    const zs = document.getElementById("photoAdjustZoom");
-    await C.open(await C.toBlob(C.halves(1600, 1600), "image/jpeg", 0.9), "obverse");
-    await C.useStage1();
-    await C.waitFor(() => photoAdjustState, 15000);
-    const st = photoAdjustState;
-    const scaleOf = () => { const m = /scale\(([\d.]+)\)/.exec(document.getElementById("photoAdjustImg").style.transform); return m ? Number(m[1]) : null; };
-    const out = { start: { z: st.zoom, slider: zs.value, scale: scaleOf() } };
+    // A 4000 x 4000 photo, the square its middle 2000: 500 px of photo on every side (25%).
+    let st = await C.toCircle(await C.toBlob(C.ramp(4000, 4000), "image/jpeg", 0.95),
+      (s) => ({ left: s.dispW / 4, top: s.dispH / 4, right: s.dispW * 3 / 4, bottom: s.dispH * 3 / 4 }));
+    const g = st.geometry;
+    out.handOff = { w: st.naturalWidth, h: st.naturalHeight, box: g && g.box };
+    const scale = st.baseScale * st.zoom;
+    out.fill = { boxOnScreen: g.box.w * scale, circle: st.circleSize, offX: st.offsetX, offY: st.offsetY };
+    out.range = { min: st.zoomMin, start: st.zoomStart, max: st.zoomMax, zoom: st.zoom };
+    out.sliderStart = Number(slider.value);
+    const sl = C.rect(slider), tk = C.rect(tick);
+    out.tick = { frac: ((tk.l + tk.r) / 2 - sl.l - 8) / (sl.w - 16), want: Math.log(st.zoomStart / st.zoomMin) / Math.log(st.zoomMax / st.zoomMin),
+      pe: getComputedStyle(tick).pointerEvents };
+    // Even scale: the middle of the slider is the geometric middle of the range.
+    slider.value = "500"; slider.dispatchEvent(new Event("input", { bubbles: true }));
+    out.mid = { z: st.zoom, want: Math.sqrt(st.zoomMin * st.zoomMax) };
+    slider.value = "1000"; slider.dispatchEvent(new Event("input", { bubbles: true }));
+    out.top = { z: st.zoom, ratio: st.zoom / st.zoomStart };
+    slider.value = "0"; slider.dispatchEvent(new Event("input", { bubbles: true }));
+    out.bottom = { z: st.zoom };
+    // − / + about 1% a tap, the slider follows; they stop at the ends.
+    slider.value = String(Math.round(out.sliderStart)); slider.dispatchEvent(new Event("input", { bubbles: true }));
+    const z0 = st.zoom, p0 = Number(slider.value);
     pad("in").click();
-    out.in1 = { z: st.zoom, slider: zs.value, scale: scaleOf() };
+    out.plus = { ratio: st.zoom / z0, slider: Number(slider.value) - p0 };
     pad("out").click(); pad("out").click();
-    out.out2 = { z: st.zoom, slider: zs.value };
-    for (let i = 0; i < 30; i++) pad("out").click();
-    out.floor = { z: st.zoom, slider: zs.value };
-    for (let i = 0; i < 200; i++) pad("in").click();
-    out.ceil = { z: st.zoom, slider: zs.value };
-    // After zooming in, panning room grows; a − tap that shrinks it keeps the picture inside the circle.
-    for (let i = 0; i < 40; i++) document.querySelector('#photoAdjustPad [data-nudge="right"]').click();
-    for (let i = 0; i < 120; i++) pad("out").click();
-    const scale = st.baseScale * st.zoom, maxX = Math.max(0, (st.effWidth * scale - st.circleSize) / 2);
-    out.clamped = { x: st.offsetX, maxX };
+    out.minus = { ratio: st.zoom / z0, slider: Number(slider.value) - p0 };
+    for (let i = 0; i < 400; i++) pad("in").click();
+    out.plusEnd = { z: st.zoom, max: st.zoomMax, slider: slider.value };
+    for (let i = 0; i < 600; i++) pad("out").click();
+    out.minusEnd = { z: st.zoom, min: st.zoomMin, slider: slider.value };
     cancelPhotoAdjust();
     return out;
   });
-  ok("Z1 the circle starts at 110% (unchanged), the zoom slider at 110: " + JSON.stringify(Z.start), near(Z.start.z * 100, 110) && Z.start.slider === "110", Z);
-  ok("Z2 + zooms in by about 1% (110% -> 111.1%), the slider and the picture follow: " + JSON.stringify(Z.in1),
-    Math.abs(Z.in1.z - 1.111) < 0.0005 && Z.in1.slider === "111" && Z.in1.scale > Z.start.scale, Z);
-  ok("Z3 − twice from there: about 1% a tap the other way (109%): " + JSON.stringify(Z.out2), Math.abs(Z.out2.z - 1.111 / 1.0201) < 0.0005 && Z.out2.slider === "109", Z);
-  ok("Z4 − stops at 100% (the smallest zoom that still covers the circle) and + at 300%: " + JSON.stringify([Z.floor, Z.ceil]),
-    Z.floor.z === 1 && Z.floor.slider === "100" && Z.ceil.z === 3 && Z.ceil.slider === "300", Z);
-  ok("Z5 zooming out keeps the picture inside its pan limit: " + JSON.stringify(Z.clamped), Math.abs(Z.clamped.x) <= Z.clamped.maxX + 1e-9, Z);
+  ok("Z1 the circle is handed the square plus 25% of photo on every side (2000 px square -> a 3000 px area, shown at the 2000 px hand-off cap): " + JSON.stringify(Z.handOff),
+    Z.handOff.w === 2000 && Z.handOff.h === 2000 && Z.handOff.box && Math.abs(Z.handOff.box.w - 2000 / 1.5) < 2 && Math.abs(Z.handOff.box.x - 1000 / 3) < 2, Z);
+  ok("Z2 it starts with the square exactly filling the circle, centred: " + JSON.stringify(Z.fill),
+    Math.abs(Z.fill.boxOnScreen - Z.fill.circle) < 0.5 && Math.abs(Z.fill.offX) < 0.01 && Math.abs(Z.fill.offY) < 0.01, Z);
+  ok("Z3 zoom-out room: the start is 1.5x the smallest zoom that covers the circle (Ray: at least 1.25x): " + JSON.stringify(Z.range),
+    Math.abs(Z.range.start / Z.range.min - 1.5) < 0.01 && Z.range.min === 1 && Z.range.zoom === Z.range.start, Z);
+  ok("Z4 zoom-in reaches 6x the start (Ray: at least 5x; a 13 mm coin in a 66 mm square is 5.1x), at the slider's top: " + JSON.stringify(Z.top),
+    Math.abs(Z.top.ratio - 6) < 0.001, Z);
+  ok("Z5 a tick marks the start on the slider, display only: " + JSON.stringify(Z.tick),
+    Math.abs(Z.tick.frac - Z.tick.want) < 0.01 && Z.tick.pe === "none" && Math.abs(Z.sliderStart / 1000 - Z.tick.want) < 0.002, Z);
+  ok("Z6 the slider is even (log): its middle is the geometric middle of the range; its bottom the smallest zoom: " + JSON.stringify([Z.mid, Z.bottom]),
+    Math.abs(Z.mid.z - Z.mid.want) < 0.001 && Z.bottom.z === 1, Z);
+  ok("Z7 + is about 1% in and − about 1% out, and the slider moves with them: " + JSON.stringify([Z.plus, Z.minus]),
+    Math.abs(Z.plus.ratio - 1.01) < 1e-9 && Z.plus.slider > 0 && Math.abs(Z.minus.ratio - 1 / 1.01) < 1e-9 && Z.minus.slider < 0, Z);
+  ok("Z8 + stops at the top of the range and − at the smallest zoom: " + JSON.stringify([Z.plusEnd, Z.minusEnd]),
+    Z.plusEnd.z === Z.plusEnd.max && Z.plusEnd.slider === "1000" && Z.minusEnd.z === 1 && Z.minusEnd.slider === "0", Z);
+
+  // Never black at the smallest zoom: pushed to every edge, with and without a fine turn;
+  // a square at the photo's corner (margin on two sides only); a direct pick with no margin.
+  const ZB = await page.evaluate(async () => {
+    const C = __cb;
+    const out = {};
+    const pushAll = async (st, label) => {
+      const res = [];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]]) {
+        st.offsetX = dx * 9999; st.offsetY = dy * 9999; clampPhotoAdjustOffsets(); applyPhotoAdjustTransform();
+        // What the circle SHOWS (the hand-off, exactly as on screen) and what
+        // is SAVED (cut from the original, which has more photo round it).
+        let black = 0;
+        for (const shot of [bakePhotoAdjustFromSource(st), await bakePhotoAdjustFromOriginal(st)]) {
+          const blob = await new Promise(r => shot.toBlob(r, "image/jpeg", 0.92));
+          black += (await C.blackInCircle(blob)).black;
+        }
+        res.push(black);
+      }
+      return res;
+    };
+    const minZoom = (st) => { const zs = document.getElementById("photoAdjustZoom"); zs.value = "0"; zs.dispatchEvent(new Event("input", { bubbles: true })); };
+    const src = await C.toBlob(C.ramp(4000, 4000), "image/jpeg", 0.95);
+    // Centred square, smallest zoom.
+    let st = await C.toCircle(src, (s) => ({ left: s.dispW / 4, top: s.dispH / 4, right: s.dispW * 3 / 4, bottom: s.dispH * 3 / 4 }));
+    minZoom(st); out.centred = await pushAll(st);
+    // ... and with a 10° fine turn, at the smallest zoom and at the start
+    // (where there is room to pan, so a diagonal push meets the turned edge).
+    const r = document.getElementById("photoAdjustRotate"); r.value = "10"; r.dispatchEvent(new Event("input", { bubbles: true }));
+    out.turned = await pushAll(st);
+    setPhotoAdjustZoom(st.zoomStart);
+    out.turnedStart = await pushAll(st);
+    cancelPhotoAdjust();
+    // The square at the photo's top-left corner: margin only right and below.
+    st = await C.toCircle(src, (s) => ({ left: 0, top: 0, right: s.dispW / 2, bottom: s.dispH / 2 }));
+    out.corner = { start: st.zoomStart, min: st.zoomMin, box: st.geometry.box, w: st.naturalWidth };
+    out.cornerFill = { boxOnScreen: st.geometry.box.w * st.baseScale * st.zoom, circle: st.circleSize };
+    minZoom(st); out.cornerBlack = await pushAll(st);
+    cancelPhotoAdjust();
+    // A direct pick of a tight coin photo with the square on the whole photo: no margin.
+    st = await C.toCircle(await C.toBlob(C.ramp(1800, 1800), "image/jpeg", 0.95), (s) => ({ left: 0, top: 0, right: s.dispW, bottom: s.dispH }));
+    out.direct = { start: st.zoomStart, min: st.zoomMin, max: st.zoomMax, slider: document.getElementById("photoAdjustZoom").value };
+    out.directBlack = await pushAll(st);
+    cancelPhotoAdjust();
+    // A direct pick as it opens (the square at its usual 80%): the photo round it is the margin.
+    st = await C.toCircle(await C.toBlob(C.ramp(3000, 2000), "image/jpeg", 0.95), null);
+    out.directDefault = { start: st.zoomStart };
+    cancelPhotoAdjust();
+    return out;
+  });
+  ok("Z9 at the smallest zoom, pushed to every edge, the circle shows no black, on screen or saved: " + JSON.stringify(ZB.centred), ZB.centred.every(v => v === 0), ZB);
+  ok("Z10 ... nor with a 10° straighten, at the smallest zoom or the start, pushed to every edge (the pan limit follows the turn): " + JSON.stringify([ZB.turned, ZB.turnedStart]),
+    ZB.turned.every(v => v === 0) && ZB.turnedStart.every(v => v === 0), ZB);
+  ok("Z11 a square at the photo's corner gets margin only where there is photo (1.25x zoom-out room), still starts filling the circle, and shows no black: " + JSON.stringify([ZB.corner, ZB.cornerBlack]),
+    Math.abs(ZB.corner.start - 1.25) < 0.01 && Math.abs(ZB.corner.box.x) < 1 && Math.abs(ZB.corner.box.y) < 1 &&
+    Math.abs(ZB.cornerFill.boxOnScreen - ZB.cornerFill.circle) < 0.5 && ZB.cornerBlack.every(v => v === 0), ZB);
+  ok("Z12 a direct pick whose square is the whole photo: no margin, so it starts at the smallest zoom (tick at the left end), still zooms in 6x, never black: " + JSON.stringify([ZB.direct, ZB.directBlack]),
+    ZB.direct.start === 1 && ZB.direct.min === 1 && ZB.direct.max === 6 && ZB.direct.slider === "0" && ZB.directBlack.every(v => v === 0), ZB);
+  ok("Z13 a direct pick as it opens (its 80% square) has the photo round it as margin: start " + ZB.directDefault.start.toFixed(3),
+    ZB.directDefault.start > 1.2, ZB);
+
+  // The saved Obverse is cut from the ORIGINAL with the circle's final framing:
+  // (1) it matches, colour for colour, the same framing cut from the hand-off on
+  // screen, through both stages' turns, a pan and a zoom; (2) a small detailed
+  // coin zoomed about 5x keeps its detail (the hand-off alone would blur it).
+  const ZS = await page.evaluate(async () => {
+    const C = __cb;
+    const out = {};
+    // (1) Same framing, two cuts.
+    let st = await C.toCircle(await C.toBlob(C.ramp(4000, 3000), "image/jpeg", 0.95),
+      (s) => ({ left: s.dispW * 0.3, top: s.dispH * 0.25, right: s.dispW * 0.3 + s.dispH * 0.5, bottom: s.dispH * 0.75 }),
+      async (s) => { document.getElementById("bgCropRotateRightBtn").click(); await C.settle();
+        const sl = document.getElementById("bgCropStraighten"); sl.value = "4"; sl.dispatchEvent(new Event("input", { bubbles: true })); await C.settle(); await C.sleep(30); });
+    document.getElementById("photoAdjustRotateRightBtn").click();
+    const r = document.getElementById("photoAdjustRotate"); r.value = "-3"; r.dispatchEvent(new Event("input", { bubbles: true }));
+    setPhotoAdjustZoom(st.zoomStart * 1.7);
+    for (let i = 0; i < 6; i++) document.querySelector('#photoAdjustPad [data-nudge="left"]').click();
+    for (let i = 0; i < 4; i++) document.querySelector('#photoAdjustPad [data-nudge="down"]').click();
+    const fromSource = bakePhotoAdjustFromSource(st);
+    const fromOriginal = await bakePhotoAdjustFromOriginal(st);
+    const px = (cv, fx, fy) => { const d = cv.getContext("2d").getImageData(Math.floor(cv.width * fx), Math.floor(cv.height * fy), 1, 1).data; return [d[0], d[1], d[2]]; };
+    let worst = 0;
+    for (const fy of [0.2, 0.35, 0.5, 0.65, 0.8]) for (const fx of [0.2, 0.35, 0.5, 0.65, 0.8]) {
+      const a = px(fromSource, fx, fy), b = px(fromOriginal, fx, fy);
+      worst = Math.max(worst, ...a.map((v, i) => Math.abs(v - b[i])));
+    }
+    out.match = { worst, sizes: [fromSource.width, fromOriginal.width], last: __getLastPhotoAdjustResultForTest() };
+    cancelPhotoAdjust();
+    // (2) A 500 px "coin" of 2 px black / white stripes in the middle of a
+    // 4000 x 4000 grey photo; the square 3200 px wide (a tight crop of a big
+    // holder). The hand-off is cut at 2000 px (half size: the stripes are
+    // lost on screen). Zoomed about 5x and saved.
+    const c = document.createElement("canvas"); c.width = 4000; c.height = 4000;
+    const g = c.getContext("2d");
+    g.fillStyle = "#808080"; g.fillRect(0, 0, 4000, 4000);
+    g.save(); g.beginPath(); g.arc(2000, 2000, 250, 0, Math.PI * 2); g.clip();
+    g.fillStyle = "#000000"; g.fillRect(1700, 1700, 600, 600);
+    g.fillStyle = "#ffffff"; for (let x = 1700; x < 2300; x += 4) g.fillRect(x, 1700, 2, 600);
+    g.restore();
+    st = await C.toCircle(await C.toBlob(c, "image/jpeg", 0.95), (s) => ({ left: s.dispW * 0.1, top: s.dispH * 0.1, right: s.dispW * 0.9, bottom: s.dispH * 0.9 }));
+    out.coinHandOff = { w: st.naturalWidth, start: st.zoomStart };
+    setPhotoAdjustZoom(st.zoomStart * 5); syncPhotoAdjustZoomSlider();
+    const entry = await C.useCircle();
+    const info = __getLastPhotoAdjustResultForTest();
+    const b = await createImageBitmap(entry.blob);
+    const cv = document.createElement("canvas"); cv.width = b.width; cv.height = b.height;
+    const cg = cv.getContext("2d"); cg.drawImage(b, 0, 0); b.close();
+    const row = cg.getImageData(0, Math.floor(cv.height / 2), cv.width, 1).data;
+    // The coin's middle third, across the row: neighbouring stripes 2 px apart.
+    let diff = 0, n = 0, extreme = 0;
+    const x0 = Math.floor(cv.width * 0.4), x1 = Math.floor(cv.width * 0.6);
+    for (let x = x0; x < x1; x++) { diff += Math.abs(row[x * 4] - row[(x + 2) * 4]); n++; if (row[x * 4] < 50 || row[x * 4] > 205) extreme++; }
+    out.sharp = { from: info && info.from, size: cv.width, pxAcross: info && info.pxAcross, contrast: Math.round(diff / n), extreme: Math.round(100 * extreme / n) };
+    return out;
+  });
+  ok("Z14 the saved Obverse is cut from the full-resolution original (" + JSON.stringify(ZS.match.last) + ") and matches the framing on screen colour for colour, through both stages' turns, a pan and a zoom: worst difference " + ZS.match.worst + " of 255",
+    ZS.match.last && ZS.match.last.from === "original" && ZS.match.worst <= 16, ZS);
+  ok("Z15 a small detailed coin in a wide square, zoomed 5x, is saved from the original at its own size (about 640 px across, not the 480 px floor of a 320 px hand-off cut): " + JSON.stringify(ZS.sharp),
+    ZS.sharp.from === "original" && Math.abs(ZS.sharp.pxAcross - 640) < 8 && ZS.sharp.size === ZS.sharp.pxAcross, ZS);
+  ok("Z16 ... and keeps its detail: mean step " + ZS.sharp.contrast + " of 255 between neighbouring stripes, " + ZS.sharp.extreme + "% black or white",
+    ZS.sharp.contrast >= 180 && ZS.sharp.extreme >= 80, ZS);
+
+  // What is under the circle's centre stays there through a zoom and a 90° turn.
+  const ZP = await page.evaluate(async () => {
+    const C = __cb;
+    const out = {};
+    const centreColour = async (st) => { const cv = await bakePhotoAdjustFromOriginal(st); const d = cv.getContext("2d").getImageData(cv.width >> 1, cv.height >> 1, 1, 1).data; return [d[0], d[1], d[2]]; };
+    const st = await C.toCircle(await C.toBlob(C.ramp(4000, 4000), "image/jpeg", 0.95),
+      (s) => ({ left: s.dispW / 4, top: s.dispH / 4, right: s.dispW * 3 / 4, bottom: s.dispH * 3 / 4 }));
+    for (let i = 0; i < 10; i++) document.querySelector('#photoAdjustPad [data-nudge="right"]').click();
+    for (let i = 0; i < 6; i++) document.querySelector('#photoAdjustPad [data-nudge="up"]').click();
+    const before = await centreColour(st);
+    const off0 = [st.offsetX, st.offsetY];
+    document.querySelector('#photoAdjustPad [data-zoom="in"]').click();
+    out.zoom = { off0, off1: [st.offsetX, st.offsetY] };
+    const afterZoom = await centreColour(st);
+    document.getElementById("photoAdjustRotateRightBtn").click();
+    const afterTurn = await centreColour(st);
+    document.getElementById("photoAdjustRotateLeftBtn").click();
+    const back = await centreColour(st);
+    const diff = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    out.colours = { before, afterZoom, afterTurn, back, dZoom: diff(before, afterZoom), dTurn: diff(before, afterTurn), dBack: diff(before, back) };
+    cancelPhotoAdjust();
+    return out;
+  });
+  ok("Z17 a zoom keeps the point at the circle's centre where it is (the offset scales with the zoom: 20 px -> 20.2 px): " + JSON.stringify(ZP.zoom),
+    Math.abs(ZP.zoom.off1[0] - ZP.zoom.off0[0] * 1.01) < 1e-6 && Math.abs(ZP.zoom.off1[1] - ZP.zoom.off0[1] * 1.01) < 1e-6 && ZP.zoom.off0[0] === 20, ZP);
+  ok("Z18 ... and so do a 90° turn and its undo (the same colour stays under the centre): " + JSON.stringify(ZP.colours),
+    ZP.colours.dZoom <= 6 && ZP.colours.dTurn <= 6 && ZP.colours.dBack <= 6, ZP);
 
   // ---------- H. no writes --------------------------------------------------
   const H = await page.evaluate(() => __cb.writes.slice());

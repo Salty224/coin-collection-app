@@ -2222,7 +2222,7 @@
   .photo-adjust-zoom-label {
     display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; text-align: left;
   }
-  #photoAdjustZoom { width: 100%; margin-bottom: 8px; }
+  #photoAdjustZoom { width: 100%; }
   #photoAdjustRotate { width: 100%; margin-bottom: 12px; }
   .photo-adjust-rotate-row { display: flex; gap: 10px; margin-bottom: 14px; }
   .photo-adjust-rotate-row button {
@@ -5279,7 +5279,12 @@
         <button type="button" data-angle="0.5" aria-label="Straighten plus half a degree" title="+0.5°">↻</button>
       </div>
       <label class="photo-adjust-zoom-label" for="photoAdjustZoom">Zoom</label>
-      <input type="range" id="photoAdjustZoom" min="100" max="300" value="100">
+      <!-- (bs) Z-C: an even (log) scale from the smallest zoom that covers
+           the circle; the tick marks the start (the square filling the circle). -->
+      <div class="crop-slider-wrap">
+        <input type="range" id="photoAdjustZoom" min="0" max="1000" step="1" value="0" aria-label="Zoom">
+        <div class="crop-slider-tick" id="photoAdjustZoomTick"></div>
+      </div>
       <div class="photo-adjust-rotate-row">
         <button type="button" id="photoAdjustRotateLeftBtn" aria-label="Rotate left 90 degrees" title="Rotate left 90°">⟲ 90°</button>
         <button type="button" id="photoAdjustRotateRightBtn" aria-label="Rotate right 90 degrees" title="Rotate right 90°">⟳ 90°</button>
@@ -29001,6 +29006,13 @@
   // the circle's zoom by this factor (about 1% a tap).
   const CROP_ANGLE_SNAP = 0.3;
   const CROP_ZOOM_STEP = 1.01;
+  // (bs) Z-C: the circle zooms in to this many times its starting zoom
+  // (Ray: at least 5x; a 13 mm coin in a 66 mm holder square is 5.1x), on a
+  // slider of PHOTO_ADJUST_ZOOM_STEPS even (log) steps. CROP_SLIDER_THUMB_PX
+  // is the range thumb's width the tick is placed for.
+  const PHOTO_ADJUST_ZOOM_IN_FACTOR = 6;
+  const PHOTO_ADJUST_ZOOM_STEPS = 1000;
+  const CROP_SLIDER_THUMB_PX = 16;
   const CROP_NUDGE_DIRS = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
   // Every straighten angle goes through here: one decimal, within ±45, and
   // a true 0 (never -0 or a float residue such as 0.1 + 0.2 - 0.3), so an
@@ -29057,6 +29069,11 @@
     const circleEl = document.getElementById("photoAdjustCircle");
     const callbackMode = optsOrPreviewId && typeof optsOrPreviewId === "object";
     photoAdjustOnCancel = (callbackMode && optsOrPreviewId.onCancel) || null;
+    // (bs) Z-C: where the hand-off came from (a Stage 1 cut: the square plus
+    // its margin, and the map back to the original). Without it (a legacy
+    // caller with a file) the whole picture is the square and the save is
+    // cut from that picture, as before.
+    const geometry = (callbackMode && optsOrPreviewId.geometry) || null;
     // Shown BEFORE the size is read: a display:none element measures 0.
     overlay.classList.remove("hidden");
     // The guide's real VISIBLE diameter, not its CSS width. This file sets
@@ -29086,17 +29103,36 @@
       // each direction at 110%/240px) so a small framing nudge never
       // requires touching the zoom slider first, while the slider's own
       // 100-300% range and every other behavior stays exactly as it was.
-      const DEFAULT_PHOTO_ADJUST_ZOOM = 110;
+      //
+      // (bs) Z-C (Ray, 14 Nov 2026) SUPERSEDES the 110% start above: the
+      // hand-off now carries a margin of photo round the square, so the
+      // circle starts with the SQUARE exactly filling it (zoomStart), can
+      // zoom out to the smallest zoom that still covers the circle (zoom 1 =
+      // the whole hand-off covering it; never black) and in to
+      // PHOTO_ADJUST_ZOOM_IN_FACTOR x the start. A square with no margin (the
+      // whole photo, or a legacy caller) starts at zoom 1, the smallest.
+      const nw = img.naturalWidth, nh = img.naturalHeight;
+      const box = geometry && geometry.box ? geometry.box : { x: 0, y: 0, w: nw, h: nh };
+      const side = Math.min(box.w, box.h);
+      const zoomStart = Math.max(1, Math.min(nw, nh) / side);
       photoAdjustState = {
-        naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
-        zoom: DEFAULT_PHOTO_ADJUST_ZOOM / 100, offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
-        circleSize, sourceCanvas,
+        naturalWidth: nw, naturalHeight: nh,
+        zoom: zoomStart, zoomMin: 1, zoomStart, zoomMax: zoomStart * PHOTO_ADJUST_ZOOM_IN_FACTOR,
+        offsetX: 0, offsetY: 0, rotateQuick: 0, rotateFine: 0,
+        circleSize, sourceCanvas, geometry, baking: false,
         onComplete: callbackMode ? optsOrPreviewId.onComplete : null,
         targetPreviewId: callbackMode ? null : optsOrPreviewId,
         targetFrameId, targetPlaceholderId, targetDotId, targetAdjustBtnId
       };
       recomputePhotoAdjustBaseScale();
-      document.getElementById("photoAdjustZoom").value = DEFAULT_PHOTO_ADJUST_ZOOM;
+      // The square's centre at the circle's centre: the picture moves by the
+      // square's centre's distance from the picture's centre, scaled.
+      const sc = photoAdjustState.baseScale * zoomStart;
+      photoAdjustState.offsetX = -sc * (box.x + box.w / 2 - nw / 2);
+      photoAdjustState.offsetY = -sc * (box.y + box.h / 2 - nh / 2);
+      clampPhotoAdjustOffsets();
+      syncPhotoAdjustZoomSlider();
+      placePhotoAdjustZoomTick();
       document.getElementById("photoAdjustRotate").value = 0;
       document.getElementById("photoAdjustAngleReadout").textContent = cropAngleText(0);
       applyPhotoAdjustTransform();
@@ -29138,6 +29174,45 @@
     s.baseScale = Math.max(s.circleSize / s.effWidth, s.circleSize / s.effHeight);
   }
 
+  // (bs) Z-C: the zoom slider is EVEN (log): position 0..PHOTO_ADJUST_ZOOM_STEPS
+  // runs from zoomMin to zoomMax, so every step is the same ratio of zoom.
+  function photoAdjustZoomToPos(s, z) {
+    const span = Math.log(s.zoomMax / s.zoomMin);
+    return span > 0 ? PHOTO_ADJUST_ZOOM_STEPS * Math.log(z / s.zoomMin) / span : 0;
+  }
+  function photoAdjustPosToZoom(s, pos) {
+    return s.zoomMin * Math.exp(Math.log(s.zoomMax / s.zoomMin) * Number(pos) / PHOTO_ADJUST_ZOOM_STEPS);
+  }
+  function syncPhotoAdjustZoomSlider() {
+    const s = photoAdjustState;
+    if (!s) return;
+    document.getElementById("photoAdjustZoom").value = Math.round(photoAdjustZoomToPos(s, s.zoom));
+  }
+  // The tick at the starting zoom (where the square exactly fills the
+  // circle). A range thumb's centre runs from half a thumb in from each
+  // end, so the tick is placed on that travel, not on the whole width.
+  function placePhotoAdjustZoomTick() {
+    const s = photoAdjustState;
+    const tick = document.getElementById("photoAdjustZoomTick");
+    const slider = document.getElementById("photoAdjustZoom");
+    if (!s || !tick || !slider) return;
+    const frac = photoAdjustZoomToPos(s, s.zoomStart) / PHOTO_ADJUST_ZOOM_STEPS;
+    const half = CROP_SLIDER_THUMB_PX / 2;
+    tick.style.left = "calc(" + half + "px + (100% - " + (2 * half) + "px) * " + frac.toFixed(5) + ")";
+  }
+  // (bs) Z-C: a zoom change keeps the point at the circle's centre where it
+  // is (the offset scales with the zoom), then the usual pan limit.
+  function setPhotoAdjustZoom(z) {
+    const s = photoAdjustState;
+    if (!s) return;
+    const nz = Math.max(s.zoomMin, Math.min(s.zoomMax, z));
+    const f = nz / s.zoom;
+    s.offsetX *= f; s.offsetY *= f;
+    s.zoom = nz;
+    clampPhotoAdjustOffsets();
+    applyPhotoAdjustTransform();
+  }
+
   function applyPhotoAdjustTransform() {
     const s = photoAdjustState;
     if (!s) return;
@@ -29152,6 +29227,22 @@
   function clampPhotoAdjustOffsets() {
     const s = photoAdjustState;
     const scale = s.baseScale * s.zoom;
+    if (Number(s.rotateFine)) {
+      // (bs) Z-C: with a fine turn the square test below is not enough: the
+      // CIRCLE must stay inside the turned picture, or black shows at its
+      // edge. Work in the picture's own frame: the circle's centre, seen
+      // from the picture's centre, stays at least a radius from every edge.
+      const th = (s.rotateQuick + Number(s.rotateFine)) * Math.PI / 180;
+      const c = Math.cos(th), sn = Math.sin(th), r = s.circleSize / 2;
+      const a = Math.max(0, s.naturalWidth * scale / 2 - r), b = Math.max(0, s.naturalHeight * scale / 2 - r);
+      // p = R(-th) . (-offset)
+      let px = -(c * s.offsetX + sn * s.offsetY), py = -(-sn * s.offsetX + c * s.offsetY);
+      px = Math.max(-a, Math.min(a, px)); py = Math.max(-b, Math.min(b, py));
+      // offset = -R(th) . p
+      s.offsetX = -(c * px - sn * py);
+      s.offsetY = -(sn * px + c * py);
+      return;
+    }
     const scaledW = s.effWidth * scale, scaledH = s.effHeight * scale;
     const maxX = Math.max(0, (scaledW - s.circleSize) / 2);
     const maxY = Math.max(0, (scaledH - s.circleSize) / 2);
@@ -29163,11 +29254,80 @@
     const s = photoAdjustState;
     if (!s) return;
     s.rotateQuick = ((s.rotateQuick + deltaDeg) % 360 + 360) % 360;
-    s.offsetX = 0;
-    s.offsetY = 0;
+    // (bs) Z-C: the picture turns about the circle's centre, so the point
+    // under the centre stays there (the offset turns with it).
+    const ox = s.offsetX, oy = s.offsetY;
+    if (deltaDeg === 90) { s.offsetX = -oy; s.offsetY = ox; }
+    else if (deltaDeg === -90) { s.offsetX = oy; s.offsetY = -ox; }
+    else { s.offsetX = 0; s.offsetY = 0; }
     recomputePhotoAdjustBaseScale();
     clampPhotoAdjustOffsets();
     applyPhotoAdjustTransform();
+  }
+
+  // Output size: the source's own pixels across the circle (neither up- nor
+  // down-sampled), kept within 480-1400 px (Stage 1's own cap).
+  function photoAdjustOutputSize(pxAcross) {
+    return Math.max(480, Math.min(1400, Math.round(pxAcross) || 480));
+  }
+  // Test seam: the last circle bake ({ from: "original" | "source", size, safetyScaled }).
+  let lastPhotoAdjustResult = null;
+  function __getLastPhotoAdjustResultForTest() { return lastPhotoAdjustResult; }
+
+  // The circle cut from the picture on screen (a legacy caller's file, at
+  // its full size). Mirrors the on-screen CSS transform chain (centre -> pan
+  // -> rotate -> scale) at canvas resolution.
+  function bakePhotoAdjustFromSource(s) {
+    const scale = s.baseScale * s.zoom;
+    const rotationRad = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = photoAdjustOutputSize(s.circleSize / scale);
+    const canvasScale = canvas.width / s.circleSize;
+    const ctx = canvas.getContext("2d");
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.translate(s.offsetX * canvasScale, s.offsetY * canvasScale);
+    ctx.rotate(rotationRad);
+    ctx.scale(scale * canvasScale, scale * canvasScale);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(s.sourceCanvas || document.getElementById("photoAdjustImg"), -s.naturalWidth / 2, -s.naturalHeight / 2);
+    lastPhotoAdjustResult = { from: "source", size: canvas.width, safetyScaled: false };
+    return canvas;
+  }
+
+  // (bs) Z-C, Ray's item 3: the circle cut from the FULL-RESOLUTION
+  // ORIGINAL, with the circle's final position, zoom and turn, the way (ak)
+  // cuts the rectangle crop. The hand-off on screen is for framing only. The
+  // chain: a hand-off point q (from its centre) is the original point
+  // r = (q.x / sx0 + cx, q.y / sy0 + cy) in the frame turned by Stage 1
+  // (geometry.rad), so the circle's own chain (centre -> pan -> turn ->
+  // scale) continues with scale(sx0, sy0), translate(-cx, -cy) and Stage
+  // 1's turn, drawing the original bitmap about its centre. Memory: one
+  // decode of the original (as Stage 1's Use), closed straight after.
+  async function bakePhotoAdjustFromOriginal(s) {
+    const g = s.geometry;
+    const { bitmap, safetyScaled } = await decodeFullResOriented(g.source);
+    try {
+      const W = bitmap.width, H = bitmap.height;
+      const scale = s.baseScale * s.zoom; // screen px per hand-off px
+      const rad2 = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
+      const pxAcross = s.circleSize / (scale * ((g.sx0 + g.sy0) / 2)); // original px across the circle
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = photoAdjustOutputSize(pxAcross);
+      const cs = canvas.width / s.circleSize;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.translate(s.offsetX * cs, s.offsetY * cs);
+      ctx.rotate(rad2);
+      ctx.scale(scale * cs * g.sx0, scale * cs * g.sy0);
+      ctx.translate(-g.cx, -g.cy);
+      ctx.rotate(g.rad);
+      ctx.drawImage(bitmap, -W / 2, -H / 2);
+      lastPhotoAdjustResult = { from: "original", size: canvas.width, pxAcross: Math.round(pxAcross), safetyScaled, fullW: W, fullH: H };
+      return canvas;
+    } finally {
+      bitmap.close();
+    }
   }
 
   function initPhotoAdjuster() {
@@ -29192,9 +29352,7 @@
 
     document.getElementById("photoAdjustZoom").addEventListener("input", (e) => {
       if (!photoAdjustState) return;
-      photoAdjustState.zoom = e.target.value / 100;
-      clampPhotoAdjustOffsets();
-      applyPhotoAdjustTransform();
+      setPhotoAdjustZoom(photoAdjustPosToZoom(photoAdjustState, e.target.value));
     });
 
     // (bs) One way in for every angle change: rounded, slider and readout
@@ -29205,6 +29363,7 @@
       s.rotateFine = roundCropAngle(v);
       document.getElementById("photoAdjustRotate").value = s.rotateFine;
       document.getElementById("photoAdjustAngleReadout").textContent = cropAngleText(s.rotateFine);
+      clampPhotoAdjustOffsets(); // (bs) Z-C: a turn can bring the picture's edge into the circle
       applyPhotoAdjustTransform();
     }
     document.getElementById("photoAdjustRotate").addEventListener("input", (e) => setPhotoAdjustAngle(snapCropAngle(e.target.value)));
@@ -29217,11 +29376,8 @@
       if (!btn || !s) return;
       if (btn.dataset.angle) { setPhotoAdjustAngle(steppedCropAngle(s.rotateFine, btn.dataset.angle)); return; }
       if (btn.dataset.zoom) {
-        const zs = document.getElementById("photoAdjustZoom");
-        s.zoom = steppedCropZoom(s.zoom, btn.dataset.zoom, Number(zs.min) / 100, Number(zs.max) / 100);
-        zs.value = Math.round(s.zoom * 100);
-        clampPhotoAdjustOffsets();
-        applyPhotoAdjustTransform();
+        setPhotoAdjustZoom(steppedCropZoom(s.zoom, btn.dataset.zoom, s.zoomMin, s.zoomMax));
+        syncPhotoAdjustZoomSlider();
         return;
       }
       const d = CROP_NUDGE_DIRS[btn.dataset.nudge];
@@ -29237,35 +29393,24 @@
 
     document.getElementById("photoAdjustCancelBtn").addEventListener("click", cancelPhotoAdjust);
 
-    document.getElementById("photoAdjustUseBtn").addEventListener("click", () => {
+    document.getElementById("photoAdjustUseBtn").addEventListener("click", async () => {
       const s = photoAdjustState;
-      if (!s) return;
-      const scale = s.baseScale * s.zoom;
-      const rotationRad = (s.rotateQuick + s.rotateFine) * Math.PI / 180;
-
-      // Output at the source's own resolution across the guide, rather than
-      // a fixed 480 — this bake is now the STORED image (see
-      // runCropPipeline), so a fixed size would have downsampled every photo
-      // to 480px. circleSize / scale is exactly how many source pixels span
-      // the guide, so this neither up- nor down-samples; the bounds keep a
-      // heavily-zoomed crop legible and match Stage 1's own 1400 cap.
-      const canvas = document.createElement("canvas");
-      const nativeAcross = Math.round(s.circleSize / scale);
-      canvas.width = canvas.height = Math.max(480, Math.min(1400, nativeAcross || 480));
-      const canvasScale = canvas.width / s.circleSize;
-      const ctx = canvas.getContext("2d");
-      const img = document.getElementById("photoAdjustImg");
-
-      // Mirrors the on-screen CSS transform chain (center -> pan -> rotate -> scale)
-      // at canvas resolution, so the baked crop matches what the adjuster showed.
-      ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.translate(s.offsetX * canvasScale, s.offsetY * canvasScale);
-      ctx.rotate(rotationRad);
-      ctx.scale(scale * canvasScale, scale * canvasScale);
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(s.sourceCanvas || img, -s.naturalWidth / 2, -s.naturalHeight / 2);
-      ctx.restore();
+      if (!s || s.baking) return;
+      s.baking = true; // a second tap while the original decodes does nothing
+      const useBtn = document.getElementById("photoAdjustUseBtn");
+      useBtn.disabled = true;
+      let canvas;
+      try {
+        canvas = s.geometry ? await bakePhotoAdjustFromOriginal(s) : bakePhotoAdjustFromSource(s);
+      } catch (e) {
+        console.warn("Circle crop failed:", e);
+        s.baking = false;
+        useBtn.disabled = false;
+        showToast("That photo couldn't be cropped" + (e && e.message ? ": " + e.message : "") + ". Nothing was added.");
+        return;
+      }
+      useBtn.disabled = false;
+      if (photoAdjustState !== s) return; // cancelled while it baked
 
       canvas.toBlob((blob) => {
         // Callback mode (new gallery pipeline): hand the baked circle blob off
@@ -29331,6 +29476,10 @@
   const BG_CROP_BASE_MAX = 1600;
   const BG_CROP_OUTPUT_MAX = 1400;
   const BG_CROP_HANDOFF_MAX = 2000;
+  // (bs) Z-C (Ray, 14 Nov 2026): a flip source hands the circle its square
+  // plus this much of the surrounding photo on every side (25% of the side,
+  // so up to 1.5x the square), giving the circle room to zoom out.
+  const BG_CROP_HANDOFF_MARGIN = 0.25;
   const BG_CROP_TRIM_QUALITY = 0.95;
   // The one exception to "never downscaled" (Ray's Q13): a photo over about
   // 60 MP is decoded at FULLRES_SAFETY_LONG_EDGE on its long edge, so a
@@ -29534,14 +29683,18 @@
   // about the rotated ORIGINAL's centre. Only the crop's own pixels are
   // drawn (the whole original is never rotated as a canvas of its own).
   // outMax: the long-edge cap of the result (null = none).
-  async function bakeBgCropFromOriginal(s, outMax) {
+  // rect (optional, display px like s.box): the area to cut; the box itself
+  // when left out. (bs) Z-C: a flip source cuts the box PLUS a margin
+  // (bgCropHandOffRect) and the result carries `geometry`, the map from the
+  // cut's pixels back to the original, so Stage 2 can save from the original.
+  async function bakeBgCropFromOriginal(s, outMax, rect) {
     const { bitmap, safetyScaled } = await decodeFullResOriented(s.source);
     try {
       const W = bitmap.width, H = bitmap.height;
       // Display copy -> this bitmap (the same aspect; average the two axes).
       const k = ((s.baseCanvas.width / W) + (s.baseCanvas.height / H)) / 2;
       const rad = ((s.rotateQuick + Number(s.rotateFine)) * Math.PI) / 180;
-      const b = s.box;
+      const b = rect || s.box;
       const sx = s.naturalW / s.dispW, sy = s.naturalH / s.dispH; // display px -> work (rotated copy) px
       const boxW = (b.right - b.left) * sx, boxH = (b.bottom - b.top) * sy;
       const cxWork = (b.left + b.right) / 2 * sx - s.naturalW / 2;
@@ -29559,10 +29712,30 @@
       ctx.translate(-cxWork / k, -cyWork / k);
       ctx.rotate(rad);
       ctx.drawImage(bitmap, -W / 2, -H / 2);
-      return { canvas, safetyScaled, fullW: W, fullH: H };
+      // geometry: a point q of this canvas, taken from its centre, is the
+      // point (q.x / sx0 + cx, q.y / sy0 + cy) of the original turned by
+      // `rad` about its own centre (original px). See bakePhotoAdjustFromOriginal.
+      const geometry = { source: s.source, rad, cx: cxWork / k, cy: cyWork / k, sx0: outW / cropW, sy0: outH / cropH };
+      return { canvas, safetyScaled, fullW: W, fullH: H, geometry };
     } finally {
       bitmap.close();
     }
+  }
+
+  // (bs) Z-C: the area a flip source hands to the circle: the box plus up to
+  // BG_CROP_HANDOFF_MARGIN of its side on every side, but never past the
+  // (turned) photo, so a box at the photo's edge gets less margin on that
+  // side, and a box that is the whole photo gets none. Also returns where
+  // the box sits inside that area (0..1 of the area), so the circle can
+  // start with the box exactly filling it.
+  function bgCropHandOffRect(s) {
+    const b = s.box, side = Math.min(b.right - b.left, b.bottom - b.top);
+    const m = side * BG_CROP_HANDOFF_MARGIN;
+    const r = { left: Math.max(0, b.left - m), top: Math.max(0, b.top - m),
+      right: Math.min(s.dispW, b.right + m), bottom: Math.min(s.dispH, b.bottom + m) };
+    const w = r.right - r.left, h = r.bottom - r.top;
+    const boxIn = { x: (b.left - r.left) / w, y: (b.top - r.top) / h, w: (b.right - b.left) / w, h: (b.bottom - b.top) / h };
+    return { rect: r, boxIn };
   }
 
   function closeBgCrop() {
@@ -29764,9 +29937,15 @@
           result = { blob, preview: smallCopyOf(s.baseCanvas), info: { kind: "original-bytes", width: s.fullW, height: s.fullH, bytes: blob.size } };
         } else {
           const outMax = s.trimOnly ? null : (s.handOffCanvas ? BG_CROP_HANDOFF_MAX : BG_CROP_OUTPUT_MAX);
-          const baked = await bakeBgCropFromOriginal(s, outMax);
+          const handOff = s.handOffCanvas ? bgCropHandOffRect(s) : null;
+          const baked = await bakeBgCropFromOriginal(s, outMax, handOff ? handOff.rect : null);
           if (s.handOffCanvas) {
-            result = { canvas: baked.canvas, info: { kind: "pixels", width: baked.canvas.width, height: baked.canvas.height, safetyScaled: baked.safetyScaled } };
+            // (bs) Z-C: the box plus its margin, for framing only; the circle
+            // saves from the original through `geometry`.
+            const c = baked.canvas;
+            const geometry = Object.assign({}, baked.geometry, {
+              box: { x: handOff.boxIn.x * c.width, y: handOff.boxIn.y * c.height, w: handOff.boxIn.w * c.width, h: handOff.boxIn.h * c.height } });
+            result = { canvas: c, info: { kind: "pixels", width: c.width, height: c.height, safetyScaled: baked.safetyScaled, geometry } };
           } else {
             const blob = await canvasToBlob(baked.canvas, s.trimOnly ? BG_CROP_TRIM_QUALITY : 0.92);
             result = { blob, preview: s.trimOnly ? smallCopyOf(baked.canvas) : null,
@@ -29868,8 +30047,10 @@
       onCancel,
       onComplete: (result, info) => {
         if (def.flipSource) {
-          // Stage 2: frame the flip-card circle from the cut (pixels).
-          openPhotoAdjust(result, { onComplete: (circleBlob) => finish(circleBlob, null, null), onCancel });
+          // Stage 2: frame the flip-card circle from the cut (pixels, the
+          // square plus its margin); it saves from the original ((bs) Z-C).
+          openPhotoAdjust(result, { onComplete: (circleBlob) => finish(circleBlob, null, null), onCancel,
+            geometry: info && info.geometry });
         } else {
           finish(null, result, info);
         }
