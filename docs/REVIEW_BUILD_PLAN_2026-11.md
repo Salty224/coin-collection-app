@@ -1,6 +1,6 @@
 # Build plan for the November 2026 review (plan only, no code)
 
-Written 14 Nov 2026 on `claude/build-plan-findings-f2d6pa` (docs only). It turns Ray's decisions on the whole-app review into builds. The review itself is `docs/REVIEW_2026-11.md` on branch `claude/app-review-2026-11` (`8720413`), not on main; finding numbers (A1-A20, B1-B10) are the review's. Code facts below were read in `app.html` at `85940b2` (main's code). Nothing was run; no code changed.
+Written 14 Nov 2026 (docs only); on main since Ray's answers the same day. It turns Ray's decisions on the whole-app review into builds. The review itself is `docs/REVIEW_2026-11.md` (on main since the same commit; first written on branch `claude/app-review-2026-11` at `8720413`); finding numbers (A1-A20, B1-B10) are the review's. Code facts below were read in `app.html` at `85940b2` (main's code). Nothing was run; no code changed.
 
 ## Ray's decisions (14 Nov 2026)
 
@@ -10,7 +10,8 @@ Written 14 Nov 2026 on `claude/build-plan-findings-f2d6pa` (docs only). It turns
 - Q3: `stage.html` is not wanted: retire it (A12).
 - A4: explain first exactly which files Reject deletes (below).
 - Part B doing: B1, B2, B3, B4, B5 (both parts, including moving finished Staging folders to one "done" place), B6, B7, B10. Backlog, not now: B8 (now (bz)), B9 (now (ca)).
-- Agreed order: 1. B2 + B10; 2. B6; 3. data-safety build 1 (A1, A4, A2, A12, B1, plus small Part A fixes that fit); 4. Promote / photo save (A3, A5, B3, B4; TEST on a device for B4's 409 case).
+- Agreed order: 1. B2 + B10; 2. B6; 3. data-safety build 1 (A1, A4, A2, A12, B1, plus small Part A fixes that fit); then Promote / photo save (A3, A5, B3, B4; TEST on a device for B4's 409 case).
+- Ray's answers to this plan's Q1-Q9 (14 Nov 2026): every recommended answer, with one change: B7 and A19's check move to right after Build 3 (B7 needs A1's paging), and the later builds are renumbered. The builds below are in that final order; the answers are listed at the end.
 
 ## A4 explained: what Reject deletes after a Promote whose status write failed
 
@@ -34,7 +35,7 @@ Fix (Build 3):
 - Reject refuses when ANY of these holds: a fresh read of All's CollectionID column shows the id; that read fails (cannot tell, so nothing is deleted); this session wrote that id's All row (a new in-memory set, which covers Graph's read lag); the draft's own flag. The refusal says to use Mark as promoted.
 - When the status write fails, still refresh the loaded rows and redraw, so the card changes to "Already on the All sheet: Mark as promoted" at once.
 - Correct the toast. Today it ends "photos retry at next launch", which is untrue in this state. New wording: the coin is on All, its photos are still in Staging, tap Mark as promoted to finish.
-- Build 4 widens the launch retry to `allRowWritten && !filesMovedOnPromotion` whatever the status (today a Force Added coin is never retried). It waits for A5's row-reuse fix so a retry cannot duplicate rows.
+- Build 5 widens the launch retry to `allRowWritten && !filesMovedOnPromotion` whatever the status (today a Force Added coin is never retried). It waits for A5's row-reuse fix so a retry cannot duplicate rows.
 
 ## The builds
 
@@ -71,13 +72,13 @@ A1:
 
 A12:
 - Staging folder names count for the reservation only when they match `^AY-\d{5}$` exactly. All's own column keeps accepting child suffixes (`AY-00012-A`).
-- Retire `stage.html`: remove it; `verify_files_picker` follows (38 pinned inputs become 30); CLAUDE.md and PLATFORM.md lines updated. Ray removes the `stage.html` redirect URI in Entra when convenient (nothing depends on it).
+- Retire `stage.html`: it becomes a plain notice page (the form was retired; a link to the app; no sign-in, no script; Ray's Q3); `verify_files_picker` follows (38 pinned inputs become 30); CLAUDE.md and PLATFORM.md lines updated. Ray removes the `stage.html` redirect URI in Entra when convenient (nothing depends on it).
 
 A4: as "Fix (Build 3)" above.
 
 A2:
 - After a first save in which any photo or the receipt failed to upload, the form is NOT reset. It switches to the existing Staging-draft edit mode for that id, with the landed files marked landed and the failed picks (and their crops) still in place; Save retries only those (`uploadStagingEditFiles`).
-- Save to Database with a failed file stops at the draft and says so; it does not put the coin on All without its photo.
+- Save to Database with a failed file stops at the draft and says so; it does not put the coin on All without its photo. (Ray's Q4: yes.)
 - The simpler "just don't reset the form" is not safe on its own: Save again would reserve a second id and write a second draft.
 
 A16 (small, same code as A1's first-write change): Add Set writes `set.json` before its photos, and `uploadDraftPhoto` stops overwriting (a free name, as elsewhere).
@@ -88,7 +89,17 @@ B1:
 
 Device TEST (short checklist written with the build): a save with the signal cut mid-upload (A2); Reject on a coin already on All (A4); the save log and Copy (B1); a normal Add Coin and Promote.
 
-### Build 4: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
+### Build 4: B7 the read-only consistency check, with A19 (M; plan first)
+
+Moved here by Ray (14 Nov 2026): it needs only Build 3's paging, and it shows existing damage before the later builds change anything.
+
+B7: one Docket screen, GET only, run on Ray's tap: Photos rows whose file is missing; files in CoinPhotos / CoinReceipts with no row; one file on two rows; duplicate PhotoIDs ((u)); coins on All whose photos are still in Staging; drafts whose id is on All; two Receipts rows for one coin; Photos / Receipts rows whose CollectionID is not on All (A19); unexpected folder names in Staging (A12). A Copy button. It never fixes anything.
+- It lists CoinPhotos and CoinReceipts with Build 3's paged `listChildren()`; a listing that fails part-way is reported as "could not check", never as a clean result.
+- Plan first: where it sits on the Docket, how long a full pass takes on LIVE's folders, and the wording of each line.
+
+A19: no code beyond B7's check. One Copilot_Rules line for Ray to add: never delete the newest row of All without its Photos and Receipts rows.
+
+### Build 5: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
 
 A5 first, because A3 and the wider launch retry depend on it:
 - Before claiming a row for a repeatable photo, look for a row with the same CollectionID and Filename and reuse it.
@@ -112,7 +123,7 @@ A14: a 409 on a photo upload compares bytes and adopts the file when identical (
 
 Device TEST: the 409 case above; a four-photo Save timed before and after; a Promote on mobile data.
 
-### Build 5: small fixes pack: A9, A10, A15, A17, A20 (S each; M together)
+### Build 6: small fixes pack: A9, A10, A15, A17, A20 (S each; M together)
 
 - A9: a failed CoinID re-link files the Docket entry `flagCoinIdNeedsRelink` writes, so it is not a toast only.
 - A10: Edit Set's fields that are not saved become read-only, with one line saying so, until (r) is built.
@@ -120,48 +131,45 @@ Device TEST: the 409 case above; a four-photo Save timed before and after; a Pro
 - A17: a shared receipt's "all coins" update goes in one `$batch`; a part-landed batch reports what landed.
 - A20: an Edit save refuses when All holds the same CollectionID twice, naming both rows.
 
-### Build 6: writes that cannot hang or mislead: A7, A8, A6 first part (M; plan first)
+### Build 7: writes that cannot hang or mislead: A7, A8, A6 first part (M; plan first)
 
 - A7: one shared deadline for uploads and workbook writes. A timeout reports "may have been saved", never "not saved". Takes in backlog (ap) 1.5 with 2.4.
 - A8: when a workbook write gets no answer, re-read the row and report what is there.
 - A6 first part: no resume / version check starts while a save is running; it runs when the save ends.
 - Plan first: it touches every write call.
 
-### Build 7: Staging housekeeping and the consistency check: B5, A13 first part, B7, A19 (M to L; plan first)
+### Build 8: Staging housekeeping: B5, A13 first part (M; plan first)
 
 B5:
 - Drafts are read a few at a time, each folder once per refresh (today the coin pass and the Set pass each fetch from every folder).
-- Finished folders move to one place, `CoinCollection/StagingDone/{CollectionID}` (and under `_Testing` for TEST), one Graph move per folder (Build 4's helper). Finished means: Promoted, files moved, every record written. A Force Added coin still awaiting research is not finished.
+- Finished folders move to one place, `CoinCollection/StagingDone/{CollectionID}` beside Staging (and under `_Testing` for TEST), one Graph move per folder (Build 5's helper). Finished means: Promoted, files moved, every record written. A Force Added coin still awaiting research is not finished.
 - The move runs at launch only, and only for an id that a fresh All read shows, so the reservation never depends on a folder that has left Staging.
 - Supersedes the Staging part of (aa), which said delete; Ray chose move (14 Nov 2026).
+- Build 4's check learns the done place (a draft there whose coin is not on All is reported).
 
 A13 first part: Docket and draft JSON uploads send `If-Match` with the file's eTag; a mismatch re-reads and re-applies once. The rest of A13 stays with (bp).
 
-B7: one Docket screen, GET only, run on Ray's tap: Photos rows whose file is missing; files in CoinPhotos / CoinReceipts with no row; one file on two rows; duplicate PhotoIDs ((u)); coins on All whose photos are still in Staging; drafts whose id is on All; two Receipts rows for one coin; Photos / Receipts rows whose CollectionID is not on All (A19); unexpected folder names in Staging (A12). A Copy button. It never fixes anything.
-
-A19: no code beyond B7's check. One Copilot_Rules line for Ray to add: never delete the newest row of All without its Photos and Receipts rows.
-
-### Build 8: A11 wrong-row detector, and A6 second part (M; plan first; TEST decides)
+### Build 9: A11 wrong-row detector, and A6 second part (M; plan first; TEST decides)
 
 - A11: a GET of the target row as the first request of the same `$batch` as the write; afterwards check that row held this CollectionID; if not, show loudly the exact values just overwritten. Whether a GET inside a batch can itself be stale is the open (bi) question, so a TEST comes before any promise.
 - A6 second part ("may this save write" decided once per save) touches invariant 17. Recommended: decide after B1's save log has run on LIVE for a while and shows whether mid-save refusals happen at all.
 
 ## Where every finding lands
 
-Part A: A1 Build 3 · A2 Build 3 · A3 Build 4 · A4 Build 3 (its launch-retry part Build 4) · A5 Build 4 · A6 Build 6 (second part Build 8) · A7 Build 6 · A8 Build 6 · A9 Build 5 · A10 Build 5 · A11 Build 8 · A12 Build 3 · A13 Build 7 (the rest stays (bp)) · A14 Build 4 · A15 Build 5 · A16 Build 3 · A17 Build 5 · A18 Build 4 · A19 Build 7 · A20 Build 5.
-Part B: B1 Build 3 · B2 Build 1 · B3 Build 4 · B4 Build 4 · B5 Build 7 · B6 Build 2 · B7 Build 7 · B10 Build 1 · B8 backlog (bz) · B9 backlog (ca). (bv) Build 4; (bw) is met by B1.
+Part A: A1 Build 3 · A2 Build 3 · A3 Build 5 · A4 Build 3 (its launch-retry part Build 5) · A5 Build 5 · A6 Build 7 (second part Build 9) · A7 Build 7 · A8 Build 7 · A9 Build 6 · A10 Build 6 · A11 Build 9 · A12 Build 3 · A13 Build 8 (the rest stays (bp)) · A14 Build 5 · A15 Build 6 · A16 Build 3 · A17 Build 6 · A18 Build 5 · A19 Build 4 · A20 Build 6.
+Part B: B1 Build 3 · B2 Build 1 · B3 Build 5 · B4 Build 5 · B5 Build 8 · B6 Build 2 · B7 Build 4 · B10 Build 1 · B8 backlog (bz) · B9 backlog (ca). (bv) Build 5; (bw) is met by B1.
 
-## Questions for Ray (recommendation in brackets)
+## Ray's answers to Q1-Q9 (14 Nov 2026)
 
-- Q1. The review file is only on its own branch. Put `docs/REVIEW_2026-11.md` and this plan on main as a docs-only commit, so every build session can read both? [yes]
-- Q2. Build 2's KNOWN list: the new suites pass at merge by listing today's known failures, and each fix must delete its entries. OK? [yes; the alternative is to hold Build 2 until Builds 3 and 4, which loses its use as their safety net]
-- Q3. `stage.html`: delete outright, or leave a few lines of plain page (no sign-in, no script) saying the form was retired, with a link to the app, in case of an old bookmark? [the plain page]
-- Q4. Build 3, Save to Database when a photo failed to upload: stop at the draft until the photo is in, rather than put the coin on All without it? [yes, stop]
-- Q5. B1's save log is memory only, so it is gone when the app is closed. Enough? [yes for now: the toast now carries the reason, and Copy takes the log before closing]
-- Q6. Build 4, B3: the Photos tab's header and table are read once at the start of a Save and used for all of that Save's photos, instead of again for each photo. It narrows "re-read at the start of every write" to "once per Save" for the Photos tab only. OK? [yes; the photos of one Save are written seconds apart, inside one lock]
-- Q7. Build 7's done place: `CoinCollection/StagingDone/` beside Staging (not inside it)? [yes: Staging's own listing then stays short]
-- Q8. Order after Build 4: 5 small fixes, 6 deadlines, 7 housekeeping and the check, 8 the wrong-row detector. Change it? [as listed; move Build 7's B7 earlier if you want to see existing damage sooner]
-- Q9. A6's second part: wait for B1's evidence before planning it? [yes]
+- Q1. The review file and this plan go on main, docs only. Done in the commit that recorded these answers.
+- Q2. Yes: Build 2's suites pass at merge by listing today's known failures (the KNOWN list), and each fix deletes its entries.
+- Q3. `stage.html` becomes a plain notice page: a few lines saying the form was retired, with a link to the app; no sign-in, no script.
+- Q4. Yes: Save to Database stops at the draft while a photo or the receipt has not uploaded.
+- Q5. Yes: B1's save log is memory only for now.
+- Q6. Yes: in B3 the Photos tab's header and table are read once at the start of a Save and used for all of that Save's photos. This narrows "re-read at the start of every write" (invariant 3) to "once per Save" for the Photos tab only; the build that does it records the rule in CLAUDE.md.
+- Q7. Yes: the done place is `CoinCollection/StagingDone/`, beside Staging.
+- Q8. Changed by Ray: B7 and A19's check come right after Build 3. Final order: 1 B2 + B10; 2 B6; 3 A1, A4, A2, A12, B1, A16; 4 B7 + A19; 5 A3, A5, B3, B4, A14, A18, (bv); 6 A9, A10, A15, A17, A20; 7 A7, A8, A6 first part; 8 B5, A13 first part; 9 A11, A6 second part.
+- Q9. Yes: A6's second part waits for B1's evidence from LIVE.
 
 ## Not verified
 
