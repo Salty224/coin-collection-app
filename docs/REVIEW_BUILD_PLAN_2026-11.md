@@ -49,6 +49,7 @@ B2:
 - Accept when: sorted PASS / FAIL lines of a parallel run equal a serial run's exactly (5179 / 0 / 0, 102 suites), three parallel runs in a row agree, and the wall time is reported (expected about 4 to 5 minutes from 822 s).
 - A suite that wobbles under load goes on a short named "run alone" list with the reason written beside it; no assertion is loosened and no timeout is raised to hide it.
 - Hazards checked now: only `verify_pdf_receipt_viewer` opens a port and it asks for a free one; temp files use `mkdtemp`. One suite writes a golden file only on request.
+- Seen during the crop review (14 Nov 2026): with four suite runs sharing this machine, `crop_from_upload` D4 and D5 failed twice and passed when run alone. Expect it to be the first suite on the "run alone" list, or fix its wait.
 
 B10:
 - Move the full text of finished items out of docs/BACKLOG.md into docs/HISTORY.md (the (bs) Build 3 plan and fix-round plan, (af), (al), (ar), (ao), (ax) Stage 1 + 2a, (bk) plans and answers, any other done item), leaving one line each with where it went. Still-open parts stay ((ax) 2b, (bk) F and the follow-up).
