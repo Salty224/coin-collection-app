@@ -2235,6 +2235,15 @@
     flex: 1; padding: 10px; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 13px;
   }
   #photoAdjustCancelBtn { background: transparent; border: 1px solid var(--case-border); color: var(--text-muted); }
+  /* (bs) The confirm / choice dialog (showWriteGuard): its buttons wrap when
+     they do not fit on one row, two to a row (Ray's S25, 14 Nov 2026: the
+     four-button "Crop this photo into…" chooser ran Cancel off the box at
+     about 384 px; older than (bs), the same on main). showWriteGuard adds
+     .wrap2 only when one row is too wide, so a row that fits is unchanged.
+     Every button at least 44 px tall. */
+  #writeGuardBtns { flex-wrap: wrap; }
+  #writeGuardBtns button { min-height: 44px; }
+  #writeGuardBtns.wrap2 button { flex: 1 1 calc(50% - 5px); }
   #photoAdjustUseBtn {
     background: linear-gradient(180deg, var(--gold-bright), var(--gold));
     border: none; color: #241c05; font-weight: 700;
@@ -13347,6 +13356,13 @@
       btnRow.appendChild(b);
     });
     overlay.classList.remove("hidden");
+    // (bs) Too wide for one row? Then two to a row (measured with the
+    // overlay showing: a hidden row measures 0).
+    btnRow.classList.remove("wrap2");
+    btnRow.style.flexWrap = "nowrap";
+    const tooWide = btnRow.scrollWidth > btnRow.clientWidth + 1;
+    btnRow.style.flexWrap = "";
+    if (tooWide) btnRow.classList.add("wrap2");
   }
 
   // Formats a cell value for display inside a guard dialog. Date columns

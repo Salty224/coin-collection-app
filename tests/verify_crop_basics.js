@@ -35,6 +35,9 @@
 //      pan outside the box, slide-along, pan limits with the margin (F1 at
 //      4x), arrows 1 screen px; the four (ak) proofs (same bytes at any
 //      zoom, drag / zoom, untouched bytes, no decode while zooming)
+//   W  no button runs off its box at 360 / 384 / 412 px: the "Crop this
+//      photo into…" chooser wraps two to a row when needed (44 px tall);
+//      the crop screens' rows stay inside their panels
 //   Z  circle zoom, Z-C (Ray, 14 Nov 2026): the square plus 25% of photo
 //      handed to the circle; it starts with the square filling the circle
 //      (a tick), zooms out to the smallest zoom that covers it (never
@@ -1121,6 +1124,58 @@ module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, 
   ok("V26 a resize (the screen narrower) keeps the zoom and the centre point: " + JSON.stringify(VR),
     VR.z === 3 && VR.dispW < VQ.beforeResize.z * 1000 && Math.abs(VR.fx - 0.5) < 0.01 && Math.abs(VR.fy - 0.5) < 0.01, { VQ, VR });
   ok("V27 Use Crop, then the next crop opens at 1x: " + JSON.stringify(VR.afterUse), VR.afterUse.z === 1 && VR.afterUse.panX === 16, VR);
+
+  // ---------- W. no button runs off its box (Ray's S25, 14 Nov 2026) ------
+  // The "Crop this photo into…" chooser (Obverse / Reverse / Reference /
+  // Cancel) ran Cancel off the dialog at about 384 px wide (older than (bs):
+  // the same on main). Its buttons now wrap two to a row when one row does
+  // not fit, each at least 44 px tall. The crop screens' rows are checked too.
+  const rowsAt = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    return page.evaluate(async () => {
+      const C = __cb;
+      const measure = (btnSel, boxSel) => {
+        const box = document.querySelector(boxSel).getBoundingClientRect();
+        return [...document.querySelectorAll(btnSel)].filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect();
+          return { t: b.textContent.trim(), l: r.left, r: r.right, top: Math.round(r.top), h: r.height,
+            inside: r.left >= box.left - 0.5 && r.right <= box.right + 0.5 && r.right <= innerWidth + 0.5 }; });
+      };
+      const out = {};
+      // The real chooser, as a Holder's "Crop from this photo" opens it.
+      startCropFromUpload("AY-00002", { type: "slab_obverse", storedFilename: "AY-00002_slab_obverse.jpg" }, () => {}, true);
+      out.chooser = measure("#writeGuardBtns button", "#writeGuardOverlay .photo-adjust-panel");
+      out.wrapped = document.getElementById("writeGuardBtns").classList.contains("wrap2");
+      document.querySelector("#writeGuardBtns button:last-child").click(); // Cancel
+      // A two-button dialog stays on one row.
+      showWriteGuard({ title: "t", bodyHtml: "<p>x</p>", buttons: [{ label: "Skip" }, { label: "Crop", primary: true }] });
+      out.two = measure("#writeGuardBtns button", "#writeGuardOverlay .photo-adjust-panel");
+      document.querySelector("#writeGuardBtns button").click();
+      // The crop screens' rows.
+      await C.open(await C.toBlob(C.halves(3000, 4000), "image/jpeg", 0.8), "obverse");
+      out.s1 = measure("#bgCropOverlay button, #bgCropAspectRow", "#bgCropOverlay .bg-crop-panel");
+      await C.useStage1();
+      await C.waitFor(() => photoAdjustState, 15000); await C.settle();
+      out.s2 = measure("#photoAdjustOverlay button", "#photoAdjustOverlay .photo-adjust-panel");
+      cancelPhotoAdjust();
+      return out;
+    });
+  };
+  for (const [w, h] of [[360, 740], [384, 740], [412, 915], [768, 1024]]) {
+    const R = await rowsAt(w, h);
+    const by = (t) => R.chooser.find(b => b.t === t);
+    ok("W1 at " + w + " px every button of the \"Crop this photo into…\" chooser stays inside the dialog and the screen, at least 44 px tall: " +
+      JSON.stringify(R.chooser.map(b => [b.t, Math.round(b.l), Math.round(b.r), Math.round(b.h)])),
+      R.chooser.length === 4 && R.chooser.every(b => b.inside && b.h >= 44 - 0.5), R);
+    const pairs = R.wrapped && by("Obverse").top === by("Reverse").top && by("Reference").top === by("Cancel").top && by("Reference").top > by("Obverse").top;
+    const oneRow = !R.wrapped && R.chooser.every(b => b.top === R.chooser[0].top);
+    // The dialog is at most 360 px wide on every screen, so these four never fit one row:
+    // two to a row at every width (a row that fits stays one row: W3).
+    ok("W2 at " + w + " px they wrap two to a row: Obverse / Reverse, then Reference / Cancel", pairs && !oneRow, R);
+    ok("W3 at " + w + " px a two-button dialog stays on one row, inside the box", R.two.length === 2 && R.two.every(b => b.inside && b.h >= 43.5) && R.two[0].top === R.two[1].top, R);
+    const badRows = R.s1.concat(R.s2).filter(b => !b.inside);
+    ok("W4 at " + w + " px no button on either crop screen runs off its panel" + (badRows.length ? ": " + JSON.stringify(badRows) : ""), badRows.length === 0 && R.s1.length >= 12 && R.s2.length >= 12, R);
+  }
+  await page.setViewportSize(PHONE);
 
   // ---------- H. no writes --------------------------------------------------
   const H = await page.evaluate(() => __cb.writes.slice());
