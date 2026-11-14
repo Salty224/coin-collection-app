@@ -3383,6 +3383,16 @@ ask before updating rather than updating by default.
 
 - Ray's re-test of `7a19175` (phone, 14 Nov 2026): R1-R15 passed. Fix round 3 asked for: snap ±0.5° (±0.3° too hard to hit with a finger), arrows 1 px, and view zoom on the rectangle crop (planned first: docs/BACKLOG.md "(bs) fix round 3 plan").
 
+- Fix round 3 (Ray's Q1-Q7 answers to the plan, defaults plus: no handle touched -> zoom about the view's centre; 14 Nov 2026): code `d927c55`. Snap ±0.5°, arrows 1 px, view zoom on the rectangle crop. Built as planned; no deviation. Affected suites (17), one run: 1551 / 0 (6.8 min).
+- Fix-round-3 gate (full `npm test` at `d927c55`, 14 Nov 2026): 5163 passed, 0 failed, 0 page errors, 102 suites, 820 s.
+
+### (bs) fix-round-3 negative controls (14 Nov 2026)
+17 copies, four at a time (about 11.5 min), then 1 re-run. Each made crop_basics fail:
+- Ray's: A snap left at ±0.3° (F6, F12, F13: the upload 129,457 bytes, not the original's 72,622); B arrows at 2 px (D3, E1, V21).
+- The four (ak) proofs: P1 drag not divided by the zoom (V8: the box moved 30 px, not 10; V14, V20); P2 zoom written into the box (V6, then the suite threw: the moved box put a handle off screen); P3 pan limit without the margin (V5, V6, V12, V18, V19); P4 a decode on every zoom tap (V11: 3 decodes).
+- New behaviour: C1 pinch about the view's centre (V15, V16); C2 no slide-along (V20); C3 − / + never greyed (V1, V3, V5); C4 the touched handle ignored (V6); C6 arrows without the view following (V21); C7 a 90° turn keeping the zoom (V24); C8 Lock to square not showing the box (V23); C9 a drag outside the box moving the box (the suite threw inside the V12-V21 block, before its checks, so no named check reported it); C10 a second finger keeping the half-done edit (V17); N3 margin 0 (17 checks incl. C1, C2, V1, V18, V19).
+- C5 Ray's addition, the zoom about the BOX's centre when no handle was touched: first PASSED (the default whole-photo box's centre is the view's centre); V2 now uses an off-centre box and C5 fails it.
+
 ### (bs) fix-round-2 negative controls (14 Nov 2026)
 Each on a copy, four at a time (15 copies, about 6.5 min), then 2 re-runs after the black check was corrected (about 3 min). Every one failed:
 - Ray's four: CA the circle saved from the hand-off (Z15, Z16: 480 px from a 320 px cut, stripe contrast 113 of 255, 67% black or white; the real code: 640 px, 255 of 255, 100%); CB zoom-in capped at 4x (Z4, Z12, Z15); CC a minimum zoom of 0.8 that shows black (Z3, Z6, Z8, Z9, Z10, Z11, Z12: about 15,300 black samples a cut); CD no margin (E1, E3, E4, Z1, Z3, Z7, Z11, Z13, Z17).

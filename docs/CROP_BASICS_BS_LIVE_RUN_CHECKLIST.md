@@ -36,3 +36,16 @@ R15. Guided crop from a Holder: R8-R12 behave the same there.
 
 ## Re-test results
 Build of `7a19175` (Ray, phone, 14 Nov 2026): R1-R15 passed. Asked for next (fix round 3): the snap zone to ±0.5°, arrows at 1 px, and view zoom on the rectangle crop (plan: docs/BACKLOG.md "(bs) fix round 3 plan").
+
+## Fix round 3 TEST (changed items only)
+T1. Angle snap: drag the angle slider back towards the tick; anywhere within about ±0.5° it jumps to exactly 0 ("Straighten 0°"). On an untouched Holder: drag the angle out a few degrees, let go just under half a degree from the tick, Use Crop, Skip, Save: the OneDrive file is exactly the original's size.
+T2. Arrows: each tap now moves the box (rectangle) or the coin (circle) 1 px.
+T3. Rectangle crop, − / +: the − and + spots now zoom the VIEW: 1.25x a tap, up to 4x; a "2.0×"-style badge shows the zoom; − is grey at 1x and + at 4x. Nothing about the saved photo changes.
+T4. Zoom about the right place: open a Holder and tap + without touching anything: it zooms into the middle of the view. Then touch a corner handle (no need to move it) and tap +: it zooms into that corner, which stays where it was on screen.
+T5. Panning: zoomed in, drag one finger on the dimmed photo outside the box (or on the dark margin): the view moves; the box does not. Drag inside the box: the box moves. Two fingers: pinch to zoom, move both to pan.
+T6. Placing an edge precisely: zoom into a holder's edge and drag the handle onto it; drag it towards the view's edge and hold: the view slides along with the handle under your finger.
+T7. At 4x, pan to each corner of an untouched Holder photo: the corner handle sits on the dark margin and can be grabbed (no Lock to square trick needed).
+T8. Arrows while zoomed: at 4x one tap is a tiny move; if the edge is off the view, the view follows it.
+T9. Zoom and the other controls: a 90° turn goes back to 1x; the angle slider keeps the zoom; ticking Lock to square keeps the zoom and shows the squared box; Use Crop / Cancel and the next crop opens at 1x.
+T10. Saving is unchanged: (a) an untouched Holder zoomed in, panned and pinched, then Use Crop, Skip, Save: the OneDrive file is exactly the original's size; (b) a trimmed Holder placed while zoomed comes out at full resolution, trimmed exactly where the box was.
+T11. Use Crop still on screen without scrolling on the upright phone.
