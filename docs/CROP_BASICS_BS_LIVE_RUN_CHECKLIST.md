@@ -1,6 +1,6 @@
 # (bs) Build 3, crop-screen basics: TEST checklist (branch `claude/crop-basics-bs`)
 
-Run on the TEST build (blue "TEST · claude/crop-basics-bs" bar), on a _Testing coin (e.g. AY-00003), phone first. Write-up: [docs/ref/PHOTOS.md](ref/PHOTOS.md) "(bs) Crop-screen basics". Nothing here changes how a photo is saved; step 2 and step 7 check that.
+Run on the TEST build (blue "TEST · claude/crop-basics-bs" bar), on a _Testing coin (e.g. AY-00003), phone first. Write-up: [docs/ref/PHOTOS.md](ref/PHOTOS.md) "(bs) Crop-screen basics". Holder / Reference / other trim-only photos save exactly as before (step 2 and R5 check that); since fix round 2 an Obverse / Reverse is cut from the full-resolution original with the circle's framing (R12).
 
 1. Edit Coin, Holder front, 📷 Camera in Full (landscape). The whole crop screen fits; a dark margin runs round the photo; all 8 handles are on that margin and can be grabbed WITHOUT ticking Lock to square. Drag one corner in, then Use. Skip the guided offer.
 2. Holder untouched: pick one and tap Use Crop straight away, Skip, Save. Its OneDrive file is the camera's own size, as in (ak) step 1.
@@ -17,12 +17,19 @@ Run on the TEST build (blue "TEST · claude/crop-basics-bs" bar), on a _Testing 
 ## Results
 Build 119 (Ray, phone, 14 Nov 2026): all steps passed; step 10 N/A (the app stays portrait, as Ray wants). Changes asked for: the fix round below.
 
-## Fix round re-test (changed items only; the rest stands as passed)
+## Re-test after fix rounds 1 and 2 (one list; steps 1-11 above stand as passed except where these replace them)
 R1. Both crop screens, under the photo / circle: the control pad. Circle: top row − ↑ +, middle ← →, bottom ↺ ↓ ↻. Rectangle crop: the same with the − and + spots empty. Nothing sits right next to ← or →. Buttons comfortable to hit (44 px).
 R2. No 0° button anywhere. The readout ("Straighten +1.5°") sits just above the angle slider; a small gold tick marks 0° in the middle of the slider.
 R3. ↺ / ↻ step −0.5° / +0.5° and the angle slider moves with them.
 R4. Snap: drag the angle slider out, then back towards the middle; anywhere within about ±0.3° of the tick it jumps to exactly 0 ("Straighten 0°").
 R5. Snap keeps the bytes: on an untouched Holder, drag the angle slider out a few degrees, bring it back near 0 so it snaps, Use Crop, Skip, Save. The OneDrive file is exactly the original's size (as step 2).
-R6. Circle − / +: each tap zooms out / in about 1% and the Zoom slider moves with them; − stops when the picture just covers the circle. (The Zoom slider itself is unchanged, waiting for Ray's choice: see the report.)
-R7. Upright phone: Use Crop (rectangle) and Use Photo (circle) are on screen without scrolling, with a tall photo too.
-R8. Lock to square now sits between the two 90° buttons; ticking it still squares the box and shows the centre mark.
+R6. Upright phone: Use Crop (rectangle) and Use Photo (circle) are on screen without scrolling, with a tall photo too.
+R7. Lock to square sits between the two 90° buttons; ticking it still squares the box and shows the centre mark.
+R8. Circle start (new): frame a Holder's coin tightly with the square, Use Crop. The circle opens with the square EXACTLY filling it (the coin's rim at the circle's edge, nothing cut), and a gold tick on the Zoom slider marks where it starts (left of centre).
+R9. Zoom out (new): drag the Zoom slider left or tap − : the circle shows the photo round the square (about 1.5x wider when the square was in the middle of the photo). At the slider's left end the circle is still full of photo: no black anywhere, also after panning to every edge and with the angle slider moved.
+R10. Zoom in (new): a small coin (e.g. a dime) cropped with the square at the holder's edges: drag the Zoom slider right or tap + until the coin fills the circle; there is room to spare (up to 6x the start). − / + move about 1% a tap and the slider moves with them; the slider feels even all the way along.
+R11. Zoom keeps the centre (new): pan the coin off-centre, then zoom: what is under the circle's centre stays there. A 90° turn on the circle also keeps it there.
+R12. Sharp small coin (new, the reason for saving from the original): on the R10 dime at full zoom, Use Photo, Save. The saved Obverse in OneDrive is sharp (about 500-1400 px across, depending on the photo), not blurry or blocky.
+R13. Square at the photo's edge (new): pull the square into a corner of the photo, Use Crop: the circle can zoom out only towards the side that has photo, and never shows black.
+R14. Direct Obverse pick (new): pick a photo that is just the coin and pull the square out to the whole photo: the circle starts at its smallest zoom (the tick at the far left), can still zoom in, and never shows black. A direct pick left at its usual square has the photo round it to zoom out into.
+R15. Guided crop from a Holder: R8-R12 behave the same there.
