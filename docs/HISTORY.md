@@ -3374,6 +3374,18 @@ ask before updating rather than updating by default.
 - Affected suites (16: the 15 crop-screen suites + crop_basics), one run after the build: all PASS, 0 failed (about 5 min).
 - Branch gate (full `npm test` at `379290d`, 11 Nov 2026): 5106 passed, 0 failed, 0 page errors, 102 suites, 755 s.
 
+- Ray's TEST of Build 119 (phone, 14 Nov 2026): all steps passed; step 10 N/A (the app stays portrait). Fix round asked for: remove the 0° button; one control pad per stage (− ↑ + / ← → / ↺ ↓ ↻); readout on the slider row; a 0° tick and a ±0.3° snap; circle zoom with a centred, even slider and − / + at about 1% a tap; sliders follow the buttons; Use on screen at about 384 x 740; a sharpness guard for (ak) with a stretched-display-copy negative control.
+- Fix round, 14 Nov 2026: code `d28d70a`. Zoom finding: the circle's zoom runs 100-300% from a start of 110%, and 100% is the smallest that still covers the circle, so a centred even slider has no room below the start; per Ray's instruction the slider rework was NOT built and the options went to Ray (docs/BACKLOG.md "(bs) Build 3 plan"). Built: everything else, including − / + on the existing range. Layout measured at 384 x 740 with the 24 px TEST bar: Stage 1 Use bottom 716-728, Stage 2 about 707; the 40 px fallback is only under 380 px wide. Affected suites, one run: 16 PASS, 1476 / 0 (5.5 min).
+- Fix-round gate (full `npm test` at `d28d70a`, 14 Nov 2026): 5123 passed, 0 failed, 0 page errors, 102 suites, 737 s.
+
+### (bs) fix-round negative controls (14 Nov 2026)
+Each on a copy of app.html (or of the suite, for NK), four at a time (about 8 min for 19, then 3 single re-runs of about 1 min each). Every one failed:
+- Re-run on the new code: N1 no long-press block (A1, A2); N2 fixed 360 x 300 (8: B1 x3, B3, B6, C2, C3, K8); N3 margin 0 (5: B3, C1 x2, C2 x2); N4 no touch area (C3 x2); N5a Stage 1 nudge unclamped (D4); N5b never greyed (D1, D2, D4); N6 Stage 2 nudge unclamped (E3); N7b no rounding (F2); N8 a mark in the bake (G4).
+- NB Ray's control, the snap removed (a small leftover angle): 4 failed (F6, F11, F12, F13: the upload was 123,814 bytes, not the original's 72,622; kind trimmed-fullres).
+- NC zoom − / + unclamped: Z4 (0.81 and 5.9). ND the zoom slider not following: Z2, Z3, Z4. NE → moved next to the edge cell: K1, K2, K7, K8. NG no 0° tick: K4. NH 36 px buttons: K3, K7, K8.
+- NA Ray's sharpness control, the crop cut from the 1600 px display copy and stretched back to full size: photo_fullres K2 failed (mean step 92 of 255 between neighbouring stripes, 20% of pixels black or white; the real code: 255 of 255, 100%, read from NK, a copy with the K2 threshold raised so it prints). N9 (ak)'s control at the display copy's own size now fails 4 (B2, C2, C4, K2).
+- Use-on-screen controls: removing the fix round's panel padding alone (NF) PASSED: the shorter hints and the merged Lock / 90° row keep Use on screen. Removing all the spacing and restoring the old hints (NF2) failed only at 360 x 700 (K8). Pushing Use down 80 px (NF3) failed K6 and K8 but not K5, because Stage 1 shrinks its picture to keep the panel on screen (the F2 fit, down to 200 px). At 200 px (NF3b) K5, K6 and K8 all failed. So K5 / K6 catch Use off screen; the compaction is a margin at 384 x 740, not what keeps it there.
+
 ### (bs) negative controls (11 Nov 2026, branch `claude/crop-basics-bs`)
 Each mutation was applied to a copy of app.html and the suite run there (in parallel, four at a time, about 3.5 min for all); every one failed:
 - N1 no long-press block (`blockCropLongPress` adds nothing): crop_basics 2 failed (A1, A2).
