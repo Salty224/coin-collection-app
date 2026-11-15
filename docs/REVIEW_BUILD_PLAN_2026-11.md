@@ -72,7 +72,7 @@ B10:
   - Fix `verify_crop_from_upload`'s wait (D4 / D5 failed under load: a 10 s ceiling in its `flow()` helper ran out when the suite took 13.0 s instead of about 3.3 s) and delete its entry from `RUN_ALONE` in `tests/run-all.js`. Deleting the entry is the fix's negative control: three parallel full runs in a row with it back in the pool must stay 0 failed.
   - Find out why `verify_crop_basics` takes about 190 s in some runs and about 40 s in others (both runners; it always passes; the slow case looks like a wait running to its ceiling) and fix it in the suite only, never by loosening an assertion. When slow it adds about 30 s to the parallel gate.
 
-Build 2 result (15 Nov 2026, branch `claude/build2-failure-tests`, held for Ray's merge go-ahead; tests only, app.html unchanged; write-up docs/ref/PLATFORM.md "Failure injection (B6, Build 2)" and "Image encodes and idle time (Build 2)"):
+Build 2 result (15 Nov 2026, branch `claude/build2-failure-tests`, MERGED 15 Nov 2026 by fast-forward to `daafae4` on Ray's go-ahead; tests only, app.html unchanged; write-up docs/ref/PLATFORM.md "Failure injection (B6, Build 2)" and "Image encodes and idle time (Build 2)"):
 - 11 failure suites (`tests/verify_fi_*.js`), 196 KNOWN lines. Which build deletes which: Build 3 deletes A2 (30), A4 (8), A16 (4); Build 5 deletes A3 (105), A5 (24), A14 (3); Build 7 deletes A17 (4); Build 8 deletes A8 (7). Each build runs `FI_PRINT=1 npm test -- fi_` before and after its fix; the lines its finding owns must be gone, and no new line may appear.
 - Seen in the sweep, inside A2 (no new finding): in Save to Database, a failed or lost final draft write says "nothing was written" (A8's wording) while the draft's files landed, and Save again reserves a NEW id and promotes it, so the coin gets a second row on All under another CollectionID. Build 3's A2 fix (switch to the draft-edit mode for the same id) covers it; Build 3's TEST should include it.
 - NEW findings (not in the review; none loses data; not fixed in Build 2, which is tests only):
@@ -80,7 +80,8 @@ Build 2 result (15 Nov 2026, branch `claude/build2-failure-tests`, held for Ray'
   - N2 Purge: a file delete that fails AFTER its row was detached leaves the file in CoinPhotos with no row, and Purge again cannot see it (Purge lists rows). Fix: name the file in the result ("removed from the record, still in OneDrive: …") and keep it on a session list that Purge again deletes (after a fresh check that no row names it). S.
   - N3 Purge: the Purged flag write fails, yet Purge reports success; the flag stays blank. Fix: report the flag's failure, and let Purge again with nothing left to delete write the flag only. S.
   - N4 Purge: the detach's row write lands but its answer is lost (or its second PATCH fails): the files are rightly kept, but Purge again skips the photo because its row is gone, so its files and the flag are never finished. Fix: on retry, a photo whose row is already gone still has its files deleted when a fresh read shows no Photos row names them. S.
-  - Recommended home for N2-N4: Build 7 (with A17's small fixes). Ray to confirm (Build 2 report Q2).
+  - Placed (Ray, 15 Nov 2026, Build 2 Q2): N1 in Build 5 with A14; N2, N3, N4 in Build 7 with A17. Those builds delete the N lines from the fi_ KNOWN lists as their negative control.
+- Read-failure sweeps (every method, not only writes): not now (Ray, Build 2 Q3); revisit after Build 5 (backlog (cd)).
 
 ### Build 3: data-safety build 1: A1, A4, A2, A12, B1, plus A16 (M to L; device TEST)
 
@@ -106,7 +107,7 @@ B1:
 - The failure toast carries the reason (`entry.uploadError`, the step that failed), not only the file name.
 - Docket > About keeps the last 10 saves' steps (today only the last), newest first, with a Copy button. Memory only.
 
-Device TEST (short checklist written with the build): a save with the signal cut mid-upload (A2); Reject on a coin already on All (A4); the save log and Copy (B1); a normal Add Coin and Promote.
+Device TEST (short checklist written with the build): a save with the signal cut mid-upload (A2); Reject on a coin already on All (A4); the save log and Copy (B1); a normal Add Coin and Promote; and (Ray, 15 Nov 2026, Build 2 Q4) the Save to Database double-row case: a Save to Database whose final draft write fails (signal cut after the photos land), then Save again, must NOT reserve a new id or put a second row for the coin on All.
 
 Small, recorded after Build 1 (Ray, 15 Nov 2026): the app.html comment near line 6828 that points to "docs/BACKLOG.md (ao)" is changed to point to docs/HISTORY.md "Moved from BACKLOG.md (B10, 15 Nov 2026)" (ao) (B10 moved that text; Build 1 left app.html alone).
 
@@ -121,6 +122,8 @@ B7: one Docket screen, GET only, run on Ray's tap: Photos rows whose file is mis
 A19: no code beyond B7's check. One Copilot_Rules line for Ray to add: never delete the newest row of All without its Photos and Receipts rows.
 
 ### Build 5: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
+
+Also (Ray, 15 Nov 2026, Build 2 Q2): N1 (a receipt upload whose answer is lost; fix: adopt the earlier file when its bytes match, as A14). Delete its KNOWN line in verify_fi_receipts.
 
 A5 first, because A3 and the wider launch retry depend on it:
 - Before claiming a row for a repeatable photo, look for a row with the same CollectionID and Filename and reuse it.
@@ -163,6 +166,8 @@ Added by Ray (14 Nov 2026) from Part C of the review. Display and pixel code onl
 - Device TEST: a trimmed and a turned Holder at 50 MP; an Obverse and a Reverse cut from a 50 MP holder; a PNG Reference; Use still on screen without scrolling (the (bs) rule). Added by Ray (14 Nov 2026) for C9, because the kept original's name is shared with Replace, Recrop and Purge: on a coin whose kept original has a different file ending from its display copy (a PNG pick: `_original.png` beside `_cropped.jpg`), do a Replace, a Recrop and a Purge, and check each finds, keeps or removes the right files.
 
 ### Build 7: small fixes pack: A9, A10, A15, A17, A20 (S each; M together)
+
+Also (Ray, 15 Nov 2026, Build 2 Q2): N2, N3, N4 (Purge leftovers; fixes in "Build 2 result" under Build 2). Delete their KNOWN lines in verify_fi_purge.
 
 - A9: a failed CoinID re-link files the Docket entry `flagCoinIdNeedsRelink` writes, so it is not a toast only.
 - A10: Edit Set's fields that are not saved become read-only, with one line saying so, until (r) is built.
