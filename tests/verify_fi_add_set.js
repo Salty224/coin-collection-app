@@ -14,7 +14,8 @@ const FLOW = () => {
   };
   window.__flow = {
     sheets: ["All"],
-    jsonDropKeys: ["createdDate", "updatedDate", "lastSaved", "savedAt", "updatedAt", "modifiedDate", "startedDate", "dateStarted"],
+    // firstWriteToken (A1, Build 3): a random value per new draft, like a time stamp.
+    jsonDropKeys: ["createdDate", "updatedDate", "lastSaved", "savedAt", "updatedAt", "modifiedDate", "startedDate", "dateStarted", "firstWriteToken"],
     async setup() {
       const mock = createMockGraphClient({
         workbookColumns: { "All::CollectionID": ["AY-00500"] },
@@ -44,13 +45,15 @@ const FLOW = () => {
       window.__fiToasts = [];
       await startSetCapture();
       const text = (window.__fiToasts || []).join(" / ");
-      return { said: /^Reserved /.test(text) ? "saved" : /Couldn't save/.test(text) ? "failed" : "failed", text };
+      window.__fiLastSaid = /^Reserved /.test(text) ? "saved" : "failed";
+      return { said: window.__fiLastSaid, text };
     },
-    // The same button again while the form still holds the Set (a failed
-    // start leaves it filled).
+    // The same button again after a start that said it failed (the form
+    // still holds the Set). Since Build 3 (A16) a failed start can leave its
+    // draft in Staging (set.json is written first), so "no draft yet" no
+    // longer tells a failed start; what the start said does.
     async retry() {
-      const sets = await listSetDrafts().catch(() => []);
-      if (!sets.length && document.getElementById("addSetName").value.trim()) await this.run();
+      if (window.__fiLastSaid === "failed" && document.getElementById("addSetName").value.trim()) await this.run();
     },
     // C1: the whole-set photo and the receipt are still picked, or landed.
     async picksLost(mock) {
@@ -62,16 +65,13 @@ const FLOW = () => {
   };
 };
 
-// Violations the sweep finds today, each tagged with its review finding:
-// A16 a start that fails after its first upload strands the half-written
-//     Staging/{id}/ folder; the same button again reserves the NEXT id.
+// Violations the sweep finds today, each tagged with its review finding.
+// A16 (a start that failed after its first upload stranded the half-written
+// Staging/{id}/ folder, and the same button again reserved the NEXT id) was
+// fixed in Build 3: its 4 lines were deleted (set.json is written first,
+// with no-overwrite and a token, and the same button finishes the same id).
 // The list only shrinks: a build that fixes one deletes its line.
-const KNOWN = [
-  ["A16", "fail uploadFile Staging/AY-00501/receipt.pdf: C5 after retry, vs a clean run: files +3 in Staging/{id}; files -2 from Staging/{id}"],
-  ["A16", "fail uploadJson Staging/AY-00501/set.json: C5 after retry, vs a clean run: files +3 in Staging/{id}; files -1 from Staging/{id}"],
-  ["A16", "lost uploadFile Staging/AY-00501/receipt.pdf: C5 after retry, vs a clean run: files +3 in Staging/{id}; files -1 from Staging/{id}"],
-  ["A16", "lost uploadFile Staging/AY-00501/set.jpg: C5 after retry, vs a clean run: files +3 in Staging/{id}; files -2 from Staging/{id}"]
-];
+const KNOWN = [];
 
 module.exports = defineSuite("fi-add-set", async ({ check, selfCheck, openApp, appReady, PHONE }) => {
   const ok = check; selfCheck(ok);

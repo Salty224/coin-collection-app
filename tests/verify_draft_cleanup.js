@@ -139,7 +139,10 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
   ok("S-a2 a status write that fails once is retried and lands: " + JSON.stringify(A2.b),
     A2.b.failed === 1 && /Promoted/i.test(A2.b.status) && A2.b.allRowWritten === true);
   ok("S-a3 if the retry fails too, the failure is reported, never swallowed: " + A2.c.toast,
-    A2.c.rows === 1 && /on the All sheet, but tidying up afterwards failed/.test(A2.c.toast));
+    // Build 3 (A4): the wording now says what to do (Mark as promoted) and no
+    // longer promises a launch retry that never ran in this state.
+    A2.c.rows === 1 && /on the All sheet, but updating its draft failed: simulated write failure/.test(A2.c.toast) &&
+    /tap Mark as promoted/.test(A2.c.toast) && !/retry at next launch/.test(A2.c.toast));
 
   // ============ S-b. S2: a leftover draft shows ONE action ============
   const B = await page.evaluate(async () => {

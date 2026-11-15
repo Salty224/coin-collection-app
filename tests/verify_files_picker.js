@@ -17,8 +17,9 @@
 // What must hold, and which block proves it:
 //   A  the new Files inputs: accept exactly "image/*,application/pdf", no
 //      capture, on Obverse, Reverse and the Add photo gallery only
-//   B  every one of the 42 pre-existing file inputs (34 in app.html, 8 in
-//      stage.html) keeps its exact accept and capture — any change fails
+//   B  every pre-existing file input in app.html keeps its exact accept and
+//      capture — any change fails; stage.html (a plain notice page since
+//      Build 3, review A12) has none
 //   C  every camera input still has capture="environment"
 //   D  a JPEG through Files behaves exactly like the same JPEG through Library
 //   E  a PDF, broken JPEG bytes and an undecodable HEIC are refused with the
@@ -74,16 +75,9 @@ const MAIN_APP_INPUTS = [
   ["role:cam", "image/*", "environment"],            // initGalleryCapture
   ["role:lib", "image/*", "-"],
 ];
-const MAIN_STAGE_INPUTS = [
-  ["obverseCameraInput", "image/*", "environment"],
-  ["obverseLibraryInput", "image/*", "-"],
-  ["reverseCameraInput", "image/*", "environment"],
-  ["reverseLibraryInput", "image/*", "-"],
-  ["receiptCameraInput", "image/*", "environment"],
-  ["receiptLibraryInput", "image/*", "-"],
-  ["${id}_cameraInput", "image/*", "environment"],
-  ["${id}_libraryInput", "image/*", "-"],
-];
+// stage.html was retired in Build 3 (review A12, Ray's Q3): a notice page
+// with no form, so no file inputs (its 8 used to be pinned here).
+const MAIN_STAGE_INPUTS = [];
 // The three inputs this branch adds. The gallery one's accept is a template
 // expression in source; its rendered value is checked in block A.
 // Add Coin's obverseFilesInput/reverseFilesInput are retired with its slots
@@ -119,21 +113,21 @@ module.exports = defineSuite("files-picker", async ({ ok, openApp, PHONE, TABLET
   const appExisting = appInputs.filter(r => !(r[0] in NEW_INPUTS) && !(r[0] in CHOOSER_INPUTS));
   const appChooser = appInputs.filter(r => r[0] in CHOOSER_INPUTS);
   const appNew = appInputs.filter(r => r[0] in NEW_INPUTS);
-  ok(MAIN_APP_INPUTS.length + MAIN_STAGE_INPUTS.length === 38,
-    "B0 the pinned list covers 38 inputs (30 app.html + 8 stage.html; Add Coin's 4 slot inputs retired)");
+  ok(MAIN_APP_INPUTS.length + MAIN_STAGE_INPUTS.length === 30,
+    "B0 the pinned list covers 30 inputs (30 app.html; Add Coin's 4 slot inputs retired; stage.html retired in Build 3)");
   ok(JSON.stringify(appExisting) === JSON.stringify(MAIN_APP_INPUTS),
     "B1 every pre-existing app.html file input keeps its exact accept and capture: " +
     JSON.stringify(appExisting.filter((r, i) => JSON.stringify(r) !== JSON.stringify(MAIN_APP_INPUTS[i]))));
   ok(JSON.stringify(stageInputs) === JSON.stringify(MAIN_STAGE_INPUTS),
-    "B2 stage.html's 8 file inputs are unchanged");
+    "B2 stage.html (a notice page since Build 3) has no file inputs: " + JSON.stringify(stageInputs));
   ok(appInputs.length === 34 && appNew.length === 1 && appChooser.length === 3 &&
      !appInputs.some(r => /^(obverse|reverse)(Camera|Library|Files)Input$/.test(r[0])),
     "B3 app.html has the 30 pinned inputs, the gallery's Files input and the 3 chooser inputs, and no Add Coin slot inputs: " + appInputs.length);
   ok(appChooser.every(r => JSON.stringify([r[1], r[2]]) === JSON.stringify(CHOOSER_INPUTS[r[0]])),
     "B4 the chooser's inputs: Camera image/*+capture, Library image/*, Files image/*,application/pdf no capture: " + JSON.stringify(appChooser));
   const cams = appInputs.concat(stageInputs).filter(r => /camera|cam\b|cam-input/i.test(r[0]));
-  ok(cams.length === 20 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
-    "C1 all 20 camera inputs (19 + the chooser's) still have accept image/* and capture=environment");
+  ok(cams.length === 16 && cams.every(r => r[2] === "environment" && r[1] === "image/*"),
+    "C1 all 16 camera inputs (15 + the chooser's; stage.html's 4 retired in Build 3) still have accept image/* and capture=environment: " + cams.length);
   ok(appNew.every(r => r[2] === "-" && r[1] === NEW_INPUTS[r[0]]),
     "A1 source: the new Files inputs have the expected accept and no capture: " + JSON.stringify(appNew));
 

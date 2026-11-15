@@ -24,7 +24,8 @@ const FLOW = (mode) => {
   const TAGS = ["holder", "ref", "rcpt"];
   window.__flow = {
     sheets: ["All", "Photos", "Receipts"],
-    jsonDropKeys: ["promotedDate", "forceAddedDate", "createdDate", "updatedDate", "lastSaved", "savedAt", "updatedAt", "modifiedDate"],
+    // firstWriteToken (A1, Build 3): a random value per new draft, like a time stamp.
+    jsonDropKeys: ["promotedDate", "forceAddedDate", "createdDate", "updatedDate", "lastSaved", "savedAt", "updatedAt", "modifiedDate", "firstWriteToken"],
     async setup() {
       const mock = createMockGraphClient({
         workbookColumns: { "All::CollectionID": ["AY-00500"] },
@@ -92,30 +93,17 @@ const FLOW = (mode) => {
   };
 };
 
-// Tags: A2 a pick whose upload fails is dropped from the form, and Save
-// again (the form is reset, or still filled after a failed draft write)
-// reserves a NEW id and writes a second draft (in database mode, a second
-// coin row on All); A8 "nothing was written" while files already landed;
-// A3 a failed file move or Photos / Receipts row after the Promote is silent
-// and not retried; A5 a relaunch re-records rows, duplicating a Reference.
-// The list only shrinks: a build that fixes one deletes its line.
-const KNOWN_STAGING = [
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C1 the rcpt pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C5 after retry, vs a clean run: files -1 from Staging/{id}; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C1 the ref pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C5 after retry, vs a clean run: files -1 from Staging/{id}; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C1 the holder pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C5 after retry, vs a clean run: files -1 from Staging/{id}; changed coin.json"],
-  ["A8", "fail uploadJson Staging/AY-00501/coin.json #2: C4 reported nothing written, but: files +4 in Staging/{id}"],
-  ["A2", "fail uploadJson Staging/AY-00501/coin.json #2: C5 after retry, vs a clean run: files +4 in Staging/{id}; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C5 after retry, vs a clean run: changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C5 after retry, vs a clean run: changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C5 after retry, vs a clean run: changed coin.json"],
-  ["A8", "lost uploadJson Staging/AY-00501/coin.json #2: C4 reported nothing written, but: files +4 in Staging/{id}"],
-  ["A2", "lost uploadJson Staging/AY-00501/coin.json #2: C5 after retry, vs a clean run: files +4 in Staging/{id}"],
-  ["A8", "lost uploadJson Staging/AY-00501/coin.json: C4 reported nothing written, but: files +1 in Staging/{id}"],
-  ["A2", "lost uploadJson Staging/AY-00501/coin.json: C5 after retry, vs a clean run: files +4 in Staging/{id}; files -3 from Staging/{id}; changed coin.json"]
-];
+// Tags: A3 a failed file move or Photos / Receipts row after the Promote is
+// silent and not retried; A5 a relaunch re-records rows, duplicating a
+// Reference. The list only shrinks: a build that fixes one deletes its line.
+// Fixed in Build 3 and deleted: A2 (30 lines: a pick whose upload failed was
+// dropped from the form, and Save again reserved a NEW id and wrote a second
+// draft, in database mode a second coin row on All; now the form becomes the
+// Staging-draft edit of the same id) and, with it, 6 A8 lines ("nothing was
+// written" after a failed or lost draft write while files had landed; that
+// wording is gone from this path, since the save now carries on under the
+// same id). A8's seventh line (verify_fi_edit_coin) stays for Build 8.
+const KNOWN_STAGING = [];
 const KNOWN_DATABASE = [
   ["A3", "fail deleteItem Staging/AY-00501/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"],
   ["A3", "fail deleteItem Staging/AY-00501/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
@@ -129,17 +117,6 @@ const KNOWN_DATABASE = [
   ["A3", "fail uploadBytes CoinPhotos/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
   ["A3", "fail uploadBytes CoinPhotos/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
   ["A3", "fail uploadBytes CoinReceipts/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C1 the rcpt pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Receipts +0/-1; files -1 from CoinReceipts; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C5 after retry, vs a clean run: Receipts +0/-1; files -1 from CoinReceipts; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C1 the ref pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-1; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C5 after retry, vs a clean run: Photos +0/-1; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C1 the holder pick is neither on the form nor saved"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-1; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "fail uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C5 after retry, vs a clean run: Photos +0/-1; files -1 from CoinPhotos; changed coin.json"],
-  ["A8", "fail uploadJson Staging/AY-00501/coin.json #2: C4 reported nothing written, but: files +4 in Staging/{id}"],
-  ["A2", "fail uploadJson Staging/AY-00501/coin.json #2: C5 after retry, vs a clean run: All +1/-0; Photos +2/-2; Receipts +1/-1; files +7 in CoinPhotos,CoinReceipts,Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
   ["A3", "fail uploadJson Staging/AY-00501/coin.json #4: C4 reported saved, but vs a clean run: changed coin.json"],
   ["A5", "fail uploadJson Staging/AY-00501/coin.json #4: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "fail uploadJson Staging/AY-00501/coin.json #4: after retry C2 Photos has AY-00501_reference_01.jpg on 2 rows"],
@@ -149,16 +126,6 @@ const KNOWN_DATABASE = [
   ["A3", "lost uploadBytes CoinPhotos/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
   ["A3", "lost uploadBytes CoinPhotos/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
   ["A3", "lost uploadBytes CoinReceipts/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_receipt.pdf: C5 after retry, vs a clean run: Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-1; files +1 in Staging/{id}; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_reference_01.jpg: C5 after retry, vs a clean run: Photos +0/-1; files +1 in Staging/{id}; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-1; files +1 in Staging/{id}; files -1 from CoinPhotos; changed coin.json"],
-  ["A2", "lost uploadFile Staging/AY-00501/AY-00501_slab_obverse.jpg: C5 after retry, vs a clean run: Photos +0/-1; files +1 in Staging/{id}; files -1 from CoinPhotos; changed coin.json"],
-  ["A8", "lost uploadJson Staging/AY-00501/coin.json #2: C4 reported nothing written, but: files +4 in Staging/{id}"],
-  ["A2", "lost uploadJson Staging/AY-00501/coin.json #2: C5 after retry, vs a clean run: All +1/-0; Photos +2/-0; Receipts +1/-0; files +4 in CoinPhotos,CoinReceipts,Staging/{id}"],
-  ["A8", "lost uploadJson Staging/AY-00501/coin.json: C4 reported nothing written, but: files +1 in Staging/{id}"],
-  ["A2", "lost uploadJson Staging/AY-00501/coin.json: C5 after retry, vs a clean run: All +1/-0; Photos +2/-2; Receipts +1/-1; files +4 in CoinPhotos,CoinReceipts,Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"]
 ];
 
 module.exports = defineSuite("fi-addcoin", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

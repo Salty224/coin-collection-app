@@ -119,13 +119,25 @@ const DRAFT_FLOW = ({ mode, ALL_HEADERS }) => {
         if (!homes.some(h => { const e = mock._store.get(h); return e && e.value && e.value.__fiTag === t; }))
           lost.push(n + " is in neither Staging nor its final folder");
       });
-      // A4's hazard: the coin is on All but its draft does not say so, so a
-      // Reject would be allowed now and would delete files that exist only in Staging.
+      // A4's hazard: the coin is on All while some file exists only in
+      // Staging, and a Reject now would delete that folder. Since Build 3
+      // Reject checks All itself (not only the draft's flag), so this asks
+      // Reject: it runs against a client that refuses every delete (nothing
+      // is changed) and the check counts whether it TRIED to delete.
       const onAll = __fi.rowsOf(mock, "All").some(r => r.CollectionID === ID);
       const de = mock._store.get(folder + "/coin.json");
       const d = de && de.value;
-      if (onAll && d && !d.allRowWritten && FILES.some(([n]) => mock._store.has(folder + "/" + n) && !mock._store.has((/\.pdf$/.test(n) ? P.coinReceipts : P.coinPhotos) + "/" + n)))
-        lost.push("the coin is on All but its draft is not marked written, so Reject would delete the only copies (A4)");
+      if (onAll && d && FILES.some(([n]) => mock._store.has(folder + "/" + n) && !mock._store.has((/\.pdf$/.test(n) ? P.coinReceipts : P.coinPhotos) + "/" + n))) {
+        let tried = false;
+        const probe = new Proxy(mock, { get(t, k) {
+          if (k === "deleteItem") return () => { tried = true; return Promise.reject(new Error("probe: no delete")); };
+          const v = t[k]; return typeof v === "function" ? v.bind(t) : v;
+        } });
+        const ce = console.error; console.error = () => {};
+        activeGraphClient = probe; // not __setGraphClientForTest: the same workbook, nothing to clear
+        try { await performRejectStagedCoin(ID); } finally { activeGraphClient = mock; console.error = ce; }
+        if (tried) lost.push("the coin is on All and Reject would delete the only copies of its files (A4)");
+      }
       return lost;
     }
   };

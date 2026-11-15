@@ -450,6 +450,9 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
   });
   ok("W7 a failed _original upload: the crop and the Other uploaded, the form stays open, the toast names the file",
     W7.first.uploads.length === 2 && W7.first.stillOpen && W7.first.toast.indexOf("1 photo not saved (AY-00099_obverse_cropped_02.jpg)") !== -1 && /Tap Save Changes again/.test(W7.first.toast), W7);
+  // B1 (Build 3): the toast also says why: the step that failed and its error.
+  ok("W7-B1 ...and says why: the file, the step (uploading its original) and the error: " + W7.first.toast,
+    /Why: AY-00099_obverse_cropped_02\.jpg — uploading its original: \S/.test(W7.first.toast));
   ok("W7b the failed Obverse stays pending, marked \"Not saved — tap Save again\" with no ↻; its row is untouched",
     W7.first.obPending && /Not saved — tap Save again/.test(W7.first.slotText) && !W7.first.retryBtn && W7.first.obRowFile === "AY-00099_obverse_cropped.jpg" && W7.first.otherPending === 0, W7);
   ok("W7c the next Save sends ONLY the missing _original (the crop and the Other are not re-sent) and then writes the row",

@@ -6825,8 +6825,8 @@
   // (ao) Stage 1: LOAD REPORT + WORKBOOK VERSION PROBE (read-only)
   // Measures what the launch costs today and whether the workbook's
   // OneDrive version (eTag / cTag) moves promptly after an edit, so Ray can
-  // decide whether a device cache is worth building (docs/BACKLOG.md (ao),
-  // Q3 and Q15). Shown at the bottom of the Docket, just above the Build
+  // decide whether a device cache is worth building (docs/HISTORY.md "Moved
+  // from BACKLOG.md (B10, 15 Nov 2026)" (ao), Q3 and Q15). Shown at the bottom of the Docket, just above the Build
   // line (the Build line stays the last thing on the screen).
   // Nothing here caches, blocks or writes anything: two GETs at most (the
   // version lookup, on the first Docket visit after the launch read and on
@@ -6863,7 +6863,7 @@
   let workbookVersionChecks = []; // newest last
   let workbookVersionCheckInFlight = null;
   function __getLoadReportForTest() { return { launch: launchReadReport, last: lastFullReadReport, checks: workbookVersionChecks.slice() }; } // test-only seam
-  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = []; workbookVersionChecks = []; workbookVersionCheckInFlight = null; lastSaveTiming = null; activeSaveTiming = null; lastModifiedCheck = null; } // test-only seam
+  function __resetLoadReportForTest() { launchReadReport = null; lastFullReadReport = null; failedLaunchAttempts = []; workbookVersionChecks = []; workbookVersionCheckInFlight = null; lastSaveTiming = null; recentSaveTimings.length = 0; activeSaveTiming = null; lastModifiedCheck = null; } // test-only seam
 
   // Reads a response body as JSON and reports its size in bytes. Same
   // result as res.json(); falls back to it for a body without text().
@@ -7095,13 +7095,18 @@
       parts.push('<details class="load-report-details"><summary>Per sheet</summary><ul>' + rows + "</ul></details>");
     }
     // (ao) Stage 2: the last save, step by step ("+offset duration step").
+    // (B1, Build 3) And the ones before it (up to SAVE_LOG_KEEP, newest
+    // first), each with its own steps, and Copy for all of them.
     if (lastSaveTiming) {
-      const t = lastSaveTiming;
-      parts.push('<p class="load-report-line" id="docketLastSaveLine">' + esc("Last save (" + loadReportClock(t.startedAt) + ", " +
-        t.label + "): " + loadReportSeconds(t.totalMs) + ", " + t.outcome + ", " + t.steps.length + " steps") + "</p>");
-      const rows = t.steps.slice().sort((a, b) => a.offsetMs - b.offsetMs).map(x =>
-        "<li>" + esc("+" + loadReportSeconds(x.offsetMs) + " " + x.name + ": " + loadReportSeconds(x.ms)) + "</li>").join("");
-      parts.push('<details class="load-report-details"><summary>Save steps</summary><ul>' + rows + "</ul></details>");
+      const log = recentSaveTimings.length && recentSaveTimings[0] === lastSaveTiming ? recentSaveTimings : [lastSaveTiming];
+      log.forEach((t, i) => {
+        parts.push('<p class="load-report-line"' + (i === 0 ? ' id="docketLastSaveLine"' : ' data-save-log="' + i + '"') + ">" +
+          esc(saveLogHeadline(t, i)) + "</p>");
+        const rows = saveLogStepLines(t).map(line => "<li>" + esc(line) + "</li>").join("");
+        parts.push('<details class="load-report-details"><summary>' + (i === 0 ? "Save steps" : "Steps of that save") + "</summary><ul>" + rows + "</ul></details>");
+      });
+      parts.push('<p class="load-report-line"><button type="button" class="load-report-check" id="docketSaveLogCopyBtn">Copy the save log (' +
+        log.length + ")</button></p>");
     }
     // (bk): the Excel workbook session (shown once it has done anything).
     if (excelSession.id || excelSession.events.length) {
@@ -7141,8 +7146,38 @@
     });
     const btn = document.getElementById("docketVersionCheckBtn");
     if (btn) btn.addEventListener("click", () => { checkWorkbookVersion(); });
+    const copyBtn = document.getElementById("docketSaveLogCopyBtn");
+    if (copyBtn) copyBtn.addEventListener("click", () => { copySaveLog(); });
     const lmBtn = document.getElementById("docketLastModifiedReadBtn");
     if (lmBtn) lmBtn.addEventListener("click", () => { lmBtn.disabled = true; lmBtn.textContent = "Reading…"; readBackLastModified(); });
+  }
+
+  // (B1, Build 3) One save of the log, as shown and as copied.
+  function saveLogHeadline(t, i) {
+    return (i === 0 ? "Last save (" : "Save before that (") + loadReportClock(t.startedAt) + ", " +
+      t.label + "): " + loadReportSeconds(t.totalMs) + ", " + t.outcome + ", " + t.steps.length + " steps";
+  }
+  function saveLogStepLines(t) {
+    return t.steps.slice().sort((a, b) => a.offsetMs - b.offsetMs).map(x =>
+      "+" + loadReportSeconds(x.offsetMs) + " " + x.name + ": " + loadReportSeconds(x.ms));
+  }
+  function saveLogText() {
+    const log = recentSaveTimings.length ? recentSaveTimings : (lastSaveTiming ? [lastSaveTiming] : []);
+    const head = "Salty's Cabinet save log, " + new Date().toISOString() + " (" + WRITE_TARGET + "; " +
+      (typeof BUILD_STAMP !== "undefined" && BUILD_STAMP && BUILD_STAMP.commit ? "build " + String(BUILD_STAMP.commit).slice(0, 7) : "no build stamp") +
+      "), newest first:";
+    return [head].concat(log.map((t, i) => [saveLogHeadline(t, i)].concat(saveLogStepLines(t).map(l => "  " + l)).join("\n"))).join("\n\n");
+  }
+  async function copySaveLog() {
+    const text = saveLogText();
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied the save log (" + recentSaveTimings.length + " save" + (recentSaveTimings.length === 1 ? "" : "s") + ").");
+    } catch (e) {
+      // No clipboard (an old browser, or permission refused): show it to copy by hand.
+      showWriteGuard({ title: "Save log", bodyHtml: '<textarea readonly style="width:100%;height:40vh;font-size:12px;">' +
+        escapeHtmlText(text) + "</textarea>", buttons: [{ label: "Close", primary: true }] });
+    }
   }
 
   // The Docket's first visit after the launch read checks the version once
@@ -7164,6 +7199,10 @@
   // ==================================================================
   let activeSaveTiming = null;
   let lastSaveTiming = null;
+  // (B1, Build 3) The last SAVE_LOG_KEEP saves, newest first, for Docket >
+  // About (with a Copy button). Memory only (Ray, Q5): gone on reload.
+  const SAVE_LOG_KEEP = 10;
+  const recentSaveTimings = [];
   let lastModifiedCheck = null; // (ax) Stage 1: see readBackLastModified()
   function __getSaveTimingForTest() { return { active: activeSaveTiming, last: lastSaveTiming }; } // test-only seam
   function beginSaveTiming(label) {
@@ -7227,8 +7266,16 @@
     t.totalMs = Date.now() - t.startedAt;
     t.outcome = outcome;
     lastSaveTiming = t;
+    recentSaveTimings.unshift(t);
+    if (recentSaveTimings.length > SAVE_LOG_KEEP) recentSaveTimings.length = SAVE_LOG_KEEP;
     activeSaveTiming = null;
     try { renderLoadReport(); } catch (e) { /* diagnostics never break a save */ }
+  }
+  // (B1, Build 3) Why a step or a save failed, short enough for a toast or
+  // a Save steps line (an HTTP error's body can be long).
+  function saveFailureReason(e) {
+    const m = String((e && e.message) || e || "failed").replace(/\s+/g, " ").trim();
+    return m.length > 120 ? m.slice(0, 117) + "…" : m;
   }
   function noteSaveStep(name, startedAt, ms) {
     const t = activeSaveTiming;
@@ -7278,7 +7325,7 @@
     const out = call();
     if (out && typeof out.then === "function") {
       return out.then(v => { noteSaveStep("Graph " + describeGraphCall(method, args), t0, Date.now() - t0); return v; },
-        e => { noteSaveStep("Graph " + describeGraphCall(method, args) + " (failed)", t0, Date.now() - t0); throw e; });
+        e => { noteSaveStep("Graph " + describeGraphCall(method, args) + " (failed: " + saveFailureReason(e) + ")", t0, Date.now() - t0); throw e; });
     }
     noteSaveStep("Graph " + describeGraphCall(method, args), t0, Date.now() - t0);
     return out;
@@ -9789,6 +9836,10 @@
   }
 
   const NO_OVERWRITE = { noOverwrite: true };
+  // (A1, Build 3) A folder listing asks for this many children a page and
+  // follows @odata.nextLink; the page cap only stops a link that never ends.
+  const LIST_CHILDREN_PAGE_SIZE = 999;
+  const LIST_CHILDREN_MAX_PAGES = 200;
   // (ak) Upload-session piece size: 10 x 320 KiB (Graph wants multiples of 320 KiB).
   const UPLOAD_SESSION_CHUNK = 10 * 320 * 1024;
   // "2.41 MB" / "830 KB" for a Blob or bytes; "" when it can't be told.
@@ -9872,7 +9923,8 @@
     },
     uploadFile(path, fileOrBlob, opts) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream", opts); },
     uploadBytes(path, bytes, opts) { return this.putContent(path, bytes, "application/octet-stream", opts); },
-    uploadJson(path, obj) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json"); },
+    // opts.noOverwrite (A1, Build 3): a NEW draft's first coin.json / set.json.
+    uploadJson(path, obj, opts) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json", opts); },
     // opts.timeoutMs (optional) puts the whole read — token, request and
     // body — under withRequestTimeout(). Only the Docket queue read passes
     // it; every other caller (draft listings, set/coin draft reads) is
@@ -9934,15 +9986,27 @@
       if (!res.ok) throw new Error("GET meta " + path + " failed: " + res.status);
       return res.json();
     },
+    // (A1, Build 3) Every page: Graph answers a folder's children a page at
+    // a time and names the next page in @odata.nextLink. The first version
+    // read one page only, so past it the newest Staging folders were never
+    // seen and the reservation could hand out an id already in use. A
+    // listing that fails part-way THROWS: a partial list is never returned
+    // (the reservation then refuses instead of guessing).
     async listChildren(folderPath) {
       const token = await getWriteToken();
       if (!token) throw new Error("Write layer unavailable.");
-      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(folderPath) + ":/children?$select=name",
-        { headers: { Authorization: "Bearer " + token } });
-      if (res.status === 404) return []; // folder doesn't exist yet = no children
-      if (!res.ok) throw new Error("list " + folderPath + " failed: " + res.status);
-      const data = await res.json();
-      return (data.value || []).map(c => c.name);
+      let url = "https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(folderPath) + ":/children?$select=name&$top=" + LIST_CHILDREN_PAGE_SIZE;
+      const names = [];
+      for (let page = 1; url; page++) {
+        if (page > LIST_CHILDREN_MAX_PAGES) throw new Error("list " + folderPath + " failed: more than " + LIST_CHILDREN_MAX_PAGES + " pages");
+        const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+        if (res.status === 404 && page === 1) return []; // folder doesn't exist yet = no children
+        if (!res.ok) throw new Error("list " + folderPath + " failed: " + res.status + (page > 1 ? " (page " + page + ")" : ""));
+        const data = await res.json();
+        (data.value || []).forEach(c => names.push(c.name));
+        url = data["@odata.nextLink"] || "";
+      }
+      return names;
     },
     async deleteItem(path) {
       const token = await getWriteToken();
@@ -10311,7 +10375,10 @@
       putContent(path, body, contentType, opts) { return mockPut(path, body, opts); },
       uploadFile(path, f, opts) { return mockPut(path, f, opts); },
       uploadBytes(path, b, opts) { return mockPut(path, b, opts); },
-      uploadJson(path, obj) { store.set(path, { kind: "json", value: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve({ name: path.split("/").pop() }); },
+      uploadJson(path, obj, opts) {
+        if (opts && opts.noOverwrite && store.has(path)) return Promise.reject(uploadError(path, 409, "nameAlreadyExists"));
+        store.set(path, { kind: "json", value: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve({ name: path.split("/").pop() });
+      },
       getJson(path) { const e = store.get(path); return Promise.resolve(e && e.kind === "json" ? JSON.parse(JSON.stringify(e.value)) : null); },
       getFileBytes(path) { const e = store.get(path); return Promise.resolve(e ? e.value : null); },
       getItemMeta(path) {
@@ -10439,10 +10506,15 @@
 
   // The active client — Real by default; tests swap in a mock. Kept mutable
   // so nothing captures a stale reference.
+  // (A4, Build 3) Every CollectionID whose new All row's keys this session
+  // sent (writeNewRowKeyCells). Reject refuses any of them: covers Graph's
+  // read lag and a key write whose answer was lost. Memory only; a new
+  // client in a test is a new workbook (__setGraphClientForTest clears it).
+  const allRowKeysSentThisSession = new Set();
   let activeGraphClient = RealGraphClient;
   // Every caller gets the read-only gate ((ao) Stage 2, gatedGraphClient()).
   function graph() { return gatedGraphClient(activeGraphClient); }
-  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; if (typeof recentRowWrites !== "undefined") recentRowWrites.clear(); clearOwnRowStates(); } // test-only seam (a new workbook: no recent writes)
+  function __setGraphClientForTest(client) { activeGraphClient = client || RealGraphClient; if (typeof recentRowWrites !== "undefined") recentRowWrites.clear(); if (typeof allRowKeysSentThisSession !== "undefined") allRowKeysSentThisSession.clear(); clearOwnRowStates(); } // test-only seam (a new workbook: no recent writes)
 
   // Cached once per session (Task 2) — the workbook's own webUrl never
   // changes mid-session, so there's no reason to re-fetch it per render.
@@ -11843,8 +11915,12 @@
     if (coinId) {
       edits.push({ address: columnIndexToLetters(map.CoinID) + rowNumber, values: [[coinId]] });
     }
+    // (A4, Build 3) Noted BEFORE the write is sent: an answer that is lost
+    // can still have landed, and a read can lag the write by minutes.
+    allRowKeysSentThisSession.add(String(collectionId).trim());
     await graph().patchWorkbookRanges(writePaths().workbook, ALL_SHEET_NAME, edits);
   }
+
 
   // Appends a blank row, claims it by writing its key cells, and returns its
   // verified sheet row.
@@ -13539,13 +13615,60 @@
   //      deleted or is unreadable still counts as reserved, so a
   //      part-cleaned-up folder can never hand its id to a different coin.
   //
-  // Non-draft folders under Staging (e.g. the Docket's own `_Docket`) parse
-  // to NaN and are skipped, same as any other unparseable name.
+  // (A12, Build 3) Only a name that is EXACTLY a parent CollectionID counts
+  // (STAGING_DRAFT_FOLDER_RE). The old parseInt counted any name that began
+  // with digits, so a folder from the retired stage.html form
+  // ("20261114-213000") made the next id AY-20261115. Anything else under
+  // Staging (the Docket's own `_Docket`, a folder made by hand) is skipped.
+  // All's own column (readMaxCollectionIdFromAll) still reads child ids
+  // such as AY-00012-A as 12.
+  const STAGING_DRAFT_FOLDER_RE = /^AY-\d{5}$/;
+  function stagingFolderIdNumber(name) {
+    return STAGING_DRAFT_FOLDER_RE.test(String(name)) ? parseInt(String(name).slice(3), 10) : NaN;
+  }
   async function readMaxReservedIdFromStaging() {
     const names = await graph().listChildren(writePaths().stagingBase);
     let max = 0;
-    for (const name of names) { const n = reservationIdNumber(name); if (!isNaN(n)) max = Math.max(max, n); }
+    for (const name of names) { const n = stagingFolderIdNumber(name); if (!isNaN(n)) max = Math.max(max, n); }
     return max;
+  }
+
+  // (A1, Build 3) A NEW draft's first coin.json / set.json. Written with
+  // no-overwrite (conflictBehavior=fail), so a reservation that collides
+  // with a draft already in Staging stops loudly instead of replacing it.
+  // Each new draft carries a random `firstWriteToken`; on a 409 the file
+  // there is read, and when it carries THIS save's token it is this save's
+  // own earlier write whose answer was lost (a Save again after a dropped
+  // signal), so the save carries on. Anything else there: DRAFT_ID_IN_USE,
+  // nothing written. The folder must also hold nothing but that one file
+  // (a coin and a Set never share a folder). A failure of any other kind
+  // throws as it is: whether the write landed is NOT known, and the caller
+  // keeps the id and token so Save again can find out (see
+  // addCoinPendingFirstWrite / addSetPendingFirstWrite).
+  const DRAFT_ID_IN_USE = "DRAFT_ID_IN_USE";
+  function newDraftToken() {
+    const a = new Uint8Array(12);
+    (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(a) : a.forEach((_, i) => { a[i] = Math.floor(Math.random() * 256); });
+    return Array.from(a, b => b.toString(16).padStart(2, "0")).join("");
+  }
+  function draftIdInUseError(collectionId) {
+    const e = new Error(collectionId + " is already in use in Staging — nothing was overwritten. Save again to use the next free id.");
+    e.code = DRAFT_ID_IN_USE;
+    return e;
+  }
+  async function writeNewDraftJson(folder, fileName, draft) {
+    if (!draft.firstWriteToken) throw new Error("A new draft needs its firstWriteToken.");
+    const others = (await graph().listChildren(folder)).filter(n => n !== fileName);
+    if (others.length) throw draftIdInUseError(draft.collectionID);
+    try {
+      await graph().uploadJson(folder + "/" + fileName, draft, NO_OVERWRITE);
+      return "written";
+    } catch (e) {
+      if (!(e && e.conflict)) throw e;
+      const there = await graph().getJson(folder + "/" + fileName);
+      if (there && there.firstWriteToken === draft.firstWriteToken) return "already"; // this save's own, answer lost
+      throw draftIdInUseError(draft.collectionID);
+    }
   }
 
   // Reserve the next available parent CollectionID = max(All, open Staging)
@@ -25917,7 +26040,15 @@
     catch (e) {
       console.warn("Writing " + draft.collectionID + "'s draft status failed; retrying once:", e);
       if (FINISH_WRITE_RETRY_MS > 0) await new Promise(r => setTimeout(r, FINISH_WRITE_RETRY_MS));
-      await writeCoinDraft(fresh); // a second failure throws to the caller, which reports it
+      try { await writeCoinDraft(fresh); }
+      catch (e2) {
+        // A second failure throws to the caller, which reports it. (A4, Build
+        // 3) First the loaded rows are refreshed and Staging redrawn, so the
+        // card changes at once to "Already on the All sheet: Mark as
+        // promoted" instead of still offering Reject.
+        await refreshAfterCoinRowWrite();
+        throw e2;
+      }
     }
     // Photos move immediately rather than waiting for the next launch —
     // the app itself is what promoted this coin, so it knows now. A
@@ -25927,17 +26058,28 @@
       try { await movePromotedCoinFiles(fresh); }
       catch (e) { console.warn("Photo move after promotion failed — will retry at next launch:", e); }
     }
-    // A just-written row isn't in LIVE_COINS (fetched once per session), so
-    // without this the coin is invisible in Catalog until a reload — and
-    // its Metal/Denomination filters would be equally blind to it. Same
-    // staleness class as item 4's filter bug, fixed at the source.
+    await refreshAfterCoinRowWrite();
+  }
+  // A just-written row isn't in LIVE_COINS (fetched once per session), so
+  // without this the coin is invisible in Catalog until a reload — and
+  // its Metal/Denomination filters would be equally blind to it. Same
+  // staleness class as item 4's filter bug, fixed at the source.
+  async function refreshAfterCoinRowWrite() {
     try { await refreshLiveCoinsAfterWrite(); }
     catch (e) { console.warn("Couldn't refresh the live coins after the write:", e); }
-    await refreshCoinDraftCache();
+    try { await refreshCoinDraftCache(); }
+    catch (e) { console.warn("Couldn't refresh the coin drafts after the write:", e); }
     try {
       renderNeedsAttentionHub();
       if (document.getElementById("view-staging").classList.contains("active")) await renderStagingList();
     } catch (e) { console.warn("Couldn't redraw after the write:", e); }
+  }
+  // (A4, Build 3) The coin is on All but its draft could not be updated: its
+  // photos and receipt are still in Staging (the move comes after the
+  // draft's status), and nothing retries them on its own.
+  function coinDraftNotClosedText(collectionId, e) {
+    return collectionId + " is on the All sheet, but updating its draft failed: " + String(e && e.message || e) +
+      ". Its photos are still in Staging — tap Mark as promoted (Staging Review or the Docket) to finish.";
   }
 
   // S2: close the leftover draft of a coin that is ALREADY on the All sheet.
@@ -26063,8 +26205,7 @@
       // The row landed; only the bookkeeping after it failed. Say so plainly
       // rather than leaving an unhandled rejection behind a success toast.
       console.error("Post-promotion bookkeeping failed for " + collectionId + ":", e);
-      showToast(collectionId + " is on the All sheet, but tidying up afterwards failed: " +
-        String(e && e.message || e) + " — photos retry at next launch.");
+      showToast(coinDraftNotClosedText(collectionId, e));
     }
     return true;
   }
@@ -26091,8 +26232,7 @@
       });
     } catch (e) {
       console.error("Post-force-add bookkeeping failed for " + collectionId + ":", e);
-      showToast(collectionId + " is on the All sheet, but tidying up afterwards failed: " +
-        String(e && e.message || e) + " — photos retry at next launch.");
+      showToast(coinDraftNotClosedText(collectionId, e));
     }
     return true;
   }
@@ -26426,6 +26566,23 @@
     });
   }
 
+  // (A4, Build 3) Why Reject must not delete this draft's folder, or "".
+  async function rejectOnAllRefusal(collectionId) {
+    const id = String(collectionId).trim();
+    const tail = " Nothing was deleted. Use Mark as promoted to close its draft and move its photos.";
+    if (allRowKeysSentThisSession.has(id)) {
+      return id + "'s row was written to the All sheet in this session (a read may not show it yet)." + tail;
+    }
+    let rowNumber;
+    try { rowNumber = await findAllSheetRowNumber(id); }
+    catch (e) {
+      return "Couldn't check the All sheet for " + id + " (" + String(e && e.message || e) +
+        "), so nothing was deleted. Try Reject again when the workbook can be read.";
+    }
+    if (rowNumber) return id + " is on the All sheet (row " + rowNumber + ", read just now)." + tail;
+    return "";
+  }
+
   async function performRejectStagedCoin(collectionId) {
     if (!addCoinWriteEnabled()) {
       const idx = FAKE_STAGING.findIndex(r => r.id === collectionId);
@@ -26451,6 +26608,13 @@
           "that row, only the record of it. Use Dismiss from Awaiting Copilot Research instead.");
         return;
       }
+      // (A4, Build 3) The draft's own flag is not enough: a Promote, Force
+      // Add or Mark as promoted whose draft write failed leaves the coin on
+      // All with its ONLY photos still in this folder. Refused when this
+      // session sent that id's All row, when a fresh read of All shows it,
+      // and when that read fails (it can't be told, so nothing is deleted).
+      const onAllRefusal = await rejectOnAllRefusal(collectionId);
+      if (onAllRefusal) { showToast(onAllRefusal); return; }
       await deleteCoinDraft(collectionId);
       await renderStagingList();
       showToast(collectionId + " rejected — its draft and any captured files were deleted from Staging.");
@@ -30371,6 +30535,7 @@
     // _original sharing the number), never a name already in use. The row's
     // Filename/OriginalFilename cells are then pointed at the new file and
     // the old one stays in CoinPhotos untouched.
+    entry.saveStep = "choosing its file name"; // (B1, Build 3) the step a failure names
     const def = galleryTypeDef(entry.type);
     const resolver = entry.resolveFilename ||
       ((def && def.repeatable && entry.blob) ? () => nextFreeRepeatableFilename(collectionId, entry.type, entry)
@@ -30396,6 +30561,7 @@
       entry.uploadedNames[name] = true;
     };
     if (entry.blob && !entry.uploadedNames[entry.filename]) {
+      entry.saveStep = "uploading the photo";
       await putNew(entry.filename, entry.blob);
       // Point the read cache at the bytes just written, so the flip card
       // and Albums (both read through getCachedCoinPhotoUrl()) show them.
@@ -30411,6 +30577,7 @@
       rawName = entry.rawFilename;
     } else if (entry.rawFilename && entry.rawUrl) {
       if (!entry.uploadedNames[entry.rawFilename]) {
+        entry.saveStep = "uploading its original";
         const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
         await putNew(entry.rawFilename, rawBlob);
       }
@@ -30421,6 +30588,7 @@
     // typed for it (Ray's Q1, Oct 2026). A Replace updates the existing row's
     // file cells only and keeps that row's Label (writePhotoRow); a changed
     // label is then written by the label step, one cell.
+    entry.saveStep = "writing its Photos row";
     const res = await writePhotoRow(collectionId,
       { type: entry.type, subGroupId: entry.subGroupId, caption: String(entry.caption || "").trim() },
       entry.filename, rawName, entry.storedPhotoId || null);
@@ -30766,6 +30934,9 @@
       c.labels = addCoinStagingLabelCount();
       c.photos = addCoinUnsavedPhotoCount();
       c.receipts = addCoinUnsavedReceipt() ? 1 : 0;
+      // (A2, Build 3) A first save whose final draft write failed: the draft
+      // in Staging does not hold this form yet, whatever else is pending.
+      if (editingCoinDraftId && editDraftFiles && editDraftFiles.firstSave && !editDraftFiles.firstSave.recorded) c.fields = Math.max(c.fields, 1);
       discard = () => { resetAddCoinForm(); clearCoinDraftEditContext(); };
     }
     if (!c.fields && !c.labels && !c.photos && !c.receipts) return null;
@@ -31338,7 +31509,10 @@
       } catch (e) {
         entry.uploadPending = false;
         entry.uploadError = String(e && e.message ? e.message : e);
-        out.failed.push(entry.filename || (galleryTypeDef(entry.type) || {}).label || "a photo");
+        const failedName = entry.filename || (galleryTypeDef(entry.type) || {}).label || "a photo";
+        out.failed.push(failedName);
+        // (B1, Build 3) Why, for the toast: the step that failed and its error.
+        (out.failedReasons = out.failedReasons || {})[failedName] = (entry.saveStep ? entry.saveStep + ": " : "") + saveFailureReason(e);
       }
       repaintPhotoHost(targetId);
     }
@@ -31412,6 +31586,9 @@
     if (p.failed && p.failed.length) {
       t += " " + n(p.failed.length, "photo") + " not saved (" + p.failed.join(", ") + ") — " +
         (p.failed.length === 1 ? "it's" : "they're") + " still on screen. Tap " + saveWord + " again.";
+      // (B1, Build 3) Why each one failed (the step and its error).
+      const why = p.failed.filter(f => p.failedReasons && p.failedReasons[f]).map(f => f + " — " + p.failedReasons[f]);
+      if (why.length) t += " Why: " + why.join("; ") + ".";
     }
     if (p.failedRemovals && p.failedRemovals.length) {
       t += " " + n(p.failedRemovals.length, "photo") + " not removed (" + p.failedRemovals.join(", ") + "). Tap " + saveWord + " again.";
@@ -36476,10 +36653,20 @@
   // A single photo failing must not lose the whole capture: each upload is
   // caught individually and reported, so the draft still lands with whatever
   // did upload and its research note says what didn't.
+  //
+  // (A2, Build 3) Each entry now remembers what happened to it, for the
+  // Staging-draft edit the form switches to when anything failed
+  // (enterFirstSaveRetry): `firstSaveNames` (the names it was given),
+  // `stagingLanded` (the names that landed), `stagingTried` (a name sent
+  // with no answer: it may have landed, so the retry compares bytes before
+  // sending it again) and `uploadError`. A photo counts as uploaded only
+  // when its crop AND its original landed; a half pair is finished by the
+  // retry under the same names.
   async function uploadCoinDraftPhotos(collectionId) {
     const entries = galleryFor(ADDCOIN_GALLERY_ID);
     const uploaded = [];
     const failed = [];
+    const reasons = {};
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       const def = galleryTypeDef(entry.type);
@@ -36487,22 +36674,33 @@
       const indexAmongType = entries.slice(0, i).filter(e => e.type === entry.type).length;
       const names = galleryFilenameFor(collectionId, entry.type, indexAmongType, entry.subGroupId);
       if (!names) continue;
+      entry.firstSaveNames = { cropped: entry.blob ? names.cropped : "", raw: (names.raw && entry.rawUrl) ? names.raw : "" };
+      entry.stagingLanded = {};
+      entry.stagingTried = {};
+      let step = "uploading the photo";
+      const put = async (name, blob) => {
+        try { await graph().uploadFile(coinDraftFolder(collectionId) + "/" + name, blob, NO_OVERWRITE); }
+        catch (e) { if (!(e && e.conflict)) entry.stagingTried[name] = true; throw e; }
+        entry.stagingLanded[name] = true;
+      };
       try {
-        if (entry.blob) {
-          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.cropped, entry.blob, NO_OVERWRITE);
-          uploaded.push({ type: entry.type, filename: names.cropped, caption: entry.caption || "" });
-        }
+        if (entry.blob) await put(names.cropped, entry.blob);
         if (names.raw && entry.rawUrl) {
+          step = "uploading its original";
           const rawBlob = await fetch(entry.rawUrl).then(r => r.blob());
-          await graph().uploadFile(coinDraftFolder(collectionId) + "/" + names.raw, rawBlob, NO_OVERWRITE);
-          uploaded.push({ type: entry.type, filename: names.raw, caption: "original" });
+          await put(names.raw, rawBlob);
         }
+        if (entry.blob) uploaded.push({ type: entry.type, filename: names.cropped, caption: entry.caption || "" });
+        if (names.raw && entry.rawUrl) uploaded.push({ type: entry.type, filename: names.raw, caption: "original" });
+        entry.uploadError = "";
       } catch (e) {
         console.warn("Coin draft photo upload failed:", names.cropped, e);
+        entry.uploadError = step + ": " + String(e && e.message ? e.message : e);
         failed.push(names.cropped);
+        reasons[names.cropped] = entry.uploadError;
       }
     }
-    return { uploaded, failed };
+    return { uploaded, failed, reasons };
   }
 
   async function uploadCoinDraftReceipt(collectionId) {
@@ -36517,7 +36715,9 @@
     // here and reports the receipt as failed without losing the rest of
     // the save.
     const filename = collectionId + "_receipt.pdf";
-    await graph().uploadFile(coinDraftFolder(collectionId) + "/" + filename, receipt.blob, NO_OVERWRITE);
+    receipt.firstSaveName = filename;
+    try { await graph().uploadFile(coinDraftFolder(collectionId) + "/" + filename, receipt.blob, NO_OVERWRITE); }
+    catch (e) { if (!(e && e.conflict)) receipt.stagingTried = filename; throw e; }
     return filename;
   }
 
@@ -36576,7 +36776,11 @@
       // burn a fresh id and write a second draft folder, orphaning the first
       // along with its photos — the single most important difference between
       // editing and capturing.
-      const collectionId = editingCoinDraftId || await reserveCoinCollectionId();
+      // (A2, Build 3) A first write whose outcome is not known keeps its id:
+      // Save again goes back to it (writeNewDraftJson tells whether it landed).
+      const collectionId = editingCoinDraftId ||
+        (addCoinWriteEnabled() && addCoinPendingFirstWrite ? addCoinPendingFirstWrite.id : "") ||
+        await reserveCoinCollectionId();
       const form = readAddCoinFormForDraft();
 
       if (!addCoinWriteEnabled()) {
@@ -36640,7 +36844,31 @@
       if (wantsDirect && !form.category) gateMissing.push("Category");
       const gateBlocked = gateMissing.length > 0;
       draft.savedVia = destination === "database" && !gateBlocked ? "direct" : "staging";
-      await writeCoinDraft(draft);
+
+      // (A1 / A2, Build 3) The first write: no-overwrite, with this save's
+      // token. Until it is known to have landed, the id and token stay with
+      // the form (addCoinPendingFirstWrite), so Save again uses the SAME id
+      // and finds its own draft instead of reserving a second one.
+      const pending = addCoinPendingFirstWrite && addCoinPendingFirstWrite.id === collectionId ? addCoinPendingFirstWrite : null;
+      draft.firstWriteToken = pending ? pending.token : newDraftToken();
+      addCoinPendingFirstWrite = { id: collectionId, token: draft.firstWriteToken };
+      try {
+        await writeNewDraftJson(coinDraftFolder(collectionId), "coin.json", draft);
+      } catch (e) {
+        if (e && e.code === DRAFT_ID_IN_USE) {
+          addCoinPendingFirstWrite = null;
+          showToast("Couldn't save: " + e.message + " Your entry is still here.");
+          return;
+        }
+        console.warn("Add Coin save: the draft's first write failed:", e);
+        showToast("Couldn't save " + collectionId + ": " + String(e && e.message || e) +
+          ". Your entry is still here — tap Save again: it keeps " + collectionId + " and finishes whatever landed.");
+        return;
+      }
+      addCoinPendingFirstWrite = null;
+      btn.dataset.firstWriteLanded = "1";
+      // From here the draft is in Staging under collectionId: nothing below
+      // may reserve another id for this coin.
 
       const photos = await uploadCoinDraftPhotos(collectionId);
       let receiptName = "";
@@ -36649,6 +36877,7 @@
       } catch (e) {
         console.warn("Coin draft receipt upload failed:", e);
         photos.failed.push("receipt");
+        photos.reasons.receipt = "uploading the receipt: " + String(e && e.message ? e.message : e);
       }
       draft.photos = photos.uploaded;
       draft.receiptPhoto = receiptName;
@@ -36656,10 +36885,35 @@
       if (!receiptName && addCoinBinderPick) draft.receiptBinder = true;
       if (photos.failed.length) {
         draft.researchNote = [draft.researchNote,
-          "Some captured files failed to upload at capture: " + photos.failed.join(", ") + "."]
+          UPLOAD_FAILED_NOTE_PREFIX + " at capture: " + photos.failed.join(", ") + "."]
           .filter(Boolean).join("\n");
       }
-      await writeCoinDraft(draft);
+      let finalWriteError = null;
+      try { await writeCoinDraft(draft); }
+      catch (e) { finalWriteError = e; console.warn("Add Coin save: the draft's final write failed:", e); }
+
+      // (A2, Build 3) Anything not done: the form is NOT reset. It becomes
+      // the Staging-draft edit of this same id, the failed picks (and their
+      // crops) still on it, and Save again finishes only what is missing.
+      // A Save to Database stops here: the coin never goes on All without
+      // its files (Ray, Q4); Save again finishes the draft, then promotes.
+      if (photos.failed.length || finalWriteError) {
+        enterFirstSaveRetry(collectionId, draft, {
+          receiptName, recorded: !finalWriteError, direct: wantsDirect && !gateBlocked
+        });
+        const fileWord = (k) => k + " file" + (k === 1 ? "" : "s");
+        const why = photos.failed.map(n => n + " — " + (photos.reasons[n] || "failed")).join("; ");
+        showToast(finalWriteError
+          ? "Couldn't finish " + collectionId + "'s draft (" + String(finalWriteError.message || finalWriteError) + "). " +
+            (photos.uploaded.length || receiptName ? "The files that uploaded are in Staging; " : "") +
+            "everything is still here — tap Save again to finish it under the same id." +
+            (photos.failed.length ? " Also " + fileWord(photos.failed.length) + " didn't upload: " + why + "." : "")
+          : "Saved " + collectionId + " to Staging, but " + fileWord(photos.failed.length) + " didn't upload: " + why + ". " +
+            (photos.failed.length === 1 ? "It's" : "They're") + " still here — tap Save again to upload " +
+            (photos.failed.length === 1 ? "it" : "them") + "." +
+            (wantsDirect && !gateBlocked ? " The coin was NOT put on the All sheet yet; Save again does that once every file is in." : ""));
+        return;
+      }
 
       resetAddCoinAfterSave();
 
@@ -36707,12 +36961,15 @@
         (gateBlocked ? ". It was NOT written to the All sheet: " + gateMissing.join(" and ") + " " +
           (gateMissing.length > 1 ? "are" : "is") + " needed first (Edit the draft to set " +
           (gateMissing.length > 1 ? "them" : "it") + ")" : "") +
-        ". Review it under Staging Review." +
-        (photos.failed.length ? " " + photos.failed.length + " file(s) didn't upload — see the draft's research note." : ""));
+        ". Review it under Staging Review.");
     } catch (e) {
       console.error("Add Coin save failed:", e);
-      showToast("Couldn't save: " + String(e && e.message || e) + " — nothing was written; your entry is still here.");
+      // (A2, Build 3) Only true before the draft's first write was sent.
+      showToast(addCoinPendingFirstWrite || btn.dataset.firstWriteLanded === "1"
+        ? "Something failed after the save started: " + String(e && e.message || e) + ". Check Staging Review before saving again; your entry is still here."
+        : "Couldn't save: " + String(e && e.message || e) + " — nothing was written; your entry is still here.");
     } finally {
+      delete btn.dataset.firstWriteLanded;
       btn.disabled = false;
       btn.innerHTML = originalHtml;
     }
@@ -36757,9 +37014,12 @@
         ? " " + uploadFailures.orphans.length + " partly uploaded file" + (uploadFailures.orphans.length === 1 ? "" : "s") +
           " couldn't be cleaned up from Staging (" + uploadFailures.orphans.join(", ") + ") — harmless, and not part of the draft."
         : "";
+      const reasons = uploadFailures.reasons || {};
+      const why = uploadFailures.filter(n => reasons[n]).map(n => n + " — " + reasons[n]);
       showToast("Couldn't save " + uploadFailures.length + " file" + (uploadFailures.length === 1 ? "" : "s") +
         " to Staging (" + uploadFailures.join(", ") + "). Nothing was recorded — everything is still here. " +
-        "Tap ↻ or Save changes to try again." + orphanNote);
+        "Tap ↻ or " + (editDraftFiles && editDraftFiles.firstSave ? "Save again" : "Save changes") + " to try again." +
+        (why.length ? " Why: " + why.join("; ") + "." : "") + orphanNote);
       return;
     }
     // Re-read right before the one write, so a change made elsewhere since
@@ -36788,15 +37048,41 @@
       if (k in existing) updated[k] = existing[k];
       else delete updated[k];
     });
-    updated.photos = files.photos;
+    // (A2, Build 3) Finishing a first save that did not finish: coin.json
+    // ends exactly as a clean first save writes it (the form's photo order,
+    // no "failed to upload" line now that every file is in, no editedDate).
+    const firstSave = editDraftFiles && editDraftFiles.id === collectionId ? editDraftFiles.firstSave : null;
+    updated.photos = firstSave ? firstSavePhotoOrder(files.photos) : files.photos;
+    if (firstSave) {
+      updated.researchNote = String(updated.researchNote || "").split("\n")
+        .filter(l => l && l.indexOf(UPLOAD_FAILED_NOTE_PREFIX) !== 0).join("\n");
+    }
     updated.receiptPhoto = files.receiptPhoto;
     // "Not scanned, paper in binder" (receipts and photos alignment, Build 1):
     // recorded only when it is the draft's receipt; a file always wins.
     if (files.receiptBinder && !files.receiptPhoto) updated.receiptBinder = true;
     else delete updated.receiptBinder;
-    updated.editedDate = new Date().toISOString();
+    if (!firstSave) updated.editedDate = new Date().toISOString();
     await writeCoinDraft(updated);
     await finishStagingEditFiles(collectionId, files);
+    if (firstSave) {
+      // The first save is finished now: Add Coin goes back to a new coin, as
+      // after any first save, and a Save to Database promotes as it would have.
+      clearCoinDraftEditContext();
+      resetAddCoinAfterSave();
+      const direct = firstSave.direct && match && match.how !== "none" && !!form.finish && !!form.category;
+      if (direct) {
+        await promoteCoinDraft(collectionId);
+        await refreshCoinDraftCache();
+        return;
+      }
+      await refreshCoinDraftCache();
+      showToast("Saved " + collectionId + " to Staging on OneDrive (" + WRITE_TARGET + ") — every file is in now" +
+        (updated.coinId ? " · CoinID " + updated.coinId : " · CoinID pending research") +
+        (firstSave.direct ? ". It was NOT written to the All sheet (the catalog match or Finish / Category changed); promote it from Staging Review" : "") +
+        ". Review it under Staging Review.");
+      return;
+    }
     await refreshCoinDraftCache();
     clearCoinDraftEditContext();
     resetAddCoinAfterSave();
@@ -36916,6 +37202,7 @@
   // reset always happens first, and a deep-link's own prefill still lands on
   // top of it exactly as before.
   function resetAddCoinForm() {
+    addCoinPendingFirstWrite = null; // (A2, Build 3) a new coin starts with no half-known first write
     addCoinTouchedFields.clear();
     clearAddCoinBaseline();
     // --- Album / Wishlist deep-link banners. Hides them ONLY — does not
@@ -37064,6 +37351,98 @@
   // grounds that nothing could delete from OneDrive; graph().deleteItem()
   // already existed.)
   let editingCoinDraftId = null;
+
+  // (A2, Build 3) A new coin's first write whose outcome is not known yet
+  // (it failed, or its answer was lost): { id, token }. Save again reuses
+  // the id and token (completeAddCoinSaveUntimed, writeNewDraftJson), so it
+  // finds its own draft instead of reserving a second id. Cleared when the
+  // write is known, and by resetAddCoinForm (a new coin, or Discard).
+  let addCoinPendingFirstWrite = null;
+
+  // (A2, Build 3) A first save that did not finish: some photo or the
+  // receipt did not upload, or the draft's final write failed. The form is
+  // NOT reset (that used to drop the failed picks and their crops). It
+  // becomes the Staging-draft edit of the SAME id, with:
+  //   - each photo that landed and is in coin.json as a stored photo
+  //     (stagingStored), exactly as beginCoinDraftEdit would load it;
+  //   - each photo that landed but is not in coin.json yet (the final write
+  //     failed) as uploaded (stagingUploaded), so Save adds it to coin.json
+  //     without sending it again;
+  //   - each failed pick still on the form under the names it was given,
+  //     so Save sends only what did not land (uploadStagingEditFiles), and
+  //     a name sent with no answer is checked by bytes first (stagingTried).
+  // Save again is the edit's Save (saveCoinDraftEdit). It finishes the draft
+  // exactly as a clean first save would have written it (editDraftFiles.
+  // firstSave: photo order, no editedDate, the "failed to upload" note
+  // dropped), and a Save to Database then promotes, as the first save would
+  // have. The id is never reserved twice.
+  function enterFirstSaveRetry(collectionId, draft, info) {
+    const recorded = !!info.recorded;
+    const recordedNames = new Set(recorded ? (draft.photos || []).map(coinDraftPhotoFilename) : []);
+    editingCoinDraftId = collectionId;
+    editDraftFiles = { id: collectionId, hydratedFiles: new Set(), receiptPhoto: "", receiptBinder: false,
+      parentSetId: "", parentSetName: "", firstSave: { direct: !!info.direct, recorded } };
+    const loaded = [];
+    galleryFor(ADDCOIN_GALLERY_ID).forEach(entry => {
+      const n = entry.firstSaveNames;
+      delete entry.firstSaveNames;
+      if (!n || !n.cropped) return;
+      const files = [n.cropped, n.raw].filter(Boolean);
+      const landed = files.every(f => entry.stagingLanded && entry.stagingLanded[f]);
+      if (landed && recorded && files.every(f => recordedNames.has(f))) {
+        Object.assign(entry, { stored: true, stagingStored: true, storedFilename: n.cropped, filename: n.cropped,
+          rawFilename: n.raw || null, stagingFiles: files, stagingBaseCaption: entry.caption || "", uploadError: "" });
+        if (entry.rawUrl) entry.stagingRawUrl = entry.rawUrl;
+        files.forEach(f => editDraftFiles.hydratedFiles.add(f));
+        delete entry.stagingTried;
+        loaded.push(entry);
+      } else {
+        entry.stagingNames = { cropped: n.cropped, raw: n.raw };
+        if (landed) { entry.stagingUploaded = true; entry.uploadError = ""; }
+      }
+    });
+    editDraftFiles.loadedEntries = loaded;
+    const receipt = receiptFiles["receiptPreview"];
+    if (info.receiptName && recorded) {
+      editDraftFiles.receiptPhoto = info.receiptName;
+      editDraftFiles.hydratedFiles.add(info.receiptName);
+      delete receiptFiles["receiptPreview"];
+    } else if (info.receiptName && receipt) {
+      receipt.stagingUploaded = true;
+      receipt.stagingName = info.receiptName;
+    } else if (receipt && receipt.blob) {
+      showReceiptUploadState("receiptPreview", "Not saved — tap ↻", true, () => saveAddCoinForm("staging"));
+    }
+    if (recorded && draft.receiptBinder) { editDraftFiles.receiptBinder = true; addCoinBinderPick = false; }
+    // The fields are in the draft now (its first write has them): only what
+    // changes from here counts as unsaved.
+    addCoinTouchedFields.clear();
+    clearAddCoinBaseline();
+    const banner = document.getElementById("editDraftBanner");
+    document.getElementById("editDraftMsg").textContent =
+      collectionId + " is in Staging, but its save didn't finish. What didn't upload is still here — " +
+      "tap Save again to finish it" + (info.direct ? " and put the coin on the All sheet" : "") + ".";
+    banner.classList.remove("hidden");
+    document.getElementById("saveToStagingBtn").textContent = "Save again";
+    updateSaveConfidenceUI();
+    repaintAddCoinReceiptSlot();
+    updateStagingEditRemoveButtons();
+    renderAddCoinPhotos();
+    refreshEditSaveState();
+  }
+  // (A2, Build 3) The photo order a clean first save writes (the form's
+  // order, each crop before its original), for a first save finished by
+  // Save again. Names not on the form keep their place after those.
+  function firstSavePhotoOrder(photos) {
+    const at = new Map();
+    let i = 0;
+    galleryFor(ADDCOIN_GALLERY_ID).forEach(e => {
+      const names = e.stagingStored ? (e.stagingFiles || []) : (e.stagingNames ? [e.stagingNames.cropped, e.stagingNames.raw] : []);
+      names.filter(Boolean).forEach(n => { if (!at.has(n)) at.set(n, i++); });
+    });
+    return photos.map((p, k) => ({ p, k, at: at.has(coinDraftPhotoFilename(p)) ? at.get(coinDraftPhotoFilename(p)) : i + k }))
+      .sort((a, b) => a.at - b.at).map(x => x.p);
+  }
 
   function clearCoinDraftEditContext() {
     editingCoinDraftId = null;
@@ -37534,6 +37913,17 @@
         entry.stagingLanded = entry.stagingLanded || {};
         const put = async (name, blob) => {
           if (entry.stagingLanded[name]) return;
+          // (A2, Build 3) A name a first save sent with no answer may have
+          // landed: the same bytes there are this photo (adopted, not sent
+          // again); different bytes are refused like any taken name.
+          if (entry.stagingTried && entry.stagingTried[name]) {
+            delete entry.stagingTried[name];
+            if (await graph().getItemMeta(folder + "/" + name)) {
+              if (await sameFileBytes(blob, await graph().getFileBytes(folder + "/" + name))) { entry.stagingLanded[name] = true; return; }
+              (entry.stagingBadNames = entry.stagingBadNames || []).push(name);
+              throw uploadError(folder + "/" + name, 409, "a different file");
+            }
+          }
           try { await graph().uploadFile(folder + "/" + name, blob, NO_OVERWRITE); }
           catch (e) {
             if (e && e.conflict) (entry.stagingBadNames = entry.stagingBadNames || []).push(name);
@@ -37550,7 +37940,9 @@
         entry.uploadError = "";
       } catch (e) {
         entry.uploadError = String(e && e.message ? e.message : e);
-        failed.push(entry.stagingNames ? entry.stagingNames.cropped : (galleryTypeDef(entry.type) || {}).label || entry.type);
+        const failedName = entry.stagingNames ? entry.stagingNames.cropped : (galleryTypeDef(entry.type) || {}).label || entry.type;
+        failed.push(failedName);
+        (failed.reasons = failed.reasons || {})[failedName] = entry.uploadError; // B1: the toast says why
         // A failure partway (say a 409 on the original after the crop landed)
         // leaves half a pair no coin.json will ever list. Delete only what
         // THIS entry uploaded (stagingLanded: never a file that was in the
@@ -37585,6 +37977,21 @@
       // leaves a replaced receipt out of `dropped`).
       if (!taken) taken = await stagingTakenNames(collectionId, await readCoinDraft(collectionId));
       let name = null;
+      // (A2, Build 3) The name a first save sent with no answer: the same
+      // bytes there are this receipt (adopted, not sent again).
+      if (receipt.stagingTried) {
+        const tried = receipt.stagingTried;
+        delete receipt.stagingTried;
+        try {
+          if (await graph().getItemMeta(folder + "/" + tried) &&
+              await sameFileBytes(receipt.blob, await graph().getFileBytes(folder + "/" + tried))) {
+            receipt.stagingUploaded = true;
+            receipt.stagingName = tried;
+            showReceiptUploadState("receiptPreview", "", false, null);
+            return failed;
+          }
+        } catch (e) { /* not known: the free-name path below never writes over it */ }
+      }
       for (let i = 1; i <= FREE_NAME_MAX_TRIES; i++) {
         const tail = i === 1 ? "" : "_" + String(i).padStart(2, "0");
         const candidate = collectionId + "_receipt" + tail + ".pdf";
@@ -37604,6 +38011,8 @@
           showReceiptUploadState("receiptPreview", "", false, null);
         } catch (e) {
           failed.push(name);
+          (failed.reasons = failed.reasons || {})[name] = String(e && e.message ? e.message : e); // B1
+          if (!(e && e.conflict)) receipt.stagingTried = name; // (A2) it may have landed
           showReceiptUploadState("receiptPreview", "Not saved — tap ↻", true,
             () => saveAddCoinForm("staging"));
         }
@@ -39292,6 +39701,7 @@
 
   function showAddSetStep1() {
     currentSetDraft = null;
+    addSetUnfinishedStart = null; // (A16, Build 3) a fresh Add Set
     populateAddSetNameOptions(); // refresh in case live DB_Sets data finished loading since initAddSet()
     showAddSetStep1Main(); // always land on the main view, never a stale subview
     ["addSetCost", "addSetShippingCost", "addSetPurchaseDate", "addSetVendor",
@@ -39475,12 +39885,37 @@
   // given filename, returning that filename (or "" if no file). All uploads
   // go through graph(), so a disabled write layer throws here and the caller
   // surfaces the localhost-only message.
+  //
+  // (A16, Build 3) Never over an existing file (invariant 9): the name asked
+  // for when it is free; a file already there with the SAME bytes is this
+  // photo (a Step 1 saved again, or an earlier upload whose answer was lost)
+  // and is used as it is; anything else there takes the next free name
+  // (set_02.jpg, ...). The old upload simply replaced the file.
   async function uploadDraftPhoto(collectionId, fileKey, fileName) {
     const file = addSetPhotoFiles[fileKey];
     if (!file) return "";
-    await graph().uploadFile(setDraftFolder(collectionId) + "/" + fileName, file);
-    return fileName;
+    const folder = setDraftFolder(collectionId);
+    const dot = fileName.lastIndexOf(".");
+    const stem = dot > 0 ? fileName.slice(0, dot) : fileName, ext = dot > 0 ? fileName.slice(dot) : "";
+    for (let i = 1; i <= FREE_NAME_MAX_TRIES; i++) {
+      const name = i === 1 ? fileName : stem + "_" + String(i).padStart(2, "0") + ext;
+      if (await graph().getItemMeta(folder + "/" + name)) {
+        if (await sameFileBytes(file, await graph().getFileBytes(folder + "/" + name))) return name;
+        continue;
+      }
+      try { await graph().uploadFile(folder + "/" + name, file, NO_OVERWRITE); return name; }
+      catch (e) { if (e && e.conflict) continue; throw e; }
+    }
+    throw new Error("No free filename for " + fileName + " in " + collectionId + "'s Staging folder");
   }
+
+  // (A16, Build 3) A new Set's start that did not finish: { id, token,
+  // createdDate, firstWritten }. The same button again finishes THAT id
+  // (never reserves a second one): set.json first (no-overwrite, with this
+  // start's token: writeNewDraftJson), then the photos, then set.json again
+  // with their names. Cleared when the start finishes, when an id turns out
+  // to be in use, and by showAddSetStep1 (a fresh Add Set).
+  let addSetUnfinishedStart = null;
 
   async function startSetCapture() {
     const typedName = document.getElementById("addSetName").value.trim();
@@ -39537,24 +39972,41 @@
         return;
       }
 
-      note.textContent = "Reserving CollectionID…";
-      const collectionId = await reserveNextCollectionId();
-      // Photos first (so their filenames land in the draft record), then the draft.
-      const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
-      const receiptName = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
+      // (A16, Build 3) The draft first, then its photos, then the draft again
+      // with their names: a failure after the first write leaves a real
+      // draft (never a folder of photos with no draft), and the same button
+      // finishes that same id (addSetUnfinishedStart).
+      const unfinished = addSetUnfinishedStart;
+      note.textContent = unfinished ? "Finishing " + unfinished.id + "…" : "Reserving CollectionID…";
+      const collectionId = unfinished ? unfinished.id : await reserveNextCollectionId();
       const ctx = setChecklistContext; // present only on a checklist deep-link
       const draft = buildSetDraft(collectionId, {
         setName, productCode, category, trackIndividually,
         dbSetsMatch: matchDbSetsByProductCode(productCode),
         expectedChildCount: expected, subGroups,
-        wholeSetPhoto: wholeName, receiptPhoto: receiptName,
-        receiptBinder: !receiptName && addSetReceiptBinder,
+        wholeSetPhoto: "", receiptPhoto: "",
+        receiptBinder: !addSetPhotoFiles.receipt && addSetReceiptBinder,
         year: yearValue,
         checklistSetId: ctx ? ctx.setId : "",
         checklistLineage: ctx ? ctx.lineage : "",
         ...readAddSetPurchaseStorage()
       });
+      if (unfinished && unfinished.createdDate) draft.createdDate = unfinished.createdDate;
+      draft.firstWriteToken = unfinished ? unfinished.token : newDraftToken();
+      addSetUnfinishedStart = { id: collectionId, token: draft.firstWriteToken, createdDate: draft.createdDate,
+        firstWritten: !!(unfinished && unfinished.firstWritten) };
+      if (!addSetUnfinishedStart.firstWritten) {
+        try { await writeNewDraftJson(setDraftFolder(collectionId), "set.json", draft); }
+        catch (e) { if (e && e.code === DRAFT_ID_IN_USE) addSetUnfinishedStart = null; throw e; }
+        addSetUnfinishedStart.firstWritten = true;
+      }
+      const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
+      const receiptName = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
+      draft.wholeSetPhoto = wholeName;
+      draft.receiptPhoto = receiptName;
+      draft.receiptBinder = !receiptName && !!addSetReceiptBinder;
       await writeSetDraft(draft);
+      addSetUnfinishedStart = null;
       currentSetDraft = draft;
       updateInProgressSetsBadge();
       if (trackIndividually) {
@@ -39569,7 +40021,11 @@
       }
     } catch (e) {
       note.textContent = "";
-      showToast(writeUnavailableMessage(e));
+      const u = addSetUnfinishedStart;
+      showToast(u && !resumingDraft && !String(e).includes("Write layer unavailable")
+        ? "Couldn't finish " + u.id + ": " + (e && e.message ? e.message : e) + ". Your Set is still here — tap the same button again: it keeps " +
+          u.id + (u.firstWritten ? " (its draft is already in Staging)" : "") + "."
+        : writeUnavailableMessage(e));
     }
   }
 
