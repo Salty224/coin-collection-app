@@ -43,6 +43,8 @@ Fix (Build 3):
 
 Sizes as in the review: S a few hours with tests, M about a day, L more. Every code build: a branch, affected suites plus negative controls while iterating, the full `npm test` once as the merge gate, docs in the same branch, Ray's go-ahead to merge.
 
+Full test runs (Ray, 15 Nov 2026, after Build 1, which ran it seven times): ONE full `npm test` per round, as the gate, unless the build's acceptance here needs more; a build that needs more says so up front, in its plan or at the start of the round, with the count and why.
+
 ### Build 1: B2 parallel test runner + B10 split BACKLOG.md (S + S; no app code)
 
 B2:
@@ -65,6 +67,10 @@ B10:
 - For each flow: run clean and count the requests K; then for every N from 1 to K, both kinds; after each, check four things: no pick lost, no row duplicated, nothing deleted that is still referenced, the message matches what landed. Then Save again / retry / relaunch and check the end state equals the clean run's.
 - The sweep will hit findings not fixed yet (A2, A3, A4, A5, A8, A14 at least). They are recorded as a KNOWN list, each entry tagged with its finding, and the suite asserts the violations found equal that list EXACTLY: a new violation fails, and a fixed one fails until its entry is deleted. So each later build must delete its entries, and that deletion is the fix's negative control. The list only shrinks.
 - One suite file per flow so the parallel runner spreads them. Must-fail self-check in each. Negative control for the wrapper itself: with injection switched off the sweep must report no violations, and with one seeded fault it must report exactly that one.
+- No fixed real-time waits in the new suites (Ray, 15 Nov 2026, after Build 1): every wait is on a condition, with a generous ceiling, never a sleep sized for a thing to happen; crop_from_upload showed that fixed waits fail under the parallel runner.
+- Also in Build 2, test-only (Ray, 15 Nov 2026, Build 1 Q2 and Q3):
+  - Fix `verify_crop_from_upload`'s wait (D4 / D5 failed under load: a 10 s ceiling in its `flow()` helper ran out when the suite took 13.0 s instead of about 3.3 s) and delete its entry from `RUN_ALONE` in `tests/run-all.js`. Deleting the entry is the fix's negative control: three parallel full runs in a row with it back in the pool must stay 0 failed.
+  - Find out why `verify_crop_basics` takes about 190 s in some runs and about 40 s in others (both runners; it always passes; the slow case looks like a wait running to its ceiling) and fix it in the suite only, never by loosening an assertion. When slow it adds about 30 s to the parallel gate.
 
 ### Build 3: data-safety build 1: A1, A4, A2, A12, B1, plus A16 (M to L; device TEST)
 
@@ -91,6 +97,8 @@ B1:
 - Docket > About keeps the last 10 saves' steps (today only the last), newest first, with a Copy button. Memory only.
 
 Device TEST (short checklist written with the build): a save with the signal cut mid-upload (A2); Reject on a coin already on All (A4); the save log and Copy (B1); a normal Add Coin and Promote.
+
+Small, recorded after Build 1 (Ray, 15 Nov 2026): the app.html comment near line 6828 that points to "docs/BACKLOG.md (ao)" is changed to point to docs/HISTORY.md "Moved from BACKLOG.md (B10, 15 Nov 2026)" (ao) (B10 moved that text; Build 1 left app.html alone).
 
 ### Build 4: B7 the read-only consistency check, with A19 (M; plan first)
 
