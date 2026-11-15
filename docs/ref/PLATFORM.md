@@ -600,6 +600,8 @@ run `npm test` and nothing asks him to.
 - `tests/run-all.js` — `npm test`. Runs every suite, prints one total, exits
   non-zero on any failure or uncaught page error (verified in both the
   aggregated and standalone paths).
+  Since Build 1 (B2, 15 Nov 2026) it runs the suites 4 at a time, each in its
+  own child process (`tests/run-one.js`); see "Parallel runner (B2)" below.
 
 **Three rules worth keeping:**
 - **Never hardcode a browser path in a suite.** Playwright's default
@@ -631,6 +633,14 @@ run `npm test` and nothing asks him to.
 - **D9** in deploy-workflow compared `appSrc.split("\n")[i]` inside a filter callback (quadratic, about 90 s); the lines are split once now.
 - **Part 3 (one shared Chromium) was dropped**: it saves about 18 s of 957 s, and `browser.newPage()` already isolates each page in its own context.
 - **Measured**, full `npm test` on the `b0e02d6` code: 957 s before and 640 s after (both 4804 / 0 / 0 / 92); per-suite times and what was left alone are in docs/HISTORY.md "Moved from BACKLOG.md (B10, 15 Nov 2026)" (an). Every one of the 92 per-suite pass counts is identical after each part. To compare a run with the baseline, save the `PASS` / `FAIL` lines of two runs (`grep '^PASS\|^FAIL' | sed 's/^[A-Z]*  //' | sort`) and `diff` them.
+
+**Parallel runner (B2, Build 1, 15 Nov 2026, branch `claude/build1-gate-backlog`; tests only, no app.html change).**
+- **What it does.** `tests/run-all.js` keeps a pool of `TEST_JOBS` child processes (default `DEFAULT_JOBS` 4, never more than `os.cpus().length`); each child is `tests/run-one.js <file>`, which runs ONE suite with the harness's `runSuite()` and sends its result object back over IPC, so suites share no module state, timers or browser. Each child's stdout / stderr is buffered and printed, with the suite's time line, in FILE ORDER as soon as every earlier suite has finished (`runParallel`, `runChild`), and the results print with the same `printResult()`, so the PASS / FAIL lines and the TOTAL line read exactly as a serial run's. The TIME line now ends "wall, 4 at a time" or "wall, serial". A child that ends without a result is a named suite failure ("child process ended without a result (exit N)" plus its last output lines), never a skip.
+- **Serial.** `npm test -- --serial` or `TEST_JOBS=1 npm test` runs the pre-B2 loop unchanged, in one process (`runSerial`). `TEST_JOBS=N` picks N; a bad value exits 2. Filters (`npm test -- <word...>`) and `--list` work the same in every mode.
+- **Run alone (`RUN_ALONE` in run-all.js).** A suite that wobbles when others share the machine runs after the pool, one at a time, with its reason written beside it; no assertion is loosened and no timeout raised instead. One entry: `verify_crop_from_upload.js`, D4 / D5 failed under load (twice in the crop review, 14 Nov 2026; once in Build 1's parallel run 2 of 3, where the suite took 13.0 s instead of about 3.3 s, so a 10 s wait ceiling in its `flow()` helper ran out). It passes alone. Fixing that wait (a suite change) was left for a later build.
+- **Measured (this machine, 4 cores, 15 Nov 2026, the same code).** Serial (the old runner): 870 s, 5179 / 0 / 0, 102 suites. Parallel, before the run-alone entry: 222 s, 253 s (crop-from-upload D4 / D5 failed), 222 s. Parallel with it (the gate, three in a row on `e09ec1a`): 232 s, 259 s, 261 s, each 5179 / 0 / 0 / 102, and each run's sorted PASS / FAIL lines EQUAL the serial run's.
+- **Seen, not changed: `verify_crop_basics` is bimodal**, about 37-42 s in some runs and 178-203 s in others, serial and parallel alike (203 s in the serial run). It always passed; the slow case looks like a wait running to its ceiling. Because it is one of the first suites to start, it sets most of the parallel wall time when slow (about 260 s vs about 225 s).
+- **Checked by hand:** a crashing suite (process.exit inside the suite) and a failing suite are both reported FAIL by name with exit 1; a run-alone entry runs after the pool and prints in file order; `TEST_JOBS=x` and an unknown option exit 2.
 
 **Only the Add Coin Phase 1 suite is committed so far** (69 assertions).
 Retro-rebuilding the older suites remains the separate tracked item it
