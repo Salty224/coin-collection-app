@@ -35,7 +35,7 @@ R14. Direct Obverse pick (new): pick a photo that is just the coin and pull the 
 R15. Guided crop from a Holder: R8-R12 behave the same there.
 
 ## Re-test results
-Build of `7a19175` (Ray, phone, 14 Nov 2026): R1-R15 passed. Asked for next (fix round 3): the snap zone to ±0.5°, arrows at 1 px, and view zoom on the rectangle crop (plan: docs/BACKLOG.md "(bs) fix round 3 plan").
+Build of `7a19175` (Ray, phone, 14 Nov 2026): R1-R15 passed. Asked for next (fix round 3): the snap zone to ±0.5°, arrows at 1 px, and view zoom on the rectangle crop (plan: docs/HISTORY.md "(bs) fix round 3 plan" (moved from BACKLOG.md 15 Nov 2026)).
 
 ## Fix round 3 TEST (changed items only)
 T1. Angle snap: drag the angle slider back towards the tick; anywhere within about ±0.5° it jumps to exactly 0 ("Straighten 0°"). On an untouched Holder: drag the angle out a few degrees, let go just under half a degree from the tick, Use Crop, Skip, Save: the OneDrive file is exactly the original's size.

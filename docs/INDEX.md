@@ -183,7 +183,7 @@ Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sect
 - Workbook sheets that matter -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 1831-1925
 - Workbook facts from the coordinator's check (4 Nov 2026; corrections to the 3 Nov review's Part 5) -> [docs/ref/WORKBOOK.md](ref/WORKBOOK.md), original lines 869-873
 - Open backlog (Oct 2026) — recorded only, not built -> [docs/BACKLOG.md](BACKLOG.md), original lines 891-1067
-- Session log — carried-forward state (not app architecture, tracked here for continuity) -> [docs/BACKLOG.md](BACKLOG.md), original lines 3667-3716
+- Session log — carried-forward state (not app architecture, tracked here for continuity) -> [docs/BACKLOG.md](BACKLOG.md), original lines 3667-3716 (moved on to [docs/HISTORY.md](HISTORY.md) "Moved from BACKLOG.md (B10, 15 Nov 2026)" in Build 1, 15 Nov 2026)
 - Add Set + real write layer (BUILT and merged to main) -> [docs/ref/ADD_SET.md](ref/ADD_SET.md), original lines 2083-2215
 - Former Holdings sub-catalog + Purge (BUILT and merged to main; built on `claude/vigilant-cerf-maworr`, tip `12079cf`, landed via rebase; the code is on `main`) -> [docs/ref/FORMER_HOLDINGS.md](ref/FORMER_HOLDINGS.md), original lines 3216-3372
 - Belongs to: Set membership from OriginSetID only (Oct 2026, merged to main) -> [docs/ref/BROWSE_DETAIL.md](ref/BROWSE_DETAIL.md), original lines 1192-1221
@@ -203,3 +203,6 @@ Same format as above, but the line numbers refer to CLAUDE.md at `a7fcb20`. Sect
 - Open backlog one-liners (moved 9 Nov 2026) -> [docs/BACKLOG.md](BACKLOG.md) "Index (moved from CLAUDE.md 9 Nov 2026)"
 - Current state "Not verified on a real device / LIVE" list (moved 9 Nov 2026) -> [docs/BACKLOG.md](BACKLOG.md) "Unverified on a real device / LIVE"
 - End-of-task reporting, Merge policy (old text), Maintenance (retired 9 Nov 2026) -> [docs/HISTORY.md](HISTORY.md) "CLAUDE.md sections retired 9 Nov 2026"
+- BACKLOG.md split (B10, Build 1, 15 Nov 2026): these moved from [docs/BACKLOG.md](BACKLOG.md) to [docs/HISTORY.md](HISTORY.md) "Moved from BACKLOG.md (B10, 15 Nov 2026)", word for word; BACKLOG keeps one line each:
+  - headings "(bs) Build 3 plan (11 Nov 2026, ...)", "(bs) fix round 3 plan (14 Nov 2026, ...)", "Session log — carried-forward state ..." and its "ParkingLot entries to transfer (4 rows, as of 2026-08-23)";
+  - the full text of the finished Open-backlog items (b) (c) (g) (l) (m) (n) (o) (p) (t) (w) (z) (af) (aj) (al) (am) (an) (ao) (ar) (ai) (ak), (ax) Stage 1 + 2a with its plans and TEST rounds, (bk) PLAN 1, answers, TEST, E and the session-cost addition, and the Open backlog's status note. Still in BACKLOG: (ax) 2b, (bk) F and its follow-up, (an)'s left-alone list.
