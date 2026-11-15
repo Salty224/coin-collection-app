@@ -367,7 +367,10 @@ module.exports = defineSuite("build3-data-safety", async ({ check, selfCheck, op
     __setGraphClientForTest(mock);
     try { await withSaveTiming("F", () => graph().getJson("x/coin.json")); } catch (e) { /* expected */ }
     const failedStep = (recentSaveTimings[0].steps.find(s => /\(failed/.test(s.name)) || {}).name || "";
-    return { labels, shown, copyLabel: copyBtn ? copyBtn.textContent : "", copiedIsLog: copied === text,
+    // The log's first line carries the time it was made (to the ms), so the
+    // copy and this read are compared without that clock.
+    const noClock = (t) => String(t).replace(/^(Salty's Cabinet save log, )\S+/, "$1<now>");
+    return { labels, shown, copyLabel: copyBtn ? copyBtn.textContent : "", copiedIsLog: !!copied && noClock(copied) === noClock(text),
       order: text.indexOf("S12)") !== -1 && text.indexOf("S12)") < text.indexOf("S11)") && text.indexOf("S2)") === -1,
       headlines: (text.match(/^(Last save|Save before that) \(/mg) || []).length, failedStep };
   });
