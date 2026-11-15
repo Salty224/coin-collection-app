@@ -71,7 +71,7 @@ const FLOW = (mode) => {
 // on retry): the upload lands, its answer is lost, so landedName is never
 // set; Save again picks the next free name and uploads a second copy.
 const KNOWN_OWN = [
-  ["N1", "lost uploadFile CoinReceipts/AY-00099_receipt_02.pdf: C5 after retry the end state differs from a clean run: Receipts: 1 row(s) more, 1 fewer than a clean run; files added: CoinReceipts/AY-00099_receipt_03.pdf"]
+  ["N1", "lost uploadFile CoinReceipts/AY-00099_receipt_02.pdf: C5 after retry, vs a clean run: Receipts +1/-1; files +1 in CoinReceipts"]
 ];
 // A17: the "all coins" update writes one row per coin; a failure between
 // them leaves one ReceiptID on two files until Save again (which heals it).

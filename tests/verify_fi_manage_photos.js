@@ -86,20 +86,20 @@ const FLOW = () => {
 // A14: the upload lands, its answer is lost; Save again gets 409 and still
 // fails, so after one retry the photo has no row (a third Save picks _03).
 const KNOWN = [
-  ["A5", "fail patchWorkbookRanges Photos!G#:G# #2: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "fail patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "fail patchWorkbookRanges Photos!G#:G# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "fail patchWorkbookRanges Photos!G#:G#: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "fail patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "fail patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H# #2: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "lost patchWorkbookRanges Photos!A#:H# #2: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "lost patchWorkbookRanges Photos!A#:H# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H#: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "lost patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "lost patchWorkbookRanges Photos!A#:H#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G# #2: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "lost patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "lost patchWorkbookRanges Photos!G#:G# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G#: C5 after retry the end state differs from a clean run: Photos: 1 row(s) more, 0 fewer than a clean run"],
+  ["A5", "lost patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
   ["A5", "lost patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A14", "lost uploadFile CoinPhotos/AY-00099_other_02.jpg: C5 after retry the end state differs from a clean run: Photos: 0 row(s) more, 1 fewer than a clean run"],
-  ["A14", "lost uploadFile CoinPhotos/AY-00099_reference_02.jpg: C5 after retry the end state differs from a clean run: Photos: 0 row(s) more, 1 fewer than a clean run"]
+  ["A14", "lost uploadFile CoinPhotos/AY-00099_other_02.jpg: C5 after retry, vs a clean run: Photos +0/-1"],
+  ["A14", "lost uploadFile CoinPhotos/AY-00099_reference_02.jpg: C5 after retry, vs a clean run: Photos +0/-1"]
 ];
 
 module.exports = defineSuite("fi-manage-photos", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

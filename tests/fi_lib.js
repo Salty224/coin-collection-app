@@ -184,10 +184,11 @@ const IN_PAGE = () => {
       const names = [];
       (e.value.photos || []).forEach(ph => { if (ph && ph.filename) names.push(ph.filename); if (ph && ph.rawFilename) names.push(ph.rawFilename); });
       if (e.value.receipt && e.value.receipt.filename) names.push(e.value.receipt.filename);
-      const moved = e.value.filesMovedOnPromotion;
+      // A file mid-move may already be in its final folder before the
+      // draft says so; only a file that is nowhere counts.
       names.forEach(n => {
-        if (!mock._store.has(dir + "/" + n) && !(moved && has(P.coinPhotos, n)))
-          v.push("C3 draft " + m[1] + " names " + n + ", which is in neither its Staging folder nor CoinPhotos");
+        if (!mock._store.has(dir + "/" + n) && !has(P.coinPhotos, n) && !has(P.coinReceipts, n))
+          v.push("C3 draft " + m[1] + " names " + n + ", which is in neither its Staging folder nor CoinPhotos / CoinReceipts");
       });
     }
     return v;
@@ -264,13 +265,13 @@ async function sweepFlow(page, appReady, flowSrc, opts) {
       f.rowViolations.forEach(x => add(x));
       if (f.said === "saved") {
         const d = diffNode(E, f.after);
-        if (d.length) add("C4 reported saved, but " + d.join("; "));
+        if (d.length) add("C4 reported saved, but vs a clean run: " + d.join("; "));
       }
-      if (f.said === "nothing") { const d = diffNode(f.before, f.after); if (d.length) add("C4 reported nothing written, but " + d.join("; ")); }
+      if (f.said === "nothing") { const d = diffNode(f.before, f.after); if (d.length) add("C4 reported nothing written, but: " + d.join("; ")); }
       if (f.retried) {
         (f.retryRowViolations || []).forEach(x => { if (!f.rowViolations.includes(x)) add("after retry " + x); });
         const d = diffNode(E, f.retried);
-        if (d.length) add("C5 after retry the end state differs from a clean run: " + d.join("; "));
+        if (d.length) add("C5 after retry, vs a clean run: " + d.join("; "));
       }
       runs.push({ kind, n, label: f.injected && f.injected.label, said: f.said });
     }
@@ -278,25 +279,26 @@ async function sweepFlow(page, appReady, flowSrc, opts) {
   return { K, calls: clean.calls, cleanProblems, violations: [...violations].sort(), runs, seconds: (Date.now() - t0) / 1000 };
 }
 
+// Compact, stable text: per sheet "+more/-fewer" rows, then file counts
+// (added / gone / changed) with the folders they are in.
 function diffNode(a, b) {
   const out = [];
   for (const s of new Set([...Object.keys(a.sheets), ...Object.keys(b.sheets)])) {
     const x = a.sheets[s] || [], y = b.sheets[s] || [];
-    if (JSON.stringify(x) !== JSON.stringify(y)) {
-      // Multiset: a duplicated row counts as one extra.
-      const cnt = (arr) => arr.reduce((m, r) => (m[r] = (m[r] || 0) + 1, m), {});
-      const cx = cnt(x), cy = cnt(y);
-      let extra = 0, missing = 0;
-      for (const r of new Set([...x, ...y])) { const d = (cy[r] || 0) - (cx[r] || 0); if (d > 0) extra += d; else missing -= d; }
-      out.push(s + ": " + extra + " row(s) more, " + missing + " fewer than a clean run");
-    }
+    if (JSON.stringify(x) === JSON.stringify(y)) continue;
+    const cnt = (arr) => arr.reduce((m, r) => (m[r] = (m[r] || 0) + 1, m), {});
+    const cx = cnt(x), cy = cnt(y);
+    let extra = 0, missing = 0;
+    for (const r of new Set([...x, ...y])) { const d = (cy[r] || 0) - (cx[r] || 0); if (d > 0) extra += d; else missing -= d; }
+    out.push(s + " +" + extra + "/-" + missing);
   }
-  const added = Object.keys(b.files).filter(k => !(k in a.files)).sort();
-  const gone = Object.keys(a.files).filter(k => !(k in b.files)).sort();
-  const changed = Object.keys(a.files).filter(k => k in b.files && a.files[k] !== b.files[k]).sort();
-  if (added.length) out.push("files added: " + added.join(", "));
-  if (gone.length) out.push("files gone: " + gone.join(", "));
-  if (changed.length) out.push("files changed: " + changed.join(", "));
+  const folders = (names) => [...new Set(names.map(n => n.split("/").slice(0, -1).join("/").replace(/\/AY-\d+$/, "/{id}")))].sort().join(",");
+  const added = Object.keys(b.files).filter(k => !(k in a.files));
+  const gone = Object.keys(a.files).filter(k => !(k in b.files));
+  const changed = Object.keys(a.files).filter(k => k in b.files && a.files[k] !== b.files[k]);
+  if (added.length) out.push("files +" + added.length + " in " + folders(added));
+  if (gone.length) out.push("files -" + gone.length + " from " + folders(gone));
+  if (changed.length) out.push("changed " + changed.map(n => n.split("/").pop()).sort().join(","));
   return out;
 }
 

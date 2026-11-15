@@ -35,7 +35,9 @@ const APP_URL = "file://" + path.resolve(__dirname, "..", "app.html");
 // about the app: MSAL is loaded from jsdelivr in a plain <script> tag and is
 // expected to fail offline (app.html degrades gracefully by design — see
 // CLAUDE.md's "the whole feature degrades gracefully if MSAL never loads").
-const IGNORED_ERROR = /msal|jsdelivr|net::ERR|Failed to load resource/i;
+// "(injected: " is the failure-injection suites' own network error (B6,
+// tests/fi_lib.js): the app logs it with console.error, as it should.
+const IGNORED_ERROR = /msal|jsdelivr|net::ERR|Failed to load resource|\(injected: /i;
 
 // Resolve a Chromium binary WITHOUT hardcoding a path.
 //
