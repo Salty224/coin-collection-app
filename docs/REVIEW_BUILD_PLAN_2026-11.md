@@ -111,6 +111,14 @@ Device TEST (short checklist written with the build): a save with the signal cut
 
 Small, recorded after Build 1 (Ray, 15 Nov 2026): the app.html comment near line 6828 that points to "docs/BACKLOG.md (ao)" is changed to point to docs/HISTORY.md "Moved from BACKLOG.md (B10, 15 Nov 2026)" (ao) (B10 moved that text; Build 1 left app.html alone).
 
+Build 3 result (15 Nov 2026, branch `claude/build3-data-safety`, code `2fb62fd`; HELD for Ray's device TEST and merge go-ahead; write-up docs/ref/ADD_COIN_WRITE.md "Build 3 of the November 2026 review"):
+- Done as planned: A1 (paging, no partial list; a new draft's first write no-overwrite with a token), A12 (exact AY-##### names; stage.html a notice page; verify_files_picker 38 -> 30 inputs), A2 (the edit of the same id; Save to Database stops at the draft; the double-row case closed), A16, A4 (Reject's three refusals; refresh on a failed status write; the toast), B1 (reasons in the toasts; the last 10 saves with Copy), and the (ao) comment now pointing at docs/HISTORY.md.
+- Choices made in the build (in the report's questions): after Save again finishes a Save to Database first save it promotes, as the first save would have; a first write whose outcome is unknown keeps its id and token for Save again (`addCoinPendingFirstWrite`), which the plan did not spell out but the double-row case needs; a name a first save sent with no answer is checked by bytes before it is sent again (Staging only; A14 for CoinPhotos stays in Build 5).
+- KNOWN lines deleted: A2 30, A4 8, A16 4 (as planned), and 6 A8 lines in verify_fi_addcoin that A2's change rewords ("nothing was written" after a failed or lost draft write while files had landed). 196 -> 148. Negative controls: each fix put back in turn brought its lines back (A4: 8; A2 edit mode: 17 + 17; A2 same id: the 2 "lost coin.json" lines; A16: 7).
+- New suite `tests/verify_build3_data_safety.js` (20 checks; P1-P3 A1 on the real client with a stubbed fetch of 250 folders in pages, N1 A12, W1-W4 the first write, D1-D2 A2 and the double-row case, R1-R4 A4, B1-B2); its negative control (paging off, the old name parse, the session set off, the log kept at 1, no-overwrite off) failed 8 checks.
+- Gate: TWO full runs (one was planned). Run 1 at `2fb62fd`: 5260 passed, 1 failed (the new suite's B1: the copied log and the compared log were made in different milliseconds, and the log's first line carries the time), 114 suites, 288 s. Test fixed in `d86c6ed` (compare without that clock; negative control: a truncated copy still fails). Run 2 at `d86c6ed`: 5261 passed, 0 failed, 0 page errors, 114 suites, 280 s; sorted PASS / FAIL lines equal run 1's except that suite. 50 affected suites before the gate: 2347 / 0 / 0 in 114 s.
+
+
 ### Build 4: B7 the read-only consistency check, with A19 (M; plan first)
 
 Moved here by Ray (14 Nov 2026): it needs only Build 3's paging, and it shows existing damage before the later builds change anything.

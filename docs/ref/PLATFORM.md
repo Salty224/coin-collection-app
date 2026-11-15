@@ -6,8 +6,9 @@ Back to [CLAUDE.md](../../CLAUDE.md). Sections below are verbatim from CLAUDE.md
 ## Current live files
 - `salty224.github.io/coin-collection-app/` — GitHub Pages root
 - `index.html` — original connection test page (sign in / read / write test)
-- `stage.html` — working "Add New Coin" staging form (photo capture → OneDrive
-  Staging folder). Confirmed working end-to-end. **Do not break this.**
+- `stage.html` — RETIRED in Build 3 (review A12, Ray's Q3, 15 Nov 2026): a
+  plain notice page with a link to the app (no sign-in, no script, no form).
+  It used to be the old "Add New Coin" staging form.
 - `fonts/` — self-hosted Cormorant Garamond (600/700) and Caveat (600/700)
   woff2 files, latin subset only. **Locked in: fonts are self-hosted, not
   loaded from the Google Fonts CDN** — the CDN request was seen to render
@@ -744,3 +745,9 @@ job is just making sure nothing gets lost or forgotten, not eliminating that ste
 CLAUDE.md states each of these as one line. These are the original rule statements; the excerpt each Source names is in that section.
 
 E4: test-quality trap: an assertion whose broken case also returns the passing value proves nothing. Source: [docs/HISTORY.md](../HISTORY.md), section "Photo / receipt write layer — Photos & Receipts tabs (BUILT and merged to main)" (original lines 11212-11219).
+
+## Build 3 (review A1, A12, B1; branch `claude/build3-data-safety`, 15 Nov 2026)
+- `RealGraphClient.listChildren` follows `@odata.nextLink` with `$top=999` and throws on a part-way failure (never a partial list). `uploadJson(path, obj, opts)` takes `NO_OVERWRITE`.
+- `stage.html` is retired: a plain notice page (no sign-in, no script, no form) linking to `app.html`. The lines above that call it the working staging form, and its redirect URI, describe the past; Ray removes the `stage.html` redirect URI in Entra when convenient.
+- Docket > About keeps the last 10 saves (`recentSaveTimings`, `SAVE_LOG_KEEP`), newest first, with "Copy the save log"; a failed Graph call in a save is noted with its reason. Memory only.
+- Full write-up: docs/ref/ADD_COIN_WRITE.md "Build 3 of the November 2026 review".

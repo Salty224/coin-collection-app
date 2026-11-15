@@ -664,3 +664,6 @@ A coin can be on the All sheet while its coin.json never reached Promoted (the b
 - The Docket staging Promote and Staging Review Promote also show "Needs Finish and Category — Edit" for a Ready, matched draft without both (see ADD_COIN_WRITE.md).
 - Tests: `tests/verify_draft_cleanup.js` S-b (cards, one action, tap writes no row, repeat harmless, fresh read mismatch, Photos-row duplication guard) and S-c (refusals).
 
+
+### Reject refuses a coin already on All (review A4, Build 3, branch `claude/build3-data-safety`, 15 Nov 2026)
+`performRejectStagedCoin()` deletes the draft's folder only when the draft's flag is clear AND `rejectOnAllRefusal()` finds no reason not to: this session sent that id's All row (`allRowKeysSentThisSession`), a fresh read of All shows it, or that read failed. A Promote / Force Add whose draft write failed twice now refreshes the loaded rows and redraws first (`refreshAfterCoinRowWrite`), so the card shows "Mark as promoted" at once, and its toast says to tap it (`coinDraftNotClosedText`). Full write-up: docs/ref/ADD_COIN_WRITE.md "Build 3 of the November 2026 review".

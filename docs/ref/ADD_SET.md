@@ -447,3 +447,6 @@ Year, Category — same order top to bottom now.
   live-nav-data; Ray's own audit of the real Description column ("confirmed
   clean, no messy edge cases") is what this was built against, not an
   independent re-verification from this environment.
+
+### Add Set's start: set.json first, uploads never overwrite (review A16, Build 3, branch `claude/build3-data-safety`, 15 Nov 2026)
+`startSetCapture()` writes `set.json` first (no-overwrite, with a token: `writeNewDraftJson`), then the photos, then `set.json` again; after any failure the same button finishes the same id (`addSetUnfinishedStart`). `uploadDraftPhoto()` never writes over a file: the plain name when free, the same bytes adopted, else `_02`, `_03`…. Full write-up: docs/ref/ADD_COIN_WRITE.md "Build 3 of the November 2026 review".
