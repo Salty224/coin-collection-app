@@ -18,13 +18,14 @@
 //   F  the shared Camera/Library numbering fix (pre-existing bug)
 //   G  nothing is written with the photo write flag off
 
-const { defineSuite } = require("./harness");
+const { defineSuite, keepFramesComing } = require("./harness");
 
 const HEADERS = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded"];
 const ID = "AY-00004"; // in FAKE_COINS, no FAKE_GALLERIES seed
 
 module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TABLET }) => {
   const page = await openApp(PHONE);
+  await keepFramesComing(page); // a crop's encode waits for idle time otherwise (harness.js)
 
   // In-page helpers, defined once.
   await page.evaluate((args) => {
@@ -132,7 +133,9 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
         out.chooserTitle = this.guardTitle();
         out.chooserButtons = this.guardButtons();
         if (!this.clickGuard(destLabel)) return out;
-        await sleep(30);
+        // Either the "Replace the obverse?" confirm opens or the crop does
+        // (was a fixed 30 ms; Build 2).
+        await this.settle(() => this.guardOpen() || bgCropState);
         if (this.guardOpen()) {
           out.confirmTitle = this.guardTitle();
           out.confirmBody = document.getElementById("writeGuardBody").textContent;
@@ -142,7 +145,12 @@ module.exports = defineSuite("crop-from-upload", async ({ ok, openApp, PHONE, TA
         out.stages = await this.drive();
         // Photos wait for Save (Oct 2026): the crop is held, nothing is
         // written until Save; then the same files and rows land.
-        await sleep(30);
+        // Wait for the crop to reach the gallery as a pending photo (its
+        // encode can take a second or more) before reading the toast and
+        // saving. This was a fixed 30 ms: under load Save then found nothing
+        // pending and D4 / D5 failed (Build 2, 15 Nov 2026). C3a still checks
+        // the same thing; a crop that never arrives still fails it.
+        await this.settle(() => galleryFor(ID).some(e => e.pendingSave));
         out.toast = document.getElementById("toast").textContent;
         out.uploadsBeforeSave = this.uploads.length - before;
         out.pendingBeforeSave = galleryFor(ID).some(e => e.pendingSave);

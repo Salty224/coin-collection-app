@@ -198,6 +198,25 @@ function printResult(r) {
   r.errors.forEach(e => console.log("        ! " + String(e).split("\n")[0]));
 }
 
+// Keeps the page asking for animation frames, for a suite that encodes
+// pictures (canvas toBlob / convertToBlob). Chromium encodes them in the
+// page's idle time and waits up to about 1 s per encode when there is none;
+// headless Chromium sometimes stops giving a page any idle time at all
+// (requestIdleCallback never fires), and then every encode takes about 1 s
+// or more. A page that keeps requesting frames gets the short idle periods
+// between frames, so encodes run at once. Found in Build 2 (15 Nov 2026):
+// crop-basics took about 190 s instead of about 25 s, and crop-from-upload's
+// D4 / D5 failed under load. It changes no app behaviour: it only requests
+// frames, and nothing in the app counts them.
+async function keepFramesComing(page) {
+  await page.evaluate(() => {
+    if (window.__framePump) return;
+    window.__framePump = true;
+    const pump = () => requestAnimationFrame(pump);
+    requestAnimationFrame(pump);
+  });
+}
+
 // A suite file declares itself with this. It returns the { name, suite }
 // shape run-all.js aggregates, AND — when the file is executed directly
 // (`node tests/verify_x.js`) — runs itself immediately and sets an exit code.
@@ -213,4 +232,4 @@ function defineSuite(name, fn, callerModule) {
   return { name, suite: fn };
 }
 
-module.exports = { runSuite, printResult, defineSuite, resolveChromium, waitForAppReady, READY_TIMEOUT_MS, PHONE, TABLET, APP_URL };
+module.exports = { runSuite, printResult, defineSuite, keepFramesComing, resolveChromium, waitForAppReady, READY_TIMEOUT_MS, PHONE, TABLET, APP_URL };

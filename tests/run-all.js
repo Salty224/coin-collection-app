@@ -36,9 +36,8 @@ const { runSuite, printResult } = require("./harness");
 // after the pool, with the reason beside it. Never loosen an assertion or
 // raise a timeout instead of listing a suite here.
 const RUN_ALONE = {
-  "verify_crop_from_upload.js":
-    "D4 / D5 failed under load (crop review 14 Nov 2026, twice; Build 1 parallel run 2 of 3, 15 Nov 2026: " +
-    "13.0 s instead of ~3.3 s, so a 10 s wait ceiling in its flow() helper ran out); passes alone",
+  // "verify_x.js": "why it wobbles under load (date seen)",
+  // (verify_crop_from_upload.js was here until Build 2 fixed its waits.)
 };
 
 const DEFAULT_JOBS = 4;

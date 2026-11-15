@@ -48,13 +48,14 @@
 //      square, never in a saved picture
 //   H  nothing above writes anything (apart from the one Save in F)
 
-const { defineSuite } = require("./harness");
+const { defineSuite, keepFramesComing } = require("./harness");
 
 const PHOTOS_HEADER = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "", "OriginalFilename"];
 
 module.exports = defineSuite("crop-basics", async ({ openApp, check, selfCheck, PHONE }) => {
   const ok = check; selfCheck(ok);
   const page = await openApp(PHONE);
+  await keepFramesComing(page); // encodes wait for idle time otherwise (about 190 s instead of 25 s; harness.js)
 
   await page.evaluate(() => {
     const sp = document.getElementById("splashScreen"); if (sp) sp.style.display = "none";
