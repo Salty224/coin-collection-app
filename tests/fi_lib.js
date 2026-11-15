@@ -9,7 +9,9 @@
 // adds). At call N it injects one of two faults:
 //   "fail"  request N fails and nothing is applied (the call is never made);
 //   "lost"  request N is applied, then its answer is lost (the call is made,
-//           then the promise rejects as if the network dropped).
+//           then the promise rejects as if the network dropped);
+//   "none"  nothing is injected (the negative control: a sweep with
+//           injection off must report no violations).
 // Both reject with a plain network-style Error, the way a dropped fetch does.
 //
 // THE SWEEP (node side, sweepFlow). For one flow:
@@ -80,7 +82,8 @@ const IN_PAGE = () => {
         const label = key + (seen[key] > 1 ? " #" + seen[key] : "");
         fi.calls.push(label);
         const n = fi.calls.length;
-        if (inj && inj.n === n) {
+        // kind "none": counts, never injects (the wrapper's own control).
+        if (inj && inj.n === n && inj.kind !== "none") {
           fi.injected = { kind: inj.kind, n, label };
           if (inj.kind === "fail") return Promise.reject(fi.netError("fail", k));
           return Promise.resolve(v.apply(t, args)).then(() => { throw fi.netError("lost", k); }, () => { throw fi.netError("lost", k); });
