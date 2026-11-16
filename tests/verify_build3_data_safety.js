@@ -39,6 +39,19 @@
 //   B1  B1: the save log keeps the last 10 saves, newest first; the Docket
 //       shows all 10 and a Copy button; the copied text is the log
 //   B2  ...a failed Graph call inside a save names its reason in the step
+// Added in the TEST round (Ray's device TEST of Build 129, 15 Nov 2026):
+//   S1  B-1: Add Set's start saves EVERY photo its photo section holds (the
+//       Whole set front / back, Package back, COA), not only the Package
+//       front (set.jpg); set.json lists them; the toast counts the files
+//       (main dropped all but set.jpg behind "set saved")
+//   S2  ...a promotion moves them to CoinPhotos and writes their Photos rows
+//   S3  F-1: the start is in the save log, with what it saved
+//   L1  F-2 / F-3: the save log says a first save did not finish and why,
+//       and names the Save again that finished it and promoted it to All
+//   L2  F-5: a clean Save to Staging counts its files as Staging Review
+//       does (photos and the receipt: 3, not 2)
+//   L3  F-4: a long toast stays up long enough to read (short ones as before)
+//   L4  F-6: a failed photo's tile says "Save again" while the button does
 
 const { defineSuite } = require("./harness");
 
@@ -223,8 +236,11 @@ module.exports = defineSuite("build3-data-safety", async ({ check, selfCheck, op
       unsaved: !!unsavedEditsForView(), picks: galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && e.blob.__tag).length,
       dbBtnHidden: document.getElementById("saveToDatabaseBtn").style.display === "none"
     };
+    const log1 = { label: recentSaveTimings[0].label, outcome: recentSaveTimings[0].outcome };
     B.toasts = [];
     await B.save("database");
+    const log2 = { label: recentSaveTimings[0].label, outcome: recentSaveTimings[0].outcome };
+    first.log = log1; first.log2 = log2;
     const folders = [...new Set([...mock._store.keys()].filter(k => k.indexOf(base + "/") === 0).map(k => k.slice(base.length + 1).split("/")[0]))];
     const draft = mock._store.get(base + "/AY-00501/coin.json").value;
     return { first, second: { rows: B.allRowsFor(mock, "AY-00501"), rows502: B.allRowsFor(mock, "AY-00502"), folders,
@@ -252,7 +268,13 @@ module.exports = defineSuite("build3-data-safety", async ({ check, selfCheck, op
     await B.save("staging");
     const ref = galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "reference");
     const draft = mock._store.get(base + "/AY-00501/coin.json").value;
-    const first = { toast: B.toasts.join(" / "), refOnForm: !!(ref && ref.blob && ref.blob.__tag === "ref"),
+    renderAddCoinPhotos();
+    const host = document.getElementById("addCoinPhotoSections");
+    [...host.querySelectorAll(".accordion-header")].forEach(h => { if (h.getAttribute("aria-expanded") !== "true") h.click(); });
+    const tileText = host.textContent || "";
+    const first = { tileSaysSaveAgain: /Not saved — tap Save again/.test(tileText) && !/Save changes again/.test(tileText),
+      log: { label: recentSaveTimings[0].label, outcome: recentSaveTimings[0].outcome },
+      toast: B.toasts.join(" / "), refOnForm: !!(ref && ref.blob && ref.blob.__tag === "ref"),
       refStored: !!(ref && ref.stagingStored), refError: ref ? ref.uploadError : "",
       listed: (draft.photos || []).map(p => p.filename), editing: editingCoinDraftId,
       holderStored: !!galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "slab_obverse" && e.stagingStored) };
@@ -266,6 +288,34 @@ module.exports = defineSuite("build3-data-safety", async ({ check, selfCheck, op
     D2.first.refOnForm && !D2.first.refStored && /uploading the photo: PUT failed: 503 busy/.test(D2.first.refError) &&
     /1 file didn't upload: AY-00501_reference_01\.jpg — uploading the photo: PUT failed: 503 busy/.test(D2.first.toast) &&
     JSON.stringify(D2.first.listed) === JSON.stringify(["AY-00501_slab_obverse.jpg"]) && D2.first.editing === "AY-00501" && D2.first.holderStored);
+  ok("L1 the save log: a first save that did not finish says so and why; the Save again that finished it says it promoted to All: " +
+    JSON.stringify([D1.first.log, D1.first.log2, D2.first.log]),
+    D1.first.log.label === "Add Coin: Save to Database" && /^not finished: the draft's final write failed \(Network error \(signal cut\)\)/.test(D1.first.log.outcome) &&
+    /nothing on All/.test(D1.first.log.outcome) &&
+    D1.first.log2.label === "Add Coin: Save again, finishing AY-00501 (then Promote to All)" && D1.first.log2.outcome === "draft finished; promoted AY-00501 to All" &&
+    /^not finished: 1 file didn't upload \(AY-00501_reference_01\.jpg — uploading the photo: PUT failed: 503 busy\)/.test(D2.first.log.outcome));
+  ok("L4 the failed photo's tile says \"Not saved — tap Save again\", as the button does", D2.first.tileSaysSaveAgain === true);
+
+  const L2 = await page.evaluate(async () => {
+    const B = window.__b3;
+    const mock = B.addCoin();
+    receiptFiles["receiptPreview"] = { blob: B.tagged("rcpt", 300, "application/pdf"), filename: "receipt.pdf" };
+    await B.save("staging");
+    const base = writePaths().stagingBase;
+    const files = [...mock._store.keys()].filter(k => k.indexOf(base + "/AY-00501/") === 0 && !/coin\.json$/.test(k)).length;
+    return { toast: B.toasts.join(" / "), files, log: recentSaveTimings[0].outcome };
+  });
+  ok("L2 a clean Save to Staging counts its files as Staging Review does (Holder + Reference + receipt = 3): " + L2.toast,
+    L2.files === 3 && /Saved AY-00501 to Staging on OneDrive \(copy\) with 3 files/.test(L2.toast) && L2.log === "saved AY-00501 to Staging with 3 files");
+
+  const L3 = await page.evaluate(() => {
+    const prev = window.setTimeout; const delays = [];
+    window.setTimeout = (fn, ms, ...r) => { delays.push(ms); return prev(fn, ms, ...r); };
+    try { showToast("x".repeat(60)); const shortMs = delays[delays.length - 1]; showToast("y".repeat(300)); return { shortMs, longMs: delays[delays.length - 1] }; }
+    finally { window.setTimeout = prev; }
+  });
+  ok("L3 a 300-character toast stays up about 22.8 s (was 7 s); a 60-character one is unchanged (4.2 s): " + JSON.stringify(L3),
+    L3.longMs === 22800 && L3.shortMs === 4200);
   ok("D2b Save again uploads it; the draft ends as a clean first save writes it (form order, no failure note, no editedDate): " + JSON.stringify(D2.second),
     JSON.stringify(D2.second.listed) === JSON.stringify(["AY-00501_slab_obverse.jpg", "AY-00501_reference_01.jpg"]) &&
     !/failed to upload/.test(D2.second.note) && D2.second.editedDate === false && D2.second.editing === null && /every file is in now/.test(D2.second.toast));
@@ -347,6 +397,55 @@ module.exports = defineSuite("build3-data-safety", async ({ check, selfCheck, op
     R.r3.onAll === 1 && /is on the All sheet, but updating its draft failed/.test(R.r3.promoteToast) && /tap Mark as promoted/.test(R.r3.promoteToast) &&
     !/retry at next launch/.test(R.r3.promoteToast) && R.r3.refreshed >= 1 && R.r3.kept && /written to the All sheet in this session/.test(R.r3.rejectToast));
   ok("R4 an ordinary draft not on All is still rejected (deleted): " + R.r4.toast, R.r4.gone && /rejected —/.test(R.r4.toast));
+
+  // ---------- S: Add Set saves every photo (B-1, F-1) ----------
+  const S = await page.evaluate(async () => {
+    const B = window.__b3;
+    const PH = ["PhotoID", "CollectionID", "PhotoType", "SubGroupID", "Filename", "Label", "DateAdded", "OriginalFilename"];
+    const blank = (n) => new Array(n).fill("");
+    const mock = createMockGraphClient({ workbookColumns: { "All::CollectionID": ["AY-00500"] },
+      sheets: { All: [["CollectionID"], ["AY-00500"]], Photos: [PH.slice(), ...Array.from({ length: 8 }, () => blank(PH.length))] } });
+    __setGraphClientForTest(mock); __setAddCoinWriteEnabledForTest(true);
+    __resetSheetHeaderMapsForTest();
+    const toasts = []; const prevToast = window.showToast; window.showToast = (m) => toasts.push(String(m));
+    try {
+      navigate("addset");
+      document.getElementById("addSetName").value = "Proof Set";
+      document.getElementById("addSetYear").value = "1957";
+      document.getElementById("addSetTrackIndividually").checked = false;
+      updateAddSetTrackIndividuallyVisibility();
+      const add = (type, tag, extra) => { const b = B.tagged(tag, 400); addGalleryEntry(ADDSET_GALLERY_ID, Object.assign({ type, blob: b, url: URL.createObjectURL(b), caption: "" }, extra || {})); return b; };
+      add("subgroup_obverse", "wsf", { subGroupId: DEFAULT_SUBGROUP_ID });
+      add("subgroup_reverse", "wsb", { subGroupId: DEFAULT_SUBGROUP_ID });
+      addSetPhotoFiles.whole = add("ogp_obverse", "ogpf"); // what the Package front slot's onChange does
+      add("ogp_reverse", "ogpb");
+      add("coa", "coa1", { caption: "Certificate" });
+      await startSetCapture();
+      const base = writePaths().stagingBase, P = writePaths();
+      const files = [...mock._store.keys()].filter(k => k.indexOf(base + "/AY-00501/") === 0).map(k => k.slice((base + "/AY-00501/").length)).sort();
+      const draft = mock._store.get(base + "/AY-00501/set.json").value;
+      const log = { label: recentSaveTimings[0].label, outcome: recentSaveTimings[0].outcome };
+      // S2: Copilot marks it Promoted; the launch-time move runs.
+      draft.status = SET_STATUS.PROMOTED;
+      mock._store.set(base + "/AY-00501/set.json", { kind: "json", value: JSON.parse(JSON.stringify(draft)) });
+      await processPromotedSetDrafts();
+      const moved = [...mock._store.keys()].filter(k => k.indexOf(P.coinPhotos + "/") === 0).map(k => k.slice(P.coinPhotos.length + 1)).sort();
+      const rows = mock._grids.Photos.slice(1).filter(r => r[1]).map(r => r[2] + ":" + r[4] + (r[5] ? ":" + r[5] : "")).sort();
+      const after = mock._store.get(base + "/AY-00501/set.json").value;
+      return { toast: toasts.join(" / "), files, photos: draft.photos, log, moved, rows, movedFlag: after.filesMovedOnPromotion };
+    } finally { window.showToast = prevToast; }
+  });
+  ok("S1 Add Set's start saves every photo of its photo section, set.json lists them, the toast counts 5 files: " + JSON.stringify({ files: S.files, toast: S.toast }),
+    JSON.stringify(S.files) === JSON.stringify(["AY-00501_coa_01.jpg", "AY-00501_obverse.jpg", "AY-00501_ogp_reverse.jpg", "AY-00501_reverse.jpg", "set.jpg", "set.json"]) &&
+    JSON.stringify(S.photos.map(p => p.type + ":" + p.filename + ":" + p.subGroupId)) === JSON.stringify([
+      "subgroup_obverse:AY-00501_obverse.jpg:" + "__default__", "subgroup_reverse:AY-00501_reverse.jpg:__default__",
+      "ogp_reverse:AY-00501_ogp_reverse.jpg:", "coa:AY-00501_coa_01.jpg:"]) &&
+    /^Reserved AY-00501 — set saved \(not tracked coin-by-coin\), with 5 files\.$/.test(S.toast));
+  ok("S2 a promotion moves them to CoinPhotos and writes a Photos row for each (with the COA's label): " + JSON.stringify({ moved: S.moved, rows: S.rows }),
+    JSON.stringify(S.moved) === JSON.stringify(["AY-00501_coa_01.jpg", "AY-00501_obverse.jpg", "AY-00501_ogp_reverse.jpg", "AY-00501_reverse.jpg", "AY-00501_set.jpg"]) &&
+    S.rows.length === 5 && S.rows.some(r => /^COA:AY-00501_coa_01\.jpg:Certificate$/.test(r)) && S.movedFlag === true);
+  ok("S3 the start is in the save log with what it saved: " + JSON.stringify(S.log),
+    S.log.label === "Add Set: reserve and save" && S.log.outcome === "saved: reserved AY-00501, with 5 files");
 
   // ---------- B: the save log (B1) ----------
   const B = await page.evaluate(async () => {

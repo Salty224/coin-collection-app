@@ -39,6 +39,10 @@ const FLOW = () => {
       addSetPhotoFiles.whole = tagged("whole", 800);
       addSetPhotoFiles.receipt = tagged("rcpt", 500, "application/pdf");
       addSetPhotoFilenames.receipt = "receipt.pdf";
+      // B-1 (Build 3 TEST round): a "Whole set — front" photo from the photo
+      // section, which the start now saves too (it used to be dropped).
+      const wsf = tagged("wsf", 600);
+      addGalleryEntry(ADDSET_GALLERY_ID, { type: "subgroup_obverse", subGroupId: DEFAULT_SUBGROUP_ID, blob: wsf, url: URL.createObjectURL(wsf), caption: "" });
       return mock;
     },
     async run() {
@@ -57,10 +61,11 @@ const FLOW = () => {
     },
     // C1: the whole-set photo and the receipt are still picked, or landed.
     async picksLost(mock) {
-      const held = new Set([addSetPhotoFiles.whole, addSetPhotoFiles.receipt].filter(Boolean).map(b => b.__fiTag));
+      const held = new Set([addSetPhotoFiles.whole, addSetPhotoFiles.receipt].concat(galleryFor(ADDSET_GALLERY_ID).map(e => e.blob))
+        .filter(Boolean).map(b => b.__fiTag));
       const landed = new Set();
       for (const [, e] of mock._store.entries()) if (e && e.value && e.value.__fiTag) landed.add(e.value.__fiTag);
-      return ["whole", "rcpt"].filter(t => !held.has(t) && !landed.has(t)).map(t => "the " + t + " pick is neither on the form nor saved");
+      return ["whole", "rcpt", "wsf"].filter(t => !held.has(t) && !landed.has(t)).map(t => "the " + t + " pick is neither on the form nor saved");
     }
   };
 };

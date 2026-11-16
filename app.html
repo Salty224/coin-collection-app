@@ -13751,6 +13751,9 @@
       gsid: "",                                    // empty = pending everywhere (Q9)
       researchNote: researchLines.join("\n"),
       wholeSetPhoto: step1.wholeSetPhoto || "",
+      // (B-1) Every other photo of the Set's photo section, saved at the
+      // start: [{ type, subGroupId, filename, caption }] (uploadSetGalleryPhotos).
+      photos: [],
       receiptPhoto: step1.receiptPhoto || "",
       // "Not scanned, paper in binder" (no file): a Binder Receipts row at promotion.
       receiptBinder: !step1.receiptPhoto && !!step1.receiptBinder,
@@ -15011,6 +15014,10 @@
       const ext = draft.receiptPhoto.slice(draft.receiptPhoto.lastIndexOf("."));
       moves.push({ src: folder + "/" + draft.receiptPhoto, dest: p.coinReceipts + "/" + draft.collectionID + "_receipt" + ext });
     }
+    // (B-1) The Set's own photos, under the names they have in Staging.
+    (draft.photos || []).forEach(ph => {
+      if (ph && ph.filename) moves.push({ src: folder + "/" + ph.filename, dest: p.coinPhotos + "/" + ph.filename });
+    });
     (draft.children || []).forEach(ch => {
       if (ch.photos && ch.photos.obverse) moves.push({ src: folder + "/" + ch.photos.obverse, dest: p.coinPhotos + "/" + ch.collectionID + "_obverse.jpg" });
       if (ch.photos && ch.photos.reverse) moves.push({ src: folder + "/" + ch.photos.reverse, dest: p.coinPhotos + "/" + ch.collectionID + "_reverse.jpg" });
@@ -15043,11 +15050,15 @@
   async function recordPromotedSetRecords(draft) {
     const out = { photos: [], receipt: null, failed: [] };
     const id = draft.collectionID;
-    const add = async (recordId, type, filename) => {
-      try { out.photos.push(await writePhotoRow(recordId, { type, caption: "" }, filename, "")); }
+    const add = async (recordId, type, filename, extra) => {
+      try { out.photos.push(await writePhotoRow(recordId, Object.assign({ type, caption: "" }, extra || {}), filename, "")); }
       catch (err) { console.warn("Photos row failed for " + filename + ":", err); out.failed.push(filename); }
     };
     if (draft.wholeSetPhoto) await add(id, "ogp_obverse", id + "_set.jpg");
+    // (B-1) The Set's own photos from its photo section.
+    for (const ph of (draft.photos || [])) {
+      if (ph && ph.filename && galleryTypeDef(ph.type)) await add(id, ph.type, ph.filename, { subGroupId: ph.subGroupId || "", caption: ph.caption || "" });
+    }
     for (const ch of (draft.children || [])) {
       if (ch.photos && ch.photos.obverse) await add(ch.collectionID, "obverse", ch.collectionID + "_obverse.jpg");
       if (ch.photos && ch.photos.reverse) await add(ch.collectionID, "reverse", ch.collectionID + "_reverse.jpg");
@@ -16859,6 +16870,7 @@
   // ==================================================================
 
   let toastTimer;
+  const TOAST_LONG_MAX_MS = 25000;
   // Real live-run finding (#10): a fixed 2600ms was too short to read
   // several real toasts in this app, especially Add Coin's own save
   // confirmations ("Saved AY-00696 to Staging on OneDrive (copy) with 2
@@ -16875,7 +16887,10 @@
     toast.textContent = msg;
     toast.classList.add("show");
     clearTimeout(toastTimer);
-    const duration = Math.max(2600, Math.min(7000, 1800 + msg.length * 40));
+    // (F-4, Build 3 TEST round) A long message stays up long enough to read
+    // (about 14 characters a second, up to 25 s); short ones are unchanged.
+    const duration = msg.length <= 130 ? Math.max(2600, Math.min(7000, 1800 + msg.length * 40))
+      : Math.min(TOAST_LONG_MAX_MS, 1800 + msg.length * 70);
     toastTimer = setTimeout(() => toast.classList.remove("show"), duration);
   }
 
@@ -32439,6 +32454,12 @@
   //   onRemove(entry)  optional, after a photo is taken off the draft
   //                    (the Staging edit counts removed stored photos).
   const DRAFT_NOT_SAVED_TEXT = "Not saved — tap Save changes again";
+  // (F-6, Build 3 TEST round) The tile's words follow the button: a first
+  // save that did not finish says "Save again" (enterFirstSaveRetry).
+  function draftNotSavedText() {
+    try { return editDraftFiles && editDraftFiles.firstSave ? "Not saved — tap Save again" : DRAFT_NOT_SAVED_TEXT; }
+    catch (e) { return DRAFT_NOT_SAVED_TEXT; } // before the edit state exists (startup)
+  }
 
   // Placing a pick in draft mode: never a commit, whatever the target id.
   // A Replace takes the old photo's own place and its label, like the
@@ -32579,7 +32600,7 @@
       : `<div class="sg-photo-empty">${entry ? (loadingStored ? "…" : def.icon) : "＋"}</div>`;
     const stateLines = draft ? `
       ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
-      ${entry && entry.uploadError ? `<div class="photo-upload-state failed">${DRAFT_NOT_SAVED_TEXT}</div>` : ""}` : `
+      ${entry && entry.uploadError ? `<div class="photo-upload-state failed">${draftNotSavedText()}</div>` : ""}` : `
       ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
       ${entry && entry.uploadPending ? `<div class="photo-upload-state">Saving…</div>` : ""}
       ${pendingStateLine(entry)}`;
@@ -33131,7 +33152,7 @@
       const stateLines = `
         ${loadingStored ? `<div class="photo-upload-state">Loading…</div>` : ""}
         ${entry.uploadPending && !draft ? `<div class="photo-upload-state">Saving…</div>` : ""}
-        ${draft ? (entry.uploadError ? `<div class="photo-upload-state failed">${DRAFT_NOT_SAVED_TEXT}</div>` : "") : pendingStateLine(entry)}`;
+        ${draft ? (entry.uploadError ? `<div class="photo-upload-state failed">${draftNotSavedText()}</div>` : "") : pendingStateLine(entry)}`;
       thumb.innerHTML = chooserMode ? `
         ${galleryThumbInner(entry, { row: true, inside: removeBtn + failedOverlay })}
         <button type="button" class="gc-label-line" data-role="label"></button>
@@ -36756,9 +36777,18 @@
   }
 
   // (ao) Stage 2: timed for the Docket report.
+  // (F-3, Build 3 TEST round) The label says what this tap really does:
+  // finishing a first save (and putting the coin on All when it was a Save
+  // to Database), editing a Staging draft, or a new coin's save.
+  function addCoinSaveLabel(destination) {
+    if (editingCoinDraftId && editDraftFiles && editDraftFiles.firstSave) {
+      return "Add Coin: Save again, finishing " + editingCoinDraftId + (editDraftFiles.firstSave.direct ? " (then Promote to All)" : " in Staging");
+    }
+    if (editingCoinDraftId) return "Add Coin: Staging edit of " + editingCoinDraftId;
+    return destination === "database" ? "Add Coin: Save to Database" : "Add Coin: Save to Staging";
+  }
   function completeAddCoinSave(destination, match) {
-    return withSaveTiming(destination === "database" ? "Add Coin: Save to Database" : "Add Coin: Save to Staging",
-      () => completeAddCoinSaveUntimed(destination, match));
+    return withSaveTiming(addCoinSaveLabel(destination), () => completeAddCoinSaveUntimed(destination, match));
   }
   async function completeAddCoinSaveUntimed(destination, match) {
     const btnId = destination === "database" ? "saveToDatabaseBtn" : "saveToStagingBtn";
@@ -36857,10 +36887,12 @@
       } catch (e) {
         if (e && e.code === DRAFT_ID_IN_USE) {
           addCoinPendingFirstWrite = null;
+          noteSaveOutcome("refused: " + collectionId + " already in use in Staging (nothing written)");
           showToast("Couldn't save: " + e.message + " Your entry is still here.");
           return;
         }
         console.warn("Add Coin save: the draft's first write failed:", e);
+        noteSaveOutcome("failed: the draft's first write (" + saveFailureReason(e) + "); " + collectionId + " kept for Save again");
         showToast("Couldn't save " + collectionId + ": " + String(e && e.message || e) +
           ". Your entry is still here — tap Save again: it keeps " + collectionId + " and finishes whatever landed.");
         return;
@@ -36903,6 +36935,11 @@
         });
         const fileWord = (k) => k + " file" + (k === 1 ? "" : "s");
         const why = photos.failed.map(n => n + " — " + (photos.reasons[n] || "failed")).join("; ");
+        // (F-2) The save log says it did not finish, and why.
+        noteSaveOutcome("not finished: " + (finalWriteError ? "the draft's final write failed (" + saveFailureReason(finalWriteError) + ")" : "") +
+          (finalWriteError && photos.failed.length ? "; " : "") +
+          (photos.failed.length ? fileWord(photos.failed.length) + " didn't upload (" + why + ")" : "") +
+          "; " + collectionId + " is in Staging" + (wantsDirect && !gateBlocked ? ", nothing on All" : "") + "; the form waits for Save again");
         showToast(finalWriteError
           ? "Couldn't finish " + collectionId + "'s draft (" + String(finalWriteError.message || finalWriteError) + "). " +
             (photos.uploaded.length || receiptName ? "The files that uploaded are in Staging; " : "") +
@@ -36944,7 +36981,8 @@
       // fall through to the ordinary Staging-only save below, not attempt
       // a promote with no CoinID.
       if (wantsDirect && !gateBlocked) {
-        await promoteCoinDraft(collectionId);
+        const promoted = await promoteCoinDraft(collectionId);
+        noteSaveOutcome(promoted ? "saved; promoted " + collectionId + " to All" : "saved to Staging; Promote did not finish (see the message)");
         await refreshCoinDraftCache();
         return;
       }
@@ -36955,8 +36993,11 @@
       // would report "1 draft" on a folder that already holds several. One
       // extra folder walk per save is cheap; saves are rare.
       await refreshCoinDraftCache();
+      noteSaveOutcome("saved " + collectionId + " to Staging" + (photos.uploaded.length || receiptName ? " with " + (photos.uploaded.length + (receiptName ? 1 : 0)) + " files" : ""));
       showToast("Saved " + collectionId + " to Staging on OneDrive (" + WRITE_TARGET + ")" +
-        (photos.uploaded.length ? " with " + photos.uploaded.length + " file" + (photos.uploaded.length === 1 ? "" : "s") : "") +
+        // (F-5) Files as Staging Review counts them: every photo file and the receipt.
+        ((photos.uploaded.length + (receiptName ? 1 : 0)) ? " with " + (photos.uploaded.length + (receiptName ? 1 : 0)) + " file" +
+          ((photos.uploaded.length + (receiptName ? 1 : 0)) === 1 ? "" : "s") : "") +
         (match.coinId ? " · CoinID " + match.coinId : " · CoinID pending research") +
         (gateBlocked ? ". It was NOT written to the All sheet: " + gateMissing.join(" and ") + " " +
           (gateMissing.length > 1 ? "are" : "is") + " needed first (Edit the draft to set " +
@@ -36964,6 +37005,7 @@
         ". Review it under Staging Review.");
     } catch (e) {
       console.error("Add Coin save failed:", e);
+      noteSaveOutcome("failed (" + saveFailureReason(e) + ")");
       // (A2, Build 3) Only true before the draft's first write was sent.
       showToast(addCoinPendingFirstWrite || btn.dataset.firstWriteLanded === "1"
         ? "Something failed after the save started: " + String(e && e.message || e) + ". Check Staging Review before saving again; your entry is still here."
@@ -37016,6 +37058,7 @@
         : "";
       const reasons = uploadFailures.reasons || {};
       const why = uploadFailures.filter(n => reasons[n]).map(n => n + " — " + reasons[n]);
+      noteSaveOutcome("not saved: " + uploadFailures.length + " file(s) didn't upload (" + (why.length ? why.join("; ") : uploadFailures.join(", ")) + "); nothing recorded");
       showToast("Couldn't save " + uploadFailures.length + " file" + (uploadFailures.length === 1 ? "" : "s") +
         " to Staging (" + uploadFailures.join(", ") + "). Nothing was recorded — everything is still here. " +
         "Tap ↻ or " + (editDraftFiles && editDraftFiles.firstSave ? "Save again" : "Save changes") + " to try again." +
@@ -37072,10 +37115,12 @@
       resetAddCoinAfterSave();
       const direct = firstSave.direct && match && match.how !== "none" && !!form.finish && !!form.category;
       if (direct) {
-        await promoteCoinDraft(collectionId);
+        const promoted = await promoteCoinDraft(collectionId);
+        noteSaveOutcome(promoted ? "draft finished; promoted " + collectionId + " to All" : "draft finished; Promote did not finish (see the message)");
         await refreshCoinDraftCache();
         return;
       }
+      noteSaveOutcome("draft finished: every file of " + collectionId + " is in Staging");
       await refreshCoinDraftCache();
       showToast("Saved " + collectionId + " to Staging on OneDrive (" + WRITE_TARGET + ") — every file is in now" +
         (updated.coinId ? " · CoinID " + updated.coinId : " · CoinID pending research") +
@@ -37083,6 +37128,7 @@
         ". Review it under Staging Review.");
       return;
     }
+    noteSaveOutcome("saved changes to " + collectionId);
     await refreshCoinDraftCache();
     clearCoinDraftEditContext();
     resetAddCoinAfterSave();
@@ -39521,6 +39567,7 @@
     // OneDrive (see restorePartialChildPhotos below) instead of requiring
     // Ray to re-take a photo that's already sitting in Staging.
     document.getElementById("addSetChildPauseBtn").addEventListener("click", async () => {
+      let pausePhotoError = "";
       if (currentSetDraft) {
         const values = readChildFormValues();
         const childId = nextChildCollectionId(currentSetDraft);
@@ -39535,14 +39582,20 @@
         try {
           obvName = await uploadDraftPhoto(currentSetDraft.collectionID, "childObv", childId + "_obverse.jpg");
           revName = await uploadDraftPhoto(currentSetDraft.collectionID, "childRev", childId + "_reverse.jpg");
-        } catch (e) { /* best-effort — text fields still persist even if a photo upload fails */ }
+        } catch (e) {
+          // Best-effort — text fields still persist even if a photo upload
+          // fails. (Build 3 TEST round) But never silently: say so.
+          pausePhotoError = saveFailureReason(e);
+        }
         if (!obvName && priorPhotos.obverse) obvName = priorPhotos.obverse;
         if (!revName && priorPhotos.reverse) revName = priorPhotos.reverse;
         const isEmpty = childFormValuesAreEmpty(values) && !obvName && !revName;
         currentSetDraft.partialChild = isEmpty ? null : Object.assign({}, values, { photos: { obverse: obvName, reverse: revName } });
         try { await writeSetDraft(currentSetDraft); } catch (e) { /* best-effort — still let them navigate away */ }
       }
-      showToast("Left as Draft — resume any time from In Progress Sets.");
+      showToast(pausePhotoError
+        ? "Left as Draft, but this coin's photo did NOT upload (" + pausePhotoError + "). Take it again when you resume, from In Progress Sets."
+        : "Left as Draft — resume any time from In Progress Sets.");
       navigate("inprogresssets");
     });
   }
@@ -39894,6 +39947,9 @@
   async function uploadDraftPhoto(collectionId, fileKey, fileName) {
     const file = addSetPhotoFiles[fileKey];
     if (!file) return "";
+    return uploadSetDraftFile(collectionId, file, fileName);
+  }
+  async function uploadSetDraftFile(collectionId, file, fileName) {
     const folder = setDraftFolder(collectionId);
     const dot = fileName.lastIndexOf(".");
     const stem = dot > 0 ? fileName.slice(0, dot) : fileName, ext = dot > 0 ? fileName.slice(dot) : "";
@@ -39917,11 +39973,66 @@
   // to be in use, and by showAddSetStep1 (a fresh Add Set).
   let addSetUnfinishedStart = null;
 
-  async function startSetCapture() {
+  // (B-1, Build 3 TEST round, 15 Nov 2026) Every photo Add Set's photo
+  // section holds is saved. Before this only the Package / OGP front reached
+  // Staging (mirrored into addSetPhotoFiles.whole, uploaded as set.jpg); the
+  // Whole set front / back, Package back, COA, Other and sub-group photos
+  // lived only in memory and were dropped behind "Reserved … set saved" (on
+  // main too). Now each goes to Staging/{id}/ under its gallery name
+  // (galleryFilenameFor: {id}_obverse.jpg, {id}_ogp_reverse.jpg,
+  // {id}_coa_01.jpg, {id}_{sg}_obverse.jpg …), never over another file
+  // (uploadSetDraftFile: the same bytes adopted, else _02 …), and set.json
+  // lists them in `photos` ({ type, subGroupId, filename, caption }).
+  // Promotion moves them to CoinPhotos and writes their Photos rows
+  // (plannedPromotionMoves, recordPromotedSetRecords). The Package front
+  // keeps its old route (set.jpg), so it is not listed twice.
+  function addSetGalleryPhotosToSave(collectionId) {
+    const lists = [galleryFor(ADDSET_GALLERY_ID)];
+    if (collectionId) lists.push(galleryFor(collectionId));
+    const out = [];
+    lists.forEach(list => list.forEach(e => {
+      const def = galleryTypeDef(e.type);
+      if (!def || !e.blob || e.type === "ogp_obverse") return;
+      if (def.tier !== "set" && def.tier !== "subgroup") return;
+      if (out.indexOf(e) === -1) out.push(e);
+    }));
+    return out;
+  }
+  async function uploadSetGalleryPhotos(collectionId, existing) {
+    const photos = (existing || []).slice();
+    const entries = addSetGalleryPhotosToSave(collectionId);
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i];
+      const sameType = entries.slice(0, i).filter(x => x.type === e.type && (x.subGroupId || "") === (e.subGroupId || "")).length;
+      const names = galleryFilenameFor(collectionId, e.type, sameType, e.subGroupId);
+      if (!names) continue;
+      const def = galleryTypeDef(e.type);
+      // Already uploaded for this draft (an earlier attempt of this save
+      // whose set.json write then failed): listed again, never sent again.
+      const name = (e.setDraftSaved && e.setDraftSaved.id === collectionId) ? e.setDraftSaved.filename
+        : await uploadSetDraftFile(collectionId, e.blob, names.cropped);
+      e.setDraftSaved = { id: collectionId, filename: name };
+      if (!photos.some(p => p.filename === name)) {
+        photos.push({ type: e.type, subGroupId: def.tier === "subgroup" ? (e.subGroupId || DEFAULT_SUBGROUP_ID) : "",
+          filename: name, caption: e.caption || "" });
+      }
+    }
+    return photos;
+  }
+
+  // (F-1, Build 3 TEST round) Add Set's saves are in Docket > About's save
+  // log like every other save; the outcome says what landed.
+  function startSetCapture() {
+    const resuming = currentSetDraft ? currentSetDraft.collectionID : "";
+    const pendingId = addSetUnfinishedStart ? addSetUnfinishedStart.id : "";
+    return withSaveTiming(resuming ? "Add Set: save Step 1 of " + resuming
+      : pendingId ? "Add Set: finish the start of " + pendingId : "Add Set: reserve and save", () => startSetCaptureUntimed());
+  }
+  async function startSetCaptureUntimed() {
     const typedName = document.getElementById("addSetName").value.trim();
-    if (!typedName) { showToast("Give the set a name first."); return; }
+    if (!typedName) { noteSaveOutcome("not saved: no name"); showToast("Give the set a name first."); return; }
     const yearValue = readAddSetYear();
-    if (yearValue === null) { showToast('Pick a Year, or check "Various."'); return; }
+    if (yearValue === null) { noteSaveOutcome("not saved: no year"); showToast('Pick a Year, or check "Various."'); return; }
     // The Name field itself is year-less; the STORED/displayed setName
     // recomposes "{Year} {Name}" (composeSetName) so the Docket, In
     // Progress Sets, and the child-capture header keep reading naturally.
@@ -39949,6 +40060,7 @@
         // was picked, which would otherwise blank out an existing photo).
         const wholeName = (await uploadDraftPhoto(collectionId, "whole", "set.jpg")) || resumingDraft.wholeSetPhoto;
         const newReceipt = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
+        resumingDraft.photos = await uploadSetGalleryPhotos(collectionId, resumingDraft.photos); // B-1
         // "Not scanned, paper in binder" picked now replaces the draft's receipt
         // (its old file stays in Staging); a new file replaces a Binder.
         const receiptName = addSetReceiptBinder ? "" : (newReceipt || resumingDraft.receiptPhoto);
@@ -39963,6 +40075,7 @@
         Object.assign(resumingDraft, readAddSetPurchaseStorage());
         await writeSetDraft(resumingDraft);
         currentSetDraft = resumingDraft;
+        noteSaveOutcome("saved " + collectionId + "'s Step 1" + setStartFilesText(resumingDraft));
         showToast("Saved.");
         if (resumingDraft.trackIndividually) {
           renderChildStep();
@@ -40002,31 +40115,41 @@
       }
       const wholeName = await uploadDraftPhoto(collectionId, "whole", "set.jpg");
       const receiptName = await uploadDraftPhoto(collectionId, "receipt", addSetPhotoFilenames.receipt);
+      draft.photos = await uploadSetGalleryPhotos(collectionId, []); // B-1: every other photo the section holds
       draft.wholeSetPhoto = wholeName;
       draft.receiptPhoto = receiptName;
       draft.receiptBinder = !receiptName && !!addSetReceiptBinder;
       await writeSetDraft(draft);
       addSetUnfinishedStart = null;
       currentSetDraft = draft;
+      noteSaveOutcome("saved: reserved " + collectionId + setStartFilesText(draft));
       updateInProgressSetsBadge();
       if (trackIndividually) {
-        showToast("Reserved " + collectionId + " — draft started in Staging.");
+        showToast("Reserved " + collectionId + " — draft started in Staging" + setStartFilesText(draft) + ".");
         renderChildStep();
       } else {
         // Resolved July 18 ProjectPlan item: not tracked individually =
         // Step 2 is skipped entirely, the record is already Complete (see
         // buildSetDraft) the instant this write succeeds.
-        showToast("Reserved " + collectionId + " — set saved (not tracked coin-by-coin).");
+        showToast("Reserved " + collectionId + " — set saved (not tracked coin-by-coin)" + setStartFilesText(draft) + ".");
         navigate("dashboard");
       }
     } catch (e) {
       note.textContent = "";
       const u = addSetUnfinishedStart;
+      noteSaveOutcome("failed (" + saveFailureReason(e) + ")" + (u && !resumingDraft ? "; " + u.id + " kept for the same button" : ""));
       showToast(u && !resumingDraft && !String(e).includes("Write layer unavailable")
         ? "Couldn't finish " + u.id + ": " + (e && e.message ? e.message : e) + ". Your Set is still here — tap the same button again: it keeps " +
           u.id + (u.firstWritten ? " (its draft is already in Staging)" : "") + "."
         : writeUnavailableMessage(e));
     }
+  }
+
+  // (B-1) ", with 3 files" — every file the start put in Staging (the
+  // Package front, the receipt and the photo section's photos).
+  function setStartFilesText(draft) {
+    const n = (draft.wholeSetPhoto ? 1 : 0) + (draft.receiptPhoto ? 1 : 0) + (draft.photos || []).length;
+    return n ? ", with " + n + " file" + (n === 1 ? "" : "s") : "";
   }
 
   function writeUnavailableMessage(e) {
@@ -40227,7 +40350,10 @@
     }
   }
 
-  async function saveCurrentChild() {
+  function saveCurrentChild() {
+    return withSaveTiming("Add Set: save a coin of " + (currentSetDraft ? currentSetDraft.collectionID : "?"), () => saveCurrentChildUntimed());
+  }
+  async function saveCurrentChildUntimed() {
     const draft = currentSetDraft;
     if (!draft) return;
     const denom = document.getElementById("addSetChildDenom").value;
@@ -40251,10 +40377,12 @@
       }, subGroup);
       currentSetDraft = updated;
       note.textContent = "";
+      noteSaveOutcome("saved " + childId + (obvName || revName ? " with " + [obvName, revName].filter(Boolean).length + " photo(s)" : ""));
       showToast("Saved " + childId + " to the draft.");
       renderChildStep();
     } catch (e) {
       note.textContent = "";
+      noteSaveOutcome("failed (" + saveFailureReason(e) + ")");
       showToast(writeUnavailableMessage(e));
     }
   }
