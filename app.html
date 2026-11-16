@@ -211,6 +211,19 @@
      Docket's Build line (which stays the last thing on the screen). Same
      small gray text; wraps on a phone. */
   .load-report { font-size: 11px; color: var(--text-muted); text-align: center; margin: 10px 0 0; overflow-wrap: anywhere; }
+  /* (B7, Build 4) Check files and rows: small text that wraps any long
+     file name, so the Docket never scrolls sideways. */
+  #docketCheckAccordion { margin-top: 28px; }
+  #docketCheckAccordion + #docketAboutAccordion { margin-top: 14px; }
+  .docket-check-intro, .docket-check-message { font-size: 12px; color: var(--text-muted); margin: 0 0 8px; }
+  .docket-check-btns { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .docket-check-result { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+  .docket-check-line { margin: 2px 0 0; }
+  .docket-check-head, .docket-check-foot, .docket-check-info, .docket-check-none, .docket-check-more { color: var(--text-muted); }
+  .docket-check-summary, .docket-check-warn, .docket-check-fail { font-weight: 700; }
+  .docket-check-section { font-weight: 700; margin-top: 10px; }
+  .docket-check-group { font-style: italic; margin-top: 4px; }
+  .docket-check-item, .docket-check-info { padding-left: 8px; }
   #docketAboutAccordion { margin-top: 28px; }
   #docketAboutAccordion + #docketBuildLine { margin-top: 14px; }
   /* (ao) Stage 3: where the data on screen came from, and Refresh. */
@@ -4746,6 +4759,22 @@
             <p class="placeholder-note" id="docketOtherEmptyNote" style="display:none;">No outstanding photo gaps right now.</p>
           </div>
         </div>
+        <!-- (B7, Build 4) The read-only consistency check: on a tap only,
+             GET only, never fixes and never saves its result. Its findings
+             are NOT counted in the Docket fob or the section counts above. -->
+        <div class="detail-accordion" id="docketCheckAccordion">
+          <button type="button" class="accordion-header" id="docketCheckHeader" aria-expanded="false">
+            <span>Check files and rows</span>
+            <span class="accordion-chevron">›</span>
+          </button>
+          <div class="accordion-body hidden" id="docketCheckBody">
+            <p class="docket-check-intro">Reads the photo and receipt folders, the Photos, Receipts and All tabs and Staging, and lists anything that doesn't line up. Changes nothing.</p>
+            <p class="docket-check-btns"><button type="button" class="load-report-check" id="docketCheckRunBtn">Run the check</button>
+              <button type="button" class="load-report-check" id="docketCheckCopyBtn" style="display:none;">Copy the result</button></p>
+            <p class="docket-check-message" id="docketCheckMessage" style="display:none;"></p>
+            <div class="docket-check-result" id="docketCheckResult"></div>
+          </div>
+        </div>
         <!-- (ao) Diagnostics, collapsed (Ray, 7 Nov 2026). The Build line
              stays the last thing on the Docket, outside it. -->
         <div class="detail-accordion" id="docketAboutAccordion">
@@ -7186,6 +7215,455 @@
     renderLoadReport();
     if (launchReadReport && !workbookVersionChecks.length && !workbookVersionCheckInFlight &&
         liveDataMode() === "live") checkWorkbookVersion();
+  }
+
+  // ==================================================================
+  // CONSISTENCY CHECK (B7, Build 4 of the November 2026 review)
+  // ==================================================================
+  // Docket > "Check files and rows". On Ray's tap only, it reads OneDrive
+  // and the workbook FRESH (never the loaded indexes, never the device's
+  // saved copy), compares them and lists what does not line up. GET only:
+  // every request goes through consistencyReadClient(), which offers the
+  // five read methods below and throws on any other name, so a write cannot
+  // be added here by accident. It never fixes anything and never saves its
+  // result (memory only, gone on reload). It makes no Excel session (those
+  // are made only at a write step's start, invariant 18). A part whose read
+  // fails says "Could not check", never "None found". Review A19 (Copilot_Rules
+  // rule A12 covers the workbook side): rows whose CollectionID is not on All
+  // are listed in section 3, with whether that id is still to be handed out.
+  const CONSISTENCY_READ_METHODS = ["listChildren", "getJson", "readTableHeaderRow", "readTableColumn", "readWorkbookRange"];
+  const CONSISTENCY_SCREEN_CAP = 20;       // lines per group on screen; Copy has all
+  let consistencyReadTimeoutMs = 60000;    // per read (Ray, Build 4 Q6); Build 8 brings the shared deadline
+  let consistencyCheckInFlight = null;
+  let consistencyResult = null;
+  let consistencyScreenCap = CONSISTENCY_SCREEN_CAP;
+  function __setConsistencyReadTimeoutForTest(ms) { consistencyReadTimeoutMs = ms; } // test-only seam
+  function __setConsistencyScreenCapForTest(n) { consistencyScreenCap = n == null ? CONSISTENCY_SCREEN_CAP : n; } // test-only seam
+  function __getConsistencyResultForTest() { return consistencyResult; } // test-only seam
+  function __resetConsistencyCheckForTest() { consistencyResult = null; consistencyCheckInFlight = null; consistencyScreenCap = CONSISTENCY_SCREEN_CAP; } // test-only seam
+
+  // The only client the check may use. Each read counts toward the run's
+  // "N reads" and has its own ceiling; anything that is not a listed read
+  // method throws before it reaches Graph.
+  function consistencyReadClient(counter) {
+    const allowed = new Set(CONSISTENCY_READ_METHODS);
+    const target = {};
+    CONSISTENCY_READ_METHODS.forEach(name => {
+      target[name] = (...args) => {
+        counter.reads++;
+        let timer = null;
+        const ceiling = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("no answer in " + Math.round(consistencyReadTimeoutMs / 1000) + " s")), consistencyReadTimeoutMs);
+        });
+        const call = Promise.resolve().then(() => graph()[name](...args));
+        return Promise.race([call, ceiling]).finally(() => clearTimeout(timer));
+      };
+    });
+    return new Proxy(target, {
+      get(t, prop) {
+        if (typeof prop === "string" && !allowed.has(prop)) {
+          throw new Error("The consistency check is read-only: " + prop + " is not allowed.");
+        }
+        return t[prop];
+      }
+    });
+  }
+
+  function consistencyReason(e) {
+    const s = String((e && e.message) || e || "failed");
+    return s.length > 120 ? s.slice(0, 117) + "…" : s;
+  }
+
+  // A table's rows by header name, with their sheet row numbers. Same shape
+  // as readRecordRows(), but through the read-only client and with the
+  // table's header read fresh, without touching the shared header cache.
+  async function consistencyReadTableRows(rc, sheetName, tableName, idColumn) {
+    const map = headerMapFromTableHeader(sheetName, await rc.readTableHeaderRow(writePaths().workbook, tableName));
+    const indices = Object.keys(map).map(k => map[k]);
+    if (!indices.length) return [];
+    const col = await rc.readTableColumn(writePaths().workbook, tableName, idColumn);
+    if (col.length < 2) return [];
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const grid = await rc.readWorkbookRange(writePaths().workbook, sheetName, "A2:" + last + col.length);
+    const out = [];
+    (grid || []).forEach((row, i) => {
+      const rec = { __row: i + 2 };
+      let any = false;
+      Object.keys(map).forEach(name => {
+        const raw = row[map[name] - 1];
+        const v = raw === undefined || raw === null ? "" : String(raw).trim();
+        rec[name] = v;
+        if (v) any = true;
+      });
+      if (any) out.push(rec);
+    });
+    return out;
+  }
+
+  // Every read the check makes. Each part is { ok, value } or { ok: false,
+  // reason }; one failing part never stops the others.
+  async function gatherConsistencyData(rc) {
+    const p = writePaths();
+    const part = async fn => { try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false, reason: consistencyReason(e) }; } };
+    const [all, photos, receipts, photoFiles, receiptFiles, staging] = await Promise.all([
+      part(() => rc.readTableColumn(p.workbook, ALL_TABLE_NAME, "CollectionID")),
+      part(() => consistencyReadTableRows(rc, PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID")),
+      part(() => consistencyReadTableRows(rc, RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID")),
+      part(() => rc.listChildren(p.coinPhotos)),
+      part(() => rc.listChildren(p.coinReceipts)),
+      part(async () => {
+        const names = await rc.listChildren(p.stagingBase);
+        const folders = [];
+        for (const name of names) {
+          if (!STAGING_DRAFT_FOLDER_RE.test(String(name))) { folders.push({ name, draftFolder: false }); continue; }
+          const folder = p.stagingBase + "/" + name;
+          try {
+            const files = await rc.listChildren(folder);
+            const lower = files.map(f => String(f).toLowerCase());
+            const coin = lower.indexOf("coin.json") !== -1 ? await rc.getJson(folder + "/coin.json") : null;
+            const set = lower.indexOf("set.json") !== -1 ? await rc.getJson(folder + "/set.json") : null;
+            folders.push({ name, draftFolder: true, files, coin, set });
+          } catch (e) {
+            folders.push({ name, draftFolder: true, failed: consistencyReason(e) });
+          }
+        }
+        return folders;
+      })
+    ]);
+    // Column values from index 1 (index 0 is the header cell).
+    if (all.ok) all.value = (all.value || []).slice(1).map(v => String(v == null ? "" : v).trim()).filter(Boolean);
+    return { all, photos, receipts, photoFiles, receiptFiles, staging };
+  }
+
+  // A file name's kind, for the "same kind as" hint: lower case, no ending,
+  // no trailing _NN numbers.
+  function consistencyKindKey(name) {
+    return String(name).toLowerCase().replace(/\.[^.]+$/, "").replace(/(_\d+)+$/, "");
+  }
+  function consistencyNoEnding(name) { return String(name).toLowerCase().replace(/\.[^.]+$/, ""); }
+  const CONSISTENCY_AY_PREFIX_RE = /^(AY-\d{5}(?:-[A-Z]+)?)_/i;
+  const CONSISTENCY_RC_PREFIX_RE = /^(RC-\d{5})_/i;
+  function consistencyIdNumber(id) {
+    const m = /^AY-(\d{5})/i.exec(String(id || ""));
+    return m ? parseInt(m[1], 10) : NaN;
+  }
+  function consistencyRowsText(rows) {
+    const r = rows.map(String);
+    return r.length === 1 ? "row " + r[0] : "rows " + r.slice(0, -1).join(", ") + " and " + r[r.length - 1];
+  }
+
+  // Pure: the data in, the sections out. No Graph, no DOM. Each section:
+  // { n, title, failed (reason or ""), groups: [{ title, lines, info }] }.
+  // A group marked info is shown but not counted as something to look at.
+  function compareConsistency(d) {
+    const sections = [];
+    const add = (n, title, needs, build) => {
+      const missing = needs.filter(k => !d[k] || !d[k].ok);
+      const s = { n, title, failed: "", groups: [] };
+      if (missing.length) {
+        s.failed = missing.map(k => ({ all: "All", photos: "the Photos tab", receipts: "the Receipts tab",
+          photoFiles: "CoinPhotos", receiptFiles: "CoinReceipts", staging: "Staging" }[k] + ": " + d[k].reason)).join("; ");
+      } else {
+        build(s);
+      }
+      sections.push(s);
+    };
+    const group = (s, title, lines, info) => { if (lines.length) s.groups.push({ title: title || "", lines, info: !!info }); };
+    const allIds = new Set(d.all.ok ? d.all.value.map(v => v.toUpperCase()) : []);
+    const onAll = id => allIds.has(String(id || "").trim().toUpperCase());
+    let nextNumber = NaN;
+    if (d.all.ok && d.staging.ok) {
+      let allMax = 0, stagingMax = 0;
+      d.all.value.forEach(v => { const n = reservationIdNumber(v); if (!isNaN(n)) allMax = Math.max(allMax, n); });
+      d.staging.value.forEach(f => { const n = stagingFolderIdNumber(f.name); if (!isNaN(n)) stagingMax = Math.max(stagingMax, n); });
+      nextNumber = Math.max(allMax, stagingMax) + 1;
+    }
+    const photoRows = d.photos.ok ? d.photos.value : [];
+    const receiptRows = d.receipts.ok ? d.receipts.value : [];
+    const realReceipt = r => r.Filename && !isBinderReceiptName(r.Filename);
+    const listing = part => {
+      const m = new Map();
+      (d[part].ok ? d[part].value : []).forEach(n => { const s = String(n); if (!m.has(s.toLowerCase())) m.set(s.toLowerCase(), s); });
+      return m;
+    };
+    const photoFiles = listing("photoFiles"), receiptFiles = listing("receiptFiles");
+
+    // 1. Photos rows whose file is missing.
+    add(1, "Photos rows whose file is missing", ["photos", "photoFiles"], s => {
+      const lines = [];
+      photoRows.forEach(r => {
+        const who = (r.PhotoID || "(no PhotoID)") + " · " + (r.CollectionID || "(no CollectionID)") + (r.PhotoType ? " · " + r.PhotoType : "");
+        if (!r.Filename) lines.push(who + " has no file name (Photos row " + r.__row + ").");
+        else if (!photoFiles.has(r.Filename.toLowerCase())) lines.push(who + " · " + r.Filename + " is not in CoinPhotos (Photos row " + r.__row + ").");
+      });
+      group(s, "", lines);
+    });
+
+    // 2. Receipts rows whose file is missing (Binder rows have no file).
+    add(2, "Receipts rows whose file is missing", ["receipts", "receiptFiles"], s => {
+      const lines = [];
+      receiptRows.forEach(r => {
+        const who = (r.ReceiptID || "(no ReceiptID)") + " · " + (r.CollectionID || "(no CollectionID)");
+        if (!r.Filename) lines.push(who + " has no file name (Receipts row " + r.__row + ").");
+        else if (realReceipt(r) && !receiptFiles.has(r.Filename.toLowerCase())) lines.push(who + " · " + r.Filename + " is not in CoinReceipts (Receipts row " + r.__row + ").");
+      });
+      group(s, "", lines);
+    });
+
+    // 3. Rows whose CollectionID is not on All (review A19).
+    add(3, "Photos / Receipts rows whose CollectionID is not on All", ["all", "photos", "receipts", "staging"], s => {
+      const lines = [];
+      const handed = (id, what) => {
+        const n = consistencyIdNumber(id);
+        if (isNaN(n)) return "";
+        return n >= nextNumber ? " This id has not been handed out yet: the coin that gets it will show this " + what + "."
+          : " This id will not be handed out again.";
+      };
+      const scan = (rows, tab, idCol, what) => rows.forEach(r => {
+        const id = (r[idCol] || "(no " + idCol + ")");
+        if (!r.CollectionID) lines.push(id + " (" + tab + " row " + r.__row + ") has no CollectionID.");
+        else if (!onAll(r.CollectionID)) lines.push(id + " · " + r.CollectionID + " (" + tab + " row " + r.__row + "): " + r.CollectionID + " is not on All." + handed(r.CollectionID, what));
+      });
+      scan(photoRows, "Photos", "PhotoID", "photo");
+      scan(receiptRows, "Receipts", "ReceiptID", "receipt");
+      group(s, "", lines);
+    });
+
+    // 4. One file on two rows; one ReceiptID naming two files.
+    add(4, "One file on two rows", ["photos", "receipts"], s => {
+      const byFile = new Map();
+      photoRows.forEach(r => { if (!r.Filename) return; const k = r.Filename.toLowerCase();
+        (byFile.get(k) || byFile.set(k, { name: r.Filename, rows: [] }).get(k)).rows.push(r); });
+      const p = [];
+      byFile.forEach(v => { if (v.rows.length > 1) p.push(v.name + " is on Photos " + consistencyRowsText(v.rows.map(r => r.__row + " (" + (r.PhotoID || "no PhotoID") + ")")) + "."); });
+      group(s, "Photos", p);
+      // A shared receipt (one ReceiptID, one file, several coins) is by design.
+      const idsByFile = new Map(), filesById = new Map();
+      receiptRows.filter(realReceipt).forEach(r => {
+        const f = r.Filename.toLowerCase(), id = r.ReceiptID || "(no ReceiptID)";
+        const a = idsByFile.get(f) || idsByFile.set(f, { name: r.Filename, ids: new Map() }).get(f);
+        (a.ids.get(id) || a.ids.set(id, []).get(id)).push(r.__row);
+        const b = filesById.get(id) || filesById.set(id, new Map()).get(id);
+        (b.get(f) || b.set(f, { name: r.Filename, rows: [] }).get(f)).rows.push(r.__row);
+      });
+      const q = [];
+      idsByFile.forEach(v => {
+        if (v.ids.size > 1) q.push(v.name + " is under " + v.ids.size + " ReceiptIDs: " +
+          [...v.ids].map(([id, rows]) => id + " (" + consistencyRowsText(rows) + ")").join(", ") + ".");
+      });
+      filesById.forEach((files, id) => {
+        if (files.size > 1) q.push(id + " names " + files.size + " files: " +
+          [...files.values()].map(f => f.name + " (" + consistencyRowsText(f.rows) + ")").join(", ") + ". One ReceiptID must point at one file.");
+      });
+      group(s, "Receipts", q);
+    });
+
+    // 5. Duplicate PhotoIDs ((u)).
+    add(5, "Duplicate PhotoIDs", ["photos"], s => {
+      const byId = new Map();
+      photoRows.forEach(r => { if (r.PhotoID) (byId.get(r.PhotoID) || byId.set(r.PhotoID, []).get(r.PhotoID)).push(r.__row); });
+      const lines = [];
+      byId.forEach((rows, id) => { if (rows.length > 1) lines.push(id + " is on Photos " + consistencyRowsText(rows) + "."); });
+      group(s, "", lines);
+    });
+
+    // 6. Coins with 2+ Receipts rows (Former Holdings included).
+    add(6, "Coins with two or more Receipts rows", ["receipts"], s => {
+      const byCoin = new Map();
+      receiptRows.forEach(r => { if (r.CollectionID) (byCoin.get(r.CollectionID) || byCoin.set(r.CollectionID, []).get(r.CollectionID)).push(r.__row); });
+      const lines = [];
+      byCoin.forEach((rows, id) => { if (rows.length > 1) lines.push(id + " has " + rows.length + " Receipts rows (" + rows.join(", ") + ")."); });
+      group(s, "", lines);
+    });
+
+    // 7. Files in CoinPhotos with no Photos row.
+    add(7, "Files in CoinPhotos with no Photos row", ["all", "photos", "photoFiles"], s => {
+      const named = new Set(), namedNoEnding = new Set(), kindRow = new Map();
+      photoRows.forEach(r => {
+        [r.Filename, r.OriginalFilename].forEach(f => { if (f) { named.add(f.toLowerCase()); namedNoEnding.add(consistencyNoEnding(f)); } });
+        if (r.Filename && !kindRow.has(consistencyKindKey(r.Filename))) kindRow.set(consistencyKindKey(r.Filename), r.Filename);
+      });
+      const notOnAll = [], onAllLines = [], noId = [];
+      let originals = 0;
+      photoFiles.forEach((name, lower) => {
+        if (named.has(lower)) return;
+        const crop = croppedNameForRaw(name);
+        if (crop && namedNoEnding.has(consistencyNoEnding(crop))) { originals++; return; }
+        const m = CONSISTENCY_AY_PREFIX_RE.exec(name);
+        if (!m) { noId.push(name); return; }
+        const id = m[1].toUpperCase();
+        if (!onAll(id)) { notOnAll.push(name + ": " + id + " is not on All."); return; }
+        const same = kindRow.get(consistencyKindKey(name));
+        onAllLines.push(name + (same ? ": same kind as " + same + " on its row, probably an older copy kept after a Replace or Recrop, or a removed photo." : ": nothing of this kind is on a row."));
+      });
+      group(s, "No row, and the id is not on All (a deleted row, or a save that never finished)", notOnAll);
+      group(s, "No row; the coin is on All (a save that wrote the file but not its row; a photo removed in the app, or an older copy after a Replace, looks the same)", onAllLines);
+      group(s, "Name has no CollectionID", noId);
+      if (originals) group(s, "", ["Kept originals beside their crop: " + originals + " (expected)."], true);
+    });
+
+    // 8. Files in CoinReceipts with no Receipts row.
+    add(8, "Files in CoinReceipts with no Receipts row", ["all", "receipts", "receiptFiles"], s => {
+      const named = new Set(), filesById = new Map();
+      receiptRows.filter(realReceipt).forEach(r => {
+        named.add(r.Filename.toLowerCase());
+        if (r.ReceiptID && !filesById.has(r.ReceiptID.toUpperCase())) filesById.set(r.ReceiptID.toUpperCase(), r.Filename);
+      });
+      const notOnAll = [], onAllLines = [], byRc = [], noId = [];
+      receiptFiles.forEach((name, lower) => {
+        if (named.has(lower)) return;
+        const ay = CONSISTENCY_AY_PREFIX_RE.exec(name), rc = CONSISTENCY_RC_PREFIX_RE.exec(name);
+        if (ay) {
+          const id = ay[1].toUpperCase();
+          if (!onAll(id)) notOnAll.push(name + ": " + id + " is not on All.");
+          else onAllLines.push(name + ": no Receipts row names it (an older copy after a Replace, or a save that did not write its row).");
+        } else if (rc) {
+          const id = rc[1].toUpperCase();
+          byRc.push(filesById.has(id) ? name + ": " + id + " is on the Receipts tab, but its rows name " + filesById.get(id) + " (probably an older copy kept after a Replace)."
+            : name + ": no Receipts row carries " + id + ".");
+        } else noId.push(name);
+      });
+      group(s, "No row, and the id is not on All", notOnAll);
+      group(s, "No row; the coin is on All", onAllLines);
+      group(s, "Named for a ReceiptID", byRc);
+      group(s, "Name has no CollectionID (seller-date and picked names)", noId);
+    });
+
+    // 9. Staging.
+    add(9, "Staging", ["all", "staging"], s => {
+      const odd = [], noDraft = [], open = [], notMoved = [], setFiles = [], unread = [], preB1 = [];
+      d.staging.value.forEach(f => {
+        if (!f.draftFolder) { if (f.name !== "_Docket") odd.push(f.name + " is not a draft folder name; the app ignores it."); return; }
+        if (f.failed) { unread.push(f.name + ": could not check (" + f.failed + ")."); return; }
+        const others = f.files.filter(x => ["coin.json", "set.json"].indexOf(String(x).toLowerCase()) === -1);
+        if (!f.coin && !f.set) { noDraft.push(f.name + " holds no draft file (" + f.files.length + " file" + (f.files.length === 1 ? "" : "s") + "); its id stays reserved."); return; }
+        const isOn = onAll(f.name);
+        if (f.coin && isOn && f.coin.status !== COIN_DRAFT_STATUS.PROMOTED && !f.coin.allRowWritten) open.push(f.name + " is on All but its draft is still open: use Mark as promoted.");
+        if (f.set && isOn && f.set.status !== SET_STATUS.PROMOTED) open.push(f.name + " (a Set) is on All but its draft is still open.");
+        if (isOn && others.length) notMoved.push(f.name + " is on All; " + others.length + " file" + (others.length === 1 ? " is" : "s are") + " still in Staging/" + f.name + " (photos not moved).");
+        // (Ray, 16 Nov 2026) A Set draft's own photos list, while its files
+        // are still meant to be in the folder (not after promotion moved them).
+        if (f.set && !f.set.filesMovedOnPromotion) {
+          if (!Array.isArray(f.set.photos)) { preB1.push(f.name + " · no photos list (saved before the B-1 fix); not checked."); }
+          else {
+            const have = new Set(f.files.map(x => String(x).toLowerCase()));
+            f.set.photos.forEach(ph => {
+              const fn = ph && ph.filename;
+              if (fn && !have.has(String(fn).toLowerCase())) setFiles.push(f.name + " · set.json lists " + fn + ", but it is not in Staging/" + f.name + ".");
+            });
+          }
+        }
+      });
+      if (unread.length) s.failed = unread.map(u => u.replace(/\.$/, "")).join("; ");
+      group(s, "Not a draft folder name", odd);
+      group(s, "Folder with no draft file", noDraft);
+      group(s, "On All, draft still open", open);
+      group(s, "On All, files still in Staging", notMoved);
+      group(s, "Set draft: a listed photo is not in its folder", setFiles);
+      group(s, "Set drafts not checked", preB1, true);
+    });
+    return sections;
+  }
+
+  function consistencySectionCount(s) {
+    return s.groups.reduce((n, g) => n + (g.info ? 0 : g.lines.length), 0);
+  }
+  function consistencyIncomplete(result) { return result.sections.some(s => !!s.failed); }
+
+  // The result as lines, shared by the screen and Copy (B1's lesson: one
+  // text, made once, with the run's own clock). `cap`: lines per group.
+  function consistencyResultLines(result, cap) {
+    const out = [];
+    const d = new Date(result.at);
+    const day = isNaN(d.getTime()) ? "?" : d.getDate() + " " + BUILD_MONTHS[d.getMonth()];
+    const p2 = n => String(n).padStart(2, "0");
+    out.push({ kind: "head", text: "Check files and rows · " + buildLineText(BUILD_STAMP) });
+    out.push({ kind: "head", text: "Checked " + day + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + " · " + result.target + " · " +
+      (result.ms / 1000).toFixed(1) + " s · " + result.reads + " read" + (result.reads === 1 ? "" : "s") + " · Nothing was changed." });
+    const total = result.sections.reduce((n, s) => n + consistencySectionCount(s), 0);
+    out.push({ kind: "summary", text: consistencyIncomplete(result) ? "Incomplete: some parts could not be checked (below)." + (total ? " " + total + " to look at in the parts that were." : "")
+      : (total ? total + " to look at." : "No problems found.") });
+    if (result.saveRan) out.push({ kind: "warn", text: "A save ran during this check, so some lines may be out of date: run it again." });
+    result.sections.forEach(s => {
+      const n = consistencySectionCount(s);
+      out.push({ kind: "section", text: s.n + ". " + s.title + (s.failed ? "" : " (" + n + ")") });
+      if (s.failed && !s.groups.length) { out.push({ kind: "fail", text: "Could not check: " + s.failed + "." }); return; }
+      if (s.failed) out.push({ kind: "fail", text: "Could not check all of it: " + s.failed + "." });
+      if (!s.groups.length) { out.push({ kind: "none", text: "None found." }); return; }
+      if (!s.groups.some(g => !g.info)) out.push({ kind: "none", text: "None found." });
+      s.groups.forEach(g => {
+        if (g.title) out.push({ kind: "group", text: g.title + (g.info ? "" : " (" + g.lines.length + ")") });
+        g.lines.slice(0, cap).forEach(t => out.push({ kind: g.info ? "info" : "item", text: (g.info ? "" : "- ") + t }));
+        if (g.lines.length > cap) out.push({ kind: "more", text: "and " + (g.lines.length - cap) + " more (all of them are in Copy)" });
+      });
+    });
+    out.push({ kind: "foot", text: "Not checked: whether a file is the right picture; files overwritten by a Replace before 27 Oct 2026 (LIVE); the All media columns (Docket rows); Albums; empty files." });
+    out.push({ kind: "foot", text: "Ran less than 10 minutes after an Excel edit? Run it again later before acting on a line." });
+    return out;
+  }
+  function consistencyResultText(result) {
+    return consistencyResultLines(result, Infinity).map(l => l.text).join("\n");
+  }
+
+  function renderConsistencyCheck(message) {
+    const btn = document.getElementById("docketCheckRunBtn");
+    const box = document.getElementById("docketCheckResult");
+    const copy = document.getElementById("docketCheckCopyBtn");
+    const note = document.getElementById("docketCheckMessage");
+    if (btn) { btn.disabled = !!consistencyCheckInFlight; btn.textContent = consistencyCheckInFlight ? "Checking…" : (consistencyResult ? "Run it again" : "Run the check"); }
+    if (note) { note.textContent = message || ""; note.style.display = message ? "" : "none"; }
+    if (!box) return;
+    if (!consistencyResult) { box.innerHTML = ""; if (copy) copy.style.display = "none"; return; }
+    box.innerHTML = consistencyResultLines(consistencyResult, consistencyScreenCap).map(l =>
+      '<p class="docket-check-line docket-check-' + l.kind + '">' + escapeHtmlText(l.text) + "</p>").join("");
+    if (copy) copy.style.display = "";
+  }
+
+  async function runConsistencyCheck() {
+    if (consistencyCheckInFlight) return consistencyCheckInFlight; // a double tap runs once
+    if (activeSaveTiming) { renderConsistencyCheck("A save is running: run the check when it has finished."); return null; }
+    if (liveDataMode() !== "live") { renderConsistencyCheck("Sign in and load the workbook first."); return null; }
+    consistencyCheckInFlight = (async () => {
+      const counter = { reads: 0 };
+      const startedAt = Date.now();
+      const lastSaveAtStart = recentSaveTimings[0] || null;
+      renderConsistencyCheck("");
+      let data;
+      if (isOfflineNow()) {
+        const off = { ok: false, reason: "offline" };
+        data = { all: off, photos: off, receipts: off, photoFiles: off, receiptFiles: off, staging: off };
+      } else {
+        data = await gatherConsistencyData(consistencyReadClient(counter));
+      }
+      const sections = compareConsistency(data);
+      return {
+        at: startedAt, ms: Date.now() - startedAt, reads: counter.reads, sections,
+        target: WRITE_TARGET === "live" ? "LIVE" : "TEST (_Testing)",
+        saveRan: !!activeSaveTiming || (recentSaveTimings[0] || null) !== lastSaveAtStart
+      };
+    })();
+    try {
+      consistencyResult = await consistencyCheckInFlight;
+    } catch (e) {
+      consistencyCheckInFlight = null;
+      renderConsistencyCheck("The check stopped: " + consistencyReason(e));
+      return null;
+    }
+    consistencyCheckInFlight = null;
+    renderConsistencyCheck("");
+    return consistencyResult;
+  }
+
+  async function copyConsistencyResult() {
+    if (!consistencyResult) return;
+    const text = consistencyResultText(consistencyResult);
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied the check's result.");
+    } catch (e) {
+      showWriteGuard({ title: "Check files and rows", bodyHtml: '<textarea readonly style="width:100%;height:40vh;font-size:12px;">' +
+        escapeHtmlText(text) + "</textarea>", buttons: [{ label: "Close", primary: true }] });
+    }
   }
 
   // ==================================================================
@@ -11441,7 +11919,9 @@
   // kept: the row before the first save, then the row after each save. A
   // read is recognised as one of them only if EVERY column those saves
   // wrote matches, LastModified to the whole second (every app save stamps
-  // it last; Excel and Copilot never touch it, Copilot_Rules A7). A read
+  // it last; Excel and Copilot never touch it: Copilot_Rules rule A7, sheet
+  // row 11 in Ray's check of the 15 Nov 2026 copy, "never write
+  // All.LastModified"; a Copilot_Rules id, not a review finding). A read
   // that is an EARLIER state is treated as that lag: the latest state's
   // written values are applied to it before the conflict check and before
   // working out what to write (so a field set back to its old value while
@@ -40496,6 +40976,13 @@
   wireStaticAccordionToggle("docketResearchHeader", "docketResearchBody");
   wireStaticAccordionToggle("docketOtherHeader", "docketOtherBody");
   wireStaticAccordionToggle("docketAboutHeader", "docketAboutBody"); // (ao) diagnostics
+  wireStaticAccordionToggle("docketCheckHeader", "docketCheckBody"); // (B7, Build 4)
+  (function wireConsistencyCheck() {
+    const run = document.getElementById("docketCheckRunBtn");
+    if (run) run.addEventListener("click", () => { runConsistencyCheck(); });
+    const copy = document.getElementById("docketCheckCopyBtn");
+    if (copy) copy.addEventListener("click", () => { copyConsistencyResult(); });
+  })();
   // TEST SEAM, "ready" flag (test-speed branch, Nov 2026): window.__appReady
   // becomes true once EVERY startup promise launched below has settled, a
   // rejected one included. Nothing in the app reads it and it changes nothing
