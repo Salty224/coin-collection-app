@@ -251,6 +251,7 @@ Build 4 result (16 Nov 2026, branch `claude/build4-consistency-check`, code `9d1
 - fi_ KNOWN lines: none deleted (B7 and A19 own none). `FI_PRINT=1 npm test -- fi_` on origin/main's app.html and on the branch: the same 148 lines, 61 / 0 / 0 both.
 - Gate (one full run, at `2015ee3`): 5323 passed, 0 failed, 0 page errors, 115 suites, 271 s (baseline 5268 + 55).
 - Device TEST: section 12 above (steps 1-7; step 7, the LIVE run, after the merge and deploy).
+- Ray's answers to the Build 4 report (16 Nov 2026): Q1 Copilot_Rules A6 (row 10) still protects Lookup_Categories' values ("Adding new values to Lookup_Categories is fine; renaming or deleting existing values is not."); no new rule; WORKBOOK.md quotes it. Q2 merge after TEST steps 1-6 pass; step 7 on LIVE right after the deploy. The branch stays held until Ray reports the TEST.
 
 ### Build 5: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
 
