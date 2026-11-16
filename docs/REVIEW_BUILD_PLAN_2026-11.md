@@ -132,6 +132,113 @@ B7: one Docket screen, GET only, run on Ray's tap: Photos rows whose file is mis
 
 A19: no code beyond B7's check. One Copilot_Rules line for Ray to add: never delete the newest row of All without its Photos and Receipts rows.
 
+A19's workbook side is DONE (15 Nov 2026): Copilot added the rule to Copilot_Rules in the LIVE workbook. After Copilot reorganised that sheet the rule is Copilot_Rules **rule A12** (sheet row 16), next to Copilot_Rules **rule A11** (sheet row 15, the append-only rule for All / Photos / Receipts). Those are Copilot_Rules IDs, NOT the review's findings A11 (wrong-row detector, Build 10) and A12 (Staging folder names, Build 3). In these docs a Copilot_Rules rule is always written "Copilot_Rules rule A12", never a bare "A12".
+
+#### Build 4 full plan (16 Nov 2026; plan only, no code; read in `app.html` at `67a9cc8`, main `21f5bd3`, LIVE Build 132)
+
+**What it is.** A button on the Docket that reads OneDrive and the workbook, compares them, and lists what does not line up. It sends GET requests only, never fixes anything, never saves its result anywhere (memory only, gone on reload), and runs only when Ray taps it. Its job is to show damage that the findings fixed in later builds (and old builds, (v), (u)) may already have left, before those builds change anything.
+
+**1. Where it sits (Q1).** A new collapsed accordion on the Docket, "Check files and rows", between "Other / Requires Photos" and "About". Inside: one line saying what it does ("Reads the photo and receipt folders, the Photos, Receipts and All tabs and Staging, and lists anything that doesn't line up. Changes nothing."), a "Run the check" button, and after a run the result with a "Copy the result" button. Its findings are NOT counted in the Docket's fob or in the three section counts: it is a report on demand, not a to-do list, and the fob must not change because a check was run.
+
+**2. What it reads (fresh, GET only; never the loaded indexes or the device's saved copy).**
+- All: the CollectionID column (`readTableColumn`, 1 request).
+- Photos and Receipts: every row, with sheet row numbers, through the existing `readRecordRows` path with the header read fresh (`ensureSheetHeaderMap(sheet, { fresh: true })`): 3 requests each.
+- CoinPhotos and CoinReceipts: Build 3's paged `listChildren()` (1 request per 999 names).
+- Staging: `listChildren(stagingBase)`, then for each `AY-#####` folder its own listing and its `coin.json` or `set.json` (2 to 3 requests per folder; Staging holds fewer than 5 folders, Ray, 14 Nov).
+- Expected total today: about 12 requests plus 2 to 3 per Staging folder. No new Graph client method: it uses only read methods the client already has, so the session gate's "no ungated write method" tests stay as they are.
+- No Excel workbook session is made or renewed (sessions are made only at a write step's start, invariant 18); the reads use the existing session header if one exists, as any read does.
+- The device's saved copy is never read and never deleted (a read does not delete it; invariant 17).
+- Each request has a 60 s ceiling (Build 8's agreed figure for a small request; Build 8 later replaces it with the shared deadline). A part whose read fails or runs out of time says "Could not check: <reason>". It is never shown as "none found", and the summary then says "Incomplete".
+
+**3. How long a full pass takes on LIVE.** Not measured (no LIVE access here). Estimate: about 12 to 25 requests; the CoinPhotos listing is the only one that grows with the collection, at one request per 999 files with names only. On a good connection a few seconds; on mobile data perhaps 10 to 20 s. The comparisons are in memory and take well under a second for thousands of rows (tested at 3,000 files and 1,500 rows, K13). Every run shows its own time and request count in its first line, so the device TEST and the first LIVE run measure it.
+
+**4. What it checks, and the wording of each line.** File names are compared without regard to letter case (OneDrive names are case-insensitive, so such a file still opens). Each section shows its count; "None found." when empty; at most 20 lines on screen per section, then "and N more (all of them are in Copy)".
+- First line: "Checked 16 Nov 14:02 · TEST (_Testing) | LIVE · 4.1 s · 14 reads · Nothing was changed." Then "No problems found." or "N to look at." or "Incomplete: some parts could not be checked (below)."
+- 4.1 Photos rows whose file is missing. "PH-00267 · AY-00012 · Obverse · AY-00012_obverse_cropped.jpg is not in CoinPhotos (Photos row 45)." A row with a blank Filename is listed here as "has no file name".
+- 4.2 Receipts rows whose file is missing (Binder rows skipped: they have no file). "RC-00030 · AY-00092 · AY-00092_receipt.pdf is not in CoinReceipts (Receipts row 12)."
+- 4.3 Rows whose CollectionID is not on All (A19). "PH-00301 · AY-00770 (Photos row 300): AY-00770 is not on All." Plus, when the id is at or above the next id the app would hand out (max of All and Staging, plus 1; computed from the reads above, no extra request): "This id has not been handed out yet: the coin that gets it will show this photo." Below it: "This id will not be handed out again." Same for Receipts rows.
+- 4.4 One file on two rows. Photos: "AY-00012_obverse_cropped.jpg is on Photos rows 45 (PH-00267) and 112 (PH-00301)." Receipts: one file under two or more ReceiptIDs; and one ReceiptID naming two or more files (invariant 9: one ReceiptID never points at two files). One ReceiptID and one file on several coins' rows is a shared receipt, by design, and is NOT listed.
+- 4.5 Duplicate PhotoIDs ((u)). "PH-00129 is on Photos rows 130 and 131."
+- 4.6 Coins with two or more Receipts rows. Already a Docket row for owned coins; here every All id is included (Former Holdings too). "AY-00092 has 2 Receipts rows (rows 12, 40)."
+- 4.7 Files in CoinPhotos with no Photos row, in three groups:
+  - "No row, and AY-00770 is not on All" (a deleted row or a save that never finished).
+  - "No row; the coin is on All" (a save that wrote the file but not its row, A3 / A5's damage; a photo removed in the app also looks like this, because remove keeps the file, invariant 9). When the coin has a row of the same kind (the name without its trailing `_NN` matches), the line adds "same kind as <file on its row>: probably an older copy kept after a Replace or Recrop".
+  - "Name has no CollectionID" (anything not starting `AY-#####_`).
+  - Counted only, not listed (Q2): kept originals beside their crop. `X_original[_NN].<any ending>` whose `X_cropped[_NN].<any ending>` is on a row (`croppedNameForRaw`; any ending so that it still works after Build 6's C9 names a PNG original `.png` beside a `.jpg` crop). One line: "Kept originals beside their crop: 312 (expected)." A kept original whose crop has no row is listed with that crop in the groups above.
+- 4.8 Files in CoinReceipts with no Receipts row: the same groups; a name starting `RC-#####_` is matched to the Receipts tab's ReceiptIDs instead ("RC-00031_receipt.pdf: no Receipts row carries RC-00031"); seller-date names and picked names go to "Name has no CollectionID".
+- 4.9 Staging.
+  - Unexpected folder names (review A12): anything not exactly `AY-#####` and not the Docket's own `_Docket`. "20261114-213000 is not a draft folder name; the app ignores it."
+  - An `AY-#####` folder with neither coin.json nor set.json: "AY-00764 holds no draft file (N files); its id stays reserved."
+  - A draft whose id is on All but whose draft is not closed (coin.json not Promoted and no `allRowWritten`; set.json not Promoted): "AY-00762 is on All but its draft is still open: use Mark as promoted."
+  - A coin on All whose photos are still in Staging (its folder holds files other than coin.json / set.json): "AY-00762 is on All; 3 files are still in Staging/AY-00762 (photos not moved)."
+- What it does NOT check (said in one line under the result): whether a file is the right picture; files overwritten by Replace before 27 Oct on LIVE ((v): undetectable); the All media columns (already Docket rows, drift); Albums; empty (0-byte) files (Q7).
+
+**5. Refusals and double taps.**
+- While a save is running (`activeSaveTiming` set) the button says "A save is running: run the check when it has finished." and sends nothing. If a save starts during the check, the result says "A save ran during this check, so some lines may be out of date: run it again."
+- A second tap while it runs does nothing (one run in flight, `consistencyCheckInFlight`; the button reads "Checking…").
+- Signed out, or no live data (`liveDataMode()` not live): "Sign in and load the workbook first." Offline: it runs and each part says "Could not check: offline" (it never uses the saved copy instead).
+- The check reads whatever Graph answers. After an Excel or Copilot edit, reads can lag for minutes ((bi)), so the screen says under the result: "Ran less than 10 minutes after an Excel edit? Run it again later before acting on a line." (The app cannot know when Excel was edited, so this line always shows.)
+
+**6. Copy.** "Copy the result" copies the same text as the screen, every line of every section (no 20-line cap), plain text, with the build line first. The result is kept in memory until the next run or reload.
+
+**7. Where in the code (new, one block; no existing function changes behaviour).**
+- `runConsistencyCheck()`: the reads (section 2) through a read-only view of the client, `consistencyReadClient()`, which exposes only the read methods the check needs and throws on any other name, so a write cannot be added to the check by accident.
+- `compareConsistency(data)`: pure, no Graph, returns the sections; the suite drives it directly with built data as well as end to end.
+- `consistencyResultText(result)` (screen and Copy share it), `renderConsistencyCheck()`, `copyConsistencyResult()`.
+- Reused, not changed: `listChildren`, `readRecordRows`, `ensureSheetHeaderMap`, `readTableColumn`, `getJson`, `stagingFolderIdNumber` / `STAGING_DRAFT_FOLDER_RE`, `croppedNameForRaw`, `isBinderReceiptName`, `COIN_DRAFT_STATUS`, `SET_STATUS`, `writePaths()`.
+- Markup: one `.detail-accordion` (`#docketCheckAccordion`, `#docketCheckRunBtn`, `#docketCheckResult`, `#docketCheckCopyBtn`), styles scoped to it (E1).
+
+**8. Tests: new suite `tests/verify_build4_consistency_check.js`** (must-fail self-check first; mock client seeded with All ids, Photos / Receipts rows, CoinPhotos / CoinReceipts files and Staging folders; draft fixtures copy `COIN_DRAFT_STATUS` / `SET_STATUS` from the code, working rule 4).
+- K1 A clean collection: every section "None found.", "No problems found.", "Nothing was changed."
+- K2 One case of each damage kind in 4.1 to 4.9, seeded one at a time: exactly one line in its own section, matched on its ids, file and row number (E4: text only correct code produces), and nothing in any other section.
+- K3 Kept originals: `_original.jpg` beside `_cropped.jpg`, `_original_02.jpg` beside `_cropped_02.jpg`, and `_original.png` beside `_cropped.jpg` are counted, never listed; an original whose crop has no row is listed.
+- K4 Receipts: a shared receipt (one ReceiptID and file on three coins) gives no line; Binder rows give no "missing file"; one ReceiptID naming two files gives a 4.4 line; two rows for a Former Holdings coin give a 4.6 line.
+- K5 A19: a Photos row for an id above max(All, Staging) says "has not been handed out yet"; an id below it (a rejected gap) says "will not be handed out again"; a Staging max above All's max is honoured; a child id (`AY-00012-A`) on All gives no line.
+- K6 Staging: "2026 old" and a 15-digit name are unexpected; `_Docket` is not; an empty `AY-` folder; an open draft whose id is on All; a promoted coin whose folder still holds a photo; a Set draft whose parent is on All.
+- K7 Paging, on the real client with a stubbed fetch (as Build 3's P1 to P3): 2,500 files in CoinPhotos served in 3 pages; a no-row file on page 3 is found; a failure on page 2 shows "Could not check" for 4.1, 4.7 and 4.4's file part, never "None found".
+- K8 Read failures: each of the check's requests fails in turn (a sweep, the fi_ wrapper's "request N fails"; then "no answer" with the ceiling shortened through a test seam): the affected parts say "Could not check", the others still report, the summary says "Incomplete".
+- K9 Read-only proof: a whole run through a spy on the client records no method in `GATED_GRAPH_METHODS` (or any upload / delete / patch / move / batch); the Excel session generation is unchanged; the saved copy is not deleted.
+- K10 Refused while a save is running (no request sent); a save started mid-check gives the "run it again" line; a double tap runs once.
+- K11 Copy equals the screen text line for line once the screen's "and N more" caps are lifted (compared without the clock, Build 3's B1 lesson).
+- K12 UI: the accordion sits between "Other / Requires Photos" and About; the fob and the three section counts are unchanged by a run with findings; no horizontal scroll at 384 px with a 200-character file name.
+- K13 Size: 3,000 files and 1,500 rows compare in under 1 s in the suite's browser.
+
+**9. Negative controls** (each put in, the named checks must fail, then taken out):
+- Paging off (first page only): K7 fails.
+- Original pairing off: K3 fails (originals listed).
+- Shared-receipt rule off (each coin's row counted as another "file on two rows"): K4 fails.
+- "Could not check" collapsed into an empty list: K7 and K8 fail.
+- A `deleteItem` or `uploadJson` call added to the check: K9 fails (and the read-only view throws).
+- The next id from All only (Staging ignored): K5 fails.
+- The save-running refusal off: K10 fails.
+- Case-sensitive name compare: K2's mixed-case case fails.
+
+**10. Existing suites to run while iterating** (affected): `docket` (sections, row tags, missing photos), `splash_docket`, `load_report`, `session_gate`, `device_cache`, `build3`, `fi_`. The full `npm test` ONCE, as the merge gate (expected 115 suites).
+
+**11. KNOWN lines in the fi_ suites.** None deleted: B7 and A19 own no lines (the 148 left belong to A3, A5, A14, A17, A8, N1 to N4). `FI_PRINT=1 npm test -- fi_` before and after must print the same 148 lines: the check adds no writes and runs only on a tap, so no flow's request count changes.
+
+**12. Device TEST (TEST build, S25, _Testing).**
+1. Docket > Check files and rows > Run the check. Expect a result with its time and reads in the first line and "Nothing was changed". Note the time.
+2. Paste the Copy into chat. Each line is reviewed with chat-Claude against what you know of _Testing (expected: PH-00129 on two rows, (u); the Build 3 TEST leftovers).
+3. In OneDrive, put any photo into `_Testing/CoinPhotos` named `AY-09999_obverse_cropped.jpg`. Run again: it is listed under "No row, and AY-09999 is not on All". Delete the file afterwards.
+4. Run, and switch on Airplane mode at once. Expect "Could not check: …" in the parts not read and "Incomplete" at the top, never "No problems found". Airplane mode off, Run again: complete.
+5. Tap Run twice quickly: one run.
+6. While a Save of a test coin is running (Edit Coin, a photo added), open the Docket and tap Run: refused with the "A save is running" line. (Optional: hard to time on a phone; covered headless by K10.)
+7. After the merge and the LIVE deploy (Q3): run it once on LIVE and paste the Copy. It changes nothing; it also answers (u) (duplicate PhotoIDs on LIVE) and part of the B-1 check of LIVE Set drafts.
+
+**13. Docs with the build.** Write-up: docs/ref/DOCKET_STAGING.md "Consistency check (B7, Build 4)"; HISTORY one-line; CODEMAP section; CLAUDE.md: one rule line ("The consistency check is GET only, on a tap, never fixes and never saves its result; a part it could not read says so, never 'none found'") and Current state; BACKLOG: Build 4 done, (u) updated after the LIVE run.
+
+**14. Size and risks.** M (about a day, with tests). No data risk: GET only, proved by K9 and its negative control. Risks: noise (expected leftovers on LIVE could run to hundreds of lines: the groups and the counted-only originals keep them apart, Q2); a long CoinPhotos listing on mobile data (measured by step 1 and the LIVE run); reads lagging after an Excel edit giving false lines (the note in 5).
+
+**15. Questions for Ray (Build 4 plan)**
+- Q1. The check is its own collapsed Docket accordion "Check files and rows", above About, and its findings never change the Docket counts. [Recommended: yes.]
+- Q2. Expected leftovers (kept originals beside their crop) are counted only; older copies after a Replace and files of removed photos are listed in the "coin is on All" group with the "same kind as" hint, not hidden. [Recommended: yes.]
+- Q3. After the merge and the LIVE deploy, run it once on LIVE and paste the Copy (TEST step 7). It is GET only; it also answers (u) on LIVE. [Recommended: yes, as part of the build's acceptance.]
+- Q4. Copilot_Rules references: CLAUDE.md invariant 3 and BACKLOG (bi) said "Copilot_Rules row 38" for the append-only rule; this docs commit changes them to "Copilot_Rules rule A11 (sheet row 15)" from your message. WORKBOOK.md quotes Copilot_Rules A6 (Lookup_Categories) and A14, and an app.html comment quotes A7 (LastModified); the reorganisation may have renumbered them. [Recommended: ask Copilot for the current Copilot_Rules list (ID, row, one line each) and paste it once; the docs are fixed in a docs-only commit; the app.html comment is fixed in Build 4's branch.]
+- Q5. Build 9 moves finished folders to `StagingDone/`, out of the reservation's sight; A19 then rests on All alone (and on Copilot_Rules rule A12). [Recommended: record now in Build 9 that the reservation also counts `StagingDone` folder names (max of All, Staging, StagingDone).]
+- Q6. 60 s ceiling per read in the check. [Recommended: yes; Build 8 replaces it with the shared deadline.]
+- Q7. Empty (0-byte) files are not checked: it would need sizes in `listChildren`, which the reservation also uses. [Recommended: leave out; a backlog line.]
+
 ### Build 5: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
 
 Also (Ray, 15 Nov 2026, Build 2 Q2): N1 (a receipt upload whose answer is lost; fix: adopt the earlier file when its bytes match, as A14). Delete its KNOWN line in verify_fi_receipts.
