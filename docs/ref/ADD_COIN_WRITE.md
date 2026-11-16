@@ -673,7 +673,7 @@ Why: AY-00760 (2026 Lincoln Shield Cent) reached the All sheet with Finish and C
 **Not verified:** a real device; the real Lookup_Categories sheet (the mock list only); the 1.5 s wait on a real workbook; Mark as promoted on a real leftover draft (AY-00760's on _Testing is the natural check); `PROMOTE_RELOOK_MS` against a real lag.
 
 
-## Build 3 of the November 2026 review: data safety part 1 (A1, A12, A2, A16, A4, B1) (branch `claude/build3-data-safety`, 15 Nov 2026)
+## Build 3 of the November 2026 review: data safety part 1 (A1, A12, A2, A16, A4, B1) (branch `claude/build3-data-safety`, 15 Nov 2026; MERGED 16 Nov 2026 by fast-forward to `bc9b260`)
 
 Plan: docs/REVIEW_BUILD_PLAN_2026-11.md "Build 3"; findings: docs/REVIEW_2026-11.md. Suite: `tests/verify_build3_data_safety.js` (P, N, W, D, R, B blocks); the failure sweeps (`tests/verify_fi_*.js`) lost their A2, A4 and A16 lines (and 6 A8 lines, below).
 
