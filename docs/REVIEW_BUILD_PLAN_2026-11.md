@@ -171,6 +171,7 @@ A19's workbook side is DONE (15 Nov 2026): Copilot added the rule to Copilot_Rul
   - An `AY-#####` folder with neither coin.json nor set.json: "AY-00764 holds no draft file (N files); its id stays reserved."
   - A draft whose id is on All but whose draft is not closed (coin.json not Promoted and no `allRowWritten`; set.json not Promoted): "AY-00762 is on All but its draft is still open: use Mark as promoted."
   - A coin on All whose photos are still in Staging (its folder holds files other than coin.json / set.json): "AY-00762 is on All; 3 files are still in Staging/AY-00762 (photos not moved)."
+  - (Added by Ray, 16 Nov 2026) For each Set draft: every file named in set.json's `photos` list that is not in its folder: "AY-00764 · set.json lists AY-00764_set_front.jpg, but it is not in Staging/AY-00764." A set.json saved before the B-1 fix has no `photos` list: "AY-00700 · no photos list (saved before the B-1 fix); not checked."
 - What it does NOT check (said in one line under the result): whether a file is the right picture; files overwritten by Replace before 27 Oct on LIVE ((v): undetectable); the All media columns (already Docket rows, drift); Albums; empty (0-byte) files (Q7).
 
 **5. Refusals and double taps.**
@@ -194,7 +195,7 @@ A19's workbook side is DONE (15 Nov 2026): Copilot added the rule to Copilot_Rul
 - K3 Kept originals: `_original.jpg` beside `_cropped.jpg`, `_original_02.jpg` beside `_cropped_02.jpg`, and `_original.png` beside `_cropped.jpg` are counted, never listed; an original whose crop has no row is listed.
 - K4 Receipts: a shared receipt (one ReceiptID and file on three coins) gives no line; Binder rows give no "missing file"; one ReceiptID naming two files gives a 4.4 line; two rows for a Former Holdings coin give a 4.6 line.
 - K5 A19: a Photos row for an id above max(All, Staging) says "has not been handed out yet"; an id below it (a rejected gap) says "will not be handed out again"; a Staging max above All's max is honoured; a child id (`AY-00012-A`) on All gives no line.
-- K6 Staging: "2026 old" and a 15-digit name are unexpected; `_Docket` is not; an empty `AY-` folder; an open draft whose id is on All; a promoted coin whose folder still holds a photo; a Set draft whose parent is on All.
+- K6 Staging: "2026 old" and a 15-digit name are unexpected; `_Docket` is not; an empty `AY-` folder; an open draft whose id is on All; a promoted coin whose folder still holds a photo; a Set draft whose parent is on All; a Set draft whose `photos` list names a file not in its folder (listed), one whose files are all there (no line), and one with no `photos` list ("no photos list (saved before the B-1 fix)").
 - K7 Paging, on the real client with a stubbed fetch (as Build 3's P1 to P3): 2,500 files in CoinPhotos served in 3 pages; a no-row file on page 3 is found; a failure on page 2 shows "Could not check" for 4.1, 4.7 and 4.4's file part, never "None found".
 - K8 Read failures: each of the check's requests fails in turn (a sweep, the fi_ wrapper's "request N fails"; then "no answer" with the ceiling shortened through a test seam): the affected parts say "Could not check", the others still report, the summary says "Incomplete".
 - K9 Read-only proof: a whole run through a spy on the client records no method in `GATED_GRAPH_METHODS` (or any upload / delete / patch / move / batch); the Excel session generation is unchanged; the saved copy is not deleted.
@@ -210,6 +211,7 @@ A19's workbook side is DONE (15 Nov 2026): Copilot added the rule to Copilot_Rul
 - "Could not check" collapsed into an empty list: K7 and K8 fail.
 - A `deleteItem` or `uploadJson` call added to the check: K9 fails (and the read-only view throws).
 - The next id from All only (Staging ignored): K5 fails.
+- The Set draft `photos` check reading only the first entry of the list, and treating a missing list as an empty one: K6 fails (the missing second file is not listed; the pre-B-1 draft gets no line).
 - The save-running refusal off: K10 fails.
 - Case-sensitive name compare: K2's mixed-case case fails.
 
@@ -238,6 +240,8 @@ A19's workbook side is DONE (15 Nov 2026): Copilot added the rule to Copilot_Rul
 - Q5. Build 9 moves finished folders to `StagingDone/`, out of the reservation's sight; A19 then rests on All alone (and on Copilot_Rules rule A12). [Recommended: record now in Build 9 that the reservation also counts `StagingDone` folder names (max of All, Staging, StagingDone).]
 - Q6. 60 s ceiling per read in the check. [Recommended: yes; Build 8 replaces it with the shared deadline.]
 - Q7. Empty (0-byte) files are not checked: it would need sizes in `listChildren`, which the reservation also uses. [Recommended: leave out; a backlog line.]
+
+**Ray's answers (16 Nov 2026): build it.** Q1 yes. Q2 yes. Q3 yes (the LIVE run after merge and deploy is part of acceptance). Q4 Ray checked the Copilot_Rules sheet (15 Nov copy): A6 (row 10) the sheets the app reads by name and header, never rename them or their columns; A7 (row 11) never write All.LastModified, never edit Albums.Status; A11 (row 15) never insert, delete or sort rows inside All, Photos or Receipts, add at the bottom only ("row 38" fix confirmed); A12 (row 16) never delete All's newest row without its Photos and Receipts rows; there is NO A14 (the A rules stop at A12). WORKBOOK.md's "(A14)" was found to be the Lookup_Finishes CELL A14 (Matte), from Copilot's LIVE check of 7 Nov (docs/HISTORY.md (ar)), not a rule id; docs fixed in a docs-only commit; the app.html A7 comment is checked in Build 4's branch. Q5 yes: Build 9's reservation also counts `StagingDone` folder names (written into Build 9). Q6 yes (60 s per read). Q7 yes (backlog line (cg)). Addition: the Set draft `photos` check in 4.9, with a K6 case and a negative control (written in above).
 
 ### Build 5: Promote / photo save: A3, A5, B3, B4, plus A14, A18, (bv) (M to L; device TEST)
 
@@ -308,6 +312,7 @@ B5:
 - The move runs at launch only, and only for an id that a fresh All read shows, so the reservation never depends on a folder that has left Staging.
 - Supersedes the Staging part of (aa), which said delete; Ray chose move (14 Nov 2026).
 - Build 4's check learns the done place (a draft there whose coin is not on All is reported).
+- (Ray, 16 Nov 2026, Build 4 Q5) The CollectionID reservation counts `StagingDone` folder names too: next id = max(All, Staging, StagingDone) + 1. Otherwise a finished folder that has left Staging no longer protects its id, and A19 would rest on All alone (and on Copilot_Rules rule A12).
 
 A13 first part: Docket and draft JSON uploads send `If-Match` with the file's eTag; a mismatch re-reads and re-applies once. The rest of A13 stays with (bp).
 
