@@ -57,7 +57,7 @@ const IN_PAGE = () => {
   // What a call is about, for the violation line: the path or the sheet.
   fi.target = (method, args) => {
     const a0 = args[0];
-    if (/^(putContent|putContentInSession|uploadFile|uploadBytes|uploadJson|deleteItem|getJson|getFileBytes|getItemMeta|listChildren|getFolderWebUrl)$/.test(method)) {
+    if (/^(putContent|putContentInSession|uploadFile|uploadBytes|uploadJson|deleteItem|moveItem|getJson|getFileBytes|getItemMeta|listChildren|getFolderWebUrl)$/.test(method)) {
       const s = String(a0 || "");
       return s.replace(/^.*?CoinCollection\/(_Testing\/)?/, "");
     }

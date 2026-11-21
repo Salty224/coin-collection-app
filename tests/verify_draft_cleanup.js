@@ -234,11 +234,28 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     } });
     await mock.uploadJson(base() + "/AY-00820/coin.json", __draftOf("AY-00820",
       { photos: [{ type: "reference", filename: "AY-00820_reference_01.jpg", caption: "" }] }));
+    // (Build 5, Ray's Q2) Mark as promoted no longer skips the move when rows
+    // exist; it runs the move and the records, which must not duplicate. The
+    // photo was already moved (it is in CoinPhotos, not in Staging), as when
+    // the rows were recorded by an earlier run.
+    await mock.uploadBytes(writePaths().coinPhotos + "/AY-00820_reference_01.jpg", new Uint8Array([7]));
     __setLiveCoinsForTest([{ id: "AY-00820" }]);
-    const photoRowsBefore = mock._grids.Photos.length;
+    const photoRowsBefore = mock._grids.Photos.filter(r => r[0]).length;
     await markCoinDraftAlreadyPromoted("AY-00820");
     const d = await mock.getJson(base() + "/AY-00820/coin.json");
-    out.recorded = { photoRowsBefore, photoRowsAfter: mock._grids.Photos.length, status: d.status, filesMoved: d.filesMovedOnPromotion, toast: __toast() };
+    out.recorded = { photoRowsBefore, photoRowsAfter: mock._grids.Photos.filter(r => r[0]).length,
+      refRows: mock._grids.Photos.filter(r => r[4] === "AY-00820_reference_01.jpg").length,
+      status: d.status, filesMoved: d.filesMovedOnPromotion, toast: __toast() };
+    // A recorded photo whose file is nowhere (neither Staging nor CoinPhotos):
+    // the draft closes but its photos are NOT finished (the flag stays unset).
+    mock._grids.All.push(coinRow("AY-00822"));
+    mock._grids.Photos.push(["PH-00009", "AY-00822", "Reference", "", "AY-00822_reference_01.jpg", "", 45000, ""]);
+    await mock.uploadJson(base() + "/AY-00822/coin.json", __draftOf("AY-00822",
+      { photos: [{ type: "reference", filename: "AY-00822_reference_01.jpg", caption: "" }] }));
+    __setLiveCoinsForTest([{ id: "AY-00820" }, { id: "AY-00822" }]);
+    await markCoinDraftAlreadyPromoted("AY-00822");
+    const d3 = await mock.getJson(base() + "/AY-00822/coin.json");
+    out.missing = { status: d3.status, filesMoved: d3.filesMovedOnPromotion, toast: __toast() };
     // No records and nothing to move: it just closes, and the draft's own flag is set by the (empty) move.
     await mock.uploadJson(base() + "/AY-00821/coin.json", __draftOf("AY-00821"));
     mock._grids.All.push(coinRow("AY-00821"));
@@ -249,9 +266,11 @@ module.exports = defineSuite("draft-cleanup", async ({ check, selfCheck, openApp
     __teardown();
     return out;
   }).catch(e => ({ threw: String(e) }));
-  ok("S-b6 photos already recorded: no move, no second Photos row, the flag is set so the launch retry cannot record them again: " + JSON.stringify(Q.recorded),
-    Q.recorded.photoRowsAfter === Q.recorded.photoRowsBefore && /Promoted/i.test(Q.recorded.status) &&
-    Q.recorded.filesMoved === true && /already recorded, so none were moved/.test(Q.recorded.toast));
+  ok("S-b6 photos already recorded (file already in CoinPhotos): the move and records run, no second Photos row, the flag is set: " + JSON.stringify(Q.recorded),
+    Q.recorded.photoRowsAfter === Q.recorded.photoRowsBefore && Q.recorded.refRows === 1 && /Promoted/i.test(Q.recorded.status) &&
+    Q.recorded.filesMoved === true && !/not finished/.test(Q.recorded.toast));
+  ok("S-b6c (Build 5) a recorded photo whose file is nowhere: the draft closes, its photos are NOT finished (flag unset, the toast says so): " + JSON.stringify(Q.missing),
+    /Promoted/i.test(Q.missing.status) && Q.missing.filesMoved !== true && /photos are not finished: AY-00822_reference_01\.jpg — source missing/.test(Q.missing.toast));
   ok("S-b6b a draft with no photos and no records simply closes: " + JSON.stringify(Q.empty), /Promoted/i.test(Q.empty.status));
 
   // ============ S-c. S3: Mark ready / Back to draft / Edit refuse a coin on All ============

@@ -75,6 +75,8 @@ module.exports = defineSuite("replace-never-overwrites", async ({ openApp, check
           if (typeof v !== "function") return v;
           return (...a) => {
             if (k === "uploadFile" || k === "uploadBytes") { self.uploads.push(String(a[0])); self.opts.push({ path: String(a[0]), noOverwrite: !!(a[2] && a[2].noOverwrite) }); }
+            // (Build 5, B4) a promotion moves with Graph's move, also no-overwrite.
+            if (k === "moveItem") self.opts.push({ path: String(a[1]), move: true, noOverwrite: !!(a[2] && a[2].noOverwrite) });
             if (k === "getItemMeta" && self.lieAbout[String(a[0]).split("/").pop()]) return Promise.resolve(null);
             return v.apply(t, a);
           };
@@ -261,14 +263,15 @@ module.exports = defineSuite("replace-never-overwrites", async ({ openApp, check
     return { a: { ok: a.ok, reason: a.reason, dest: await R.text(R.mock._store.get(D + "a.jpg").value), srcKept: R.mock._store.has(S + "a.jpg") },
       b: { ok: b.ok, srcGone: !R.mock._store.has(S + "b.jpg"), dest: await R.text(R.mock._store.get(D + "b.jpg").value) },
       c: { ok: c.ok, dest: await R.text(R.mock._store.get(D + "c.jpg").value), srcGone: !R.mock._store.has(S + "c.jpg"), opts: R.opts.slice() },
-      coinUses: /moveFileWithoutOverwrite\(m\)/.test(movePromotedCoinFiles.toString()),
-      setUses: /moveFileWithoutOverwrite\(m\)/.test(movePromotedSetFiles.toString()) };
+      // (Build 5) Both go through finishPromotionFiles -> movePromotionFiles -> moveFileWithoutOverwrite.
+      coinUses: /finishPromotionFiles\(/.test(movePromotedCoinFiles.toString()) && /moveFileWithoutOverwrite\(m\)/.test(movePromotionFiles.toString()),
+      setUses: /finishPromotionFiles\(/.test(movePromotedSetFiles.toString()) && /movePromotionFiles\(moves\)/.test(finishPromotionFiles.toString()) };
   });
   ok("R8a a different file at the destination is refused: nothing overwritten, source kept",
     !R8.a.ok && R8.a.dest === "SOMETHING-ELSE" && R8.a.srcKept && /nothing overwritten/.test(R8.a.reason), R8);
   ok("R8b the same bytes at the destination finish an interrupted move", R8.b.ok && R8.b.srcGone && R8.b.dest === "SRC-B", R8);
-  ok("R8c an empty destination is copied with no-overwrite, then the source deleted",
-    R8.c.ok && R8.c.dest === "SRC-C" && R8.c.srcGone && R8.c.opts.length === 1 && R8.c.opts[0].noOverwrite, R8);
+  ok("R8c (Build 5, B4) an empty destination is MOVED (Graph's move, one request) with no-overwrite; nothing is uploaded",
+    R8.c.ok && R8.c.dest === "SRC-C" && R8.c.srcGone && R8.c.opts.length === 1 && R8.c.opts[0].move === true && R8.c.opts[0].noOverwrite, R8);
   ok("R8d coin and Set promotion both move this way", R8.coinUses && R8.setUses, R8);
 
   // ---------- R9 Staging-draft edit names --------------------------------------

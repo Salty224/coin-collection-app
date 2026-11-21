@@ -263,6 +263,9 @@ module.exports = defineSuite("phase2-and-retest-batch", async ({ ok, openApp, PH
 
   // ---------- G. Photos relocate app-side, copy-verify-delete ----------
   const G = await page.evaluate(async (seed) => {
+    // (Build 5, A3) The draft is flagged done only when its Receipts row is
+    // written too, so this fixture has a Receipts tab.
+    seed.sheets.Receipts = [["ReceiptID", "CollectionID", "Filename", "DateAdded"], ["", "", "", ""]];
     const mock = createMockGraphClient(seed);
     __setGraphClientForTest(mock);
     __setAddCoinWriteEnabledForTest(true);

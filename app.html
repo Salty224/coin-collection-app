@@ -4791,6 +4791,8 @@
               <button type="button" class="load-report-check" id="docketRefreshBtn">Refresh from workbook</button></p>
             <div class="load-report" id="docketLoadReport" style="display:none;"></div>
             <div class="load-report" id="docketLagProbe"></div>
+            <p class="docket-data-line" id="docketSkipLookLine" style="display:none;">
+              <label><input type="checkbox" id="docketSkipLookSwitch"> Next move: skip the look first (TEST builds only; B4 device check)</label></p>
           </div>
         </div>
         <p class="build-line" id="docketBuildLine"></p>
@@ -7852,7 +7854,7 @@
   // Every method that writes. A test (session-gate-ao G1/G2) fails if a
   // client grows a method that is not a get / read / list and is not here.
   const GATED_GRAPH_METHODS = new Set(["putContent", "putContentInSession", "uploadFile", "uploadBytes", "uploadJson", "deleteItem",
-    "patchWorkbookRanges", "addTableRow"]);
+    "moveItem", "patchWorkbookRanges", "addTableRow"]);
   const WORKBOOK_WRITE_GRAPH_METHODS = new Set(["patchWorkbookRanges", "addTableRow"]);
 
   // An ALLOW-LIST (Ray, Q2, 7 Nov 2026): writes are allowed only when the
@@ -10413,6 +10415,38 @@
     },
     uploadFile(path, fileOrBlob, opts) { return this.putContent(path, fileOrBlob, fileOrBlob.type || "application/octet-stream", opts); },
     uploadBytes(path, bytes, opts) { return this.putContent(path, bytes, "application/octet-stream", opts); },
+    // (B4, Build 5) Graph's own move: ONE small request, no download or
+    // re-upload. PATCH the item (addressed by its path) with the destination
+    // folder's id and the destination name (a Set's files are renamed on the
+    // move). opts.noOverwrite adds conflictBehavior=fail: a taken name is a
+    // 409 (e.conflict), never an overwrite. The folder's id comes from one
+    // GET, kept for the session per folder path. Returns the moved item.
+    async moveItem(srcPath, destPath, opts) {
+      const token = await getWriteToken();
+      if (!token) throw new Error("Write layer unavailable.");
+      const slash = destPath.lastIndexOf("/");
+      const folder = destPath.slice(0, slash), name = destPath.slice(slash + 1);
+      this._folderIds = this._folderIds || new Map();
+      let folderId = this._folderIds.get(folder);
+      if (!folderId) {
+        const meta = await this.getItemMeta(folder);
+        if (!meta || !meta.id) throw new Error("MOVE " + srcPath + " failed: the folder " + folder + " was not found");
+        folderId = meta.id;
+        this._folderIds.set(folder, folderId);
+      }
+      const query = (opts && opts.noOverwrite) ? "?@microsoft.graph.conflictBehavior=fail" : "";
+      const res = await fetch("https://graph.microsoft.com/v1.0/me/drive/root:/" + graphEncodePath(srcPath) + query, {
+        method: "PATCH",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify({ parentReference: { id: folderId }, name })
+      });
+      if (!res.ok) {
+        const detail = await res.text();
+        if (res.status === 409) throw uploadError(destPath, 409, detail);
+        throw new Error("MOVE " + srcPath + " failed: " + res.status + " " + detail);
+      }
+      return res.json();
+    },
     // opts.noOverwrite (A1, Build 3): a NEW draft's first coin.json / set.json.
     uploadJson(path, obj, opts) { return this.putContent(path, JSON.stringify(obj, null, 2), "application/json", opts); },
     // opts.timeoutMs (optional) puts the whole read — token, request and
@@ -10865,6 +10899,16 @@
       putContent(path, body, contentType, opts) { return mockPut(path, body, opts); },
       uploadFile(path, f, opts) { return mockPut(path, f, opts); },
       uploadBytes(path, b, opts) { return mockPut(path, b, opts); },
+      // (B4, Build 5) Mirrors the real client's move: the entry changes path;
+      // a taken name with noOverwrite is a 409; a missing source a 404.
+      moveItem(srcPath, destPath, opts) {
+        if (!store.has(srcPath)) { const e = new Error("MOVE " + srcPath + " failed: 404"); e.status = 404; return Promise.reject(e); }
+        if (store.has(destPath) && opts && opts.noOverwrite) return Promise.reject(uploadError(destPath, 409, "nameAlreadyExists"));
+        const entry = store.get(srcPath);
+        store.delete(srcPath);
+        store.set(destPath, entry);
+        return Promise.resolve({ name: destPath.split("/").pop(), size: byteLengthOf(entry && entry.value) });
+      },
       uploadJson(path, obj, opts) {
         if (opts && opts.noOverwrite && store.has(path)) return Promise.reject(uploadError(path, 409, "nameAlreadyExists"));
         store.set(path, { kind: "json", value: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve({ name: path.split("/").pop() });
@@ -14974,12 +15018,9 @@
     return moves;
   }
 
-  // One promotion move: copy, verify, then delete the source — and never
-  // over an existing file (Ray, 27 Oct 2026; before this a file already at
-  // the destination was simply written over). A destination that already
-  // holds the SAME bytes is the copy from an earlier run that stopped before
-  // its delete, so the move just finishes. Anything else there is refused:
-  // nothing is overwritten and the source stays in Staging.
+  // Whether two files are the same document, by BYTES (never by name).
+  // Used by the promotion move (moveFileWithoutOverwrite, below), receipts
+  // and the adoption of an upload whose answer was lost.
   async function sameFileBytes(a, b) {
     const toBytes = async (v) => {
       if (v == null) return null;
@@ -14994,23 +15035,79 @@
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
     return true;
   }
+  // (B4 + A18, Build 5) One promotion move with Graph's move (moveItem: one
+  // small request; before Build 5 every file was downloaded to the phone
+  // and uploaded again). Never onto another file (Ray, 27 Oct 2026):
+  //   1. look at both ends (getItemMeta: the source's size is kept);
+  //   2. source gone, destination there = "already moved" (a resumed run, or
+  //      a move whose answer was lost); both gone = "source missing";
+  //   3. destination taken: sizes differ = refused at once (nothing
+  //      downloaded); same size = the byte compare: identical = the Staging
+  //      copy is deleted after the size check, different = refused, both kept;
+  //   4. destination free: moveItem with conflictBehavior=fail. A 409 goes to
+  //      3; a move with no answer looks at both ends again, never re-sent blind;
+  //   5. (A18) after a move or a compare the destination's size must equal
+  //      the source's, else "size differs" and nothing is deleted.
+  // TEST builds only: a one-shot switch on Docket > About makes the NEXT move
+  // skip steps 1-3, so a device TEST sees what Graph itself does on a taken
+  // name (testSkipNextMoveLook; never shown or honoured on LIVE).
+  let testSkipNextMoveLook = false;
+  function syncSkipLookSwitch() {
+    const line = document.getElementById("docketSkipLookLine");
+    const box = document.getElementById("docketSkipLookSwitch");
+    if (line) line.style.display = WRITE_TARGET === "live" ? "none" : "";
+    if (box) box.checked = WRITE_TARGET !== "live" && testSkipNextMoveLook;
+  }
+  function wireSkipLookSwitch() {
+    const box = document.getElementById("docketSkipLookSwitch");
+    if (box) box.addEventListener("change", () => { testSkipNextMoveLook = WRITE_TARGET !== "live" && box.checked; syncSkipLookSwitch(); });
+    syncSkipLookSwitch();
+  }
   async function moveFileWithoutOverwrite(m) {
-    const destMeta = await graph().getItemMeta(m.dest);
-    const srcBytes = await graph().getFileBytes(m.src);
-    if (destMeta && srcBytes === null) return { ...m, ok: true, reason: "already moved" };   // idempotent resume
-    if (srcBytes === null) return { ...m, ok: false, reason: "source missing" };
-    const refused = { ...m, ok: false, reason: "a different file is already at " + m.dest.split("/").pop() + " — nothing overwritten, source kept" };
-    if (destMeta) {
-      if (!(await sameFileBytes(srcBytes, await graph().getFileBytes(m.dest)))) return refused;
-    } else {
-      try { await graph().uploadBytes(m.dest, srcBytes, NO_OVERWRITE); }  // copy
-      catch (e) { if (e && e.conflict) return refused; throw e; }
+    const name = m.dest.split("/").pop();
+    const refused = { ...m, ok: false, reason: "a different file is already in " + m.dest.split("/").slice(-2, -1)[0] + " under that name — nothing overwritten, the photo is still in Staging" };
+    const sizeOf = meta => meta && typeof meta.size === "number" ? meta.size : null;
+    const skipLook = testSkipNextMoveLook && WRITE_TARGET !== "live";
+    testSkipNextMoveLook = false;
+    if (skipLook) syncSkipLookSwitch();
+    let srcMeta = skipLook ? null : await graph().getItemMeta(m.src);
+    let destMeta = skipLook ? null : await graph().getItemMeta(m.dest);
+    const compare = async () => {
+      if (!srcMeta && destMeta) return { ...m, ok: true, reason: "already moved" };
+      if (!srcMeta) return { ...m, ok: false, reason: "the file is in neither Staging nor its folder" };
+      const ss = sizeOf(srcMeta), ds = sizeOf(destMeta);
+      if (ss !== null && ds !== null && ss !== ds) return refused;
+      if (!(await sameFileBytes(await graph().getFileBytes(m.src), await graph().getFileBytes(m.dest)))) return refused;
+      await graph().deleteItem(m.src); // the copy there is this file; delete Staging's only after the compare
+      return { ...m, ok: true, reason: "the same file was already there" };
+    };
+    if (!skipLook) {
+      if (!srcMeta && destMeta) return { ...m, ok: true, reason: "already moved" };
+      if (!srcMeta) return { ...m, ok: false, reason: "source missing" };
+      if (destMeta) return compare();
     }
-    const verify = await graph().getItemMeta(m.dest);   // verify
-    if (!verify) return { ...m, ok: false, reason: "verify failed — source kept" };
-    await graph().deleteItem(m.src);                    // delete the source ONLY after a verified copy
+    let moved;
+    try { moved = await graph().moveItem(m.src, m.dest, NO_OVERWRITE); }
+    catch (e) {
+      if (skipLook) { srcMeta = await graph().getItemMeta(m.src); }
+      destMeta = await graph().getItemMeta(m.dest);
+      if (e && e.conflict) return destMeta ? compare() : { ...m, ok: false, reason: "refused (409) with nothing at " + name + "; the photo is still in Staging" };
+      // No answer (or another error): look at both ends before deciding.
+      const srcNow = await graph().getItemMeta(m.src);
+      if (!srcNow && destMeta && (sizeOf(srcMeta) === null || sizeOf(destMeta) === null || sizeOf(srcMeta) === sizeOf(destMeta))) {
+        return { ...m, ok: true, reason: "moved (its answer was lost)" };
+      }
+      throw e;
+    }
+    const verify = await graph().getItemMeta(m.dest);
+    if (!verify) return { ...m, ok: false, reason: "not found at " + name + " after the move" };
+    const want = sizeOf(srcMeta) !== null ? sizeOf(srcMeta) : sizeOf(moved);
+    if (want !== null && sizeOf(verify) !== null && sizeOf(verify) !== want) {
+      return { ...m, ok: false, reason: "size differs after the move (" + sizeOf(verify) + " vs " + want + " bytes): left as it is" };
+    }
     return { ...m, ok: true };
   }
+
 
   // (A3, Build 5) A promotion is FINISHED only when every file moved AND
   // every Photos / Receipts row was written; only then is
@@ -41415,6 +41512,7 @@
     renderFormerHoldings();
   });
   renderStats();
+  wireSkipLookSwitch(); // (B4, Build 5) TEST builds only
   navigate("dashboard");
   initSplash();
   // Launch-time promotion file-move scan (Part 3 step 3): relocate photos for
