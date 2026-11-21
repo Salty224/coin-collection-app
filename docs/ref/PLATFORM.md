@@ -304,6 +304,7 @@ CoinCollection/
      sub-catalog + Purge"). This rule exists to protect re-cropping an
      OWNED coin, which cannot apply to an exited one — and the raw is
      usually the larger file, so leaving it would orphan the bigger half.
+     *(21 Nov 2026: not on LIVE, which has no OriginalFilename column; backlog (ch), Build 7.)*
   2. Writes the baked/cropped result as `{CollectionID}_obverse_cropped.jpg` (or
      `_reverse_cropped.jpg`).
 - **No dedicated splitter tool for combined images.** Cropping a `_combined.jpg`

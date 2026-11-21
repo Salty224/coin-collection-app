@@ -117,6 +117,7 @@ enabling those never silently enables permanent deletion.
   exited one, and the raw is usually the larger file, so leaving it would
   orphan the bigger half and defeat the point. Both filenames are named in
   the confirmation.
+  *(21 Nov 2026: on LIVE this does NOT happen. Purge finds the raw only through the Photos row's OriginalFilename cell, and LIVE's Photos tab has no such column, so a purged coin's `_original` files stay in CoinPhotos. Backlog (ch), fix in Build 7.)*
 - *(Superseded by the receipts and photos alignment, Build 1: there is no legacy-only photo any more; a coin named only in the old columns has no photo and takes the zero-photo "Mark purged" path.)* **A LEGACY-ONLY photo is refused** — one recorded solely in the old flat
   `All.Obverse`/`Reverse` columns with no Photos row (5 real rows are like
   this, AY-00706 among them). This app never writes those columns, so

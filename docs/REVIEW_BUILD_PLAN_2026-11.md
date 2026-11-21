@@ -303,6 +303,8 @@ Added by Ray (14 Nov 2026) from Part C of the review. Display and pixel code onl
 
 Also (Ray, 15 Nov 2026, Build 2 Q2): N2, N3, N4 (Purge leftovers; fixes in "Build 2 result" under Build 2). Delete their KNOWN lines in verify_fi_purge.
 
+Also (Ray, 21 Nov 2026): backlog (ch), Purge leaves kept `_original` files on LIVE (LIVE's Photos tab has no OriginalFilename column, and Purge deletes only the row's Filename and that cell). Fix: derive the original's name with `rawNameForCropped` and delete it with its crop when it exists and no Photos row names it; a test and a negative control (detail in BACKLOG (ch)).
+
 - A9: a failed CoinID re-link files the Docket entry `flagCoinIdNeedsRelink` writes, so it is not a toast only.
 - A10: Edit Set's fields that are not saved become read-only, with one line saying so, until (r) is built.
 - A15: updates to an existing Photos / Receipts row write only the cells that change (as `replaceFileCells` does). Needed before (ag) or any new column on either tab.
