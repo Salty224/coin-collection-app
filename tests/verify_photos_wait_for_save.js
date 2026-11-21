@@ -347,9 +347,9 @@ module.exports = defineSuite("photos-wait-for-save", async ({ ok: okRaw, openApp
       pending: pendingPhotoCount("AY-00099"),
       toast: W.toast(),
       editClosed: !W.editOpen(),
-      // The detach blanks row 3 (A3:I3, then its DateAdded cell G3); nothing
-      // else on the Photos tab is written after it.
-      removedLast: (() => { const ps = W.photoPatches(); const i = ps.indexOf("Photos!A3:I3"); return i !== -1 && ps.slice(i + 1).every(p => p === "Photos!G3:G3"); })()
+      // The detach blanks row 3 (A3:I3 and its DateAdded cell G3, one call
+      // since Build 5's A5); nothing else on the Photos tab is written after it.
+      removedLast: (() => { const ps = W.photoPatches(); const i = ps.indexOf("Photos!A3:I3,G3:G3"); return i !== -1 && i === ps.length - 1; })()
     };
   });
   ok("W3 Save Changes writes the All row first, then uploads, then Photos rows", W3.firstAll === 0 && W3.firstPhotos > 0 && W3.firstUploadAfterAllPatch, W3);

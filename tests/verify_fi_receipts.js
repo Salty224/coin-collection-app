@@ -71,15 +71,18 @@ const FLOW = (mode) => {
 // on retry): the upload lands, its answer is lost, so landedName is never
 // set; Save again picks the next free name and uploads a second copy.
 const KNOWN_OWN = [
-  ["N1", "lost uploadFile CoinReceipts/AY-00099_receipt_02.pdf: C5 after retry, vs a clean run: Receipts +1/-1; files +1 in CoinReceipts"]
 ];
 // A17: the "all coins" update writes one row per coin; a failure between
 // them leaves one ReceiptID on two files until Save again (which heals it).
+// Build 5: N1 fixed and its line deleted (the name is noted before the upload
+// is sent, so the retry adopts the copy that landed). A5 sends a Receipts row
+// and its DateAdded format in ONE request, so A17's two lines on the row
+// request carry the new label ("Receipts!A#:D#,D#:D#") and its two lines on
+// the separate format request are gone: that request no longer exists to fail.
+// A17 is NOT fixed (Build 7).
 const KNOWN_SHARED = [
-  ["A17", "fail patchWorkbookRanges Receipts!A#:D# #2: C2 Receipts: RC-00002 points at 2 files"],
-  ["A17", "fail patchWorkbookRanges Receipts!D#:D#: C2 Receipts: RC-00002 points at 2 files"],
-  ["A17", "lost patchWorkbookRanges Receipts!A#:D#: C2 Receipts: RC-00002 points at 2 files"],
-  ["A17", "lost patchWorkbookRanges Receipts!D#:D#: C2 Receipts: RC-00002 points at 2 files"]
+  ["A17", "fail patchWorkbookRanges Receipts!A#:D#,D#:D# #2: C2 Receipts: RC-00002 points at 2 files"],
+  ["A17", "lost patchWorkbookRanges Receipts!A#:D#,D#:D#: C2 Receipts: RC-00002 points at 2 files"]
 ];
 
 module.exports = defineSuite("fi-receipts", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

@@ -11,32 +11,8 @@ const { DRAFT_FLOW, ALL_HEADERS } = require("./fi_draft_flows");
 // The list only shrinks: a build that fixes one deletes its line.
 // A4 (Reject would delete the only copies of a coin already on All) was
 // fixed in Build 3 (Reject checks All itself); its 3 lines were deleted.
+// Fixed in Build 5 and deleted: A3 (23 lines) and A5 (2 lines).
 const KNOWN = [
-  ["A3", "fail deleteItem Staging/AY-00706/AY-00706_obverse_cropped.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +4 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail deleteItem Staging/AY-00706/AY-00706_obverse_original.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail deleteItem Staging/AY-00706/AY-00706_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"],
-  ["A3", "fail deleteItem Staging/AY-00706/AY-00706_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H# #2: C4 reported saved, but vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H# #2: C5 after retry, vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H#: C4 reported saved, but vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Receipts!A#:D#: C4 reported saved, but vs a clean run: Receipts +0/-1"],
-  ["A3", "fail patchWorkbookRanges Receipts!A#:D#: C5 after retry, vs a clean run: Receipts +0/-1"],
-  ["A3", "fail uploadBytes CoinPhotos/AY-00706_obverse_cropped.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +4 in Staging/{id}; files -4 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadBytes CoinPhotos/AY-00706_obverse_original.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadBytes CoinPhotos/AY-00706_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadBytes CoinReceipts/AY-00706_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadJson Staging/AY-00706/coin.json #2: C4 reported saved, but vs a clean run: changed coin.json"],
-  ["A5", "fail uploadJson Staging/AY-00706/coin.json #2: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "fail uploadJson Staging/AY-00706/coin.json #2: after retry C2 Photos has AY-00706_reference_01.jpg on 2 rows"],
-  ["A3", "lost deleteItem Staging/AY-00706/AY-00706_obverse_cropped.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost deleteItem Staging/AY-00706/AY-00706_obverse_original.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost deleteItem Staging/AY-00706/AY-00706_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; changed coin.json"],
-  ["A3", "lost deleteItem Staging/AY-00706/AY-00706_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinPhotos/AY-00706_obverse_cropped.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +4 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinPhotos/AY-00706_obverse_original.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinPhotos/AY-00706_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinReceipts/AY-00706_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"]
 ];
 
 module.exports = defineSuite("fi-promote", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

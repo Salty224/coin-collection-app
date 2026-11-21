@@ -13043,9 +13043,14 @@
   // write can lag (no workbook session), so the read alone isn't enough.
   let lastMintedIds = {}, lastMintedClient = null;
   async function nextRecordId(tableName, columnName, prefix) {
+    const col = await graph().readTableColumn(writePaths().workbook, tableName, columnName);
+    return mintRecordIdFromColumn(tableName, col, prefix);
+  }
+  // (B3, Build 5) The same mint from a column already read (a Save's one
+  // Photos read). Called inside the table's lock, like nextRecordId.
+  function mintRecordIdFromColumn(tableName, col, prefix) {
     // The floor belongs to one workbook client (a test's fresh mock starts over).
     if (lastMintedClient !== graph()) { lastMintedIds = {}; lastMintedClient = graph(); }
-    const col = await graph().readTableColumn(writePaths().workbook, tableName, columnName);
     let max = lastMintedIds[tableName] || 0;
     for (let i = 1; i < col.length; i++) {
       const n = idSequenceNumber(col[i], prefix);
@@ -13113,31 +13118,46 @@
       const map = await ensureSheetHeaderMap(sheetName, { fresh: true });
       if (!map[idColumn]) throw new Error(sheetName + " sheet has no " + idColumn + " column.");
       if (mintId) values[idColumn] = await mintId();
-      const col = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
-
-      let targetRow = null;
-      let checked = 0;
-      for (let i = 1; i < col.length && checked < RECORD_ROW_CLAIM_ATTEMPTS; i++) {
-        if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
-        if (rowClaimedThisSession(tableName, i + 1)) continue; // (ax) A4
-        checked++;
-        if (await tableRowIsBlank(sheetName, i + 1, map)) { targetRow = i + 1; break; }
-      }
-      if (!targetRow) {
-        const add = await graph().addTableRow(writePaths().workbook, tableName);
-        const after = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
-        const blankAt = (r) => r >= 2 && r <= after.length &&
-          String(after[r - 1] == null ? "" : after[r - 1]).trim() === "";
-        const candidates = [];
-        if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
-        if (after.length > 1) candidates.push(after.length);
-        targetRow = candidates.filter(r => blankAt(r) && !rowClaimedThisSession(tableName, r))[0];
-        if (!targetRow) throw new Error("Appended a " + sheetName + " row but no blank row was available to claim.");
-      }
-      noteClaimedRow(tableName, targetRow); // (ax) A4: before the write, never handed out twice
+      const targetRow = await claimRecordRow(sheetName, tableName, idColumn, map, null);
       await patchRecordRow(sheetName, targetRow, map, values);
       return targetRow;
     });
+  }
+
+  // (B3, Build 5) The one place a Photos / Receipts row is claimed: the
+  // first row whose id cell AND every mapped cell is blank, never one this
+  // session already claimed; else one row is appended (the rare fallback).
+  // Called INSIDE the table's lock. `ctx` (optional) is a Save's one read of
+  // the table (readPhotosTableForWrite): its column and grid answer the
+  // blank checks with no request; without it the column is read and each
+  // candidate row is read (at most RECORD_ROW_CLAIM_ATTEMPTS), as before.
+  // addTableRow's callers are createAllSheetRow() and this (invariant 7).
+  async function claimRecordRow(sheetName, tableName, idColumn, map, ctx) {
+    const col = ctx ? ctx.col : await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
+    let targetRow = null;
+    let checked = 0;
+    for (let i = 1; i < col.length && (ctx || checked < RECORD_ROW_CLAIM_ATTEMPTS); i++) {
+      if (String(col[i] == null ? "" : col[i]).trim() !== "") continue;
+      if (rowClaimedThisSession(tableName, i + 1)) continue; // (ax) A4
+      checked++;
+      const blank = ctx ? ctx.blankRows.has(i + 1) : await tableRowIsBlank(sheetName, i + 1, map);
+      if (blank) { targetRow = i + 1; break; }
+    }
+    if (!targetRow) {
+      const add = await graph().addTableRow(writePaths().workbook, tableName);
+      const after = await graph().readTableColumn(writePaths().workbook, tableName, idColumn);
+      const blankAt = (r) => r >= 2 && r <= after.length &&
+        String(after[r - 1] == null ? "" : after[r - 1]).trim() === "";
+      const candidates = [];
+      if (add && Number.isInteger(add.index) && add.index >= 0) candidates.push(add.index + 2);
+      if (after.length > 1) candidates.push(after.length);
+      targetRow = candidates.filter(r => blankAt(r) && !rowClaimedThisSession(tableName, r))[0];
+      if (!targetRow) throw new Error("Appended a " + sheetName + " row but no blank row was available to claim.");
+      if (ctx) ctx.col = after.slice();
+    }
+    noteClaimedRow(tableName, targetRow); // (ax) A4: before the write, never handed out twice
+    if (ctx) ctx.blankRows.delete(targetRow);
+    return targetRow;
   }
 
   // Writes a full row (every mapped column) at `rowNumber`. Used both to
@@ -13170,15 +13190,20 @@
       row[map[name] - 1] = (v === undefined || v === null) ? "" : v;
     });
     const address = "A" + rowNumber + ":" + columnIndexToLetters(width) + rowNumber;
-    await graph().patchWorkbookRanges(writePaths().workbook, sheetName, [{ address, values: [row] }]);
-    // A date cell gets its value AND its yyyy-mm-dd format in one request,
-    // so it ends up a real date, never text and never a bare serial.
+    // A date cell gets its value AND its yyyy-mm-dd format, so it ends up a
+    // real date, never text and never a bare serial. (A5, Build 5) The row
+    // and its date cells go in ONE call (one $batch, each date edit after
+    // the row): it used to be two, and a failure of the second left a row
+    // the save called failed, which Save again then wrote a second time. A
+    // part-landed batch still throws (batchWriteError names what landed);
+    // the caller keeps the item pending and a retry finds this row again.
+    const edits = [{ address, values: [row] }];
     for (const name of Object.keys(dateValues)) {
       if (!dateValues[name].real) continue;
       const a1 = columnIndexToLetters(map[name]) + rowNumber;
-      await graph().patchWorkbookRanges(writePaths().workbook, sheetName,
-        [{ address: a1 + ":" + a1, values: [[dateValues[name].value]], numberFormat: [[WORKBOOK_DATE_FORMAT]] }]);
+      edits.push({ address: a1 + ":" + a1, values: [[dateValues[name].value]], numberFormat: [[WORKBOOK_DATE_FORMAT]] });
     }
+    await graph().patchWorkbookRanges(writePaths().workbook, sheetName, edits);
     // (ax) A4: a row this session blanked itself (a detach writes every
     // cell blank, confirmed by Graph) goes back into the claimable pool.
     if (Object.keys(values || {}).every(k => isBlankWriteValue(values[k]))) {
@@ -13243,21 +13268,134 @@
   // the record onto the convention, which is the deliberate trade.
   // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
   function writePhotoRow(collectionId, entry, filename, originalFilename, replacePhotoId) {
-    return runWorkbookStep("Photos row", () => writePhotoRowInStep(collectionId, entry, filename, originalFilename, replacePhotoId), {});
+    return writePhotoRowsBatch(collectionId, [{ type: entry.type, subGroupId: entry.subGroupId,
+      caption: entry.caption, filename, originalFilename, replacePhotoId }]).then(out => {
+      if (!out[0].ok) throw out[0].error;
+      return out[0].res;
+    });
   }
-  async function writePhotoRowInStep(collectionId, entry, filename, originalFilename, replacePhotoId) {
-    const def = galleryTypeDef(entry.type);
-    const photoType = photoTypeForGalleryType(entry.type);
-    if (!photoType) throw new Error("No PhotoType mapping for gallery type " + entry.type);
-    const subGroupId = (def && def.tier === "subgroup") ? (entry.subGroupId || DEFAULT_SUBGROUP_ID) : "";
+
+  // (B3, Build 5) ONE Save's Photos rows. The Photos tab (header, PhotoID
+  // column and the table's cells) is read ONCE (readPhotosTableForWrite)
+  // and every row of the batch is decided from that read, inside ONE write
+  // step and ONE hold of the table's lock: a single-slot match, the
+  // Replace's own row, A5's reuse, else the first blank row (minted and
+  // claimed from the read; lastMintedIds and claimedRows as before). One
+  // request per row. Before 21 Nov 2026 every photo read the tab three
+  // times and its row cost about ten requests.
+  // The first row that fails stops the batch: the rest are "not tried"
+  // (after a failed or unanswered write the read no longer describes the
+  // sheet; the next Save reads again). A session change before anything
+  // was written re-reads once (runWorkbookStep). Returns one result per
+  // item: { ok: true, res } | { ok: false, error, notTried }.
+  function writePhotoRowsBatch(collectionId, items) {
+    return runWorkbookStep("Photos rows", () => withRecordRowLock(PHOTOS_TABLE_NAME, async () => {
+      const out = [];
+      let stopped = null, wrote = false;
+      let ctx;
+      try { ctx = await readPhotosTableForWrite(); }
+      catch (e) { dropPhotoSaveRead(); throw e; }
+      for (const item of items) {
+        if (stopped) { out.push({ ok: false, notTried: true, error: stopped }); continue; }
+        try {
+          out.push({ ok: true, res: await writeOnePhotoRow(collectionId, item, ctx) });
+          wrote = true;
+        } catch (e) {
+          dropPhotoSaveRead();
+          if (e && e.code === "SESSION_CHANGED" && !wrote) throw e; // the step reads again
+          out.push({ ok: false, error: e });
+          stopped = e;
+        }
+      }
+      return out;
+    }), {});
+  }
+
+  // A Save's one read of the Photos tab, kept while the Save runs
+  // (photoSaveScope, set by savePhotosAndLabels and Promote's records) and
+  // dropped after any failed write; outside a Save, a fresh read each call.
+  // { map, col, rows (non-blank, header-keyed, __row), blankRows (Set) }.
+  let photoSaveScope = null;
+  function dropPhotoSaveRead() { if (photoSaveScope) photoSaveScope.ctx = null; }
+  async function withPhotoSaveScope(fn) {
+    if (photoSaveScope) return fn();
+    photoSaveScope = { ctx: null };
+    try { return await fn(); } finally { photoSaveScope = null; }
+  }
+  async function readPhotosTableForWrite() {
+    if (photoSaveScope && photoSaveScope.ctx) return photoSaveScope.ctx;
     const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
+    if (!map.PhotoID) throw new Error(PHOTOS_SHEET_NAME + " sheet has no PhotoID column.");
+    const col = await graph().readTableColumn(writePaths().workbook, PHOTOS_TABLE_NAME, "PhotoID");
+    const indices = Object.keys(map).map(k => map[k]);
+    const last = columnIndexToLetters(Math.max.apply(null, indices));
+    const grid = col.length >= 2
+      ? await graph().readWorkbookRange(writePaths().workbook, PHOTOS_SHEET_NAME, "A2:" + last + col.length) : [];
+    const rows = [], blankRows = new Set();
+    for (let i = 1; i < col.length; i++) {
+      const rec = photoRowRecord(map, (grid || [])[i - 1] || [], i + 1);
+      if (rec) rows.push(rec); else blankRows.add(i + 1);
+    }
+    const ctx = { map, col: col.slice(), rows, blankRows };
+    if (photoSaveScope) photoSaveScope.ctx = ctx;
+    return ctx;
+  }
+  // One grid row as a header-keyed record (the same trimmed text
+  // readRecordRows makes), or null when every mapped cell is blank.
+  function photoRowRecord(map, row, sheetRow) {
+    const rec = { __row: sheetRow };
+    let any = false;
+    Object.keys(map).forEach(name => {
+      const raw = row[map[name] - 1];
+      const v = raw === undefined || raw === null ? "" : String(raw).trim();
+      rec[name] = v;
+      if (v) any = true;
+    });
+    return any ? rec : null;
+  }
+  // Before any write to an EXISTING Photos row (a Replace's file cells, a
+  // label, a removal, A5's reuse): that one row is read and must still hold
+  // the PhotoID and CollectionID the Save's read showed there (1 request;
+  // it used to be a whole-table read of 3).
+  async function checkPhotoRowAt(map, target, collectionId) {
+    const last = columnIndexToLetters(Math.max.apply(null, Object.keys(map).map(k => map[k])));
+    const grid = await graph().readWorkbookRange(writePaths().workbook, PHOTOS_SHEET_NAME,
+      "A" + target.__row + ":" + last + target.__row);
+    const fresh = photoRowRecord(map, (grid || [])[0] || [], target.__row);
+    if (!fresh || fresh.CollectionID !== collectionId || (fresh.PhotoID || "") !== (target.PhotoID || "")) {
+      throw new Error("Photos row " + (target.PhotoID || "at row " + target.__row) + " changed before it could be written.");
+    }
+    return fresh;
+  }
+  function notePhotoRowInRead(ctx, rowNumber, values) {
+    const rec = { __row: rowNumber };
+    Object.keys(ctx.map).forEach(name => { rec[name] = values[name] == null ? "" : String(values[name]).trim(); });
+    if (Object.keys(ctx.map).every(name => rec[name] === "")) {
+      ctx.rows = ctx.rows.filter(r => r.__row !== rowNumber);
+      ctx.blankRows.add(rowNumber);
+      ctx.col[rowNumber - 1] = "";
+      return;
+    }
+    if (ctx.map.DateAdded && typeof values.DateAdded === "number") rec.DateAdded = String(values.DateAdded);
+    ctx.rows = ctx.rows.filter(r => r.__row !== rowNumber).concat([rec]);
+    ctx.blankRows.delete(rowNumber);
+    ctx.col[rowNumber - 1] = rec.PhotoID || "";
+  }
+
+  async function writeOnePhotoRow(collectionId, item, ctx) {
+    const map = ctx.map;
+    const def = galleryTypeDef(item.type);
+    const photoType = photoTypeForGalleryType(item.type);
+    if (!photoType) throw new Error("No PhotoType mapping for gallery type " + item.type);
+    const filename = item.filename, originalFilename = item.originalFilename;
+    const subGroupId = (def && def.tier === "subgroup") ? (item.subGroupId || DEFAULT_SUBGROUP_ID) : "";
     const values = {
       PhotoID: "",
       CollectionID: collectionId,
       PhotoType: photoType,
       SubGroupID: subGroupId === DEFAULT_SUBGROUP_ID ? "" : subGroupId,
       Filename: filename,
-      Label: entry.caption || "",
+      Label: String(item.caption || "").trim(),
       DateAdded: excelSerialToday()
     };
     if (map.OriginalFilename) values.OriginalFilename = originalFilename || "";
@@ -13268,13 +13406,10 @@
     // they are on the row. This closes the old "replace rebuilds the row from
     // known fields" item: patchRecordRow() rewrote A..last mapped column,
     // blanking any blank-header column in that span, flattening a formula to
-    // text and stamping a new DateAdded. The row is re-checked against its
-    // PhotoID and CollectionID immediately before the write.
+    // text and stamping a new DateAdded. The row is re-checked (its PhotoID
+    // and CollectionID, one row read) immediately before the write.
     const replaceFileCells = async (target) => {
-      const fresh = target.PhotoID ? await findPhotoRowByPhotoId(target.PhotoID) : target;
-      if (!fresh || fresh.CollectionID !== collectionId || fresh.__row !== target.__row) {
-        throw new Error("Photos row " + (target.PhotoID || "at row " + target.__row) + " changed before it could be replaced.");
-      }
+      const fresh = await checkPhotoRowAt(map, target, collectionId);
       const cell = (col, v) => {
         const a1 = columnIndexToLetters(map[col]) + fresh.__row;
         return { address: a1 + ":" + a1, values: [[v]] };
@@ -13283,22 +13418,44 @@
       const ranges = [cell("Filename", filename)];
       if (map.OriginalFilename) ranges.push(cell("OriginalFilename", originalFilename || ""));
       await graph().patchWorkbookRanges(writePaths().workbook, PHOTOS_SHEET_NAME, ranges);
+      const after = Object.assign({}, fresh, { Filename: filename });
+      if (map.OriginalFilename) after.OriginalFilename = originalFilename || "";
+      notePhotoRowInRead(ctx, fresh.__row, after);
       return { photoId: fresh.PhotoID, row: fresh.__row, replaced: true, label: fresh.Label || "" };
     };
     if (def && !def.repeatable) {
-      const existing = (await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID"))
-        .find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
+      const existing = ctx.rows.find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
                    (r.SubGroupID || "") === values.SubGroupID);
       if (existing) return replaceFileCells(existing);
     }
-    if (replacePhotoId) {
-      const target = (await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID"))
-        .find(r => r.PhotoID === replacePhotoId && r.CollectionID === collectionId);
+    if (item.replacePhotoId) {
+      const target = ctx.rows.find(r => r.PhotoID === item.replacePhotoId && r.CollectionID === collectionId);
       if (target) return replaceFileCells(target);
       // The row is gone (detached elsewhere, or never written) — fall
       // through and record it as new rather than losing the photo.
     }
-    const row = await writeRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", values, nextPhotoId);
+    // (A5, Build 5) A repeatable photo whose row an earlier attempt of this
+    // pick already wrote (its answer lost, or the save failed after it):
+    // the same CollectionID AND the same Filename (chosen free at the
+    // pick's first attempt) is that row. It is written again in place, with
+    // its own PhotoID: never a second row for one file. The same Filename
+    // under another CollectionID is never reused.
+    if (def && def.repeatable) {
+      const lc = x => String(x || "").toLowerCase();
+      const same = ctx.rows.find(r => r.CollectionID === collectionId && lc(r.Filename) === lc(filename));
+      if (same) {
+        await checkPhotoRowAt(map, same, collectionId);
+        values.PhotoID = same.PhotoID;
+        await patchRecordRow(PHOTOS_SHEET_NAME, same.__row, map, values);
+        notePhotoRowInRead(ctx, same.__row, values);
+        return { photoId: values.PhotoID, row: same.__row, replaced: false, reused: true, label: values.Label };
+      }
+    }
+    values.PhotoID = mintRecordIdFromColumn(PHOTOS_TABLE_NAME, ctx.col, "PH");
+    const row = await claimRecordRow(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID", map, ctx);
+    ctx.col[row - 1] = values.PhotoID; // claimed: never handed out again by this read
+    await patchRecordRow(PHOTOS_SHEET_NAME, row, map, values);
+    notePhotoRowInRead(ctx, row, values);
     return { photoId: values.PhotoID, row, replaced: false, label: values.Label };
   }
 
@@ -13316,15 +13473,22 @@
   function writePhotoLabel(collectionId, photoId, label) {
     return runWorkbookStep("photo label", () => writePhotoLabelInStep(collectionId, photoId, label), {});
   }
+  // (B3, Build 5) The row is found in the Save's one Photos read and
+  // checked (one row read) just before its one-cell write.
   async function writePhotoLabelInStep(collectionId, photoId, label) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
-    if (!map.Label) throw new Error("The Photos tab has no Label column.");
-    const hit = await findPhotoRowByPhotoId(photoId);
-    if (!hit || hit.CollectionID !== collectionId) throw new Error("No Photos row " + photoId + " for " + collectionId + ".");
-    const a1 = columnIndexToLetters(map.Label) + hit.__row;
-    await graph().patchWorkbookRanges(writePaths().workbook, PHOTOS_SHEET_NAME,
-      [{ address: a1 + ":" + a1, values: [[label]] }]);
-    return { row: hit.__row };
+    try {
+      const ctx = await readPhotosTableForWrite();
+      const map = ctx.map;
+      if (!map.Label) throw new Error("The Photos tab has no Label column.");
+      const hit = ctx.rows.find(r => r.PhotoID === photoId);
+      if (!hit || hit.CollectionID !== collectionId) throw new Error("No Photos row " + photoId + " for " + collectionId + ".");
+      const fresh = await checkPhotoRowAt(map, hit, collectionId);
+      const a1 = columnIndexToLetters(map.Label) + fresh.__row;
+      await graph().patchWorkbookRanges(writePaths().workbook, PHOTOS_SHEET_NAME,
+        [{ address: a1 + ":" + a1, values: [[label]] }]);
+      notePhotoRowInRead(ctx, fresh.__row, Object.assign({}, fresh, { Label: label }));
+      return { row: fresh.__row };
+    } catch (e) { dropPhotoSaveRead(); throw e; }
   }
 
   // Detach = blank the row, NOT delete the file. Two deliberate reasons:
@@ -13338,16 +13502,24 @@
   function detachPhotoRow(collectionId, galleryType, subGroupId) {
     return runWorkbookStep("Photos row removal", () => detachPhotoRowInStep(collectionId, galleryType, subGroupId), {});
   }
+  // (B3, Build 5) Both detaches find the row in the Save's one Photos read
+  // and check it (one row read) just before blanking it.
   async function detachPhotoRowInStep(collectionId, galleryType, subGroupId) {
     const photoType = photoTypeForGalleryType(galleryType);
     const want = (subGroupId && subGroupId !== DEFAULT_SUBGROUP_ID) ? subGroupId : "";
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
-    const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
-    const hit = rows.find(r => r.CollectionID === collectionId && r.PhotoType === photoType &&
+    return detachPhotoRowWhere(collectionId, r => r.CollectionID === collectionId && r.PhotoType === photoType &&
                                (r.SubGroupID || "") === want);
-    if (!hit) return { detached: false };
-    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
-    return { detached: true, row: hit.__row, filename: hit.Filename };
+  }
+  async function detachPhotoRowWhere(collectionId, match) {
+    try {
+      const ctx = await readPhotosTableForWrite();
+      const hit = ctx.rows.find(match);
+      if (!hit) return { detached: false };
+      await checkPhotoRowAt(ctx.map, hit, collectionId);
+      await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, ctx.map, {});
+      notePhotoRowInRead(ctx, hit.__row, {});
+      return { detached: true, row: hit.__row, filename: hit.Filename };
+    } catch (e) { dropPhotoSaveRead(); throw e; }
   }
 
   // (bk): one write step (runWorkbookStep: the Excel session, the generation check).
@@ -13355,12 +13527,7 @@
     return runWorkbookStep("Photos row removal", () => detachPhotoRowByFilenameInStep(collectionId, filename), {});
   }
   async function detachPhotoRowByFilenameInStep(collectionId, filename) {
-    const map = await ensureSheetHeaderMap(PHOTOS_SHEET_NAME, { fresh: true });
-    const rows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
-    const hit = rows.find(r => r.CollectionID === collectionId && r.Filename === filename);
-    if (!hit) return { detached: false };
-    await patchRecordRow(PHOTOS_SHEET_NAME, hit.__row, map, {});
-    return { detached: true, row: hit.__row, filename: hit.Filename };
+    return detachPhotoRowWhere(collectionId, r => r.CollectionID === collectionId && r.Filename === filename);
   }
 
   // Locates one Photos row by its own PhotoID. Purge's file-level delete
@@ -14845,11 +15012,37 @@
     return { ...m, ok: true };
   }
 
-  async function movePromotedCoinFiles(draft) {
-    const moves = plannedCoinPromotionMoves(draft);
+  // (A3, Build 5) A promotion is FINISHED only when every file moved AND
+  // every Photos / Receipts row was written; only then is
+  // filesMovedOnPromotion set. Anything less leaves the draft for the launch
+  // retry (processPromotedCoinDrafts) and the Docket's "photos not finished"
+  // row, and the result names each file and why (`unfinished`). Before
+  // Build 5 a row that failed was only logged and the flag was set anyway.
+  // One run per id at a time (promotionFilesInFlight): the launch retry, a
+  // Promote and the Docket's Try again share it.
+  const promotionFilesInFlight = new Map();
+  // id -> { at, kind: "coin" | "set", unfinished: [{ file, why }] }: the last
+  // attempt's detail for the Docket row (memory only).
+  const promotionProblems = new Map();
+  function runPromotionFilesOnce(id, fn) {
+    if (promotionFilesInFlight.has(id)) return promotionFilesInFlight.get(id);
+    const p = Promise.resolve().then(fn).finally(() => promotionFilesInFlight.delete(id));
+    promotionFilesInFlight.set(id, p);
+    return p;
+  }
+  async function movePromotionFiles(moves) {
     const results = [];
-    for (const m of moves) results.push(await moveFileWithoutOverwrite(m));
+    for (const m of moves) {
+      try { results.push(await moveFileWithoutOverwrite(m)); }
+      catch (e) { results.push({ ...m, ok: false, reason: "moving it failed (" + saveFailureReason(e) + "); it is still in Staging" }); }
+    }
+    return results;
+  }
+  async function finishPromotionFiles(draft, kind, moves, record, writeDraft) {
+    const id = draft.collectionID;
+    const results = await movePromotionFiles(moves);
     const allOk = results.every(r => r.ok);
+    const unfinished = results.filter(r => !r.ok).map(r => ({ file: r.src.split("/").pop(), why: r.reason || "not moved" }));
     let records = null;
     if (allOk) {
       // The files are now in their final home, so — and only so — record
@@ -14858,11 +15051,45 @@
       // file still sitting in Staging would point the workbook at a path
       // that is about to change, and would leave a stale row behind if the
       // draft were rejected instead of promoted.
-      records = await recordPromotedCoinRecords(draft);
-      draft.filesMovedOnPromotion = true;
-      await writeCoinDraft(draft);
+      records = await record(draft);
+      (records.failed || []).forEach(f => unfinished.push({ file: f, why: (records.reasons && records.reasons[f]) || "its row was not written" }));
+      if (!unfinished.length) {
+        draft.filesMovedOnPromotion = true;
+        try { await writeDraft(draft); }
+        catch (e) {
+          draft.filesMovedOnPromotion = false;
+          unfinished.push({ file: kind === "set" ? "set.json" : "coin.json", why: "every file moved and every row was written, but marking the draft finished failed (" + saveFailureReason(e) + ")" });
+        }
+      }
     }
-    return { collectionID: draft.collectionID, moves: results, allOk, records };
+    const finished = !unfinished.length;
+    if (finished) promotionProblems.delete(id);
+    else promotionProblems.set(id, { at: Date.now(), kind, unfinished });
+    return { collectionID: id, moves: results, allOk, records, finished, unfinished };
+  }
+  function movePromotedCoinFiles(draft) {
+    return runPromotionFilesOnce(draft.collectionID, () =>
+      finishPromotionFiles(draft, "coin", plannedCoinPromotionMoves(draft), recordPromotedCoinRecords, writeCoinDraft));
+  }
+  // The Docket row's text: the last attempt's detail when this session has one.
+  function promotionUnfinishedRowText(id) {
+    const p = promotionProblems.get(id);
+    const head = id + " is on All, but its photos are not finished.";
+    if (!p) return head + " The app tries again at each launch.";
+    return head + " Last try: " + p.unfinished.map(u => u.file + " — " + u.why).join("; ") + ".";
+  }
+  // The toast after a Promote / Force Add / Mark as promoted whose photos
+  // did not finish ("" when they did, or nothing was moved).
+  function promotionUnfinishedText(collectionId, moved) {
+    if (!moved || moved.finished !== false) return "";
+    const lines = (moved.unfinished || []).map(u => u.file + " — " + u.why);
+    return collectionId + " is on the All sheet, but its photos are not finished: " + lines.join("; ") +
+      ". Nothing was overwritten. The app tries again at each launch; the Docket lists it (Try again there).";
+  }
+  // The last save log entry with this label gets the photo state too.
+  function amendSaveLogOutcome(label, text) {
+    const t = recentSaveTimings.find(x => x.label === label);
+    if (t) t.outcome = String(t.outcome || "") + "; " + text;
   }
 
   // Photos/Receipts rows for a coin draft whose files have just landed in
@@ -14870,27 +15097,51 @@
   // move or blocks the promotion: the files are correctly in place, and a
   // missing row is recoverable (re-capture, or a manual row) where a
   // half-moved file is not.
+  // (B3 / A3, Build 5) A promotion's Photos rows as one batch; every row
+  // that did not land (failed or not tried) is named in out.failed, with
+  // its reason in out.reasons.
+  async function recordPhotoRowsInto(out, collectionIdOrNull, items) {
+    if (!items.length) return;
+    // Items can belong to different records (a Set's children): one batch each.
+    const groups = new Map();
+    items.forEach(it => {
+      const key = it.collectionId || collectionIdOrNull;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
+    });
+    let stop = null;
+    await withPhotoSaveScope(async () => { for (const [cid, list] of groups) {
+      let results;
+      if (stop) results = list.map(() => ({ ok: false, notTried: true, error: stop }));
+      else {
+        try { results = await writePhotoRowsBatch(cid, list); }
+        catch (e) { results = list.map(() => ({ ok: false, error: e })); }
+      }
+      results.forEach((r, i) => {
+        if (r.ok) { out.photos.push(r.res); return; }
+        out.failed.push(list[i].filename);
+        (out.reasons = out.reasons || {})[list[i].filename] = (r.notTried ? "not tried: an earlier Photos row did not save" : "Photos row: " + saveFailureReason(r.error));
+        if (!stop) stop = r.error;
+        console.warn("Photos row failed for " + list[i].filename + ":", r.error);
+      });
+    } });
+  }
   async function recordPromotedCoinRecords(draft) {
     const out = { photos: [], receipt: null, failed: [] };
     const id = draft.collectionID;
     const entries = (draft.photos || []).filter(e => typeof e !== "string");
     const byName = {};
     entries.forEach(e => { byName[e.filename] = e; });
-    for (const e of entries) {
-      // The retained raw rides along on its cropped sibling's row as
-      // OriginalFilename — never its own row, which a naive "show all
-      // photos" read would render as a duplicate gallery item.
-      if (e.caption === "original") continue;
+    // The retained raw rides along on its cropped sibling's row as
+    // OriginalFilename — never its own row, which a naive "show all
+    // photos" read would render as a duplicate gallery item.
+    // (B3, Build 5) Every row in one batch (one Photos read, one lock).
+    const items = entries.filter(e => e.caption !== "original").map(e => {
       const raw = rawNameForCropped(e.filename);
-      try {
-        const res = await writePhotoRow(id, { type: e.type, caption: e.caption || "", subGroupId: e.subGroupId },
-          e.filename, (raw && byName[raw]) ? raw : "");
-        out.photos.push(res);
-      } catch (err) {
-        console.warn("Photos row failed for " + e.filename + ":", err);
-        out.failed.push(e.filename);
-      }
-    }
+      return { type: e.type, caption: e.caption || "", subGroupId: e.subGroupId,
+        filename: e.filename, originalFilename: (raw && byName[raw]) ? raw : "" };
+    });
+    await recordPhotoRowsInto(out, id, items);
     if (draft.receiptPhoto) {
       try {
         let receiptId = await findExistingReceiptByFilename(draft.receiptPhoto);
@@ -14899,6 +15150,7 @@
       } catch (err) {
         console.warn("Receipts row failed for " + draft.receiptPhoto + ":", err);
         out.failed.push(draft.receiptPhoto);
+        (out.reasons = out.reasons || {})[draft.receiptPhoto] = "Receipts row: " + saveFailureReason(err);
       }
     } else if (draft.receiptBinder) {
       // "Not scanned, paper in binder" on the draft: a Binder row (no file moved).
@@ -14919,11 +15171,22 @@
     let drafts;
     try { drafts = await listCoinDrafts(); } catch (e) { return out; } // never let this break launch
     for (const d of drafts) {
-      if (d.status === COIN_DRAFT_STATUS.PROMOTED && !d.filesMovedOnPromotion) {
+      if (coinPromotionUnfinished(d)) {
         try { out.push(await movePromotedCoinFiles(d)); } catch (e) { out.push({ collectionID: d.collectionID, error: String(e) }); }
       }
     }
     return out;
+  }
+  // (A3 / A4, Build 5) Every coin draft whose coin is on All (allRowWritten,
+  // or Promoted from before that flag existed) and whose files are not
+  // finished, WHATEVER its status: a Force Added coin (status Ready) used to
+  // be skipped for good. A draft without allRowWritten is Reject's or Mark
+  // as promoted's (Build 3), never this retry's.
+  function coinPromotionUnfinished(d) {
+    return !!d && (d.allRowWritten === true || d.status === COIN_DRAFT_STATUS.PROMOTED) && !d.filesMovedOnPromotion;
+  }
+  function setPromotionUnfinished(d) {
+    return !!d && d.status === SET_STATUS.PROMOTED && !d.filesMovedOnPromotion;
   }
 
   // How long Promote waits before looking again for a row it did not see
@@ -15517,18 +15780,11 @@
     return moves;
   }
 
-  async function movePromotedSetFiles(draft) {
-    const moves = plannedPromotionMoves(draft);
-    const results = [];
-    for (const m of moves) results.push(await moveFileWithoutOverwrite(m));
-    const allOk = results.every(r => r.ok);
-    let records = null;
-    if (allOk) {
-      records = await recordPromotedSetRecords(draft);
-      draft.filesMovedOnPromotion = true;
-      await writeSetDraft(draft); // mark done only when every move succeeded
-    }
-    return { collectionID: draft.collectionID, moves: results, allOk, records };
+  // (A3, Build 5) Same rule as a coin: finished only when every move AND
+  // every row landed (finishPromotionFiles).
+  function movePromotedSetFiles(draft) {
+    return runPromotionFilesOnce(draft.collectionID, () =>
+      finishPromotionFiles(draft, "set", plannedPromotionMoves(draft), recordPromotedSetRecords, writeSetDraft));
   }
 
   // Photos/Receipts rows for a Set draft whose files have just landed.
@@ -15542,19 +15798,21 @@
   async function recordPromotedSetRecords(draft) {
     const out = { photos: [], receipt: null, failed: [] };
     const id = draft.collectionID;
-    const add = async (recordId, type, filename, extra) => {
-      try { out.photos.push(await writePhotoRow(recordId, Object.assign({ type, caption: "" }, extra || {}), filename, "")); }
-      catch (err) { console.warn("Photos row failed for " + filename + ":", err); out.failed.push(filename); }
-    };
-    if (draft.wholeSetPhoto) await add(id, "ogp_obverse", id + "_set.jpg");
+    // (B3, Build 5) The rows go in batches (one per record: the Set, then
+    // each child), each with one Photos read; a failure stops the rest.
+    const items = [];
+    const add = (recordId, type, filename, extra) => items.push(Object.assign(
+      { collectionId: recordId, type, caption: "", filename, originalFilename: "" }, extra || {}));
+    if (draft.wholeSetPhoto) add(id, "ogp_obverse", id + "_set.jpg");
     // (B-1) The Set's own photos from its photo section.
     for (const ph of (draft.photos || [])) {
-      if (ph && ph.filename && galleryTypeDef(ph.type)) await add(id, ph.type, ph.filename, { subGroupId: ph.subGroupId || "", caption: ph.caption || "" });
+      if (ph && ph.filename && galleryTypeDef(ph.type)) add(id, ph.type, ph.filename, { subGroupId: ph.subGroupId || "", caption: ph.caption || "" });
     }
     for (const ch of (draft.children || [])) {
-      if (ch.photos && ch.photos.obverse) await add(ch.collectionID, "obverse", ch.collectionID + "_obverse.jpg");
-      if (ch.photos && ch.photos.reverse) await add(ch.collectionID, "reverse", ch.collectionID + "_reverse.jpg");
+      if (ch.photos && ch.photos.obverse) add(ch.collectionID, "obverse", ch.collectionID + "_obverse.jpg");
+      if (ch.photos && ch.photos.reverse) add(ch.collectionID, "reverse", ch.collectionID + "_reverse.jpg");
     }
+    await recordPhotoRowsInto(out, id, items);
     if (draft.receiptPhoto) {
       const ext = draft.receiptPhoto.slice(draft.receiptPhoto.lastIndexOf("."));
       const filename = id + "_receipt" + ext;
@@ -15565,6 +15823,7 @@
       } catch (err) {
         console.warn("Receipts row failed for " + filename + ":", err);
         out.failed.push(filename);
+        (out.reasons = out.reasons || {})[filename] = "Receipts row: " + saveFailureReason(err);
       }
     } else if (draft.receiptBinder) {
       // "Not scanned, paper in binder" on the Set draft: a Binder row, no file.
@@ -15579,7 +15838,7 @@
     let drafts;
     try { drafts = await listSetDrafts(); } catch (e) { return out; } // never let this break launch
     for (const d of drafts) {
-      if (d.status === SET_STATUS.PROMOTED && !d.filesMovedOnPromotion) {
+      if (setPromotionUnfinished(d)) {
         try { out.push(await movePromotedSetFiles(d)); } catch (e) { out.push({ collectionID: d.collectionID, error: String(e) }); }
       }
     }
@@ -25881,6 +26140,32 @@
       });
     });
 
+    // (A3, Build 5; Ray's Q1) A coin or Set on All whose photos are not
+    // finished (files still in Staging, or a Photos / Receipts row not
+    // written): the launch retry tries again at every launch; this row says
+    // so, with the last attempt's detail (memory), and Try again runs the
+    // same retry for this id on the tap only. Counted like the other rows.
+    const unfinishedCoins = addCoinWriteEnabled() ? (LIVE_COIN_DRAFTS || []).filter(coinPromotionUnfinished) : [];
+    const unfinishedSets = setDrafts.filter(setPromotionUnfinished);
+    unfinishedCoins.map(d => ({ d, kind: "coin" })).concat(unfinishedSets.map(d => ({ d, kind: "set" }))).forEach(({ d, kind }) => {
+      const id = d.collectionID;
+      otherRows.push({
+        html: `<div class="wish-desc">${escapeHtmlText(kind === "set" ? (d.setName || id) : id)}</div>` +
+          `<div class="wish-notes docket-promotion-unfinished">${escapeHtmlText(promotionUnfinishedRowText(id))}</div>`,
+        onRetry: async () => {
+          const fresh = kind === "set" ? await readSetDraft(id) : await readCoinDraft(id);
+          if (!fresh || !(kind === "set" ? setPromotionUnfinished(fresh) : coinPromotionUnfinished(fresh))) {
+            showToast(id + "'s photos are already finished.");
+          } else {
+            const res = kind === "set" ? await movePromotedSetFiles(fresh) : await movePromotedCoinFiles(fresh);
+            showToast(res.finished ? id + "'s photos are finished: every file moved and every row written."
+              : promotionUnfinishedText(id, res));
+          }
+          await renderNeedsAttentionHub();
+        }
+      });
+    });
+
     // --- Research section content ---
     // Drafts already marked ready: nothing left for Ray to decide, they're
     // waiting on Copilot to move the row into All (Phase 1 has no in-app
@@ -25983,8 +26268,9 @@
         const row = document.createElement("div");
         row.className = "case wish-item";
         row.style.cursor = r.onClick ? "pointer" : "default";
-        const actions = (r.onRecheck || r.onDismiss || r.onPromote || r.onForceAdd || r.onEdit || r.onMarkPromoted)
+        const actions = (r.onRecheck || r.onDismiss || r.onPromote || r.onForceAdd || r.onEdit || r.onMarkPromoted || r.onRetry)
           ? `<div class="docket-row-actions">` +
+              (r.onRetry ? `<button type="button" class="staging-btn promote docket-retry">Try again</button>` : "") +
               (r.onMarkPromoted ? `<button type="button" class="staging-btn promote docket-markpromoted">Mark as promoted</button>` : "") +
               (r.onPromote ? `<button type="button" class="staging-btn promote docket-promote">Promote</button>` : "") +
               (r.onRecheck ? `<button type="button" class="staging-btn promote docket-recheck">Re-check</button>` : "") +
@@ -26030,6 +26316,7 @@
             runWithButtonPending(e.currentTarget, pendingLabel, () => handler(e.currentTarget));
           });
         };
+        if (r.onRetry) wireAction(".docket-retry", r.onRetry, "Trying…");
         if (r.onMarkPromoted) wireAction(".docket-markpromoted", r.onMarkPromoted, "Marking…");
         if (r.onPromote) wireAction(".docket-promote", r.onPromote, "Promoting…");
         if (r.onRecheck) wireAction(".docket-recheck", r.onRecheck, "Checking…");
@@ -26561,11 +26848,20 @@
     // the app itself is what promoted this coin, so it knows now. A
     // failure here leaves the sources intact and filesMovedOnPromotion
     // unset, so processPromotedCoinDrafts() resumes it at next launch.
+    // (A3, Build 5) The result comes back to the caller, which says when the
+    // photos are not finished (promotionUnfinishedText); it used to be dropped.
+    let moved = null;
     if (opts.movePhotos) {
-      try { await movePromotedCoinFiles(fresh); }
-      catch (e) { console.warn("Photo move after promotion failed — will retry at next launch:", e); }
+      try { moved = await movePromotedCoinFiles(fresh); }
+      catch (e) {
+        console.warn("Photo move after promotion failed — will retry at next launch:", e);
+        moved = { collectionID: draft.collectionID, finished: false,
+          unfinished: [{ file: "its photos", why: "the move stopped (" + saveFailureReason(e) + ")" }] };
+        promotionProblems.set(draft.collectionID, { at: Date.now(), kind: "coin", unfinished: moved.unfinished });
+      }
     }
     await refreshAfterCoinRowWrite();
+    return { moved };
   }
   // A just-written row isn't in LIVE_COINS (fetched once per session), so
   // without this the coin is invisible in Catalog until a reload — and
@@ -26642,27 +26938,25 @@
           return false;
         }
       }
-      let recorded = false, unknown = false;
-      if (!draft.filesMovedOnPromotion) {
-        try {
-          const photoRows = await readRecordRows(PHOTOS_SHEET_NAME, PHOTOS_TABLE_NAME, "PhotoID");
-          const receiptRows = await readRecordRows(RECEIPTS_SHEET_NAME, RECEIPTS_TABLE_NAME, "ReceiptID");
-          recorded = photoRows.some(r => r.CollectionID === collectionId) ||
-            receiptRows.some(r => r.CollectionID === collectionId);
-        } catch (e) { unknown = true; console.warn("Couldn't check the Photos / Receipts tabs:", e); }
-      }
+      // (A3, Build 5; Ray's Q2) The move and the records always run unless the
+      // draft says they are finished. It used to skip them (and set
+      // filesMovedOnPromotion) when the coin had ANY Photos / Receipts row,
+      // to avoid duplicating a repeatable photo's row; that could close a
+      // draft with a photo still in Staging. A5 makes a re-record safe: a file
+      // already in CoinPhotos with its Staging copy gone counts as moved, and
+      // an existing row is reused or replaced in place.
       const patch = {
         status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true,
         promotedDate: localISODateToday(), markedPromotedByHand: true
       };
-      if (recorded) patch.filesMovedOnPromotion = true;
-      const movePhotos = !draft.filesMovedOnPromotion && !recorded && !unknown;
-      await finishCoinDraftWrite(draft, { patch, movePhotos });
+      const fin = await finishCoinDraftWrite(draft, { patch, movePhotos: !draft.filesMovedOnPromotion });
+      const notFinished = promotionUnfinishedText(collectionId, fin && fin.moved);
       showToast(collectionId + " is on the All sheet (row " + rowNumber + ") — its draft is closed. No row was written." +
         (held.fills.length ? " Filled its blank cells from the draft (" + held.fills.map(f => f.field).join(", ") + ")." : "") +
         (held.conflicts.length ? " " + held.conflicts.map(c => "Kept the sheet's " + c.field + " (" + c.sheet + "); the draft had " + c.draft + ".").join(" ") : "") +
-        (draft.filesMovedOnPromotion || recorded ? " Its photos were already recorded, so none were moved." : "") +
-        (unknown ? " Couldn't check its photo records, so the photos were left to move at next launch." : ""));
+        (draft.filesMovedOnPromotion ? " Its photos were already finished, so none were moved." : "") +
+        (notFinished ? " " + notFinished : ""));
+      if (notFinished) noteSaveOutcome("draft closed; photos not finished");
       return true;
     } catch (e) {
       console.error("Couldn't mark draft as promoted:", e);
@@ -26704,10 +26998,12 @@
       : collectionId + " written to the All sheet (row " + result.rowNumber + ") and linked to " +
         (result.coinId || "(no CoinID)") + ".");
     try {
-      await finishCoinDraftWrite(result.draft, {
+      const fin = await finishCoinDraftWrite(result.draft, {
         patch: { status: COIN_DRAFT_STATUS.PROMOTED, allRowWritten: true, promotedDate: localISODateToday() },
         movePhotos: true
       });
+      const notFinished = promotionUnfinishedText(collectionId, fin && fin.moved);
+      if (notFinished) { showToast(notFinished); amendSaveLogOutcome("Promote " + collectionId, "photos not finished"); }
     } catch (e) {
       // The row landed; only the bookkeeping after it failed. Say so plainly
       // rather than leaving an unhandled rejection behind a success toast.
@@ -26733,10 +27029,12 @@
     showToast(collectionId + " added to the All sheet (row " + result.rowNumber +
       ") with no CoinID — still listed under research until a catalog match is found.");
     try {
-      await finishCoinDraftWrite(result.draft, {
+      const fin = await finishCoinDraftWrite(result.draft, {
         patch: { forceAdded: true, allRowWritten: true, forceAddedDate: localISODateToday() },
         movePhotos: true
       });
+      const notFinished = promotionUnfinishedText(collectionId, fin && fin.moved);
+      if (notFinished) showToast(notFinished);
     } catch (e) {
       console.error("Post-force-add bookkeeping failed for " + collectionId + ":", e);
       showToast(coinDraftNotClosedText(collectionId, e));
@@ -29102,6 +29400,10 @@
       }
     } else {
       if (!landed && !adopted) {
+        // (N1, Build 5) The name is noted BEFORE the upload is sent: when its
+        // answer is lost, the retry passes it back as landedName and the byte
+        // check above adopts the copy that landed (no _03, no file without a row).
+        if (opts.onSending) opts.onSending(filename);
         await graph().uploadFile(writePaths().coinReceipts + "/" + filename, prepared.blob, NO_OVERWRITE);
         if (opts.onUploaded) opts.onUploaded(filename);
       }
@@ -29590,8 +29892,9 @@
         : p.binder
         ? await commitBinderReceipt(targetId)
         : await commitReceiptCapture(targetId, p.prepared, {
-            landedName: p.landedName,
+            landedName: p.landedName || p.sentName || "",
             scope: p.scope,
+            onSending: (name) => { p.sentName = name; },
             onUploaded: (name) => { p.landedName = name; }
           });
       if (p.binder) out.binder = true;
@@ -31020,6 +31323,24 @@
   // them against this exact target id, so there is no re-derivation here
   // (unlike Add Coin, whose entries are named against a temp key).
   async function commitGalleryPhoto(collectionId, entry) {
+    const rawName = await uploadGalleryPhotoFiles(collectionId, entry);
+    return writeGalleryPhotoRow(collectionId, entry, rawName);
+  }
+  // (B3, Build 5) The file half: picks the name (once), uploads the photo
+  // and its kept original when not already landed, returns the original's
+  // name for the row ("" when none).
+  async function coinPhotoAdoptable(path, name, blob) {
+    let bytes = null;
+    try { bytes = await graph().getFileBytes(path); } catch (e) { return false; }
+    if (bytes == null) return false;
+    let same = false;
+    try { same = await sameFileBytes(bytes, blob); } catch (e) { same = false; }
+    if (!same) return false;
+    const ctx = await readPhotosTableForWrite();
+    const lc = x => String(x || "").toLowerCase();
+    return !ctx.rows.some(r => lc(r.Filename) === lc(name) || (r.OriginalFilename && lc(r.OriginalFilename) === lc(name)));
+  }
+  async function uploadGalleryPhotoFiles(collectionId, entry) {
     const p = writePaths();
     // An entry can ask for its filename to be chosen at save time (checked
     // free in OneDrive) rather than trusting the name it was built with.
@@ -31062,11 +31383,31 @@
     // Every CoinPhotos upload refuses to replace an existing file. If one
     // turns up under the chosen name anyway (written elsewhere since the
     // check), nothing is overwritten and the next Save picks a new name.
+    // (A14, Build 5) A 409 whose file holds EXACTLY these bytes, and that no
+    // Photos row names, is this photo: an earlier attempt's upload landed
+    // and only its answer was lost (the name is kept after a network error;
+    // only a 409 clears it). It is adopted: nothing is sent, the row is
+    // written. Anything else there is never overwritten and the next Save
+    // picks a new name (as before). Before Build 5 the lost answer cost two
+    // more Saves and left a copy no row named.
     const putNew = async (name, blob) => {
       try { await graph().uploadFile(p.coinPhotos + "/" + name, blob, NO_OVERWRITE); }
-      catch (e) { if (e && e.conflict) entry.filenameResolved = false; throw e; }
+      catch (e) {
+        if (e && e.conflict) {
+          if (await coinPhotoAdoptable(p.coinPhotos + "/" + name, name, blob)) {
+            entry.uploadedNames[name] = true;
+            noteSaveStep("adopted " + name + ": already in CoinPhotos with the same bytes (an earlier attempt landed)", Date.now(), 0);
+            return;
+          }
+          entry.filenameResolved = false;
+        }
+        throw e;
+      }
       entry.uploadedNames[name] = true;
     };
+    if (entry.blob && entry.uploadedNames[entry.filename]) {
+      noteSaveStep("no upload for " + entry.filename + ": it landed on an earlier attempt", Date.now(), 0);
+    }
     if (entry.blob && !entry.uploadedNames[entry.filename]) {
       entry.saveStep = "uploading the photo";
       await putNew(entry.filename, entry.blob);
@@ -31091,14 +31432,28 @@
       coinPhotoCache[entry.rawFilename] = entry.rawUrl;
       rawName = entry.rawFilename;
     }
+    return rawName;
+  }
+  async function writeGalleryPhotoRow(collectionId, entry, rawName) {
     // This now runs at Save, so a NEW photo's row is created with the label
     // typed for it (Ray's Q1, Oct 2026). A Replace updates the existing row's
     // file cells only and keeps that row's Label (writePhotoRow); a changed
     // label is then written by the label step, one cell.
     entry.saveStep = "writing its Photos row";
-    const res = await writePhotoRow(collectionId,
-      { type: entry.type, subGroupId: entry.subGroupId, caption: String(entry.caption || "").trim() },
+    const res = await writePhotoRow(collectionId, galleryPhotoRowItem(entry, rawName).entry,
       entry.filename, rawName, entry.storedPhotoId || null);
+    return noteGalleryPhotoRowWritten(collectionId, entry, rawName, res);
+  }
+  // (B3, Build 5) The row half of a photo's save, shared by commitGalleryPhoto
+  // (one photo) and savePendingPhotos (every photo of a Save in one batch).
+  function galleryPhotoRowItem(entry, rawName) {
+    return {
+      entry: { type: entry.type, subGroupId: entry.subGroupId, caption: String(entry.caption || "").trim() },
+      item: { type: entry.type, subGroupId: entry.subGroupId, caption: String(entry.caption || "").trim(),
+        filename: entry.filename, originalFilename: rawName, replacePhotoId: entry.storedPhotoId || null }
+    };
+  }
+  function noteGalleryPhotoRowWritten(collectionId, entry, rawName, res) {
     syncStoredPhotoIndexUpsert(collectionId, {
       photoId: res.photoId,
       photoType: photoTypeForGalleryType(entry.type),
@@ -31999,28 +32354,57 @@
     const list = galleryFor(targetId);
     const saves = list.filter(e => e.pendingSave);
     const removes = list.filter(e => e.pendingRemove);
+    const failOne = (entry, e) => {
+      entry.uploadPending = false;
+      entry.uploadError = String(e && e.message ? e.message : e);
+      const failedName = entry.filename || (galleryTypeDef(entry.type) || {}).label || "a photo";
+      out.failed.push(failedName);
+      // (B1, Build 3) Why, for the toast: the step that failed and its error.
+      (out.failedReasons = out.failedReasons || {})[failedName] = (entry.saveStep ? entry.saveStep + ": " : "") + saveFailureReason(e);
+    };
+    // (B3, Build 5) Every photo's files first, one at a time; then all their
+    // rows in ONE batch (writePhotoRowsBatch: one Photos read, one lock, one
+    // request per row). A photo whose files did not land keeps its pick and
+    // gets no row; a row that fails stops the rest (they stay pending).
+    const landed = [];
     for (let i = 0; i < saves.length; i++) {
       const entry = saves[i];
       if (setProgress) setProgress("Saving photo " + (i + 1) + " of " + saves.length + "…");
       entry.uploadPending = true;
       entry.uploadError = "";
+      // ((bv), Build 5) "replaced" means the pick WAS a Replace or Recrop of
+      // a saved photo, whichever attempt lands it; noted before it is cleared.
+      if (entry.saveWasReplace === undefined) entry.saveWasReplace = !!entry.pendingReplaces;
       repaintPhotoHost(targetId);
+      try { landed.push({ entry, rawName: await uploadGalleryPhotoFiles(commitId, entry) }); }
+      catch (e) { failOne(entry, e); }
+      repaintPhotoHost(targetId);
+    }
+    if (landed.length) {
+      if (setProgress) setProgress(landed.length === 1 ? "Writing its Photos row…" : "Writing " + landed.length + " Photos rows…");
+      landed.forEach(x => { x.entry.saveStep = "writing its Photos row"; });
+      let results;
       try {
-        const res = await commitGalleryPhoto(commitId, entry);
+        results = await writePhotoRowsBatch(commitId, landed.map(x => galleryPhotoRowItem(x.entry, x.rawName).item));
+      } catch (e) {
+        results = landed.map(() => ({ ok: false, error: e }));
+      }
+      landed.forEach((x, i) => {
+        const entry = x.entry, r = results[i];
+        if (!r.ok) {
+          if (r.notTried) entry.saveStep = "not tried: an earlier Photos row did not save";
+          failOne(entry, r.error);
+          return;
+        }
+        const res = noteGalleryPhotoRowWritten(commitId, entry, x.rawName, r.res);
         entry.uploadPending = false;
         entry.pendingSave = false;
         entry.storedFilename = entry.filename;
         if (res && res.photoId) entry.storedPhotoId = res.photoId;
         delete entry.pendingReplaces;
-        if (res && res.replaced) out.replaced++; else out.added++;
-      } catch (e) {
-        entry.uploadPending = false;
-        entry.uploadError = String(e && e.message ? e.message : e);
-        const failedName = entry.filename || (galleryTypeDef(entry.type) || {}).label || "a photo";
-        out.failed.push(failedName);
-        // (B1, Build 3) Why, for the toast: the step that failed and its error.
-        (out.failedReasons = out.failedReasons || {})[failedName] = (entry.saveStep ? entry.saveStep + ": " : "") + saveFailureReason(e);
-      }
+        if (entry.saveWasReplace) out.replaced++; else out.added++;
+        delete entry.saveWasReplace;
+      });
       repaintPhotoHost(targetId);
     }
     for (let i = 0; i < removes.length; i++) {
@@ -32047,7 +32431,11 @@
 
   // Photos, then labels (one cell each), then the receipt (task x).
   // Returns { photos, labels, receipt }.
-  async function savePhotosAndLabels(targetId, setProgress) {
+  // (B3, Build 5) One Photos read serves the whole Save (photoSaveScope).
+  function savePhotosAndLabels(targetId, setProgress) {
+    return withPhotoSaveScope(() => savePhotosAndLabelsInScope(targetId, setProgress));
+  }
+  async function savePhotosAndLabelsInScope(targetId, setProgress) {
     const photos = await savePendingPhotos(targetId, setProgress);
     let labels = null;
     if (unsavedPhotoLabelCount(targetId)) {

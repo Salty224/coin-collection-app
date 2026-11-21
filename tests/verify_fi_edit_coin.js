@@ -108,15 +108,11 @@ const FLOW = () => {
 // A5 the Photos row (or its date format) lands but the Save reports
 //    failure: Save again writes a second row; A14 the upload's answer is lost.
 // The list only shrinks: a build that fixes one deletes its line.
+// Fixed in Build 5 and deleted: A5 (6 lines; the row and its date format are one request,
+// and Save again reuses the row with this CollectionID and Filename) and A14
+// (1; a 409 with the same bytes and no row naming the file is adopted).
 const KNOWN = [
-  ["A5", "fail patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "fail patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_01.jpg on 2 rows"],
-  ["A8", "lost patchWorkbookRanges All!S#:T#,U#: C5 after retry, vs a clean run: Photos +0/-1; files -1 from CoinPhotos"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H#: after retry C2 Photos has AY-00099_reference_01.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_01.jpg on 2 rows"],
-  ["A14", "lost uploadFile CoinPhotos/AY-00099_reference_01.jpg: C5 after retry, vs a clean run: Photos +0/-1"]
+  ["A8", "lost patchWorkbookRanges All!S#:T#,U#: C5 after retry, vs a clean run: Photos +0/-1; files -1 from CoinPhotos"]
 ];
 
 module.exports = defineSuite("fi-edit-coin", async ({ check, selfCheck, openApp, appReady, PHONE }) => {
@@ -124,6 +120,9 @@ module.exports = defineSuite("fi-edit-coin", async ({ check, selfCheck, openApp,
   const page = await openApp(PHONE);
   const r = await sweepFlow(page, appReady, FLOW, {});
   ok("clean run: saved, no violations, the retry changes nothing", r.cleanProblems.length === 0, r.cleanProblems);
-  ok("the flow makes write requests to sweep (" + r.K + ": " + r.calls.join(" | ") + ")", r.K >= 4, r.calls);
+  // (Build 5, A5) A new Photos row and its date format are ONE request, so
+  // the flow is exactly these three writes (it was four).
+  ok("the flow makes write requests to sweep (" + r.K + ": " + r.calls.join(" | ") + ")",
+    r.K === 3 && r.calls.join(" | ") === "patchWorkbookRanges All!S#:T#,U# | uploadFile CoinPhotos/AY-00099_reference_01.jpg | patchWorkbookRanges Photos!A#:H#,G#:G#", r.calls);
   assertKnown(ok, "fi-edit-coin", r, KNOWN);
 }, module);

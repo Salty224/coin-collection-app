@@ -287,7 +287,9 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
     const fmtCalls = calls.filter(c => c.edits.some(e => e.numberFormat));
     const out = {
       photo: mock._grids.Photos[2][6], receiptNew: mock._grids.Receipts[2][3], receiptOwn: mock._grids.Receipts[1][3],
-      fmts: fmtCalls.map(c => c.sheet + ":" + c.edits[0].address + ":" + c.edits[0].numberFormat[0][0] + ":" + typeof c.edits[0].values[0][0])
+      // (Build 5, A5) The date edit rides in the row's own call, after the row.
+      fmts: fmtCalls.map(c => { const f = c.edits.find(e => e.numberFormat); return c.sheet + ":" + f.address + ":" + f.numberFormat[0][0] + ":" + typeof f.values[0][0]; }),
+      oneCallPerRow: fmtCalls.every(c => c.edits.length === 2 && !c.edits[0].numberFormat && /^A\d+:[A-Z]+\d+$/.test(c.edits[0].address))
     };
     done();
     return out;
@@ -299,6 +301,7 @@ module.exports = defineSuite("date-writes-real-dates", async ({ check, selfCheck
   ok("P7 each of those DateAdded cells got a number AND yyyy-mm-dd in the same request: " + JSON.stringify(P4.fmts),
     P4.fmts.length === 3 && P4.fmts.every(f => /:yyyy-mm-dd:number$/.test(f)) &&
     P4.fmts.some(f => f.startsWith("Photos:G3")) && P4.fmts.some(f => f.startsWith("Receipts:D3")) && P4.fmts.some(f => f.startsWith("Receipts:D2")));
+  ok("P7b (Build 5, A5) each row and its DateAdded format go in ONE call: the row range first, then the date cell", P4.oneCallPerRow === true, P4);
 
   // P8 the spot-price writer: LastUpdated a serial; a Text ("@") format is never kept.
   const P8 = await page.evaluate(() => {

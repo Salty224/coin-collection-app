@@ -68,7 +68,8 @@ const FLOW = (mode) => {
       await this.save();
       const text = (window.__fiToasts || []).join(" / ");
       if (/nothing was written/i.test(text)) return { said: "nothing", text };
-      if (/Couldn't|didn't upload|failed/i.test(text)) return { said: "failed", text };
+      // (Build 5, A3) "photos are not finished" after a Save to Database is not "saved".
+      if (/Couldn't|didn't upload|failed|not finished/i.test(text)) return { said: "failed", text };
       return { said: "saved", text };
     },
     // Save again while the form still holds the coin; Promote a draft left
@@ -103,29 +104,12 @@ const FLOW = (mode) => {
 // written" after a failed or lost draft write while files had landed; that
 // wording is gone from this path, since the save now carries on under the
 // same id). A8's seventh line (verify_fi_edit_coin) stays for Build 8.
+// Fixed in Build 5 and deleted: A3 (19 lines: a Photos / Receipts row or a move that failed
+// was not retried and the save said saved; now the draft stays for the launch
+// retry and the toast says the photos are not finished) and A5 (2: a re-record
+// wrote a second row for one file; now that row is reused).
 const KNOWN_STAGING = [];
 const KNOWN_DATABASE = [
-  ["A3", "fail deleteItem Staging/AY-00501/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"],
-  ["A3", "fail deleteItem Staging/AY-00501/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "fail deleteItem Staging/AY-00501/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H# #2: C4 reported saved, but vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H# #2: C5 after retry, vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H#: C4 reported saved, but vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: Photos +0/-1"],
-  ["A3", "fail patchWorkbookRanges Receipts!A#:D#: C4 reported saved, but vs a clean run: Receipts +0/-1"],
-  ["A3", "fail patchWorkbookRanges Receipts!A#:D#: C5 after retry, vs a clean run: Receipts +0/-1"],
-  ["A3", "fail uploadBytes CoinPhotos/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadBytes CoinPhotos/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -3 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadBytes CoinReceipts/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "fail uploadJson Staging/AY-00501/coin.json #4: C4 reported saved, but vs a clean run: changed coin.json"],
-  ["A5", "fail uploadJson Staging/AY-00501/coin.json #4: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "fail uploadJson Staging/AY-00501/coin.json #4: after retry C2 Photos has AY-00501_reference_01.jpg on 2 rows"],
-  ["A3", "lost deleteItem Staging/AY-00501/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; changed coin.json"],
-  ["A3", "lost deleteItem Staging/AY-00501/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "lost deleteItem Staging/AY-00501/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinPhotos/AY-00501_reference_01.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +2 in Staging/{id}; files -1 from CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinPhotos/AY-00501_slab_obverse.jpg: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +3 in Staging/{id}; files -2 from CoinPhotos,CoinReceipts; changed coin.json"],
-  ["A3", "lost uploadBytes CoinReceipts/AY-00501_receipt.pdf: C4 reported saved, but vs a clean run: Photos +0/-2; Receipts +0/-1; files +1 in Staging/{id}; changed coin.json"],
 ];
 
 module.exports = defineSuite("fi-addcoin", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

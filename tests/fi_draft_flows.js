@@ -84,12 +84,16 @@ const DRAFT_FLOW = ({ mode, ALL_HEADERS }) => {
         const okRun = mode === "promote" ? await promoteCoinDraft(ID) : await forceAddCoinDraft(ID);
         const text = toasts();
         if (!okRun) return { said: "failed", text };
-        return { said: /failed/i.test(text) ? "failed" : "saved", text };
+        // (Build 5, A3) "photos are not finished" is not "saved" either.
+        return { said: /failed|not finished/i.test(text) ? "failed" : "saved", text };
       }
       if (mode === "mark") {
         const done = await markCoinDraftAlreadyPromoted(ID);
         const text = toasts();
-        return { said: done ? "saved" : /nothing was changed/.test(text) ? "nothing" : "failed", text };
+        // (Build 5, A3) Mark as promoted can close the draft while its photos
+        // are not finished; its toast says so, and that is not "saved". This
+        // can only turn "saved" into "failed", never the reverse.
+        return { said: done && !/not finished/i.test(text) ? "saved" : done ? "failed" : /nothing was changed/.test(text) ? "nothing" : "failed", text };
       }
       if (mode === "reject") {
         await performRejectStagedCoin(ID);

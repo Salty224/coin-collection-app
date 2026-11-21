@@ -85,21 +85,8 @@ const FLOW = () => {
 // failure; Save again writes a SECOND row for the same file.
 // A14: the upload lands, its answer is lost; Save again gets 409 and still
 // fails, so after one retry the photo has no row (a third Save picks _03).
+// Fixed in Build 5 and deleted: A5 (12 lines) and A14 (2 lines). Nothing is left.
 const KNOWN = [
-  ["A5", "fail patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "fail patchWorkbookRanges Photos!G#:G# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "fail patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "fail patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H# #2: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!A#:H#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G# #2: after retry C2 Photos has AY-00099_other_02.jpg on 2 rows"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: Photos +1/-0"],
-  ["A5", "lost patchWorkbookRanges Photos!G#:G#: after retry C2 Photos has AY-00099_reference_02.jpg on 2 rows"],
-  ["A14", "lost uploadFile CoinPhotos/AY-00099_other_02.jpg: C5 after retry, vs a clean run: Photos +0/-1"],
-  ["A14", "lost uploadFile CoinPhotos/AY-00099_reference_02.jpg: C5 after retry, vs a clean run: Photos +0/-1"]
 ];
 
 module.exports = defineSuite("fi-manage-photos", async ({ check, selfCheck, openApp, appReady, PHONE }) => {

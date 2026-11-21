@@ -62,17 +62,17 @@ const FLOW = () => {
 //    skips the photo because its row is gone, so the files and the flag
 //    are never finished.
 // The list only shrinks: a build that fixes one deletes its line.
+// Build 5 (A5) sends a Photos row and its DateAdded format in ONE request
+// ("Photos!A#:H#,G#:G#"), so N4's two lines on the old row request carry the
+// new label and its four lines on the separate format request ("Photos!G#:G#")
+// are gone: that request no longer exists to fail. N4 is NOT fixed (Build 7).
 const KNOWN = [
   ["N2", "fail deleteItem CoinPhotos/AY-90001_obverse_cropped.jpg: C5 after retry, vs a clean run: files +1 in CoinPhotos"],
   ["N2", "fail deleteItem CoinPhotos/AY-90001_obverse_original.jpg: C5 after retry, vs a clean run: files +1 in CoinPhotos"],
   ["N2", "fail deleteItem CoinPhotos/AY-90001_reference_01.jpg: C5 after retry, vs a clean run: files +1 in CoinPhotos"],
   ["N3", "fail patchWorkbookRanges All!N#,P#: C4 reported saved, but vs a clean run: All +1/-1"],
-  ["N4", "fail patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: All +1/-1; files +1 in CoinPhotos"],
-  ["N4", "fail patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: All +1/-1; files +2 in CoinPhotos"],
-  ["N4", "lost patchWorkbookRanges Photos!A#:H# #2: C5 after retry, vs a clean run: All +1/-1; files +1 in CoinPhotos"],
-  ["N4", "lost patchWorkbookRanges Photos!A#:H#: C5 after retry, vs a clean run: All +1/-1; files +2 in CoinPhotos"],
-  ["N4", "lost patchWorkbookRanges Photos!G#:G# #2: C5 after retry, vs a clean run: All +1/-1; files +1 in CoinPhotos"],
-  ["N4", "lost patchWorkbookRanges Photos!G#:G#: C5 after retry, vs a clean run: All +1/-1; files +2 in CoinPhotos"]
+  ["N4", "lost patchWorkbookRanges Photos!A#:H#,G#:G# #2: C5 after retry, vs a clean run: All +1/-1; files +1 in CoinPhotos"],
+  ["N4", "lost patchWorkbookRanges Photos!A#:H#,G#:G#: C5 after retry, vs a clean run: All +1/-1; files +2 in CoinPhotos"]
 ];
 
 module.exports = defineSuite("fi-purge", async ({ check, selfCheck, openApp, appReady, PHONE }) => {
