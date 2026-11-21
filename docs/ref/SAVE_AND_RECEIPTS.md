@@ -722,3 +722,10 @@ supersedes every earlier `_receipt.jpg` reference in this file.
   file — if it's ever missing on a real device, the try/catch means it fails
   quietly (no receiptFiles entry, or the Add Set raw-photo fallback) rather
   than breaking capture.
+
+## Photo and receipt saves since Build 5 (A14, N1, (bv), B3; 21 Nov 2026, branch `claude/build5-promote-photo-save`)
+- A Save uploads every photo's files first, then writes all their rows in one batch (one Photos read; the first failed row stops the rest, which stay pending, "not tried").
+- A14: a CoinPhotos 409 whose file holds exactly the pick's bytes and that no Photos row names is adopted (an earlier attempt's upload whose answer was lost); anything else is never overwritten and the next Save takes a new name. The kept original likewise.
+- N1: a receipt's name is noted before its upload is sent (`onSending`, `p.sentName`); the retry passes it as `landedName` and the byte check adopts the copy that landed.
+- (bv): "replaced" only for a Replace or Recrop pick, whichever attempt lands it; everything else "added".
+Full write-up: docs/ref/ADD_COIN_WRITE.md "Build 5 of the November 2026 review".

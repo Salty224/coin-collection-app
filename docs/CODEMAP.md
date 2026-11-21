@@ -1,6 +1,6 @@
 # Code map: app.html, function -> line (generated)
 
-`app.html` is 41,050 lines. Generated from Build 4's branch `claude/build4-consistency-check` (code `2fa5ae8`, F-1, 21 Nov 2026; before that `67a9cc8`, Build 3) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
+`app.html` is 41,536 lines. Generated from Build 5's branch `claude/build5-promote-photo-save` (21 Nov 2026; before that `2fa5ae8`, Build 4 F-1) by the script below; **line numbers drift with every code change**, so regenerate after each code merge (CLAUDE.md, end-of-work rule 5) and trust a grep over a stale number. Never read app.html whole: find the area here, then view only that range.
 
 The function lists are hand-chosen (the functions the docs/ref/ files mention most, grouped by area) and kept by name; the script only refreshes the numbers and the region list. A renamed function is reported as MISSING: fix its name in this file.
 
@@ -36,575 +36,611 @@ PY
 ## Regions (the all-caps banner comments in app.html)
 
 <!-- regions:start -->
-L5630  REAL-GRAPH FEATURE FLAGS + THE ONE SHARED MSAL INSTANCE
-L6159  STORED PHOTOS / RECEIPTS
-L6161  THE PHOTOS AND RECEIPTS TABS ARE THE ONLY RECORD
-L6572  LIVE NAV DATA
-L7224  CONSISTENCY CHECK (B7, B
-L10026  ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
-L11048  BROWSE EDIT WRITE LAYER
-L12285  COINID RE-LINKING ON IDENTITY EDIT
-L12727  SET ATTACH / DETACH — A
-L12942  PHOTOS / RECEIPTS TABLE WRITE LAYER
-L13435  PURGE
-L13802  CONTAINERS READ-LAYER JOIN
-L13879  WRITE-LAYER GUARD DIALOGS
-L14337  ADD COIN
-L14641  ADD COIN PHASE 2
-L15207  DOCKET RESEARCH QUEUE
-L15589  FAKE DATA
-L15873  PHOTO GALLERY & CROP PIPELINE
-L17389  SECTION LOADING INDICATOR
-L17425  SHARING
-L17458  DASHBOARD
-L20857  RECORD ACCORDIONS
-L21306  BROWSE DETAIL — EDIT
-L23670  ALBUMS
-L25133  WISHLIST
-L25299  NEEDS ATTENTION
-L26082  STAGING REVIEW — P
-L27134  STATS & VALUE
-L27258  LEDGER: MANUAL SPOT-PRICE UPDATE (R
-L28148  FORMER HOLDINGS
-L28609  RECEIPT
-L28842  COMMIT A CAPTURED RECEIPT
-L29690  PHOTO CROP ADJUSTER
-L30142  STAGE 1 — BACKGROUND CROP
-L30891  CROP PIPELINE ORCHESTRATOR
-L30978  COMMIT A CAPTURED PHOTO
-L31167  STORED PHOTOS IN THE CAPTURE UI
-L31254  PHOTO LABELS SAVE WITH SAVE CHANGES (O
-L31864  PHOTOS WAIT FOR SAVE (O
-L32279  CROP FROM AN UPLOADED PHOTO
-L32787  GALLERY CAPTURE WIDGET
-L32907  SUB-GROUP PHOTO SHEET
-L32934  DRAFT MODE (A
-L33265  ADD SET
-L33416  ADD SET STEP 2
-L33485  MANAGE PHOTOS
-L34148  GALLERY DISPLAY
-L34247  IN-APP MEDIA VIEWER
-L35216  FILES PICKER + PHOTO GUARD (A
-L35251  UNIFIED IMAGE CHOOSER (O
-L35318  PHOTO SLOTS
-L35445  ADD COIN
-L35477  GRADE PICKER
-L35546  DESCRIPTION AUTO-FILL
-L36066  DESCRIPTION CONSISTENCY GATE (A
-L36256  PCGS LABEL AUTO-POPULATE
-L36868  DIRECT-WRITE
-L37237  ADD COIN SAVE — P
-L37877  EDITING AN EXISTING STAGING DRAFT (P
-L38210  EDITING A STAGING DRAFT — PHOTOS AND THE RECEIPT (P
-L39091  YEAR PICKER
-L39543  ADD SET
+L5632  REAL-GRAPH FEATURE FLAGS + THE ONE SHARED MSAL INSTANCE
+L6161  STORED PHOTOS / RECEIPTS
+L6163  THE PHOTOS AND RECEIPTS TABS ARE THE ONLY RECORD
+L6574  LIVE NAV DATA
+L7226  CONSISTENCY CHECK (B7, B
+L10028  ONEDRIVE WRITE LAYER + COLLECTIONID RESERVATION + ADD SET
+L11092  BROWSE EDIT WRITE LAYER
+L12329  COINID RE-LINKING ON IDENTITY EDIT
+L12771  SET ATTACH / DETACH — A
+L12986  PHOTOS / RECEIPTS TABLE WRITE LAYER
+L13646  PURGE
+L14013  CONTAINERS READ-LAYER JOIN
+L14090  WRITE-LAYER GUARD DIALOGS
+L14548  ADD COIN
+L14852  ADD COIN PHASE 2
+L15567  DOCKET RESEARCH QUEUE
+L15945  FAKE DATA
+L16229  PHOTO GALLERY & CROP PIPELINE
+L17745  SECTION LOADING INDICATOR
+L17781  SHARING
+L17814  DASHBOARD
+L21213  RECORD ACCORDIONS
+L21662  BROWSE DETAIL — EDIT
+L24026  ALBUMS
+L25489  WISHLIST
+L25655  NEEDS ATTENTION
+L26466  STAGING REVIEW — P
+L27529  STATS & VALUE
+L27653  LEDGER: MANUAL SPOT-PRICE UPDATE (R
+L28543  FORMER HOLDINGS
+L29004  RECEIPT
+L29237  COMMIT A CAPTURED RECEIPT
+L30090  PHOTO CROP ADJUSTER
+L30542  STAGE 1 — BACKGROUND CROP
+L31291  CROP PIPELINE ORCHESTRATOR
+L31378  COMMIT A CAPTURED PHOTO
+L31619  STORED PHOTOS IN THE CAPTURE UI
+L31706  PHOTO LABELS SAVE WITH SAVE CHANGES (O
+L32316  PHOTOS WAIT FOR SAVE (O
+L32764  CROP FROM AN UPLOADED PHOTO
+L33272  GALLERY CAPTURE WIDGET
+L33392  SUB-GROUP PHOTO SHEET
+L33419  DRAFT MODE (A
+L33750  ADD SET
+L33901  ADD SET STEP 2
+L33970  MANAGE PHOTOS
+L34633  GALLERY DISPLAY
+L34732  IN-APP MEDIA VIEWER
+L35701  FILES PICKER + PHOTO GUARD (A
+L35736  UNIFIED IMAGE CHOOSER (O
+L35803  PHOTO SLOTS
+L35930  ADD COIN
+L35962  GRADE PICKER
+L36031  DESCRIPTION AUTO-FILL
+L36551  DESCRIPTION CONSISTENCY GATE (A
+L36741  PCGS LABEL AUTO-POPULATE
+L37353  DIRECT-WRITE
+L37722  ADD COIN SAVE — P
+L38362  EDITING AN EXISTING STAGING DRAFT (P
+L38695  EDITING A STAGING DRAFT — PHOTOS AND THE RECEIPT (P
+L39576  YEAR PICKER
+L40028  ADD SET
 <!-- regions:end -->
 
 ## Add Coin / Edit Coin forms
 
-mapWorkbookRowToDbCoin  L9134
-activeCoins  L9509
-isExitStatus  L11170
-ownedCoins  L11183
-buildCoinDraft  L14403
-coinDraftToAllValues  L14725
-compositionLabelCandidates  L18854
-setFittedCornerText  L18874
-roundToCents  L22421
-valueWithFaceFloor  L22463
-refreshVarietyOptions  L36033
-applyDbCoinsRowToForm  L36357
-readAddCoinFormForDraft  L37093
-refreshAddCoinCategoryUI  L16934
-addCoinDirectSaveGaps  L36903
-addCoinMatchResolved  L36936
-addCoinGateMessage  L36925
-saveCoinDraftEdit  L37528
-resetAddCoinForm  L37742
-applyCoinDraftToForm  L38033
+mapWorkbookRowToDbCoin  L9136
+activeCoins  L9511
+isExitStatus  L11214
+ownedCoins  L11227
+buildCoinDraft  L14614
+coinDraftToAllValues  L14936
+compositionLabelCandidates  L19210
+setFittedCornerText  L19230
+roundToCents  L22777
+valueWithFaceFloor  L22819
+refreshVarietyOptions  L36518
+applyDbCoinsRowToForm  L36842
+readAddCoinFormForDraft  L37578
+refreshAddCoinCategoryUI  L17290
+addCoinDirectSaveGaps  L37388
+addCoinMatchResolved  L37421
+addCoinGateMessage  L37410
+saveCoinDraftEdit  L38013
+resetAddCoinForm  L38227
+applyCoinDraftToForm  L38518
 
 ## Add Coin write layer, Staging drafts, Promote
 
-buildRowCellEdits  L11777
-saveCoinRowToWorkbook  L12165
-writeCoinIdCell  L12355
-setDraftFolder  L14184
-coinDraftFolder  L14372
-setFlipPhotoUrl  L16176
-readBrowseEditForm  L22682
-checkDesignationReresolution  L23562
-collectionIdNumber  L26099
-renderStagingList  L26138
-promoteStagedCoin  L26458
-rejectStagedCoin  L27059
-findDbCoinsMatch  L35701
-isVarietyRecognized  L36060
-renderAmbiguousMatchList  L36484
-isConfidentMatch  L36909
-coinDraftPromoteGaps  L14935
-allRowHoldsCoinDraft  L14958
-coinOnLoadedAllSheet  L14564
-coinDraftStaleOnAll  L14576
-markCoinDraftAlreadyPromoted  L26613
-finishCoinDraftWrite  L26538
+buildRowCellEdits  L11821
+saveCoinRowToWorkbook  L12209
+writeCoinIdCell  L12399
+setDraftFolder  L14395
+coinDraftFolder  L14583
+setFlipPhotoUrl  L16532
+readBrowseEditForm  L23038
+checkDesignationReresolution  L23918
+collectionIdNumber  L26483
+renderStagingList  L26522
+promoteStagedCoin  L26842
+rejectStagedCoin  L27454
+findDbCoinsMatch  L36186
+isVarietyRecognized  L36545
+renderAmbiguousMatchList  L36969
+isConfidentMatch  L37394
+coinDraftPromoteGaps  L15295
+allRowHoldsCoinDraft  L15318
+coinOnLoadedAllSheet  L14775
+coinDraftStaleOnAll  L14787
+markCoinDraftAlreadyPromoted  L27006
+finishCoinDraftWrite  L26922
 
 ## Add Set
 
-getWriteToken  L10066
-reservationIdNumber  L14069
-addChildToSetDraft  L14297
-plannedPromotionMoves  L15499
-matchDbSetsByProductCode  L39634
-dbSetTypeName  L39652
-composeSetName  L39668
-categoryFromLineage  L39708
-readAddSetYear  L40182
-resumeSetDraftAtStep1  L40306
-startSetCapture  L40517
-allSubGroupsFull  L40668
-renderChildStep  L40674
-readChildFormValues  L40782
-restoreChildFormValues  L40797
-saveCurrentChild  L40845
+getWriteToken  L10068
+reservationIdNumber  L14280
+addChildToSetDraft  L14508
+plannedPromotionMoves  L15859
+matchDbSetsByProductCode  L40119
+dbSetTypeName  L40137
+composeSetName  L40153
+categoryFromLineage  L40193
+readAddSetYear  L40667
+resumeSetDraftAtStep1  L40791
+startSetCapture  L41002
+allSubGroupsFull  L41153
+renderChildStep  L41159
+readChildFormValues  L41267
+restoreChildFormValues  L41282
+saveCurrentChild  L41330
 
 ## Albums
 
-mapWorkbookRowToDbSet  L8924
-buildLiveAlbums  L9063
-activeDbCoins  L9511
-activeAlbums  L9627
-setBrowseStepContext  L19336
-resolveCoinAlbumLink  L20695
-renderAlbumsList  L23893
-initAlbums  L23948
-computeAlbumPageRows  L24057
-openAlbumAtPage  L24216
-showAlbumDetail  L24301
-slotMintage  L24332
-formatAlbumMintage  L24353
-renderSlotCell  L24557
-turnAlbumPage  L24863
-renderAlbumBook  L24960
+mapWorkbookRowToDbSet  L8926
+buildLiveAlbums  L9065
+activeDbCoins  L9513
+activeAlbums  L9629
+setBrowseStepContext  L19692
+resolveCoinAlbumLink  L21051
+renderAlbumsList  L24249
+initAlbums  L24304
+computeAlbumPageRows  L24413
+openAlbumAtPage  L24572
+showAlbumDetail  L24657
+slotMintage  L24688
+formatAlbumMintage  L24709
+renderSlotCell  L24913
+turnAlbumPage  L25219
+renderAlbumBook  L25316
 
 ## All-sheet write layer (Browse Edit, new rows, Set link, dates)
-headerMapFromTableHeader  L11532
-ensureAllHeaderMap  L11550
-ensureSheetHeaderMap  L13018
-missingWriteColumns  L11568
-assertNoFormulaCells  L11600
-readAllRowForWrite  L11685
-batchWriteError  L11489
-partialSaveResult  L11854
+headerMapFromTableHeader  L11576
+ensureAllHeaderMap  L11594
+ensureSheetHeaderMap  L13062
+missingWriteColumns  L11612
+assertNoFormulaCells  L11644
+readAllRowForWrite  L11729
+batchWriteError  L11533
+partialSaveResult  L11898
 
-refreshLiveCoinsAfterWrite  L10020
-__setBrowseEditWriteEnabledForTest  L11280
-excelSerialToday  L11331
-workbookDateToday  L11370
-localISODateToday  L11413
-toWorkbookDate  L11420
-__resetAllHeaderMapForTest  L11611
-findAllSheetRowNumber  L11615
-detectIdentityOverwrites  L11757
-createAllSheetRow  L12611
-writeOriginSetIdCell  L12805
-writeRecordRow  L13108
-resolveStorageLocation  L13859
-showWriteGuard  L13886
-promoteCoinDraftToAllSheetUnlocked  L15004
-forceAddCoinDraft  L26726
+refreshLiveCoinsAfterWrite  L10022
+__setBrowseEditWriteEnabledForTest  L11324
+excelSerialToday  L11375
+workbookDateToday  L11414
+localISODateToday  L11457
+toWorkbookDate  L11464
+__resetAllHeaderMapForTest  L11655
+findAllSheetRowNumber  L11659
+detectIdentityOverwrites  L11801
+createAllSheetRow  L12655
+writeOriginSetIdCell  L12849
+writeRecordRow  L13157
+resolveStorageLocation  L14070
+showWriteGuard  L14097
+promoteCoinDraftToAllSheetUnlocked  L15364
+forceAddCoinDraft  L27119
 
 ## Auth, Graph reads, flags, OneDrive paths
 
-acquireGraphToken  L6018
-getReferenceImageToken  L6072
-fetchReferenceImageBlob  L6104
-ensureReferenceImageFetch  L6135
-__setSplashTimingsForTest  L6699
-noteRetryAfter  L6729
-abortStartupRequests  L6776
-withRequestTimeout  L6783
-refetchMissingLiveNavSheets  L9458
-liveDataMode  L9600
-saveDocketQueue  L15372
-hasReferenceImage  L17676
-applyRealReferenceImage  L17819
+acquireGraphToken  L6020
+getReferenceImageToken  L6074
+fetchReferenceImageBlob  L6106
+ensureReferenceImageFetch  L6137
+__setSplashTimingsForTest  L6701
+noteRetryAfter  L6731
+abortStartupRequests  L6778
+withRequestTimeout  L6785
+refetchMissingLiveNavSheets  L9460
+liveDataMode  L9602
+saveDocketQueue  L15732
+hasReferenceImage  L18032
+applyRealReferenceImage  L18175
 
 ## Browse detail, Edit Set, sharing
 
-resolveCoinSpecs  L9713
-graph  L11006
-loadDocketQueue  L15308
-galleryFlipEntry  L16159
-buildCertLookupUrl  L16428
-spotlightCoinList  L17557
-applyDiscContent  L17733
-originSetIdKeysMatch  L20382
-setChildrenFor  L20387
-compositionTextFor  L20665
-resolveChildParentSet  L20775
-renderDetailAccordions  L20930
-buildSetChildRow  L21599
-catalogFunFactFor  L22181
-formatCurrency  L22442
-renderStats  L27896
+resolveCoinSpecs  L9715
+graph  L11050
+loadDocketQueue  L15668
+galleryFlipEntry  L16515
+buildCertLookupUrl  L16784
+spotlightCoinList  L17913
+applyDiscContent  L18089
+originSetIdKeysMatch  L20738
+setChildrenFor  L20743
+compositionTextFor  L21021
+resolveChildParentSet  L21131
+renderDetailAccordions  L21286
+buildSetChildRow  L21955
+catalogFunFactFor  L22537
+formatCurrency  L22798
+renderStats  L28291
 
 ## Catalog, Sets tab, Rolls, live-nav data
 
-colVal  L8700
-buildLookupCategoryList  L9410
-activeDbSets  L9510
-coinMatchesSearchQuery  L18589
-metalCategoryFor  L18761
-coinsTabBaseRows  L19579
-medalTabBaseRows  L19592
-applyCoinsTabFilters  L19616
-applySetsTabFilters  L19643
-renderSetChecklist  L19667
-rollYearNumber  L19724
-applyRollsTabFilters  L19771
-resetBrowseFilters  L19828
-showBrowseTab  L19876
-detailTitleText  L20509
-ownedSetForSetId  L39786
-applyAddSetContext  L40394
+colVal  L8702
+buildLookupCategoryList  L9412
+activeDbSets  L9512
+coinMatchesSearchQuery  L18945
+metalCategoryFor  L19117
+coinsTabBaseRows  L19935
+medalTabBaseRows  L19948
+applyCoinsTabFilters  L19972
+applySetsTabFilters  L19999
+renderSetChecklist  L20023
+rollYearNumber  L20080
+applyRollsTabFilters  L20127
+resetBrowseFilters  L20184
+showBrowseTab  L20232
+detailTitleText  L20865
+ownedSetForSetId  L40271
+applyAddSetContext  L40879
 
 ## CoinID matcher
 
-activeLookupGraders  L9512
-knownDbCoinsFinishValues  L23252
-dbCoinsCandidatesFor  L23267
-docketRecheckEntry  L25453
-runWithButtonPending  L26494
-promoteCoinDraft  L26680
-recheckCoinDraftMatch  L26878
-lookupDescriptionCandidates  L35608
-normField  L35679
-addCoinIdentityShape  L35718
-currentAddCoinMatchState  L35777
-checkDbCoinsMatch  L35803
-resolveAddCoinCatalogMatch  L35915
-parsePcgsLabel  L36286
-updateSaveConfidenceUI  L36957
-completeAddCoinSave  L37282
+activeLookupGraders  L9514
+knownDbCoinsFinishValues  L23608
+dbCoinsCandidatesFor  L23623
+docketRecheckEntry  L25809
+runWithButtonPending  L26878
+promoteCoinDraft  L27071
+recheckCoinDraftMatch  L27273
+lookupDescriptionCandidates  L36093
+normField  L36164
+addCoinIdentityShape  L36203
+currentAddCoinMatchState  L36262
+checkDbCoinsMatch  L36288
+resolveAddCoinCatalogMatch  L36400
+parsePcgsLabel  L36771
+updateSaveConfidenceUI  L37442
+completeAddCoinSave  L37767
 
 ## Dashboard, navigation, splash, startup
 
-ensureLiveNavDataFetch  L9758
-coinDetailsFor  L15805
-setNavBack  L17125
-navigate  L17187
-initCabinet  L17485
-updateDocketFob  L17518
-resetSpotlightTimer  L18503
-browseMetalTest  L19195
-sortRollRows  L19737
-rollsMetalTest  L19763
-armLeaveGuard  L31626
-mintMarkOtherSelected  L36637
-selectMintMarkOther  L36641
-buildSplashDiagnosticText  L39256
-runSplashConnect  L39293
-docketQueueReady  L39370
+ensureLiveNavDataFetch  L9760
+coinDetailsFor  L16161
+setNavBack  L17481
+navigate  L17543
+initCabinet  L17841
+updateDocketFob  L17874
+resetSpotlightTimer  L18859
+browseMetalTest  L19551
+sortRollRows  L20093
+rollsMetalTest  L20119
+armLeaveGuard  L32078
+mintMarkOtherSelected  L37122
+selectMintMarkOther  L37126
+buildSplashDiagnosticText  L39741
+runSplashConnect  L39778
+docketQueueReady  L39855
 
 ## Docket, Needs Attention, Staging Review
 
-getCachedWorkbookWebUrl  L11016
-__resetWorkbookWebUrlCacheForTest  L11025
-getCachedFolderWebUrl  L11035
-flagCoinIdNeedsRelink  L13782
-listSetDrafts  L14280
-dismissSetDraftGap  L14329
-buildDocketEntry  L15399
-docketOpenEntries  L15432
-appendDocketEntry  L15442
-coinMissingPhoto  L18628
-wireStaticAccordionToggle  L22330
-performBrowseEditWrite  L22920
-renderNeedsAttentionHub  L25603
-appendDocketRows  L25981
-buildCoinRecordFromForm  L37069
+getCachedWorkbookWebUrl  L11060
+__resetWorkbookWebUrlCacheForTest  L11069
+getCachedFolderWebUrl  L11079
+flagCoinIdNeedsRelink  L13993
+listSetDrafts  L14491
+dismissSetDraftGap  L14540
+buildDocketEntry  L15759
+docketOpenEntries  L15792
+appendDocketEntry  L15802
+coinMissingPhoto  L18984
+wireStaticAccordionToggle  L22686
+performBrowseEditWrite  L23276
+renderNeedsAttentionHub  L25959
+appendDocketRows  L26363
+buildCoinRecordFromForm  L37554
 
 ## Flip card and corner labels
 
-mapWorkbookRowToCoin  L8734
-wireSideToggle  L17795
-renderCornerLines  L17838
-wrapTextToTwoLines  L17861
-renderFittedCornerLines  L17923
-renderTypeDenomCorner  L18135
-gradeDesignationCornerText  L18284
-applyFlipCorners  L18297
-cornerClearsDisc  L18978
-shrinkCornerToFit  L19038
-setCompositionCornerText  L19141
-renderBrowseGrid  L19338
-toggleBrowseDetailSide  L20324
-showBrowseDetail  L20517
-isSetRow  L20711
-escapeHtmlText  L28649
+mapWorkbookRowToCoin  L8736
+wireSideToggle  L18151
+renderCornerLines  L18194
+wrapTextToTwoLines  L18217
+renderFittedCornerLines  L18279
+renderTypeDenomCorner  L18491
+gradeDesignationCornerText  L18640
+applyFlipCorners  L18653
+cornerClearsDisc  L19334
+shrinkCornerToFit  L19394
+setCompositionCornerText  L19497
+renderBrowseGrid  L19694
+toggleBrowseDetailSide  L20680
+showBrowseDetail  L20873
+isSetRow  L21067
+escapeHtmlText  L29044
 
 ## Former Holdings and Purge
 
-formerHoldings  L11219
-writePurgedCell  L12838
-patchRecordRow  L13146
-readRecordRows  L13192
-buildPhotoRowPatch  L13388
-clearPhotoRowField  L13406
-purgeablePhotosFor  L13469
-fileRowsForPhotos  L13510
-finalisePurgedFlag  L13568
-purgeCoinPhotos  L13610
-activeYearFilterState  L19523
-yearRowTestAgainst  L19531
-updateActiveYearFilterButtonUI  L19556
-applyAfterYearFilterChange  L19560
-browseStepListFallback  L20415
-renderFormerHoldings  L28266
+formerHoldings  L11263
+writePurgedCell  L12882
+patchRecordRow  L13210
+readRecordRows  L13261
+buildPhotoRowPatch  L13599
+clearPhotoRowField  L13617
+purgeablePhotosFor  L13680
+fileRowsForPhotos  L13721
+finalisePurgedFlag  L13779
+purgeCoinPhotos  L13821
+activeYearFilterState  L19879
+yearRowTestAgainst  L19887
+updateActiveYearFilterButtonUI  L19912
+applyAfterYearFilterChange  L19916
+browseStepListFallback  L20771
+renderFormerHoldings  L28661
 
 ## Ledger, Stats, spot prices, Wishlist
 
-statusSelectDisplayValue  L11241
-setSelectValuePreservingUnknown  L21779
-coinValueFigure  L22486
-ensureSpotPricesForMeltLabels  L22541
-loadSpotPrices  L27160
-renderSpotPrices  L27217
-refreshLedgerValueTiles  L28013
+statusSelectDisplayValue  L11285
+setSelectValuePreservingUnknown  L22135
+coinValueFigure  L22842
+ensureSpotPricesForMeltLabels  L22897
+loadSpotPrices  L27555
+renderSpotPrices  L27612
+refreshLedgerValueTiles  L28408
 
 ## Photos, crop, image chooser, receipts and the save-wait rules
 
-writeReceiptRow  L13696
-recordPromotedCoinRecords  L14873
-seriesLabel  L17624
-sanitizeSeriesName  L17655
-referenceSeriesKey  L17659
-showBrowseEditSetView  L22203
-commitReceiptCapture  L29012
-photoCommitTargetId  L31006
-unsavedEditsForView  L31417
-refreshEditSaveState  L31564
-buildPhotoPairSlot  L33053
-manageOpenEndedBlock  L33613
-renderManagePhotos  L33792
-renderManagePhotosInto  L33809
-uploadCoinDraftPhotos  L37178
-uploadDraftPhoto  L40439
+writeReceiptRow  L13907
+recordPromotedCoinRecords  L15226
+seriesLabel  L17980
+sanitizeSeriesName  L18011
+referenceSeriesKey  L18015
+showBrowseEditSetView  L22559
+commitReceiptCapture  L29407
+photoCommitTargetId  L31406
+unsavedEditsForView  L31869
+refreshEditSaveState  L32016
+buildPhotoPairSlot  L33538
+manageOpenEndedBlock  L34098
+renderManagePhotos  L34277
+renderManagePhotosInto  L34294
+uploadCoinDraftPhotos  L37663
+uploadDraftPhoto  L40924
 
 ## Device cache, read-only gate, load report, recent writes ((ao), merged 7 Nov 2026)
 
-applyLiveNavSheetRows  L9917
-checkSessionAgainstWorkbook  L8057
-checkWorkbookVersion  L7039
-deleteWorkbookCacheForWrite  L8427
-fetchWorkbookSheetRows  L6809
-fetchWorkbookVersion  L6993
-finishCoinRowSave  L12143
-fullReadVersionTrusted  L8129
-gatedGraphClient  L7951
-hashSheetValues  L8137
-idbOpenCache  L8354
-isMsalNetworkError  L8265
-launchFromSavedCopy  L8517
-loadWorkbookCacheRecord  L8481
-noteFullReadReport  L6939
-noteRecentRowWrite  L11902
-noteSaveOutcome  L11995
-onFullReadLanded  L8149
-recordWorkbookVersionCheck  L7023
-refreshSessionFromWorkbook  L8104
-renderDocketDataLine  L8589
-renderLagProbe  L8672
-renderLoadReport  L7096
-renderSessionState  L8220
-rowsFromSheetValues  L6872
-saveWorkbookCacheAfterRead  L8434
-setConnectionTrouble  L8030
-settleSavedCopyVersion  L8545
-startLagProbe  L8640
-tokenFailureAction  L8275
-whenWritesAllowed  L8188
-withRecentWrites  L11913
-withSaveTiming  L7785
-workbookSessionChecked  L7863
-workbookWritesAllowed  L7867
+applyLiveNavSheetRows  L9919
+checkSessionAgainstWorkbook  L8059
+checkWorkbookVersion  L7041
+deleteWorkbookCacheForWrite  L8429
+fetchWorkbookSheetRows  L6811
+fetchWorkbookVersion  L6995
+finishCoinRowSave  L12187
+fullReadVersionTrusted  L8131
+gatedGraphClient  L7953
+hashSheetValues  L8139
+idbOpenCache  L8356
+isMsalNetworkError  L8267
+launchFromSavedCopy  L8519
+loadWorkbookCacheRecord  L8483
+noteFullReadReport  L6941
+noteRecentRowWrite  L11946
+noteSaveOutcome  L12039
+onFullReadLanded  L8151
+recordWorkbookVersionCheck  L7025
+refreshSessionFromWorkbook  L8106
+renderDocketDataLine  L8591
+renderLagProbe  L8674
+renderLoadReport  L7098
+renderSessionState  L8222
+rowsFromSheetValues  L6874
+saveWorkbookCacheAfterRead  L8436
+setConnectionTrouble  L8032
+settleSavedCopyVersion  L8547
+startLagProbe  L8642
+tokenFailureAction  L8277
+whenWritesAllowed  L8190
+withRecentWrites  L11957
+withSaveTiming  L7787
+workbookSessionChecked  L7865
+workbookWritesAllowed  L7869
 
 ## Add Coin Finish list from Lookup_Finishes ((ar), merged 7 Nov 2026)
 
-activeLookupFinishes  L9525
-addCoinCatalogFinish  L36917
-applyCoinDraftToForm  L38033
-applyDbCoinsRowToForm  L36357
-applyLiveNavOptionalRows  L9338
-buildLookupFinishList  L9388
-catalogFinishGroupKey  L19235
-populateFinishOptions  L9532
-refetchMissingLiveNavSheets  L9458
-resetAddCoinForm  L37742
-setSelectValuePreservingUnknown  L21779
+activeLookupFinishes  L9527
+addCoinCatalogFinish  L37402
+applyCoinDraftToForm  L38518
+applyDbCoinsRowToForm  L36842
+applyLiveNavOptionalRows  L9340
+buildLookupFinishList  L9390
+catalogFinishGroupKey  L19591
+populateFinishOptions  L9534
+refetchMissingLiveNavSheets  L9460
+resetAddCoinForm  L38227
+setSelectValuePreservingUnknown  L22135
 
 ## Save speed and writes while Excel lags ((ax) Stage 1 + 2a, merged 7 Nov 2026)
 
-allHeaderMapWidth  L12029
-allRowForWriteFromDetail  L11698
-claimedRows  L12538
-createAllSheetRow  L12611
-idbCacheDelete  L8397
-keysNotVisibleError  L12556
-keysNotVisibleRows  L12551
-markCoinDraftAlreadyPromoted  L26613
-markCoinDraftAlreadyPromotedUntimed  L26622
-noteClaimedRow  L12542
-noteOwnRowState  L11965
-ownCellsMatch  L11947
-ownStateIndex  L11980
-readAllRowForSave  L12046
-readAllRowForWrite  L11685
-readBackLastModified  L12098
-rowClaimedThisSession  L12543
-rowGuessProblem  L12033
-saveCoinRowToWorkbook  L12165
-savedCopyDeleteStepName  L8007
-serialToClockWithSeconds  L12089
-startSaveWatch  L7712
-stopSaveWatch  L7741
-withLatestOwnState  L11985
-writeRecordRow  L13108
+allHeaderMapWidth  L12073
+allRowForWriteFromDetail  L11742
+claimedRows  L12582
+createAllSheetRow  L12655
+idbCacheDelete  L8399
+keysNotVisibleError  L12600
+keysNotVisibleRows  L12595
+markCoinDraftAlreadyPromoted  L27006
+markCoinDraftAlreadyPromotedUntimed  L27015
+noteClaimedRow  L12586
+noteOwnRowState  L12009
+ownCellsMatch  L11991
+ownStateIndex  L12024
+readAllRowForSave  L12090
+readAllRowForWrite  L11729
+readBackLastModified  L12142
+rowClaimedThisSession  L12587
+rowGuessProblem  L12077
+saveCoinRowToWorkbook  L12209
+savedCopyDeleteStepName  L8009
+serialToClockWithSeconds  L12133
+startSaveWatch  L7714
+stopSaveWatch  L7743
+withLatestOwnState  L12029
+writeRecordRow  L13157
 
 ## Workbook session ((bk), merged 8 Nov 2026)
 
-createExcelSession  L10173
-dropExcelSession  L10144
-excelSessionIdForRequest  L10155
-excelSessionRejection  L10260
-excelSessionsApply  L10143
-excelWorkbookFetch  L10280
-noteExcelSessionEvent  L10130
-postCreateSession  L10163
-prepareExcelSessionForStep  L10228
-promoteCoinDraftToAllSheetInStep  L15012
-runWorkbookStep  L7919
-sessionChangedError  L10270
-startExcelSessionAfterLaunch  L10250
-writeRecordRowInStep  L13111
+createExcelSession  L10175
+dropExcelSession  L10146
+excelSessionIdForRequest  L10157
+excelSessionRejection  L10262
+excelSessionsApply  L10145
+excelWorkbookFetch  L10282
+noteExcelSessionEvent  L10132
+postCreateSession  L10165
+prepareExcelSessionForStep  L10230
+promoteCoinDraftToAllSheetInStep  L15372
+runWorkbookStep  L7921
+sessionChangedError  L10272
+startExcelSessionAfterLaunch  L10252
+writeRecordRowInStep  L13160
 
 ## Full-resolution photos ((ak), merged 11 Nov 2026)
 
 RealGraphClient.putContentInSession is an object method (no line entry): look for `async putContentInSession(` inside `const RealGraphClient = {`.
 
-__getLastBgCropResultForTest  L30237
-bakeBgCropFromOriginal  L30412
-bgCropUntouched  L30395
-blobIsJpeg  L30204
-canvasToBlob  L30232
-commitGalleryPhoto  L31022
-decodeFullResOriented  L30213
-describeGraphCall  L7802
-draftRecropSource  L33035
-ensureCoinPhotoThumb  L6371
-ensureStoredThumbs  L32141
-fetchCoinPhotoThumbBlob  L6355
-galleryTypeTrimOnly  L30909
-initBgCrop  L30632
-initPhotoAdjuster  L30032
-loadCropSourceBlob  L32321
-openBgCrop  L30354
-openPhotoAdjust  L29765
-paintStoredThumbWhenReady  L34173
-refreshBgCropSource  L30326
-resetBgCropBox  L30342
-runCropPipeline  L30910
-showEntryInMediaViewer  L34602
-showMediaViewerAt  L34501
-smallCopyOf  L30224
-storedTileFetch  L6388
-uploadSizeText  L10336
+__getLastBgCropResultForTest  L30637
+bakeBgCropFromOriginal  L30812
+bgCropUntouched  L30795
+blobIsJpeg  L30604
+canvasToBlob  L30632
+commitGalleryPhoto  L31422
+decodeFullResOriented  L30613
+describeGraphCall  L7804
+draftRecropSource  L33520
+ensureCoinPhotoThumb  L6373
+ensureStoredThumbs  L32626
+fetchCoinPhotoThumbBlob  L6357
+galleryTypeTrimOnly  L31309
+initBgCrop  L31032
+initPhotoAdjuster  L30432
+loadCropSourceBlob  L32806
+openBgCrop  L30754
+openPhotoAdjust  L30165
+paintStoredThumbWhenReady  L34658
+refreshBgCropSource  L30726
+resetBgCropBox  L30742
+runCropPipeline  L31310
+showEntryInMediaViewer  L35087
+showMediaViewerAt  L34986
+smallCopyOf  L30624
+storedTileFetch  L6390
+uploadSizeText  L10338
 
 ## Crop-screen basics ((bs) Build 3, merged 14 Nov 2026)
 
-roundCropAngle  L29720
-snapCropAngle  L29737
-steppedCropAngle  L29731
-steppedCropZoom  L29744
-cropAngleText  L29726
-blockCropLongPress  L29750
-bgCropFitBounds  L30272
-layoutBgCropStage  L30292
-bgCropHandOffRect  L30453
-nudgeBgCropBox  L30604
-renderBgCrop  L30554
-clampBgBox  L30624
-bgCropViewSize  L30469
-clampBgCropPan  L30470
-resetBgCropView  L30475
-rememberBgCropViewCentre  L30481
-setBgCropView  L30490
-bgCropHandlePoint  L30512
-bgCropZoomStep  L30518
-showBgCropRect  L30530
-photoAdjustZoomToPos  L29878
-photoAdjustPosToZoom  L29882
-syncPhotoAdjustZoomSlider  L29885
-placePhotoAdjustZoomTick  L29893
-setPhotoAdjustZoom  L29904
-clampPhotoAdjustOffsets  L29926
-quickRotatePhotoAdjust  L29952
-photoAdjustOutputSize  L29969
-bakePhotoAdjustFromSource  L29979
-bakePhotoAdjustFromOriginal  L30005
-__getLastPhotoAdjustResultForTest  L29974
-startCropFromUpload  L32390
-showWriteGuard  L13886
+roundCropAngle  L30120
+snapCropAngle  L30137
+steppedCropAngle  L30131
+steppedCropZoom  L30144
+cropAngleText  L30126
+blockCropLongPress  L30150
+bgCropFitBounds  L30672
+layoutBgCropStage  L30692
+bgCropHandOffRect  L30853
+nudgeBgCropBox  L31004
+renderBgCrop  L30954
+clampBgBox  L31024
+bgCropViewSize  L30869
+clampBgCropPan  L30870
+resetBgCropView  L30875
+rememberBgCropViewCentre  L30881
+setBgCropView  L30890
+bgCropHandlePoint  L30912
+bgCropZoomStep  L30918
+showBgCropRect  L30930
+photoAdjustZoomToPos  L30278
+photoAdjustPosToZoom  L30282
+syncPhotoAdjustZoomSlider  L30285
+placePhotoAdjustZoomTick  L30293
+setPhotoAdjustZoom  L30304
+clampPhotoAdjustOffsets  L30326
+quickRotatePhotoAdjust  L30352
+photoAdjustOutputSize  L30369
+bakePhotoAdjustFromSource  L30379
+bakePhotoAdjustFromOriginal  L30405
+__getLastPhotoAdjustResultForTest  L30374
+startCropFromUpload  L32875
+showWriteGuard  L14097
 
 ## Data safety part 1 (review Build 3: A1, A12, A2, A16, A4, B1, and the TEST round's B-1, F-1 to F-6; branch `claude/build3-data-safety`, 15-16 Nov 2026)
 
-stagingFolderIdNumber  L14118
-readMaxReservedIdFromStaging  L14121
-newDraftToken  L14141
-draftIdInUseError  L14146
-writeNewDraftJson  L14151
-uploadCoinDraftPhotos  L37178
-uploadCoinDraftReceipt  L37219
-completeAddCoinSaveUntimed  L37285
-enterFirstSaveRetry  L37917
-firstSavePhotoOrder  L37974
-saveCoinDraftEdit  L37528
-uploadStagingEditFiles  L38431
-uploadDraftPhoto  L40439
-startSetCapture  L40517
-rejectOnAllRefusal  L27077
-performRejectStagedCoin  L27093
-writeNewRowKeyCells  L12399
-finishCoinDraftWrite  L26538
-refreshAfterCoinRowWrite  L26574
-coinDraftNotClosedText  L26587
-saveFailureReason  L7766
-saveLogHeadline  L7189
-saveLogStepLines  L7193
-saveLogText  L7197
-copySaveLog  L7204
-photoSaveFailureText  L32088
-addSetGalleryPhotosToSave  L40481
-uploadSetGalleryPhotos  L40493
-uploadSetDraftFile  L40444
-setStartFilesText  L40642
-startSetCaptureUntimed  L40523
-saveCurrentChildUntimed  L40848
-plannedPromotionMoves  L15499
-recordPromotedSetRecords  L15542
-addCoinSaveLabel  L37275
-draftNotSavedText  L32951
-showToast  L17377
+stagingFolderIdNumber  L14329
+readMaxReservedIdFromStaging  L14332
+newDraftToken  L14352
+draftIdInUseError  L14357
+writeNewDraftJson  L14362
+uploadCoinDraftPhotos  L37663
+uploadCoinDraftReceipt  L37704
+completeAddCoinSaveUntimed  L37770
+enterFirstSaveRetry  L38402
+firstSavePhotoOrder  L38459
+saveCoinDraftEdit  L38013
+uploadStagingEditFiles  L38916
+uploadDraftPhoto  L40924
+startSetCapture  L41002
+rejectOnAllRefusal  L27472
+performRejectStagedCoin  L27488
+writeNewRowKeyCells  L12443
+finishCoinDraftWrite  L26922
+refreshAfterCoinRowWrite  L26967
+coinDraftNotClosedText  L26980
+saveFailureReason  L7768
+saveLogHeadline  L7191
+saveLogStepLines  L7195
+saveLogText  L7199
+copySaveLog  L7206
+photoSaveFailureText  L32573
+addSetGalleryPhotosToSave  L40966
+uploadSetGalleryPhotos  L40978
+uploadSetDraftFile  L40929
+setStartFilesText  L41127
+startSetCaptureUntimed  L41008
+saveCurrentChildUntimed  L41333
+plannedPromotionMoves  L15859
+recordPromotedSetRecords  L15895
+addCoinSaveLabel  L37760
+draftNotSavedText  L33436
+showToast  L17733
 
 ## Consistency check (review Build 4: B7 + A19; branch `claude/build4-consistency-check`, 16 Nov 2026)
 
-consistencyReadClient  L7252
-consistencyReadTableRows  L7284
-gatherConsistencyData  L7309
-compareConsistency  L7362
-consistencySectionCount  L7572
-consistencyResultLines  L7579
-consistencyResultText  L7608
-renderConsistencyCheck  L7612
-runConsistencyCheck  L7631
-copyConsistencyResult  L7669
+consistencyReadClient  L7254
+consistencyReadTableRows  L7286
+gatherConsistencyData  L7311
+compareConsistency  L7364
+consistencySectionCount  L7574
+consistencyResultLines  L7581
+consistencyResultText  L7610
+renderConsistencyCheck  L7614
+runConsistencyCheck  L7633
+copyConsistencyResult  L7671
+
+## Promote / photo save (review Build 5: A5, B3, A3, B4, A18, A14, N1, (bv); branch `claude/build5-promote-photo-save`, 21 Nov 2026)
+Write-up: docs/ref/ADD_COIN_WRITE.md "Build 5 of the November 2026 review".
+mintRecordIdFromColumn  L13095
+claimRecordRow  L13179
+patchRecordRow  L13210
+writePhotoRow  L13314
+writePhotoRowsBatch  L13335
+withPhotoSaveScope  L13364
+readPhotosTableForWrite  L13369
+checkPhotoRowAt  L13404
+notePhotoRowInRead  L13414
+writeOnePhotoRow  L13429
+writePhotoLabelInStep  L13522
+detachPhotoRowWhere  L13557
+moveFileWithoutOverwrite  L15066
+syncSkipLookSwitch  L15055
+runPromotionFilesOnce  L15124
+finishPromotionFiles  L15138
+movePromotedCoinFiles  L15167
+movePromotedSetFiles  L15882
+recordPhotoRowsInto  L15200
+promotionUnfinishedRowText  L15172
+promotionUnfinishedText  L15180
+coinPromotionUnfinished  L15282
+setPromotionUnfinished  L15285
+finishCoinDraftWrite  L26922
+markCoinDraftAlreadyPromotedUntimedInStep  L27018
+uploadGalleryPhotoFiles  L31440
+coinPhotoAdoptable  L31429
+writeGalleryPhotoRow  L31534
+galleryPhotoRowItem  L31546
+noteGalleryPhotoRowWritten  L31553
+savePendingPhotos  L32447
+savePhotosAndLabels  L32532
+commitReceiptCaptureInStep  L29410
