@@ -22,7 +22,7 @@
 //   L  Reject dialog names the kept files; Reject removes the whole folder
 //   M  promotion moves only the listed files; kept ones stay in Staging
 
-const { defineSuite } = require("./harness");
+const { defineSuite, keepFramesComing } = require("./harness");
 
 const CATALOG = [
   { denom: "5C", year: 1938, mint: "D", variety: "", description: "Buffalo Nickel",
@@ -55,6 +55,10 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
   // Local wrapper: condition first, label second (check() takes the label first).
   const ok = (cond, label) => check(label, !!cond);
   const page = await openApp(PHONE);
+  // Build 4 gate (21 Nov 2026): the recrop step's wait ran out under parallel
+  // load (check F; 19.6 s against 9.7 s). Encodes run in idle time, which a
+  // busy machine starves; keep frames coming, as Build 2 did for the crop suites.
+  await keepFramesComing(page);
 
   await page.evaluate(() => {
     window.__setup = async () => {
@@ -84,7 +88,11 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
         return await new Promise(r => c.toBlob(r, "image/jpeg", 0.9));
       },
       async file(color) { return new File([await this.jpeg(color)], "pick.jpg", { type: "image/jpeg" }); },
-      async waitFor(fn, ms) { const end = Date.now() + (ms || 10000); /* 10 s ceiling on the condition (was 4 s, which ran out once under parallel load); a passing wait returns at once */ while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
+      // Every wait is on its condition and returns the moment it holds; the
+      // ceiling (60 s) only stops a real hang (Build 4 gate, 21 Nov 2026: 10 s
+      // ran out under parallel load; before that 4 s had).
+      async waitFor(fn, ms) { const end = Date.now() + (ms || 60000); while (Date.now() < end) { if (fn()) return true; await sleep(40); } return !!fn(); },
+      async waitForAsync(fn, ms) { const end = Date.now() + (ms || 60000); while (Date.now() < end) { if (await fn()) return true; await sleep(40); } return !!(await fn()); },
       open(id) { const o = document.getElementById(id); return !!o && !o.classList.contains("hidden"); },
       pick(input, file) {
         const dt = new DataTransfer(); dt.items.add(file);
@@ -98,13 +106,13 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
         document.getElementById("bgCropUseBtn").click();
         // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
         // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
-        await this.waitFor(() => !this.open("bgCropOverlay"), 10000);
+        await this.waitFor(() => !this.open("bgCropOverlay"));
         if (this.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
         // The entry is placed in the same task that hides the last overlay (the pipeline's
         // onComplete closes the overlay, then hands the entry on). A Replace puts a new blob
         // in place of an old one, so the count does not grow: that answer is "false" at
         // once, not after a timed wait for a count that never comes.
-        await this.waitFor(() => !this.open("bgCropOverlay") && !this.open("photoAdjustOverlay"), 10000);
+        await this.waitFor(() => !this.open("bgCropOverlay") && !this.open("photoAdjustOverlay"));
         return this.newCount() > countBefore;
       },
       newCount() { return galleryFor(ADDCOIN_GALLERY_ID).filter(e => e.blob && !e.stagingStored).length; },
@@ -178,7 +186,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       await beginCoinDraftEdit(id);
       const body = document.getElementById("addCoinPhotosBody");
       if (body.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
-      await __ph.sleep(80);
+      await __ph.waitFor(() => !!__ph.slot(/Obverse &/, 0));
     };
     const clickGuard = (label) => {
       const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === label);
@@ -205,7 +213,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       if (__ph.open("bgCropOverlay")) document.getElementById("bgCropUseBtn").click();
       // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
       // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
-      await __ph.waitFor(() => !__ph.open("bgCropOverlay"), 10000);
+      await __ph.waitFor(() => !__ph.open("bgCropOverlay"));
       if (__ph.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await __ph.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse") !== was);
     };
@@ -220,7 +228,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       document.getElementById("bgCropUseBtn").click();
       // Stage 2 (the circle adjuster, flip sources only) opens in the same task that hides the
       // crop overlay, so wait for the overlay to go, then look. No timed wait for something that may never open.
-      await __ph.waitFor(() => !__ph.open("bgCropOverlay"), 10000);
+      await __ph.waitFor(() => !__ph.open("bgCropOverlay"));
       if (__ph.open("photoAdjustOverlay")) document.getElementById("photoAdjustUseBtn").click();
       return await __ph.waitFor(() => galleryFor(ADDCOIN_GALLERY_ID).find(e => e.type === "obverse") !== was);
     };
@@ -338,7 +346,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       out.hTitle = (document.getElementById("writeGuardTitle") || {}).textContent || "";
       out.hBody = guardText();
       clickGuard("Put it back");
-      await __ph.sleep(80);
+      await __ph.waitFor(() => !__ph.open("writeGuardOverlay") && !!__ph.slot(/Obverse &/, 0));
       out.hRestored = obvEntry() === original && original.stagingStored === true;
       out.hShown = !!(__ph.slot(/Obverse &/, 0) && __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]'));
       await __saveEdit();
@@ -352,7 +360,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       await openEdit(mock, Object.assign({}, base, { photos: obvPair }), obvFiles);
       await __ph.slotPick("obverse", "#33f");
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
-      clickGuard("Put it back"); await __ph.sleep(80);
+      clickGuard("Put it back"); await __ph.waitFor(() => !__ph.open("writeGuardOverlay") && !!__ph.slot(/Obverse &/, 0));
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
       out.h2Body = guardText();
       clickGuard("Remove");
@@ -371,7 +379,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       out.h3b = await recrop();
       out.h3c = await replaceObv("#f93");
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
-      clickGuard("Put it back"); await __ph.sleep(80);
+      clickGuard("Put it back"); await __ph.waitFor(() => !__ph.open("writeGuardOverlay") && !!__ph.slot(/Obverse &/, 0));
       out.h3Restored = obvEntry() === original;
       await __saveEdit();
       out.h3 = { listed: await listed(mock), folder: await jpgs(mock) };
@@ -388,10 +396,10 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       const blob = await __ph.jpeg("#c3c");
       saveDraftCropFromUpload(ADDCOIN_GALLERY_ID, "obverse", src,
         { type: "obverse", blob, url: URL.createObjectURL(blob), rawUrl: null, rawFilename: null, caption: "", filename: "x.jpg" }, () => {});
-      renderAddCoinPhotos(); await __ph.sleep(60);
+      renderAddCoinPhotos(); await __ph.waitFor(() => !!__ph.slot(/Obverse &/, 0));
       out.h4IsReplace = !!(obvEntry().stagingReplacedEntry === original);
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
-      clickGuard("Put it back"); await __ph.sleep(80);
+      clickGuard("Put it back"); await __ph.waitFor(() => !__ph.open("writeGuardOverlay") && !!__ph.slot(/Obverse &/, 0));
       out.h4Restored = obvEntry() === original;
       await __saveEdit();
       out.h4 = { listed: await listed(mock), folder: await jpgs(mock) };
@@ -468,7 +476,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       rejectStagedCoin(id);
       out.lBody = guardText();
       clickGuard("Reject");
-      await __ph.waitFor(() => false, 300);
+      await __ph.waitForAsync(async () => (await mock.listChildren(folder)).length === 0);
       out.lGone = (await mock.listChildren(folder)).length === 0 && !(await mock.getItemMeta(__draftPath(id)));
       __teardown();
     }
@@ -563,7 +571,7 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       await beginCoinDraftEdit(id);
       const b = document.getElementById("addCoinPhotosBody");
       if (b.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
-      await __ph.sleep(80);
+      await __ph.waitFor(() => !!__ph.slot(/Obverse &/, 0));
     };
     const clickGuard = (label) => { const b = [...document.querySelectorAll("#writeGuardBtns button")].find(x => x.textContent.trim() === label); if (b) b.click(); return !!b; };
     const jpgs = async (mock) => (await mock.listChildren(folder)).filter(n => /\.jpg$/.test(n)).sort();
@@ -658,11 +666,11 @@ module.exports = defineSuite("staging-replace-keeps-old", async ({ openApp, chec
       await beginCoinDraftEdit(id);
       const b = document.getElementById("addCoinPhotosBody");
       if (b.classList.contains("hidden")) document.getElementById("addCoinPhotosHeader").click();
-      await __ph.sleep(100);
+      await __ph.waitFor(() => !!__ph.slot(/Obverse &/, 0));
       const log = spy(mock, {});
       await __ph.slotPick("obverse", "#f93");
       __ph.slot(/Obverse &/, 0).querySelector('[data-act="remove"]').click();
-      clickGuard("Put it back"); await __ph.sleep(80);
+      clickGuard("Put it back"); await __ph.waitFor(() => !__ph.open("writeGuardOverlay") && !!__ph.slot(/Obverse &/, 0));
       await __saveEdit();
       out.n4 = { puts: log.puts.filter(n => /\.jpg$/.test(n)), dels: log.dels, folderSame: JSON.stringify(await jpgs(mock)) === JSON.stringify(after1),
         photosSame: JSON.stringify((await mock.getJson(__draftPath(id))).photos) === JSON.stringify(s1.photos) };
