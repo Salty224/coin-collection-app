@@ -40,6 +40,9 @@
 //       run with findings changes no Docket count; a 200-character file
 //       name does not make the page scroll sideways at 384 px
 //   K13 3,000 files and 1,500 rows compare in under 1 s
+//   K14 (F-1, Ray's TEST of Build 133) while it runs, Run is disabled and the
+//       app's spinning coin (.btn-spin-disc) shows beside it; the result
+//       replaces it when done
 
 const { defineSuite } = require("./harness");
 
@@ -455,6 +458,40 @@ module.exports = defineSuite("build4-consistency-check", async ({ check, selfChe
   ok("K12 a run with findings changes no Docket count or the fob, and redraws neither: " + JSON.stringify(K12.before) + " -> " + JSON.stringify(K12.after) + " redraws " + K12.redraws,
     K12.settled && JSON.stringify(K12.before) === JSON.stringify(K12.after) && K12.redraws === 0);
   ok("K12 a 200-character file name does not scroll the page sideways at 384 px", K12.noSideScroll);
+
+  // ---------- K14 (F-1, Ray's TEST of Build 133): a sign that it is running ----------
+  const K14 = await page.evaluate(async () => {
+    let release;
+    const gate = new Promise(r => { release = r; });
+    const mock = window.__b4.make(window.__b4.fixture());
+    const list = mock.listChildren;
+    mock.listChildren = async path => { if (path === writePaths().coinReceipts) await gate; return list.call(mock, path); };
+    __resetConsistencyCheckForTest();
+    __setGraphClientForTest(mock);
+    navigate("needsdbcoins");
+    const body = document.getElementById("docketCheckBody");
+    if (body.classList.contains("hidden")) document.getElementById("docketCheckHeader").click();
+    const btn = document.getElementById("docketCheckRunBtn");
+    const spin = document.getElementById("docketCheckRunning");
+    const shown = el => !!el && el.style.display !== "none" && el.getBoundingClientRect().width > 0;
+    btn.click();
+    await new Promise(r => setTimeout(r, 0));
+    const disc = spin.querySelector(".btn-spin-disc");
+    const during = { disabled: btn.disabled, label: btn.textContent, spinner: shown(spin),
+      spinning: !!disc && getComputedStyle(disc).animationName === "splashSpin" && disc.textContent === "🪙",
+      text: spin.textContent, result: document.getElementById("docketCheckResult").textContent };
+    release();
+    for (let i = 0; i < 200 && !__getConsistencyResultForTest(); i++) await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, 0));
+    const after = { disabled: btn.disabled, label: btn.textContent, spinner: shown(spin),
+      result: /No problems found\./.test(document.getElementById("docketCheckResult").textContent) };
+    return { during, after };
+  });
+  ok("K14 F-1 while the check runs: Run is disabled ('Checking…') and the app's spinning coin shows beside it; no old result: " + JSON.stringify(K14.during),
+    K14.during.disabled === true && K14.during.label === "Checking…" && K14.during.spinner && K14.during.spinning &&
+    /Reading OneDrive and the workbook/.test(K14.during.text) && K14.during.result === "");
+  ok("K14 F-1 when it is done: the result replaces the spinner and Run is back: " + JSON.stringify(K14.after),
+    K14.after.disabled === false && K14.after.label === "Run it again" && K14.after.spinner === false && K14.after.result);
 
   // ---------- K13: size ----------
   const K13 = await page.evaluate(() => {

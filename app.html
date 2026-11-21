@@ -216,7 +216,10 @@
   #docketCheckAccordion { margin-top: 28px; }
   #docketCheckAccordion + #docketAboutAccordion { margin-top: 14px; }
   .docket-check-intro, .docket-check-message { font-size: 12px; color: var(--text-muted); margin: 0 0 8px; }
-  .docket-check-btns { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .docket-check-btns { margin: 0 0 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* (F-1, Build 4 TEST) the spinning coin while a check runs: the app's own
+     .btn-spin-disc (splashSpin), no new image. */
+  .docket-check-running { font-size: 12px; color: var(--text-muted); }
   .docket-check-result { font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
   .docket-check-line { margin: 2px 0 0; }
   .docket-check-head, .docket-check-foot, .docket-check-info, .docket-check-none, .docket-check-more { color: var(--text-muted); }
@@ -4770,6 +4773,7 @@
           <div class="accordion-body hidden" id="docketCheckBody">
             <p class="docket-check-intro">Reads the photo and receipt folders, the Photos, Receipts and All tabs and Staging, and lists anything that doesn't line up. Changes nothing.</p>
             <p class="docket-check-btns"><button type="button" class="load-report-check" id="docketCheckRunBtn">Run the check</button>
+              <span class="docket-check-running" id="docketCheckRunning" role="status" style="display:none;"><span class="btn-spin-disc" aria-hidden="true">🪙</span>Reading OneDrive and the workbook…</span>
               <button type="button" class="load-report-check" id="docketCheckCopyBtn" style="display:none;">Copy the result</button></p>
             <p class="docket-check-message" id="docketCheckMessage" style="display:none;"></p>
             <div class="docket-check-result" id="docketCheckResult"></div>
@@ -7610,10 +7614,15 @@
     const box = document.getElementById("docketCheckResult");
     const copy = document.getElementById("docketCheckCopyBtn");
     const note = document.getElementById("docketCheckMessage");
-    if (btn) { btn.disabled = !!consistencyCheckInFlight; btn.textContent = consistencyCheckInFlight ? "Checking…" : (consistencyResult ? "Run it again" : "Run the check"); }
+    const running = document.getElementById("docketCheckRunning");
+    const busy = !!consistencyCheckInFlight;
+    if (btn) { btn.disabled = busy; btn.textContent = busy ? "Checking…" : (consistencyResult ? "Run it again" : "Run the check"); }
+    // (F-1, Build 4 TEST) A spinning coin beside the button while it runs;
+    // the result replaces it when done.
+    if (running) running.style.display = busy ? "" : "none";
     if (note) { note.textContent = message || ""; note.style.display = message ? "" : "none"; }
     if (!box) return;
-    if (!consistencyResult) { box.innerHTML = ""; if (copy) copy.style.display = "none"; return; }
+    if (busy || !consistencyResult) { box.innerHTML = ""; if (copy) copy.style.display = "none"; return; }
     box.innerHTML = consistencyResultLines(consistencyResult, consistencyScreenCap).map(l =>
       '<p class="docket-check-line docket-check-' + l.kind + '">' + escapeHtmlText(l.text) + "</p>").join("");
     if (copy) copy.style.display = "";
@@ -7627,7 +7636,6 @@
       const counter = { reads: 0 };
       const startedAt = Date.now();
       const lastSaveAtStart = recentSaveTimings[0] || null;
-      renderConsistencyCheck("");
       let data;
       if (isOfflineNow()) {
         const off = { ok: false, reason: "offline" };
@@ -7642,6 +7650,10 @@
         saveRan: !!activeSaveTiming || (recentSaveTimings[0] || null) !== lastSaveAtStart
       };
     })();
+    // (F-1, Build 4 TEST) Drawn here, once the in-flight flag is set (a
+    // draw inside the block above ran before it was, so the button never
+    // showed the check running): Run is disabled and the spinning coin shows.
+    renderConsistencyCheck("");
     try {
       consistencyResult = await consistencyCheckInFlight;
     } catch (e) {
